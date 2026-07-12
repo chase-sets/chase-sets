@@ -1,5 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { ROLLUP_MINIMUM_TRADE_SAMPLE } from "./rollup-policy";
+import { MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE } from "../../market-trades/domain/stat-hygiene-policy";
 
 /**
  * The market-rollups query API: the serving contract for
@@ -7,6 +7,12 @@ import { ROLLUP_MINIMUM_TRADE_SAMPLE } from "./rollup-policy";
  * Market-State Snapshot, and the Product Market Aggregate. Minimum-sample
  * gating is enforced exactly once, here -- not per-consumer -- so every
  * caller sees identical suppression behavior.
+ *
+ * `minimumTradeSample` is resolved once per request by `../api/runtime.ts`
+ * through pricing's mounted `PolicyRuntime` (the m110 stat-hygiene policy)
+ * and passed in below -- this module stays policy-machinery-free and pure,
+ * defaulting to the compiled launch value only for direct/test callers that
+ * do not thread a live resolution through.
  */
 
 export type RollupGranularity = "daily" | "weekly" | "monthly";
@@ -19,7 +25,7 @@ export type ProductRollupSeriesPoint = Readonly<{
   minPriceAmount: string | null;
   maxPriceAmount: string | null;
   /**
-   * Gated per ROLLUP_MINIMUM_TRADE_SAMPLE. At weekly/monthly granularity
+   * Gated per the resolved stat-hygiene policy's minimumTradeSample. At weekly/monthly granularity
    * this is a trade-count-weighted mean of the contributing daily medians --
    * a documented approximation, not a true recomputed percentile over the
    * wider window (exact multi-day percentiles would need per-trade storage
@@ -46,17 +52,23 @@ export type GetProductRollupSeriesParams = Readonly<{
 export async function getProductRollupSeries(
   db: PgQueryable,
   params: GetProductRollupSeriesParams,
+  minimumTradeSample: number = MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE.minimumTradeSample,
 ): Promise<readonly ProductRollupSeriesPoint[]> {
   const granularity = params.granularity ?? "daily";
   if (granularity === "daily") {
-    return getDailyProductRollupSeries(db, params);
+    return getDailyProductRollupSeries(db, params, minimumTradeSample);
   }
-  return getBucketedProductRollupSeries(db, { ...params, bucket: granularity === "weekly" ? "week" : "month" });
+  return getBucketedProductRollupSeries(
+    db,
+    { ...params, bucket: granularity === "weekly" ? "week" : "month" },
+    minimumTradeSample,
+  );
 }
 
 async function getDailyProductRollupSeries(
   db: PgQueryable,
   params: Pick<GetProductRollupSeriesParams, "catalogItemId" | "productId" | "from" | "to">,
+  minimumTradeSample: number,
 ): Promise<readonly ProductRollupSeriesPoint[]> {
   const result = await db.query<{
     day: string;
@@ -84,7 +96,7 @@ async function getDailyProductRollupSeries(
        AND product_id = $2
        AND day BETWEEN $3::date AND $4::date
      ORDER BY day ASC`,
-    [params.catalogItemId, params.productId, params.from, params.to, ROLLUP_MINIMUM_TRADE_SAMPLE],
+    [params.catalogItemId, params.productId, params.from, params.to, minimumTradeSample],
   );
 
   return result.rows.map(toRollupSeriesPoint);
@@ -94,6 +106,7 @@ async function getBucketedProductRollupSeries(
   db: PgQueryable,
   params: Pick<GetProductRollupSeriesParams, "catalogItemId" | "productId" | "from" | "to"> &
     Readonly<{ bucket: "week" | "month" }>,
+  minimumTradeSample: number,
 ): Promise<readonly ProductRollupSeriesPoint[]> {
   const result = await db.query<{
     day: string;
@@ -131,7 +144,7 @@ async function getBucketedProductRollupSeries(
        AND day BETWEEN $3::date AND $4::date
      GROUP BY date_trunc($5, day)
      ORDER BY date_trunc($5, day) ASC`,
-    [params.catalogItemId, params.productId, params.from, params.to, params.bucket, ROLLUP_MINIMUM_TRADE_SAMPLE],
+    [params.catalogItemId, params.productId, params.from, params.to, params.bucket, minimumTradeSample],
   );
 
   return result.rows.map(toRollupSeriesPoint);

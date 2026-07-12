@@ -6,6 +6,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createPriceSignalRuntime } from "../../features/price-signals/api/runtime";
 import { createPricingRecommendationRuntime } from "../../features/recommendations/api/runtime";
 import { createMarketRollupsRuntime } from "../../features/market-rollups/api/runtime";
@@ -18,6 +19,15 @@ export type PricingServices = Readonly<{
   marketRollups: ReturnType<typeof createMarketRollupsRuntime>;
   repricingPolicies: ReturnType<typeof createRepricingPolicyRuntime>;
   publicMarketPages: ReturnType<typeof createPublicMarketPagesRuntime>;
+  /**
+   * The shared platform-policy runtime, mounted for this context's
+   * `definePolicy` documents (the market-stat-hygiene and market-analytics-
+   * display policies). Exposed on services so the `platform-api`
+   * composition root can register it as the policy console's write port for
+   * pricing's policies (see `../../server.ts` and
+   * `deployables/platform-api/src/app.ts`).
+   */
+  policies: PolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -30,15 +40,16 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const policies = createPolicyRuntime({ eventStore, db });
   const priceSignals = createPriceSignalRuntime({ db });
   const recommendations = createPricingRecommendationRuntime({
     eventStore,
     checkpointStore,
     db,
   });
-  const marketRollups = createMarketRollupsRuntime({ db });
+  const marketRollups = createMarketRollupsRuntime({ db, policies });
   const repricingPolicies = createRepricingPolicyRuntime({ eventStore, db });
-  const publicMarketPages = createPublicMarketPagesRuntime({ db });
+  const publicMarketPages = createPublicMarketPagesRuntime({ db, policies });
 
   return {
     priceSignals,
@@ -46,7 +57,13 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
     marketRollups,
     repricingPolicies,
     publicMarketPages,
-    projectors: [...priceSignals.projectors, ...recommendations.projectors, ...repricingPolicies.projectors],
+    policies,
+    projectors: [
+      ...priceSignals.projectors,
+      ...recommendations.projectors,
+      ...repricingPolicies.projectors,
+      ...policies.projectors,
+    ],
     pool,
     db,
   };

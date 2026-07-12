@@ -58,6 +58,8 @@ import {
   getPlatformKpiSummary,
   getPlatformLiquiditySummary,
   getTopCatalogItemsByGmv,
+  marketAnalyticsDisplayPolicy,
+  marketStatHygienePolicy,
 } from "@chase-sets/pricing/server";
 import {
   createSettlementBalanceCreditResolver,
@@ -241,6 +243,19 @@ export function createPlatformApiHost(
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.marketplace as { policies?: PolicyConsoleWritePort } | undefined,
+      ),
+    });
+  }
+  if (pricingPool) {
+    policyConsoleCrossContextSources.push({
+      contextName: "pricing",
+      db: pricingPool,
+      definitions: [
+        marketStatHygienePolicy,
+        marketAnalyticsDisplayPolicy,
+      ] as unknown as readonly PolicyDefinition<JsonValue>[],
+      write: lazyPolicyConsoleWritePort(
+        () => runtime?.services.pricing as { policies?: PolicyConsoleWritePort } | undefined,
       ),
     });
   }

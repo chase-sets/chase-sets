@@ -5,19 +5,23 @@ import type { JsonValue } from "@chase-sets/primitives/json";
  * The Trades Tape's stat-hygiene policy: the runtime-configurable dials that
  * keep aggregate market stats manipulation-resistant and honest about small
  * samples -- minimum trade count before a median displays, the short/long
- * lookback windows, and the outlier-trimming percentile applied to each tail
- * before computing aggregate stats. Declared here, on the m110 platform-
- * policy machinery, with a compiled fallback identical to the values
- * `market-rollups/read-model/rollup-policy.ts` has hard-coded (that file's
- * own header comment names this exact seam).
+ * lookback windows, the outlier-trimming percentile applied to each tail
+ * before computing aggregate stats, and the daily closer job's trailing
+ * re-derive window. Declared here, on the m110 platform-policy machinery,
+ * with a compiled fallback identical to this milestone's launch behavior.
  *
- * DEFERRED, not this slice: wiring `rollup-maintenance.ts` / `queries.ts`
- * call sites to resolve through this policy instead of the hard-coded
- * constants. This slice lands only the declaration (this file) plus the
- * outlier-trimming dial, which is new -- no prior slice had a call site for
- * it yet. The m110 policy-consolidation slice (deliberately LAST in the
- * market-analytics epic's sequencing) is where every pricing constant this
- * shape migrates onto live resolution.
+ * CONSUMED: every `rollup-maintenance.ts` / `queries.ts` call site resolves
+ * this policy once per closer pass / request through pricing's own mounted
+ * `PolicyRuntime` (see `support/runtime-support/services.ts`) and threads the
+ * resolved value down as a plain parameter -- the read-model functions
+ * themselves stay policy-machinery-free and pure. This is the single source
+ * for these dials; no compiled constant duplicates them elsewhere.
+ *
+ * STILL DEFERRED: `outlierTrimPercentile` has no call site -- there is no
+ * flagged-outlier input to trim yet (that lands with a future tape-integrity
+ * refinement). Declared and bounds-validated here so a revision is ready the
+ * day a call site exists, per the m110 convention of declaring a dial before
+ * its consumption when the two would otherwise block each other.
  */
 
 export type MarketStatHygienePolicyValue = Readonly<{
@@ -30,6 +34,14 @@ export type MarketStatHygienePolicyValue = Readonly<{
    * window (e.g. 5 trims below p5 and above p95). 0 disables trimming.
    */
   outlierTrimPercentile: number;
+  /**
+   * Trailing window (inclusive of today) the daily closer job re-derives on
+   * every pass, so a late refund/cancellation exclusion on a recently-closed
+   * day is reflected without a manual backfill. See
+   * `market-rollups/read-model/rollup-maintenance.ts`'s module header for why
+   * this is a re-derive-not-patch window.
+   */
+  rollupCloserTrailingWindowDays: number;
 }>;
 
 /** The rollup slice's existing hard-coded defaults, carried forward byte-identical as the compiled fallback. */
@@ -37,6 +49,7 @@ export const MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE: MarketStatHygienePolicyVal
   minimumTradeSample: 3,
   lookbackDays: { short: 30, long: 90 },
   outlierTrimPercentile: 5,
+  rollupCloserTrailingWindowDays: 3,
 };
 
 const MIN_TRADE_SAMPLE = 1;
@@ -45,6 +58,8 @@ const MIN_LOOKBACK_DAYS = 1;
 const MAX_LOOKBACK_DAYS = 365;
 const MIN_TRIM_PERCENTILE = 0;
 const MAX_TRIM_PERCENTILE = 25;
+const MIN_CLOSER_TRAILING_WINDOW_DAYS = 1;
+const MAX_CLOSER_TRAILING_WINDOW_DAYS = 30;
 
 function normalizeBoundedInteger(value: unknown, fieldName: string, min: number, max: number): number {
   const numeric = Number(value);
@@ -89,10 +104,18 @@ export function decodeMarketStatHygienePolicyValue(raw: JsonValue): MarketStatHy
     MAX_TRIM_PERCENTILE,
   );
 
+  const rollupCloserTrailingWindowDays = normalizeBoundedInteger(
+    record.rollupCloserTrailingWindowDays,
+    "Rollup closer trailing window days",
+    MIN_CLOSER_TRAILING_WINDOW_DAYS,
+    MAX_CLOSER_TRAILING_WINDOW_DAYS,
+  );
+
   return {
     minimumTradeSample,
     lookbackDays: { short, long },
     outlierTrimPercentile,
+    rollupCloserTrailingWindowDays,
   };
 }
 
@@ -100,7 +123,7 @@ export const marketStatHygienePolicy: PolicyDefinition<MarketStatHygienePolicyVa
   policyKey: "pricing.market-stat-hygiene",
   contextName: "pricing",
   schemaSummary:
-    "{ minimumTradeSample: integer 1-50, lookbackDays: { short: integer 1-365, long: integer 1-365 (>= short) }, outlierTrimPercentile: integer 0-25 (each tail) }",
+    "{ minimumTradeSample: integer 1-50, lookbackDays: { short: integer 1-365, long: integer 1-365 (>= short) }, outlierTrimPercentile: integer 0-25 (each tail), rollupCloserTrailingWindowDays: integer 1-30 }",
   defaultValue: MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE,
   decodeValue: decodeMarketStatHygienePolicyValue,
 });

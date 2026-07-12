@@ -2,10 +2,9 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import { createPricingProductMarketStatsPatch } from "../../../support/realtime-support/patches";
 import {
-  ROLLUP_CLOSER_TRAILING_WINDOW_DAYS,
-  ROLLUP_CONVENIENCE_LOOKBACK_DAYS,
-  ROLLUP_MINIMUM_TRADE_SAMPLE,
-} from "./rollup-policy";
+  MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE,
+  type MarketStatHygienePolicyValue,
+} from "../../market-trades/domain/stat-hygiene-policy";
 import { getProductMarketStatsSnapshot } from "./queries";
 
 /**
@@ -64,12 +63,22 @@ export type DailyRollupCloserResult = Readonly<{
 
 const DEFAULT_CLOSER_LIMIT = 500;
 
+/**
+ * Every stat-hygiene dial this closer pass depends on -- the trailing
+ * re-derive window and the 30/90-day convenience lookback windows fed to
+ * `recomputeProductMarketAggregate` -- is resolved ONCE per pass by the
+ * caller (`../api/runtime.ts`) and threaded through as `policy`, rather than
+ * re-resolved per (product, day) tuple: a scheduled pass over hundreds of
+ * tuples should see one consistent policy snapshot, not a value that could
+ * change mid-pass if a revision lands while it runs.
+ */
 export async function runDailyRollupCloser(
   db: PgQueryable,
   params: DailyRollupCloserParams = {},
+  policy: MarketStatHygienePolicyValue = MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE,
 ): Promise<DailyRollupCloserResult> {
   const now = params.now ? new Date(params.now) : new Date();
-  const trailingWindowDays = params.trailingWindowDays ?? ROLLUP_CLOSER_TRAILING_WINDOW_DAYS;
+  const trailingWindowDays = params.trailingWindowDays ?? policy.rollupCloserTrailingWindowDays;
   const limit = params.limit ?? DEFAULT_CLOSER_LIMIT;
   const windowStart = new Date(now.getTime() - trailingWindowDays * 24 * 60 * 60 * 1000).toISOString();
   const today = utcDateString(now);
@@ -93,7 +102,7 @@ export async function runDailyRollupCloser(
   const productTuples = await listActiveOrTradedProductTuples(db, { limit });
   for (const tuple of productTuples) {
     await recomputeMarketStateSnapshot(db, { ...tuple, day: today });
-    await recomputeProductMarketAggregate(db, tuple, now);
+    await recomputeProductMarketAggregate(db, tuple, now, policy);
 
     if (advancedTuples.has(tupleKey(tuple))) {
       await emitProductMarketStatsPatch(db, tuple, now);
@@ -337,7 +346,12 @@ type TradeWindowStats = Readonly<{
   tradeCount: number;
 }>;
 
-async function queryTradeWindowStats(db: PgQueryable, params: ProductTuple, since: string): Promise<TradeWindowStats> {
+async function queryTradeWindowStats(
+  db: PgQueryable,
+  params: ProductTuple,
+  since: string,
+  minimumTradeSample: number,
+): Promise<TradeWindowStats> {
   const result = await db.query<{ median_price_amount: string | null; unit_volume: number; trade_count: number }>(
     `SELECT
        ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price_amount) FILTER (WHERE excluded = false))::numeric, 2)
@@ -353,7 +367,7 @@ async function queryTradeWindowStats(db: PgQueryable, params: ProductTuple, sinc
     // Convenience-aggregate columns are pre-gated at write time (see schema
     // header) -- this table exists specifically for cheap reads with no
     // further query-layer logic required.
-    medianPriceAmount: row.trade_count >= ROLLUP_MINIMUM_TRADE_SAMPLE ? row.median_price_amount : null,
+    medianPriceAmount: row.trade_count >= minimumTradeSample ? row.median_price_amount : null,
     unitVolume: row.unit_volume,
     tradeCount: row.trade_count,
   };
@@ -367,10 +381,11 @@ export async function recomputeProductMarketAggregate(
   db: PgQueryable,
   params: ProductTuple,
   now: Date = new Date(),
+  policy: MarketStatHygienePolicyValue = MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE,
 ): Promise<void> {
   const nowIso = now.toISOString();
-  const since30 = new Date(now.getTime() - ROLLUP_CONVENIENCE_LOOKBACK_DAYS.short * 24 * 60 * 60 * 1000).toISOString();
-  const since90 = new Date(now.getTime() - ROLLUP_CONVENIENCE_LOOKBACK_DAYS.long * 24 * 60 * 60 * 1000).toISOString();
+  const since30 = new Date(now.getTime() - policy.lookbackDays.short * 24 * 60 * 60 * 1000).toISOString();
+  const since90 = new Date(now.getTime() - policy.lookbackDays.long * 24 * 60 * 60 * 1000).toISOString();
 
   const [lastSoldResult, window30, window90, activeListingResult] = await Promise.all([
     // `sold_at` is timestamptz -- the driver returns it as a JS Date, not a
@@ -386,8 +401,8 @@ export async function recomputeProductMarketAggregate(
        LIMIT 1`,
       [params.catalogItemId, params.productId],
     ),
-    queryTradeWindowStats(db, params, since30),
-    queryTradeWindowStats(db, params, since90),
+    queryTradeWindowStats(db, params, since30, policy.minimumTradeSample),
+    queryTradeWindowStats(db, params, since90, policy.minimumTradeSample),
     db.query<{ active_listing_quantity: number }>(
       `SELECT COALESCE(SUM(quantity_cap), 0)::integer AS active_listing_quantity
        FROM pricing_market_listing_inputs

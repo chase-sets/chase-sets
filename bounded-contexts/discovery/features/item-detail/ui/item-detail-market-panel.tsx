@@ -38,7 +38,15 @@ function dayTimestamp(day: string): number {
   return Date.parse(`${day}T00:00:00.000Z`);
 }
 
-function toChartSeries(points: readonly MarketHistorySeriesPoint[]): readonly TimeSeriesSeries[] {
+/**
+ * `showVerifiedMarkers` is pricing's market-analytics display policy toggle --
+ * an admin can turn verified-sale chart markers off platform-wide without a
+ * deploy. Defaults true (this milestone's launch behavior).
+ */
+function toChartSeries(
+  points: readonly MarketHistorySeriesPoint[],
+  showVerifiedMarkers: boolean,
+): readonly TimeSeriesSeries[] {
   const plottable = points.filter((point): point is MarketHistorySeriesPoint & { lastPriceAmount: string } =>
     Boolean(point.lastPriceAmount),
   );
@@ -60,13 +68,15 @@ function toChartSeries(points: readonly MarketHistorySeriesPoint[]): readonly Ti
           min: Number(point.minPriceAmount),
           max: Number(point.maxPriceAmount),
         })),
-      markers: plottable
-        .filter((point) => point.verifiedTradeCount > 0)
-        .map((point) => ({
-          timestamp: dayTimestamp(point.day),
-          value: Number(point.lastPriceAmount),
-          label: formatVerifiedSaleMarkerLabel(point),
-        })),
+      markers: showVerifiedMarkers
+        ? plottable
+            .filter((point) => point.verifiedTradeCount > 0)
+            .map((point) => ({
+              timestamp: dayTimestamp(point.day),
+              value: Number(point.lastPriceAmount),
+              label: formatVerifiedSaleMarkerLabel(point),
+            }))
+        : [],
     },
   ];
 }
@@ -90,10 +100,8 @@ export type ItemDetailMarketPanelProps = Readonly<{
  * (m107 policy-page tone): numbers and ranges, never "good deal" language.
  */
 export function ItemDetailMarketPanel({ catalogItemId, productId, itemTitle }: ItemDetailMarketPanelProps) {
-  const { range, setRange, series, stats, minimumSample, loading, error } = useItemDetailMarketHistory(
-    catalogItemId,
-    productId,
-  );
+  const { range, setRange, series, stats, minimumSample, showVerifiedMarkers, loading, error } =
+    useItemDetailMarketHistory(catalogItemId, productId);
 
   if (!productId) {
     return (
@@ -157,7 +165,7 @@ export function ItemDetailMarketPanel({ catalogItemId, productId, itemTitle }: I
       </StatGrid>
       <TimeSeriesChart
         label={t("discovery.features.itemDetail.ui.marketPanel.chart.label", { title: itemTitle })}
-        series={loading ? [] : toChartSeries(series)}
+        series={loading ? [] : toChartSeries(series, showVerifiedMarkers)}
         rangeSelector={rangeSelector}
         formatValue={formatChartValue}
         emptyTitle={t("discovery.features.itemDetail.ui.marketPanel.chart.empty.title")}

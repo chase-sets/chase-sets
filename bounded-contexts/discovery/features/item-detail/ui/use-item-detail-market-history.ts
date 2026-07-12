@@ -4,6 +4,7 @@ import { useFetch } from "../../../support/client-support/use-fetch";
 import { discoveryRealtimeRouteTopics } from "../../../support/realtime-support/topics";
 import {
   DEFAULT_MARKET_HISTORY_MINIMUM_SAMPLE,
+  DEFAULT_SHOW_VERIFIED_MARKERS,
   isMarketHistoryRangeKey,
   type MarketHistoryResponse,
   type MarketHistoryRangeKey,
@@ -33,6 +34,7 @@ export type UseItemDetailMarketHistoryResult = Readonly<{
   series: readonly MarketHistorySeriesPoint[];
   stats: MarketHistoryStats | null;
   minimumSample: number;
+  showVerifiedMarkers: boolean;
   loading: boolean;
   error: string | null;
 }>;
@@ -87,6 +89,7 @@ export function useItemDetailMarketHistory(
     series: data?.series ?? [],
     stats: data?.stats ?? null,
     minimumSample: data?.minimumSample ?? DEFAULT_MARKET_HISTORY_MINIMUM_SAMPLE,
+    showVerifiedMarkers: data?.showVerifiedMarkers ?? DEFAULT_SHOW_VERIFIED_MARKERS,
     loading,
     error,
   };

@@ -65,6 +65,8 @@ function createServices(): MarketRollupsServices {
         maxBidAmount: "10.00",
         spreadAmount: "3.00",
       },
+      statHygiene: { minimumTradeSample: 3 },
+      displayPolicy: { showVerifiedMarkers: true },
     })),
   };
 }

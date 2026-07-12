@@ -20,6 +20,7 @@ describe("pricing market stat-hygiene policy (#4304)", () => {
     expect(marketStatHygienePolicy.defaultValue).toEqual(MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE);
     expect(marketStatHygienePolicy.defaultValue.minimumTradeSample).toBe(3);
     expect(marketStatHygienePolicy.defaultValue.lookbackDays).toEqual({ short: 30, long: 90 });
+    expect(marketStatHygienePolicy.defaultValue.rollupCloserTrailingWindowDays).toBe(3);
   });
 
   it("resolves via the m110 mechanism to the compiled fallback when no policy document is active", async () => {
@@ -37,12 +38,14 @@ describe("pricing market stat-hygiene policy (#4304)", () => {
       minimumTradeSample: 5,
       lookbackDays: { short: 14, long: 60 },
       outlierTrimPercentile: 10,
+      rollupCloserTrailingWindowDays: 7,
     });
 
     expect(decoded).toEqual({
       minimumTradeSample: 5,
       lookbackDays: { short: 14, long: 60 },
       outlierTrimPercentile: 10,
+      rollupCloserTrailingWindowDays: 7,
     });
   });
 
@@ -52,6 +55,7 @@ describe("pricing market stat-hygiene policy (#4304)", () => {
         minimumTradeSample: 3,
         lookbackDays: { short: 90, long: 30 },
         outlierTrimPercentile: 5,
+        rollupCloserTrailingWindowDays: 3,
       }),
     ).toThrow(/at least the short lookback days/);
   });
@@ -62,7 +66,19 @@ describe("pricing market stat-hygiene policy (#4304)", () => {
         minimumTradeSample: 3,
         lookbackDays: { short: 30, long: 90 },
         outlierTrimPercentile: 40,
+        rollupCloserTrailingWindowDays: 3,
       }),
     ).toThrow(/Outlier trim percentile/);
+  });
+
+  it("rejects an out-of-range rollup closer trailing window", () => {
+    expect(() =>
+      decodeMarketStatHygienePolicyValue({
+        minimumTradeSample: 3,
+        lookbackDays: { short: 30, long: 90 },
+        outlierTrimPercentile: 5,
+        rollupCloserTrailingWindowDays: 45,
+      }),
+    ).toThrow(/Rollup closer trailing window days/);
   });
 });

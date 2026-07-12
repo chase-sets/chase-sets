@@ -105,9 +105,14 @@ export type MarketHistoryStats = Readonly<{
 /** The minimum-sample threshold below which a median is honestly reported as unavailable, not shown. */
 export const DEFAULT_MARKET_HISTORY_MINIMUM_SAMPLE = 3;
 
+/** Whether verified-sale chart markers render, before the live-resolved value arrives. */
+export const DEFAULT_SHOW_VERIFIED_MARKERS = true;
+
 export type MarketHistoryResponse = Readonly<{
   range: MarketHistoryRangeKey;
   minimumSample: number;
+  /** Pricing's market-analytics display policy toggle -- whether verified-sale chart markers should render. */
+  showVerifiedMarkers: boolean;
   series: readonly MarketHistorySeriesPoint[];
   stats: MarketHistoryStats;
 }>;

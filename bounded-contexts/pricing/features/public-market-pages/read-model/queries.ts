@@ -6,7 +6,8 @@ import {
   type ProductMarketAggregate,
   type ProductRollupSeriesPoint,
 } from "../../market-rollups/read-model/queries";
-import { PUBLIC_MARKET_PAGE_HISTORY_WINDOW_DAYS } from "../../market-rollups/read-model/rollup-policy";
+import { MARKET_ANALYTICS_DISPLAY_LAUNCH_POLICY_VALUE } from "../../market-rollups/domain/display-policy";
+import { MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE } from "../../market-trades/domain/stat-hygiene-policy";
 
 /**
  * The public market pages read layer: the SEO-facing serving
@@ -119,17 +120,23 @@ function isoDate(date: Date): string {
 /**
  * Composes the full public market page payload for one catalog item: the
  * publication-gated catalog item identity, its most-traded product's
- * trailing rollup series (PUBLIC_MARKET_PAGE_HISTORY_WINDOW_DAYS), and its
- * current stats snapshot (last-sold, 30/90-day medians, market state).
- * Returns null when the slug/id does not resolve to a published catalog
- * item (the route 404s). A resolved item with no market activity yet still
- * renders, with `productId: null` and empty series/stats -- DS chart
- * primitives already render an "insufficient data" state for that case.
+ * trailing rollup series, and its current stats snapshot (last-sold,
+ * 30/90-day medians, market state). Returns null when the slug/id does not
+ * resolve to a published catalog item (the route 404s). A resolved item with
+ * no market activity yet still renders, with `productId: null` and empty
+ * series/stats -- DS chart primitives already render an "insufficient data"
+ * state for that case.
+ *
+ * `historyWindowDays` and `minimumTradeSample` are resolved once per request
+ * by `../api/runtime.ts` through pricing's mounted `PolicyRuntime` (the
+ * m110 display and stat-hygiene policies) and passed in below -- defaulting
+ * to the compiled launch values only for direct/test callers that do not
+ * thread a live resolution through.
  */
 export async function getPublicMarketPageData(
   db: PgQueryable,
   slugOrId: string,
-  options: Readonly<{ now?: Date }> = {},
+  options: Readonly<{ now?: Date; historyWindowDays?: number; minimumTradeSample?: number }> = {},
 ): Promise<PublicMarketPageData | null> {
   const catalogItem = await getPricingCatalogItemBySlugOrId(db, slugOrId);
   if (!catalogItem) {
@@ -142,11 +149,14 @@ export async function getPublicMarketPageData(
   }
 
   const now = options.now ?? new Date();
+  const historyWindowDays =
+    options.historyWindowDays ?? MARKET_ANALYTICS_DISPLAY_LAUNCH_POLICY_VALUE.publicPageHistoryWindowDays;
+  const minimumTradeSample = options.minimumTradeSample ?? MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE.minimumTradeSample;
   const to = isoDate(now);
-  const from = isoDate(new Date(now.getTime() - PUBLIC_MARKET_PAGE_HISTORY_WINDOW_DAYS * 24 * 60 * 60 * 1000));
+  const from = isoDate(new Date(now.getTime() - historyWindowDays * 24 * 60 * 60 * 1000));
 
   const [series, stats] = await Promise.all([
-    getProductRollupSeries(db, { catalogItemId: catalogItem.catalogItemId, productId, from, to }),
+    getProductRollupSeries(db, { catalogItemId: catalogItem.catalogItemId, productId, from, to }, minimumTradeSample),
     getProductMarketStatsSnapshot(db, { catalogItemId: catalogItem.catalogItemId, productId }),
   ]);
 

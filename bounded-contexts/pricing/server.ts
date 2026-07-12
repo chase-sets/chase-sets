@@ -25,9 +25,24 @@ export type {
   GetProductRollupSeriesParams,
   MarketStateSnapshotPoint,
   ProductMarketAggregate,
-  ProductMarketStatsSnapshot,
   ProductRollupSeriesPoint,
   RollupGranularity,
 } from "./support/request-support/api-client";
 export { pricingRealtimeManifest } from "./support/realtime-support/topics";
-export { ROLLUP_MINIMUM_TRADE_SAMPLE } from "./features/market-rollups/read-model/rollup-policy";
+/**
+ * The m110 platform-policy declarations for pricing's market-analytics
+ * dials: assembled once, cross-context, by the `platform-api` composition
+ * root's policy console registry (`deployables/platform-api/src/app.ts`) so
+ * an admin can see and revise them without pricing exposing a dedicated
+ * console route of its own -- the same pattern settlement, commercial-terms,
+ * and marketplace already use.
+ */
+export {
+  marketStatHygienePolicy,
+  type MarketStatHygienePolicyValue,
+} from "./features/market-trades/domain/stat-hygiene-policy";
+export {
+  marketAnalyticsDisplayPolicy,
+  type MarketAnalyticsDisplayPolicyValue,
+} from "./features/market-rollups/domain/display-policy";
+export type { ProductMarketStatsSnapshotResponse } from "./features/market-rollups/api/runtime";
