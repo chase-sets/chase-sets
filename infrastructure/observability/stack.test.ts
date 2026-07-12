@@ -77,6 +77,13 @@ describe("observability stack contracts", () => {
     expect(readStackFile("grafana/dashboards/public-presence-waitlist.json")).toContain(
       "chase_sets_public_presence_waitlist_events_total",
     );
+    expect(readStackFile("grafana/dashboards/public-presence-waitlist.json")).toContain(
+      "Campaign funnel by channel (visit -> signup -> Discord CTA -> referral share)",
+    );
+    expect(readStackFile("grafana/dashboards/public-presence-waitlist.json")).toContain(
+      "Discord CTA click-through and referral share, last 24h",
+    );
+    expect(readStackFile("grafana/dashboards/public-presence-waitlist.json")).toContain("/campaign-analytics");
     expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain("Projection Freshness");
     expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain(
       "chase_sets_projection_freshness_evaluations_total",

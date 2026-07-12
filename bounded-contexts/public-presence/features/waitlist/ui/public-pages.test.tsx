@@ -278,4 +278,89 @@ describe("public waitlist form migration smoke", () => {
     expect(previewSection.querySelector('a[href="/order-protection"]')).not.toBeNull();
     expect(previewSection.textContent).not.toContain("Order protectionIncluded");
   });
+
+  it("shows seller cohort-quality fields on the final-CTA form by default (role defaults to both)", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const panel = document.getElementById("waitlist-form-final");
+    const form = panel?.querySelector("form");
+    if (!form) {
+      throw new Error("Expected final-CTA waitlist panel to render a form.");
+    }
+
+    expect(form.querySelectorAll('input[name="games"]').length).toBe(5);
+    expect(form.querySelector('select[name="inventorySize"]')).not.toBeNull();
+    expect(form.querySelector('input[name="hasStoreLink"]')).not.toBeNull();
+    // storeUrl only renders once hasStoreLink is checked.
+    expect(form.querySelector('input[name="storeUrl"]')).toBeNull();
+  });
+
+  it("hides seller cohort-quality fields on the final-CTA form once role is switched to buy", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const panel = document.getElementById("waitlist-form-final");
+    const form = panel?.querySelector("form");
+    if (!form) {
+      throw new Error("Expected final-CTA waitlist panel to render a form.");
+    }
+
+    fireEvent.change(form.querySelector('select[name="role"]')!, { target: { value: "buy" } });
+
+    expect(form.querySelectorAll('input[name="games"]').length).toBe(0);
+    expect(form.querySelector('input[name="hasStoreLink"]')).toBeNull();
+  });
+
+  it("reveals the store URL field only after the store-link checkbox is checked, and submits selected games", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const panel = document.getElementById("waitlist-form-final");
+    const form = panel?.querySelector("form");
+    if (!form) {
+      throw new Error("Expected final-CTA waitlist panel to render a form.");
+    }
+
+    const pokemonCheckbox = Array.from(form.querySelectorAll<HTMLInputElement>('input[name="games"]')).find(
+      (input) => input.value === "pokemon",
+    );
+    if (!pokemonCheckbox) {
+      throw new Error("Expected a Pokemon games checkbox.");
+    }
+    fireEvent.click(pokemonCheckbox);
+
+    const storeLinkCheckbox = form.querySelector<HTMLInputElement>('input[name="hasStoreLink"]');
+    if (!storeLinkCheckbox) {
+      throw new Error("Expected a store-link checkbox.");
+    }
+    expect(form.querySelector('input[name="storeUrl"]')).toBeNull();
+    fireEvent.click(storeLinkCheckbox);
+    expect(form.querySelector('input[name="storeUrl"]')).not.toBeNull();
+
+    const formData = new FormData(form);
+    expect(formData.getAll("games")).toEqual(["pokemon"]);
+    expect(formData.get("hasStoreLink")).toBe("yes");
+  });
 });

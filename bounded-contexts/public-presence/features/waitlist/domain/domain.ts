@@ -5,14 +5,63 @@ import {
   normalizeEmail,
   normalizeReferralCode,
   normalizeSource,
+  normalizeWaitlistGames,
   normalizeWaitlistInterests,
   normalizeWaitlistCommerceIntent,
+  normalizeWaitlistInventorySize,
+  normalizeWaitlistStoreUrl,
   PublicPresenceDomainError,
   stableWaitlistSignupId,
+  type WaitlistGame,
   type WaitlistInterest,
+  type WaitlistInventorySize,
   type WaitlistCommerceIntent,
   type WaitlistSource,
 } from "./common";
+
+/**
+ * Wave-1 cohort quality signals, captured only when a signup expresses
+ * sell/both intent. Never a condition of joining the waitlist -- every field
+ * is optional and normalizes to its "unset" value rather than rejecting the
+ * signup, matching `marketingConsentAcceptedAt`'s optional-consent shape.
+ */
+export type WaitlistCohortQuality = Readonly<{
+  games: readonly WaitlistGame[];
+  hasStoreLink: boolean;
+  storeUrl: string | null;
+  inventorySize: WaitlistInventorySize | null;
+}>;
+
+const emptyCohortQuality: WaitlistCohortQuality = {
+  games: [],
+  hasStoreLink: false,
+  storeUrl: null,
+  inventorySize: null,
+};
+
+function normalizeCohortQuality(
+  role: WaitlistCommerceIntent,
+  input: Readonly<{
+    games?: readonly string[];
+    hasStoreLink?: boolean;
+    storeUrl?: string | null;
+    inventorySize?: string | null;
+  }>,
+): WaitlistCohortQuality {
+  // Buy-only signups never carry seller cohort-quality data, even if a
+  // stale client sent some: the quality bar only ever measures sellers.
+  if (role === "buy") {
+    return emptyCohortQuality;
+  }
+
+  const hasStoreLink = Boolean(input.hasStoreLink);
+  return {
+    games: normalizeWaitlistGames(input.games),
+    hasStoreLink,
+    storeUrl: normalizeWaitlistStoreUrl(hasStoreLink, input.storeUrl),
+    inventorySize: normalizeWaitlistInventorySize(input.inventorySize),
+  };
+}
 
 export type WaitlistSignupState = Readonly<{
   signupId: string | null;
@@ -24,6 +73,7 @@ export type WaitlistSignupState = Readonly<{
   source: WaitlistSource | null;
   /** The referring signup's id, set once at initial signup and never overwritten by later updates. */
   referredBySignupId: string | null;
+  cohortQuality: WaitlistCohortQuality;
   submittedAt: string | null;
   updatedAt: string | null;
 }>;
@@ -37,6 +87,7 @@ export const initialWaitlistSignupState: WaitlistSignupState = {
   marketingConsentAcceptedAt: null,
   source: null,
   referredBySignupId: null,
+  cohortQuality: emptyCohortQuality,
   submittedAt: null,
   updatedAt: null,
 };
@@ -51,6 +102,11 @@ export type RecordWaitlistSignupCommand = Readonly<{
   source: WaitlistSource;
   /** Referral code (the referring signup's id) captured from the inbound `?ref=` link, if any. Ignored on updates to an existing signup and when it equals the signer-upper's own id. */
   referredBySignupId?: string | null;
+  /** Wave-1 cohort quality signals; see {@link WaitlistCohortQuality}. Ignored (and re-derived as empty) for buy-only signups. */
+  games?: readonly string[];
+  hasStoreLink?: boolean;
+  storeUrl?: string | null;
+  inventorySize?: string | null;
   recordedAt: string;
 }>;
 
@@ -68,6 +124,7 @@ export type WaitlistSignupRecordedEvent = DomainEvent<
     source: WaitlistSource;
     /** Referral attribution captured only at initial signup; never revisited by later updates. */
     referredBySignupId: string | null;
+    cohortQuality: WaitlistCohortQuality;
     recordedAt: string;
   }>
 >;
@@ -82,6 +139,7 @@ export type WaitlistSignupUpdatedEvent = DomainEvent<
     emailConsentAcceptedAt: string;
     marketingConsentAcceptedAt: string | null;
     source: WaitlistSource;
+    cohortQuality: WaitlistCohortQuality;
     updatedAt: string;
   }>
 >;
@@ -105,6 +163,7 @@ export const decideWaitlistSignup: AggregateDecider<WaitlistSignupState, Waitlis
       const marketingConsentAcceptedAt = command.marketingConsentAcceptedAt
         ? ensureIsoTimestamp(command.marketingConsentAcceptedAt, "Marketing consent must record a timestamp.")
         : null;
+      const cohortQuality = normalizeCohortQuality(role, command);
 
       if (state.signupId !== null) {
         return [
@@ -118,6 +177,7 @@ export const decideWaitlistSignup: AggregateDecider<WaitlistSignupState, Waitlis
               emailConsentAcceptedAt,
               marketingConsentAcceptedAt,
               source: normalizeSource(command.source),
+              cohortQuality,
               updatedAt: recordedAt,
             },
           },
@@ -141,6 +201,7 @@ export const decideWaitlistSignup: AggregateDecider<WaitlistSignupState, Waitlis
             marketingConsentAcceptedAt,
             source: normalizeSource(command.source),
             referredBySignupId,
+            cohortQuality,
             recordedAt,
           },
         },
@@ -163,6 +224,7 @@ export const evolveWaitlistSignup: AggregateEvolver<WaitlistSignupState, Waitlis
         marketingConsentAcceptedAt: event.data.marketingConsentAcceptedAt ?? null,
         source: event.data.source,
         referredBySignupId: event.data.referredBySignupId ?? null,
+        cohortQuality: event.data.cohortQuality ?? emptyCohortQuality,
         submittedAt: event.data.recordedAt,
         updatedAt: event.data.recordedAt,
       };
@@ -175,6 +237,7 @@ export const evolveWaitlistSignup: AggregateEvolver<WaitlistSignupState, Waitlis
         emailConsentAcceptedAt: event.data.emailConsentAcceptedAt,
         marketingConsentAcceptedAt: event.data.marketingConsentAcceptedAt ?? null,
         source: event.data.source,
+        cohortQuality: event.data.cohortQuality ?? state.cohortQuality,
         updatedAt: event.data.updatedAt,
       };
     default:

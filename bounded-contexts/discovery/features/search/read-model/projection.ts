@@ -15,6 +15,7 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import { localizedTextMapValues } from "@chase-sets/localization";
+import type { DiscoveryDisplayBadge } from "../../../support/client-support/contracts";
 import { buildDiscoveryEmbeddingDocument } from "../domain/embedding-document";
 import { buildSimpleSearchText } from "../domain/normalization";
 import { aliasTextByWeight, type ResolvedAlias, type SearchTextWeight } from "../domain/alias-weighting";
@@ -152,6 +153,7 @@ type SearchCatalogItemRow = Readonly<{
   title: string;
   subtitle_i18n: unknown;
   subtitle: string | null;
+  display_badges: unknown;
   description_i18n: unknown;
   description: string;
   blueprint_id: string | null;
@@ -171,6 +173,7 @@ type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
   languageCode?: string;
   title: string;
   subtitle?: string | null;
+  badges?: readonly DiscoveryDisplayBadge[];
 }>;
 
 // Published Catalog resolved-alias fact. Discovery consumes this stable
@@ -751,6 +754,7 @@ async function refreshDiscoverySearchItem(
       title,
       subtitle_i18n,
       subtitle,
+      display_badges,
       description_i18n,
       description,
       blueprint_id,
@@ -772,17 +776,17 @@ async function refreshDiscoverySearchItem(
       search_text_simple,
       embedded_text_hash,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
-      setweight(to_tsvector('english', $25), 'A') ||
-        setweight(to_tsvector('english', $26), 'B') ||
-        setweight(to_tsvector('english', $27), 'C') ||
-        setweight(to_tsvector('english', $28), 'D'),
-      setweight(to_tsvector('simple', $29), 'A') ||
-        setweight(to_tsvector('simple', $30), 'B') ||
-        setweight(to_tsvector('simple', $31), 'C') ||
-        setweight(to_tsvector('simple', $32), 'D'),
-      $33,
-      $34)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
+      setweight(to_tsvector('english', $26), 'A') ||
+        setweight(to_tsvector('english', $27), 'B') ||
+        setweight(to_tsvector('english', $28), 'C') ||
+        setweight(to_tsvector('english', $29), 'D'),
+      setweight(to_tsvector('simple', $30), 'A') ||
+        setweight(to_tsvector('simple', $31), 'B') ||
+        setweight(to_tsvector('simple', $32), 'C') ||
+        setweight(to_tsvector('simple', $33), 'D'),
+      $34,
+      $35)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       slug = EXCLUDED.slug,
       language_code = EXCLUDED.language_code,
@@ -790,6 +794,7 @@ async function refreshDiscoverySearchItem(
       title = EXCLUDED.title,
       subtitle_i18n = EXCLUDED.subtitle_i18n,
       subtitle = EXCLUDED.subtitle,
+      display_badges = EXCLUDED.display_badges,
       description_i18n = EXCLUDED.description_i18n,
       description = EXCLUDED.description,
       blueprint_id = EXCLUDED.blueprint_id,
@@ -824,6 +829,7 @@ async function refreshDiscoverySearchItem(
       item.title,
       item.subtitle_i18n === null ? null : JSON.stringify(item.subtitle_i18n),
       item.subtitle,
+      JSON.stringify(asArray(item.display_badges)),
       JSON.stringify(item.description_i18n ?? localizedTextMap(item.description)),
       item.description,
       item.blueprint_id,
@@ -1138,7 +1144,8 @@ async function applyCatalogItemDisplayIdentity(
          title = $5,
          subtitle_i18n = $6,
          subtitle = $7,
-         updated_at = $8
+         display_badges = $8,
+         updated_at = $9
      WHERE catalog_item_id = $1`,
     [
       input.catalogItemId,
@@ -1148,6 +1155,7 @@ async function applyCatalogItemDisplayIdentity(
       input.title,
       resolvedSubtitle ? JSON.stringify(localizedTextMap(resolvedSubtitle)) : null,
       resolvedSubtitle,
+      JSON.stringify(Array.isArray(input.badges) ? input.badges : []),
       updatedAt,
     ],
   );
@@ -1326,7 +1334,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
     "catalog.catalog-item.display-identity-resolved": async (event) => {
       await applyCatalogItemDisplayIdentity(
         db,
-        event.data as CatalogItemDisplayIdentityResolvedEventData,
+        event.data as unknown as CatalogItemDisplayIdentityResolvedEventData,
         event.timing.recordedAt,
       );
     },

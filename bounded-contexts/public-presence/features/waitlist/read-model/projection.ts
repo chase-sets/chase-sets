@@ -9,6 +9,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 type WaitlistEventData = WaitlistSignupRecordedPayload | WaitlistSignupUpdatedPayload;
 
 async function upsertWaitlistSignup(db: PgQueryable, data: WaitlistEventData, timestamp: string) {
+  const cohortQuality = data.cohortQuality ?? { games: [], hasStoreLink: false, storeUrl: null, inventorySize: null };
   await db.query(
     `INSERT INTO public_presence_waitlist_signups (
        signup_id,
@@ -25,10 +26,14 @@ async function upsertWaitlistSignup(db: PgQueryable, data: WaitlistEventData, ti
        utm_campaign,
        utm_content,
        utm_term,
+       games,
+       has_store_link,
+       store_url,
+       inventory_size,
        submitted_at,
        updated_at
      ) VALUES (
-       $1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15
+       $1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16, $17, $18, $19, $19
      )
      ON CONFLICT (signup_id) DO UPDATE
      SET email = EXCLUDED.email,
@@ -46,6 +51,10 @@ async function upsertWaitlistSignup(db: PgQueryable, data: WaitlistEventData, ti
          utm_campaign = EXCLUDED.utm_campaign,
          utm_content = EXCLUDED.utm_content,
          utm_term = EXCLUDED.utm_term,
+         games = EXCLUDED.games,
+         has_store_link = EXCLUDED.has_store_link,
+         store_url = EXCLUDED.store_url,
+         inventory_size = EXCLUDED.inventory_size,
          updated_at = EXCLUDED.updated_at`,
     [
       data.signupId,
@@ -62,6 +71,10 @@ async function upsertWaitlistSignup(db: PgQueryable, data: WaitlistEventData, ti
       data.source.utmCampaign,
       data.source.utmContent,
       data.source.utmTerm,
+      JSON.stringify(cohortQuality.games),
+      cohortQuality.hasStoreLink,
+      cohortQuality.storeUrl,
+      cohortQuality.inventorySize,
       timestamp,
     ],
   );

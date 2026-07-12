@@ -525,6 +525,7 @@ describeDb("discovery projection row identity", () => {
         "defaultLocale": "en"
       },
       "subtitle": "Base Set",
+      "display_badges": [],
       "description_i18n": {
         "values": {
           "en": "Revised description"
@@ -654,6 +655,7 @@ describeDb("discovery projection row identity", () => {
         "defaultLocale": "en"
       },
       "subtitle": "Base Set",
+      "display_badges": [],
       "description_i18n": {
         "values": {
           "en": "Revised description"
@@ -745,6 +747,7 @@ describeDb("discovery projection row identity", () => {
         "defaultLocale": "en"
       },
       "subtitle": "Base Set",
+      "display_badges": [],
       "description_i18n": {
         "values": {
           "en": "Revised description"
@@ -887,6 +890,7 @@ describeDb("discovery projection row identity", () => {
         "defaultLocale": "en"
       },
       "subtitle": "Base Set",
+      "display_badges": [],
       "description_i18n": {
         "values": {
           "en": "Revised description"
@@ -1252,6 +1256,7 @@ async function readDiscoveryProjectionSnapshot(pool: PgTransactionalPool) {
          title,
          subtitle_i18n,
          subtitle,
+         display_badges,
          description_i18n,
          description,
          blueprint_id,

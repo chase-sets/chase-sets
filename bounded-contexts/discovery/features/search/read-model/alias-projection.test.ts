@@ -41,11 +41,11 @@ class AliasProjectionDb implements PgQueryable {
     }
 
     if (sql.includes("INSERT INTO discovery_search_items")) {
-      // VALUES placeholders: set_code/card_number are $23/$24, english weights
-      // are $25..$28, simple are $29..$32.
-      this.lastEnglishWeights = values.slice(24, 28).map(String);
-      this.lastSimpleWeights = values.slice(28, 32).map(String);
-      this.lastEmbeddedTextHash = String(values[32]);
+      // VALUES placeholders: the ordered badge list precedes the search-text
+      // inputs, so English and simple weights follow the natural-key fields.
+      this.lastEnglishWeights = values.slice(25, 29).map(String);
+      this.lastSimpleWeights = values.slice(29, 33).map(String);
+      this.lastEmbeddedTextHash = String(values[33]);
       this.lastDerivedWriteSql = sql;
       this.derivedWrites += 1;
       return { rows: [], rowCount: 1 };
@@ -73,6 +73,7 @@ function catalogItemRow(overrides: Record<string, unknown>): Record<string, unkn
     title: "Charizard",
     subtitle_i18n: null,
     subtitle: "Base Set",
+    display_badges: [],
     description_i18n: { defaultLocale: "en", values: { en: "Fire type" } },
     description: "Fire type",
     blueprint_id: null,
@@ -139,7 +140,7 @@ describe("Discovery search alias projection", () => {
       aliasesResolvedEvent([alias({ aliasText: "Dracaufeu", aliasType: "official-equivalent" })]),
     );
 
-    // Weight A bucket ($23) carries title + official equivalent.
+    // The top-weight bucket carries title + official equivalent.
     expect(db.lastEnglishWeights[0]).toContain("Charizard");
     expect(db.lastEnglishWeights[0]).toContain("Dracaufeu");
     expect(db.derivedWrites).toBeGreaterThan(0);

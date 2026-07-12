@@ -1,4 +1,11 @@
-import type { WaitlistInterest, WaitlistCommerceIntent, WaitlistSource } from "../domain/common";
+import type {
+  WaitlistGame,
+  WaitlistInterest,
+  WaitlistInventorySize,
+  WaitlistCommerceIntent,
+  WaitlistSource,
+} from "../domain/common";
+import type { WaveOneAdmissionBarStatus } from "../read-model/campaign-admission-bar-policy";
 
 export type SubmitWaitlistSignupRequest = Readonly<{
   email: string;
@@ -12,6 +19,11 @@ export type SubmitWaitlistSignupRequest = Readonly<{
   marketingConsent?: boolean;
   /** Referral code (referring signup's id) captured from an inbound `?ref=` link, if any. */
   referredBySignupId?: string | null;
+  /** Wave-1 cohort quality signals; only meaningful (and only captured) for sell/both role. */
+  games?: readonly WaitlistGame[];
+  hasStoreLink?: boolean;
+  storeUrl?: string | null;
+  inventorySize?: WaitlistInventorySize | null;
   source: WaitlistSource;
   website?: string | null;
 }>;
@@ -31,9 +43,41 @@ export type WaitlistSignupListItem = Readonly<{
   utm_campaign: string | null;
   utm_content: string | null;
   utm_term: string | null;
+  games: readonly WaitlistGame[];
+  has_store_link: boolean;
+  store_url: string | null;
+  inventory_size: WaitlistInventorySize | null;
   submitted_at: string;
   updated_at: string;
   referral_count: number;
+}>;
+
+/** Wave-1 cohort quality metrics: the "campaign quality bar" side of campaign analytics. */
+export type CampaignQualityMetrics = Readonly<{
+  totalSignups: number;
+  sellerSignupCount: number;
+  qualifiedSellerCount: number;
+  storeLinkCount: number;
+  storeLinkPercent: number;
+  inventorySizeDistribution: Readonly<Record<WaitlistInventorySize, number>>;
+  qualifiedSellersByGame: Readonly<Record<WaitlistGame, number>>;
+}>;
+
+/** One channel's signup attribution row: channel/content-piece attribution. */
+export type CampaignChannelAttributionRow = Readonly<{
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  signup_count: number;
+  seller_signup_count: number;
+  qualified_seller_count: number;
+}>;
+
+/** The full campaign analytics admin snapshot: quality bar, channel attribution, wave-1 admission status. */
+export type CampaignAnalyticsSnapshot = Readonly<{
+  quality: CampaignQualityMetrics;
+  channelAttribution: readonly CampaignChannelAttributionRow[];
+  admissionBar: WaveOneAdmissionBarStatus;
 }>;
 
 export type WaitlistMetrics = Readonly<{

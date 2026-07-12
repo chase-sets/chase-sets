@@ -32,6 +32,13 @@ export interface DiscoveryProductAssetSet {
   variants: DiscoveryProductAssetVariant[];
 }
 
+export type DiscoveryDisplayBadgeKind = "set-code" | "number" | "rarity" | "variant" | "language";
+
+export interface DiscoveryDisplayBadge {
+  kind: DiscoveryDisplayBadgeKind;
+  label: string;
+}
+
 export interface DiscoverySearchItem {
   catalog_item_id: string;
   slug: string;
@@ -40,6 +47,7 @@ export interface DiscoverySearchItem {
   title: string;
   subtitle_i18n: unknown;
   subtitle: string | null;
+  display_badges: DiscoveryDisplayBadge[];
   description_i18n: unknown;
   description: string;
   blueprint_id: string | null;
@@ -202,6 +210,7 @@ export interface DiscoveryItemDetail {
   title: string;
   subtitle_i18n: unknown;
   subtitle: string | null;
+  display_badges: DiscoveryDisplayBadge[];
   description_i18n: unknown;
   description: string;
   blueprint_id: string | null;
