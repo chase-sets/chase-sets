@@ -441,6 +441,114 @@ describe("UCP OAuth routes", () => {
     });
     expect(foreign.status).toBe(404);
   });
+
+  it("joins registered client display info onto the list and single-grant detail read", async () => {
+    const options = createOAuthOptions();
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const registration = await app.request("/ucp/oauth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        client_name: "Agent Platform",
+        client_uri: "https://agent.example/.well-known/ucp",
+        redirect_uris: ["https://agent.example/callback"],
+        scope: "catalog:read",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const { client_id: clientId } = (await registration.json()) as { client_id: string };
+
+    await options.linkedPlatformAuthorizations.grant({
+      authorizationId: "lpa_1",
+      platformProfileUrl: "https://agent.example/.well-known/ucp",
+      clientId,
+      userId: "user_1",
+      accountId: "account_1",
+      scopes: ["catalog:read"],
+      accessTokenHash: "hash:access",
+      accessTokenExpiresAt: "2026-05-16T20:00:00.000Z",
+      grantedAt: "2026-05-16T19:00:00.000Z",
+    });
+
+    const list = await app.request("/ucp/oauth/authorizations");
+    await expect(list.json()).resolves.toMatchObject({
+      authorizations: [{ id: "lpa_1", client_id: clientId, client_name: "Agent Platform" }],
+    });
+
+    const detail = await app.request("/ucp/oauth/authorizations/lpa_1");
+    expect(detail.status).toBe(200);
+    await expect(detail.json()).resolves.toMatchObject({
+      authorization: {
+        id: "lpa_1",
+        client_name: "Agent Platform",
+        client_uri: "https://agent.example/.well-known/ucp",
+      },
+    });
+
+    const missing = await app.request("/ucp/oauth/authorizations/lpa_unknown");
+    expect(missing.status).toBe(404);
+  });
+
+  it("serves per-grant activity from the audit-log read model, scoped to the account", async () => {
+    const listForGrant = vi.fn(async () => ({
+      items: [
+        {
+          id: "mal_1",
+          occurredAt: "2026-07-10T10:05:00.000Z",
+          outcome: "denied" as const,
+          method: "tools/call",
+          toolName: "request_payout",
+          resourceUri: null,
+          auditEventName: "payout.requested",
+          targetType: "payout",
+          reason: "Missing scope payouts:request.",
+          limitKind: null,
+        },
+      ],
+      total: 1,
+    }));
+    const options = createOAuthOptions({ agentGrantActivity: { listForGrant } });
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+    await options.linkedPlatformAuthorizations.grant({
+      authorizationId: "lpa_1",
+      platformProfileUrl: "https://agent.example/.well-known/ucp",
+      clientId: "agent-client",
+      userId: "user_1",
+      accountId: "account_1",
+      scopes: ["catalog:read"],
+      accessTokenHash: "hash:access",
+      accessTokenExpiresAt: "2026-05-16T20:00:00.000Z",
+      grantedAt: "2026-05-16T19:00:00.000Z",
+    });
+
+    const activity = await app.request("/ucp/oauth/authorizations/lpa_1/activity?limit=10&offset=0");
+    expect(activity.status).toBe(200);
+    await expect(activity.json()).resolves.toEqual({
+      activity: [
+        {
+          id: "mal_1",
+          occurred_at: "2026-07-10T10:05:00.000Z",
+          outcome: "denied",
+          method: "tools/call",
+          tool_name: "request_payout",
+          resource_uri: null,
+          audit_event_name: "payout.requested",
+          target_type: "payout",
+          reason: "Missing scope payouts:request.",
+          limit_kind: null,
+        },
+      ],
+      total: 1,
+    });
+    expect(listForGrant).toHaveBeenCalledWith({ accountId: "account_1", grantId: "lpa_1", limit: 10, offset: 0 });
+
+    const foreignGrant = await app.request("/ucp/oauth/authorizations/lpa_unknown/activity");
+    expect(foreignGrant.status).toBe(404);
+
+    const unconfigured = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(createOAuthOptions()));
+    const notConfigured = await unconfigured.request("/ucp/oauth/authorizations/lpa_1/activity");
+    expect(notConfigured.status).toBe(404);
+  });
 });
 
 function createInMemoryConsentDirectory() {
@@ -499,6 +607,12 @@ function createAuthorizationCodeDb() {
         };
         clients.set(String(row.client_id), row);
         return { rows: [], rowCount: 1 };
+      }
+
+      if (text.includes("client_id = ANY")) {
+        const ids = values[0] as readonly string[];
+        const rows = ids.map((id) => clients.get(id)).filter((row): row is Record<string, unknown> => Boolean(row));
+        return { rows: rows as Row[], rowCount: rows.length };
       }
 
       if (text.includes("FROM identity_ucp_oauth_clients")) {

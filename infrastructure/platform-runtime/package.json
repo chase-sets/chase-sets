@@ -22,6 +22,7 @@
     "./internal-auth": "./internal-auth.ts",
     "./live-connection-status": "./live-connection-status.ts",
     "./mcp": "./mcp.ts",
+    "./mcp-audit-log": "./mcp-audit-log.ts",
     "./mcp-contracts": "./mcp-contracts.ts",
     "./mcp-protocol": "./mcp-protocol.ts",
     "./mcp-tool-call-limiter": "./mcp-tool-call-limiter.ts",
@@ -56,9 +57,9 @@
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
     "test": "vitest run --config ./vitest.config.ts",
     "test:watch": "vitest --config ./vitest.config.ts",
-    "test:unit": "vitest run --config ./vitest.config.ts --exclude realtime.db.test.ts --exclude retention-sweep.db.test.ts --exclude concurrency.db.test.ts --exclude agent-guardrails.db.test.ts --exclude bulk-append-lane.db.test.ts",
-    "test:fast": "vitest run --config ./vitest.config.ts --exclude realtime.db.test.ts --exclude retention-sweep.db.test.ts --exclude concurrency.db.test.ts --exclude agent-guardrails.db.test.ts --exclude bulk-append-lane.db.test.ts",
-    "test:db": "vitest run --config ./vitest.config.ts realtime.db.test.ts retention-sweep.db.test.ts concurrency.db.test.ts agent-guardrails.db.test.ts bulk-append-lane.db.test.ts"
+    "test:unit": "vitest run --config ./vitest.config.ts --exclude realtime.db.test.ts --exclude retention-sweep.db.test.ts --exclude concurrency.db.test.ts --exclude agent-guardrails.db.test.ts --exclude bulk-append-lane.db.test.ts --exclude mcp-audit-log.db.test.ts",
+    "test:fast": "vitest run --config ./vitest.config.ts --exclude realtime.db.test.ts --exclude retention-sweep.db.test.ts --exclude concurrency.db.test.ts --exclude agent-guardrails.db.test.ts --exclude bulk-append-lane.db.test.ts --exclude mcp-audit-log.db.test.ts",
+    "test:db": "vitest run --config ./vitest.config.ts realtime.db.test.ts retention-sweep.db.test.ts concurrency.db.test.ts agent-guardrails.db.test.ts bulk-append-lane.db.test.ts mcp-audit-log.db.test.ts"
   },
   "dependencies": {
     "@chase-sets/auth-context": "workspace:*",

@@ -41,6 +41,7 @@ import {
   type UcpRuntimeObserver,
 } from "@chase-sets/platform-runtime/ucp";
 import type { McpAuditRecord } from "@chase-sets/platform-runtime/mcp";
+import { createPostgresMcpAuditLog } from "@chase-sets/platform-runtime/mcp-audit-log";
 import { createMcpToolCallLimiterFromRealtime } from "@chase-sets/platform-runtime/mcp-tool-call-limiter";
 import {
   createAgentGrantRateLimiter,
@@ -473,6 +474,10 @@ const ucpObserver = {
     });
   },
 } satisfies UcpRuntimeObserver;
+// Durable, queryable read model over the same audit records — powers the connected-agents
+// activity view. This persists off the existing sink rather than opening a
+// second logging path; the fire-and-forget write below never blocks or fails the request.
+const mcpAuditLog = createPostgresMcpAuditLog(pools.control);
 const mcpAudit = (record: McpAuditRecord) => {
   recordMcpAuditRecord(record);
   const logFields = {
@@ -483,11 +488,16 @@ const mcpAudit = (record: McpAuditRecord) => {
     resourceUriPresent: record.resourceUri ? true : undefined,
     actorId: record.actorId,
     accountId: record.accountId,
+    agentGrantId: record.agentGrantId,
     auditEventName: record.auditEventName,
     targetType: record.targetType,
     reason: record.reason,
     limitKind: record.limitKind,
   };
+
+  void mcpAuditLog.record(record).catch((error) => {
+    logger.warn("Failed to persist MCP audit record.", { type: "mcp.audit.persist_failed", error });
+  });
 
   if (record.outcome === "allowed") {
     logger.info("Native MCP invocation completed.", logFields);
@@ -588,6 +598,7 @@ const app = buildPlatformApiApp(runtime, {
   },
   agentGrantSpendPolicy,
   agentGrantConsent,
+  agentGrantActivity: mcpAuditLog,
   mcp: {
     audit: mcpAudit,
     idempotencyStore: createPostgresUcpIdempotencyStore<unknown>(pools.control, {

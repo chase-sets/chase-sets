@@ -66,6 +66,25 @@ describe("Auth marketplace route contributions", () => {
     );
   });
 
+  it("declares the Auth-owned connected-agents routes", () => {
+    expect(marketplaceRoutes()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          routeId: "account-agents",
+          routePath: "account/agents",
+          fileExport: "./routes/marketplace/account-agents",
+          sourceContext: "auth",
+        }),
+        expect.objectContaining({
+          routeId: "account-agents-detail",
+          routePath: "account/agents/:id",
+          fileExport: "./routes/marketplace/account-agents-detail",
+          sourceContext: "auth",
+        }),
+      ]),
+    );
+  });
+
   it("declares Auth-owned anonymous API routes", () => {
     expect(anonymousRoutes()).toEqual(
       expect.arrayContaining([
