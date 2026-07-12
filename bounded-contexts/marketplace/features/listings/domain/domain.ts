@@ -4,6 +4,16 @@ import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import { moneyToCents } from "@chase-sets/primitives/money";
 import type { AccountId, CatalogItemId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
+import {
+  assertFeeLockTermsPreserved,
+  currentMarketplaceListingFeeLock,
+  normalizeMarketplaceListingFeeLock,
+  resizeMarketplaceListingFeeLocks,
+  totalFeeLockedUnits,
+  type MarketplaceListingFeeLock,
+} from "./fee-lock";
+
+export type { MarketplaceListingFeeLock, MarketplaceListingFeeTermsSnapshot } from "./fee-lock";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -41,21 +51,6 @@ function normalizePercentageBps(value: number, fieldName: string): number {
 }
 
 /**
- * Fields that define whether a price/terms update actually changes anything observable.
- * `termsResolvedAt` and `feeQuoteFingerprint` are deliberately excluded: `termsResolvedAt` is a
- * fresh resolution timestamp on every quote (never equal across two calls) and
- * `feeQuoteFingerprint` is a pure function of these same fields, so it adds no information.
- * Comparing this narrower surface is what makes repeat submissions of an unchanged price free.
- */
-type ListingFeeTermsSurface = Readonly<{
-  marketplaceSalesFeeUnitAmount: string;
-  sellerNetUnitAmount: string;
-  shippingAllowancePercentageBps: number;
-  termsScheduleId: string | null;
-  termsAgreementId: string | null;
-}>;
-
-/**
  * Money amounts are decimal strings that are not guaranteed to be in canonical form (e.g. "145.0"
  * vs "145.00" represent the same value). Compare by cents, not raw string equality, so equivalent
  * amounts are treated as unchanged regardless of how the caller formatted them.
@@ -64,20 +59,15 @@ function isMoneyAmountUnchanged(current: string | null, next: string): boolean {
   return current !== null && moneyToCents(current) === moneyToCents(next);
 }
 
-function isListingFeeTermsSurfaceUnchanged(state: MarketplaceListingState, next: ListingFeeTermsSurface): boolean {
-  return (
-    isMoneyAmountUnchanged(state.marketplaceSalesFeeUnitAmount, next.marketplaceSalesFeeUnitAmount) &&
-    isMoneyAmountUnchanged(state.sellerNetUnitAmount, next.sellerNetUnitAmount) &&
-    state.shippingAllowancePercentageBps === next.shippingAllowancePercentageBps &&
-    state.termsScheduleId === next.termsScheduleId &&
-    state.termsAgreementId === next.termsAgreementId
+function areFeeLockQuotesUnchanged(
+  current: readonly MarketplaceListingFeeLock[],
+  next: readonly MarketplaceListingFeeLock[],
+): boolean {
+  return current.every(
+    (lock, index) =>
+      isMoneyAmountUnchanged(lock.marketplaceSalesFeeUnitAmount, next[index]!.marketplaceSalesFeeUnitAmount) &&
+      isMoneyAmountUnchanged(lock.sellerNetUnitAmount, next[index]!.sellerNetUnitAmount),
   );
-}
-
-type ListingPriceSurface = ListingFeeTermsSurface & Readonly<{ priceAmount: string }>;
-
-function isListingPriceSurfaceUnchanged(state: MarketplaceListingState, next: ListingPriceSurface): boolean {
-  return isMoneyAmountUnchanged(state.priceAmount, next.priceAmount) && isListingFeeTermsSurfaceUnchanged(state, next);
 }
 
 function isPurchaseLimitsUnchanged(
@@ -89,6 +79,20 @@ function isPurchaseLimitsUnchanged(
     current.maxUnitsPerDay === next.maxUnitsPerDay &&
     current.maxUnitsPerCustomerAccount === next.maxUnitsPerCustomerAccount
   );
+}
+
+function feeLockProjectionFields(feeLocks: readonly MarketplaceListingFeeLock[]) {
+  const current = currentMarketplaceListingFeeLock(feeLocks);
+  return {
+    marketplaceSalesFeeUnitAmount: current.marketplaceSalesFeeUnitAmount,
+    sellerNetUnitAmount: current.sellerNetUnitAmount,
+    shippingAllowancePercentageBps: current.terms.shippingAllowancePercentageBps,
+    termsScheduleId: current.terms.termsScheduleId,
+    termsAgreementId: current.terms.termsAgreementId,
+    termsResolvedAt: current.terms.termsResolvedAt,
+    feeQuoteFingerprint: current.feeQuoteFingerprint,
+    feeLocks: [...feeLocks],
+  };
 }
 
 export type ListingStatus = "draft" | "active" | "paused" | "withdrawn";
@@ -236,6 +240,7 @@ export type MarketplaceListingState = Readonly<{
   termsAgreementId: string | null;
   termsResolvedAt: string | null;
   feeQuoteFingerprint: string | null;
+  feeLocks: readonly MarketplaceListingFeeLock[];
   quantityCap: number;
   purchaseLimits: MarketplaceListingPurchaseLimits;
   listingPhotos: readonly MarketplaceListingPhoto[];
@@ -266,6 +271,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   termsAgreementId: null,
   termsResolvedAt: null,
   feeQuoteFingerprint: null,
+  feeLocks: [],
   quantityCap: 0,
   purchaseLimits: {
     maxUnitsPerOrder: null,
@@ -294,13 +300,7 @@ export type CreateListingCommand = Readonly<{
   shipFromCode: string | null;
   shipFromAddress: AddressSnapshot;
   priceAmount: string;
-  marketplaceSalesFeeUnitAmount: string;
-  sellerNetUnitAmount: string;
-  shippingAllowancePercentageBps?: number;
-  termsScheduleId?: string | null;
-  termsAgreementId?: string | null;
-  termsResolvedAt?: string | null;
-  feeQuoteFingerprint: string;
+  feeLock: MarketplaceListingFeeLock;
   quantityCap: number;
   purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
   listingPhotos?: readonly MarketplaceListingPhoto[] | null;
@@ -309,26 +309,14 @@ export type CreateListingCommand = Readonly<{
 export type UpdateListingPriceCommand = Readonly<{
   type: "UpdateListingPrice";
   priceAmount: string;
-  marketplaceSalesFeeUnitAmount: string;
-  sellerNetUnitAmount: string;
-  shippingAllowancePercentageBps?: number;
-  termsScheduleId?: string | null;
-  termsAgreementId?: string | null;
-  termsResolvedAt?: string | null;
-  feeQuoteFingerprint: string;
+  feeLocks: readonly MarketplaceListingFeeLock[];
 }>;
 
 export type UpdateListingQuantityCapCommand = Readonly<{
   type: "UpdateListingQuantityCap";
   quantityCap: number;
   purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-  marketplaceSalesFeeUnitAmount: string;
-  sellerNetUnitAmount: string;
-  shippingAllowancePercentageBps?: number;
-  termsScheduleId?: string | null;
-  termsAgreementId?: string | null;
-  termsResolvedAt?: string | null;
-  feeQuoteFingerprint: string;
+  addedUnitsFeeLock: MarketplaceListingFeeLock | null;
 }>;
 
 export type UpdateListingPurchaseLimitsCommand = Readonly<{
@@ -341,16 +329,7 @@ export type AddListingPhotosCommand = Readonly<{
   photos: readonly MarketplaceListingPhoto[];
 }>;
 
-export type PublishListingCommand = Readonly<{
-  type: "PublishListing";
-  marketplaceSalesFeeUnitAmount: string;
-  sellerNetUnitAmount: string;
-  shippingAllowancePercentageBps?: number;
-  termsScheduleId?: string | null;
-  termsAgreementId?: string | null;
-  termsResolvedAt?: string | null;
-  feeQuoteFingerprint: string;
-}>;
+export type PublishListingCommand = Readonly<{ type: "PublishListing" }>;
 export type PauseListingCommand = Readonly<{ type: "PauseListing" }>;
 export type AutoUnlistListingCommand = Readonly<{
   type: "AutoUnlistListing";
@@ -398,6 +377,7 @@ export type ListingCreatedEvent = DomainEvent<
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
     feeQuoteFingerprint: string;
+    feeLocks: MarketplaceListingFeeLock[];
     quantityCap: number;
     purchaseLimits: MarketplaceListingPurchaseLimits;
     listingPhotos: MarketplaceListingPhoto[];
@@ -414,6 +394,7 @@ export type ListingPriceUpdatedEvent = DomainEvent<
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
     feeQuoteFingerprint: string;
+    feeLocks: MarketplaceListingFeeLock[];
   }>
 >;
 export type ListingQuantityCapUpdatedEvent = DomainEvent<
@@ -428,6 +409,7 @@ export type ListingQuantityCapUpdatedEvent = DomainEvent<
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
     feeQuoteFingerprint: string;
+    feeLocks: MarketplaceListingFeeLock[];
   }>
 >;
 export type ListingPurchaseLimitsUpdatedEvent = DomainEvent<
@@ -442,18 +424,7 @@ export type ListingPhotosAddedEvent = DomainEvent<
     listingPhotos: MarketplaceListingPhoto[];
   }>
 >;
-export type ListingPublishedEvent = DomainEvent<
-  "marketplace.listing.published",
-  Readonly<{
-    marketplaceSalesFeeUnitAmount: string;
-    sellerNetUnitAmount: string;
-    shippingAllowancePercentageBps: number;
-    termsScheduleId: string | null;
-    termsAgreementId: string | null;
-    termsResolvedAt: string | null;
-    feeQuoteFingerprint: string;
-  }>
->;
+export type ListingPublishedEvent = DomainEvent<"marketplace.listing.published", Readonly<Record<string, never>>>;
 export type ListingPausedEvent = DomainEvent<"marketplace.listing.paused", Readonly<Record<string, never>>>;
 export type ListingAutoUnlistedEvent = DomainEvent<
   "marketplace.listing.auto-unlisted",
@@ -483,8 +454,14 @@ export const decideMarketplaceListing: AggregateDecider<
   MarketplaceListingEvent
 > = (state, command) => {
   switch (command.type) {
-    case "CreateListing":
+    case "CreateListing": {
       assert(state.listingId === null, "Listing has already been created.");
+      const quantityCap = ensurePositiveInteger(
+        command.quantityCap,
+        "Listing quantity cap must be a positive whole number.",
+      );
+      const feeLock = normalizeMarketplaceListingFeeLock(command.feeLock);
+      assert(feeLock.unitCount === quantityCap, "Creation-time fee lock must cover every listed unit.");
       return [
         {
           type: "marketplace.listing.created",
@@ -508,58 +485,29 @@ export const decideMarketplaceListing: AggregateDecider<
             shipFromCode: command.shipFromCode?.trim() ?? null,
             shipFromAddress: normalizeAddressSnapshot(command.shipFromAddress, "Ship-from address"),
             priceAmount: normalizeMoneyAmount(command.priceAmount),
-            marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
-              fieldName: "Marketplace sales fee unit amount",
-              allowZero: true,
-            }),
-            sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
-              fieldName: "Seller net unit amount",
-              allowZero: true,
-            }),
-            shippingAllowancePercentageBps: normalizePercentageBps(
-              command.shippingAllowancePercentageBps ?? 500,
-              "Shipping allowance percentage",
-            ),
-            termsScheduleId: command.termsScheduleId?.trim() ?? null,
-            termsAgreementId: command.termsAgreementId?.trim() ?? null,
-            termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
-            feeQuoteFingerprint: normalizeRequiredText(
-              command.feeQuoteFingerprint,
-              "Fee quote fingerprint is required.",
-            ),
-            quantityCap: ensurePositiveInteger(
-              command.quantityCap,
-              "Listing quantity cap must be a positive whole number.",
-            ),
-            purchaseLimits: normalizePurchaseLimits(command.purchaseLimits, command.quantityCap),
+            ...feeLockProjectionFields([feeLock]),
+            quantityCap,
+            purchaseLimits: normalizePurchaseLimits(command.purchaseLimits, quantityCap),
             listingPhotos: normalizeListingPhotos(command.listingPhotos ?? []),
           },
         },
       ];
+    }
     case "UpdateListingPrice": {
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be updated.");
+      const feeLocks = command.feeLocks.map(normalizeMarketplaceListingFeeLock);
+      assertFeeLockTermsPreserved(state.feeLocks, feeLocks);
+      assert(totalFeeLockedUnits(feeLocks) === state.quantityCap, "Price edit fee locks must cover listed quantity.");
       const data = {
         priceAmount: normalizeMoneyAmount(command.priceAmount),
-        marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
-          fieldName: "Marketplace sales fee unit amount",
-          allowZero: true,
-        }),
-        sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
-          fieldName: "Seller net unit amount",
-          allowZero: true,
-        }),
-        shippingAllowancePercentageBps: normalizePercentageBps(
-          command.shippingAllowancePercentageBps ?? 500,
-          "Shipping allowance percentage",
-        ),
-        termsScheduleId: command.termsScheduleId?.trim() ?? null,
-        termsAgreementId: command.termsAgreementId?.trim() ?? null,
-        termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
-        feeQuoteFingerprint: normalizeRequiredText(command.feeQuoteFingerprint, "Fee quote fingerprint is required."),
+        ...feeLockProjectionFields(feeLocks),
       };
 
-      if (isListingPriceSurfaceUnchanged(state, data)) {
+      if (
+        isMoneyAmountUnchanged(state.priceAmount, data.priceAmount) &&
+        areFeeLockQuotesUnchanged(state.feeLocks, feeLocks)
+      ) {
         return [];
       }
 
@@ -573,32 +521,14 @@ export const decideMarketplaceListing: AggregateDecider<
         "Listing quantity cap must be a positive whole number.",
       );
       const purchaseLimits = normalizePurchaseLimits(command.purchaseLimits ?? state.purchaseLimits, quantityCap);
+      const feeLocks = resizeMarketplaceListingFeeLocks(state.feeLocks, quantityCap, command.addedUnitsFeeLock);
       const data = {
         quantityCap,
         purchaseLimits,
-        marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
-          fieldName: "Marketplace sales fee unit amount",
-          allowZero: true,
-        }),
-        sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
-          fieldName: "Seller net unit amount",
-          allowZero: true,
-        }),
-        shippingAllowancePercentageBps: normalizePercentageBps(
-          command.shippingAllowancePercentageBps ?? 500,
-          "Shipping allowance percentage",
-        ),
-        termsScheduleId: command.termsScheduleId?.trim() ?? null,
-        termsAgreementId: command.termsAgreementId?.trim() ?? null,
-        termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
-        feeQuoteFingerprint: normalizeRequiredText(command.feeQuoteFingerprint, "Fee quote fingerprint is required."),
+        ...feeLockProjectionFields(feeLocks),
       };
 
-      if (
-        state.quantityCap === quantityCap &&
-        isPurchaseLimitsUnchanged(state.purchaseLimits, purchaseLimits) &&
-        isListingFeeTermsSurfaceUnchanged(state, data)
-      ) {
+      if (state.quantityCap === quantityCap && isPurchaseLimitsUnchanged(state.purchaseLimits, purchaseLimits)) {
         return [];
       }
 
@@ -638,27 +568,7 @@ export const decideMarketplaceListing: AggregateDecider<
       return [
         {
           type: "marketplace.listing.published",
-          data: {
-            marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
-              fieldName: "Marketplace sales fee unit amount",
-              allowZero: true,
-            }),
-            sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
-              fieldName: "Seller net unit amount",
-              allowZero: true,
-            }),
-            shippingAllowancePercentageBps: normalizePercentageBps(
-              command.shippingAllowancePercentageBps ?? 500,
-              "Shipping allowance percentage",
-            ),
-            termsScheduleId: command.termsScheduleId?.trim() ?? null,
-            termsAgreementId: command.termsAgreementId?.trim() ?? null,
-            termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
-            feeQuoteFingerprint: normalizeRequiredText(
-              command.feeQuoteFingerprint,
-              "Fee quote fingerprint is required.",
-            ),
-          },
+          data: {},
         },
       ];
     case "PauseListing":
@@ -726,6 +636,7 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         termsAgreementId: event.data.termsAgreementId,
         termsResolvedAt: event.data.termsResolvedAt,
         feeQuoteFingerprint: event.data.feeQuoteFingerprint,
+        feeLocks: event.data.feeLocks,
         quantityCap: event.data.quantityCap,
         purchaseLimits: event.data.purchaseLimits ?? initialMarketplaceListingState.purchaseLimits,
         listingPhotos: event.data.listingPhotos ?? [],
@@ -742,6 +653,7 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         termsAgreementId: event.data.termsAgreementId,
         termsResolvedAt: event.data.termsResolvedAt,
         feeQuoteFingerprint: event.data.feeQuoteFingerprint,
+        feeLocks: event.data.feeLocks,
       };
     case "marketplace.listing.purchase-limits-updated":
       return {
@@ -764,17 +676,11 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         termsAgreementId: event.data.termsAgreementId,
         termsResolvedAt: event.data.termsResolvedAt,
         feeQuoteFingerprint: event.data.feeQuoteFingerprint,
+        feeLocks: event.data.feeLocks,
       };
     case "marketplace.listing.published":
       return {
         ...state,
-        marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
-        sellerNetUnitAmount: event.data.sellerNetUnitAmount,
-        shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps,
-        termsScheduleId: event.data.termsScheduleId,
-        termsAgreementId: event.data.termsAgreementId,
-        termsResolvedAt: event.data.termsResolvedAt,
-        feeQuoteFingerprint: event.data.feeQuoteFingerprint,
         status: "active",
       };
     case "marketplace.listing.paused":

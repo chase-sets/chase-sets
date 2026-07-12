@@ -4,6 +4,7 @@ import {
   evolveMarketplaceListing,
   initialMarketplaceListingState,
   type CreateListingCommand,
+  type MarketplaceListingFeeLock,
 } from "./domain";
 
 const shipFromAddress = {
@@ -18,6 +19,25 @@ const shipFromAddress = {
   phone: null,
   email: null,
 } as const;
+
+function feeLock(overrides: Partial<MarketplaceListingFeeLock> = {}): MarketplaceListingFeeLock {
+  return {
+    unitCount: 3,
+    terms: {
+      marketplaceSalesFeePercentageBps: 500,
+      marketplaceSalesFeeFixedAmount: "0.00",
+      marketplaceSalesFeeCapAmount: "25.00",
+      shippingAllowancePercentageBps: 500,
+      termsScheduleId: "cts_standard",
+      termsAgreementId: null,
+      termsResolvedAt: "2026-07-12T12:00:00.000Z",
+    },
+    marketplaceSalesFeeUnitAmount: "1.00",
+    sellerNetUnitAmount: "9.00",
+    feeQuoteFingerprint: "fee_test",
+    ...overrides,
+  };
+}
 
 const createListingCommand = {
   type: "CreateListing",
@@ -49,9 +69,7 @@ const createListingCommand = {
   shipFromCode: "AUS",
   shipFromAddress,
   priceAmount: "10.00",
-  marketplaceSalesFeeUnitAmount: "1.00",
-  sellerNetUnitAmount: "9.00",
-  feeQuoteFingerprint: "fee_test",
+  feeLock: feeLock(),
   quantityCap: 3,
 } satisfies CreateListingCommand;
 
@@ -99,188 +117,214 @@ describe("marketplace listing no-op suppression", () => {
     }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
   }
 
-  describe("UpdateListingPrice", () => {
-    it("returns no events when the commanded price and terms exactly match current state", () => {
+  describe("fee-lock mutation semantics", () => {
+    it("locks every creation-time unit to the resolved terms snapshot", () => {
       const listing = createdListing();
+
+      expect(listing.feeLocks).toEqual([feeLock()]);
+      expect(listing.quantityCap).toBe(3);
+    });
+
+    it("allows price edits while preserving fee terms and requoting the locked rate", () => {
+      const listing = createdListing();
+      const requoted = feeLock({
+        marketplaceSalesFeeUnitAmount: "1.25",
+        sellerNetUnitAmount: "23.75",
+        feeQuoteFingerprint: "fee_requoted",
+      });
 
       const events = decideMarketplaceListing(listing, {
         type: "UpdateListingPrice",
-        priceAmount: "10.00",
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "9.00",
-        feeQuoteFingerprint: "fee_resubmit",
-        termsResolvedAt: "2026-07-09T12:00:00.000Z",
+        priceAmount: "25.00",
+        feeLocks: [requoted],
       });
 
-      expect(events).toEqual([]);
+      expect(events).toEqual([
+        expect.objectContaining({
+          type: "marketplace.listing.price-updated",
+          data: expect.objectContaining({ feeLocks: [requoted], termsScheduleId: "cts_standard" }),
+        }),
+      ]);
     });
 
-    it("returns no events when the commanded price is formatted differently but equal in value", () => {
+    it("rejects a price edit that substitutes current terms for the listing lock", () => {
       const listing = createdListing();
-
-      const events = decideMarketplaceListing(listing, {
-        type: "UpdateListingPrice",
-        priceAmount: "10.0",
-        marketplaceSalesFeeUnitAmount: "1.0",
-        sellerNetUnitAmount: "9.00",
-        feeQuoteFingerprint: "fee_resubmit",
+      const changedTerms = feeLock({
+        terms: { ...feeLock().terms, marketplaceSalesFeePercentageBps: 900, termsScheduleId: "cts_current" },
       });
 
-      expect(events).toEqual([]);
+      expect(() =>
+        decideMarketplaceListing(listing, {
+          type: "UpdateListingPrice",
+          priceAmount: "25.00",
+          feeLocks: [changedTerms],
+        }),
+      ).toThrow("Price edits must use the listing's locked fee terms");
     });
 
-    it("emits an event when the price changes", () => {
+    it("suppresses an equivalent price and locked quote", () => {
       const listing = createdListing();
 
-      const events = decideMarketplaceListing(listing, {
-        type: "UpdateListingPrice",
-        priceAmount: "10.01",
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "9.00",
-        feeQuoteFingerprint: "fee_changed",
+      expect(
+        decideMarketplaceListing(listing, {
+          type: "UpdateListingPrice",
+          priceAmount: "10.0",
+          feeLocks: [feeLock({ marketplaceSalesFeeUnitAmount: "1.0" })],
+        }),
+      ).toEqual([]);
+    });
+
+    it("locks only restocked units to the current rate", () => {
+      const listing = createdListing();
+      const restockLock = feeLock({
+        unitCount: 2,
+        terms: {
+          ...feeLock().terms,
+          marketplaceSalesFeePercentageBps: 900,
+          termsScheduleId: "cts_current",
+          termsResolvedAt: "2026-08-12T12:00:00.000Z",
+        },
+        marketplaceSalesFeeUnitAmount: "1.80",
+        sellerNetUnitAmount: "8.20",
+        feeQuoteFingerprint: "fee_restock",
       });
 
-      expect(events).toHaveLength(1);
-      expect(events[0]?.type).toBe("marketplace.listing.price-updated");
-    });
-
-    it("emits an event when the marketplace sales fee changes", () => {
-      const listing = createdListing();
-
-      const events = decideMarketplaceListing(listing, {
-        type: "UpdateListingPrice",
-        priceAmount: "10.00",
-        marketplaceSalesFeeUnitAmount: "1.01",
-        sellerNetUnitAmount: "9.00",
-        feeQuoteFingerprint: "fee_changed",
-      });
-
-      expect(events).toHaveLength(1);
-    });
-
-    it("emits an event when the seller net amount changes", () => {
-      const listing = createdListing();
-
-      const events = decideMarketplaceListing(listing, {
-        type: "UpdateListingPrice",
-        priceAmount: "10.00",
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "8.99",
-        feeQuoteFingerprint: "fee_changed",
-      });
-
-      expect(events).toHaveLength(1);
-    });
-
-    it("emits an event when the shipping allowance changes", () => {
-      const listing = createdListing();
-
-      const events = decideMarketplaceListing(listing, {
-        type: "UpdateListingPrice",
-        priceAmount: "10.00",
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "9.00",
-        shippingAllowancePercentageBps: 600,
-        feeQuoteFingerprint: "fee_changed",
-      });
-
-      expect(events).toHaveLength(1);
-    });
-
-    it("emits an event for a terms-only change even when the price is identical", () => {
-      const listing = createdListing();
-
-      const events = decideMarketplaceListing(listing, {
-        type: "UpdateListingPrice",
-        priceAmount: "10.00",
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "9.00",
-        termsScheduleId: "cts_new_schedule",
-        feeQuoteFingerprint: "fee_changed",
-      });
-
-      expect(events).toHaveLength(1);
-      expect(events[0]?.type).toBe("marketplace.listing.price-updated");
-      if (events[0]?.type !== "marketplace.listing.price-updated") {
-        throw new Error("Expected a price-updated event.");
-      }
-      expect(events[0].data.termsScheduleId).toBe("cts_new_schedule");
-    });
-
-    it("emits an event when the agreement id changes", () => {
-      const listing = createdListing();
-
-      const events = decideMarketplaceListing(listing, {
-        type: "UpdateListingPrice",
-        priceAmount: "10.00",
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "9.00",
-        termsAgreementId: "cta_new_agreement",
-        feeQuoteFingerprint: "fee_changed",
-      });
-
-      expect(events).toHaveLength(1);
-    });
-  });
-
-  describe("UpdateListingQuantityCap", () => {
-    it("returns no events when quantity cap, purchase limits, and fee terms are all unchanged", () => {
-      const listing = createdListing();
-
-      const events = decideMarketplaceListing(listing, {
-        type: "UpdateListingQuantityCap",
-        quantityCap: 3,
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "9.00",
-        feeQuoteFingerprint: "fee_resubmit",
-      });
-
-      expect(events).toEqual([]);
-    });
-
-    it("emits an event when the quantity cap changes", () => {
-      const listing = createdListing();
-
-      const events = decideMarketplaceListing(listing, {
+      const [event] = decideMarketplaceListing(listing, {
         type: "UpdateListingQuantityCap",
         quantityCap: 5,
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "9.00",
-        feeQuoteFingerprint: "fee_changed",
+        addedUnitsFeeLock: restockLock,
       });
 
-      expect(events).toHaveLength(1);
-      expect(events[0]?.type).toBe("marketplace.listing.quantity-cap-updated");
+      expect(event?.type).toBe("marketplace.listing.quantity-cap-updated");
+      if (event?.type !== "marketplace.listing.quantity-cap-updated") throw new Error("Expected quantity update.");
+      expect(event.data.feeLocks).toEqual([feeLock(), restockLock]);
     });
 
-    it("emits an event when purchase limits change", () => {
-      const listing = createdListing();
+    it("retires newest locked units on a decrease and requires fresh terms to add them again", () => {
+      const initial = createdListing();
+      const restockLock = feeLock({ unitCount: 2, feeQuoteFingerprint: "fee_restock" });
+      const increased = decideMarketplaceListing(initial, {
+        type: "UpdateListingQuantityCap",
+        quantityCap: 5,
+        addedUnitsFeeLock: restockLock,
+      }).reduce(evolveMarketplaceListing, initial);
+      const reduced = decideMarketplaceListing(increased, {
+        type: "UpdateListingQuantityCap",
+        quantityCap: 2,
+        addedUnitsFeeLock: null,
+      }).reduce(evolveMarketplaceListing, increased);
 
-      const events = decideMarketplaceListing(listing, {
+      expect(reduced.feeLocks).toEqual([feeLock({ unitCount: 2 })]);
+      expect(() =>
+        decideMarketplaceListing(reduced, {
+          type: "UpdateListingQuantityCap",
+          quantityCap: 3,
+          addedUnitsFeeLock: null,
+        }),
+      ).toThrow("Quantity increases require current fee terms");
+    });
+
+    it("allows purchase-limit changes without changing fee locks", () => {
+      const listing = createdListing();
+      const [event] = decideMarketplaceListing(listing, {
         type: "UpdateListingQuantityCap",
         quantityCap: 3,
         purchaseLimits: { maxUnitsPerOrder: 1 },
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "9.00",
-        feeQuoteFingerprint: "fee_changed",
+        addedUnitsFeeLock: null,
       });
 
-      expect(events).toHaveLength(1);
+      expect(event?.type).toBe("marketplace.listing.quantity-cap-updated");
+      if (event?.type !== "marketplace.listing.quantity-cap-updated") throw new Error("Expected quantity update.");
+      expect(event.data.feeLocks).toEqual(listing.feeLocks);
     });
 
-    it("emits an event for a terms-only change even when the quantity cap is identical", () => {
-      const listing = createdListing();
+    it("preserves fee locks across photos, publish, pause, automated unlisting, and resume", () => {
+      const draft = createdListing();
+      const withPhoto = decideMarketplaceListing(draft, {
+        type: "AddListingPhotos",
+        photos: [listingPhoto],
+      }).reduce(evolveMarketplaceListing, draft);
+      const active = decideMarketplaceListing(withPhoto, { type: "PublishListing" }).reduce(
+        evolveMarketplaceListing,
+        withPhoto,
+      );
+      const paused = decideMarketplaceListing(active, { type: "PauseListing" }).reduce(
+        evolveMarketplaceListing,
+        active,
+      );
+      const resumed = decideMarketplaceListing(paused, { type: "PublishListing" }).reduce(
+        evolveMarketplaceListing,
+        paused,
+      );
+      const autoUnlisted = decideMarketplaceListing(resumed, {
+        type: "AutoUnlistListing",
+        reportId: "rpt_1",
+        reportCount: 3,
+        threshold: 3,
+        autoUnlistedAt: "2026-07-12T13:00:00.000Z",
+      }).reduce(evolveMarketplaceListing, resumed);
 
-      const events = decideMarketplaceListing(listing, {
-        type: "UpdateListingQuantityCap",
-        quantityCap: 3,
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "9.00",
-        termsScheduleId: "cts_new_schedule",
-        feeQuoteFingerprint: "fee_changed",
+      for (const state of [withPhoto, active, paused, resumed, autoUnlisted]) {
+        expect(state.feeLocks).toEqual(draft.feeLocks);
+      }
+    });
+
+    it("makes withdrawal terminal so relisting requires a new listing identity", () => {
+      const draft = createdListing();
+      const withdrawn = decideMarketplaceListing(draft, { type: "WithdrawListing" }).reduce(
+        evolveMarketplaceListing,
+        draft,
+      );
+
+      expect(() => decideMarketplaceListing(withdrawn, { type: "PublishListing" })).toThrow(
+        "Withdrawn listings cannot be published",
+      );
+      expect(() =>
+        decideMarketplaceListing(withdrawn, {
+          type: "UpdateListingPrice",
+          priceAmount: "11.00",
+          feeLocks: withdrawn.feeLocks,
+        }),
+      ).toThrow("Withdrawn listings cannot be updated");
+      expect(() => decideMarketplaceListing(withdrawn, createListingCommand)).toThrow(
+        "Listing has already been created",
+      );
+
+      const replacementLock = feeLock({
+        terms: { ...feeLock().terms, marketplaceSalesFeePercentageBps: 900, termsScheduleId: "cts_current" },
       });
+      const replacement = decideMarketplaceListing(initialMarketplaceListingState, {
+        ...createListingCommand,
+        listingId: "lst_relisted" as never,
+        feeLock: replacementLock,
+      }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
+      expect(replacement.listingId).toBe("lst_relisted");
+      expect(replacement.feeLocks).toEqual([replacementLock]);
+    });
 
-      expect(events).toHaveLength(1);
+    it("keeps item, product, and condition selection immutable for the listing identity", () => {
+      const listing = createdListing({
+        inventoryItemId: "itm_original",
+        productId: "cat_test::dim_condition:near_mint" as never,
+        selectedOptions: [{ dimensionId: "dim_condition", optionId: "near_mint" }],
+      });
+      const repriced = decideMarketplaceListing(listing, {
+        type: "UpdateListingPrice",
+        priceAmount: "12.00",
+        feeLocks: [
+          feeLock({
+            marketplaceSalesFeeUnitAmount: "1.20",
+            sellerNetUnitAmount: "10.80",
+            feeQuoteFingerprint: "fee_repriced",
+          }),
+        ],
+      }).reduce(evolveMarketplaceListing, listing);
+
+      expect(repriced).toMatchObject({
+        inventoryItemId: "itm_original",
+        productId: "cat_test::dim_condition:near_mint",
+        selectedOptions: [{ dimensionId: "dim_condition", optionId: "near_mint" }],
+      });
     });
   });
 
@@ -384,9 +428,7 @@ describe("marketplace listing purchase limits", () => {
       decideMarketplaceListing(created, {
         type: "UpdateListingQuantityCap",
         quantityCap: 2,
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "9.00",
-        feeQuoteFingerprint: "fee_test_2",
+        addedUnitsFeeLock: null,
       }),
     ).toThrow("Maximum units per order cannot exceed the listing quantity cap.");
   });
@@ -424,9 +466,6 @@ describe("marketplace listing photos", () => {
     expect(() =>
       decideMarketplaceListing(mintDraft, {
         type: "PublishListing",
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "9.00",
-        feeQuoteFingerprint: "fee_test",
       }),
     ).toThrow(
       "Pristine, Mint, and graded-card listings require at least one listing photo before publication; graded-card listings must include a slab photo.",
@@ -447,9 +486,6 @@ describe("marketplace listing photos", () => {
     expect(() =>
       decideMarketplaceListing(gradedDraft, {
         type: "PublishListing",
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "9.00",
-        feeQuoteFingerprint: "fee_test",
       }),
     ).toThrow(
       "Pristine, Mint, and graded-card listings require at least one listing photo before publication; graded-card listings must include a slab photo.",
@@ -465,9 +501,6 @@ describe("marketplace listing photos", () => {
     expect(() =>
       decideMarketplaceListing(nearMintDraft, {
         type: "PublishListing",
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "9.00",
-        feeQuoteFingerprint: "fee_test",
       }),
     ).not.toThrow();
   });
@@ -482,9 +515,6 @@ describe("marketplace listing photos", () => {
     expect(() =>
       decideMarketplaceListing(draft, {
         type: "PublishListing",
-        marketplaceSalesFeeUnitAmount: "1.00",
-        sellerNetUnitAmount: "9.00",
-        feeQuoteFingerprint: "fee_test",
       }),
     ).toThrow("Listings require a resolved shipping measure before publication.");
   });

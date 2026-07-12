@@ -47,6 +47,7 @@ function buildListingRow(overrides: Partial<MarketplaceListingListItem> = {}): M
     terms_agreement_id: null,
     terms_resolved_at: "2026-04-17T00:00:00.000Z",
     fee_quote_fingerprint: "20.00|1.00|19.00|cts_default|",
+    fee_locks: [],
     quantity_cap: 1,
     max_units_per_order: null,
     max_units_per_day: null,

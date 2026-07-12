@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { registerPostWriteConsistencyRecorder } from "@chase-sets/platform-runtime/post-write-consistency";
-import { createCommercialTermsResolver } from "./resolve";
+import { createCommercialTermsResolver, quoteLockedMarketplaceFeeTerms } from "./resolve";
 
 const accountSourceTelemetryBase = {
   boundedContextName: "commercial-terms",
@@ -16,6 +16,38 @@ const accountSourceTelemetryBase = {
 
 const accountSourceTelemetryRecorder = vi.fn();
 let unregisterAccountSourceTelemetryRecorder: (() => void) | null = null;
+
+describe("locked marketplace fee terms", () => {
+  it("requotes a changed price from the recorded formula and cap", () => {
+    expect(
+      quoteLockedMarketplaceFeeTerms(
+        {
+          marketplaceSalesFeePercentageBps: 500,
+          marketplaceSalesFeeFixedAmount: "0.00",
+          marketplaceSalesFeeCapAmount: "25.00",
+        },
+        "1000.00",
+      ),
+    ).toEqual({
+      basisAmount: "1000.00",
+      marketplaceSalesFeeUnitAmount: "25.00",
+      sellerNetUnitAmount: "975.00",
+    });
+  });
+
+  it("treats a locked zero-percent agreement exactly like any other rate", () => {
+    expect(
+      quoteLockedMarketplaceFeeTerms(
+        {
+          marketplaceSalesFeePercentageBps: 0,
+          marketplaceSalesFeeFixedAmount: "0.00",
+          marketplaceSalesFeeCapAmount: null,
+        },
+        "350.00",
+      ),
+    ).toMatchObject({ marketplaceSalesFeeUnitAmount: "0.00", sellerNetUnitAmount: "350.00" });
+  });
+});
 
 function createDb(
   options: Readonly<{

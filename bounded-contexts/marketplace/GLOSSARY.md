@@ -67,6 +67,22 @@ Examples:
 - Withdrawn
 - Sold Out
 
+## Fee Lock
+
+A **Fee Lock** is the immutable Commercial Terms formula snapshot bound to a Listing identity for a defined number of units. Marketplace records the percentage, fixed amount, per-item cap, Shipping Allowance, schedule/agreement source, and resolution time; Ordering copies the resulting locked fee amounts into the Order fact consumed by Settlement.
+
+## Fee-Lock Tranche
+
+A **Fee-Lock Tranche** is a contiguous quantity of units on one Listing that shares one Fee Lock. Listing creation makes the first tranche. Increasing quantity adds a tranche at current Commercial Terms without changing earlier tranches. Quantity reductions retire the most recently added units first, and retired capacity never regains its former lock.
+
+## Lock-Preserving Mutation
+
+A **Lock-Preserving Mutation** changes a Listing without changing its identity or locked terms. Price edits requote every tranche from its own locked formula. Purchase-limit edits, Listing Photo additions, pause, automated unlisting, and resuming the same Listing preserve its Fee Locks.
+
+## Lock-Breaking Mutation
+
+A **Lock-Breaking Mutation** requires a new Listing identity and current Commercial Terms. Withdrawal is terminal; relisting, delete-and-recreate behavior, inventory-item substitution, Product substitution, and condition-selection substitution must create a new Listing. Marketplace has no command that mutates those identity fields in place.
+
 ## High-Dollar Listing Publication Policy
 
 A **High-Dollar Listing Publication Policy** is the Marketplace-owned publication rule that blocks expensive Listings from becoming Active until seller evidence and account trust signals clear.

@@ -1,6 +1,6 @@
 # Marketplace Sales Fee Confirmation
 
-Marketplace listing fees are account-confirmed, per-unit sales fee snapshots. A listing keeps the fee snapshot that was confirmed when it was first published. Partial sales, pause, resume, and sold-out availability changes do not recalculate fees.
+Marketplace listing fees are account-confirmed Commercial Terms formula snapshots bound to Listing identity at creation. Price changes requote the locked formula; they never resolve a later schedule. Partial sales, pause, resume, and sold-out availability changes do not recalculate terms.
 
 ## Fee Ownership
 
@@ -10,12 +10,13 @@ Marketplace owns seller confirmation. Ordering consumes Marketplace snapshots an
 
 ## Listing Flow
 
-1. Draft creation stores the latest non-binding marketplace sales fee quote.
-2. Publish requires the listing account to submit the current `feeQuoteFingerprint`.
-3. If the fingerprint is missing or stale, Marketplace returns `409 fee_quote_stale` with `currentQuote`.
-4. First publish locks the quote as the listing's per-unit marketplace sales fee snapshot.
-5. Active price edits and quantity-cap edits require the same confirmed quote flow and replace the locked snapshot.
-6. Partial sales and availability changes do not refresh the snapshot.
+1. Draft creation resolves Commercial Terms and locks that formula for every unit in the initial quantity.
+2. Publish is a lifecycle transition only; it preserves the creation-time lock.
+3. Price edits requote each Fee-Lock Tranche locally from its locked percentage, fixed amount, and cap.
+4. Quantity increases are restocks. The seller confirms a current quote, and only the added units receive a new Fee-Lock Tranche.
+5. Quantity reductions retire the newest tranche units first. A later increase is a new restock at current terms.
+6. Purchase-limit edits, Listing Photo additions, pause, automated unlisting, resume, partial sales, and availability changes preserve the lock.
+7. Withdrawal is terminal. Relist, delete-and-recreate, inventory-item substitution, Product substitution, and condition-selection substitution require a new Listing identity and current terms.
 
 ## Offer Flow
 
@@ -34,15 +35,13 @@ Content-Type: application/json
 }
 ```
 
-Publish with the confirmed quote:
+Publish the already fee-locked draft:
 
 ```http
 POST /api/marketplace/account/listings/lst_123/publish
 Content-Type: application/json
 
-{
-  "feeQuoteFingerprint": "10.00|0.50|9.50|sch_standard|"
-}
+{}
 ```
 
 Stale quote response:

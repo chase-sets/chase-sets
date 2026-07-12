@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordPlatformPostWriteConsistencyEvent } from "@chase-sets/platform-runtime/post-write-consistency";
+import { centsToMoneyAmount, moneyToCents } from "@chase-sets/primitives/money";
 import {
   applyFeeFormula,
   assert,
@@ -20,11 +21,40 @@ export type ResolvedCommercialTerms = Readonly<{
   basisAmount: string;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
+  marketplaceSalesFeePercentageBps: number;
+  marketplaceSalesFeeFixedAmount: string;
+  marketplaceSalesFeeCapAmount: string | null;
   shippingAllowancePercentageBps: number;
   scheduleId: string | null;
   agreementId: string | null;
   resolvedAt: string;
 }>;
+
+export type LockedMarketplaceFeeTerms = Readonly<{
+  marketplaceSalesFeePercentageBps: number;
+  marketplaceSalesFeeFixedAmount: string;
+  marketplaceSalesFeeCapAmount: string | null;
+}>;
+
+/** Requotes a listing at its recorded terms without consulting current policy. */
+export function quoteLockedMarketplaceFeeTerms(terms: LockedMarketplaceFeeTerms, rawAmount: string) {
+  const amount = normalizeMoneyAmount(rawAmount, { fieldName: "Commercial terms amount", allowZero: true });
+  const uncapped = applyFeeFormula(amount, {
+    percentageBps: terms.marketplaceSalesFeePercentageBps,
+    fixedAmount: terms.marketplaceSalesFeeFixedAmount,
+  });
+  const marketplaceSalesFeeUnitAmount =
+    terms.marketplaceSalesFeeCapAmount !== null &&
+    moneyToCents(uncapped) > moneyToCents(terms.marketplaceSalesFeeCapAmount)
+      ? centsToMoneyAmount(moneyToCents(terms.marketplaceSalesFeeCapAmount))
+      : uncapped;
+
+  return {
+    basisAmount: amount,
+    marketplaceSalesFeeUnitAmount,
+    sellerNetUnitAmount: subtractMoneyAmounts(amount, marketplaceSalesFeeUnitAmount),
+  };
+}
 
 /**
  * A per-account listing-terms session, part of the m113 repricing-at-scale
@@ -306,6 +336,9 @@ function quoteFromListingTermsBasis(basis: ListingTermsBasis, rawAmount: string)
     basisAmount: amount,
     marketplaceSalesFeeUnitAmount,
     sellerNetUnitAmount: subtractMoneyAmounts(amount, marketplaceSalesFeeUnitAmount),
+    marketplaceSalesFeePercentageBps: basis.percentageBps,
+    marketplaceSalesFeeFixedAmount: basis.fixedAmount,
+    marketplaceSalesFeeCapAmount: basis.capAmount,
     shippingAllowancePercentageBps: basis.shippingAllowancePercentageBps,
     scheduleId: basis.scheduleId,
     agreementId: basis.agreementId,
@@ -406,6 +439,9 @@ export function createNoopCommercialTermsResolver(): CommercialTermsResolver {
       basisAmount: amount,
       marketplaceSalesFeeUnitAmount: "0.00",
       sellerNetUnitAmount: amount,
+      marketplaceSalesFeePercentageBps: 0,
+      marketplaceSalesFeeFixedAmount: "0.00",
+      marketplaceSalesFeeCapAmount: null,
       shippingAllowancePercentageBps: DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
       scheduleId: null,
       agreementId: null,
@@ -455,6 +491,9 @@ export function createNoopCommercialTermsResolver(): CommercialTermsResolver {
             basisAmount: normalized,
             marketplaceSalesFeeUnitAmount: "0.00",
             sellerNetUnitAmount: normalized,
+            marketplaceSalesFeePercentageBps: 0,
+            marketplaceSalesFeeFixedAmount: "0.00",
+            marketplaceSalesFeeCapAmount: null,
             shippingAllowancePercentageBps: DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
             scheduleId: null,
             agreementId: null,

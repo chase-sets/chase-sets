@@ -48,11 +48,22 @@ export type MarketplaceSupplyCandidate = Readonly<{
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string;
+  feeLocks?: readonly MarketplaceSupplyFeeLock[];
   availableQuantity: number;
   maxUnitsPerOrder: number | null;
   maxUnitsPerDay: number | null;
   maxUnitsPerCustomerAccount: number | null;
   updatedAt: string;
+}>;
+
+export type MarketplaceSupplyFeeLock = Readonly<{
+  unitCount: number;
+  marketplaceSalesFeeUnitAmount: string;
+  sellerNetUnitAmount: string;
+  shippingAllowancePercentageBps: number;
+  termsScheduleId: string | null;
+  termsAgreementId: string | null;
+  termsResolvedAt: string;
 }>;
 
 export type ShippingQuoteResult = Readonly<{

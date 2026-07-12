@@ -81,6 +81,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string | null;
+        feeLocks?: unknown;
         quantityCap: number;
         purchaseLimits?: {
           maxUnitsPerOrder: number | null;
@@ -112,6 +113,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            terms_schedule_id,
            terms_agreement_id,
            terms_resolved_at,
+           fee_locks,
            quantity_cap,
            max_units_per_order,
            max_units_per_day,
@@ -120,7 +122,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            status,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, COALESCE((SELECT status FROM ordering_seller_listing_availability_inputs WHERE account_id = $2), 'available'), 'draft', $26
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, COALESCE((SELECT status FROM ordering_seller_listing_availability_inputs WHERE account_id = $2), 'available'), 'draft', $27
          )
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
@@ -142,7 +144,8 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
              terms_schedule_id = EXCLUDED.terms_schedule_id,
              terms_agreement_id = EXCLUDED.terms_agreement_id,
-             terms_resolved_at = EXCLUDED.terms_resolved_at,
+              terms_resolved_at = EXCLUDED.terms_resolved_at,
+              fee_locks = EXCLUDED.fee_locks,
              quantity_cap = EXCLUDED.quantity_cap,
              max_units_per_order = EXCLUDED.max_units_per_order,
              max_units_per_day = EXCLUDED.max_units_per_day,
@@ -174,6 +177,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.termsScheduleId,
           data.termsAgreementId,
           data.termsResolvedAt,
+          JSON.stringify(Array.isArray(data.feeLocks) ? data.feeLocks : []),
           data.quantityCap,
           data.purchaseLimits?.maxUnitsPerOrder ?? null,
           data.purchaseLimits?.maxUnitsPerDay ?? null,
@@ -215,6 +219,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string | null;
+        feeLocks?: unknown;
       };
 
       await db.query(
@@ -225,8 +230,9 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              shipping_allowance_percentage_bps = $5,
              terms_schedule_id = $6,
              terms_agreement_id = $7,
-             terms_resolved_at = $8,
-             updated_at = $9
+              terms_resolved_at = $8,
+              fee_locks = $9,
+              updated_at = $10
          WHERE listing_id = $1`,
         [
           event.streamId.replace("marketplace.listing-", ""),
@@ -237,6 +243,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.termsScheduleId,
           data.termsAgreementId,
           data.termsResolvedAt,
+          JSON.stringify(Array.isArray(data.feeLocks) ? data.feeLocks : []),
           event.timing.recordedAt,
         ],
       );
@@ -255,6 +262,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string | null;
+        feeLocks?: unknown;
       };
       const hasPurchaseLimits = data.purchaseLimits !== undefined;
 
@@ -266,11 +274,12 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              shipping_allowance_percentage_bps = $5,
              terms_schedule_id = $6,
              terms_agreement_id = $7,
-             terms_resolved_at = $8,
-             max_units_per_order = CASE WHEN $9 THEN $10 ELSE max_units_per_order END,
-             max_units_per_day = CASE WHEN $9 THEN $11 ELSE max_units_per_day END,
-             max_units_per_customer_account = CASE WHEN $9 THEN $12 ELSE max_units_per_customer_account END,
-             updated_at = $13
+              terms_resolved_at = $8,
+              fee_locks = $9,
+              max_units_per_order = CASE WHEN $10 THEN $11 ELSE max_units_per_order END,
+              max_units_per_day = CASE WHEN $10 THEN $12 ELSE max_units_per_day END,
+              max_units_per_customer_account = CASE WHEN $10 THEN $13 ELSE max_units_per_customer_account END,
+              updated_at = $14
          WHERE listing_id = $1`,
         [
           event.streamId.replace("marketplace.listing-", ""),
@@ -281,6 +290,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.termsScheduleId,
           data.termsAgreementId,
           data.termsResolvedAt,
+          JSON.stringify(Array.isArray(data.feeLocks) ? data.feeLocks : []),
           hasPurchaseLimits,
           data.purchaseLimits?.maxUnitsPerOrder ?? null,
           data.purchaseLimits?.maxUnitsPerDay ?? null,
@@ -315,35 +325,12 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
       );
     },
     "marketplace.listing.published": async (event) => {
-      const data = event.data as {
-        marketplaceSalesFeeUnitAmount: string;
-        sellerNetUnitAmount: string;
-        shippingAllowancePercentageBps?: number;
-        termsScheduleId: string | null;
-        termsAgreementId: string | null;
-        termsResolvedAt: string | null;
-      };
       await db.query(
         `UPDATE ordering_market_listing_inputs
          SET status = 'active',
-             marketplace_sales_fee_unit_amount = $2,
-             seller_net_unit_amount = $3,
-             shipping_allowance_percentage_bps = $4,
-             terms_schedule_id = $5,
-             terms_agreement_id = $6,
-             terms_resolved_at = $7,
-             updated_at = $8
+             updated_at = $2
          WHERE listing_id = $1`,
-        [
-          event.streamId.replace("marketplace.listing-", ""),
-          data.marketplaceSalesFeeUnitAmount,
-          data.sellerNetUnitAmount,
-          data.shippingAllowancePercentageBps ?? 500,
-          data.termsScheduleId,
-          data.termsAgreementId,
-          data.termsResolvedAt,
-          event.timing.recordedAt,
-        ],
+        [event.streamId.replace("marketplace.listing-", ""), event.timing.recordedAt],
       );
     },
     "marketplace.listing.paused": async (event) => {
