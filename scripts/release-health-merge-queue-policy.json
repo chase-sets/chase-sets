@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "merge-queue-release-policy/v1",
+  "repository": "chase-sets/chase-sets",
+  "rulesetId": 17097957,
+  "requiredStatusChecks": ["PR Required"],
+  "mergeQueue": {
+    "merge_method": "SQUASH",
+    "max_entries_to_build": 2,
+    "min_entries_to_merge": 1,
+    "max_entries_to_merge": 2,
+    "min_entries_to_merge_wait_minutes": 0,
+    "grouping_strategy": "ALLGREEN",
+    "check_response_timeout_minutes": 60
+  }
+}

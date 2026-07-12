@@ -1,0 +1,62 @@
+name: Platform Merge Queue Posture
+
+on:
+  schedule:
+    - cron: "17 11 * * *"
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: platform-merge-queue-posture
+  cancel-in-progress: false
+
+jobs:
+  posture:
+    name: Check Merge Queue Posture
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Check merge queue posture
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-health
+          pnpm run ops -- release-health:merge-queue-posture \
+            --out artifacts/release-health/merge-queue-posture.json \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload merge queue posture artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-merge-queue-posture-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-health/merge-queue-posture.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Enforce merge queue posture
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          record="artifacts/release-health/merge-queue-posture.json"
+          if [ ! -f "$record" ]; then
+            echo "No merge queue posture artifact was written." >&2
+            exit 1
+          fi
+
+          node - "$record" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          if (record.result !== "success") {
+            console.error(`Merge queue posture drifted in ${record.drift?.length ?? 0} setting(s).`);
+            process.exitCode = 1;
+          }
+          NODE

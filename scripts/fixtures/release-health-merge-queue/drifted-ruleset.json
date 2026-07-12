@@ -1,0 +1,24 @@
+{
+  "id": 17097957,
+  "name": "Require merge queue for main",
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "required_status_checks": [{ "context": "PR Required", "integration_id": 15368 }]
+      }
+    },
+    {
+      "type": "merge_queue",
+      "parameters": {
+        "merge_method": "SQUASH",
+        "max_entries_to_build": 4,
+        "min_entries_to_merge": 1,
+        "max_entries_to_merge": 4,
+        "min_entries_to_merge_wait_minutes": 0,
+        "grouping_strategy": "ALLGREEN",
+        "check_response_timeout_minutes": 60
+      }
+    }
+  ]
+}

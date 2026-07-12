@@ -160,6 +160,10 @@ export const SUBCOMMANDS = {
     script: "release-health-flake-digest.mjs",
     description: "Weekly CI flake digest from GitHub Actions retry telemetry.",
   },
+  "release-health:merge-queue-posture": {
+    script: "release-health-merge-queue-posture.mjs",
+    description: "Read-only merge-queue ruleset posture against the checked-in release policy.",
+  },
   "release-health:report": {
     script: "release-health-report.mjs",
     description: "Aggregate release health artifacts into a summary report.",
