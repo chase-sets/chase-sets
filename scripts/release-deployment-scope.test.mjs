@@ -42,21 +42,13 @@ function failure() {
   return error;
 }
 
-function resolveWithGit({
-  eventName = "push",
-  forceDeploy = false,
-  latestMain = docsCommit,
-  productionRef,
-  changedFiles,
-}) {
+function resolveWithGit({ eventName = "push", forceDeploy = false, productionRef, changedFiles }) {
   const baseDir = path.join(process.cwd(), "repo");
   const appended = [];
   const listedDiffs = [];
   const showProductionRef = productionRef === null ? failure() : "";
   const exec = execRecorder({
     "fetch origin production": "",
-    "fetch origin main": "",
-    "rev-parse origin/main": `${latestMain}\n`,
     "show-ref --verify --quiet refs/remotes/origin/production": showProductionRef,
     "rev-parse origin/production": productionRef ? `${productionRef}\n` : "",
     [`rev-parse ${docsCommit}^`]: `${deployableCommit}\n`,
@@ -115,13 +107,14 @@ describe("release deployment scope", () => {
     expect(appended[0].value).toContain('changed_files_json=["docs/index.md"]');
   });
 
-  it("still skips stale push runs because a newer main run owns the replacement deploy", () => {
+  it("scopes a queued push even when newer main exists so the pending deploy can apply", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const appended = [];
+    const listedDiffs = [];
     const exec = execRecorder({
       "fetch origin production": "",
-      "fetch origin main": "",
-      "rev-parse origin/main": `${docsCommit}\n`,
+      "show-ref --verify --quiet refs/remotes/origin/production": failure(),
+      [`rev-parse ${deployableCommit}^`]: `${productionCommit}\n`,
     });
 
     const result = resolveReleaseDeploymentScope(
@@ -136,16 +129,20 @@ describe("release deployment scope", () => {
         cwd: baseDir,
         execFileSync: exec.execFileSync,
         appendFileSync: (outputPath, value) => appended.push({ outputPath, value }),
-        listChangedFiles: () => {
-          throw new Error("stale pushes should not be scoped");
+        listChangedFiles: (base, head) => {
+          listedDiffs.push({ base, head });
+          return ["deployables/platform-api/src/main.ts"];
         },
+        workspaces: [workspace(baseDir, "deployables", "platform-api", "@test/platform-api")],
         log: () => {},
       },
     );
 
-    expect(result.reason).toBe("stale-push");
-    expect(result.deploy).toBe(false);
-    expect(appended[0].value).toContain("deploy=false");
+    expect(result.reason).toBe("scoped");
+    expect(result.deploy).toBe(true);
+    expect(listedDiffs).toEqual([{ base: productionCommit, head: deployableCommit }]);
+    expect(appended[0].value).toContain("deploy=true");
+    expect(exec.calls).not.toContainEqual(["fetch", "origin", "main"]);
   });
 
   it("keeps manual force_deploy as an explicit deployment override", () => {

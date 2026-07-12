@@ -208,7 +208,7 @@ Release-health metadata is resolved from GitHub API evidence. The production wor
 
 Profile-aware releases should populate `runtimeProfile` from the same topology evidence described in [Deployable Runtime Profiles](../architecture/deployable-runtime-profiles.md). The selected production mode, API profile, worker profile, and provisioned/active/exposed context counts let operators distinguish ordinary code deploys from capability exposure changes and database lifecycle changes.
 
-Staging abort records are release evidence, not production releases. Treat `attempt.phase: "staging"` with `attempt.result: "failure"` or `"cancelled"` as an abort that must be reviewed before queue tuning. Treat `attempt.reason: "staging-not-deployed"` as a stale skip; it should not count as a production failure, but repeated stale skips are a signal that deployment cadence and queue latency need review.
+Staging abort records are release evidence, not production releases. Treat `attempt.phase: "staging"` with `attempt.result: "failure"` or `"cancelled"` as an abort that must be reviewed before queue tuning. The staging record's `applied` field is the authoritative application signal; a false value with a skipped result is a no-op that should not count as a production failure, but repeated no-op skips are a signal that deployment cadence and queue latency need review.
 
 CI retry posture is resolved from GitHub Actions workflow runs for the release commit. `run_attempt > 1` contributes to `ci.retryCount`; retried runs that eventually pass contribute to `ci.flakyFailureCount`. The release-health report lists the top flaky workflow names and blocks batch-size increase when CI retry/flake rate is unhealthy.
 

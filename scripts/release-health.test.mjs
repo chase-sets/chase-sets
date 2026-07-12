@@ -89,6 +89,7 @@ describe("release health summary", () => {
         startedAt: "2026-05-31T11:56:00.000Z",
         completedAt: "2026-05-31T12:05:00.000Z",
         result: "success",
+        applied: true,
       },
       canary: {
         startedAt: null,
@@ -315,6 +316,7 @@ describe("release health summary", () => {
       queueBatchSize: 1,
       deploymentRequired: true,
       stagingResult: "skipped",
+      stagingApplied: false,
       canaryResult: "skipped",
       canarySkippedReason: "staging-not-deployed",
       productionResult: "skipped",
@@ -331,7 +333,7 @@ describe("release health summary", () => {
 
     expect(result.passesReleaseHealthGate).toBe(true);
     expect(result.record).toMatchObject({
-      staging: { result: "skipped" },
+      staging: { result: "skipped", applied: false },
       canary: { result: "skipped", skippedReason: "staging-not-deployed" },
       production: { result: "skipped" },
       attempt: {
@@ -478,6 +480,7 @@ describe("release health summary", () => {
       EXPOSURE_POSTURE_CATEGORIES: "live-money-provider,tax-posture",
       DEPLOYMENT_REQUIRED: "true",
       STAGING_RESULT: "success",
+      STAGING_APPLIED: "false",
       STAGING_STARTED_AT: "2026-05-31T11:11:00.000Z",
       STAGING_COMPLETED_AT: "2026-05-31T11:20:00.000Z",
       CANARY_RESULT: "skipped",
