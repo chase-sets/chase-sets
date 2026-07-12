@@ -1,4 +1,4 @@
-import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, PayoutId } from "@chase-sets/primitives/typed-ids";
 import type {
   CreatedPayoutAccountManagementSession,
   CreatedPayoutSetupLink,
@@ -197,6 +197,7 @@ export function createFakeMoneyMovementGateway(
       const event = JSON.parse(input.rawBody) as {
         kind?: string;
         providerEventId?: string;
+        payoutId?: string;
         providerPayoutReference?: string;
         providerReference?: string;
         providerStatus?: string;
@@ -212,6 +213,7 @@ export function createFakeMoneyMovementGateway(
         return {
           kind: "payout-completed",
           providerEventId,
+          payoutId: (event.payoutId as PayoutId | undefined) ?? null,
           providerPayoutReference: event.providerPayoutReference,
           providerStatus: event.providerStatus ?? "paid",
           occurredAt: new Date().toISOString(),
@@ -227,6 +229,7 @@ export function createFakeMoneyMovementGateway(
         return {
           kind: "payout-failed",
           providerEventId,
+          payoutId: (event.payoutId as PayoutId | undefined) ?? null,
           providerPayoutReference: event.providerPayoutReference,
           providerStatus: "failed",
           failureCode: "fake_failure",

@@ -245,4 +245,49 @@ describe("platform runtime config schema", () => {
       moneyMovement: { kind: "stripe", secretKey: "sk_live_123", webhookSecret: "whsec_connect_live" },
     });
   });
+
+  it("loads comma-separated previous Stripe webhook secrets for overlap rotation", () => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_current";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_current";
+    process.env.STRIPE_WEBHOOK_SECRET_PREVIOUS = " whsec_previous_1, whsec_previous_2 ";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET_PREVIOUS = "whsec_connect_previous";
+
+    expect(
+      loadStripeProviderConfig({
+        productionLike: false,
+        deploymentEnvironment: "test",
+        productionMissingConfigError: "production Stripe config is required.",
+      }),
+    ).toMatchObject({
+      paymentProcessor: {
+        kind: "stripe",
+        previousWebhookSecrets: ["whsec_previous_1", "whsec_previous_2"],
+      },
+      moneyMovement: {
+        kind: "stripe",
+        previousWebhookSecrets: ["whsec_connect_previous"],
+      },
+    });
+  });
+
+  it("shares previous Payments webhook secrets with non-production Connect fallback", () => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_current";
+    process.env.STRIPE_WEBHOOK_SECRET_PREVIOUS = "whsec_previous";
+
+    expect(
+      loadStripeProviderConfig({
+        productionLike: false,
+        deploymentEnvironment: "test",
+        productionMissingConfigError: "production Stripe config is required.",
+      }).moneyMovement,
+    ).toMatchObject({
+      kind: "stripe",
+      webhookSecret: "whsec_current",
+      previousWebhookSecrets: ["whsec_previous"],
+    });
+  });
 });

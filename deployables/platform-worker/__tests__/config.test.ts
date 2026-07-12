@@ -17,7 +17,9 @@ const envNames = [
   "STRIPE_SECRET_KEY",
   "STRIPE_PUBLISHABLE_KEY",
   "STRIPE_WEBHOOK_SECRET",
+  "STRIPE_WEBHOOK_SECRET_PREVIOUS",
   "STRIPE_CONNECT_WEBHOOK_SECRET",
+  "STRIPE_CONNECT_WEBHOOK_SECRET_PREVIOUS",
   "STRIPE_CONNECT_ACCOUNTS_API",
   "STRIPE_API_BASE_URL",
   "EASYPOST_API_KEY",
@@ -414,7 +416,9 @@ describe("platform worker config", () => {
     process.env.STRIPE_SECRET_KEY = "sk_test_shared";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_shared";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_shared";
+    process.env.STRIPE_WEBHOOK_SECRET_PREVIOUS = "whsec_previous_shared";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_shared";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET_PREVIOUS = "whsec_connect_previous_shared";
     process.env.STRIPE_API_BASE_URL = "https://stripe.shared.test";
     process.env.EASYPOST_API_KEY = "EZAK_shared";
     process.env.EASYPOST_API_BASE_URL = "https://api.easypost.shared.test/v2";
@@ -449,6 +453,7 @@ describe("platform worker config", () => {
         max: 18,
         idleTimeoutMillis: 45_000,
         connectionTimeoutMillis: 7_000,
+        idleInTransactionSessionTimeoutMillis: undefined,
       },
       catalogAssetStorage: {
         kind: "s3",
@@ -465,12 +470,14 @@ describe("platform worker config", () => {
         secretKey: "sk_test_shared",
         publishableKey: "pk_test_shared",
         webhookSecret: "whsec_shared",
+        previousWebhookSecrets: ["whsec_previous_shared"],
         apiBaseUrl: "https://stripe.shared.test",
       },
       moneyMovement: {
         kind: "stripe",
         secretKey: "sk_test_shared",
         webhookSecret: "whsec_connect_shared",
+        previousWebhookSecrets: ["whsec_connect_previous_shared"],
         connectAccountsApi: "v2",
         apiBaseUrl: "https://stripe.shared.test",
       },
@@ -827,6 +834,7 @@ describe("platform worker config", () => {
       kind: "stripe",
       secretKey: "sk_test_123",
       webhookSecret: "whsec_connect_test",
+      previousWebhookSecrets: [],
       connectAccountsApi: "v1",
       apiBaseUrl: undefined,
     });

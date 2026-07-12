@@ -40,6 +40,14 @@ describe("payment processing contract", () => {
       }),
       retrieveSavedPaymentMethod: async () => null,
       detachSavedPaymentMethod: async () => null,
+      cancelPayment: async (processorPaymentReference: string) => ({
+        processorName: "stripe",
+        processorPaymentKind: "payment-intent",
+        processorPaymentReference,
+        processorStatus: "canceled",
+        outcome: "cancelled",
+        occurredAt: "2026-07-12T00:00:00.000Z",
+      }),
       retrievePaymentResult: async () => null,
       createRefund: async () => ({
         processorName: "stripe",

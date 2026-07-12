@@ -35,6 +35,7 @@ export type StripePaymentProcessorGatewayOptions = Readonly<{
   secretKey: string;
   publishableKey: string;
   webhookSecret: string;
+  previousWebhookSecrets?: readonly string[];
   apiBaseUrl?: string;
   webhookToleranceSeconds?: number;
   statementDescriptorSuffix?: string;
@@ -693,22 +694,22 @@ function parseStripeSignature(signatureHeader: string | null) {
     .find((part) => part.trim().startsWith("t="))
     ?.split("=")[1]
     ?.trim();
-  const signature = parts
-    .find((part) => part.trim().startsWith("v1="))
-    ?.split("=")[1]
-    ?.trim();
+  const signatures = parts
+    .filter((part) => part.trim().startsWith("v1="))
+    .map((part) => part.split("=")[1]?.trim())
+    .filter((signature): signature is string => Boolean(signature));
 
-  if (!timestamp || !signature) {
+  if (!timestamp || signatures.length === 0) {
     throw new Error("Stripe webhook signature is malformed.");
   }
 
-  return { timestamp, signature };
+  return { timestamp, signatures };
 }
 
 function verifyStripeSignature(
   rawBody: string,
   signatureHeader: string | null,
-  webhookSecret: string,
+  webhookSecrets: readonly string[],
   toleranceSeconds: number,
 ) {
   const parsed = parseStripeSignature(signatureHeader);
@@ -722,11 +723,18 @@ function verifyStripeSignature(
   }
 
   const payload = `${parsed.timestamp}.${rawBody}`;
-  const expected = createHmac("sha256", webhookSecret).update(payload).digest("hex");
-  const expectedBuffer = Buffer.from(expected, "hex");
-  const receivedBuffer = Buffer.from(parsed.signature, "hex");
+  let verified = false;
+  for (const webhookSecret of webhookSecrets) {
+    const expectedBuffer = Buffer.from(createHmac("sha256", webhookSecret).update(payload).digest("hex"), "hex");
+    for (const signature of parsed.signatures) {
+      const receivedBuffer = Buffer.from(signature, "hex");
+      verified =
+        (expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer)) ||
+        verified;
+    }
+  }
 
-  if (expectedBuffer.length !== receivedBuffer.length || !timingSafeEqual(expectedBuffer, receivedBuffer)) {
+  if (!verified) {
     throw new Error("Stripe webhook signature verification failed.");
   }
 }
@@ -985,6 +993,19 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         failureMessage: null,
         occurredAt,
       };
+    case "payment_intent.canceled":
+      return {
+        eventId: event.id,
+        kind: "payment-cancelled",
+        processorName: "stripe",
+        processorPaymentKind: "payment-intent",
+        processorPaymentReference,
+        internalPaymentId,
+        processorStatus,
+        failureCode: null,
+        failureMessage: "Payment intent was canceled by Stripe.",
+        occurredAt,
+      };
     case "setup_intent.succeeded":
       return {
         eventId: event.id,
@@ -1123,6 +1144,7 @@ export function createStripePaymentProcessorGateway(
   const authorization = `Basic ${encodeBasicAuth(options.secretKey)}`;
   const webhookToleranceSeconds = options.webhookToleranceSeconds ?? 300;
   const statementDescriptorSuffix = resolveStatementDescriptorSuffix(options.statementDescriptorSuffix);
+  const webhookSecrets = [options.webhookSecret, ...(options.previousWebhookSecrets ?? [])];
 
   const publicConfiguration: PaymentProcessorPublicConfig = {
     processorName: "stripe",
@@ -1530,6 +1552,21 @@ export function createStripePaymentProcessorGateway(
           }
         : null;
     },
+    async cancelPayment(processorPaymentReference: string) {
+      const reference = normalizeOptionalText(processorPaymentReference);
+      if (!reference || !reference.startsWith("pi_")) {
+        throw new Error("Only direct payment intents can be cancelled through the payment processor gateway.");
+      }
+      const intent = await stripeRequest<StripePaymentIntentResponse>(
+        `/v1/payment_intents/${encodeURIComponent(reference)}/cancel`,
+        { method: "POST" },
+      );
+      const result = mapPaymentIntentReconciliationResult(intent);
+      if (!result) {
+        throw new Error("Stripe payment intent cancellation did not return a payment result.");
+      }
+      return result;
+    },
     async retrievePaymentResultByPaymentId(paymentId) {
       const normalizedPaymentId = normalizeOptionalText(paymentId);
       if (!normalizedPaymentId) {
@@ -1632,7 +1669,7 @@ export function createStripePaymentProcessorGateway(
       };
     },
     async parseWebhook(input) {
-      verifyStripeSignature(input.rawBody, input.signatureHeader, options.webhookSecret, webhookToleranceSeconds);
+      verifyStripeSignature(input.rawBody, input.signatureHeader, webhookSecrets, webhookToleranceSeconds);
       const event = JSON.parse(input.rawBody) as StripeEventEnvelope;
       const mapped = mapWebhookEvent(event);
       if (!mapped) {

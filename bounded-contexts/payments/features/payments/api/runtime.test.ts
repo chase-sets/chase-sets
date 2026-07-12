@@ -172,6 +172,14 @@ function createProcessorGateway() {
     })),
     retrieveSavedPaymentMethod: vi.fn(async () => null),
     detachSavedPaymentMethod: vi.fn(async () => null),
+    cancelPayment: vi.fn(async (processorPaymentReference: string) => ({
+      processorName: "stripe" as const,
+      processorPaymentKind: "payment-intent" as const,
+      processorPaymentReference,
+      processorStatus: "canceled",
+      outcome: "cancelled" as const,
+      occurredAt: "2026-07-12T00:00:00.000Z",
+    })),
     retrievePaymentResult: vi.fn(async () => null),
     retrievePaymentResultByPaymentId: vi.fn(async () => null),
     createRefund: vi.fn(async () => {
@@ -941,6 +949,9 @@ describe("payment runtime", () => {
       })),
       retrieveSavedPaymentMethod: vi.fn(async () => null),
       detachSavedPaymentMethod: vi.fn(async () => null),
+      cancelPayment: vi.fn(async () => {
+        throw new Error("Payment cancellation is not part of this test.");
+      }),
       retrievePaymentResult: vi.fn(async () => null),
       retrievePaymentResultByPaymentId: vi.fn(async () => null),
       createRefund: vi.fn(async () => {
@@ -2362,7 +2373,7 @@ describe("payment runtime", () => {
       repaired: 1,
       attention: 0,
       provider_operations_checked: 0,
-    });
+    } as never);
     expect(reconciliationSummaries.at(-1)).toMatchObject({
       repaired: 1,
       attention_items: [],
@@ -2394,6 +2405,134 @@ describe("payment runtime", () => {
       "payments.payment-captured",
     ]);
     expect(webhookEvents).toHaveLength(1);
+  });
+
+  it("cancels direct PaymentIntent payments from Stripe webhooks and ignores session-owned intent cancellations", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const paymentsById = new Map<string, Record<string, unknown>>();
+    const { db, webhookEvents } = createReconciliationDb({
+      paymentById: (paymentId) => paymentsById.get(paymentId) ?? null,
+    });
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+    const payment = await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+      },
+      context,
+    );
+    paymentsById.set(payment.payment_id, payment);
+    processorGateway.parseWebhook.mockResolvedValue({
+      eventId: "evt_pi_cancelled",
+      kind: "payment-cancelled",
+      processorName: "stripe",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: payment.processor_payment_reference,
+      internalPaymentId: payment.payment_id,
+      processorStatus: "canceled",
+      failureCode: null,
+      failureMessage: null,
+      occurredAt: "2026-07-12T00:00:00.000Z",
+    } as never);
+
+    await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
+      received: true,
+      ignored: false,
+    });
+    expect(readAllEvents().map((event) => event.eventType)).toEqual([
+      "payments.payment-created",
+      "payments.payment-cancelled",
+    ]);
+    expect(webhookEvents).toHaveLength(1);
+
+    const sessionPayment = { ...payment, payment_id: "pay_session", processor_payment_kind: "checkout-session" };
+    paymentsById.set("pay_session", sessionPayment);
+    processorGateway.parseWebhook.mockResolvedValue({
+      eventId: "evt_session_pi_cancelled",
+      kind: "payment-cancelled",
+      processorName: "stripe",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: "pi_session_owned",
+      internalPaymentId: "pay_session",
+      processorStatus: "canceled",
+      failureCode: null,
+      failureMessage: null,
+      occurredAt: "2026-07-12T00:01:00.000Z",
+    } as never);
+    await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
+      received: true,
+      ignored: true,
+    });
+    expect(readAllEvents().map((event) => event.eventType)).toEqual([
+      "payments.payment-created",
+      "payments.payment-cancelled",
+    ]);
+    expect(webhookEvents).toHaveLength(2);
+  });
+
+  it("reconciles a direct PaymentIntent already canceled at Stripe", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const paymentsById = new Map<string, Record<string, unknown>>();
+    let stalePayments: Record<string, unknown>[] = [];
+    const { db } = createReconciliationDb({
+      paymentsNeedingReconciliation: () => stalePayments,
+      paymentById: (paymentId) => paymentsById.get(paymentId) ?? null,
+    });
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+    const payment = await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+      },
+      context,
+    );
+    paymentsById.set(payment.payment_id, payment);
+    stalePayments = [payment];
+    processorGateway.retrievePaymentResult.mockResolvedValue({
+      processorName: "stripe",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: payment.processor_payment_reference,
+      processorStatus: "canceled",
+      outcome: "cancelled",
+      occurredAt: "2026-07-12T00:02:00.000Z",
+      internalPaymentId: payment.payment_id,
+    } as never);
+
+    await expect(services.scanPaymentsNeedingReconciliation({ limit: 10 }, context)).resolves.toMatchObject({
+      checked: 1,
+      repaired: 1,
+      attention: 0,
+    });
+    expect(readAllEvents().map((event) => event.eventType)).toEqual([
+      "payments.payment-created",
+      "payments.payment-cancelled",
+    ]);
   });
 
   it("marks an orphaned pending provider operation failed when support-safe provider lookup finds nothing", async () => {

@@ -40,7 +40,7 @@ function createEventStore() {
       },
     ),
     readStream: vi.fn(async (input: { streamId: string }) => streams.get(input.streamId) ?? []),
-    readAll: vi.fn(async () => []),
+    readAll: vi.fn(async () => [...streams.values()].flat()),
   };
 }
 
@@ -821,6 +821,140 @@ describe("payout readiness runtime", () => {
         kind: "payout-readiness-webhook-ignored",
         providerReference: "acct_unknown",
         safeCategory: "missing_provider_account",
+      }),
+    );
+  });
+
+  it("records account webhooks from committed readiness before its projection catches up", async () => {
+    const eventStore = createEventStore();
+    const services = createPayoutReadinessRuntime({
+      eventStore: eventStore as never,
+      checkpointStore: {
+        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+        saveCheckpoint: vi.fn(async () => {}),
+      },
+      db: { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) } as never,
+      moneyMovementGateway: {
+        providerName: "stripe",
+      } as never,
+    });
+
+    await services.recordProviderReadiness(
+      {
+        accountId: "acc_seller" as never,
+        status: "pending",
+        providerReference: "acct_before_projection",
+        contactEmail: "seller@example.test",
+        recordedAt: "2026-06-01T17:00:00.000Z",
+      },
+      context,
+    );
+
+    await expect(
+      services.recordProviderReadinessFromWebhook(
+        {
+          providerReference: "acct_before_projection",
+          readiness: {
+            providerReference: "acct_before_projection",
+            contactEmail: "seller@example.test",
+            onboardingStatus: "complete",
+            transferCapabilityStatus: "active",
+            payoutCapabilityStatus: "active",
+            payoutDestinationStatus: "ready",
+            payoutAccountDashboard: "none",
+            lossesCollector: "application",
+            feesCollector: "application",
+            requirementsCollector: "application",
+            blockingRequirements: [],
+            advisoryRequirements: ["individual.verification.document"],
+            disabledReason: null,
+            requirementsDeadline: "2026-08-01T00:00:00.000Z",
+          },
+          recordedAt: "2026-06-01T17:01:00.000Z",
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ accountId: "acc_seller" });
+
+    expect(eventStore.appendToStream).toHaveBeenCalledTimes(2);
+    expect(eventStore.appendToStream).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        events: [
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              status: "ready",
+              missingRequirements: [],
+              advisoryRequirements: ["individual.verification.document"],
+              disabledReason: null,
+              requirementsDeadline: "2026-08-01T00:00:00.000Z",
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("fails safe when a webhook omits provider requirement arrays", async () => {
+    const eventStore = createEventStore();
+    const services = createPayoutReadinessRuntime({
+      eventStore: eventStore as never,
+      checkpointStore: {
+        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+        saveCheckpoint: vi.fn(async () => {}),
+      },
+      db: {
+        query: vi.fn(async () => ({
+          rows: [
+            {
+              account_id: "acc_seller",
+              contact_email: "seller@example.test",
+              payout_destination_fingerprint: null,
+              payout_destination_changed_at: null,
+            },
+          ],
+          rowCount: 1,
+        })),
+      } as never,
+      moneyMovementGateway: {
+        providerName: "stripe",
+      } as never,
+    });
+
+    await expect(
+      services.recordProviderReadinessFromWebhook(
+        {
+          providerReference: "acct_missing_requirements",
+          readiness: {
+            providerReference: "acct_missing_requirements",
+            onboardingStatus: "complete",
+            transferCapabilityStatus: "active",
+            payoutCapabilityStatus: "active",
+            payoutDestinationStatus: "ready",
+            payoutAccountDashboard: "none",
+            lossesCollector: "application",
+            feesCollector: "application",
+            requirementsCollector: "application",
+            disabledReason: null,
+            requirementsDeadline: null,
+          } as never,
+          recordedAt: "2026-06-01T17:01:00.000Z",
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ accountId: "acc_seller" });
+
+    expect(eventStore.appendToStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        events: [
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              status: "pending",
+              missingRequirements: [],
+              advisoryRequirements: [],
+            }),
+          }),
+        ],
       }),
     );
   });

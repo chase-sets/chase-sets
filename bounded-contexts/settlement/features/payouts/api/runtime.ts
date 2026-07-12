@@ -523,7 +523,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
   const operationsRecorder = deps.operationsRecorder ?? createNoopSettlementOperationsRecorder();
   const destinationFrictionPolicy = payoutDestinationFrictionPolicy(deps.payoutDestinationFrictionPolicy);
   const sensitiveActionVerifier = deps.sensitiveActionVerifier ?? (async () => false);
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<PayoutEvent>(),
     initialState: () => initialPayoutState,
@@ -547,6 +547,14 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       return false;
     }
     return sensitiveActionVerifier(input);
+  }
+
+  async function getCommittedPayout(payoutId: PayoutId | null) {
+    if (!payoutId) {
+      return null;
+    }
+    const loaded = await repository.load(`settlement.payout-${payoutId}`);
+    return loaded.state.payoutId ? requirePayoutSnapshot(loaded.state, loaded.version) : null;
   }
 
   async function recordPayoutProviderReferences(
@@ -720,7 +728,8 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       case "payout-completed": {
         const payout =
           (await getPayoutByProviderPayoutReference(deps.db, event.providerPayoutReference)) ??
-          (await getPayoutByProviderOperationReference(deps.db, event.providerPayoutReference));
+          (await getPayoutByProviderOperationReference(deps.db, event.providerPayoutReference)) ??
+          (await getCommittedPayout(event.payoutId));
         if (!payout) {
           await recordOperation({
             kind: "money-movement-webhook-ignored",
@@ -777,7 +786,8 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       case "payout-failed": {
         const payout =
           (await getPayoutByProviderPayoutReference(deps.db, event.providerPayoutReference)) ??
-          (await getPayoutByProviderOperationReference(deps.db, event.providerPayoutReference));
+          (await getPayoutByProviderOperationReference(deps.db, event.providerPayoutReference)) ??
+          (await getCommittedPayout(event.payoutId));
         if (!payout) {
           await recordOperation({
             kind: "money-movement-webhook-ignored",
@@ -807,6 +817,8 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             providerFailureCode: event.failureCode,
             providerFailureMessage: event.failureMessage,
             failedAt: event.occurredAt,
+            amount: payout.amount,
+            currencyCode: payout.currency_code,
           },
           context,
         );
@@ -822,14 +834,18 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         return { received: true, ignored: false };
       }
       case "payout-readiness-updated":
-        await deps.payoutReadiness.recordProviderReadinessFromWebhook(
-          {
-            providerReference: event.providerReference,
-            readiness: event.readiness,
-            recordedAt: event.occurredAt,
-          },
-          context,
-        );
+        if (
+          !(await deps.payoutReadiness.recordProviderReadinessFromWebhook(
+            {
+              providerReference: event.providerReference,
+              readiness: event.readiness,
+              recordedAt: event.occurredAt,
+            },
+            context,
+          ))
+        ) {
+          throw new SettlementDomainError("Payout readiness target is not ready for provider webhook processing.");
+        }
         return { received: true, ignored: false };
     }
   }

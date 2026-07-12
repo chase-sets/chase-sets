@@ -1367,6 +1367,7 @@ describe("money movement adapters", () => {
         object: {
           id: "po_123",
           status: "failed",
+          metadata: { payout_id: "pyo_123" },
           failure_code: "account_closed",
           failure_message: "The account is closed.",
         },
@@ -1381,6 +1382,7 @@ describe("money movement adapters", () => {
     ).resolves.toEqual({
       kind: "payout-failed",
       providerEventId: "stripe:payout.failed:po_123",
+      payoutId: "pyo_123",
       providerPayoutReference: "po_123",
       providerStatus: "failed",
       failureCode: "account_closed",
@@ -1598,5 +1600,52 @@ describe("money movement adapters", () => {
         signatureHeader: stripeSignature(rawBody, "whsec_test"),
       }),
     ).rejects.toThrow("Stripe webhook signature timestamp is outside tolerance.");
+  });
+
+  it("verifies every v1 signature and accepts configured previous secrets during rotation", async () => {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const rawBody = JSON.stringify({
+      id: "evt_rotated",
+      type: "payout.paid",
+      created: timestamp,
+      data: { object: { id: "po_rotated", status: "paid" } },
+    });
+    const previousDigest = stripeSignature(rawBody, "whsec_previous", timestamp).split("v1=")[1];
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_current",
+      previousWebhookSecrets: ["whsec_previous"],
+    });
+
+    await expect(
+      adapter.parseMoneyMovementWebhook({
+        rawBody,
+        signatureHeader: `t=${timestamp},v1=${"0".repeat(64)},v1=${previousDigest}`,
+      }),
+    ).resolves.toMatchObject({ providerEventId: "evt_rotated", providerPayoutReference: "po_rotated" });
+
+    const withoutPrevious = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_current",
+    });
+    await expect(
+      withoutPrevious.parseMoneyMovementWebhook({ rawBody, signatureHeader: `t=${timestamp},v1=${previousDigest}` }),
+    ).rejects.toThrow("Stripe webhook signature verification failed.");
+  });
+
+  it("rejects tampered webhook payloads even when the original payload was signed", async () => {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const originalBody = JSON.stringify({ type: "payout.paid", data: { object: { id: "po_original" } } });
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+    });
+
+    await expect(
+      adapter.parseMoneyMovementWebhook({
+        rawBody: `${originalBody} `,
+        signatureHeader: stripeSignature(originalBody, "whsec_test", timestamp),
+      }),
+    ).rejects.toThrow("Stripe webhook signature verification failed.");
   });
 });

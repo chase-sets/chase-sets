@@ -75,6 +75,7 @@ export type MoneyMovementWebhookEvent =
   | Readonly<{
       kind: "payout-completed";
       providerEventId: string;
+      payoutId: PayoutId | null;
       providerPayoutReference: string;
       providerStatus: string;
       occurredAt: string;
@@ -82,6 +83,7 @@ export type MoneyMovementWebhookEvent =
   | Readonly<{
       kind: "payout-failed";
       providerEventId: string;
+      payoutId: PayoutId | null;
       providerPayoutReference: string;
       providerStatus: string;
       failureCode: string | null;

@@ -37,6 +37,7 @@ export type PlatformPaymentProcessorConfig =
       secretKey: string;
       publishableKey: string;
       webhookSecret: string;
+      previousWebhookSecrets: readonly string[];
       apiBaseUrl?: string;
     }>;
 
@@ -48,6 +49,7 @@ export type PlatformMoneyMovementConfig =
       kind: "stripe";
       secretKey: string;
       webhookSecret: string;
+      previousWebhookSecrets: readonly string[];
       connectAccountsApi: PlatformStripeConnectAccountsApi;
       apiBaseUrl?: string;
     }>;
@@ -529,6 +531,8 @@ export function loadStripeProviderConfig(input: {
   const publishableKey = getOptionalEnv("STRIPE_PUBLISHABLE_KEY");
   const webhookSecret = getOptionalEnv("STRIPE_WEBHOOK_SECRET");
   const connectWebhookSecret = getOptionalEnv("STRIPE_CONNECT_WEBHOOK_SECRET");
+  const previousWebhookSecrets = getOptionalCsvEnv("STRIPE_WEBHOOK_SECRET_PREVIOUS");
+  const previousConnectWebhookSecrets = getOptionalCsvEnv("STRIPE_CONNECT_WEBHOOK_SECRET_PREVIOUS");
   const apiBaseUrl = getOptionalEnv("STRIPE_API_BASE_URL") ?? undefined;
   const connectAccountsApi = resolveEnumEnv<PlatformStripeConnectAccountsApi>(
     "STRIPE_CONNECT_ACCOUNTS_API",
@@ -547,6 +551,12 @@ export function loadStripeProviderConfig(input: {
 
   const resolvedConnectWebhookSecret =
     connectWebhookSecret ?? (!input.productionLike ? (webhookSecret ?? undefined) : undefined);
+  const resolvedPreviousConnectWebhookSecrets =
+    previousConnectWebhookSecrets.length > 0 || connectWebhookSecret
+      ? previousConnectWebhookSecrets
+      : !input.productionLike
+        ? previousWebhookSecrets
+        : [];
 
   if (input.productionLike && (!secretKey || !publishableKey || !webhookSecret || !connectWebhookSecret)) {
     throw new Error(input.productionMissingConfigError);
@@ -576,6 +586,7 @@ export function loadStripeProviderConfig(input: {
             secretKey,
             publishableKey,
             webhookSecret,
+            previousWebhookSecrets,
             apiBaseUrl,
           }
         : { kind: "fake" },
@@ -585,6 +596,7 @@ export function loadStripeProviderConfig(input: {
             kind: "stripe",
             secretKey,
             webhookSecret: resolvedConnectWebhookSecret,
+            previousWebhookSecrets: resolvedPreviousConnectWebhookSecrets,
             connectAccountsApi,
             apiBaseUrl,
           }
