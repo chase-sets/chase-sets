@@ -8,11 +8,17 @@ import { toMotionDomProps } from "../../utils/motion-props";
 
 export interface SearchResultsLayoutProps {
   filters?: ReactNode;
+  filtersLabel?: string;
   summary?: ReactNode;
   children?: ReactNode;
 }
 
-export function SearchResultsLayout({ filters, summary, children }: SearchResultsLayoutProps) {
+export function SearchResultsLayout({
+  filters,
+  filtersLabel = "Desktop search filters",
+  summary,
+  children,
+}: SearchResultsLayoutProps) {
   const content = (
     <div className="min-w-0 space-y-6">
       {summary}
@@ -27,7 +33,7 @@ export function SearchResultsLayout({ filters, summary, children }: SearchResult
   return (
     <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
       <div className="hidden lg:block">
-        <Sidebar label="Desktop search filters" purpose="support" width="filter" sticky>
+        <Sidebar label={filtersLabel} purpose="support" width="filter" sticky>
           <div className="max-h-[calc(100dvh-6rem)] overflow-y-auto overscroll-contain pb-4 pr-1">{filters}</div>
         </Sidebar>
       </div>

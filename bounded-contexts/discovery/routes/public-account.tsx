@@ -1,4 +1,4 @@
-import { formatDate, formatDisplayIdentity, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
+import { formatDate, formatDisplayIdentity, t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
@@ -37,6 +37,7 @@ import {
   TrustedSellerBadge,
 } from "../features/item-detail/ui/account-badges";
 import { createSellerMetricsRequestApiClient, type SellerBehavioralMetricsChips } from "@chase-sets/marketplace/server";
+import { formatMoney } from "../support/ui-support/formatting";
 
 const ACCOUNT_REVIEW_PAGE_SIZE = 10;
 const ACCOUNT_REVIEW_ROLES = new Set(["seller", "buyer"]);
@@ -52,10 +53,6 @@ type AccountRatingDimension = Readonly<{
   rating4Count: number;
   rating5Count: number;
 }>;
-
-function formatMoney(value: string): string {
-  return formatMoneyDisplay(value, "USD");
-}
 
 function parseRating(value: string | null | undefined): number | null {
   if (!value) {

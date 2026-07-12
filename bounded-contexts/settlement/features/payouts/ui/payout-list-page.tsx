@@ -293,6 +293,11 @@ export function SettlementPayoutListPage({
                     label={t("settlement.features.payouts.ui.payoutListPage.amount.2")}
                     name="amount"
                     currencyCode={wallet.currency_code}
+                    currencyAccessibleDescription={t("localization.currency.amountIn", {
+                      currency: wallet.currency_code,
+                    })}
+                    decrementLabel={t("localization.currency.decreaseAmount")}
+                    incrementLabel={t("localization.currency.increaseAmount")}
                     placeholder="0.00"
                     min={payoutAmountPolicy.minimumAmount}
                     max={payoutAmountPolicy.maximumAmount}

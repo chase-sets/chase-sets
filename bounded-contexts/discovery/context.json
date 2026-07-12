@@ -1013,6 +1013,7 @@
       "slot": "top-nav",
       "key": "search",
       "label": "Browse",
+      "labelKey": "discovery.shell.search.label",
       "icon": "search",
       "href": "/search",
       "order": 10,
@@ -1024,6 +1025,7 @@
       "slot": "bottom-nav",
       "key": "search",
       "label": "Browse",
+      "labelKey": "discovery.shell.search.label",
       "icon": "search",
       "href": "/search",
       "order": 10,
@@ -1117,8 +1119,8 @@
     },
     "ui-support": {
       "classification": "support",
-      "purpose": "Expose browser-safe Discovery UI contracts for item-detail action rail analytics through stable context web exports.",
-      "expectedConsumers": ["Deployable composition for discovery"]
+      "purpose": "Provide browser-safe Discovery UI contracts and shared formatting for item-detail and search surfaces.",
+      "expectedConsumers": ["item-detail", "search"]
     },
     "ucp-support": {
       "classification": "support",

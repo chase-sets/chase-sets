@@ -149,9 +149,18 @@ export function ProductAlertCreationSection({
             </Stack>
           ) : null}
           <CurrencyInput
-            label={isListingAlert ? "Maximum listing price" : "Minimum offer price"}
+            label={
+              isListingAlert
+                ? t("discovery.routes.itemDetail.alert.maximum.listing.price")
+                : t("discovery.routes.itemDetail.alert.minimum.offer.price")
+            }
             name="thresholdAmount"
             currencyCode="USD"
+            currencyAccessibleDescription={t("localization.currency.amountIn", {
+              currency: t("localization.currency.usd"),
+            })}
+            decrementLabel={t("localization.currency.decreaseAmount")}
+            incrementLabel={t("localization.currency.increaseAmount")}
             placeholder={isListingAlert ? "25.00" : "15.00"}
             min="0"
             step="0.01"
@@ -273,6 +282,11 @@ export function MarketplaceOfferSubmissionSection({
           label={t("discovery.routes.itemDetail.offer.price")}
           name="priceAmount"
           currencyCode="USD"
+          currencyAccessibleDescription={t("localization.currency.amountIn", {
+            currency: t("localization.currency.usd"),
+          })}
+          decrementLabel={t("localization.currency.decreaseAmount")}
+          incrementLabel={t("localization.currency.increaseAmount")}
           placeholder="24.99"
           min="0"
           step="0.01"

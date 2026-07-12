@@ -73,6 +73,7 @@ export type BcShellContributionVisibility = "always" | "signed-in" | "signed-out
 export type BcShellContributionItemBase = Readonly<{
   readonly key: string;
   readonly label: string;
+  readonly labelKey?: string;
   readonly icon: string;
   readonly order: number;
   readonly visibility: BcShellContributionVisibility;

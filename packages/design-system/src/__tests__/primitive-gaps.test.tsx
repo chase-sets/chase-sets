@@ -708,7 +708,13 @@ describe("Single numeric-input engine — no bare native number spinners (#3846)
   it("CurrencyInput builds on the Base UI Number Field: the visible control is type=text with role=spinbutton", () => {
     const markup = renderToString(
       <ChaseRoot>
-        <CurrencyInput label="Amount" currencyCode="USD" />
+        <CurrencyInput
+          label="Amount"
+          currencyCode="USD"
+          currencyAccessibleDescription="Amount in US dollars."
+          decrementLabel="Decrease amount"
+          incrementLabel="Increase amount"
+        />
       </ChaseRoot>,
     );
 

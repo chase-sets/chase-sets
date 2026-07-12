@@ -31,6 +31,7 @@ export function CatalogAdminLayout({
           navItems={[...navItems]}
           activeKey={activeKey}
           actions={actions}
+          moreLabel={t("adminWeb.app.adminShell.more")}
         >
           {children}
         </AdminShell>

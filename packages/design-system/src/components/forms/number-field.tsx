@@ -233,17 +233,6 @@ function stepToFieldNumber(step: string): number {
 
 const MONEY_AMOUNT_MAX_MAJOR_UNITS = Number(MONEY_AMOUNT_MAX_CENTS) / 100;
 
-function currencyDisplayName(currencyCode: string, locale: string | undefined): string {
-  try {
-    return (
-      new Intl.DisplayNames([locale ?? "en"], { type: "currency" }).of(currencyCode.toUpperCase()) ??
-      currencyCode.toUpperCase()
-    );
-  } catch {
-    return currencyCode.toUpperCase();
-  }
-}
-
 type CurrencyAffix = Readonly<{ symbol: string; position: "prefix" | "suffix" }>;
 
 function currencyAffix(currencyCode: string, locale: string | undefined): CurrencyAffix {
@@ -296,6 +285,8 @@ export interface CurrencyInputProps extends BaseInputProps {
   placeholder?: string;
   /** BCP 47 locale for symbol placement and decimal-separator parsing. Defaults to the runtime locale. */
   locale?: string;
+  /** Fully localized accessible description for the currency amount. */
+  currencyAccessibleDescription?: ReactNode;
   decrementLabel?: string;
   incrementLabel?: string;
   "aria-label"?: string;
@@ -324,16 +315,17 @@ export function CurrencyInput({
   readOnly = false,
   placeholder,
   locale,
+  currencyAccessibleDescription,
   decrementLabel = "Decrease amount",
   incrementLabel = "Increase amount",
   "aria-label": ariaLabel,
 }: CurrencyInputProps) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
-  const currencyDescription = (
+  const resolvedCurrencyDescription = (
     <>
       {description}
-      <VisuallyHidden> Amount in {currencyDisplayName(currencyCode, locale)}.</VisuallyHidden>
+      {currencyAccessibleDescription ? <VisuallyHidden>{currencyAccessibleDescription}</VisuallyHidden> : null}
     </>
   );
   const minNumber =
@@ -345,7 +337,7 @@ export function CurrencyInput({
   return (
     <FieldChrome
       label={label}
-      description={currencyDescription}
+      description={resolvedCurrencyDescription}
       error={error}
       status={status}
       counter={counter}
@@ -384,7 +376,7 @@ export function CurrencyInput({
             "aria-label": ariaLabel,
             "aria-describedby": fieldDescribedBy({
               inputId,
-              description: currencyDescription,
+              description: resolvedCurrencyDescription,
               error,
               status,
               counter,

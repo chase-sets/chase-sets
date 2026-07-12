@@ -1,4 +1,4 @@
-import { formatBpsPercent, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
+import { formatBpsPercent, t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
@@ -33,10 +33,7 @@ import type { DiscoveryPublicListing } from "../support/client-support/contracts
 import { applyDiscoveryPublicListingPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 import { isProductionMarketplaceUrl, serializeJsonLd } from "../support/route-support/seo";
-
-function formatMoney(value: string): string {
-  return formatMoneyDisplay(value, "USD");
-}
+import { formatMoney } from "../support/ui-support/formatting";
 
 function parseRating(value: string | null | undefined): number | undefined {
   if (!value) {

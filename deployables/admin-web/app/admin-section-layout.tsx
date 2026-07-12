@@ -1,4 +1,5 @@
 import { Outlet, useLoaderData, useLocation } from "react-router";
+import { t } from "@chase-sets/localization";
 import type { CurrentActorDisplay, IdentityShellViewer } from "@chase-sets/identity/server";
 import { useUserPreferencesAccountMenu } from "@chase-sets/identity/web";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
@@ -40,6 +41,7 @@ export function AdminSectionLayout({ config }: Readonly<{ config: SectionConfig 
         activeKey={resolveActiveKey(location.pathname, config)}
         navItems={resolveAdminWebNavItems(actor, { section: config.section })}
         actions={<AdminAccountMenu actor={actor} actorDisplay={actorDisplay} preferences={preferences} />}
+        moreLabel={t("adminWeb.app.adminShell.more")}
       >
         <Outlet />
       </AdminShell>

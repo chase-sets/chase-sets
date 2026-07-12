@@ -69,6 +69,7 @@
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
     "@chase-sets/http": "workspace:*",
+    "@chase-sets/localization": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/realtime": "workspace:*",
     "hono": "^4.12.12",

@@ -1,4 +1,4 @@
-import { formatDate, formatDisplayIdentity, formatMoney, t } from "@chase-sets/localization";
+import { formatDate, formatDisplayIdentity, t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
@@ -18,6 +18,7 @@ import { buildBreadcrumbListJsonLd, serializeJsonLd } from "../support/route-sup
 import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/request-support/api-client";
 import type { DiscoveryBrowseSetPage } from "../support/request-support/api-client";
 import { imageVariantSrcSet } from "../support/client-support/assets";
+import { formatMoney } from "../support/ui-support/formatting";
 import { buildDiscoveryProductAssetImage } from "../support/client-support/product-assets";
 
 function formatReleaseDate(value: string | null) {
@@ -164,7 +165,7 @@ export default function DiscoverySetRoute() {
                     saveLabel={t("localization.listingCard.save", { identity: displayIdentity })}
                     savedLabel={t("localization.listingCard.saved", { identity: displayIdentity })}
                     watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
-                    price={lowestPrice ? formatMoney(lowestPrice, "USD") : undefined}
+                    price={lowestPrice ? formatMoney(lowestPrice) : undefined}
                     primaryAction={
                       <LinkButton href={href} size="sm">
                         {t("discovery.routes.set.view.card")}

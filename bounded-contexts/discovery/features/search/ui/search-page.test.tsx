@@ -154,6 +154,24 @@ describe("SearchPage", () => {
     expect(document.body.innerHTML).toContain("2xl:grid-cols-3");
   });
 
+  it("keeps focused search and result detail links localized and accessible", () => {
+    renderSearchPage({ committedSearch: "abra" });
+
+    expect(screen.getByRole("searchbox", { name: "Marketplace search" })).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "View details for Prismatic Evolutions Booster Pack — Pokemon sealed product" }),
+    ).toBeTruthy();
+  });
+
+  it("formats search-card prices with the discovery money formatter", () => {
+    renderSearchPage({
+      committedSearch: "bulbasaur",
+      data: { ...searchResponse, items: [japaneseSearchResult] },
+    });
+
+    expect(screen.getByText("From $10.00")).toBeTruthy();
+  });
+
   it("uses Product Asset Set search variants before compatibility image URLs", () => {
     renderSearchPage({
       data: {
@@ -268,6 +286,38 @@ describe("SearchPage", () => {
     expect(screen.queryByText("Language: ja")).toBeNull();
   });
 
+  it("uses localized accessible labels for the results search and item links", () => {
+    renderSearchPage({
+      search: "bulbasaur",
+      committedSearch: "bulbasaur",
+      data: {
+        items: [japaneseSearchResult],
+        facets: [],
+        total: 1,
+        count: 1,
+        nextCursor: null,
+        retrievalMode: "lexical",
+        lexicalCount: 1,
+      },
+      categories: [],
+    });
+
+    expect(screen.getByRole("searchbox", { name: "Marketplace search" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "View details for Bulbasaur — Japanese Base Set" })).toBeTruthy();
+  });
+
+  it("formats search card prices through the discovery money formatter", () => {
+    renderSearchPage({
+      data: {
+        ...searchResponse,
+        items: [japaneseSearchResult],
+      },
+      categories: [],
+    });
+
+    expect(screen.getByText("From $10.00")).toBeTruthy();
+  });
+
   it("labels semantic zero-result recovery as closest matches", () => {
     renderSearchPage({
       search: "electric mascot",
@@ -366,7 +416,7 @@ describe("SearchPage", () => {
   it("keeps the category facet visible when a category is selected", () => {
     const props = renderSearchPage({ category: "booster-packs" });
 
-    expect(screen.getByText("Browse Categories")).toBeTruthy();
+    expect(screen.getByText("Browse categories")).toBeTruthy();
     expect(screen.getAllByText("1 results in Booster Packs").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Singles (7)" }).length).toBeGreaterThan(0);
 
