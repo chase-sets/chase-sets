@@ -47,6 +47,14 @@ imagePullSecrets:
 {{- printf "%s-preview-postgres" (include "chase-sets-platform.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "chase-sets-platform.observabilityName" -}}
+{{- printf "%s-observability" (include "chase-sets-platform.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "chase-sets-platform.observabilityServiceName" -}}
+{{- printf "%s-collector" (include "chase-sets-platform.observabilityName" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "chase-sets-platform.canaryServiceName" -}}
 {{- $component := index .root.Values.components .name -}}
 {{- $suffix := default "canary" $component.rollout.canary.canaryServiceSuffix -}}

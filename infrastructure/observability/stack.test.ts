@@ -46,11 +46,12 @@ describe("observability stack contracts", () => {
   });
 
   it("defines the DOKS collector contract for k8s-native signals into the shared stack", () => {
-    const config = readObservabilityFile("kubernetes/collector-config.yml");
+    const config = readRepoFile("infrastructure/helm/platform/templates/observability-config.yaml");
+    const workloads = readRepoFile("infrastructure/helm/platform/templates/observability-workloads.yaml");
     const readme = readObservabilityFile("kubernetes/README.md");
 
     expect(config).toContain("kubeletstats:");
-    expect(config).toContain("k8s_cluster:");
+    expect(config).toContain("kube-state-metrics");
     expect(config).toContain("k8sattributes:");
     expect(config).toContain("deployment.environment");
     expect(config).toContain("${env:CHASE_SETS_DEPLOYMENT_ENVIRONMENT}");
@@ -61,8 +62,14 @@ describe("observability stack contracts", () => {
     expect(config).not.toContain("account.id");
     expect(config).not.toContain("payment.id");
     expect(config).not.toContain("session.id");
+    expect(config).toContain('delete_key(attributes, "db.connection_string")');
+    expect(config).toContain('delete_key(attributes, "url.full")');
+    expect(config).toContain('delete_key(attributes, "user_agent.original")');
+    expect(workloads).toContain("kind: DaemonSet");
+    expect(workloads).toContain("checksum/config:");
+    expect(workloads).toContain(".Values.observability.kubeStateMetrics.image.repository");
     expect(readme).toContain("single shared Chase Sets observability stack");
-    expect(readme).toContain("Live acceptance for #4051 still requires");
+    expect(readme).toContain("platform Helm release");
   });
 
   it("provisions Grafana datasources, dashboard, and alert rules", () => {
@@ -103,6 +110,9 @@ describe("observability stack contracts", () => {
     );
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
       "Platform API elevated 5xx rate",
+    );
+    expect(readStackFile("grafana/provisioning/alerting/kubernetes-observability-alerts.yml")).toContain(
+      "Staging Kubernetes telemetry missing",
     );
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
       "UCP signature verification failures",

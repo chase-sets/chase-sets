@@ -115,6 +115,67 @@ variable "grafana_admin_password" {
   description = "Initial Grafana admin password."
 }
 
+variable "alert_emails" {
+  type        = list(string)
+  default     = []
+  description = "Email recipients for the shared Grafana alert contact point. Use the same operator-owned recipients as PLATFORM_ALERT_EMAILS."
+
+  validation {
+    condition     = alltrue([for email in var.alert_emails : can(regex("^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$", email))])
+    error_message = "alert_emails entries must be email addresses."
+  }
+}
+
+variable "grafana_smtp_enabled" {
+  type        = bool
+  default     = true
+  description = "Enables Grafana delivery through the internal SES SendEmail relay. Keep enabled for the shared stack."
+
+  validation {
+    condition     = var.grafana_smtp_enabled
+    error_message = "The shared observability stack requires Grafana alert delivery."
+  }
+}
+
+variable "ses_aws_region" {
+  type        = string
+  default     = "us-east-2"
+  description = "AWS region used by the internal SES SendEmail relay."
+}
+
+variable "ses_aws_access_key_id" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Access key for the existing least-privilege SES SendEmail identity."
+}
+
+variable "ses_aws_secret_access_key" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Secret key for the existing least-privilege SES SendEmail identity."
+}
+
+variable "ses_configuration_set_name" {
+  type        = string
+  default     = ""
+  description = "Existing SES configuration set required by the alert sender policy."
+}
+
+variable "ses_source_arn" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Existing verified SES identity ARN required by the alert sender policy."
+}
+
+variable "grafana_smtp_from_address" {
+  type        = string
+  default     = "notifications@chasesets.com"
+  description = "Verified sender address for Grafana alerts."
+}
+
 variable "otel_write_token" {
   type        = string
   sensitive   = true

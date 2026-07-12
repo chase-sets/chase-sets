@@ -1,0 +1,141 @@
+{{- if .Values.observability.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "chase-sets-platform.observabilityName" . }}
+  labels:
+{{ include "chase-sets-platform.labels" (dict "root" . "name" "observability") | nindent 4 }}
+data:
+  agent.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      kubeletstats:
+        auth_type: serviceAccount
+        collection_interval: 30s
+        endpoint: ${env:K8S_NODE_NAME}:10250
+        insecure_skip_verify: true
+        metric_groups: [node, pod, container]
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 384
+      k8sattributes:
+        auth_type: serviceAccount
+        passthrough: false
+        pod_association:
+          - sources:
+              - from: connection
+        extract:
+          metadata:
+            - k8s.namespace.name
+            - k8s.pod.name
+            - k8s.deployment.name
+            - k8s.node.name
+      resource/environment:
+        attributes:
+          - key: deployment.environment
+            value: ${env:CHASE_SETS_DEPLOYMENT_ENVIRONMENT}
+            action: upsert
+          - key: k8s.cluster.name
+            value: ${env:CHASE_SETS_K8S_CLUSTER_NAME}
+            action: upsert
+          - key: chase_sets.observability_stack
+            value: single-shared-stack
+            action: upsert
+      transform/drop_sensitive:
+        error_mode: ignore
+        trace_statements:
+          - context: span
+            statements:
+              - delete_key(attributes, "db.connection_string")
+              - delete_key(attributes, "db.statement")
+              - delete_key(attributes, "db.user")
+              - delete_key(attributes, "url.full")
+              - delete_key(attributes, "url.path")
+              - delete_key(attributes, "url.query")
+              - delete_key(attributes, "user_agent.original")
+        log_statements:
+          - context: log
+            statements:
+              - delete_key(attributes, "db.connection_string")
+              - delete_key(attributes, "db.statement")
+              - delete_key(attributes, "db.user")
+              - delete_key(attributes, "url.full")
+              - delete_key(attributes, "url.path")
+              - delete_key(attributes, "url.query")
+              - delete_key(attributes, "user_agent.original")
+      batch:
+        timeout: 5s
+        send_batch_size: 1024
+    exporters:
+      otlphttp/central_stack:
+        endpoint: ${env:CHASE_SETS_OTLP_ENDPOINT}
+        headers:
+          X-Chase-Sets-Observability-Token: ${env:CHASE_SETS_OTLP_TOKEN}
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, transform/drop_sensitive, resource/environment, batch]
+          exporters: [otlphttp/central_stack]
+        metrics:
+          receivers: [otlp, kubeletstats]
+          processors: [memory_limiter, k8sattributes, resource/environment, batch]
+          exporters: [otlphttp/central_stack]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, transform/drop_sensitive, resource/environment, batch]
+          exporters: [otlphttp/central_stack]
+  cluster.yaml: |
+    receivers:
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: kube-state-metrics
+              scrape_interval: 30s
+              static_configs:
+                - targets: ["127.0.0.1:8080"]
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  regex: "kube_(node_status_condition|namespace_status_phase|pod_status_phase|pod_container_status_restarts_total|deployment_spec_replicas|deployment_status_replicas|deployment_status_replicas_available|daemonset_status_number_available|daemonset_status_desired_number_scheduled|statefulset_status_replicas|statefulset_status_replicas_ready|job_status_failed)"
+                  action: keep
+                - regex: "uid|container_id|image_id|image_spec"
+                  action: labeldrop
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 384
+      resource/environment:
+        attributes:
+          - key: service.name
+            value: kube-state-metrics
+            action: upsert
+          - key: deployment.environment
+            value: ${env:CHASE_SETS_DEPLOYMENT_ENVIRONMENT}
+            action: upsert
+          - key: k8s.cluster.name
+            value: ${env:CHASE_SETS_K8S_CLUSTER_NAME}
+            action: upsert
+          - key: chase_sets.observability_stack
+            value: single-shared-stack
+            action: upsert
+      batch:
+        timeout: 5s
+        send_batch_size: 1024
+    exporters:
+      otlphttp/central_stack:
+        endpoint: ${env:CHASE_SETS_OTLP_ENDPOINT}
+        headers:
+          X-Chase-Sets-Observability-Token: ${env:CHASE_SETS_OTLP_TOKEN}
+    service:
+      pipelines:
+        metrics:
+          receivers: [prometheus]
+          processors: [memory_limiter, resource/environment, batch]
+          exporters: [otlphttp/central_stack]
+{{- end }}

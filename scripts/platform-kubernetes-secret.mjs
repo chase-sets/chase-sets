@@ -10,7 +10,7 @@ const previewPostgresAdminUrlKey = "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL";
 const previewPostgresSuperuserPasswordKey = "PREVIEW_POSTGRES_SUPERUSER_PASSWORD";
 const previewPostgresApplicationPasswordKey = "PREVIEW_POSTGRES_APPLICATION_PASSWORD";
 
-export function collectPlatformSecretKeys(values = buildPlatformHelmValues()) {
+export function collectPlatformSecretKeys(values = buildPlatformHelmValues(), options = {}) {
   const keys = new Set();
 
   for (const component of Object.values(values.components ?? {})) {
@@ -21,7 +21,40 @@ export function collectPlatformSecretKeys(values = buildPlatformHelmValues()) {
     }
   }
 
+  if (
+    options.observabilityEnabled !== false &&
+    options.observabilityEnabled !== "false" &&
+    (options.deploymentEnvironment === "staging" || options.deploymentEnvironment === "production")
+  ) {
+    const collectorTokenKey = values.observability?.exporter?.secretKey;
+    if (collectorTokenKey) {
+      keys.add(collectorTokenKey);
+    }
+  }
+
   return [...keys].sort((left, right) => left.localeCompare(right, "en"));
+}
+
+export function deriveOtlpWriteToken(headers) {
+  const expectedHeader = "X-Chase-Sets-Observability-Token";
+  const entries = String(headers ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  for (const entry of entries) {
+    const separator = entry.indexOf("=");
+    if (separator < 1) {
+      continue;
+    }
+    const name = entry.slice(0, separator).trim();
+    const value = entry.slice(separator + 1).trim();
+    if (name.toLowerCase() === expectedHeader.toLowerCase() && value) {
+      return value;
+    }
+  }
+
+  throw new Error(`${expectedHeader} is required in OTEL_EXPORTER_OTLP_HEADERS for Kubernetes collection.`);
 }
 
 export function buildManagedPostgresDatabaseEnv(options) {
@@ -157,11 +190,19 @@ export function buildPlatformSecretBundle(options = {}) {
   const secretName = options.secretName ?? values.global?.existingSecretName;
   const namespace = options.namespace;
   const env = options.env ?? process.env;
-  const secretKeys = options.secretKeys ?? collectPlatformSecretKeys(values);
+  const deploymentEnvironment =
+    options.deploymentEnvironment ?? options.env?.DEPLOYMENT_ENVIRONMENT ?? process.env.DEPLOYMENT_ENVIRONMENT;
+  const observabilityEnabled = options.observabilityEnabled ?? env.OBSERVABILITY_ENABLED ?? true;
+  const secretKeys =
+    options.secretKeys ?? collectPlatformSecretKeys(values, { deploymentEnvironment, observabilityEnabled });
   const previewPostgres = buildPreviewPostgresSecretMaterial({ ...options, values, env, secretKeys });
-  const resolvedEnv = { ...env, ...(previewPostgres?.runtimeEnv ?? {}) };
-  const missing = secretKeys.filter((key) => !Object.hasOwn(env, key));
-  const requiredMissing = missing.filter((key) => !Object.hasOwn(previewPostgres?.runtimeEnv ?? {}, key));
+  const collectorTokenKey = values.observability?.exporter?.secretKey;
+  const collectorRuntimeEnv =
+    collectorTokenKey && secretKeys.includes(collectorTokenKey) && !Object.hasOwn(env, collectorTokenKey)
+      ? { [collectorTokenKey]: deriveOtlpWriteToken(env.OTEL_EXPORTER_OTLP_HEADERS) }
+      : {};
+  const resolvedEnv = { ...env, ...(previewPostgres?.runtimeEnv ?? {}), ...collectorRuntimeEnv };
+  const requiredMissing = secretKeys.filter((key) => !Object.hasOwn(resolvedEnv, key));
 
   if (!secretName) {
     throw new Error("Platform Kubernetes secret name is required.");
@@ -425,7 +466,10 @@ async function applyManifest(options) {
 
 export function summarizePlatformSecret(options = {}) {
   const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot });
-  const secretKeys = options.secretKeys ?? collectPlatformSecretKeys(values);
+  const deploymentEnvironment = options.deploymentEnvironment ?? options.env?.DEPLOYMENT_ENVIRONMENT;
+  const observabilityEnabled = options.observabilityEnabled ?? options.env?.OBSERVABILITY_ENABLED ?? true;
+  const secretKeys =
+    options.secretKeys ?? collectPlatformSecretKeys(values, { deploymentEnvironment, observabilityEnabled });
   const previewPostgres = buildPreviewPostgresSecretMaterial({
     ...options,
     values,
@@ -447,6 +491,7 @@ function parseArgs(argv, env = process.env) {
     secretName: env.CHASE_SETS_PLATFORM_SECRET_NAME,
     release: env.CHASE_SETS_HELM_RELEASE,
     deploymentEnvironment: env.DEPLOYMENT_ENVIRONMENT,
+    observabilityEnabled: env.OBSERVABILITY_ENABLED,
     dryRun: false,
     exportDatabaseUrls: false,
     terraformStatePath: undefined,
@@ -468,6 +513,10 @@ function parseArgs(argv, env = process.env) {
       options.queryConnectionMode = readNextArg(argv, ++index, arg);
     } else if (arg === "--namespace") {
       options.namespace = readNextArg(argv, ++index, arg);
+    } else if (arg === "--deployment-environment") {
+      options.deploymentEnvironment = readNextArg(argv, ++index, arg);
+    } else if (arg === "--observability-enabled") {
+      options.observabilityEnabled = readNextArg(argv, ++index, arg);
     } else if (arg === "--secret-name") {
       options.secretName = readNextArg(argv, ++index, arg);
     } else if (arg === "--kubectl") {

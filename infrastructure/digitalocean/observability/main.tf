@@ -23,6 +23,14 @@ resource "digitalocean_droplet" "observability" {
   volume_ids = [digitalocean_volume.observability_data.id]
 
   user_data = local.cloud_init_user_data
+
+  lifecycle {
+    prevent_destroy = true
+    # Cloud-init is first-boot only. Checked-in stack changes are reconciled
+    # in place per the runbook; changing user_data must never replace the
+    # explicitly retained observability Droplet.
+    ignore_changes = [user_data]
+  }
 }
 
 resource "digitalocean_firewall" "observability" {
@@ -110,6 +118,21 @@ check "observability_retention_posture" {
   assert {
     condition     = contains(["24h", "48h", "72h", "7d", "14d", "30d"], var.prometheus_retention)
     error_message = "prometheus_retention must be one of the documented cost-aware retention windows: 24h, 48h, 72h, 7d, 14d, or 30d."
+  }
+}
+
+check "observability_alert_delivery" {
+  assert {
+    condition = !var.grafana_smtp_enabled || (
+      length(var.alert_emails) > 0 &&
+      trimspace(var.ses_aws_access_key_id) != "" &&
+      trimspace(var.ses_aws_secret_access_key) != "" &&
+      trimspace(var.ses_aws_region) != "" &&
+      trimspace(var.ses_configuration_set_name) != "" &&
+      trimspace(var.ses_source_arn) != "" &&
+      trimspace(var.grafana_smtp_from_address) != ""
+    )
+    error_message = "Grafana alert delivery requires recipients, SES SendEmail credentials and region, and a verified from address."
   }
 }
 

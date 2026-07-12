@@ -34,6 +34,10 @@ const observabilityPrometheusTemplate = readFileSync(
   resolve("infrastructure/digitalocean/observability/templates/prometheus.yml.tftpl"),
   "utf8",
 );
+const observabilityContactPointsTemplate = readFileSync(
+  resolve("infrastructure/digitalocean/observability/templates/contact-points.yml.tftpl"),
+  "utf8",
+);
 const catalogAssetsMain = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/main.tf"), "utf8");
 const catalogAssetsLocals = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/locals.tf"), "utf8");
 const objectStorageMain = readFileSync(resolve("infrastructure/object-storage/index.ts"), "utf8");
@@ -3136,6 +3140,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityMain).toContain("backups    = var.droplet_backups_enabled");
     expect(observabilityMain).toContain('check "observability_storage_posture"');
     expect(observabilityMain).toContain('check "observability_retention_posture"');
+    expect(observabilityMain).toContain('check "observability_alert_delivery"');
     expect(observabilityMain).toContain('check "observability_cloud_init_size"');
     expect(observabilityMain).toContain('check "observability_stack_file_classification"');
     expect(observabilityMain).toContain("length(local.cloud_init_user_data) < 64000");
@@ -3144,6 +3149,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityVariables).toContain("default     = false");
     expect(observabilityVariables).toContain('variable "observability_environments"');
     expect(observabilityVariables).toContain('variable "stack_environment"');
+    expect(observabilityVariables).toContain('variable "alert_emails"');
+    expect(observabilityVariables).toContain('variable "ses_aws_secret_access_key"');
     expect(observabilityVariables).toContain('variable "acceptable_telemetry_data_loss_window_hours"');
     expect(observabilityMain).toContain('port_range       = "80"');
     expect(observabilityMain).toContain('port_range       = "443"');
@@ -3176,6 +3183,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityDockerCompose).toContain("/var/lib/chase-sets-observability/diagnostics:/srv/diagnostics:ro");
     expect(observabilityDockerCompose).toContain("condition: service_started");
     expect(observabilityDockerCompose).toContain("http://127.0.0.1:3000/api/health");
+    expect(observabilityDockerCompose).toContain('GF_SMTP_ENABLED: "$${GRAFANA_SMTP_ENABLED}"');
+    expect(observabilityDockerCompose).toContain('SES_AWS_ACCESS_KEY_ID: "$${SES_AWS_ACCESS_KEY_ID}"');
+    expect(observabilityDockerCompose).toContain("./ses-smtp-relay.mjs:/app/ses-smtp-relay.mjs:ro");
+    expect(observabilityContactPointsTemplate).toContain("chase-sets-platform-alert-email");
+    expect(observabilityContactPointsTemplate).toContain("addresses: ${alert_emails}");
     expect(observabilityCaddyfile).toContain("/__chase-sets/observability/boot-status");
     expect(observabilityCloudInit).toContain("chase-sets-observability-diagnostics");
     expect(observabilityCloudInit).toContain("chase-sets-observability-diagnostics.timer");

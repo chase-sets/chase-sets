@@ -70,7 +70,20 @@ export function buildHelmUpgradeArgs(options = {}) {
   const timeout = requiredOption(options.timeout ?? defaultTimeout, "timeout");
   const image = parsePlatformImageRef(requiredOption(options.image, "image"));
   const imagePullSecret = options.imagePullSecret ?? "";
-  const envOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
+  const requestedEnvOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
+  const deploymentEnvironment = requestedEnvOverrides.DEPLOYMENT_ENVIRONMENT;
+  const observabilityEnabled =
+    (deploymentEnvironment === "staging" || deploymentEnvironment === "production") &&
+    requestedEnvOverrides.OBSERVABILITY_ENABLED !== "false";
+  const observabilityServiceName = `${release}-${chartName}-observability-collector`.slice(0, 63).replace(/-$/, "");
+  const envOverrides = observabilityEnabled
+    ? {
+        OBSERVABILITY_ENABLED: "true",
+        OTEL_EXPORTER_OTLP_ENDPOINT: `http://${observabilityServiceName}:4318`,
+        OTEL_RESOURCE_ATTRIBUTES: `cloud.provider=digitalocean,cloud.platform=kubernetes,chase_sets.environment_slug=${deploymentEnvironment}`,
+        ...requestedEnvOverrides,
+      }
+    : requestedEnvOverrides;
   const environmentValuesPath = platformValuesPathForEnvironment(envOverrides.DEPLOYMENT_ENVIRONMENT);
   const doksIngressSetArgs =
     envOverrides.DEPLOYMENT_ENVIRONMENT === "staging"
@@ -106,6 +119,18 @@ export function buildHelmUpgradeArgs(options = {}) {
           "global.tolerations[0].effect=NoSchedule",
         ]
       : [];
+  const observabilitySetArgs = observabilityEnabled
+    ? [
+        "--set",
+        "observability.enabled=true",
+        "--set-string",
+        `observability.environment=${deploymentEnvironment}`,
+        "--set-string",
+        `observability.clusterName=chase-sets-${deploymentEnvironment}-doks`,
+        "--set-string",
+        `observability.exporter.endpoint=https://otel.${deploymentEnvironment === "production" ? "chasesets.com" : "staging.chasesets.com"}`,
+      ]
+    : [];
 
   return [
     "upgrade",
@@ -122,6 +147,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     ...(environmentValuesPath ? ["--values", environmentValuesPath] : []),
     ...doksIngressSetArgs,
     ...previewPostgresSetArgs,
+    ...observabilitySetArgs,
     ...previewSchedulingSetArgs,
     "--set-string",
     `global.image.registry=${image.registry}`,

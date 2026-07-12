@@ -795,6 +795,11 @@ jobs:
       TF_VAR_grafana_admin_password: pr-validation-password-please-rotate
       TF_VAR_otel_write_token: pr-validation-otel-token
       TF_VAR_prometheus_query_token: pr-validation-prometheus-token
+      TF_VAR_alert_emails: '["ops@example.com"]'
+      TF_VAR_ses_aws_access_key_id: pr-validation-ses-access-key
+      TF_VAR_ses_aws_secret_access_key: pr-validation-ses-secret-key
+      TF_VAR_ses_configuration_set_name: pr-validation-configuration-set
+      TF_VAR_ses_source_arn: arn:aws:ses:us-east-2:123456789012:identity/example.com
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 

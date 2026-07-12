@@ -1,0 +1,19 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: chase-sets-platform-alert-email
+    receivers:
+      - uid: chase-sets-platform-alert-email
+        type: email
+        settings:
+          addresses: ${alert_emails}
+          singleEmail: false
+
+policies:
+  - orgId: 1
+    receiver: chase-sets-platform-alert-email
+    group_by:
+      - grafana_folder
+      - alertname
+      - environment

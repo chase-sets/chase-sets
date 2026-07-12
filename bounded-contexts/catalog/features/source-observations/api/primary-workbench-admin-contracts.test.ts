@@ -1967,7 +1967,7 @@ function governanceSignalFixture(
 ): CatalogPrimaryWorkbenchReadModel["governanceControls"]["observability"]["signals"][number] {
   const href = "/catalog/integrations?providerKey=tcgdex&section=evidence";
   const alertHref =
-    "https://grafana.chasesets.com/d/chase-sets-catalog-integration-control-plane/catalog-integration-control-plane";
+    "https://grafana.chasesets.com/d/chase-sets-catalog-control-plane/catalog-integration-control-plane";
   const runbookHref =
     "https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/catalog-integration-operations.md";
 

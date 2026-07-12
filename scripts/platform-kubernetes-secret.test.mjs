@@ -8,6 +8,7 @@ import {
   buildPlatformSecretBundle,
   buildPlatformSecretManifest,
   collectPlatformSecretKeys,
+  deriveOtlpWriteToken,
   summarizePlatformSecret,
 } from "./platform-kubernetes-secret.mjs";
 
@@ -34,6 +35,38 @@ const sampleValues = {
 describe("platform Kubernetes secret", () => {
   it("collects unique secret keys from Helm values", () => {
     expect(collectPlatformSecretKeys(sampleValues)).toEqual(["DATABASE_URL_CHECKOUT", "STRIPE_SECRET_KEY"]);
+  });
+
+  it("derives the collector token without changing the application OTLP header contract", () => {
+    expect(deriveOtlpWriteToken("X-Other=value,X-Chase-Sets-Observability-Token=shared-write-token")).toBe(
+      "shared-write-token",
+    );
+    expect(() => deriveOtlpWriteToken("X-Other=value")).toThrow("X-Chase-Sets-Observability-Token");
+  });
+
+  it("adds a derived collector token only for long-lived Kubernetes environments", () => {
+    const values = {
+      ...sampleValues,
+      observability: { exporter: { secretKey: "CHASE_SETS_OTLP_TOKEN" } },
+    };
+    expect(collectPlatformSecretKeys(values, { deploymentEnvironment: "preview" })).not.toContain(
+      "CHASE_SETS_OTLP_TOKEN",
+    );
+    expect(collectPlatformSecretKeys(values, { deploymentEnvironment: "staging" })).toContain("CHASE_SETS_OTLP_TOKEN");
+    expect(
+      collectPlatformSecretKeys(values, { deploymentEnvironment: "staging", observabilityEnabled: "false" }),
+    ).not.toContain("CHASE_SETS_OTLP_TOKEN");
+
+    const manifest = buildPlatformSecretManifest({
+      values,
+      deploymentEnvironment: "staging",
+      env: {
+        DATABASE_URL_CHECKOUT: "postgres://checkout-secret",
+        STRIPE_SECRET_KEY: "sk_test_secret",
+        OTEL_EXPORTER_OTLP_HEADERS: "X-Chase-Sets-Observability-Token=shared-write-token",
+      },
+    });
+    expect(Buffer.from(manifest.data.CHASE_SETS_OTLP_TOKEN, "base64").toString("utf8")).toBe("shared-write-token");
   });
 
   it("builds a Kubernetes Secret without exposing plaintext values", () => {

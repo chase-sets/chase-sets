@@ -13,6 +13,10 @@ It owns:
 
 Use backend key `observability/shared.tfstate`.
 
+The retained Droplet and volume are protected with `prevent_destroy`. Droplet `user_data` is ignored after first boot because cloud-init changes would otherwise force replacement; reconcile checked-in stack files in place using the [observability runbook](../../../docs/runbooks/observability.md#shared-host-reconciliation). Before the first shared-state plan, move the retained production state to `observability/shared.tfstate` and import the staging DNS aliases into that state. Never apply an empty shared state: it would attempt to create a second stack.
+
+Grafana email delivery is enabled with `grafana_smtp_enabled=true`, `alert_emails`, and the existing secret-managed SES `SendEmail` credential. An internal-only relay translates Grafana SMTP to signed SES v2 `SendEmail` calls, restricts recipients to the configured allowlist, and publishes no host port; this avoids broadening the application IAM identity to `SendRawEmail`. The provisioned contact point routes all alert rules through the same operator recipients used for `PLATFORM_ALERT_EMAILS`-equivalent alerts. Keep credentials out of plans, shell history, and committed files.
+
 Cost and recovery posture:
 
 - `droplet_backups_enabled` defaults to `false` and is validated to stay false because the host is reproducible from Terraform and cloud-init.

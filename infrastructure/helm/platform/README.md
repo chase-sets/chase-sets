@@ -41,6 +41,19 @@ node ./scripts/platform-kubernetes-secret.mjs --dry-run --namespace staging
 
 After a rotation applies, rerun the Helm upgrade or restart the affected runtime Deployments so pods reload environment variables from the updated Secret.
 
+For staging and production, the secret helper also derives the collector-only `CHASE_SETS_OTLP_TOKEN` key in memory from the existing `OTEL_EXPORTER_OTLP_HEADERS` value. It never logs either value. Preview releases do not receive that key because cluster collection is disabled there.
+
+## Kubernetes Observability
+
+Staging and production Helm upgrades enable the in-cluster observability topology automatically when `OBSERVABILITY_ENABLED` is not `false`:
+
+- an OpenTelemetry Collector DaemonSet accepts pod OTLP and collects kubelet node/pod/container usage;
+- one cluster Collector Deployment runs a kube-state-metrics sidecar and exports a bounded cluster-health metric set;
+- both paths upsert `deployment.environment`, `k8s.cluster.name`, and `chase_sets.observability_stack=single-shared-stack` before forwarding to the secured shared Droplet;
+- application pods export to the internal Collector Service rather than directly across the public endpoint.
+
+Preview namespaces do not install collectors or kube-state-metrics. The cluster metric relabel contract drops UID, container-image, and container-id labels before export.
+
 ## Ingress
 
 `doksIngress` is disabled by default while App Platform still owns public routing. Staging deploys enable it only when `DOKS_INGRESS_TARGET` is set; the render/deploy values use the `STAGING_APP_SERVING` flag to choose the active host set:

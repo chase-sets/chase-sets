@@ -923,7 +923,10 @@ jobs:
           export STRIPE_WEBHOOK_SECRET="${TF_VAR_stripe_webhook_secret:-}"
           export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
 
-          node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
+          node ./scripts/platform-kubernetes-secret.mjs \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --deployment-environment staging \
+            --observability-enabled "${TF_VAR_observability_enabled:-true}"
 
       - name: Apply staging Kubernetes registry pull secret
         if: env.SHOULD_DEPLOY != 'false'
@@ -968,6 +971,7 @@ jobs:
             --image "$PLATFORM_IMAGE_REF" \
             --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=staging" \
+            --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
             --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
             --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}" \
@@ -2469,7 +2473,10 @@ jobs:
           export STRIPE_WEBHOOK_SECRET="${TF_VAR_stripe_webhook_secret:-}"
           export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
 
-          node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
+          node ./scripts/platform-kubernetes-secret.mjs \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --deployment-environment production \
+            --observability-enabled "${TF_VAR_observability_enabled:-true}"
 
       - name: Apply production Kubernetes registry pull secret
         if: env.SHOULD_DEPLOY != 'false'
@@ -2514,6 +2521,7 @@ jobs:
             --image "$PLATFORM_IMAGE_REF" \
             --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=production" \
+            --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=${TF_VAR_production_runtime_profile:-landing}" \
             --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
             --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}" \

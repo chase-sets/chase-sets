@@ -8,7 +8,7 @@ Catalog Integration Control Plane observability covers provider adapters, provid
 - Provider adapters own transport facts: provider reachability, auth/session state, pagination, retry, rate-limit, cooldown, and typed payload acquisition diagnostics.
 - Platform owns OpenTelemetry export, request/worker/projection metrics, trace propagation, logs, local LGTM stack, and generic durable job runtime behavior.
 - Deployables wire the Catalog `sourceObservationTelemetry` host port to platform observability. Catalog does not import the OpenTelemetry runtime directly.
-- Grafana owns telemetry visualization and alert history. The canonical dashboard is `Catalog Integration Control Plane` (`chase-sets-catalog-integration-control-plane`); Admin links may deep-link there, but Admin must stay focused on readiness, blocked actions, durable jobs, and audit evidence.
+- Grafana owns telemetry visualization and alert history. The canonical dashboard is `Catalog Integration Control Plane` (`chase-sets-catalog-control-plane`); Admin links may deep-link there, but Admin must stay focused on readiness, blocked actions, durable jobs, and audit evidence.
 
 ## Metrics
 
