@@ -630,6 +630,9 @@
       "@chase-sets/platform-runtime/http": [
         "./infrastructure/platform-runtime/http.ts"
       ],
+      "@chase-sets/platform-runtime/internal-auth": [
+        "./infrastructure/platform-runtime/internal-auth.ts"
+      ],
       "@chase-sets/platform-runtime/live-connection-status": [
         "./infrastructure/platform-runtime/live-connection-status.ts"
       ],

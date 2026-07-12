@@ -22,7 +22,8 @@
     "@chase-sets/checkout",
     "@chase-sets/inventory",
     "@chase-sets/marketplace",
-    "@chase-sets/outbound-messaging"
+    "@chase-sets/outbound-messaging",
+    "@chase-sets/pricing"
   ],
   "seedRequirements": [],
   "eventSubscriptions": [
@@ -955,6 +956,14 @@
           "sourceContext": "discovery"
         },
         {
+          "routeId": "item-detail-market-history",
+          "routePath": "items/:id/market-history",
+          "fileExport": "./routes/item-detail-market-history",
+          "routeType": "route",
+          "placement": "root",
+          "sourceContext": "discovery"
+        },
+        {
           "routeId": "public-listing",
           "routePath": "listings/:listingSlug",
           "fileExport": "./routes/public-listing",
@@ -1094,7 +1103,7 @@
     "realtime-support": {
       "classification": "support",
       "purpose": "Provide Discovery-owned SSE topic contracts and registration metadata shared by projectors, routes, and platform composition.",
-      "expectedConsumers": ["Multiple discovery slices", "Deployable composition for discovery"]
+      "expectedConsumers": ["item-detail"]
     },
     "runtime-support": {
       "classification": "support",

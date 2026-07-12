@@ -411,7 +411,10 @@ const boundedContextRouteSuiteOwnership = [
   {
     // Milestone-25 decomposed route: browse -> item-detail commerce panel
     // composition is owned by the marketplace_browse item-detail e2e spec.
-    pattern: /^bounded-contexts\/discovery\/routes\/item-detail\./,
+    // Also covers the item-detail-market-history.tsx resource route (m111
+    // market panel): its Sales-tab range/data fetch is exercised by the same
+    // spec's Sales-tab assertion.
+    pattern: /^bounded-contexts\/discovery\/routes\/item-detail(?:\.|-market-history\.)/,
     suites: ["marketplace_browse"],
   },
   {

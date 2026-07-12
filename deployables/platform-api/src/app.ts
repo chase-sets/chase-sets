@@ -24,6 +24,7 @@ import {
   discoveryRealtimeTopicPolicyManifest,
 } from "@chase-sets/discovery/server";
 import { catalogRealtimeManifest, catalogRealtimeTopicPolicyManifest } from "@chase-sets/catalog/server";
+import { pricingRealtimeManifest } from "@chase-sets/pricing/server";
 import { module as identityModule } from "@chase-sets/identity";
 import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 import {
@@ -449,14 +450,19 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   const realtimeStores = runtime.mountedContexts
     .filter(
       (entry) =>
-        entry.contextName === "catalog" || entry.contextName === "discovery" || entry.contextName === "marketplace",
+        entry.contextName === "catalog" ||
+        entry.contextName === "discovery" ||
+        entry.contextName === "marketplace" ||
+        entry.contextName === "pricing",
     )
     .map((entry) => ({
       ...(entry.contextName === "catalog"
         ? catalogRealtimeManifest
         : entry.contextName === "discovery"
           ? discoveryRealtimeManifest
-          : marketplaceRealtimeManifest),
+          : entry.contextName === "marketplace"
+            ? marketplaceRealtimeManifest
+            : pricingRealtimeManifest),
       contextName: entry.contextName,
       db: entry.pool,
     }));

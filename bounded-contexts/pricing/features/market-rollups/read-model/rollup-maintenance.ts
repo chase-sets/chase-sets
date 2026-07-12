@@ -1,9 +1,12 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { recordRealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
+import { createPricingProductMarketStatsPatch } from "../../../support/realtime-support/patches";
 import {
   ROLLUP_CLOSER_TRAILING_WINDOW_DAYS,
   ROLLUP_CONVENIENCE_LOOKBACK_DAYS,
   ROLLUP_MINIMUM_TRADE_SAMPLE,
 } from "./rollup-policy";
+import { getProductMarketStatsSnapshot } from "./queries";
 
 /**
  * Daily rollup maintenance: a scheduled worker job, not a checkpointed
@@ -76,10 +79,25 @@ export async function runDailyRollupCloser(
     await recomputeDailyProductRollup(db, tuple);
   }
 
+  // Realtime scope: only products with actual trade activity in this pass's
+  // trailing window (i.e. present in rollupTuples) get a realtime patch --
+  // not every active-or-traded product recomputed below. `productTuples` is
+  // a much wider set (every listed/offered/ever-traded product), and most of
+  // those recomputes are no-op refreshes of already-current state; patching
+  // all of them every closer run (every few minutes, see module header)
+  // would flood the item-detail SSE topic with unchanged data. A real trade
+  // is exactly what discovery's item-detail market panel cares about:
+  // last-sold/chart-relevant aggregate advances.
+  const advancedTuples = new Set(rollupTuples.map((tuple) => tupleKey(tuple)));
+
   const productTuples = await listActiveOrTradedProductTuples(db, { limit });
   for (const tuple of productTuples) {
     await recomputeMarketStateSnapshot(db, { ...tuple, day: today });
     await recomputeProductMarketAggregate(db, tuple, now);
+
+    if (advancedTuples.has(tupleKey(tuple))) {
+      await emitProductMarketStatsPatch(db, tuple, now);
+    }
   }
 
   // Platform Daily Rollup: re-derives the same trailing window of
@@ -97,6 +115,36 @@ export async function runDailyRollupCloser(
     productAggregatesRecomputed: productTuples.length,
     platformDaysRecomputed: platformDays.length,
   };
+}
+
+function tupleKey(tuple: ProductTuple): string {
+  return `${tuple.catalogItemId}:${tuple.productId}`;
+}
+
+/**
+ * Records one realtime patch on Discovery's `item:{catalogItemId}` topic
+ * (see ../../../support/realtime-support/topics.ts for why pricing reuses
+ * that topic namespace) carrying the freshly-recomputed stats snapshot, so
+ * the item-detail market panel's last-sold/chart state updates without a
+ * page refresh (the m106 realtime hook pattern). `sourceGlobalPosition` is
+ * synthesized from the closer pass's `now` -- this job is a scheduled
+ * recompute, not an event handler, so there is no upstream event
+ * globalPosition to carry; uniqueness only needs to hold per (projection,
+ * position, patchKey) tuple, which a millisecond timestamp plus the
+ * per-product patchKey satisfies for any realistic closer cadence.
+ */
+async function emitProductMarketStatsPatch(db: PgQueryable, tuple: ProductTuple, now: Date): Promise<void> {
+  const stats = await getProductMarketStatsSnapshot(db, tuple);
+  const patch = createPricingProductMarketStatsPatch(tuple.catalogItemId, tuple.productId, stats);
+
+  await recordRealtimeProjectionPatch(db, {
+    sourceGlobalPosition: String(now.getTime()),
+    projectionName: "pricing-market-rollups-closer",
+    patchKey: `market-stats:${tupleKey(tuple)}`,
+    topics: patch.topics,
+    recordedAt: now.toISOString(),
+    patch,
+  });
 }
 
 function utcDateString(date: Date): string {

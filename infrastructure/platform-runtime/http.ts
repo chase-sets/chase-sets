@@ -1,4 +1,3 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
@@ -241,19 +240,6 @@ export function resolvePlatformInternalAuthSecret(
   }
 
   return configured || DEFAULT_DEV_INTERNAL_AUTH_SECRET;
-}
-
-export function verifyPlatformInternalAuthSecret(
-  headerValue: string | null | undefined,
-  expectedSecret = resolvePlatformInternalAuthSecret(),
-) {
-  const expected = hashInternalAuthSecret(expectedSecret);
-  const actual = hashInternalAuthSecret(headerValue ?? "");
-  return timingSafeEqual(actual, expected);
-}
-
-function hashInternalAuthSecret(value: string) {
-  return createHash("sha256").update(value).digest();
 }
 
 export function navigateAfterWrite(

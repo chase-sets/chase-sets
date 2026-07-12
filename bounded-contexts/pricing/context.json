@@ -16,7 +16,7 @@
   "streamPrefix": "pricing.",
   "apiBasePath": "/api/marketplace",
   "slices": ["recommendations", "price-signals", "market-trades", "market-rollups", "repricing-policies"],
-  "allowedSupportDirectories": ["request-support", "runtime-support"],
+  "allowedSupportDirectories": ["realtime-support", "request-support", "runtime-support"],
   "publicExports": [".", "./context", "./routes/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/marketplace"],
   "seedRequirements": [
@@ -345,6 +345,11 @@
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by pricing-owned features and composition seams.",
       "expectedConsumers": ["Root pricing composition"]
+    },
+    "realtime-support": {
+      "classification": "support",
+      "purpose": "Provide Pricing-owned realtime topic/patch helpers so the market-rollups closer job can advance Discovery's item-detail market panel over the shared item: topic namespace.",
+      "expectedConsumers": ["market-rollups"]
     },
     "request-support": {
       "classification": "support",

@@ -5,8 +5,21 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 import type { buildPricingApi } from "../../api";
 import type { AccountRecommendationListItem } from "../../features/recommendations/read-model/queries";
 import type { PricingRecommendationJobStatus } from "../../features/recommendations/api/runtime";
+import type {
+  GetProductRollupSeriesParams,
+  ProductMarketStatsSnapshot,
+  ProductRollupSeriesPoint,
+} from "../../features/market-rollups/read-model/queries";
 
 export type { AccountRecommendationListItem } from "../../features/recommendations/read-model/queries";
+export type {
+  GetProductRollupSeriesParams,
+  MarketStateSnapshotPoint,
+  ProductMarketAggregate,
+  ProductMarketStatsSnapshot,
+  ProductRollupSeriesPoint,
+  RollupGranularity,
+} from "../../features/market-rollups/read-model/queries";
 
 type PricingApiApp = ReturnType<typeof buildPricingApi>;
 
@@ -102,6 +115,31 @@ export function createPricingApiClient({
       return parseJsonResponse(
         await client.account.recommendations.dismiss.$post({
           json: { recommendationIds },
+          header: headers,
+        }),
+      );
+    },
+    async getProductRollupSeries(
+      params: GetProductRollupSeriesParams,
+    ): Promise<{ items: readonly ProductRollupSeriesPoint[] }> {
+      return parseJsonResponse(
+        await client["market-rollups"][":catalogItemId"][":productId"].series.$get({
+          param: { catalogItemId: params.catalogItemId, productId: params.productId },
+          query: {
+            from: params.from,
+            to: params.to,
+            ...(params.granularity ? { granularity: params.granularity } : {}),
+          },
+          header: headers,
+        }),
+      );
+    },
+    async getProductMarketStatsSnapshot(
+      params: Readonly<{ catalogItemId: string; productId: string }>,
+    ): Promise<ProductMarketStatsSnapshot> {
+      return parseJsonResponse(
+        await client["market-rollups"][":catalogItemId"][":productId"].stats.$get({
+          param: { catalogItemId: params.catalogItemId, productId: params.productId },
           header: headers,
         }),
       );

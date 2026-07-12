@@ -19,6 +19,7 @@
     "./error-handler": "./error-handler.ts",
     "./health": "./health.ts",
     "./http": "./http.ts",
+    "./internal-auth": "./internal-auth.ts",
     "./live-connection-status": "./live-connection-status.ts",
     "./mcp": "./mcp.ts",
     "./mcp-contracts": "./mcp-contracts.ts",
