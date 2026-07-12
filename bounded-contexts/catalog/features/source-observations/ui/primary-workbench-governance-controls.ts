@@ -22,7 +22,7 @@ export type GovernanceRbacRow = GovernanceControls["rbacMatrix"][number];
 export type GovernanceObservabilitySignal = GovernanceControls["observability"]["signals"][number];
 
 const catalogIntegrationGrafanaDashboardHref =
-  "https://grafana.chasesets.com/d/chase-sets-catalog-integration-control-plane/catalog-integration-control-plane";
+  "https://grafana.chasesets.com/d/chase-sets-catalog-control-plane/catalog-integration-control-plane";
 const catalogIntegrationOperationsRunbookHref =
   "https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/catalog-integration-operations.md";
 

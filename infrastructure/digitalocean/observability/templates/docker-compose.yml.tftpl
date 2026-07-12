@@ -21,6 +21,9 @@ services:
   grafana:
     image: $${GRAFANA_IMAGE}
     restart: unless-stopped
+    depends_on:
+      ses-alert-relay:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health || exit 1"]
       interval: 10s
@@ -33,10 +36,31 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: "$${GRAFANA_ADMIN_PASSWORD}"
       GF_SERVER_ROOT_URL: "https://$${GRAFANA_DOMAIN}"
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SMTP_ENABLED: "$${GRAFANA_SMTP_ENABLED}"
+      GF_SMTP_HOST: "ses-alert-relay:2525"
+      GF_SMTP_FROM_ADDRESS: "$${GRAFANA_SMTP_FROM_ADDRESS}"
+      GF_SMTP_FROM_NAME: "Chase Sets Observability"
+      GF_SMTP_STARTTLS_POLICY: "NoStartTLS"
+      OBSERVABILITY_ALERT_EMAILS: "$${OBSERVABILITY_ALERT_EMAILS}"
     volumes:
       - /var/lib/chase-sets-observability/grafana:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  ses-alert-relay:
+    image: node:24.12.0-alpine
+    restart: unless-stopped
+    command: ["node", "/app/ses-smtp-relay.mjs"]
+    environment:
+      SES_AWS_ACCESS_KEY_ID: "$${SES_AWS_ACCESS_KEY_ID}"
+      SES_AWS_SECRET_ACCESS_KEY: "$${SES_AWS_SECRET_ACCESS_KEY}"
+      SES_AWS_REGION: "$${SES_AWS_REGION}"
+      SES_CONFIGURATION_SET_NAME: "$${SES_CONFIGURATION_SET_NAME}"
+      SES_SOURCE_ARN: "$${SES_SOURCE_ARN}"
+      GRAFANA_SMTP_FROM_ADDRESS: "$${GRAFANA_SMTP_FROM_ADDRESS}"
+      OBSERVABILITY_ALERT_EMAILS: "$${OBSERVABILITY_ALERT_EMAILS}"
+    volumes:
+      - ./ses-smtp-relay.mjs:/app/ses-smtp-relay.mjs:ro
 
   prometheus:
     image: $${PROMETHEUS_IMAGE}

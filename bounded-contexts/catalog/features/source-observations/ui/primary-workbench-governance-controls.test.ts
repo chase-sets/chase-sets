@@ -130,7 +130,7 @@ describe("Catalog primary workbench read model - governance controls", () => {
       "kill-switch-active",
     );
     expect(readModel.governanceControls.observability.signals[0]?.alertLinks[0]?.href).toBe(
-      "https://grafana.chasesets.com/d/chase-sets-catalog-integration-control-plane/catalog-integration-control-plane",
+      "https://grafana.chasesets.com/d/chase-sets-catalog-control-plane/catalog-integration-control-plane",
     );
     expect(readModel.governanceControls.observability.signals[0]?.runbookLinks[0]?.href).toBe(
       "https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/catalog-integration-operations.md",

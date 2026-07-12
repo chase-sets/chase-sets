@@ -2991,7 +2991,7 @@ function isSafePrimaryWorkbenchObservabilityLink(path: string): boolean {
     }
     if (
       ["grafana.chasesets.com", "grafana.staging.chasesets.com"].includes(parsedUrl.hostname) &&
-      parsedUrl.pathname.startsWith("/d/chase-sets-catalog-integration-control-plane")
+      parsedUrl.pathname.startsWith("/d/chase-sets-catalog-control-plane")
     ) {
       return true;
     }

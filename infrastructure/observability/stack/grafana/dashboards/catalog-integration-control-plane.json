@@ -1,6 +1,6 @@
 {
   "title": "Catalog Integration Control Plane",
-  "uid": "chase-sets-catalog-integration-control-plane",
+  "uid": "chase-sets-catalog-control-plane",
   "schemaVersion": 39,
   "version": 1,
   "refresh": "30s",

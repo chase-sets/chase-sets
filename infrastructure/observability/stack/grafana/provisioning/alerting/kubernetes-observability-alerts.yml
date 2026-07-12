@@ -1,0 +1,76 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: kubernetes-observability-pipeline
+    folder: Chase Sets
+    interval: 1m
+    rules:
+      - uid: k8s-staging-telemetry-missing
+        title: Staging Kubernetes telemetry missing
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              expr: absent(kube_node_status_condition{deployment_environment="staging",condition="Ready",status="true"})
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        for: 5m
+        labels:
+          severity: critical
+          environment: staging
+          signal: telemetry-pipeline
+      - uid: k8s-production-telemetry-missing
+        title: Production Kubernetes telemetry missing
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              expr: absent(kube_node_status_condition{deployment_environment="production",condition="Ready",status="true"})
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        for: 5m
+        labels:
+          severity: critical
+          environment: production
+          signal: telemetry-pipeline

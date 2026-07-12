@@ -181,6 +181,40 @@ describe("platform Kubernetes deployment", () => {
     ).not.toContain("--values");
   });
 
+  it("enables in-cluster collection with environment-safe export only for long-lived environments", () => {
+    const stagingArgs = buildHelmUpgradeArgs({
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging", OBSERVABILITY_ENABLED: "true" },
+    });
+    expect(stagingArgs).toEqual(
+      expect.arrayContaining([
+        "--set",
+        "observability.enabled=true",
+        "--set-string",
+        "observability.environment=staging",
+        "--set-string",
+        "observability.clusterName=chase-sets-staging-doks",
+        "--set-string",
+        "observability.exporter.endpoint=https://otel.staging.chasesets.com",
+      ]),
+    );
+    expect(stagingArgs.join(" ")).toContain(
+      "global.envOverrides.OTEL_EXPORTER_OTLP_ENDPOINT=http://chase-sets-platform-chase-sets-platform-observability-collector:4318",
+    );
+    expect(stagingArgs.join(" ")).toContain("global.envOverrides.OBSERVABILITY_ENABLED=true");
+    expect(stagingArgs.join(" ")).toContain("chase_sets.environment_slug=staging");
+
+    const previewArgs = buildHelmUpgradeArgs({
+      release: "chase-sets-pr-4051",
+      namespace: "chase-sets-pr-4051",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:pr-4051",
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview", PREVIEW_IDENTIFIER: "pr-4051" },
+    });
+    expect(previewArgs).not.toContain("observability.enabled=true");
+  });
+
   it("drives the exact workflow staging argv end-to-end and executes helm with the staging overlay", async () => {
     // End-to-end guard for issue #4743: this is the verbatim argv the
     // platform-production.yml "Deploy staging Kubernetes release" step passes

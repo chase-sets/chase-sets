@@ -40,16 +40,24 @@ locals {
     })
     "docker-compose.yml" = templatefile("${path.module}/templates/docker-compose.yml.tftpl", {})
     ".env" = templatefile("${path.module}/templates/stack.env.tftpl", {
-      caddy_image          = var.caddy_image
-      grafana_image        = var.grafana_image
-      prometheus_image     = var.prometheus_image
-      loki_image           = var.loki_image
-      tempo_image          = var.tempo_image
-      otel_collector_image = var.otel_collector_image
-      grafana_admin_user   = var.grafana_admin_user
-      grafana_admin_pass   = var.grafana_admin_password
-      grafana_domain       = local.primary_grafana_domain
-      prometheus_retention = var.prometheus_retention
+      caddy_image                = var.caddy_image
+      grafana_image              = var.grafana_image
+      prometheus_image           = var.prometheus_image
+      loki_image                 = var.loki_image
+      tempo_image                = var.tempo_image
+      otel_collector_image       = var.otel_collector_image
+      grafana_admin_user         = var.grafana_admin_user
+      grafana_admin_pass         = var.grafana_admin_password
+      grafana_domain             = local.primary_grafana_domain
+      prometheus_retention       = var.prometheus_retention
+      grafana_smtp_enabled       = var.grafana_smtp_enabled
+      grafana_smtp_from_address  = var.grafana_smtp_from_address
+      observability_alert_emails = join(",", var.alert_emails)
+      ses_aws_access_key_id      = var.ses_aws_access_key_id
+      ses_aws_secret_access_key  = var.ses_aws_secret_access_key
+      ses_aws_region             = var.ses_aws_region
+      ses_configuration_set_name = var.ses_configuration_set_name
+      ses_source_arn             = var.ses_source_arn
     })
     "Caddyfile" = templatefile("${path.module}/templates/Caddyfile.tftpl", {
       acme_email             = var.acme_email
@@ -61,8 +69,14 @@ locals {
     })
   }
 
+  generated_alerting_files = var.grafana_smtp_enabled ? {
+    "grafana/provisioning/alerting/contact-points.yml" = templatefile("${path.module}/templates/contact-points.yml.tftpl", {
+      alert_emails = join(",", var.alert_emails)
+    })
+  } : {}
+
   cloud_init_files = [
-    for relative_path, content in merge(local.stack_files, local.generated_stack_files) : {
+    for relative_path, content in merge(local.stack_files, local.generated_stack_files, local.generated_alerting_files) : {
       path        = "/opt/chase-sets-observability/${relative_path}"
       owner       = "root:root"
       permissions = relative_path == ".env" || relative_path == "Caddyfile" ? "0600" : "0644"

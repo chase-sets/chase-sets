@@ -83,14 +83,14 @@ Use Grafana for telemetry questions: request rates, latency, projection freshnes
 - Staging Prometheus query endpoint: `https://prometheus.staging.chasesets.com`
 - Staging first-boot diagnostics: `https://grafana.staging.chasesets.com/__chase-sets/observability/boot-status`
 - Staging Projection Wake Pipeline dashboard: `https://grafana.staging.chasesets.com/d/chase-sets-projection-wake-pipeline/projection-wake-pipeline`
-- Staging Catalog Integration Control Plane dashboard: `https://grafana.staging.chasesets.com/d/chase-sets-catalog-integration-control-plane/catalog-integration-control-plane`
+- Staging Catalog Integration Control Plane dashboard: `https://grafana.staging.chasesets.com/d/chase-sets-catalog-control-plane/catalog-integration-control-plane`
 - Staging Projection Operations: `https://admin.staging.chasesets.com/platform/projections`
 - Production Grafana: `https://grafana.chasesets.com`
 - Production OTLP endpoint: `https://otel.chasesets.com`
 - Production Prometheus query endpoint: `https://prometheus.chasesets.com`
 - Production first-boot diagnostics: `https://grafana.chasesets.com/__chase-sets/observability/boot-status`
 - Production Projection Wake Pipeline dashboard: `https://grafana.chasesets.com/d/chase-sets-projection-wake-pipeline/projection-wake-pipeline`
-- Production Catalog Integration Control Plane dashboard: `https://grafana.chasesets.com/d/chase-sets-catalog-integration-control-plane/catalog-integration-control-plane`
+- Production Catalog Integration Control Plane dashboard: `https://grafana.chasesets.com/d/chase-sets-catalog-control-plane/catalog-integration-control-plane`
 - Production Projection Operations: `https://admin.chasesets.com/platform/projections`
 
 Grafana access requirements:
@@ -134,6 +134,8 @@ Missing telemetry is an operations incident. Do not page customer-facing route o
 
 Metric labels must stay bounded: service, environment, route template, method, status class, context, event type, projector/subscription name, and provider. Never use account, user, listing, order, payment, shipment, or session ids as metric labels.
 
+The Kubernetes collector also drops automatic-instrumentation `db.connection_string`, `db.statement`, `db.user`, `url.full`, `url.path`, `url.query`, and `user_agent.original` attributes from traces and logs before export. Use bounded `http.route`, service, deployment, and Kubernetes metadata for correlation instead.
+
 ## Launch Revisit Criteria
 
 Keep the shared stack until at least one of these is true:
@@ -153,6 +155,26 @@ Close the DOKS observability rewire only after live evidence proves:
 - Kubernetes collector metrics include bounded namespace/deployment/pod/node labels and no customer identifiers;
 - alert notifications fire through the replacement path that supersedes `PLATFORM_ALERT_EMAILS`-equivalent App Platform alerts;
 - the retired duplicate observability Droplet, volume, backups, DNS records, and token references are removed or have a named follow-up with owner-approved launch-time revisit criteria.
+
+Use these Prometheus checks for the acceptance record; both results must be non-empty from the same Prometheus host:
+
+```promql
+count by (deployment_environment, k8s_cluster_name) (kube_node_status_condition{deployment_environment="staging",condition="Ready",status="true"})
+```
+
+```promql
+count by (deployment_environment, k8s_cluster_name) (kube_node_status_condition{deployment_environment="production",condition="Ready",status="true"})
+```
+
+Also query one application metric, log stream, and trace from each environment using `deployment_environment` / `deployment.environment`. Test the provisioned email contact path once with an `environment=staging` test alert and once with `environment=production`; retain the Grafana notification result and SMTP acceptance timestamp without recording recipient addresses or credentials.
+
+### Shared Host Reconciliation
+
+The retained host is Droplet `577048531` with volume `chase-sets-observability-data`. Its Terraform lifecycle ignores first-boot `user_data` so a config change cannot replace the host. Reconcile `/opt/chase-sets-observability` in place over the approved SSH path, preserve the existing `.env` and Caddy tokens, validate `docker compose config`, then run `docker compose up -d --remove-orphans`. Confirm the diagnostics endpoint and Grafana health after every reconciliation.
+
+Before planning `observability/shared.tfstate`, migrate the retained production resources and their production DNS records from the old production state, then import the three staging DNS records into the shared state. Pull and archive both source states before any state move. A shared-state plan is acceptable only when it retains Droplet `577048531`, retains its volume, changes staging aliases in place to the survivor address, and contains no replacement, detach, or deletion beyond an explicitly authorized post-acceptance cleanup.
+
+After live telemetry and alert proof is complete, delete only the authorized staging Droplet and its attached staging volume, and verify backups are disabled on the survivor. If state access, SMTP credentials, recipient selection, or an API scope blocks proof, do not alter either stack; leave the remaining action on #4051 with the exact blocker.
 
 Projection freshness metrics add only bounded labels: `mount_path`, `route_path`, `target_context`, `projection`, `source_context`, `outcome`, `wait_mode`, receipt/header status, runner state, and sanitized `last_error` presence. They must not include raw URLs, path parameters, checkout session ids, account ids, user ids, guest emails, cookies, event ids, or `afterWrite` token values.
 
