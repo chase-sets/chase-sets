@@ -19,6 +19,21 @@ components:
         cpu: "1"
         memory: "1Gi"
   platform-worker:
+    # Keep one warm worker for health and deploy continuity; KEDA adds up to four pods when eligible wake intents accumulate.
+    # The cap preserves the staging database connection budget while covering representative wake and import bursts.
+    autoscaling:
+      enabled: true
+      minReplicaCount: 1
+      maxReplicaCount: 4
+      pollingInterval: 15
+      cooldownPeriod: 300
+      triggers:
+        - type: "postgresql"
+          metadata:
+            connectionFromEnv: "PLATFORM_WORK_SIGNAL_DATABASE_URL"
+            query: "SELECT COUNT(*)::integer FROM platform_projection_wake_intents WHERE state IN ('queued', 'failed') AND next_eligible_at <= now() AND expires_at > now()"
+            targetQueryValue: "1"
+            activationTargetQueryValue: "0"
     envOverrides:
       DATABASE_POOL_MAX: "12"
       WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS: "4"

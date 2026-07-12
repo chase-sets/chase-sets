@@ -736,6 +736,19 @@ components:
     resources: {}
     podAnnotations: {}
     podLabels: {}
+    autoscaling:
+      enabled: false
+      minReplicaCount: 1
+      maxReplicaCount: 4
+      pollingInterval: 15
+      cooldownPeriod: 300
+      triggers:
+        - type: "postgresql"
+          metadata:
+            connectionFromEnv: "PLATFORM_WORK_SIGNAL_DATABASE_URL"
+            query: "SELECT COUNT(*)::integer FROM platform_projection_wake_intents WHERE state IN ('queued', 'failed') AND next_eligible_at <= now() AND expires_at > now()"
+            targetQueryValue: "1"
+            activationTargetQueryValue: "0"
     port: 8080
     healthPath: "/health/ready"
     startupPath: "/health/live"

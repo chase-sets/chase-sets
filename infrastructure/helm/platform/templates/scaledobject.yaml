@@ -1,0 +1,25 @@
+{{- range $name, $component := .Values.components }}
+{{- if and $component.enabled $component.autoscaling $component.autoscaling.enabled }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "chase-sets-platform.componentName" (dict "root" $ "name" $name) }}
+  labels:
+{{ include "chase-sets-platform.labels" (dict "root" $ "name" $name) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ include "chase-sets-platform.componentName" (dict "root" $ "name" $name) }}
+    kind: Deployment
+  minReplicaCount: {{ $component.autoscaling.minReplicaCount }}
+  maxReplicaCount: {{ $component.autoscaling.maxReplicaCount }}
+  pollingInterval: {{ $component.autoscaling.pollingInterval }}
+  cooldownPeriod: {{ $component.autoscaling.cooldownPeriod }}
+  triggers:
+{{- range $trigger := $component.autoscaling.triggers }}
+    - type: {{ $trigger.type | quote }}
+      metadata:
+{{ toYaml $trigger.metadata | nindent 8 }}
+{{- end }}
+{{- end }}
+{{- end }}

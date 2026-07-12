@@ -1242,6 +1242,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformHelmStagingValues).toContain('WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS: "4"');
     expect(platformHelmStagingValues).toContain('WORKER_WAKE_MAX_CONCURRENT_RUNNERS: "3"');
     expect(platformHelmStagingValues).toContain('WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT: "2"');
+    expect(platformHelmStagingValues).toContain("autoscaling:");
+    expect(platformHelmStagingValues).toContain("enabled: true");
+    expect(platformHelmStagingValues).toContain("minReplicaCount: 1");
+    expect(platformHelmStagingValues).toContain("maxReplicaCount: 4");
+    expect(platformHelmStagingValues).toContain('connectionFromEnv: "PLATFORM_WORK_SIGNAL_DATABASE_URL"');
+    expect(platformHelmStagingValues).toContain("platform_projection_wake_intents");
+    expect(platformHelmStagingValues).toContain("state IN ('queued', 'failed')");
+    expect(platformMain).toContain('key   = "PLATFORM_WORK_SIGNAL_DATABASE_URL"');
     expect(platformHelmStagingValues).not.toContain("WORKER_PROJECTION_OPERATION_RUNNER_COUNT");
     expect(stagingDeployStep).toContain('--runtime-env "CHASE_SETS_RUNTIME_PROFILE=public"');
     expect(stagingDeployStep).toContain(

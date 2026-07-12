@@ -9,6 +9,7 @@ import {
   buildPreviewDoksIngressValues,
   chartValuesRelativePath,
   doksStagingApiOverrides,
+  doksStagingWorkerAutoscaling,
   doksStagingWorkerEnvOverrides,
   extractDigitalOceanPlatformComponents,
   platformHelmComponentName,
@@ -200,6 +201,39 @@ describe("render platform Helm values", () => {
     // #4762 widens projection concurrency for the DOKS staging overlay only;
     // the base/preview worker keeps the conservative single projection slot.
     expect(envValue("WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS")).toBe("1");
+  });
+
+  it("pins staging worker autoscaling to eligible wake-signal depth", () => {
+    const baselineValues = buildPlatformHelmValues({ repoRoot });
+    const stagingValues = buildPlatformHelmStagingValues();
+    const baselineAutoscaling = baselineValues.components["platform-worker"].autoscaling;
+    const stagingAutoscaling = stagingValues.components["platform-worker"].autoscaling;
+    const scaledObjectTemplate = readChartFiles(["templates/scaledobject.yaml"])[0];
+
+    expect(baselineAutoscaling).toEqual(doksStagingWorkerAutoscaling);
+    expect(baselineAutoscaling.enabled).toBe(false);
+    expect(stagingAutoscaling).toEqual({ ...doksStagingWorkerAutoscaling, enabled: true });
+    expect(stagingAutoscaling.minReplicaCount).toBe(1);
+    expect(stagingAutoscaling.maxReplicaCount).toBe(4);
+    expect(stagingAutoscaling.pollingInterval).toBe(15);
+    expect(stagingAutoscaling.cooldownPeriod).toBe(300);
+    expect(stagingAutoscaling.triggers[0]).toEqual({
+      type: "postgresql",
+      metadata: {
+        connectionFromEnv: "PLATFORM_WORK_SIGNAL_DATABASE_URL",
+        query: expect.stringContaining("platform_projection_wake_intents"),
+        targetQueryValue: "1",
+        activationTargetQueryValue: "0",
+      },
+    });
+    expect(stagingAutoscaling.triggers[0].metadata.query).toContain("state IN ('queued', 'failed')");
+    expect(stagingAutoscaling.triggers[0].metadata.query).toContain("next_eligible_at <= now()");
+    expect(stagingAutoscaling.triggers[0].metadata.query).toContain("expires_at > now()");
+
+    expect(scaledObjectTemplate).toContain("apiVersion: keda.sh/v1alpha1");
+    expect(scaledObjectTemplate).toContain("kind: ScaledObject");
+    expect(scaledObjectTemplate).toContain("scaleTargetRef:");
+    expect(scaledObjectTemplate).toContain("toYaml $trigger.metadata");
   });
 
   it("renders a staging-only DOKS worker overlay with representative wake headroom", () => {
@@ -655,6 +689,7 @@ describe("render platform Helm values", () => {
       "templates/rollout.yaml",
       "templates/service.yaml",
       "templates/serviceaccount.yaml",
+      "templates/scaledobject.yaml",
     ];
     const chartText = `${readFileSync(path.join(repoRoot, chartValuesRelativePath), "utf8")}\n${readChartFiles(
       chartFiles,
