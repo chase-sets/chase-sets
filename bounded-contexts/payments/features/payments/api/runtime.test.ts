@@ -1142,6 +1142,7 @@ describe("payment runtime", () => {
 
     expect(processorGateway.createPaymentSession).toHaveBeenCalledWith(
       expect.objectContaining({
+        providerCustomerReference: "cus_buyer",
         cardAuthentication: {
           requestThreeDSecure: "any",
           reasonCodes: ["stripe-fraud-flag", "stripe-fraud-review-open", "manual-payout-review"],
@@ -1199,6 +1200,60 @@ describe("payment runtime", () => {
       threeDSecureRequest: "automatic",
       threeDSecureReasonCodes: [],
     });
+  });
+
+  it("keeps guest payments customer-less", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb() as never,
+      processorGateway,
+    });
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+
+    await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        isGuestCheckout: true,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+      },
+      context,
+    );
+
+    expect(processorGateway.createCustomer).not.toHaveBeenCalled();
+    expect(processorGateway.createPaymentSession).toHaveBeenCalledWith(
+      expect.objectContaining({ providerCustomerReference: null }),
+    );
+  });
+
+  it("reuses the account provider customer mapping on payment retries", async () => {
+    const processorGateway = createProcessorGateway();
+    const services = createPaymentRuntime({
+      eventStore: createUnusedEventStore(),
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb() as never,
+      processorGateway,
+    });
+
+    await expect(services.ensureProviderCustomer({ accountId: "acc_buyer" as never })).resolves.toMatchObject({
+      provider_customer_reference: "cus_buyer",
+    });
+    await expect(services.ensureProviderCustomer({ accountId: "acc_buyer" as never })).resolves.toMatchObject({
+      provider_customer_reference: "cus_buyer",
+    });
+
+    expect(processorGateway.createCustomer).toHaveBeenCalledTimes(1);
+    expect(processorGateway.createCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: "payments:account:acc_buyer:stripe:customer" }),
+    );
   });
 
   it("applies available balance credit and creates an external payment for the remainder", async () => {

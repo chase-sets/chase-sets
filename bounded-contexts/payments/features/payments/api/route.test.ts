@@ -307,6 +307,7 @@ describe("payments routes", () => {
     expect(services.createAccountPayment).toHaveBeenCalledWith(
       {
         accountId: "acc_buyer",
+        isGuestCheckout: false,
         orderIds: ["ord_1"],
         currencyCode: "usd",
         requestedBalanceCreditAmount: null,
@@ -444,6 +445,7 @@ describe("payments routes", () => {
     expect(services.createAccountPayment).toHaveBeenCalledWith(
       {
         accountId: "acc_buyer",
+        isGuestCheckout: false,
         orderIds: ["ord_1"],
         currencyCode: "usd",
         sourceContext: "checkout",
@@ -975,6 +977,7 @@ describe("payments routes", () => {
     expect(services.recoverCheckoutPayment).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: "acc_guest",
+        isGuestCheckout: true,
         orderIds: ["ord_1"],
         currencyCode: "usd",
         requestedBalanceCreditAmount: "3.25",

@@ -42,6 +42,7 @@ export type CreateProcessorPaymentInput = Readonly<{
   description: string;
   returnUrl?: string | null;
   idempotencyKey?: string | null;
+  providerCustomerReference?: string | null;
   clientRiskContext?: Readonly<{
     ipAddress?: string | null;
     userAgent?: string | null;
