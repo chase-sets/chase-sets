@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
   terms_schedule_id text NULL,
   terms_agreement_id text NULL,
   terms_resolved_at timestamptz NOT NULL,
+  fee_locks jsonb NOT NULL DEFAULT '[]'::jsonb,
   quantity_cap integer NOT NULL CHECK (quantity_cap >= 0),
   max_units_per_order integer NULL CHECK (max_units_per_order IS NULL OR max_units_per_order > 0),
   max_units_per_day integer NULL CHECK (max_units_per_day IS NULL OR max_units_per_day > 0),
@@ -105,6 +106,9 @@ ALTER TABLE ordering_market_listing_inputs
   ADD COLUMN IF NOT EXISTS max_units_per_day integer NULL,
   ADD COLUMN IF NOT EXISTS max_units_per_customer_account integer NULL,
   ADD COLUMN IF NOT EXISTS seller_listing_availability_status text NOT NULL DEFAULT 'available';
+
+ALTER TABLE ordering_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS fee_locks jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 ALTER TABLE ordering_market_listing_inputs
   ALTER COLUMN terms_resolved_at DROP NOT NULL;

@@ -722,14 +722,6 @@ describe("marketplace listing runtime", () => {
 
     expect(history).toMatchObject([
       {
-        event_type: "marketplace.listing.published",
-        stream_version: 2,
-        marketplace_sales_fee_unit_amount: "1.00",
-        seller_net_unit_amount: "19.00",
-        terms_schedule_id: "cts_default",
-        performed_by_user_id: "usr_seller",
-      },
-      {
         event_type: "marketplace.listing.created",
         stream_version: 1,
         price_amount: "20.00",
@@ -1023,7 +1015,7 @@ describe("marketplace listing runtime", () => {
     expect(originalHistory).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          event_type: "marketplace.listing.published",
+          event_type: "marketplace.listing.created",
           marketplace_sales_fee_unit_amount: "1.00",
           seller_net_unit_amount: "19.00",
           terms_schedule_id: "cts_launch",
@@ -1643,9 +1635,9 @@ describe("marketplace listing runtime", () => {
       );
 
       expect(outcomes[0]).toMatchObject({ listingId: "lst_does_not_exist", outcome: "error" });
-      expect(outcomes[1]).toMatchObject({ listingId: "lst_owned", outcome: "error" });
-      // Both fail at the fee-quote preflight stage in this test (stale fingerprints), independently.
-      await expect(eventStore.readStream({ streamId: "marketplace.listing-lst_owned" })).resolves.toHaveLength(1);
+      expect(outcomes[1]).toMatchObject({ listingId: "lst_owned", outcome: "applied" });
+      // A price edit requotes the listing's own lock, so a stale current-terms fingerprint cannot re-rate it.
+      await expect(eventStore.readStream({ streamId: "marketplace.listing-lst_owned" })).resolves.toHaveLength(2);
     });
 
     it("chunks the append according to the resolved marketplace.listing-bulk-price-update policy", async () => {
@@ -1717,7 +1709,7 @@ describe("marketplace listing runtime", () => {
       );
     });
 
-    it("resolves the terms session once for the whole batch when it fits in a single chunk -- not once per listing (#4327)", async () => {
+    it("requotes each listing's lock locally without resolving current terms for the batch", async () => {
       const { eventStore } = createInMemoryEventStore();
       const termsResolver = bulkTermsResolver();
       const services = createMarketplaceListingRuntime({
@@ -1753,15 +1745,10 @@ describe("marketplace listing runtime", () => {
       );
 
       expect(outcomes.every((outcome) => outcome.outcome === "applied")).toBe(true);
-      // 5 listings, default chunkSize 50 -> one wave -> the terms session
-      // resolves once for the whole batch, never once per listing, and no
-      // per-item fee-quote fingerprint is required to apply. (`createListing`
-      // above uses `resolveListingTerms` for its own per-listing preview --
-      // that's unrelated to the bulk path and isn't part of this assertion.)
-      expect(termsResolver.openListingTermsSession).toHaveBeenCalledTimes(1);
+      expect(termsResolver.openListingTermsSession).not.toHaveBeenCalled();
     });
 
-    it("revalidates the terms session between chunks so a mid-run schedule revision never bakes stale terms into a later chunk (#4327)", async () => {
+    it("keeps each listing's creation-time terms across chunks even when current terms revise mid-run", async () => {
       const { eventStore } = createInMemoryEventStore();
       const resolvePolicy = vi.fn(async (policy: { policyKey: string }) => {
         if (policy.policyKey === "marketplace.listing-bulk-price-update") {
@@ -1857,9 +1844,7 @@ describe("marketplace listing runtime", () => {
       );
 
       expect(outcomes.every((outcome) => outcome.outcome === "applied")).toBe(true);
-      // Two listings at chunkSize 1 -> two waves -> the session is opened
-      // (and, per the mock, revalidated) once per wave, not once total.
-      expect(revisableTermsResolver.openListingTermsSession).toHaveBeenCalledTimes(2);
+      expect(revisableTermsResolver.openListingTermsSession).not.toHaveBeenCalled();
 
       const firstListingEvents = await eventStore.readStream({ streamId: "marketplace.listing-lst_revision_1" });
       const secondListingEvents = await eventStore.readStream({ streamId: "marketplace.listing-lst_revision_2" });
@@ -1870,12 +1855,8 @@ describe("marketplace listing runtime", () => {
         (event) => event.eventType === "marketplace.listing.price-updated",
       );
 
-      // The first wave applied at the terms active BEFORE the revision; the
-      // second wave -- after the session was revalidated -- applied at the
-      // NEW terms. No stale fingerprint from the first wave's session ever
-      // reaches the second wave's listing.
-      expect((firstPriceUpdate?.payload as { termsScheduleId?: string })?.termsScheduleId).toBe("cts_before_revision");
-      expect((secondPriceUpdate?.payload as { termsScheduleId?: string })?.termsScheduleId).toBe("cts_after_revision");
+      expect((firstPriceUpdate?.payload as { termsScheduleId?: string })?.termsScheduleId).toBe("cts_seed");
+      expect((secondPriceUpdate?.payload as { termsScheduleId?: string })?.termsScheduleId).toBe("cts_seed");
       expect((firstPriceUpdate?.payload as { feeQuoteFingerprint?: string })?.feeQuoteFingerprint).not.toBe(
         (secondPriceUpdate?.payload as { feeQuoteFingerprint?: string })?.feeQuoteFingerprint,
       );

@@ -17,9 +17,10 @@ import {
 import type { CommercialTermsResolver } from "../../../api";
 import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
 import {
-  openMarketplaceListingTermsSession,
+  feeLockFromMarketplaceTermsQuote,
   quoteMarketplaceTerms,
   quotePublicStandardMarketplaceTerms,
+  requoteMarketplaceListingFeeLock,
 } from "../../../support/runtime-support/fee-quotes";
 import type {
   MarketplaceAnonymousListingDraftIntent,
@@ -79,7 +80,7 @@ const LISTING_PHOTO_UPLOAD_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "
  * snapshot with a different schema version is ignored -- load() falls back
  * to full replay, exactly as if no snapshot existed.
  */
-const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 1;
+const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 2;
 /**
  * Marketplace listings are m113's proven-hot aggregate: reprice-heavy
  * listings accumulate hundreds of `UpdateListingPrice` events, and every
@@ -537,25 +538,6 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     }
   }
 
-  /**
-   * The bulk price-update variant of `assertConfirmedFeeQuote`: a human
-   * confirming a previewed price (fingerprint provided) still gets the
-   * same staleness protection, but a bulk/system caller with no separate
-   * preview step (fingerprint omitted, e.g. `pricing`'s
-   * `applyRecommendations` retrofit -- m113 repricing-at-scale throughput
-   * lane) applies at the freshly-resolved session terms with nothing to
-   * confirm against.
-   */
-  function assertConfirmedFeeQuoteIfProvided(
-    providedFingerprint: string | null | undefined,
-    currentQuote: MarketplaceListingTermsPreview,
-  ) {
-    if (providedFingerprint === null || providedFingerprint === undefined) {
-      return;
-    }
-    assertConfirmedFeeQuote(providedFingerprint, currentQuote);
-  }
-
   async function assertListingPublicationRiskAccepted(listing: MarketplaceListingState) {
     const priceAmount = Number.parseFloat(listing.priceAmount ?? "0");
     const gatePolicy = await resolveListingGatePolicy();
@@ -921,7 +903,6 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     if (
       ![
         "marketplace.listing.created",
-        "marketplace.listing.published",
         "marketplace.listing.price-updated",
         "marketplace.listing.quantity-cap-updated",
       ].includes(event.eventType)
@@ -1013,13 +994,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         shipFromCode: supply.ship_from_code,
         shipFromAddress: supply.ship_from_address,
         priceAmount: params.priceAmount,
-        marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
-        sellerNetUnitAmount: quote.seller_net_unit_amount,
-        shippingAllowancePercentageBps: quote.shipping_allowance_percentage_bps,
-        termsScheduleId: quote.schedule_id,
-        termsAgreementId: quote.agreement_id,
-        termsResolvedAt: quote.resolved_at,
-        feeQuoteFingerprint: quote.fee_quote_fingerprint,
+        feeLock: feeLockFromMarketplaceTermsQuote(params.quantityCap, quote),
         quantityCap: params.quantityCap,
         purchaseLimits: params.purchaseLimits,
         listingPhotos,
@@ -1111,22 +1086,15 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     getAnonymousListingDraftIntent,
     claimAnonymousListingDraftIntent,
     updateListingPrice: async (params, context) => {
-      await loadOwnedListingState(params.listingId, params.accountId);
-      const quote = await quoteListingTerms(params.accountId, params.priceAmount);
-      assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
+      const listing = await loadOwnedListingState(params.listingId, params.accountId);
+      const feeLocks = listing.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, params.priceAmount));
 
       const result = await commandHandler({
         streamId: `marketplace.listing-${params.listingId}`,
         command: {
           type: "UpdateListingPrice",
           priceAmount: params.priceAmount,
-          marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
-          sellerNetUnitAmount: quote.seller_net_unit_amount,
-          shippingAllowancePercentageBps: quote.shipping_allowance_percentage_bps,
-          termsScheduleId: quote.schedule_id,
-          termsAgreementId: quote.agreement_id,
-          termsResolvedAt: quote.resolved_at,
-          feeQuoteFingerprint: quote.fee_quote_fingerprint,
+          feeLocks,
         },
         context,
       });
@@ -1152,30 +1120,19 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         // than once for the whole call) is the mid-run staleness safety
         // net -- a schedule/agreement revision between chunks is picked up
         // by the next wave instead of silently reusing stale fee fields.
-        const session = await openMarketplaceListingTermsSession(deps.commercialTermsResolver, {
-          accountId: params.accountId,
-        });
-
         const laneItems: BulkAppendLaneItem<MarketplaceListingCommand>[] = [];
         for (const update of wave) {
           try {
             const listing = await loadOwnedListingState(update.listingId, params.accountId);
             assert(listing.priceAmount !== null, "Listing price is missing.");
-            const quote = session.quote(update.priceAmount);
-            assertConfirmedFeeQuoteIfProvided(update.feeQuoteFingerprint, quote);
+            const feeLocks = listing.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, update.priceAmount));
 
             laneItems.push({
               streamId: `marketplace.listing-${update.listingId}`,
               command: {
                 type: "UpdateListingPrice",
                 priceAmount: update.priceAmount,
-                marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
-                sellerNetUnitAmount: quote.seller_net_unit_amount,
-                shippingAllowancePercentageBps: quote.shipping_allowance_percentage_bps,
-                termsScheduleId: quote.schedule_id,
-                termsAgreementId: quote.agreement_id,
-                termsResolvedAt: quote.resolved_at,
-                feeQuoteFingerprint: quote.fee_quote_fingerprint,
+                feeLocks,
               },
               context,
             });
@@ -1239,8 +1196,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     updateListingQuantityCap: async (params, context) => {
       const listing = await loadOwnedListingState(params.listingId, params.accountId);
       assert(listing.priceAmount, "Listing price is missing.");
-      const quote = await quoteListingTerms(params.accountId, listing.priceAmount);
-      assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
+      const addedUnitCount = Math.max(0, params.quantityCap - listing.quantityCap);
+      const quote = addedUnitCount > 0 ? await quoteListingTerms(params.accountId, listing.priceAmount) : null;
+      if (quote) {
+        assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
+      }
 
       if (listing.status === "active") {
         assert(listing.inventoryItemId, "Listing inventory item is missing.");
@@ -1253,13 +1213,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           type: "UpdateListingQuantityCap",
           quantityCap: params.quantityCap,
           purchaseLimits: params.purchaseLimits,
-          marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
-          sellerNetUnitAmount: quote.seller_net_unit_amount,
-          shippingAllowancePercentageBps: quote.shipping_allowance_percentage_bps,
-          termsScheduleId: quote.schedule_id,
-          termsAgreementId: quote.agreement_id,
-          termsResolvedAt: quote.resolved_at,
-          feeQuoteFingerprint: quote.fee_quote_fingerprint,
+          addedUnitsFeeLock: quote ? feeLockFromMarketplaceTermsQuote(addedUnitCount, quote) : null,
         },
         context,
       });
@@ -1290,22 +1244,12 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         "Pristine, Mint, and graded-card listings require at least one listing photo before publication; graded-card listings must include a slab photo.",
       );
       await assertListingPublicationRiskAccepted(listing);
-      const quote = await quoteListingTerms(params.accountId, listing.priceAmount);
-      assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
-
       await ensureActiveCapacity(listing.inventoryItemId, listing.quantityCap, params.listingId);
 
       const result = await commandHandler({
         streamId: `marketplace.listing-${params.listingId}`,
         command: {
           type: "PublishListing",
-          marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
-          sellerNetUnitAmount: quote.seller_net_unit_amount,
-          shippingAllowancePercentageBps: quote.shipping_allowance_percentage_bps,
-          termsScheduleId: quote.schedule_id,
-          termsAgreementId: quote.agreement_id,
-          termsResolvedAt: quote.resolved_at,
-          feeQuoteFingerprint: quote.fee_quote_fingerprint,
         },
         context,
       });

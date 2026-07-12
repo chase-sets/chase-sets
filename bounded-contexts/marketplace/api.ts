@@ -1,7 +1,11 @@
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createCommercialTermsResolver, type CommercialTermsResolver } from "@chase-sets/commercial-terms/server";
+import {
+  createCommercialTermsResolver,
+  quoteLockedMarketplaceFeeTerms,
+  type CommercialTermsResolver,
+} from "@chase-sets/commercial-terms/server";
 import type { MarketplaceServices } from "./support/runtime-support/services";
 import { createPublicListingRoutes, createAccountListingRoutes } from "./features/listings/api/route";
 import { createListingGatePolicyRoutes } from "./features/listings/api/listing-gate-policy-route";
@@ -11,6 +15,7 @@ import { createMarketplaceReportRoutes } from "./features/reports/api/route";
 export type MarketplaceApiEnv = AuthenticatedApiEnv;
 
 export type { CommercialTermsResolver };
+export { quoteLockedMarketplaceFeeTerms };
 
 export function createMarketplaceCommercialTermsResolver(db: PgQueryable): CommercialTermsResolver {
   return createCommercialTermsResolver({ db });

@@ -23,6 +23,8 @@ export function createCommercialTermsServer(deps: Readonly<{ db: PgQueryable }>)
 }
 
 export { createCommercialTermsResolver, createNoopCommercialTermsResolver };
+export { quoteLockedMarketplaceFeeTerms } from "./features/resolutions/read-model/resolve";
+export type { LockedMarketplaceFeeTerms } from "./features/resolutions/read-model/resolve";
 
 export type ResolvedCheckoutProcessingFeePolicy = Readonly<{
   value: CheckoutProcessingFeePolicyValue;

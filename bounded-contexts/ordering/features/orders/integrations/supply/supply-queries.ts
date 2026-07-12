@@ -3,7 +3,7 @@ import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId } from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
-import type { MarketplaceDemand, MarketplaceSupplyCandidate } from "../../domain/policies";
+import type { MarketplaceDemand, MarketplaceSupplyCandidate, MarketplaceSupplyFeeLock } from "../../domain/policies";
 
 type VersionSelectedOptionEntry = Readonly<{
   dimensionId: string;
@@ -33,6 +33,7 @@ type OrderingSupplyCandidateRow = Readonly<{
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string;
+  fee_locks: unknown;
   available_quantity: number;
   max_units_per_order: number | null;
   max_units_per_day: number | null;
@@ -89,6 +90,7 @@ export async function listOrderingSupplyCandidates(
        listing.terms_schedule_id,
        listing.terms_agreement_id,
        listing.terms_resolved_at::text AS terms_resolved_at,
+       listing.fee_locks,
        listing.max_units_per_order,
        listing.max_units_per_day,
        listing.max_units_per_customer_account,
@@ -160,6 +162,7 @@ export async function listOrderingSupplyCandidates(
       termsScheduleId: row.terms_schedule_id,
       termsAgreementId: row.terms_agreement_id,
       termsResolvedAt: row.terms_resolved_at,
+      feeLocks: availableFeeLocks(row, row.available_quantity),
       availableQuantity: row.available_quantity,
       maxUnitsPerOrder: row.max_units_per_order,
       maxUnitsPerDay: row.max_units_per_day,
@@ -197,6 +200,7 @@ export async function getOrderingSupplyCandidateByListingId(
        listing.terms_schedule_id,
        listing.terms_agreement_id,
        listing.terms_resolved_at::text AS terms_resolved_at,
+       listing.fee_locks,
        listing.max_units_per_order,
        listing.max_units_per_day,
        listing.max_units_per_customer_account,
@@ -267,12 +271,72 @@ export async function getOrderingSupplyCandidateByListingId(
     termsScheduleId: row.terms_schedule_id,
     termsAgreementId: row.terms_agreement_id,
     termsResolvedAt: row.terms_resolved_at,
+    feeLocks: availableFeeLocks(row, row.available_quantity),
     availableQuantity: row.available_quantity,
     maxUnitsPerOrder: row.max_units_per_order,
     maxUnitsPerDay: row.max_units_per_day,
     maxUnitsPerCustomerAccount: row.max_units_per_customer_account,
     updatedAt: row.updated_at,
   };
+}
+
+function availableFeeLocks(
+  row: Pick<
+    OrderingSupplyCandidateRow,
+    | "fee_locks"
+    | "marketplace_sales_fee_unit_amount"
+    | "seller_net_unit_amount"
+    | "shipping_allowance_percentage_bps"
+    | "terms_schedule_id"
+    | "terms_agreement_id"
+    | "terms_resolved_at"
+  >,
+  availableQuantity: number,
+): MarketplaceSupplyFeeLock[] {
+  const recorded = Array.isArray(row.fee_locks)
+    ? row.fee_locks.flatMap((entry): MarketplaceSupplyFeeLock[] => {
+        if (!entry || typeof entry !== "object") return [];
+        const lock = entry as Record<string, unknown>;
+        const terms = lock.terms && typeof lock.terms === "object" ? (lock.terms as Record<string, unknown>) : {};
+        const unitCount = Number(lock.unitCount);
+        if (!Number.isInteger(unitCount) || unitCount <= 0) return [];
+        return [
+          {
+            unitCount,
+            marketplaceSalesFeeUnitAmount: String(lock.marketplaceSalesFeeUnitAmount),
+            sellerNetUnitAmount: String(lock.sellerNetUnitAmount),
+            shippingAllowancePercentageBps: Number(terms.shippingAllowancePercentageBps ?? 500),
+            termsScheduleId: typeof terms.termsScheduleId === "string" ? terms.termsScheduleId : null,
+            termsAgreementId: typeof terms.termsAgreementId === "string" ? terms.termsAgreementId : null,
+            termsResolvedAt: String(terms.termsResolvedAt ?? row.terms_resolved_at),
+          },
+        ];
+      })
+    : [];
+  const locks: MarketplaceSupplyFeeLock[] =
+    recorded.length > 0
+      ? recorded
+      : [
+          {
+            unitCount: availableQuantity,
+            marketplaceSalesFeeUnitAmount: row.marketplace_sales_fee_unit_amount,
+            sellerNetUnitAmount: row.seller_net_unit_amount,
+            shippingAllowancePercentageBps: row.shipping_allowance_percentage_bps,
+            termsScheduleId: row.terms_schedule_id,
+            termsAgreementId: row.terms_agreement_id,
+            termsResolvedAt: row.terms_resolved_at,
+          },
+        ];
+
+  let remaining = availableQuantity;
+  const available: MarketplaceSupplyFeeLock[] = [];
+  for (const lock of locks) {
+    if (remaining <= 0) break;
+    const unitCount = Math.min(lock.unitCount, remaining);
+    if (unitCount > 0) available.push({ ...lock, unitCount });
+    remaining -= unitCount;
+  }
+  return available.reverse();
 }
 
 function productMeasureFromUnknown(value: unknown) {

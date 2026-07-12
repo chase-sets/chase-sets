@@ -226,6 +226,24 @@ export type MarketplacePurchaseLimitsPayload = Readonly<{
   maxUnitsPerCustomerAccount: number | null;
 }>;
 
+export type MarketplaceListingFeeTermsSnapshotPayload = Readonly<{
+  marketplaceSalesFeePercentageBps: number;
+  marketplaceSalesFeeFixedAmount: string;
+  marketplaceSalesFeeCapAmount: string | null;
+  shippingAllowancePercentageBps: number;
+  termsScheduleId: string | null;
+  termsAgreementId: string | null;
+  termsResolvedAt: string;
+}>;
+
+export type MarketplaceListingFeeLockPayload = Readonly<{
+  unitCount: number;
+  terms: MarketplaceListingFeeTermsSnapshotPayload;
+  marketplaceSalesFeeUnitAmount: string;
+  sellerNetUnitAmount: string;
+  feeQuoteFingerprint: string;
+}>;
+
 export type MarketplaceListingCreatedPayload = Readonly<{
   listingId: string;
   accountId: AccountId;
@@ -248,6 +266,7 @@ export type MarketplaceListingCreatedPayload = Readonly<{
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string;
+  feeLocks: readonly MarketplaceListingFeeLockPayload[];
   quantityCap: number;
   purchaseLimits?: MarketplacePurchaseLimitsPayload;
 }>;
@@ -260,6 +279,7 @@ export type MarketplaceListingPriceUpdatedPayload = Readonly<{
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string;
+  feeLocks: readonly MarketplaceListingFeeLockPayload[];
 }>;
 
 export type MarketplaceListingQuantityCapUpdatedPayload = MarketplaceListingPriceUpdatedPayload &
@@ -322,7 +342,7 @@ export type MarketplaceEventPayloads = Readonly<{
   "marketplace.listing.price-updated": MarketplaceListingPriceUpdatedPayload;
   "marketplace.listing.quantity-cap-updated": MarketplaceListingQuantityCapUpdatedPayload;
   "marketplace.listing.purchase-limits-updated": MarketplaceListingPurchaseLimitsUpdatedPayload;
-  "marketplace.listing.published": MarketplaceListingPriceUpdatedPayload;
+  "marketplace.listing.published": EmptyEventPayload;
   "marketplace.listing.paused": EmptyEventPayload;
   "marketplace.listing.auto-unlisted": MarketplaceListingAutoUnlistedPayload;
   "marketplace.listing.withdrawn": EmptyEventPayload;

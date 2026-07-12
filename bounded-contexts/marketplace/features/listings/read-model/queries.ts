@@ -1,7 +1,11 @@
 import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
-import type { MarketplaceGradedCardDetails, MarketplaceListingPhoto } from "../domain/domain";
+import type {
+  MarketplaceGradedCardDetails,
+  MarketplaceListingFeeLock,
+  MarketplaceListingPhoto,
+} from "../domain/domain";
 
 export type MarketplaceListingListRow = Readonly<{
   listing_id: string;
@@ -27,6 +31,7 @@ export type MarketplaceListingListRow = Readonly<{
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
   fee_quote_fingerprint: string;
+  fee_locks: readonly MarketplaceListingFeeLock[];
   quantity_cap: number;
   max_units_per_order: number | null;
   max_units_per_day: number | null;
@@ -62,6 +67,7 @@ export type MarketplaceListingFeeLockReportRow = Readonly<{
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
   fee_quote_fingerprint: string;
+  fee_locks: readonly MarketplaceListingFeeLock[];
   created_at: string;
   updated_at: string;
 }>;
@@ -113,6 +119,7 @@ type MarketplaceListingPageRow = Readonly<{
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
   fee_quote_fingerprint: string;
+  fee_locks: unknown;
   quantity_cap: number;
   max_units_per_order: number | null;
   max_units_per_day: number | null;
@@ -159,6 +166,7 @@ const listingPageColumnSelectSql = `
        listing.terms_agreement_id,
        listing.terms_resolved_at,
        listing.fee_quote_fingerprint,
+       listing.fee_locks,
        listing.quantity_cap,
        listing.max_units_per_order,
        listing.max_units_per_day,
@@ -219,6 +227,7 @@ function mapListingRow(row: MarketplaceListingPageRow): MarketplaceListingListRo
         ? (row.graded_card as MarketplaceGradedCardDetails)
         : null,
     listing_photos: Array.isArray(row.listing_photos) ? (row.listing_photos as MarketplaceListingPhoto[]) : [],
+    fee_locks: Array.isArray(row.fee_locks) ? (row.fee_locks as MarketplaceListingFeeLock[]) : [],
   };
 }
 
@@ -728,6 +737,7 @@ export async function listSellerListingFeeLockReport(
          terms_agreement_id,
          terms_resolved_at,
          fee_quote_fingerprint,
+         fee_locks,
          created_at,
          updated_at
        FROM marketplace_listing_pages

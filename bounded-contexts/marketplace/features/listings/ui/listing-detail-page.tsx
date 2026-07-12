@@ -180,6 +180,7 @@ export function MarketplaceListingDetailPage({
   errorMessage?: string | null;
   feedbackPrompt?: ReactNode;
 }) {
+  const currentFeeLock = listing.fee_locks.at(-1);
   const publishDisabled =
     listing.status === "active" || listing.status === "withdrawn" || listing.product_measure_snapshot === null;
 
@@ -258,6 +259,9 @@ export function MarketplaceListingDetailPage({
                     fee_quote_fingerprint: listing.fee_quote_fingerprint,
                     marketplace_sales_fee_unit_amount: listing.marketplace_sales_fee_unit_amount ?? "0.00",
                     seller_net_unit_amount: listing.seller_net_unit_amount ?? "0.00",
+                    marketplace_sales_fee_percentage_bps: currentFeeLock?.terms.marketplaceSalesFeePercentageBps ?? 0,
+                    marketplace_sales_fee_fixed_amount: currentFeeLock?.terms.marketplaceSalesFeeFixedAmount ?? "0.00",
+                    marketplace_sales_fee_cap_amount: currentFeeLock?.terms.marketplaceSalesFeeCapAmount ?? null,
                     shipping_allowance_percentage_bps: listing.shipping_allowance_percentage_bps,
                     schedule_id: listing.terms_schedule_id,
                     agreement_id: listing.terms_agreement_id,

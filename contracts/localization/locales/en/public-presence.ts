@@ -368,7 +368,7 @@ export const publicPresenceEnglishTranslations = {
     "The first 500 accounts to list or make an offer claim a numbered founder badge, shown publicly and kept permanently. Beta access also opens a 60-day 0% seller-fee window: every listing you create in that window locks 0% fees until it sells. The 60-day window starts at beta access and runs whether or not you have claimed your badge yet.",
   "publicPresence.info.founders.offer.title": "The offer",
   "publicPresence.info.founders.feeLock.body":
-    "Each listing locks its fee the moment you create it. Editing the price keeps the lock. Relisting an item or adding quantity re-rates at the current published rate, because that action creates a new listing snapshot. The item you originally listed keeps the rate it locked.",
+    "Each listing locks its fee the moment you create it. Editing price, photos, purchase limits, pausing, or resuming keeps the lock. Added quantity uses the current published rate only for those added units. Withdrawing and relisting, recreating, or substituting the item or condition creates a new listing at the current rate.",
   "publicPresence.info.founders.feeLock.title": "How the fee lock works",
   "publicPresence.info.founders.buyerEconomics.body":
     "Buyers pay the item price, shipping, and tax, plus card processing at checkout unless they pay with Chase Sets balance, which makes processing $0. Every order includes Order Protection, funded the same way it is for every seller on the platform: through the shipping allowance, with any buyer overflow shown in one combined Shipping line. Your payout statement itemizes both.",

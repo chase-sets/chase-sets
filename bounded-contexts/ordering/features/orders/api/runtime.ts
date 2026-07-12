@@ -44,6 +44,7 @@ import {
   type OrderPaymentDeadlinePolicy,
   type MarketplaceDemand,
   type MarketplaceSupplyCandidate,
+  type MarketplaceSupplyFeeLock,
   type ShippingQuotePolicy,
 } from "../domain/policies";
 import {
@@ -701,6 +702,34 @@ function consumeCheckoutReservationHoldId(
   return reservation?.holdId ?? null;
 }
 
+function allocateCandidateFeeLocks(candidate: MarketplaceSupplyCandidate, quantity: number) {
+  let remaining = quantity;
+  const allocations: MarketplaceSupplyFeeLock[] = [];
+  const feeLocks = candidate.feeLocks?.length
+    ? candidate.feeLocks
+    : [
+        {
+          unitCount: candidate.availableQuantity,
+          marketplaceSalesFeeUnitAmount: candidate.marketplaceSalesFeeUnitAmount,
+          sellerNetUnitAmount: candidate.sellerNetUnitAmount,
+          shippingAllowancePercentageBps: candidate.shippingAllowancePercentageBps,
+          termsScheduleId: candidate.termsScheduleId,
+          termsAgreementId: candidate.termsAgreementId,
+          termsResolvedAt: candidate.termsResolvedAt,
+        },
+      ];
+  for (const lock of feeLocks) {
+    if (remaining <= 0) break;
+    const unitCount = Math.min(lock.unitCount, remaining);
+    if (unitCount > 0) allocations.push({ ...lock, unitCount });
+    remaining -= unitCount;
+  }
+  if (remaining !== 0) {
+    throw new OrderingDomainError(`Listing ${candidate.listingId} does not have enough fee-locked units.`);
+  }
+  return allocations;
+}
+
 function quotePlan(
   demandPlans: readonly DemandPlan[],
   shippingOption: ShippingOption,
@@ -749,40 +778,54 @@ function quotePlan(
         quantity: 0,
       };
       const unitPriceAmount = priceOverrideAmount ?? allocation.candidate.priceAmount;
-      const lineTotalAmount = centsToMoneyAmount(moneyToCents(unitPriceAmount) * BigInt(allocation.quantity));
-      const marketplaceSalesFeeUnitAmount =
-        feeOverride?.marketplaceSalesFeeUnitAmount ?? allocation.candidate.marketplaceSalesFeeUnitAmount;
-      const sellerNetUnitAmount = feeOverride?.sellerNetUnitAmount ?? allocation.candidate.sellerNetUnitAmount;
-      const shippingAllowancePercentageBps =
-        feeOverride?.shippingAllowancePercentageBps ?? allocation.candidate.shippingAllowancePercentageBps;
-      const marketplaceSalesFeeTotalAmount = centsToMoneyAmount(
-        moneyToCents(marketplaceSalesFeeUnitAmount) * BigInt(allocation.quantity),
-      );
-      const sellerNetTotalAmount = centsToMoneyAmount(moneyToCents(sellerNetUnitAmount) * BigInt(allocation.quantity));
-      sellerDraft.lines.push({
-        lineId: createId("oli") as OrderLineId,
-        listingId: allocation.candidate.listingId,
-        inventoryItemId: allocation.candidate.inventoryItemId,
-        catalogItemId: allocation.candidate.catalogItemId,
-        productId: allocation.candidate.productId,
-        itemTitle: allocation.candidate.itemTitle,
-        itemSubtitle: allocation.candidate.itemSubtitle,
-        selectedOptions: [...allocation.candidate.selectedOptions],
-        productSummary: allocation.candidate.productSummary,
-        productMeasureSnapshot: allocation.candidate.productMeasureSnapshot,
-        gradedCard: allocation.candidate.gradedCard,
-        unitPriceAmount,
-        quantity: allocation.quantity,
-        lineTotalAmount,
-        marketplaceSalesFeeUnitAmount,
-        marketplaceSalesFeeTotalAmount,
-        sellerNetUnitAmount,
-        sellerNetTotalAmount,
-        termsScheduleId: feeOverride?.termsScheduleId ?? allocation.candidate.termsScheduleId,
-        termsAgreementId: feeOverride?.termsAgreementId ?? allocation.candidate.termsAgreementId,
-        termsResolvedAt: feeOverride?.termsResolvedAt ?? allocation.candidate.termsResolvedAt,
-        shippingAllowancePercentageBps,
-      });
+      const feeAllocations = feeOverride
+        ? [
+            {
+              unitCount: allocation.quantity,
+              marketplaceSalesFeeUnitAmount: feeOverride.marketplaceSalesFeeUnitAmount,
+              sellerNetUnitAmount: feeOverride.sellerNetUnitAmount,
+              shippingAllowancePercentageBps:
+                feeOverride.shippingAllowancePercentageBps ?? allocation.candidate.shippingAllowancePercentageBps,
+              termsScheduleId: feeOverride.termsScheduleId,
+              termsAgreementId: feeOverride.termsAgreementId,
+              termsResolvedAt: feeOverride.termsResolvedAt,
+            },
+          ]
+        : allocateCandidateFeeLocks(allocation.candidate, allocation.quantity);
+      for (const feeAllocation of feeAllocations) {
+        const lineTotalAmount = centsToMoneyAmount(moneyToCents(unitPriceAmount) * BigInt(feeAllocation.unitCount));
+        const marketplaceSalesFeeTotalAmount = centsToMoneyAmount(
+          moneyToCents(feeAllocation.marketplaceSalesFeeUnitAmount) * BigInt(feeAllocation.unitCount),
+        );
+        const sellerNetTotalAmount = centsToMoneyAmount(
+          moneyToCents(feeAllocation.sellerNetUnitAmount) * BigInt(feeAllocation.unitCount),
+        );
+        sellerDraft.lines.push({
+          lineId: createId("oli") as OrderLineId,
+          listingId: allocation.candidate.listingId,
+          inventoryItemId: allocation.candidate.inventoryItemId,
+          catalogItemId: allocation.candidate.catalogItemId,
+          productId: allocation.candidate.productId,
+          itemTitle: allocation.candidate.itemTitle,
+          itemSubtitle: allocation.candidate.itemSubtitle,
+          selectedOptions: [...allocation.candidate.selectedOptions],
+          productSummary: allocation.candidate.productSummary,
+          productMeasureSnapshot: allocation.candidate.productMeasureSnapshot,
+          gradedCard: allocation.candidate.gradedCard,
+          unitPriceAmount,
+          quantity: feeAllocation.unitCount,
+          lineTotalAmount,
+          marketplaceSalesFeeUnitAmount: feeAllocation.marketplaceSalesFeeUnitAmount,
+          marketplaceSalesFeeTotalAmount,
+          sellerNetUnitAmount: feeAllocation.sellerNetUnitAmount,
+          sellerNetTotalAmount,
+          termsScheduleId: feeAllocation.termsScheduleId,
+          termsAgreementId: feeAllocation.termsAgreementId,
+          termsResolvedAt: feeAllocation.termsResolvedAt,
+          shippingAllowancePercentageBps: feeAllocation.shippingAllowancePercentageBps,
+        });
+        sellerDraft.subtotalCents += moneyToCents(lineTotalAmount);
+      }
       sellerDraft.reservations.push({
         reservationRequestId: createId("rsv"),
         inventoryItemId: allocation.candidate.inventoryItemId,
@@ -790,7 +833,6 @@ function quotePlan(
         holdId: consumeCheckoutReservationHoldId(availableCheckoutReservations, allocation),
       });
       sellerDraft.sellerDisplayName = sellerDraft.sellerDisplayName ?? allocation.candidate.sellerDisplayName;
-      sellerDraft.subtotalCents += moneyToCents(lineTotalAmount);
       sellerDraft.listingIds.add(allocation.candidate.listingId);
       sellerDraft.quantity += allocation.quantity;
       groupedBySellerAndOrigin.set(sellerGroupKey, sellerDraft);

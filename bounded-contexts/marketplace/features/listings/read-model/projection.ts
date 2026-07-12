@@ -29,6 +29,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     terms_agreement_id: string | null;
     terms_resolved_at: string | null;
     fee_quote_fingerprint: string;
+    fee_locks: unknown;
     quantity_cap: number;
     max_units_per_order: number | null;
     max_units_per_day: number | null;
@@ -50,6 +51,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
             : null,
         graded_card: typeof row.graded_card === "object" && row.graded_card !== null ? row.graded_card : null,
         listing_photos: Array.isArray(row.listing_photos) ? row.listing_photos : [],
+        fee_locks: Array.isArray(row.fee_locks) ? row.fee_locks : [],
       }
     : null;
 }
@@ -109,6 +111,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         termsAgreementId: string | null;
         termsResolvedAt: string | null;
         feeQuoteFingerprint: string;
+        feeLocks: unknown;
         quantityCap: number;
         purchaseLimits?: {
           maxUnitsPerOrder: number | null;
@@ -143,6 +146,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           terms_agreement_id,
           terms_resolved_at,
           fee_quote_fingerprint,
+          fee_locks,
           quantity_cap,
           max_units_per_order,
           max_units_per_day,
@@ -152,7 +156,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, 'draft', $29, $29
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, 'draft', $30, $30
         )
         ON CONFLICT (listing_id) DO UPDATE SET
           account_id = EXCLUDED.account_id,
@@ -177,6 +181,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           terms_agreement_id = EXCLUDED.terms_agreement_id,
           terms_resolved_at = EXCLUDED.terms_resolved_at,
           fee_quote_fingerprint = EXCLUDED.fee_quote_fingerprint,
+          fee_locks = EXCLUDED.fee_locks,
           quantity_cap = EXCLUDED.quantity_cap,
           max_units_per_order = EXCLUDED.max_units_per_order,
           max_units_per_day = EXCLUDED.max_units_per_day,
@@ -209,6 +214,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           data.termsAgreementId,
           data.termsResolvedAt,
           data.feeQuoteFingerprint,
+          JSON.stringify(Array.isArray(data.feeLocks) ? data.feeLocks : []),
           data.quantityCap,
           data.purchaseLimits?.maxUnitsPerOrder ?? null,
           data.purchaseLimits?.maxUnitsPerDay ?? null,
@@ -276,6 +282,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         termsAgreementId,
         termsResolvedAt,
         feeQuoteFingerprint,
+        feeLocks,
       } = event.data as {
         priceAmount: string;
         marketplaceSalesFeeUnitAmount: string;
@@ -285,6 +292,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         termsAgreementId: string | null;
         termsResolvedAt: string | null;
         feeQuoteFingerprint: string;
+        feeLocks: unknown;
       };
 
       const result = await db.query(
@@ -297,7 +305,8 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
              terms_agreement_id = $7,
              terms_resolved_at = $8,
              fee_quote_fingerprint = $9,
-             updated_at = $10
+              fee_locks = $10,
+              updated_at = $11
          WHERE listing_id = $1`,
         [
           listingId,
@@ -309,6 +318,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           termsAgreementId,
           termsResolvedAt,
           feeQuoteFingerprint,
+          JSON.stringify(Array.isArray(feeLocks) ? feeLocks : []),
           event.timing.recordedAt,
         ],
       );
@@ -327,6 +337,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         termsAgreementId,
         termsResolvedAt,
         feeQuoteFingerprint,
+        feeLocks,
       } = event.data as {
         quantityCap: number;
         purchaseLimits?: {
@@ -341,6 +352,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         termsAgreementId: string | null;
         termsResolvedAt: string | null;
         feeQuoteFingerprint: string;
+        feeLocks: unknown;
       };
       const hasPurchaseLimits = purchaseLimits !== undefined;
 
@@ -354,10 +366,11 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
              terms_agreement_id = $7,
              terms_resolved_at = $8,
              fee_quote_fingerprint = $9,
-             max_units_per_order = CASE WHEN $10 THEN $11 ELSE max_units_per_order END,
-             max_units_per_day = CASE WHEN $10 THEN $12 ELSE max_units_per_day END,
-             max_units_per_customer_account = CASE WHEN $10 THEN $13 ELSE max_units_per_customer_account END,
-             updated_at = $14
+              fee_locks = $10,
+              max_units_per_order = CASE WHEN $11 THEN $12 ELSE max_units_per_order END,
+              max_units_per_day = CASE WHEN $11 THEN $13 ELSE max_units_per_day END,
+              max_units_per_customer_account = CASE WHEN $11 THEN $14 ELSE max_units_per_customer_account END,
+              updated_at = $15
          WHERE listing_id = $1`,
         [
           listingId,
@@ -369,6 +382,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           termsAgreementId,
           termsResolvedAt,
           feeQuoteFingerprint,
+          JSON.stringify(Array.isArray(feeLocks) ? feeLocks : []),
           hasPurchaseLimits,
           purchaseLimits?.maxUnitsPerOrder ?? null,
           purchaseLimits?.maxUnitsPerDay ?? null,
@@ -409,47 +423,13 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
     },
     "marketplace.listing.published": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
-      const {
-        marketplaceSalesFeeUnitAmount,
-        sellerNetUnitAmount,
-        shippingAllowancePercentageBps,
-        termsScheduleId,
-        termsAgreementId,
-        termsResolvedAt,
-        feeQuoteFingerprint,
-      } = event.data as {
-        marketplaceSalesFeeUnitAmount: string;
-        sellerNetUnitAmount: string;
-        shippingAllowancePercentageBps?: number;
-        termsScheduleId: string | null;
-        termsAgreementId: string | null;
-        termsResolvedAt: string | null;
-        feeQuoteFingerprint: string;
-      };
 
       const result = await db.query(
         `UPDATE marketplace_listing_pages
          SET status = 'active',
-             marketplace_sales_fee_unit_amount = $2,
-             seller_net_unit_amount = $3,
-             shipping_allowance_percentage_bps = $4,
-             terms_schedule_id = $5,
-             terms_agreement_id = $6,
-             terms_resolved_at = $7,
-             fee_quote_fingerprint = $8,
-             updated_at = $9
+              updated_at = $2
          WHERE listing_id = $1`,
-        [
-          listingId,
-          marketplaceSalesFeeUnitAmount,
-          sellerNetUnitAmount,
-          shippingAllowancePercentageBps ?? 500,
-          termsScheduleId,
-          termsAgreementId,
-          termsResolvedAt,
-          feeQuoteFingerprint,
-          event.timing.recordedAt,
-        ],
+        [listingId, event.timing.recordedAt],
       );
       assertUpdatedListingRow(result, event.type, listingId);
       await emitListingPatch(db, event, listingId);

@@ -27,6 +27,7 @@ type ListingPageRow = {
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
   fee_quote_fingerprint: string;
+  fee_locks: unknown;
   quantity_cap: number;
   max_units_per_order: number | null;
   max_units_per_day: number | null;
@@ -70,14 +71,15 @@ class ProjectionDb implements PgQueryable {
         terms_agreement_id: values[20] === null ? null : String(values[20]),
         terms_resolved_at: values[21] === null ? null : String(values[21]),
         fee_quote_fingerprint: String(values[22]),
-        quantity_cap: Number(values[23]),
-        max_units_per_order: values[24] === null ? null : Number(values[24]),
-        max_units_per_day: values[25] === null ? null : Number(values[25]),
-        max_units_per_customer_account: values[26] === null ? null : Number(values[26]),
-        listing_photos: JSON.parse(String(values[27])),
+        fee_locks: JSON.parse(String(values[23])),
+        quantity_cap: Number(values[24]),
+        max_units_per_order: values[25] === null ? null : Number(values[25]),
+        max_units_per_day: values[26] === null ? null : Number(values[26]),
+        max_units_per_customer_account: values[27] === null ? null : Number(values[27]),
+        listing_photos: JSON.parse(String(values[28])),
         status: "draft",
-        created_at: String(values[28]),
-        updated_at: String(values[28]),
+        created_at: String(values[29]),
+        updated_at: String(values[29]),
       });
 
       this.listings.set(row.listing_id, row);
@@ -108,14 +110,7 @@ class ProjectionDb implements PgQueryable {
       }
 
       row.status = "active";
-      row.marketplace_sales_fee_unit_amount = String(values[1]);
-      row.seller_net_unit_amount = String(values[2]);
-      row.shipping_allowance_percentage_bps = Number(values[3]);
-      row.terms_schedule_id = values[4] === null ? null : String(values[4]);
-      row.terms_agreement_id = values[5] === null ? null : String(values[5]);
-      row.terms_resolved_at = values[6] === null ? null : String(values[6]);
-      row.fee_quote_fingerprint = String(values[7]);
-      row.updated_at = String(values[8]);
+      row.updated_at = String(values[1]);
       return { rows: [], rowCount: 1 };
     }
 
@@ -174,6 +169,7 @@ function listingPage(overrides: Partial<ListingPageRow> = {}): ListingPageRow {
     terms_agreement_id: null,
     terms_resolved_at: null,
     fee_quote_fingerprint: "fee_1",
+    fee_locks: [],
     quantity_cap: 1,
     max_units_per_order: null,
     max_units_per_day: null,
@@ -233,6 +229,7 @@ function listingCreatedData(overrides: Record<string, unknown> = {}) {
     termsAgreementId: null,
     termsResolvedAt: "2026-05-09T00:00:00.000Z",
     feeQuoteFingerprint: "fee_1",
+    feeLocks: [],
     quantityCap: 1,
     purchaseLimits: {
       maxUnitsPerOrder: null,
@@ -244,17 +241,8 @@ function listingCreatedData(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function listingPublishedData(overrides: Record<string, unknown> = {}) {
-  return {
-    marketplaceSalesFeeUnitAmount: "6.25",
-    sellerNetUnitAmount: "113.75",
-    shippingAllowancePercentageBps: 500,
-    termsScheduleId: "cts_default",
-    termsAgreementId: null,
-    termsResolvedAt: "2026-05-09T00:01:00.000Z",
-    feeQuoteFingerprint: "fee_2",
-    ...overrides,
-  };
+function listingPublishedData() {
+  return {};
 }
 
 function event(
@@ -312,9 +300,9 @@ describe("marketplace listing projection", () => {
 
     expect(db.listings.get("lst_1")).toMatchObject({
       status: "active",
-      marketplace_sales_fee_unit_amount: "6.25",
-      seller_net_unit_amount: "113.75",
-      fee_quote_fingerprint: "fee_2",
+      marketplace_sales_fee_unit_amount: "6.00",
+      seller_net_unit_amount: "114.00",
+      fee_quote_fingerprint: "fee_1",
     });
   });
 

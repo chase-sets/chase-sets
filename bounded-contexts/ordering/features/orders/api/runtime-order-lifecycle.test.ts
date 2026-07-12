@@ -292,6 +292,109 @@ describe("ordering order runtime: order creation and cancellation", () => {
     });
   });
 
+  it("copies each listing fee-lock tranche into order lines for settlement", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = createSupplyDb(() => [
+      {
+        listingId: "lst_fee_locks",
+        sellerAccountId: "acc_seller",
+        inventoryItemId: "inv_fee_locks",
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        storageLocationName: "North shelf",
+        shipFromCode: "CHI",
+        priceAmount: "12.00",
+        availableQuantity: 3,
+        feeLocks: [
+          {
+            unitCount: 2,
+            terms: {
+              shippingAllowancePercentageBps: 500,
+              termsScheduleId: "cts_founder",
+              termsAgreementId: "cta_founder",
+              termsResolvedAt: "2026-07-01T00:00:00.000Z",
+            },
+            marketplaceSalesFeeUnitAmount: "0.00",
+            sellerNetUnitAmount: "12.00",
+          },
+          {
+            unitCount: 1,
+            terms: {
+              shippingAllowancePercentageBps: 500,
+              termsScheduleId: "cts_standard",
+              termsAgreementId: null,
+              termsResolvedAt: "2026-09-01T00:00:00.000Z",
+            },
+            marketplaceSalesFeeUnitAmount: "0.60",
+            sellerNetUnitAmount: "11.40",
+          },
+        ],
+        updatedAt: "2026-09-01T00:00:00.000Z",
+      },
+    ]);
+    const services = createOrderingOrderRuntimeForTest({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      carts: { listCartLines: async () => [], checkout: async () => ({ version: 1 }) } as never,
+      shippingQuotePolicy: {
+        quote: () => ({
+          shippingOption: "standard",
+          baseAmount: "4.99",
+          discountAmount: "0.00",
+          chargeAmount: "4.99",
+        }),
+      },
+    });
+
+    await services.createOrdersFromCheckout(
+      {
+        buyerAccountId: "acc_buyer" as never,
+        checkoutSessionId: "chk_fee_locks",
+        sourceType: "buy-now",
+        shippingOption: "standard",
+        shippingAddress,
+        lines: [
+          {
+            listingId: "lst_fee_locks",
+            cartLineId: null,
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 3,
+          },
+        ],
+      },
+      context,
+    );
+
+    const created = readAllEvents().find((event) => event.eventType === "ordering.order.created");
+    expect(created?.payload).toMatchObject({
+      commercialTermsSnapshot: {
+        marketplaceSalesFeeAmount: "0.60",
+        termsScheduleId: null,
+        termsAgreementId: null,
+      },
+      lines: [
+        expect.objectContaining({
+          quantity: 1,
+          marketplaceSalesFeeUnitAmount: "0.60",
+        }),
+        expect.objectContaining({
+          quantity: 2,
+          marketplaceSalesFeeUnitAmount: "0.00",
+        }),
+      ],
+    });
+  });
+
   it("reuses orders already created for a checkout session", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const db = {

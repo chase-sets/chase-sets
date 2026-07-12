@@ -25,6 +25,7 @@ type ListingInputRow = {
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
+  fee_locks: string;
   quantity_cap: number;
   max_units_per_order: number | null;
   max_units_per_day: number | null;
@@ -93,14 +94,15 @@ class ProjectionDb implements PgQueryable {
         terms_schedule_id: values[18] === null ? null : String(values[18]),
         terms_agreement_id: values[19] === null ? null : String(values[19]),
         terms_resolved_at: values[20] === null ? null : String(values[20]),
-        quantity_cap: Number(values[21]),
-        max_units_per_order: values[22] === null ? null : Number(values[22]),
-        max_units_per_day: values[23] === null ? null : Number(values[23]),
-        max_units_per_customer_account: values[24] === null ? null : Number(values[24]),
+        fee_locks: String(values[21]),
+        quantity_cap: Number(values[22]),
+        max_units_per_order: values[23] === null ? null : Number(values[23]),
+        max_units_per_day: values[24] === null ? null : Number(values[24]),
+        max_units_per_customer_account: values[25] === null ? null : Number(values[25]),
         seller_listing_availability_status:
           existing?.seller_listing_availability_status ?? this.sellerAvailability.get(String(values[1])) ?? "available",
         status: "draft",
-        updated_at: String(values[25]),
+        updated_at: String(values[26]),
       });
       return { rows: [], rowCount: 1 };
     }
@@ -109,13 +111,7 @@ class ProjectionDb implements PgQueryable {
       const row = this.listings.get(String(values[0]));
       if (row) {
         row.status = "active";
-        row.marketplace_sales_fee_unit_amount = String(values[1]);
-        row.seller_net_unit_amount = String(values[2]);
-        row.shipping_allowance_percentage_bps = Number(values[3]);
-        row.terms_schedule_id = values[4] === null ? null : String(values[4]);
-        row.terms_agreement_id = values[5] === null ? null : String(values[5]);
-        row.terms_resolved_at = values[6] === null ? null : String(values[6]);
-        row.updated_at = String(values[7]);
+        row.updated_at = String(values[1]);
       }
       return { rows: [], rowCount: row ? 1 : 0 };
     }
@@ -218,9 +214,10 @@ function createdEvent(overrides: Partial<Record<string, unknown>> = {}) {
     marketplaceSalesFeeUnitAmount: "6.00",
     sellerNetUnitAmount: "114.00",
     shippingAllowancePercentageBps: 500,
-    termsScheduleId: null,
+    termsScheduleId: "terms_standard",
     termsAgreementId: null,
-    termsResolvedAt: null,
+    termsResolvedAt: "2026-05-09T00:00:00.000Z",
+    feeLocks: [],
     quantityCap: 5,
     purchaseLimits: {
       maxUnitsPerOrder: null,
@@ -270,7 +267,7 @@ function offerAcceptedEvent(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("ordering marketplace supply projection", () => {
-  it("keeps draft listing inputs when listing terms are not resolved until publish", async () => {
+  it("keeps creation-time listing terms unchanged when the listing is published", async () => {
     const db = new ProjectionDb();
     const handlers = buildOrderingMarketplaceSupplyProjectionHandlers(db);
 
@@ -278,25 +275,19 @@ describe("ordering marketplace supply projection", () => {
 
     expect(db.listings.get("lst_1")).toMatchObject({
       status: "draft",
-      terms_resolved_at: null,
+      terms_schedule_id: "terms_standard",
+      terms_resolved_at: "2026-05-09T00:00:00.000Z",
     });
 
     await handlers["marketplace.listing.published"]!(
-      event("marketplace.listing.published", "marketplace.listing-lst_1", {
-        marketplaceSalesFeeUnitAmount: "6.00",
-        sellerNetUnitAmount: "114.00",
-        shippingAllowancePercentageBps: 500,
-        termsScheduleId: "terms_standard",
-        termsAgreementId: "agreement_1",
-        termsResolvedAt: "2026-05-09T00:01:00.000Z",
-      }),
+      event("marketplace.listing.published", "marketplace.listing-lst_1", {}),
     );
 
     expect(db.listings.get("lst_1")).toMatchObject({
       status: "active",
       terms_schedule_id: "terms_standard",
-      terms_agreement_id: "agreement_1",
-      terms_resolved_at: "2026-05-09T00:01:00.000Z",
+      terms_agreement_id: null,
+      terms_resolved_at: "2026-05-09T00:00:00.000Z",
     });
   });
 

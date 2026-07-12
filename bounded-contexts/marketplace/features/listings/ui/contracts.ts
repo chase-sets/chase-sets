@@ -1,5 +1,6 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
+import type { MarketplaceListingFeeLock } from "../domain/fee-lock";
 
 export type MarketplaceListingPhotoAssetRole = "source" | "thumbnail" | "search-card" | "catalog-detail";
 
@@ -55,6 +56,7 @@ export interface MarketplaceListingListItem {
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
   fee_quote_fingerprint: string;
+  fee_locks: readonly MarketplaceListingFeeLock[];
   quantity_cap: number;
   max_units_per_order?: number | null;
   max_units_per_day?: number | null;
@@ -123,6 +125,7 @@ export interface MarketplaceListingFeeLockReportEntry {
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
   fee_quote_fingerprint: string;
+  fee_locks: readonly MarketplaceListingFeeLock[];
   created_at: string;
   updated_at: string;
 }
@@ -184,6 +187,9 @@ export interface MarketplaceListingTermsPreview {
   basis_amount: string;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
+  marketplace_sales_fee_percentage_bps: number;
+  marketplace_sales_fee_fixed_amount: string;
+  marketplace_sales_fee_cap_amount: string | null;
   shipping_allowance_percentage_bps: number;
   schedule_id: string | null;
   agreement_id: string | null;

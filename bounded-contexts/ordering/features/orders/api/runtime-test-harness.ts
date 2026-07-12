@@ -144,6 +144,17 @@ export type SupplyCandidate = Readonly<{
   termsScheduleId?: string | null;
   termsAgreementId?: string | null;
   termsResolvedAt?: string;
+  feeLocks?: readonly Readonly<{
+    unitCount: number;
+    terms: Readonly<{
+      shippingAllowancePercentageBps: number;
+      termsScheduleId: string | null;
+      termsAgreementId: string | null;
+      termsResolvedAt: string;
+    }>;
+    marketplaceSalesFeeUnitAmount: string;
+    sellerNetUnitAmount: string;
+  }>[];
   availableQuantity: number;
   maxUnitsPerOrder?: number | null;
   maxUnitsPerDay?: number | null;
@@ -197,6 +208,7 @@ export function createSupplyDb(resolver: (params: readonly unknown[] | undefined
           terms_schedule_id: candidate.termsScheduleId ?? "cts_default",
           terms_agreement_id: candidate.termsAgreementId ?? null,
           terms_resolved_at: candidate.termsResolvedAt ?? "2026-03-31T00:00:00.000Z",
+          fee_locks: candidate.feeLocks ?? [],
           available_quantity: candidate.availableQuantity,
           max_units_per_order: candidate.maxUnitsPerOrder ?? null,
           max_units_per_day: candidate.maxUnitsPerDay ?? null,
