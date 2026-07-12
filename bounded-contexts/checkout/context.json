@@ -878,8 +878,8 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-line-rows.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-line-rows.tsx:H2df726441e2a#2",
         "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx:H3e14b6cf2e85#1",
         "route-action:bounded-contexts/checkout/routes/account-sell-list.tsx"
       ],
@@ -942,9 +942,9 @@
       "strategy": "fresh-read",
       "surfaces": [
         "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/checkout/routes/checkout-start.tsx:Hb08a81ecfd73#1",
-        "post-form:bounded-contexts/checkout/routes/checkout-start.tsx:Hb08a81ecfd73#2",
-        "route-action:bounded-contexts/checkout/routes/checkout-start.tsx"
+        "post-form:bounded-contexts/checkout/features/sessions/ui/checkout-start-page.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/checkout/features/sessions/ui/checkout-start-page.tsx:Hb08a81ecfd73#2",
+        "route-action:bounded-contexts/checkout/support/route-support/buy-checkout-readiness/checkout-start-action.ts"
       ],
       "visibleDestination": {
         "routeId": "buy-checkout-session",
