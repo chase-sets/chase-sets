@@ -99,6 +99,7 @@ jobs:
           node ../../../scripts/terraform-state-database-urls.mjs \
             --state "$state_path" \
             --environment "$TARGET_ENVIRONMENT" \
+            --connection-mode pooled \
             --github-env "$GITHUB_ENV"
 
       - name: Build Postgres growth evidence

@@ -36,6 +36,50 @@ function terraformState() {
   };
 }
 
+function pooledTerraformState() {
+  const state = terraformState();
+  state.resources.push({
+    type: "digitalocean_database_connection_pool",
+    name: "contexts",
+    instances: [
+      {
+        index_key: "checkout",
+        attributes: {
+          name: "checkout-runtime",
+          mode: "transaction",
+          host: "pool.example.internal",
+          port: 25061,
+          user: "checkout-user",
+          password: "",
+        },
+      },
+      {
+        index_key: "control",
+        attributes: {
+          name: "control-runtime",
+          mode: "transaction",
+          host: "pool.example.internal",
+          port: 25061,
+          user: "control-user",
+          password: "",
+        },
+      },
+      {
+        index_key: "fulfillment",
+        attributes: {
+          name: "fulfillment-runtime",
+          mode: "transaction",
+          host: "pool.example.internal",
+          port: 25061,
+          user: "fulfillment-user",
+          password: "",
+        },
+      },
+    ],
+  });
+  return state;
+}
+
 describe("Terraform state database URL export", () => {
   it("derives masked GitHub env lines for every context by default", () => {
     const urls = databaseUrlsFromTerraformState(terraformState(), { environmentName: "staging" });
@@ -54,6 +98,19 @@ describe("Terraform state database URL export", () => {
     });
 
     expect(urls.map(({ envName }) => envName)).toEqual(["DATABASE_URL_FULFILLMENT", "DATABASE_URL_CHECKOUT"]);
+  });
+
+  it("derives DOKS query URLs from transaction pool state when requested", () => {
+    const urls = databaseUrlsFromTerraformState(pooledTerraformState(), {
+      connectionMode: "pooled",
+      environmentName: "staging",
+    });
+
+    expect(githubEnvLinesForDatabaseUrls(urls)).toEqual([
+      "DATABASE_URL_CHECKOUT=postgresql://checkout-user:pass%20word@pool.example.internal:25061/checkout-runtime?sslmode=require",
+      "PLATFORM_CONTROL_DATABASE_URL=postgresql://control-user:control%2Fpass@pool.example.internal:25061/control-runtime?sslmode=require",
+      "DATABASE_URL_FULFILLMENT=postgresql://fulfillment-user:fulfillment-pass@pool.example.internal:25061/fulfillment-runtime?sslmode=require",
+    ]);
   });
 
   it("fails closed when required state is missing", () => {
@@ -81,6 +138,7 @@ describe("Terraform state database URL export", () => {
       githubEnvPath: "github.env",
       environmentName: "production",
       contexts: ["payments", "settlement"],
+      connectionMode: "direct",
     });
   });
 

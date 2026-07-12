@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { normalizePostgresConnectionString, resolvePostgresSsl } from "./lib/postgres-connection.mjs";
 import { parseDatabaseUrls } from "./postgres-growth-evidence.mjs";
 
 const { Client } = pg;
@@ -136,7 +137,8 @@ export function buildPostgresSlowQueryDigest(input) {
 }
 
 export async function collectPostgresSlowQueryDigest(database, options) {
-  const client = new Client({ connectionString: database.url });
+  const connectionString = normalizePostgresConnectionString(database.url);
+  const client = new Client({ connectionString, ssl: resolvePostgresSsl(connectionString) });
   try {
     await client.connect();
     return await collectPostgresSlowQueryDigestWithClient(client, database, options);

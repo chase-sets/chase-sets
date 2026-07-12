@@ -7,10 +7,21 @@ import {
   runPostgresSlowQueryDigest,
   validatePostgresSlowQueryDigestOptions,
 } from "./postgres-slow-query-digest.mjs";
+import { normalizePostgresConnectionString, resolvePostgresSsl } from "./lib/postgres-connection.mjs";
 
 const checkedAt = "2026-07-03T15:30:00.000Z";
 
 describe("postgres slow-query digest", () => {
+  it("uses encrypted but unverified TLS for DigitalOcean sslmode=require URLs", () => {
+    const connectionString = normalizePostgresConnectionString(
+      "postgresql://user:secret@db.example:25060/database?sslmode=require",
+    );
+
+    expect(connectionString).toContain("sslmode=require");
+    expect(connectionString).toContain("uselibpqcompat=true");
+    expect(resolvePostgresSsl(connectionString)).toEqual({ rejectUnauthorized: false });
+  });
+
   it("parses options and database URLs from flags and environment", () => {
     const options = parsePostgresSlowQueryDigestArgs(
       [
