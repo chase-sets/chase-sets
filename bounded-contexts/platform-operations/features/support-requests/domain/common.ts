@@ -1,3 +1,5 @@
+import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
+import type { AffectedLineItemAmountInput } from "@chase-sets/primitives/affected-line-item-amount";
 import type { AccountId, OrderId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 
 export type SupportRequestStatus =
@@ -68,6 +70,8 @@ export type SupportResolutionType =
   | "support-reviewed";
 
 export type SupportOfferStatus = "pending" | "accepted" | "declined";
+
+export type SupportAffectedLineItemAmount = AffectedLineItemAmountInput;
 
 /**
  * Lifecycle of the money gate on a `return-for-refund` resolution: the
@@ -173,6 +177,7 @@ export type SupportRequestSnapshot = Readonly<{
   supportReviewDueAt: string | null;
   sellerConditionAttestationDueAt: string | null;
   orderReturnContext: readonly SupportOrderReturnContextLine[];
+  affectedLineItems: readonly SupportAffectedLineItemAmount[];
   returnInvestigation: SupportReturnInvestigation | null;
   checklist: readonly SupportChecklistItem[];
   evidence: readonly SupportEvidence[];
@@ -221,10 +226,16 @@ export function normalizeMoneyAmount(value: string | null | undefined, fieldName
     return null;
   }
 
-  const parsed = Number(value);
-  assert(Number.isFinite(parsed), `${fieldName} must be a valid money amount.`);
-  assert(parsed >= 0, `${fieldName} cannot be negative.`);
-  return parsed.toFixed(2);
+  const cents = tryMoneyToCents(value);
+  assert(cents !== null, `${fieldName} must be a valid money amount.`);
+  assert(cents >= 0n, `${fieldName} cannot be negative.`);
+  return centsToMoneyAmount(cents);
+}
+
+export function normalizeCurrencyCode(value: string, fieldName = "Currency"): string {
+  const normalized = value.trim().toLowerCase();
+  assert(/^[a-z]{3}$/.test(normalized), `${fieldName} must be a three-letter currency code.`);
+  return normalized;
 }
 
 export function normalizeRequesterRole(value: string): SupportRequesterRole {

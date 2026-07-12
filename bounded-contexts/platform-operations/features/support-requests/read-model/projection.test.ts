@@ -20,6 +20,24 @@ const pendingOffer = {
 } as const;
 
 describe("support request projection", () => {
+  it("projects the affected line-item amount contract after the additive case event", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const handlers = buildSupportRequestProjectionHandlers(db);
+
+    await handlers["support.support-request.affected-line-items-recorded"]?.({
+      type: "support.support-request.affected-line-items-recorded",
+      data: {
+        supportRequestId: "sup_01",
+        affectedLineItems: [{ lineId: "line_1", amount: "10.00", currencyCode: "usd" }],
+      },
+    } as never);
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("affected_line_items = $2::jsonb"), [
+      "sup_01",
+      JSON.stringify([{ lineId: "line_1", amount: "10.00", currencyCode: "usd" }]),
+    ]);
+  });
+
   it("stores pending offer fields when an offer-bearing response is recorded", async () => {
     const db = { query: vi.fn(async () => ({ rows: [] })) };
     const handlers = buildSupportRequestProjectionHandlers(db);

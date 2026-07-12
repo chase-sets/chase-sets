@@ -271,6 +271,19 @@ export type OrderCreatedEvent = DomainEvent<
   }>
 >;
 
+/**
+ * Additive support-facing fact. The original order-created event is kept
+ * immutable; downstream support projections consume this smaller, replayable
+ * amount source instead of reaching into Ordering storage.
+ */
+export type OrderLineItemAmountsPublishedEvent = DomainEvent<
+  "ordering.order.line-item-amounts-published",
+  Readonly<{
+    orderId: OrderId;
+    lineItems: readonly Readonly<{ lineId: string; amount: string }>[];
+  }>
+>;
+
 export type OrderReservationConfirmedEvent = DomainEvent<
   "ordering.order.reservation-confirmed",
   Readonly<{
@@ -335,6 +348,7 @@ export type OrderReadyForFulfillmentEvent = DomainEvent<
 
 export type OrderingOrderEvent =
   | OrderCreatedEvent
+  | OrderLineItemAmountsPublishedEvent
   | OrderReservationConfirmedEvent
   | OrderReservationRejectedEvent
   | OrderPendingPaymentRecordedEvent
@@ -614,6 +628,16 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
             reservationRequests: normalizeReservationRequests(command.reservationRequests, normalizedSellerAccountId),
           },
         },
+        {
+          type: "ordering.order.line-item-amounts-published",
+          data: {
+            orderId: command.orderId,
+            lineItems: normalizedLines.map((line) => ({
+              lineId: line.lineId,
+              amount: line.lineTotalAmount,
+            })),
+          },
+        },
       ];
     }
     case "RecordReservationConfirmed": {
@@ -875,6 +899,8 @@ export const evolveOrderingOrder: AggregateEvolver<OrderingOrderState, OrderingO
         paymentDeadlinePolicy: null,
         readyForFulfillmentAt: null,
       };
+    case "ordering.order.line-item-amounts-published":
+      return state;
     case "ordering.order.reservation-confirmed":
       return {
         ...state,

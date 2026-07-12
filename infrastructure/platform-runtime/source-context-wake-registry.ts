@@ -483,6 +483,7 @@ export const sourceContextWakeRegistry = [
       "marketplace:marketplace-review-order-source-projection",
       "marketplace:marketplace-seller-metrics-order-source-projection",
       "platform-operations:support-order-source-projection",
+      "platform-operations:support-affected-line-amount-projection",
     ],
     routeDependencyIds: [
       "ordering.accepted-offer-to-sales-list",
@@ -518,6 +519,7 @@ export const sourceContextWakeRegistry = [
       "payments:payments-order-cancellation-refund-effect",
       "payments:payments-payment-projection",
       "platform-operations:risk-alert-queue-projection",
+      "platform-operations:support-affected-line-amount-projection",
       "pricing:pricing-market-trades-projection",
       "settlement:settlement-account-risk-source-projection",
       "settlement:settlement-support-hold-projection",

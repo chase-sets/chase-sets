@@ -53,14 +53,14 @@ Platform Operations terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - `support.support-request.closed`
 - `support.support-request.cancelled`
 
-Marketplace, Ordering, Payments, and Settlement subscribe to these `support.*` facts. Other `support.*` streams (`.evidence-submitted`, `.offer-accepted`, `.offer-declined`, `.response-recorded`) and the `platform-operations.reported-content.action-recorded` / `platform-operations.risk-alert.action-recorded` facts stay internal to Platform Operations today; only its own projections subscribe to them.
+Marketplace, Ordering, Payments, and Settlement subscribe to these `support.*` facts. Other `support.*` streams (`.affected-line-items-recorded`, `.evidence-submitted`, `.offer-accepted`, `.offer-declined`, `.response-recorded`) and the `platform-operations.reported-content.action-recorded` / `platform-operations.risk-alert.action-recorded` facts stay internal to Platform Operations today; only its own projections subscribe to them.
 
 ## Invariants
 
 1. Platform feedback is immutable after submission; only admin review status (new/reviewed/archived) and operator notes may change afterward, and archived feedback cannot be reviewed again.
 2. A support request can be opened only by a requester role its flow definition allows, and must include the order total at open time.
 3. A return refund resolution requires completed return checklist evidence; a high-value return refund requires support-role review rather than buyer/seller self-resolution.
-4. An offer refund amount must be greater than zero and cannot exceed the order total.
+4. An offer or adjudication refund amount must be greater than zero and cannot exceed the selected affected line totals; an older case without the additive source fact retains the stamped order-total fallback.
 
 ## Tests
 
@@ -73,6 +73,8 @@ Platform Operations hosts the former Experience bounded context as the `platform
 ## Support Requests
 
 Platform Operations hosts the former Support bounded context as the `support-requests` slice. Support requests keep order workflows inside guided, auditable steps so common issues can be resolved without direct account-to-account negotiation. The `support-requests` slice uses a flow catalog for issue-specific requirements; new support flows should add a catalog entry and tests before changing aggregate lifecycle behavior. The support API stays mounted at `/api/marketplace`, and durable `support.*` event streams keep their names.
+
+Support consumes Ordering's published line totals and Payments' payment currency through the local affected-line amount source projection. That contract gives offers and adjudications a canonical line-level cap; Payments and Settlement remain the owners of refund accounting and ledger effects.
 
 Cross-context outcomes stay with the context that owns the consequence:
 

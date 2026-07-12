@@ -51,6 +51,8 @@ A **GMV Reconciliation Run** is a recorded comparison, for one calendar month, b
 - Support Flow: The issue-specific checklist, response options, and resolution policy for a support request.
 - Support Evidence: Structured information supplied by the buyer, seller, or platform on a support request.
 - Support Resolution: The final support outcome, such as refund, replacement, return for refund, no action, or support escalation.
+- Affected Line Item Amount: The canonical decimal-string amount and currency fact for one order line that Support uses to validate an offer or adjudication cap.
+- Affected Line Item Amount Contract: The Support-owned validation boundary that selects order lines, requires one currency, and caps an offer or adjudication without performing money accounting.
 - Buyer Cancellation Request: The support-owned fallback flow used when a buyer wants to cancel after Fulfillment has started package preparation.
 - Seller Condition Attestation: Seller-supplied support evidence confirming the returned item's condition after return delivery.
 - Return Investigation: Support-owned review opened when return discrepancy evidence indicates the returned item may not match the original sale condition.

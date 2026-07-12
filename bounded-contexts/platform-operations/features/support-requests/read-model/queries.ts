@@ -23,6 +23,7 @@ export type SupportRequestListRow = Readonly<{
   support_review_due_at: string | null;
   seller_condition_attestation_due_at: string | null;
   order_return_context: unknown;
+  affected_line_items?: unknown;
   return_investigation: unknown;
   checklist: readonly SupportChecklistItem[];
   pending_offer: SupportOffer | null;
@@ -63,6 +64,7 @@ const listSelect = `
     support_review_due_at::text AS support_review_due_at,
     seller_condition_attestation_due_at::text AS seller_condition_attestation_due_at,
     order_return_context,
+    affected_line_items,
     return_investigation,
     checklist,
     pending_offer,
@@ -97,6 +99,7 @@ const detailSelect = `
     support_review_due_at::text AS support_review_due_at,
     seller_condition_attestation_due_at::text AS seller_condition_attestation_due_at,
     order_return_context,
+    affected_line_items,
     return_investigation,
     checklist,
     evidence,

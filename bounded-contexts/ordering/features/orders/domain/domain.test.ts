@@ -149,6 +149,18 @@ describe("ordering order domain", () => {
     ).toEqual([]);
   });
 
+  it("publishes line-item amounts in an additive event without changing order-created", () => {
+    const events = decideOrderingOrder(initialOrderingOrderState, createOrderCommand("cart-checkout"));
+
+    expect(events.map((event) => event.type)).toEqual([
+      "ordering.order.created",
+      "ordering.order.line-item-amounts-published",
+    ]);
+    expect(events[1]).toMatchObject({
+      data: { orderId: "ord_cart-checkout", lineItems: [{ lineId: "oli_1", amount: "20.00" }] },
+    });
+  });
+
   it("creates an order with no authenticity plan when the buyer did not opt in", () => {
     const createdState = decideOrderingOrder(initialOrderingOrderState, createOrderCommand("cart-checkout")).reduce(
       evolveOrderingOrder,

@@ -35,4 +35,13 @@ export const platformOperationsUnloggedProjectionSchemaMigrations: readonly BcSc
   WHERE return_refund_gate_status = 'awaiting-return-inspection'`,
     ],
   },
+  {
+    migrationId: "20260712_support_affected_line_amount_unlogged_projections",
+    description: "Store affected line amount source projections as unlogged tables.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      "ALTER TABLE support_order_affected_line_amounts SET UNLOGGED;",
+      "ALTER TABLE support_order_payment_currencies SET UNLOGGED;",
+    ],
+  },
 ];

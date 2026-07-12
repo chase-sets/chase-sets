@@ -1,9 +1,12 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, OrderId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
+import { compareMoneyAmounts, sumMoneyAmounts } from "@chase-sets/primitives/money";
+import { normalizeAffectedLineItemAmounts } from "@chase-sets/primitives/affected-line-item-amount";
 import {
   assert,
   assertNever,
   normalizeAttachments,
+  normalizeCurrencyCode,
   normalizeEvidenceType,
   normalizeFlowType,
   normalizeIsoTimestamp,
@@ -15,6 +18,7 @@ import {
   normalizeResolutionType,
   normalizeResponseType,
   type SupportChecklistItem,
+  type SupportAffectedLineItemAmount,
   type SupportEvidence,
   type SupportEvidenceType,
   type SupportFlowType,
@@ -50,6 +54,7 @@ export type SupportRequestState = Readonly<{
   supportReviewDueAt: string | null;
   sellerConditionAttestationDueAt: string | null;
   orderReturnContext: readonly SupportOrderReturnContextLine[];
+  affectedLineItems: readonly SupportAffectedLineItemAmount[];
   returnInvestigation: SupportReturnInvestigation | null;
   checklist: readonly SupportChecklistItem[];
   evidence: readonly SupportEvidence[];
@@ -90,6 +95,7 @@ export const initialSupportRequestState: SupportRequestState = {
   supportReviewDueAt: null,
   sellerConditionAttestationDueAt: null,
   orderReturnContext: [],
+  affectedLineItems: [],
   returnInvestigation: null,
   checklist: [],
   evidence: [],
@@ -124,6 +130,7 @@ export type OpenSupportRequestCommand = Readonly<{
   openedByRole: SupportRequesterRole;
   openedAt: string;
   orderReturnContext?: readonly SupportOrderReturnContextLine[] | null;
+  affectedLineItems?: readonly SupportAffectedLineItemAmount[] | null;
   /**
    * The support-deadline policy's resolved value for this flow at open
    * time (see `../domain/support-deadline-policy.ts`), stamped onto
@@ -163,6 +170,8 @@ export type RecordSupportResponseCommand = Readonly<{
   offerId?: string | null;
   offerResolutionType?: SupportResolutionType | null;
   refundAmount?: string | null;
+  affectedLineIds?: readonly string[] | null;
+  refundCurrencyCode?: string | null;
 }>;
 
 export type AcceptSupportOfferCommand = Readonly<{
@@ -195,6 +204,8 @@ export type ResolveSupportRequestCommand = Readonly<{
   resolutionType: SupportResolutionType;
   summary: string;
   refundAmount?: string | null;
+  affectedLineIds?: readonly string[] | null;
+  refundCurrencyCode?: string | null;
   resolvedByAccountId?: AccountId | null;
   resolvedByRole?: SupportRequesterRole | null;
   resolvedAt: string;
@@ -321,6 +332,14 @@ export type SupportEvidenceSubmittedEvent = DomainEvent<
     sellerConditionAttestationDueAt: string | null;
     returnInvestigation: SupportReturnInvestigation | null;
     updatedChecklist: readonly SupportChecklistItem[];
+  }>
+>;
+
+export type SupportAffectedLineItemsRecordedEvent = DomainEvent<
+  "support.support-request.affected-line-items-recorded",
+  Readonly<{
+    supportRequestId: SupportRequestId;
+    affectedLineItems: readonly SupportAffectedLineItemAmount[];
   }>
 >;
 
@@ -453,6 +472,7 @@ export type SupportRequestReturnRefundReleasedEvent = DomainEvent<
 export type SupportRequestEvent =
   | SupportRequestOpenedEvent
   | SupportEvidenceSubmittedEvent
+  | SupportAffectedLineItemsRecordedEvent
   | SupportResponseRecordedEvent
   | SupportOfferAcceptedEvent
   | SupportOfferDeclinedEvent
@@ -592,6 +612,94 @@ function normalizeOrderReturnContext(
   }));
 }
 
+function normalizeAffectedLineItems(
+  value: readonly SupportAffectedLineItemAmount[] | null | undefined,
+): readonly SupportAffectedLineItemAmount[] {
+  try {
+    return normalizeAffectedLineItemAmounts(value ?? []).map((line) => ({
+      lineId: line.lineId,
+      amount: line.amount,
+      currencyCode: line.currencyCode,
+    }));
+  } catch (error) {
+    assert(false, error instanceof Error ? error.message : "Affected line-item amounts are invalid.");
+  }
+}
+
+function selectAffectedLineItems(
+  state: SupportRequestState,
+  requestedLineIds: readonly string[] | null | undefined,
+  requestedCurrencyCode: string | null | undefined,
+) {
+  if (state.affectedLineItems.length === 0) {
+    assert(
+      requestedLineIds === null || requestedLineIds === undefined,
+      "Affected line-item facts are not available for this support request.",
+    );
+    return {
+      lineItems: [],
+      capAmount: state.orderTotalAmount,
+      currencyCode: requestedCurrencyCode ? normalizeCurrencyCode(requestedCurrencyCode) : null,
+    };
+  }
+
+  const lineIds = requestedLineIds ?? state.affectedLineItems.map((line) => line.lineId);
+  assert(lineIds.length > 0, "At least one affected line item is required.");
+  assert(new Set(lineIds).size === lineIds.length, "Affected line items cannot be duplicated.");
+  const lineItems = lineIds.map((lineId) => {
+    const lineItem = state.affectedLineItems.find((candidate) => candidate.lineId === lineId);
+    assert(lineItem !== undefined, "Offer references a line item outside the support request.");
+    return lineItem;
+  });
+  const currencyCodes = new Set(lineItems.map((line) => normalizeCurrencyCode(line.currencyCode)));
+  assert(currencyCodes.size === 1, "Affected line items must use one currency.");
+  const currencyCode = [...currencyCodes][0]!;
+  if (requestedCurrencyCode !== null && requestedCurrencyCode !== undefined) {
+    assert(normalizeCurrencyCode(requestedCurrencyCode) === currencyCode, "Offer currency must match affected lines.");
+  }
+
+  return {
+    lineItems,
+    capAmount: sumMoneyAmounts(lineItems.map((line) => line.amount)),
+    currencyCode,
+  };
+}
+
+function assertRefundAmountWithinAffectedLines(
+  state: SupportRequestState,
+  refundAmount: string | null | undefined,
+  lineIds: readonly string[] | null | undefined,
+  currencyCode: string | null | undefined,
+  requirePositive = false,
+) {
+  const selected = selectAffectedLineItems(state, lineIds, currencyCode);
+  const amount = normalizeMoneyAmount(refundAmount, "Refund amount");
+  if (amount === null) {
+    assert(!requirePositive, "Refund amount must be greater than zero.");
+    return { ...selected, amount: null };
+  }
+  assert(compareMoneyAmounts(amount, "0.00") > 0, "Refund amount must be greater than zero.");
+  assert(selected.capAmount !== null, "Support request order total is required for refund validation.");
+  assert(
+    compareMoneyAmounts(amount, selected.capAmount) <= 0,
+    state.affectedLineItems.length > 0
+      ? "Refund amount cannot exceed affected line totals."
+      : "Offer refund amount cannot exceed the order total.",
+  );
+  return { ...selected, amount };
+}
+
+function refundAmountForResolution(
+  resolutionType: SupportResolutionType,
+  selected: ReturnType<typeof assertRefundAmountWithinAffectedLines>,
+) {
+  if (!isRefundReleaseResolution(resolutionType)) {
+    return selected.amount;
+  }
+
+  return selected.amount ?? selected.capAmount;
+}
+
 function normalizeEvidence(command: SubmitSupportEvidenceCommand): SupportEvidence {
   return {
     evidenceId: normalizeRequiredText(command.evidenceId, "Support evidence must include an id."),
@@ -658,14 +766,6 @@ function statusForPendingOffer(offer: SupportOffer): SupportRequestStatus {
   return "ready-for-support";
 }
 
-function normalizePositiveRefundAmount(value: string | null | undefined, orderTotalAmount: string | null) {
-  const amount = normalizeMoneyAmount(value, "Offer refund amount");
-  assert(amount !== null && Number(amount) > 0, "Offer refund amount must be greater than zero.");
-  assert(orderTotalAmount !== null, "Support request order total is required for refund offer validation.");
-  assert(Number(amount) <= Number(orderTotalAmount), "Offer refund amount cannot exceed the order total.");
-  return amount;
-}
-
 function buildOffer(
   state: SupportRequestState,
   command: RecordSupportResponseCommand,
@@ -694,10 +794,14 @@ function buildOffer(
     definition.allowedResolutions.includes(resolutionType),
     "This offer resolution is not accepted for the support flow.",
   );
-  const refundAmount =
-    resolutionType === "partial-refund"
-      ? normalizePositiveRefundAmount(command.refundAmount, state.orderTotalAmount)
-      : null;
+  const selected = assertRefundAmountWithinAffectedLines(
+    state,
+    resolutionType === "partial-refund" ? command.refundAmount : null,
+    command.affectedLineIds,
+    command.refundCurrencyCode,
+    resolutionType === "partial-refund",
+  );
+  const refundAmount = refundAmountForResolution(resolutionType, selected);
   assert(
     resolutionType === "partial-refund" || command.refundAmount === null || command.refundAmount === undefined,
     "Only partial refund offers can include a refund amount.",
@@ -765,7 +869,7 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         "This support flow has no seller-response phase; seller response hours must stay null.",
       );
       const supportReviewHours = command.supportReviewHours ?? definition.supportReviewHours;
-      return [
+      const events: SupportRequestEvent[] = [
         {
           type: "support.support-request.opened",
           data: {
@@ -789,6 +893,17 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
           },
         },
       ];
+      const affectedLineItems = normalizeAffectedLineItems(command.affectedLineItems);
+      if (affectedLineItems.length > 0) {
+        events.push({
+          type: "support.support-request.affected-line-items-recorded",
+          data: {
+            supportRequestId: command.supportRequestId,
+            affectedLineItems,
+          },
+        });
+      }
+      return events;
     }
     case "SubmitSupportEvidence": {
       assert(state.supportRequestId !== null, "Support request must be opened first.");
@@ -1057,10 +1172,17 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         "Escalated support requests can only be resolved by support.",
       );
       assertReturnRefundReleaseAllowed(state, resolutionType, resolvedByRole);
+      const selected = assertRefundAmountWithinAffectedLines(
+        state,
+        isRefundReleaseResolution(resolutionType) ? command.refundAmount : null,
+        command.affectedLineIds,
+        command.refundCurrencyCode,
+        resolutionType === "partial-refund",
+      );
       const resolution: SupportResolution = {
         resolutionType,
         summary: normalizeRequiredText(command.summary, "Support resolution must include a summary."),
-        refundAmount: normalizeMoneyAmount(command.refundAmount, "Refund amount"),
+        refundAmount: refundAmountForResolution(resolutionType, selected),
         resolvedByAccountId: command.resolvedByAccountId ?? null,
         resolvedByRole,
         resolvedAt: normalizeIsoTimestamp(command.resolvedAt, "Support resolution must record a timestamp."),
@@ -1254,6 +1376,7 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         supportReviewDueAt: event.data.supportReviewDueAt,
         sellerConditionAttestationDueAt: event.data.sellerConditionAttestationDueAt,
         orderReturnContext: event.data.orderReturnContext,
+        affectedLineItems: [],
         returnInvestigation: event.data.returnInvestigation,
         checklist: event.data.checklist,
         evidence: [],
@@ -1274,6 +1397,11 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         returnDeliveredAt: null,
         returnRefundReleaseDueAt: null,
         returnConditionDisputedAt: null,
+      };
+    case "support.support-request.affected-line-items-recorded":
+      return {
+        ...state,
+        affectedLineItems: event.data.affectedLineItems,
       };
     case "support.support-request.evidence-submitted":
       return {
