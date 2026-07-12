@@ -17,16 +17,19 @@ describe("display identity consumer subscription contract", () => {
       "catalog.catalog-item.metadata-revised",
     );
 
-    expect(catalogEventTypes("../../pricing/context.json", "pricing-catalog-input-projection")).toEqual(
+    // Version 4 added category-assigned/category-removed for repricing-policy
+    // catalog-filter scope resolution; still display-identity-resolved, never
+    // metadata-revised.
+    expect(catalogEventTypes("../../pricing/context.json", "pricing-catalog-input-projection", 4)).toEqual(
       expect.arrayContaining(["catalog.catalog-item.display-identity-resolved"]),
     );
-    expect(catalogEventTypes("../../pricing/context.json", "pricing-catalog-input-projection")).not.toContain(
+    expect(catalogEventTypes("../../pricing/context.json", "pricing-catalog-input-projection", 4)).not.toContain(
       "catalog.catalog-item.metadata-revised",
     );
   });
 });
 
-function catalogEventTypes(contextPath: string, projectionName: string): string[] {
+function catalogEventTypes(contextPath: string, projectionName: string, expectedSubscriptionVersion = 3): string[] {
   const manifest = JSON.parse(readFileSync(new URL(contextPath, import.meta.url), "utf8")) as {
     eventSubscriptions: Array<{
       sourceContextName: string;
@@ -39,6 +42,6 @@ function catalogEventTypes(contextPath: string, projectionName: string): string[
     (entry) => entry.sourceContextName === "catalog" && entry.projectionName === projectionName,
   );
 
-  expect(subscription?.subscriptionVersion).toBe(3);
+  expect(subscription?.subscriptionVersion).toBe(expectedSubscriptionVersion);
   return subscription?.eventTypes ?? [];
 }
