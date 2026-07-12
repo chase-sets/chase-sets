@@ -46,6 +46,9 @@ type AcceptedOfferInputRow = {
   selected_options: string;
   product_summary: string | null;
   price_amount: string;
+  marketplace_sales_fee_percentage_bps: number;
+  marketplace_sales_fee_fixed_amount: string;
+  marketplace_sales_fee_cap_amount: string | null;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
@@ -128,18 +131,21 @@ class ProjectionDb implements PgQueryable {
         selected_options: String(values[7]),
         product_summary: values[8] === null ? null : String(values[8]),
         price_amount: String(values[9]),
-        marketplace_sales_fee_unit_amount: String(values[10]),
-        seller_net_unit_amount: String(values[11]),
-        shipping_allowance_percentage_bps: Number(values[12]),
-        terms_schedule_id: values[13] === null ? null : String(values[13]),
-        terms_agreement_id: values[14] === null ? null : String(values[14]),
-        terms_resolved_at: String(values[15]),
-        quantity_requested: Number(values[16]),
-        shipping_destination_snapshot: String(values[17]),
-        accepted_at: String(values[18]),
-        acceptance_batch_id: values[19] === null ? null : String(values[19]),
-        acceptance_batch_size: values[20] === null ? null : Number(values[20]),
-        updated_at: String(values[21]),
+        marketplace_sales_fee_percentage_bps: Number(values[10]),
+        marketplace_sales_fee_fixed_amount: String(values[11]),
+        marketplace_sales_fee_cap_amount: values[12] === null ? null : String(values[12]),
+        marketplace_sales_fee_unit_amount: String(values[13]),
+        seller_net_unit_amount: String(values[14]),
+        shipping_allowance_percentage_bps: Number(values[15]),
+        terms_schedule_id: values[16] === null ? null : String(values[16]),
+        terms_agreement_id: values[17] === null ? null : String(values[17]),
+        terms_resolved_at: String(values[18]),
+        quantity_requested: Number(values[19]),
+        shipping_destination_snapshot: String(values[20]),
+        accepted_at: String(values[21]),
+        acceptance_batch_id: values[22] === null ? null : String(values[22]),
+        acceptance_batch_size: values[23] === null ? null : Number(values[23]),
+        updated_at: String(values[24]),
       };
       this.acceptedOffers.set(row.offer_id, row);
       return { rows: [], rowCount: 1 };
@@ -253,6 +259,9 @@ function offerAcceptedEvent(overrides: Partial<Record<string, unknown>> = {}) {
     priceAmount: "120.00",
     quantityRequested: 1,
     acceptedAt: "2026-05-09T00:02:00.000Z",
+    marketplaceSalesFeePercentageBps: 500,
+    marketplaceSalesFeeFixedAmount: "0.00",
+    marketplaceSalesFeeCapAmount: "25.00",
     marketplaceSalesFeeUnitAmount: "6.00",
     sellerNetUnitAmount: "114.00",
     shippingAllowancePercentageBps: 500,

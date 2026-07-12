@@ -58,6 +58,9 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
           unitPriceAmount: string;
           quantity: number;
           lineTotalAmount: string;
+          marketplaceSalesFeePercentageBps?: number;
+          marketplaceSalesFeeFixedAmount?: string;
+          marketplaceSalesFeeCapAmount?: string | null;
           marketplaceSalesFeeUnitAmount: string;
           marketplaceSalesFeeTotalAmount: string;
           sellerNetUnitAmount: string;
@@ -218,12 +221,15 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
              unit_price_amount,
              quantity,
              line_total_amount,
+             marketplace_sales_fee_percentage_bps,
+             marketplace_sales_fee_fixed_amount,
+             marketplace_sales_fee_cap_amount,
              marketplace_sales_fee_unit_amount,
              marketplace_sales_fee_total_amount,
              seller_net_unit_amount,
              seller_net_total_amount
            ) VALUES (
-             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
            )
            ON CONFLICT (order_id, line_id) DO UPDATE
            SET line_index = EXCLUDED.line_index,
@@ -238,6 +244,9 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
                unit_price_amount = EXCLUDED.unit_price_amount,
                quantity = EXCLUDED.quantity,
                line_total_amount = EXCLUDED.line_total_amount,
+               marketplace_sales_fee_percentage_bps = EXCLUDED.marketplace_sales_fee_percentage_bps,
+               marketplace_sales_fee_fixed_amount = EXCLUDED.marketplace_sales_fee_fixed_amount,
+               marketplace_sales_fee_cap_amount = EXCLUDED.marketplace_sales_fee_cap_amount,
                marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
                marketplace_sales_fee_total_amount = EXCLUDED.marketplace_sales_fee_total_amount,
                seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
@@ -257,6 +266,9 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
             line.unitPriceAmount,
             line.quantity,
             line.lineTotalAmount,
+            line.marketplaceSalesFeePercentageBps ?? 0,
+            line.marketplaceSalesFeeFixedAmount ?? line.marketplaceSalesFeeUnitAmount,
+            line.marketplaceSalesFeeCapAmount ?? null,
             line.marketplaceSalesFeeUnitAmount,
             line.marketplaceSalesFeeTotalAmount,
             line.sellerNetUnitAmount,

@@ -178,6 +178,9 @@ function logWaitingForActiveSupply(itemTitle: string, dependentOrder: "checkout 
 async function getAcceptedOfferInput(services: ReturnType<typeof createOrderingServices>, offerId: string) {
   const result = await services.db.query<{
     product_id: string;
+    marketplace_sales_fee_percentage_bps: number;
+    marketplace_sales_fee_fixed_amount: string;
+    marketplace_sales_fee_cap_amount: string | null;
     marketplace_sales_fee_unit_amount: string;
     seller_net_unit_amount: string;
     terms_schedule_id: string | null;
@@ -186,6 +189,9 @@ async function getAcceptedOfferInput(services: ReturnType<typeof createOrderingS
   }>(
     `SELECT
        product_id,
+       marketplace_sales_fee_percentage_bps,
+       marketplace_sales_fee_fixed_amount::text AS marketplace_sales_fee_fixed_amount,
+       marketplace_sales_fee_cap_amount::text AS marketplace_sales_fee_cap_amount,
        marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
        seller_net_unit_amount::text AS seller_net_unit_amount,
        terms_schedule_id,
@@ -367,6 +373,9 @@ export async function seedOrderingDatabase(
               selectedOptions: [...acceptedOfferSeed.selectedOptions],
               productSummary: acceptedOfferSeed.productSummary,
               priceAmount: acceptedOfferSeed.priceAmount,
+              marketplaceSalesFeePercentageBps: acceptedOfferInput.marketplace_sales_fee_percentage_bps,
+              marketplaceSalesFeeFixedAmount: acceptedOfferInput.marketplace_sales_fee_fixed_amount,
+              marketplaceSalesFeeCapAmount: acceptedOfferInput.marketplace_sales_fee_cap_amount,
               marketplaceSalesFeeUnitAmount: acceptedOfferInput.marketplace_sales_fee_unit_amount,
               sellerNetUnitAmount: acceptedOfferInput.seller_net_unit_amount,
               termsScheduleId: acceptedOfferInput.terms_schedule_id,
@@ -411,6 +420,9 @@ export async function seedOrderingDatabase(
               selectedOptions: [...reviewEligibleOfferSeed.selectedOptions],
               productSummary: reviewEligibleOfferSeed.productSummary,
               priceAmount: reviewEligibleOfferSeed.priceAmount,
+              marketplaceSalesFeePercentageBps: reviewEligibleOfferInput.marketplace_sales_fee_percentage_bps,
+              marketplaceSalesFeeFixedAmount: reviewEligibleOfferInput.marketplace_sales_fee_fixed_amount,
+              marketplaceSalesFeeCapAmount: reviewEligibleOfferInput.marketplace_sales_fee_cap_amount,
               marketplaceSalesFeeUnitAmount: reviewEligibleOfferInput.marketplace_sales_fee_unit_amount,
               sellerNetUnitAmount: reviewEligibleOfferInput.seller_net_unit_amount,
               termsScheduleId: reviewEligibleOfferInput.terms_schedule_id,

@@ -650,10 +650,10 @@ describe("ordering order runtime: checkout supply and grouping", () => {
       salesTaxAmount: "1.57",
       totalAmount: "20.81",
       commercialTermsSnapshot: {
-        sellerItemNetAmount: "38.00",
+        sellerItemNetAmount: "12.99",
         shippingAllowanceAmount: "0.74",
         sellerShippingPayoutAmount: "4.25",
-        sellerPayoutAmount: "42.25",
+        sellerPayoutAmount: "17.24",
       },
     });
   });

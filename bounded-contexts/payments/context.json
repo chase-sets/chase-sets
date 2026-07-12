@@ -13,7 +13,7 @@
     {
       "sourceContextName": "ordering",
       "projectionName": "payments-order-input-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "ordering.order.created",
         "ordering.order.pending-payment-recorded",

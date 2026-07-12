@@ -64,6 +64,9 @@ export interface OrderingOrderProjectionLine {
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;
+  marketplace_sales_fee_percentage_bps: number;
+  marketplace_sales_fee_fixed_amount: string;
+  marketplace_sales_fee_cap_amount: string | null;
   marketplace_sales_fee_unit_amount: string;
   marketplace_sales_fee_total_amount: string;
   seller_net_unit_amount: string;

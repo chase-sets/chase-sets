@@ -101,6 +101,9 @@ CREATE TABLE IF NOT EXISTS ordering_order_line_pages (
   unit_price_amount numeric(12,2) NOT NULL,
   quantity integer NOT NULL CHECK (quantity > 0),
   line_total_amount numeric(12,2) NOT NULL,
+  marketplace_sales_fee_percentage_bps integer NOT NULL DEFAULT 0,
+  marketplace_sales_fee_fixed_amount numeric(12,2) NOT NULL DEFAULT 0,
+  marketplace_sales_fee_cap_amount numeric(12,2) NULL,
   marketplace_sales_fee_unit_amount numeric(12,2) NOT NULL,
   marketplace_sales_fee_total_amount numeric(12,2) NOT NULL,
   seller_net_unit_amount numeric(12,2) NOT NULL,
@@ -113,6 +116,11 @@ CREATE INDEX IF NOT EXISTS ordering_order_line_pages_order_idx
 
 CREATE INDEX IF NOT EXISTS ordering_order_line_pages_catalog_version_idx
   ON ordering_order_line_pages (product_id);
+
+ALTER TABLE ordering_order_line_pages
+  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_percentage_bps integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_fixed_amount numeric(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_cap_amount numeric(12,2) NULL;
 
 CREATE TABLE IF NOT EXISTS ordering_order_hold_pages (
   hold_id text PRIMARY KEY,
@@ -178,6 +186,16 @@ export const orderingOrderSchemaMigrations: readonly BcSchemaMigration[] = [
       `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ordering_order_pages_display_reference_key
   ON ordering_order_pages (display_reference)
   WHERE display_reference <> ''`,
+    ],
+  },
+  {
+    migrationId: "20260712_ordering_order_line_fee_formula",
+    description: "Persist each order line's locked marketplace sales fee formula for audit and replay.",
+    statements: [
+      `ALTER TABLE ordering_order_line_pages
+  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_percentage_bps integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_fixed_amount numeric(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_cap_amount numeric(12,2) NULL`,
     ],
   },
 ];

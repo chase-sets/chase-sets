@@ -1,9 +1,12 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { MarketplaceSalesFeeLineSnapshotPayload } from "@chase-sets/event-core";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId, LedgerEntryId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import {
   allocateMoneyByLargestRemainder,
+  addMoneyAmounts,
+  applyBasisPointsToMoneyAmount,
   centsToMoneyAmount,
   centsToSignedMoneyAmount,
   moneyToCents,
@@ -107,6 +110,8 @@ async function creditAuthenticityFee(
 type SellerPayoutComponent = Readonly<{
   orderId: string;
   sellerAccountId: string;
+  marketplaceSalesFeeAmount: string;
+  marketplaceSalesFeeLines: readonly MarketplaceSalesFeeLineSnapshotPayload[];
   sellerItemNetAmount: string;
   shippingAllowanceAmount: string;
   sellerShippingPayoutAmount: string;
@@ -134,6 +139,10 @@ function normalizeSellerPayoutComponents(value: unknown): SellerPayoutComponent[
       {
         orderId: candidate.orderId,
         sellerAccountId: candidate.sellerAccountId,
+        marketplaceSalesFeeAmount: candidate.marketplaceSalesFeeAmount ?? "0.00",
+        marketplaceSalesFeeLines: Array.isArray(candidate.marketplaceSalesFeeLines)
+          ? candidate.marketplaceSalesFeeLines
+          : [],
         sellerItemNetAmount: candidate.sellerItemNetAmount ?? "0.00",
         shippingAllowanceAmount: candidate.shippingAllowanceAmount ?? "0.00",
         sellerShippingPayoutAmount: candidate.sellerShippingPayoutAmount ?? candidate.shippingAllowanceAmount ?? "0.00",
@@ -141,6 +150,44 @@ function normalizeSellerPayoutComponents(value: unknown): SellerPayoutComponent[
       },
     ];
   });
+}
+
+function assertMarketplaceSalesFeeBreakdown(payout: SellerPayoutComponent) {
+  if (payout.marketplaceSalesFeeLines.length === 0) {
+    return;
+  }
+  let totalCents = 0n;
+  let grossCents = 0n;
+  for (const line of payout.marketplaceSalesFeeLines) {
+    if (!Number.isInteger(line.quantity) || line.quantity <= 0) {
+      throw new SettlementDomainError("Marketplace sales fee line quantity must be a positive whole number.");
+    }
+    const uncapped = addMoneyAmounts(
+      applyBasisPointsToMoneyAmount(line.unitPriceAmount, line.marketplaceSalesFeePercentageBps, "ceil"),
+      line.marketplaceSalesFeeFixedAmount,
+    );
+    const expectedUnitCents =
+      line.marketplaceSalesFeeCapAmount === null
+        ? moneyToCents(uncapped)
+        : [moneyToCents(uncapped), moneyToCents(line.marketplaceSalesFeeCapAmount)].reduce((minimum, value) =>
+            value < minimum ? value : minimum,
+          );
+    const expectedTotalCents = expectedUnitCents * BigInt(line.quantity);
+    if (
+      expectedUnitCents !== moneyToCents(line.marketplaceSalesFeeUnitAmount) ||
+      expectedTotalCents !== moneyToCents(line.marketplaceSalesFeeTotalAmount)
+    ) {
+      throw new SettlementDomainError("Marketplace sales fee breakdown does not reproduce the snapshotted fee.");
+    }
+    totalCents += expectedTotalCents;
+    grossCents += moneyToCents(line.unitPriceAmount) * BigInt(line.quantity);
+  }
+  if (totalCents !== moneyToCents(payout.marketplaceSalesFeeAmount)) {
+    throw new SettlementDomainError("Marketplace sales fee breakdown does not sum to the seller payout fee amount.");
+  }
+  if (grossCents - totalCents !== moneyToCents(payout.sellerItemNetAmount)) {
+    throw new SettlementDomainError("Marketplace sales fee breakdown does not reconcile to seller item net.");
+  }
 }
 
 async function recordOrderTrustSignalSources(
@@ -326,6 +373,7 @@ async function creditSellerPayouts(
   }
 
   for (const payout of data.sellerPayouts) {
+    assertMarketplaceSalesFeeBreakdown(payout);
     const sellerAccountId = payout.sellerAccountId as AccountId;
     const paymentId = data.paymentId as PaymentId;
 

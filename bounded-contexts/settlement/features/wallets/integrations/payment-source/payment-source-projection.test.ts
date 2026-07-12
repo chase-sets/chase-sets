@@ -225,6 +225,106 @@ describe("settlement payment source projection", () => {
     );
   });
 
+  it("audits capped fee lines and credits the byte-exact multi-quantity seller net", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const wallets = {
+      postEntry: vi.fn(async () => ({ accountId: "acc_seller", version: 1 })),
+    };
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+    const feeLines = (
+      [
+        ["line_10", "10.00", 1, "0.50", "0.50"],
+        ["line_400", "400.00", 1, "20.00", "20.00"],
+        ["line_600", "600.00", 1, "25.00", "25.00"],
+        ["line_1000", "1000.00", 3, "25.00", "75.00"],
+      ] as const
+    ).map(([lineId, unitPriceAmount, quantity, unitFee, totalFee]) => ({
+      lineId,
+      unitPriceAmount,
+      quantity,
+      marketplaceSalesFeePercentageBps: 500,
+      marketplaceSalesFeeFixedAmount: "0.00",
+      marketplaceSalesFeeCapAmount: "25.00",
+      marketplaceSalesFeeUnitAmount: unitFee,
+      marketplaceSalesFeeTotalAmount: totalFee,
+    }));
+
+    await handlers["payments.payment-captured"]!(
+      transportEvent("payments.payment-captured", {
+        paymentId: "pay_cap_examples",
+        buyerAccountId: "acc_buyer",
+        balanceCreditAmount: "0.00",
+        currencyCode: "usd",
+        processorStatus: "succeeded",
+        capturedAt: "2026-07-12T00:00:00.000Z",
+        sellerPayouts: [
+          {
+            orderId: "ord_cap_examples",
+            sellerAccountId: "acc_seller",
+            marketplaceSalesFeeAmount: "120.50",
+            marketplaceSalesFeeLines: feeLines,
+            sellerItemNetAmount: "3889.50",
+            shippingAllowanceAmount: "0.00",
+            sellerShippingPayoutAmount: "0.00",
+            sellerPayoutAmount: "3889.50",
+          },
+        ],
+      }),
+    );
+
+    expect(wallets.postEntry).toHaveBeenCalledTimes(1);
+    expect(wallets.postEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ledgerEntryId: "led_sale_pay_cap_examples_ord_cap_examples",
+        amount: "3889.50",
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("rejects settlement economics that do not apply the snapshotted per-item cap", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const wallets = { postEntry: vi.fn(async () => ({ accountId: "acc_seller", version: 1 })) };
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+
+    await expect(
+      handlers["payments.payment-captured"]!(
+        transportEvent("payments.payment-captured", {
+          paymentId: "pay_uncapped",
+          buyerAccountId: "acc_buyer",
+          balanceCreditAmount: "0.00",
+          currencyCode: "usd",
+          processorStatus: "succeeded",
+          capturedAt: "2026-07-12T00:00:00.000Z",
+          sellerPayouts: [
+            {
+              orderId: "ord_uncapped",
+              sellerAccountId: "acc_seller",
+              marketplaceSalesFeeAmount: "30.00",
+              marketplaceSalesFeeLines: [
+                {
+                  lineId: "line_600",
+                  unitPriceAmount: "600.00",
+                  quantity: 1,
+                  marketplaceSalesFeePercentageBps: 500,
+                  marketplaceSalesFeeFixedAmount: "0.00",
+                  marketplaceSalesFeeCapAmount: "25.00",
+                  marketplaceSalesFeeUnitAmount: "30.00",
+                  marketplaceSalesFeeTotalAmount: "30.00",
+                },
+              ],
+              sellerItemNetAmount: "570.00",
+              shippingAllowanceAmount: "0.00",
+              sellerShippingPayoutAmount: "0.00",
+              sellerPayoutAmount: "570.00",
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("Marketplace sales fee breakdown does not reproduce the snapshotted fee.");
+    expect(wallets.postEntry).not.toHaveBeenCalled();
+  });
+
   it("credits the platform revenue account for the authenticity check fee (m109 #4275) on capture", async () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),

@@ -16,6 +16,9 @@ type AcceptedOfferParams = Readonly<{
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
   priceAmount: string;
+  marketplaceSalesFeePercentageBps: number;
+  marketplaceSalesFeeFixedAmount: string;
+  marketplaceSalesFeeCapAmount: string | null;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   shippingAllowancePercentageBps: number;
@@ -410,6 +413,9 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            selected_options,
            product_summary,
            price_amount,
+           marketplace_sales_fee_percentage_bps,
+           marketplace_sales_fee_fixed_amount,
+           marketplace_sales_fee_cap_amount,
            marketplace_sales_fee_unit_amount,
            seller_net_unit_amount,
            shipping_allowance_percentage_bps,
@@ -423,7 +429,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            acceptance_batch_size,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
          )
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -435,6 +441,9 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              selected_options = EXCLUDED.selected_options,
              product_summary = EXCLUDED.product_summary,
              price_amount = EXCLUDED.price_amount,
+             marketplace_sales_fee_percentage_bps = EXCLUDED.marketplace_sales_fee_percentage_bps,
+             marketplace_sales_fee_fixed_amount = EXCLUDED.marketplace_sales_fee_fixed_amount,
+             marketplace_sales_fee_cap_amount = EXCLUDED.marketplace_sales_fee_cap_amount,
              marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
              seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
              shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
@@ -458,6 +467,9 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
           data.productSummary,
           data.priceAmount,
+          data.marketplaceSalesFeePercentageBps ?? 0,
+          data.marketplaceSalesFeeFixedAmount ?? data.marketplaceSalesFeeUnitAmount,
+          data.marketplaceSalesFeeCapAmount ?? null,
           data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
           data.shippingAllowancePercentageBps ?? 500,
@@ -475,6 +487,9 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
 
       await options.onOfferAccepted?.({
         ...data,
+        marketplaceSalesFeePercentageBps: data.marketplaceSalesFeePercentageBps ?? 0,
+        marketplaceSalesFeeFixedAmount: data.marketplaceSalesFeeFixedAmount ?? data.marketplaceSalesFeeUnitAmount,
+        marketplaceSalesFeeCapAmount: data.marketplaceSalesFeeCapAmount ?? null,
         context: {
           tenantId: event.tenantId,
           audit: event.audit,

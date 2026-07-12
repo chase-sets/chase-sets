@@ -36,6 +36,11 @@ export function ensurePositiveInteger(value: number, message: string) {
   return value;
 }
 
+export function ensureNonNegativeInteger(value: number, message: string) {
+  assert(Number.isInteger(value) && value >= 0, message);
+  return value;
+}
+
 export function normalizeRequiredText(value: string, message: string): string {
   const normalized = value.trim();
   assert(normalized.length > 0, message);

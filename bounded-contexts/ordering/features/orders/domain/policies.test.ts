@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { resolveOrderPaymentDeadline, resolveTerminalPaymentFailureDeadline } from "./policies";
+import {
+  quoteMarketplaceSalesFeeFromSnapshot,
+  resolveOrderPaymentDeadline,
+  resolveTerminalPaymentFailureDeadline,
+} from "./policies";
+
+describe("ordering marketplace sales fee snapshots", () => {
+  it.each([
+    ["10.00", "0.50", "9.50"],
+    ["400.00", "20.00", "380.00"],
+    ["600.00", "25.00", "575.00"],
+    ["1000.00", "25.00", "975.00"],
+  ])("recomputes $%s from the byte-exact locked formula", (unitPriceAmount, fee, sellerNet) => {
+    expect(
+      quoteMarketplaceSalesFeeFromSnapshot(unitPriceAmount, {
+        marketplaceSalesFeePercentageBps: 500,
+        marketplaceSalesFeeFixedAmount: "0.00",
+        marketplaceSalesFeeCapAmount: "25.00",
+      }),
+    ).toEqual({ marketplaceSalesFeeUnitAmount: fee, sellerNetUnitAmount: sellerNet });
+  });
+});
 
 describe("ordering payment deadline policies", () => {
   it.each([

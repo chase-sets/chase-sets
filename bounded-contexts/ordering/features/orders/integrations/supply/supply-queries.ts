@@ -303,6 +303,18 @@ function availableFeeLocks(
         return [
           {
             unitCount,
+            marketplaceSalesFeePercentageBps:
+              typeof terms.marketplaceSalesFeePercentageBps === "number"
+                ? terms.marketplaceSalesFeePercentageBps
+                : undefined,
+            marketplaceSalesFeeFixedAmount:
+              typeof terms.marketplaceSalesFeeFixedAmount === "string"
+                ? terms.marketplaceSalesFeeFixedAmount
+                : undefined,
+            marketplaceSalesFeeCapAmount:
+              typeof terms.marketplaceSalesFeeCapAmount === "string" || terms.marketplaceSalesFeeCapAmount === null
+                ? terms.marketplaceSalesFeeCapAmount
+                : undefined,
             marketplaceSalesFeeUnitAmount: String(lock.marketplaceSalesFeeUnitAmount),
             sellerNetUnitAmount: String(lock.sellerNetUnitAmount),
             shippingAllowancePercentageBps: Number(terms.shippingAllowancePercentageBps ?? 500),
@@ -374,6 +386,9 @@ export type OrderingAcceptedOfferBatchInputRow = Readonly<{
   selected_options: readonly VersionSelectedOptionEntry[];
   product_summary: string | null;
   price_amount: string;
+  marketplace_sales_fee_percentage_bps: number;
+  marketplace_sales_fee_fixed_amount: string;
+  marketplace_sales_fee_cap_amount: string | null;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
@@ -407,6 +422,9 @@ export async function listAcceptedOfferBatchInputs(
        selected_options,
        product_summary,
        price_amount::text AS price_amount,
+       marketplace_sales_fee_percentage_bps,
+       marketplace_sales_fee_fixed_amount::text AS marketplace_sales_fee_fixed_amount,
+       marketplace_sales_fee_cap_amount::text AS marketplace_sales_fee_cap_amount,
        marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
        seller_net_unit_amount::text AS seller_net_unit_amount,
        shipping_allowance_percentage_bps,

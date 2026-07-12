@@ -83,6 +83,9 @@ CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
   price_amount numeric(12, 2) NOT NULL,
+  marketplace_sales_fee_percentage_bps integer NOT NULL DEFAULT 0,
+  marketplace_sales_fee_fixed_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  marketplace_sales_fee_cap_amount numeric(12, 2) NULL,
   marketplace_sales_fee_unit_amount numeric(12, 2) NOT NULL,
   seller_net_unit_amount numeric(12, 2) NOT NULL,
   shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
@@ -115,6 +118,11 @@ ALTER TABLE ordering_market_listing_inputs
 
 ALTER TABLE ordering_offer_acceptance_inputs
   ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
+
+ALTER TABLE ordering_offer_acceptance_inputs
+  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_percentage_bps integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_fixed_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_cap_amount numeric(12, 2) NULL;
 
 ALTER TABLE ordering_offer_acceptance_inputs
   ADD COLUMN IF NOT EXISTS acceptance_batch_id text NULL;
@@ -160,6 +168,16 @@ export const orderingSupplySourceSchemaMigrations: readonly BcSchemaMigration[] 
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS ordering_payment_deadline_inputs_payment_idx
   ON ordering_payment_deadline_inputs (payment_id)
   WHERE payment_id IS NOT NULL`,
+    ],
+  },
+  {
+    migrationId: "20260712_ordering_offer_acceptance_fee_formula",
+    description: "Snapshot marketplace sales fee percentage, fixed amount, and per-item cap on accepted offers.",
+    statements: [
+      `ALTER TABLE ordering_offer_acceptance_inputs
+  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_percentage_bps integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_fixed_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_cap_amount numeric(12, 2) NULL`,
     ],
   },
 ];

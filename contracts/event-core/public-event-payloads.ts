@@ -205,6 +205,21 @@ export type OrderingReservationRequestPayload = Readonly<{
 export type OrderingOrderCreatedPayload = Readonly<{
   orderId: string;
   reservationRequests: readonly OrderingReservationRequestPayload[];
+  commercialTermsSnapshot?: Readonly<{
+    marketplaceSalesFeeAmount: string;
+    marketplaceSalesFeeLines?: readonly MarketplaceSalesFeeLineSnapshotPayload[];
+  }>;
+}>;
+
+export type MarketplaceSalesFeeLineSnapshotPayload = Readonly<{
+  lineId: string;
+  unitPriceAmount: string;
+  quantity: number;
+  marketplaceSalesFeePercentageBps: number;
+  marketplaceSalesFeeFixedAmount: string;
+  marketplaceSalesFeeCapAmount: string | null;
+  marketplaceSalesFeeUnitAmount: string;
+  marketplaceSalesFeeTotalAmount: string;
 }>;
 
 export type OrderingOrderCancelledPayload = Readonly<{
@@ -231,6 +246,9 @@ export type MarketplaceOfferAcceptedPayload = Readonly<{
   selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
   productSummary: string | null;
   priceAmount: string;
+  marketplaceSalesFeePercentageBps: number;
+  marketplaceSalesFeeFixedAmount: string;
+  marketplaceSalesFeeCapAmount: string | null;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   shippingAllowancePercentageBps: number;
@@ -410,6 +428,17 @@ export type CheckoutEventPayloads = Readonly<{
   "checkout.session.cancelled": CheckoutSessionCancelledPayload;
 }>;
 
+export type PaymentSellerPayoutPayload = Readonly<{
+  orderId: string;
+  sellerAccountId: string;
+  marketplaceSalesFeeAmount?: string;
+  marketplaceSalesFeeLines?: readonly MarketplaceSalesFeeLineSnapshotPayload[];
+  sellerItemNetAmount: string;
+  shippingAllowanceAmount: string;
+  sellerShippingPayoutAmount: string;
+  sellerPayoutAmount: string;
+}>;
+
 export type PaymentCapturedPayload = Readonly<{
   paymentId: PaymentId;
   orderIds: readonly string[];
@@ -424,7 +453,7 @@ export type PaymentCapturedPayload = Readonly<{
   paymentMethodCategory?: string | null;
   sellerNetAmount?: string;
   sellerPayoutAmount?: string;
-  sellerPayouts?: readonly JsonObject[];
+  sellerPayouts?: readonly PaymentSellerPayoutPayload[];
   currencyCode: string;
   processorName: string;
   processorPaymentReference: string;
@@ -446,7 +475,7 @@ export type PaymentCreatedPayload = Readonly<{
   paymentMethodCategory?: string | null;
   sellerNetAmount?: string;
   sellerPayoutAmount?: string;
-  sellerPayouts?: readonly JsonObject[];
+  sellerPayouts?: readonly PaymentSellerPayoutPayload[];
   currencyCode: string;
   processorName: string;
   processorPaymentKind?: "checkout-session" | "payment-intent" | "balance-credit";
@@ -475,7 +504,7 @@ export type PaymentFailedPayload = Readonly<{
   paymentMethodCategory?: string | null;
   sellerNetAmount?: string;
   sellerPayoutAmount?: string;
-  sellerPayouts?: readonly JsonObject[];
+  sellerPayouts?: readonly PaymentSellerPayoutPayload[];
   currencyCode: string;
   processorName: string;
   processorPaymentReference: string;
