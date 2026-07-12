@@ -149,6 +149,125 @@ describe("UCP OAuth routes", () => {
     expect(body.webhook).toBeUndefined();
   });
 
+  it("lets the owning account replace or disable a webhook and only returns a replacement secret once", async () => {
+    const options = createOAuthOptions();
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+    const registration = await app.request("/ucp/oauth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        client_name: "Agent Platform",
+        client_uri: "https://agent.example/.well-known/ucp",
+        redirect_uris: ["https://agent.example/callback"],
+        scope: "order:read",
+        webhook_callback_url: "https://agent.example/hooks",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const clientId = ((await registration.json()) as { client_id: string }).client_id;
+    await options.linkedPlatformAuthorizations.grant({
+      authorizationId: "lpa_webhook",
+      platformProfileUrl: "https://agent.example/.well-known/ucp",
+      clientId,
+      userId: actor.userId,
+      accountId: actor.accountId,
+      scopes: ["order:read"],
+      accessTokenHash: "hash:access",
+      accessTokenExpiresAt: "2026-07-13T00:00:00.000Z",
+      grantedAt: "2026-07-12T00:00:00.000Z",
+    });
+
+    const read = await app.request("/ucp/oauth/authorizations/lpa_webhook/webhook");
+    expect(read.status).toBe(200);
+    await expect(read.json()).resolves.toMatchObject({
+      webhook: {
+        callback_url: "https://agent.example/hooks",
+        signing_secret_preview: expect.stringContaining("…"),
+      },
+    });
+
+    const replace = await app.request("/ucp/oauth/authorizations/lpa_webhook/webhook", {
+      method: "PUT",
+      body: JSON.stringify({ callback_url: "https://agent.example/new-hooks" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(replace.status).toBe(200);
+    const replacementBody = (await replace.json()) as { webhook: { signing_secret: string } };
+    expect(replacementBody.webhook.signing_secret).toMatch(/^whsec_/);
+
+    const disable = await app.request("/ucp/oauth/authorizations/lpa_webhook/webhook", {
+      method: "PUT",
+      body: JSON.stringify({ callback_url: null }),
+      headers: { "Content-Type": "application/json" },
+    });
+    await expect(disable.json()).resolves.toEqual({ webhook: null });
+
+    const afterDisable = await app.request("/ucp/oauth/authorizations/lpa_webhook/webhook");
+    await expect(afterDisable.json()).resolves.toEqual({ webhook: null });
+  });
+
+  it("exposes only account-owned webhook delivery summaries, including dead letters", async () => {
+    const options = createOAuthOptions({
+      agentWebhookOutbox: {
+        listForClient: async () => [
+          {
+            deliveryId: "d1",
+            clientId: "ocl_1",
+            accountId: actor.accountId,
+            callbackUrl: "https://agent.example/hooks",
+            sourceEventId: "evt_1",
+            eventType: "ordering.order.created",
+            orderId: "ord_1",
+            orderStatus: "created",
+            status: "failed",
+            attemptCount: 8,
+            maxAttempts: 8,
+            nextAttemptAt: "2026-07-12T00:00:00.000Z",
+            lastError: "callback responded 500",
+            lastResponseStatus: 500,
+            createdAt: "2026-07-12T00:00:00.000Z",
+            updatedAt: "2026-07-12T00:01:00.000Z",
+            deliveredAt: null,
+          },
+          {
+            deliveryId: "other-account",
+            clientId: "ocl_1",
+            accountId: "account_other",
+            callbackUrl: "https://agent.example/hooks",
+            sourceEventId: "evt_2",
+            eventType: "ordering.order.created",
+            orderId: "ord_2",
+            orderStatus: "created",
+            status: "failed",
+            attemptCount: 8,
+            maxAttempts: 8,
+            nextAttemptAt: "2026-07-12T00:00:00.000Z",
+            lastError: "callback responded 500",
+            lastResponseStatus: 500,
+            createdAt: "2026-07-12T00:00:00.000Z",
+            updatedAt: "2026-07-12T00:01:00.000Z",
+            deliveredAt: null,
+          },
+        ],
+      } as never,
+    });
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+    await options.linkedPlatformAuthorizations.grant({
+      authorizationId: "lpa_delivery",
+      platformProfileUrl: "https://agent.example/.well-known/ucp",
+      clientId: "ocl_1",
+      userId: actor.userId,
+      accountId: actor.accountId,
+      scopes: ["order:read"],
+      accessTokenHash: "hash:access",
+      accessTokenExpiresAt: "2026-07-13T00:00:00.000Z",
+      grantedAt: "2026-07-12T00:00:00.000Z",
+    });
+
+    const response = await app.request("/ucp/oauth/authorizations/lpa_delivery/webhook-deliveries?status=dead-letter");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ deliveries: [{ deliveryId: "d1", status: "failed" }] });
+  });
+
   it("registers public OAuth clients without secrets and enforces registered redirect URIs and scopes", async () => {
     const options = createOAuthOptions();
     const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
@@ -604,6 +723,9 @@ function createAuthorizationCodeDb() {
           response_types: JSON.parse(String(values[7])) as readonly string[],
           token_endpoint_auth_method: values[8],
           client_id_issued_at: values[9],
+          webhook_callback_url: values[10] ?? null,
+          webhook_signing_secret: values[11] ?? null,
+          webhook_signing_secret_created_at: values[12] ?? null,
         };
         clients.set(String(row.client_id), row);
         return { rows: [], rowCount: 1 };
@@ -618,6 +740,17 @@ function createAuthorizationCodeDb() {
       if (text.includes("FROM identity_ucp_oauth_clients")) {
         const row = clients.get(String(values[0]));
         return { rows: row ? [row as Row] : [], rowCount: row ? 1 : 0 };
+      }
+
+      if (text.includes("UPDATE identity_ucp_oauth_clients")) {
+        const row = clients.get(String(values[3]));
+        if (!row) {
+          return { rows: [], rowCount: 0 };
+        }
+        row.webhook_callback_url = values[0];
+        row.webhook_signing_secret = values[1];
+        row.webhook_signing_secret_created_at = values[2];
+        return { rows: [row as Row], rowCount: 1 };
       }
 
       if (text.includes("INSERT INTO identity_ucp_oauth_authorization_codes")) {

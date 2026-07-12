@@ -802,19 +802,21 @@
       "surfaces": [
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /authorizations/:id/revoke",
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:PUT /authorizations/:id/mandate",
+        "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:PUT /authorizations/:id/webhook",
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /introspect",
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /register",
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /revoke",
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /token",
         "api-client:bounded-contexts/auth/client.ts:PUT Hbc5f03363dca#1",
         "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:H901edc92b88e#1",
+        "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:H995cca9e3e33#1",
         "route-action:bounded-contexts/auth/routes/marketplace/account-agents-detail.tsx"
       ],
       "visibleDestination": {
-        "description": "UCP OAuth dynamic client registration, token, introspection, revoke, and spending-mandate mutations return protocol snapshots from the client registration, authorization/token, and agent-grant consent stores in the request that performs the write, without a user-visible projected read path. The connected-agents UI mandate-update form and revoke confirmation post to the same Auth-owned routes and redirect to the (directly-consistent, non-projected) grant detail read rather than waiting on a fresh-read gate."
+        "description": "UCP OAuth dynamic client registration, token, introspection, revoke, spending-mandate, and webhook-registration mutations return protocol snapshots from the client registration, authorization/token, agent-grant consent, and webhook-registration stores in the request that performs the write, without a user-visible projected read path. The connected-agents UI mandate-update form and revoke confirmation post to the same Auth-owned routes and redirect to the (directly-consistent, non-projected) grant detail read rather than waiting on a fresh-read gate."
       },
       "proof": {
-        "authoritativeResponse": "Dynamic client registration returns the newly persisted client_id and registered metadata, token responses contain the newly issued or refreshed token snapshot, introspection returns the current active/token metadata snapshot, the spending-mandate route returns the just-written mandate re-read from the agent-grant consent directory, and revoke routes return immediate revocation status from the Auth-owned OAuth service. The single-grant and activity GET routes and the client_id join both read identity_linked_platform_authorizations, identity_ucp_oauth_clients, and platform_mcp_audit_log directly (plain UPDATE/SELECT, not an async projection), so the redirect after revoke or mandate update always observes the write.",
+        "authoritativeResponse": "Dynamic client registration returns the newly persisted client_id and registered metadata, token responses contain the newly issued or refreshed token snapshot, introspection returns the current active/token metadata snapshot, the spending-mandate route returns the just-written mandate re-read from the agent-grant consent directory, the webhook route returns the just-written callback configuration and one-time replacement secret, and revoke routes return immediate revocation status from the Auth-owned OAuth service. The single-grant and activity GET routes and the client_id join both read identity_linked_platform_authorizations, identity_ucp_oauth_clients, and platform_mcp_audit_log directly (plain UPDATE/SELECT, not an async projection), so the redirect after revoke or mandate update always observes the write.",
         "tests": ["bounded-contexts/auth/support/ucp-support/oauth.test.ts"]
       }
     }

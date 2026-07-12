@@ -98,4 +98,12 @@ describe("agent webhook outbox", () => {
     expect(calls[0].sql).toContain("WHERE status = 'failed'");
     expect(calls[0].values).toEqual([50]);
   });
+
+  it("filters client delivery history by account before applying the limit", async () => {
+    const { db, calls } = fakeDb([]);
+    const outbox = createPostgresAgentWebhookOutbox({ db, now });
+    await outbox.listForClient("ocl_1", 25, "acc_buyer");
+    expect(calls[0].sql).toContain("account_id = $2");
+    expect(calls[0].values).toEqual(["ocl_1", "acc_buyer", 25]);
+  });
 });

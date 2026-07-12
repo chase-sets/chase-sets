@@ -624,6 +624,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
         resolveActor,
         agentGrantConsent: options.agentGrantConsent,
         agentGrantActivity: options.agentGrantActivity,
+        agentWebhookOutbox: identityServices.auth.agentWebhookOutbox,
         revokeStoredPaymentMethodsForAgentGrant:
           paymentsServices?.payments?.revokeSavedCheckoutInstrumentsForAgentGrant,
       }),

@@ -1,10 +1,10 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { t } from "@chase-sets/localization";
 import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import { createUcpOAuthRequestApiClient } from "../../support/request-support/api-client";
-import type { AgentGrant, AgentGrantActivityPage } from "../../features/agent-grants/ui/contracts";
+import type { AgentGrant, AgentGrantActivityPage, AgentGrantWebhook } from "../../features/agent-grants/ui/contracts";
 import { AgentGrantDetailPage } from "../../features/agent-grants/ui/agent-grant-detail-page";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -14,7 +14,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     api.getAgentGrant<{ authorization: AgentGrant }>(grantId),
     api.listAgentGrantActivity<AgentGrantActivityPage>(grantId, "limit=50&offset=0"),
   ]);
-  return { grant: detail.authorization, activity: activity.activity };
+  const webhook = await api.getAgentGrantWebhook<{ webhook: AgentGrantWebhook | null }>(grantId);
+  return { grant: detail.authorization, activity: activity.activity, webhook: webhook.webhook };
 }
 
 // Decimal-string form field (e.g. "12.50", empty for "no cap") -> integer cents or null,
@@ -49,6 +50,20 @@ export async function action({ request, params }: ActionFunctionArgs) {
     });
   }
 
+  if (intent === "update-webhook") {
+    const callbackUrl = String(formData.get("callback_url") ?? "").trim();
+    const result = await api.updateAgentGrantWebhook<{ webhook: AgentGrantWebhook | null }>(
+      grantId,
+      callbackUrl || null,
+    );
+    return { webhook: result.webhook };
+  }
+
+  if (intent === "disable-webhook") {
+    const result = await api.updateAgentGrantWebhook<{ webhook: AgentGrantWebhook | null }>(grantId, null);
+    return { webhook: result.webhook };
+  }
+
   return redirect(`/account/agents/${grantId}`);
 }
 
@@ -57,5 +72,13 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountAgentDetailRoute() {
   const data = useLoaderData<typeof loader>();
-  return <AgentGrantDetailPage grant={data.grant} activity={data.activity} />;
+  const actionData = useActionData<typeof action>();
+  return (
+    <AgentGrantDetailPage
+      grant={data.grant}
+      activity={data.activity}
+      webhook={data.webhook}
+      savedWebhook={actionData?.webhook}
+    />
+  );
 }

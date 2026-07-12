@@ -51,6 +51,13 @@ export type AgentGrantActivityPage = Readonly<{
   total: number;
 }>;
 
+export type AgentGrantWebhook = Readonly<{
+  callback_url: string;
+  signing_secret_preview: string | null;
+  signing_secret_created_at: string | null;
+  signing_secret?: string;
+}>;
+
 // The three payment rails a mandate can allow (mirrors AGENT_GRANT_RAILS in
 // infrastructure/platform-runtime/agent-guardrails.ts).
 export const AGENT_GRANT_PAYMENT_RAILS = ["handoff-only", "stored-pm", "ap2"] as const;

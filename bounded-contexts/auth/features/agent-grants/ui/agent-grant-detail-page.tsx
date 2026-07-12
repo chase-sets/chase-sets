@@ -10,18 +10,21 @@ import {
   Badge,
   Button,
   CheckboxGroup,
+  CopyButton,
   CurrencyInput,
   DataTable,
+  EvidenceCodeBlock,
   Form,
   HiddenInput,
   Inline,
   List,
   Stack,
   Switch,
+  TextInput,
   Text,
   type DataColumn,
 } from "@chase-sets/design-system";
-import type { AgentGrant, AgentGrantActivityRecord } from "./contracts";
+import type { AgentGrant, AgentGrantActivityRecord, AgentGrantWebhook } from "./contracts";
 import { AGENT_GRANT_PAYMENT_RAILS } from "./contracts";
 import {
   agentGrantActivityOutcomeTone,
@@ -179,12 +182,71 @@ function ActivityTable({ activity }: { activity: readonly AgentGrantActivityReco
   return <DataTable columns={activityColumns} rows={[...activity]} />;
 }
 
+function WebhookForm({
+  webhook,
+  savedWebhook,
+}: {
+  webhook: AgentGrantWebhook | null;
+  savedWebhook?: AgentGrantWebhook | null;
+}) {
+  const current = savedWebhook === undefined ? webhook : savedWebhook;
+  return (
+    <Stack gap={3}>
+      <Text tone="secondary">{t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook.description")}</Text>
+      <Form key={current?.callback_url ?? "disabled"} spacing="md" method="post">
+        <Stack gap={3}>
+          <TextInput
+            label={t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook.callback.url")}
+            name="callback_url"
+            type="url"
+            defaultValue={current?.callback_url ?? ""}
+            placeholder="https://agent.example/hooks"
+          />
+          <Inline>
+            <Button type="submit" name="intent" value="update-webhook">
+              {t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook.save")}
+            </Button>
+            {current ? (
+              <Button type="submit" name="intent" value="disable-webhook" tone="danger">
+                {t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook.disable")}
+              </Button>
+            ) : null}
+          </Inline>
+        </Stack>
+      </Form>
+      {current?.signing_secret_preview ? (
+        <Stack gap={1}>
+          <Text weight="semibold">{t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook.secret.preview")}</Text>
+          <Text tone="secondary">{current.signing_secret_preview}</Text>
+        </Stack>
+      ) : null}
+      {current?.signing_secret ? (
+        <Stack gap={1}>
+          <Text weight="semibold">{t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook.secret.once")}</Text>
+          <EvidenceCodeBlock label={t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook.secret.label")}>
+            {current.signing_secret}
+          </EvidenceCodeBlock>
+          <CopyButton
+            value={current.signing_secret}
+            label={t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook.secret.copy")}
+            copiedLabel={t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook.secret.copied")}
+          />
+        </Stack>
+      ) : null}
+    </Stack>
+  );
+}
+
 export function AgentGrantDetailPage({
   grant,
   activity,
+  webhook,
+  savedWebhook,
 }: {
   grant: AgentGrant;
   activity: readonly AgentGrantActivityRecord[];
+  webhook: AgentGrantWebhook | null;
+  savedWebhook?: AgentGrantWebhook | null;
 }) {
   const submit = useSubmit();
   const name = clientLabel(grant);
@@ -242,6 +304,10 @@ export function AgentGrantDetailPage({
         {
           label: t("auth.features.agentGrants.ui.agentGrantDetailPage.mandate"),
           value: <MandateForm grant={grant} />,
+        },
+        {
+          label: t("auth.features.agentGrants.ui.agentGrantDetailPage.webhook"),
+          value: <WebhookForm webhook={webhook} savedWebhook={savedWebhook} />,
         },
         {
           label: t("auth.features.agentGrants.ui.agentGrantDetailPage.activity"),

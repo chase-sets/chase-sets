@@ -29,10 +29,12 @@ export {
 export {
   AGENT_WEBHOOK_ORDER_SCOPE,
   agentWebhookRegistrationSchemaSql,
+  parseWebhookConfiguration,
   parseWebhookRegistration,
   resolveAgentWebhookSigningSecret,
   resolveAgentWebhookTargets,
   type AgentWebhookTarget,
+  type ParsedWebhookConfiguration,
   type ParsedWebhookRegistration,
 } from "./agent-webhook-registration";
 export {

@@ -43,6 +43,7 @@ Those remain in Identity.
 
 Auth terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 Magic-link request, delivery, and consumption security is documented in [Magic Link Security](./docs/magic-link-security.md).
+Signed agent order-update callback registration, verification, and staging proof are documented in [Agent order-update webhooks](./docs/agent-webhooks.md).
 Social Login journey rules and context ownership are documented in [Social Login](./docs/social-login.md).
 Session/token security lifetimes -- values, env vars, bounds, and the env-tier-by-design exclusion from admin policy -- are documented in [Security Lifetimes](./docs/security-lifetimes.md).
 

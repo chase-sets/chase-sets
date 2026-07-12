@@ -232,5 +232,16 @@ export function createUcpOAuthApiClient({
     async updateAgentGrantMandate<T>(id: string, mandate: Record<string, unknown>): Promise<T> {
       return putJson<T>(configuredFetch, buildUrl(`authorizations/${id}/mandate`), mandate, headers);
     },
+    async getAgentGrantWebhook<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(await configuredFetch(buildUrl(`authorizations/${id}/webhook`), { headers }));
+    },
+    async updateAgentGrantWebhook<T>(id: string, callbackUrl: string | null): Promise<T> {
+      return putJson<T>(
+        configuredFetch,
+        buildUrl(`authorizations/${id}/webhook`),
+        { callback_url: callbackUrl },
+        headers,
+      );
+    },
   };
 }
