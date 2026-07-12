@@ -181,6 +181,7 @@ const policyLinks = [
   { href: "/refunds-and-returns", label: t("publicPresence.nav.refunds") },
   { href: "/order-protection", label: t("publicPresence.nav.buyerProtection") },
   { href: "/sales-fees", label: t("publicPresence.nav.sellerFees") },
+  { href: "/founders", label: t("publicPresence.nav.foundersTerms") },
 ];
 
 function trackCtaClick(placement: string, target: string) {
@@ -520,6 +521,8 @@ export function PublicPresenceHomePage({
         <SellerEconomicsSection />
 
         <FeeComparisonSection />
+
+        <FoundersOfferSection />
 
         <AudiencePathSection onIntentSelect={selectIntent} />
 
@@ -936,6 +939,49 @@ function FeeComparisonSection() {
   );
 }
 
+// Founders offer module: replaces vague "Founding Account badge eligibility"
+// copy with the concrete mechanics (cap, numbered badge, 60-day window).
+// Cap is stated as a static number, not a live count: an "N of 500 founder
+// numbers claimed" scarcity chip needs an activated-founders cohort counter
+// that does not exist yet (only the waitlist signup counter is live, and
+// that counts a different population -- signups, not activated founders).
+// Ship the offer terms accurately now; wire the live counter once that
+// cohort-counter machinery lands.
+function FoundersOfferSection() {
+  return (
+    <PageSection
+      data-public-presence-section="founders_offer"
+      title={t("publicPresence.home.foundersOffer.title")}
+      description={t("publicPresence.home.foundersOffer.description")}
+    >
+      <Surface tone="subtle" elevated>
+        <Stack gap={3}>
+          <BadgeRow>
+            <Badge tone="trust">{t("publicPresence.home.foundersOffer.badge")}</Badge>
+          </BadgeRow>
+          <List
+            items={[
+              t("publicPresence.home.foundersOffer.point.badge"),
+              t("publicPresence.home.foundersOffer.point.window"),
+              t("publicPresence.home.foundersOffer.point.expiry"),
+            ]}
+          />
+          <Inline>
+            <LinkButton
+              href="/founders"
+              tone="secondary"
+              size="sm"
+              onClick={() => trackCtaClick("founders_offer", "founders_terms")}
+            >
+              {t("publicPresence.home.foundersOffer.action")}
+            </LinkButton>
+          </Inline>
+        </Stack>
+      </Surface>
+    </PageSection>
+  );
+}
+
 function MarketplaceModelSection() {
   const modelItems = [
     ["publicPresence.home.model.supply.title", "publicPresence.home.model.supply.description"],
@@ -1170,7 +1216,17 @@ function FinalCtaSection({
               t("publicPresence.home.finalCta.point.terms"),
             ]}
           />
-          <Inline gap={2}>{discordInviteUrl ? <DiscordInviteLink href={discordInviteUrl} /> : null}</Inline>
+          <Inline gap={2}>
+            {discordInviteUrl ? <DiscordInviteLink href={discordInviteUrl} /> : null}
+            <LinkButton
+              href="/founders"
+              tone="secondary"
+              size="lg"
+              onClick={() => trackCtaClick("final_cta", "founders_terms")}
+            >
+              {t("publicPresence.home.foundersOffer.action")}
+            </LinkButton>
+          </Inline>
         </Stack>
         <WaitlistSignupPanel
           actionData={actionData}

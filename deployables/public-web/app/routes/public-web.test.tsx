@@ -31,6 +31,7 @@ describe("public web deployable", () => {
       "privacy",
       "refunds-and-returns",
       "order-protection",
+      "founders",
     ]);
     expect(routePaths).not.toContain("search");
     expect(routePaths).not.toContain("items/:id");

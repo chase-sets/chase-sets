@@ -14,7 +14,7 @@ Use only repo-verifiable credibility until live marketplace proof exists:
 - visible support contact
 - waitlist consent and removal language
 - beta fee-lock terms
-- Founding Account badge eligibility for qualified early beta accounts
+- the founders offer mechanics: the 500-founder cap, the numbered badge (claimed by a founder's first listing or offer, not by signing up), and the 60-day 0% seller-fee window from beta access — with the full terms on `/founders`
 - founders circle access on Discord for qualified early beta accounts
 - sample product previews
 - provider-backed payment and visible-total language already present in Public Presence copy

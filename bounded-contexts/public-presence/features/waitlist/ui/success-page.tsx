@@ -128,10 +128,16 @@ export function WaitlistSuccessPage({
           <List
             items={[
               t("publicPresence.welcome.whatNext.point.review"),
+              t("publicPresence.welcome.whatNext.point.founders"),
               t("publicPresence.welcome.whatNext.point.email"),
               t("publicPresence.welcome.whatNext.point.discord"),
             ]}
           />
+          <Inline>
+            <LinkButton href="/founders" tone="secondary" size="sm">
+              {t("publicPresence.nav.foundersTerms")}
+            </LinkButton>
+          </Inline>
         </PageSection>
 
         <PageSection

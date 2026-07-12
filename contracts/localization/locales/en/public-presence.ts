@@ -104,15 +104,26 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.finalCta.action": "Request early access",
   "publicPresence.home.finalCta.badge": "Takes under a minute",
   "publicPresence.home.finalCta.description":
-    "Tell us whether selling, buying, or both matters most. The first beta invite waves help shape launch and are considered for Founding Account status.",
+    "Tell us whether selling, buying, or both matters most. Beta access starts your founders window the moment you get in.",
   "publicPresence.home.finalCta.point.foundingBadge":
-    "The first beta invite waves are considered for Founding Account status beside their marketplace account.",
+    "First 500 founders: your numbered badge is claimed by your first listing or offer, and locks 0% seller fees for 60 days.",
   "publicPresence.home.finalCta.point.buyers":
     "Collectors get item, account, shipping, return, support, and shipping-credit details before checkout.",
   "publicPresence.home.finalCta.point.sellers":
     "Founding sellers get input on bulk listing, pricing, fulfillment, beta fee-lock rules, and offer rebates.",
   "publicPresence.home.finalCta.point.terms": "Public policies stay visible before marketplace transactions open.",
   "publicPresence.home.finalCta.title": "Help shape the founding seller wave",
+  "publicPresence.home.foundersOffer.action": "Read the founders offer terms",
+  "publicPresence.home.foundersOffer.badge": "Capped at 500 founders",
+  "publicPresence.home.foundersOffer.description":
+    "Beta access opens a 60-day window and a shot at one of 500 numbered founder badges. Here is exactly how both work.",
+  "publicPresence.home.foundersOffer.point.badge":
+    "Claim your numbered founder badge with your first listing or offer — shown publicly on your profile and listings, permanently.",
+  "publicPresence.home.foundersOffer.point.expiry":
+    "The badge and any listings you lock never expire. The 60-day window and the 500 numbers are what run out.",
+  "publicPresence.home.foundersOffer.point.window":
+    "Every listing you create in your first 60 days of beta access locks 0% seller fees until it sells.",
+  "publicPresence.home.foundersOffer.title": "Founders beta: the first 500 accounts",
   "publicPresence.home.founderStory.badge": "From the founder",
   "publicPresence.home.founderStory.description": "A short note on why Chase Sets exists and who is building it.",
   "publicPresence.home.founderStory.name": "Todd Skelton",
@@ -349,6 +360,31 @@ export const publicPresenceEnglishTranslations = {
     "These answers explain marketplace availability, the beta fee lock, order processing, shipping, and what buyers and sellers can expect.",
   "publicPresence.info.faq.eyebrow": "FAQ",
   "publicPresence.info.faq.title": "Frequently Asked Questions",
+  "publicPresence.info.founders.description":
+    "The founders offer in plain language: what you get, how the fee lock works, what buyers pay, and what changes once your window closes.",
+  "publicPresence.info.founders.eyebrow": "Founders offer",
+  "publicPresence.info.founders.title": "Founders offer terms",
+  "publicPresence.info.founders.offer.body":
+    "The first 500 accounts to list or make an offer claim a numbered founder badge, shown publicly and kept permanently. Beta access also opens a 60-day 0% seller-fee window: every listing you create in that window locks 0% fees until it sells. The 60-day window starts at beta access and runs whether or not you have claimed your badge yet.",
+  "publicPresence.info.founders.offer.title": "The offer",
+  "publicPresence.info.founders.feeLock.body":
+    "Each listing locks its fee the moment you create it. Editing the price keeps the lock. Relisting an item or adding quantity re-rates at the current published rate, because that action creates a new listing snapshot. The item you originally listed keeps the rate it locked.",
+  "publicPresence.info.founders.feeLock.title": "How the fee lock works",
+  "publicPresence.info.founders.buyerEconomics.body":
+    "Buyers pay the item price, shipping, and tax, plus card processing at checkout unless they pay with Chase Sets balance, which makes processing $0. Every order includes Order Protection, funded the same way it is for every seller on the platform: through the shipping allowance, with any buyer overflow shown in one combined Shipping line. Your payout statement itemizes both.",
+  "publicPresence.info.founders.buyerEconomics.title": "What buyers pay and what comes out of payouts",
+  "publicPresence.info.founders.afterWindow.body":
+    "New listings created after your 60-day window lock the fee schedule published on /sales-fees at that time, not 0%. Listings you created and locked at 0% during your window keep that rate until they sell, however long that takes.",
+  "publicPresence.info.founders.afterWindow.title": "What happens after your window",
+  "publicPresence.info.founders.faqForever.body":
+    "The badge and any listings you locked at 0% stay that way permanently. Creating new listings at 0% only works inside your 60-day window.",
+  "publicPresence.info.founders.faqForever.title": "Is this forever?",
+  "publicPresence.info.founders.faqSignup.body":
+    "No. An invite reserves your eligibility and starts your 60-day window. Your first listing or offer claims your founder number, and numbers go out in the order founders take that first action.",
+  "publicPresence.info.founders.faqSignup.title": "Do I get the badge just for signing up?",
+  "publicPresence.info.founders.faqKeep.body":
+    "Of the sale price, yes — 0% seller fees during your window. Shipping allowance and Order Protection come out the same way they do for every seller, and your payout statement itemizes both.",
+  "publicPresence.info.founders.faqKeep.title": "Do I really keep 100%?",
   "publicPresence.info.privacy.collect.body":
     "Chase Sets collects email, account intent, selected interests, consent timestamp, and basic source attribution such as referrer and UTM values when visitors request early access.",
   "publicPresence.info.privacy.collect.title": "Information collected",
@@ -382,8 +418,8 @@ export const publicPresenceEnglishTranslations = {
     "Buyer-side marketplace costs remain visible before payment. The seller-fee promise does not create surprise checkout math; listings, order processing, shipping credit, and support context stay close to the payment decision.",
   "publicPresence.info.sellerFees.buyerVisibility.title": "Buyer-side cost visibility",
   "publicPresence.info.sellerFees.founders.body":
-    "An account-specific commercial agreement can replace the standard schedule for eligible listings. The confirmed fee remains attached to the listing rather than being recalculated from a later schedule.",
-  "publicPresence.info.sellerFees.founders.title": "Listing-time fee confirmation",
+    "The first 500 accounts to list or make an offer claim a numbered founder badge, permanently, and lock 0% seller fees on every listing created in their first 60 days of beta access. Full mechanics stay on /founders.",
+  "publicPresence.info.sellerFees.founders.title": "Founders offer: cap, badge, and window",
   "publicPresence.info.sellerFees.lowValue.body":
     "The fixed seller fee is {fixedAmount}. There is no per-item fixed charge, preserving margin on budget cards and bulk inventory.",
   "publicPresence.info.sellerFees.lowValue.title": "No seller-side fixed fee",
@@ -417,6 +453,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.nav.buyerProtection": "Order Protection",
   "publicPresence.nav.contact": "Contact",
   "publicPresence.nav.faq": "FAQ",
+  "publicPresence.nav.foundersTerms": "Founders offer terms",
   "publicPresence.nav.policies": "Policies",
   "publicPresence.nav.waitlist": "Request early access",
   "publicPresence.nav.privacy": "Privacy",
@@ -538,8 +575,11 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.routes.faq.meta.description":
     "Answers about Chase Sets marketplace availability, beta seller fees, order processing, shipping, and safety.",
   "publicPresence.routes.faq.meta.title": "FAQ | Chase Sets",
+  "publicPresence.routes.founders.meta.description":
+    "Plain-language terms for the Chase Sets founders offer: the 500-founder cap, the numbered badge, and the 60-day 0% fee window.",
+  "publicPresence.routes.founders.meta.title": "Founders Offer Terms | Chase Sets",
   "publicPresence.routes.home.meta.description":
-    "Request Chase Sets early access for 0% beta seller fee locks, no separate seller payment-processing fee, Founding Account consideration, and buyer-visible delivered totals.",
+    "Request Chase Sets early access for 0% beta seller fee locks, no separate seller payment-processing fee, a numbered founders badge, and buyer-visible delivered totals.",
   "publicPresence.routes.home.meta.title": "Chase Sets Early Access | Trading Card Marketplace",
   "publicPresence.routes.home.waitlist.failed":
     "We could not request early access. Please check the form and try again.",
@@ -622,10 +662,10 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.heroIntent.buy": "Buy",
   "publicPresence.waitlist.heroIntent.sell": "Sell",
   "publicPresence.waitlist.promise":
-    "One signup helps shape the first buyer and seller tools and puts early accounts in line for Founding Account consideration.",
+    "One signup helps shape the first buyer and seller tools and puts your account in line for a beta invite.",
   "publicPresence.waitlist.submit": "Request early access",
   "publicPresence.waitlist.success.description":
-    "You are on the Chase Sets early access list. We will use your priorities to shape beta invites, Founding Account consideration, and founders circle product feedback.",
+    "You are on the Chase Sets early access list. We will use your priorities to shape beta invites and founders circle product feedback. Once you have access, your first listing or offer claims your founder number.",
   "publicPresence.waitlist.success.title": "You are on the list",
   "publicPresence.waitlist.trust.noTransactions": "No live marketplace transactions are available during prelaunch.",
   "publicPresence.waitlist.trust.policies":
@@ -639,12 +679,11 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.welcome.referral.copiedAction": "Copied",
   "publicPresence.welcome.referral.copyAction": "Copy link",
   "publicPresence.welcome.referral.description":
-    "Invite {goal} sellers or buyers with your personal link and lock in Founding Account status.",
+    "Invite {goal} sellers or buyers with your personal link to move up the beta invite line.",
   "publicPresence.welcome.referral.linkLabel": "Your referral link",
-  "publicPresence.welcome.referral.progress.complete":
-    "Founding Account status locked in. Thank you for spreading the word.",
+  "publicPresence.welcome.referral.progress.complete": "Referral goal reached. Thank you for spreading the word.",
   "publicPresence.welcome.referral.progress.description":
-    "Founding Account status locks in once {goal} qualified signups join through your link.",
+    "Referring {goal} sellers or buyers through your link moves you up the beta invite line.",
   "publicPresence.welcome.referral.progress.label": "Sellers and buyers invited",
   "publicPresence.welcome.referral.progress.value": "{count} of {goal}",
   "publicPresence.welcome.referral.share.discord": "Share on Discord",
@@ -654,7 +693,9 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.welcome.referral.share.x": "Share on X",
   "publicPresence.welcome.referral.title": "Move up the list",
   "publicPresence.welcome.whatNext.point.discord": "Founders circle Discord access follows the first invite waves.",
-  "publicPresence.welcome.whatNext.point.email": "Invite and Founding Account emails go to the address you gave us.",
+  "publicPresence.welcome.whatNext.point.email": "Invite and founder-badge emails go to the address you gave us.",
+  "publicPresence.welcome.whatNext.point.founders":
+    "Once you have beta access, your first listing or offer claims your numbered founder badge and starts your 60-day 0% window.",
   "publicPresence.welcome.whatNext.point.review":
     "We review signups by role, interest, and referral activity as beta invite waves open.",
   "publicPresence.welcome.whatNext.title": "What happens next",

@@ -12,6 +12,7 @@ const STABLE_PUBLIC_PATHS = [
   "/refunds-and-returns",
   "/order-protection",
   "/sales-fees",
+  "/founders",
 ];
 
 /**
