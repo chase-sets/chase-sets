@@ -46,11 +46,18 @@ import {
 } from "@chase-sets/marketplace/server";
 import {
   createRateLimitPolicyResolver,
+  type OpsMarketAnalyticsCrossContextPort,
   type PolicyConsoleCrossContextPort,
   type PolicyConsoleWritePort,
   type SupportReferenceLookupCrossContextPort,
   type SupportReferenceLookupResult,
 } from "@chase-sets/platform-operations/server";
+import {
+  getPlatformGmvSeries,
+  getPlatformKpiSummary,
+  getPlatformLiquiditySummary,
+  getTopCatalogItemsByGmv,
+} from "@chase-sets/pricing/server";
 import {
   createSettlementBalanceCreditResolver,
   lookupPayoutBySupportId,
@@ -169,6 +176,15 @@ export function createPlatformApiHost(
   const checkoutPool = getPlatformApiPool(options.pools.checkout);
   const orderingPool = getPlatformApiPool(options.pools.ordering);
   const fulfillmentPool = getPlatformApiPool(options.pools.fulfillment);
+  const pricingPool = getPlatformApiPool(options.pools.pricing);
+  const opsMarketAnalyticsCrossContext: OpsMarketAnalyticsCrossContextPort | undefined = pricingPool
+    ? {
+        getPlatformGmvSeries: (params) => getPlatformGmvSeries(pricingPool, params),
+        getPlatformKpiSummary: (params) => getPlatformKpiSummary(pricingPool, params),
+        getPlatformLiquiditySummary: (params) => getPlatformLiquiditySummary(pricingPool, params),
+        getTopCatalogItemsByGmv: (params) => getTopCatalogItemsByGmv(pricingPool, params),
+      }
+    : undefined;
   const commercialTermsResolver = commercialTermsPool
     ? createCommercialTermsResolver({
         db: commercialTermsPool,
@@ -296,6 +312,7 @@ export function createPlatformApiHost(
       ...(rateLimitPolicyResolver ? { rateLimitPolicyResolver } : {}),
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
+      ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
       draftListingCreator,
     },
   });

@@ -50,3 +50,11 @@ export type {
   SupportReferenceLookupResult,
   SupportReferenceLookupSource,
 } from "./features/support-reference-lookup/api/contracts";
+export type {
+  OpsGmvSeriesPoint,
+  OpsGranularity,
+  OpsKpiSummary,
+  OpsLiquiditySummary,
+  OpsMarketAnalyticsCrossContextPort,
+  OpsTopCatalogItem,
+} from "./features/insights-dashboards/api/ops-contracts";

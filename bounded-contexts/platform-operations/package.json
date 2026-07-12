@@ -21,6 +21,7 @@
   "dependencies": {
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",

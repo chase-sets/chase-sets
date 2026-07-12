@@ -16,6 +16,18 @@ import {
   type ProductMarketStatsSnapshot,
   type ProductRollupSeriesPoint,
 } from "../read-model/queries";
+import {
+  getPlatformGmvForMonth,
+  getPlatformGmvSeries,
+  getPlatformKpiSummary,
+  getPlatformLiquiditySummary,
+  getTopCatalogItemsByGmv,
+  type GetPlatformGmvSeriesParams,
+  type PlatformGmvSeriesPoint,
+  type PlatformKpiSummary,
+  type PlatformLiquiditySummary,
+  type TopCatalogItemGmv,
+} from "../read-model/platform-queries";
 
 type MarketRollupsRuntimeDeps = Readonly<{
   db: PgQueryable;
@@ -34,6 +46,14 @@ export type MarketRollupsServices = Readonly<{
   getProductMarketStatsSnapshot: (
     params: Readonly<{ catalogItemId: string; productId: string }>,
   ) => Promise<ProductMarketStatsSnapshot>;
+  /** Platform-wide GMV/volume time series, consumed cross-context by platform-operations' ops dashboard. */
+  getPlatformGmvSeries: (params: GetPlatformGmvSeriesParams) => Promise<readonly PlatformGmvSeriesPoint[]>;
+  getPlatformGmvForMonth: (params: Readonly<{ yearMonth: string }>) => Promise<string>;
+  getPlatformKpiSummary: (params: Readonly<{ from: string; to: string }>) => Promise<PlatformKpiSummary>;
+  getPlatformLiquiditySummary: (params: Readonly<{ asOfDay: string }>) => Promise<PlatformLiquiditySummary>;
+  getTopCatalogItemsByGmv: (
+    params: Readonly<{ from: string; to: string; limit?: number }>,
+  ) => Promise<readonly TopCatalogItemGmv[]>;
 }>;
 
 export function createMarketRollupsRuntime(deps: MarketRollupsRuntimeDeps): MarketRollupsServices {
@@ -43,5 +63,10 @@ export function createMarketRollupsRuntime(deps: MarketRollupsRuntimeDeps): Mark
     getMarketStateSnapshotSeries: (params) => getMarketStateSnapshotSeries(deps.db, params),
     getProductMarketAggregate: (params) => getProductMarketAggregate(deps.db, params),
     getProductMarketStatsSnapshot: (params) => getProductMarketStatsSnapshot(deps.db, params),
+    getPlatformGmvSeries: (params) => getPlatformGmvSeries(deps.db, params),
+    getPlatformGmvForMonth: (params) => getPlatformGmvForMonth(deps.db, params),
+    getPlatformKpiSummary: (params) => getPlatformKpiSummary(deps.db, params),
+    getPlatformLiquiditySummary: (params) => getPlatformLiquiditySummary(deps.db, params),
+    getTopCatalogItemsByGmv: (params) => getTopCatalogItemsByGmv(deps.db, params),
   };
 }

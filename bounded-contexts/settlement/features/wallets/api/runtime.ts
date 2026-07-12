@@ -10,6 +10,7 @@ import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { AccountId, LedgerEntryId, OrderId, PaymentId, PayoutId } from "@chase-sets/primitives/typed-ids";
 import { settlementClearancePolicy, type SettlementClearancePolicyValue } from "../domain/clearance-policy";
 import {
+  getLedgerSaleCreditTotalForMonth,
   getWallet,
   listNegativeBalanceAccounts,
   listNegativeBalanceCollectionsCandidates,
@@ -138,6 +139,8 @@ export type WalletServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ escalated: number; skipped: number }>;
+  /** Cross-context read for platform-operations' tape-vs-ledger GMV reconciliation drift alarm. */
+  getLedgerSaleCreditTotalForMonth: (params: Readonly<{ yearMonth: string }>) => Promise<string>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -346,6 +349,7 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
 
       return { escalated, skipped };
     },
+    getLedgerSaleCreditTotalForMonth: (params) => getLedgerSaleCreditTotalForMonth(deps.db, params),
     projectors: [
       createProjectionHandlerSet({
         projectionName: "settlement-wallet-projection",

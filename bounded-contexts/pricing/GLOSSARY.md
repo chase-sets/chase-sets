@@ -73,6 +73,14 @@ The **Trades Tape** is the normalized, ordered history of completed marketplace 
 
 A **Daily Product Rollup** is the computed snapshot of a resolved product's Trades Tape activity for one UTC calendar day: first/last/min/max/median trade price, unit volume, trade count, and verified-trade count, with excluded trades omitted. It is derived entirely from already-recorded trades and is never an estimate -- see Market Price Snapshot and Market-Value Estimate for the distinct estimate concepts. Days with too few trades still carry their counts; only the median is suppressed for display below the minimum-sample threshold.
 
+## Platform Daily Rollup
+
+A **Platform Daily Rollup** is the computed snapshot of platform-wide Trades Tape activity for one UTC calendar day, summed across every product: Gross Merchandise Value, trade count, unit volume, order count, and verified-trade count, with excluded trades omitted. It is the platform-wide sibling of the Daily Product Rollup and the sole source pricing publishes for platform-operations' GMV/liquidity ops dashboards (#4309) -- there is no second GMV computation path.
+
+## Gross Merchandise Value
+
+**Gross Merchandise Value** (GMV) is the total dollar value of completed, non-excluded trades over a period -- unit price times quantity, summed -- computed from the Trades Tape and its Platform Daily Rollup. It is a gross figure (before platform fees), distinct from any net settlement amount recorded downstream.
+
 ## Market-State Snapshot
 
 A **Market-State Snapshot** is the recorded end-of-day supply/demand state for a resolved product: active listing count and lowest ask, open offer count and highest bid, and the Spread between them, captured from the already-projected listing/offer state.
