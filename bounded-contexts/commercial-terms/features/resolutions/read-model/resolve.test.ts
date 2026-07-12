@@ -26,6 +26,7 @@ function createDb(
       schedule_id: string;
       marketplace_sales_fee_percentage_bps: number;
       marketplace_sales_fee_fixed_amount: string;
+      marketplace_sales_fee_cap_amount?: string;
       shipping_allowance_percentage_bps?: number;
     } | null;
     agreement?: {
@@ -54,8 +55,17 @@ function createDb(
 
       if (sql.includes("FROM platform_policy_documents")) {
         const policyKey = String(params?.[0] ?? "");
-        if (policyKey.startsWith("commercial-terms.schedule.")) {
-          return { rows: options.schedule ? [options.schedule as TRow] : [] };
+        if (policyKey === "commercial-terms.marketplace-sales-fee-schedule") {
+          return {
+            rows: options.schedule
+              ? [
+                  {
+                    ...options.schedule,
+                    marketplace_sales_fee_cap_amount: options.schedule.marketplace_sales_fee_cap_amount ?? "10000.00",
+                  } as TRow,
+                ]
+              : [],
+          };
         }
         if (policyKey.startsWith("commercial-terms.agreement.")) {
           return { rows: options.agreement ? [options.agreement as TRow] : [] };
@@ -74,6 +84,7 @@ function createPublicStandardDb(
       label: string;
       marketplace_sales_fee_percentage_bps: number;
       marketplace_sales_fee_fixed_amount: string;
+      marketplace_sales_fee_cap_amount?: string;
       shipping_allowance_percentage_bps?: number;
       updated_at?: string;
     } | null;
@@ -86,7 +97,7 @@ function createPublicStandardDb(
 
       if (
         sql.includes("FROM platform_policy_documents") &&
-        String(params?.[0] ?? "").startsWith("commercial-terms.schedule.")
+        String(params?.[0] ?? "") === "commercial-terms.marketplace-sales-fee-schedule"
       ) {
         return {
           rows: options.schedule
@@ -96,6 +107,7 @@ function createPublicStandardDb(
                   label: options.schedule.label,
                   marketplace_sales_fee_percentage_bps: options.schedule.marketplace_sales_fee_percentage_bps,
                   marketplace_sales_fee_fixed_amount: options.schedule.marketplace_sales_fee_fixed_amount,
+                  marketplace_sales_fee_cap_amount: options.schedule.marketplace_sales_fee_cap_amount ?? "10000.00",
                   shipping_allowance_percentage_bps: options.schedule.shipping_allowance_percentage_bps ?? 500,
                   updated_at: options.schedule.updated_at ?? "2026-04-16T10:00:00.000Z",
                 } as TRow,
@@ -518,7 +530,7 @@ describe("commercial terms resolver", () => {
         amount: "12.00",
         effectiveAt: "2026-04-16T10:00:00.000Z",
       }),
-    ).rejects.toThrow("No active public standard commercial terms were found");
+    ).rejects.toThrow("No active published marketplace sales fee schedule was found");
   });
 
   it("fails when the account is not active", async () => {
@@ -644,13 +656,14 @@ describe("commercial terms listing-terms session (m113 #4327 per-account terms s
         }
         if (sql.includes("FROM platform_policy_documents")) {
           const policyKey = String(params?.[0] ?? "");
-          if (policyKey.startsWith("commercial-terms.schedule.")) {
+          if (policyKey === "commercial-terms.marketplace-sales-fee-schedule") {
             return {
               rows: [
                 {
                   schedule_id: scheduleId,
                   marketplace_sales_fee_percentage_bps: percentageBps,
                   marketplace_sales_fee_fixed_amount: "0.10",
+                  marketplace_sales_fee_cap_amount: "10000.00",
                   shipping_allowance_percentage_bps: 500,
                 },
               ] as TRow[],

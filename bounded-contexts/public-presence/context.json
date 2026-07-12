@@ -280,14 +280,6 @@
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
-        },
-        {
-          "routeId": "sales-fees",
-          "routePath": "sales-fees",
-          "fileExport": "./routes/marketplace/sales-fees",
-          "routeType": "route",
-          "sourceContext": "public-presence",
-          "placement": "root"
         }
       ]
     },

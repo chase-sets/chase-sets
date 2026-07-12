@@ -310,6 +310,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/public-presence':
+        specifier: workspace:*
+        version: link:../public-presence
       hono:
         specifier: ^4.12.12
         version: 4.12.18

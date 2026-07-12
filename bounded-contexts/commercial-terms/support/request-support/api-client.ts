@@ -25,6 +25,20 @@ export type CommercialTermsApiErrorRequest = Readonly<{
   contentType: string | null;
 }>;
 
+export type PublishedMarketplaceSalesFeeSchedule = Readonly<{
+  value: Readonly<{
+    label: string;
+    marketplaceSalesFeePercentageBps: number;
+    marketplaceSalesFeeFixedAmount: string;
+    marketplaceSalesFeeCapAmount: string;
+    shippingAllowancePercentageBps: number;
+  }>;
+  source: "policy" | "fallback";
+  documentId: string | null;
+  effectiveFrom: string | null;
+  resolvedAt: string;
+}>;
+
 type CommercialTermsRequest = Omit<CommercialTermsApiErrorRequest, "contentType">;
 export type CommercialTermsMutationResult<T extends object> = MutationResult<T>;
 type CommercialTermsCommandMutationResult = CommercialTermsMutationResult<Readonly<{ id: string; version: number }>>;
@@ -164,6 +178,18 @@ export function createCommercialTermsRequestApiClient(request: Request) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+    },
+  };
+}
+
+export function createCommercialTermsPublicRequestApiClient(request: Request) {
+  const baseUrl = resolveRequestApiBaseUrl(request, "/api/public/commercial-terms");
+  const fetch = createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "commercial-terms" });
+
+  return {
+    async getMarketplaceSalesFeeSchedule(): Promise<PublishedMarketplaceSalesFeeSchedule> {
+      const input = `${baseUrl}/marketplace-sales-fee-schedule`;
+      return parseJsonResponse<PublishedMarketplaceSalesFeeSchedule>(await fetch(input), describeRequest(input));
     },
   };
 }

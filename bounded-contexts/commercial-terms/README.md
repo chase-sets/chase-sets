@@ -6,7 +6,8 @@ Commercial Terms owns the marketplace sales fee policy that determines seller-si
 
 ## Owns
 
-- Default Commercial Terms schedules by account type
+- The single published Marketplace Sales Fee Schedule
+- Dormant account-type schedule machinery retained for future differentiation
 - Account-specific commercial agreements
 - Commercial Terms resolution for seller-confirmed listing and offer fee previews
 - Seller-side marketplace sales fee amounts
@@ -26,7 +27,8 @@ Commercial terms terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Core Aggregates and Process Managers
 
-- Commercial Terms Schedule -- a `definePolicy` document on the shared `@chase-sets/platform-policy` machinery, keyed by account type (`commercial-terms.schedule.<accountType>`). Converged from a bespoke aggregate/projection onto the shared machinery in #4299; existing pre-convergence events (`commercial-terms.schedule.created`/`.revised`) remain readable via an upcast, never rewritten.
+- Marketplace Sales Fee Schedule -- the single account-type-agnostic published `definePolicy` document (`commercial-terms.marketplace-sales-fee-schedule`) containing the percentage, fixed amount, per-item cap, and shipping allowance.
+- Legacy Commercial Terms Schedule -- dormant account-type-targeted `definePolicy` documents retained as inactive history so future tier work can reuse the targeting machinery without publishing multiple launch schedules. Existing pre-convergence events remain readable via an upcast, never rewritten.
 - Commercial Agreement -- likewise a `definePolicy` document, keyed by account id (`commercial-terms.agreement.<accountId>`). Converged in #4299 alongside schedules.
 - Commercial Terms Resolver
 
@@ -42,7 +44,7 @@ Commercial terms terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Invariants
 
 1. Commercial Terms resolution is deterministic for an account and timestamp.
-2. Account-specific agreements override default schedules when both are active.
+2. Account-specific agreements override the published schedule when both are active.
 3. Marketplace consumes resolved snapshots for seller confirmation and emits locked snapshots for downstream ordering.
 
 ## Tests

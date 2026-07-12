@@ -4,7 +4,15 @@ This glossary defines the canonical terminology for the Commercial Terms bounded
 
 ## Commercial Terms Schedule
 
-A **Commercial Terms Schedule** is the default fee policy for one account type over an effective time window.
+A **Commercial Terms Schedule** is a dormant account-type-targeted fee policy retained for possible future differentiation. It is not a published launch schedule.
+
+## Marketplace Sales Fee Schedule
+
+The **Marketplace Sales Fee Schedule** is the single published seller-side fee policy over an effective time window. It defines the percentage, fixed amount, per-item cap, and Shipping Allowance used when no Commercial Agreement overrides it.
+
+## Marketplace Sales Fee Cap
+
+A **Marketplace Sales Fee Cap** is the maximum Marketplace Sales Fee charged for one item under a Marketplace Sales Fee Schedule.
 
 ## Commercial Agreement
 

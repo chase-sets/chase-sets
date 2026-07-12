@@ -193,8 +193,22 @@ describe("platform api bootstrap", () => {
     const identityTablesInAuth = await pools.auth.query<Readonly<{ relation_name: string | null }>>(
       "SELECT to_regclass('public.identity_user_pages') AS relation_name",
     );
-    const commercialTermsSchedules = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
-      "SELECT COUNT(*) AS count FROM platform_policy_documents WHERE policy_key LIKE 'commercial-terms.schedule.%'",
+    const publishedMarketplaceSalesFeeSchedules = await pools["commercial-terms"].query<
+      Readonly<{
+        count: string;
+        percentage_bps: string;
+        fixed_amount: string;
+        cap_amount: string;
+      }>
+    >(
+      `SELECT
+         COUNT(*) AS count,
+         MAX(value->>'marketplaceSalesFeePercentageBps') AS percentage_bps,
+         MAX(value->>'marketplaceSalesFeeFixedAmount') AS fixed_amount,
+         MAX(value->>'marketplaceSalesFeeCapAmount') AS cap_amount
+       FROM platform_policy_documents
+       WHERE policy_key = 'commercial-terms.marketplace-sales-fee-schedule'
+         AND status = 'active'`,
     );
     const commercialTermsAgreements = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
       "SELECT COUNT(*) AS count FROM platform_policy_documents WHERE policy_key LIKE 'commercial-terms.agreement.%'",
@@ -235,7 +249,12 @@ describe("platform api bootstrap", () => {
     expect(authReplayContext?.caughtUpGroups).toBe(authReplayContext?.totalGroups);
     expect(Number(authUsers.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(identityTablesInAuth.rows[0]?.relation_name).toBeNull();
-    expect(Number(commercialTermsSchedules.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(3);
+    expect(publishedMarketplaceSalesFeeSchedules.rows[0]).toEqual({
+      count: "1",
+      percentage_bps: "500",
+      fixed_amount: "0.00",
+      cap_amount: "25.00",
+    });
     expect(Number(commercialTermsAgreements.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(1);
     expect(Number(seededCatalogItems.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(seededListingsWithTerms.rows[0]?.count ?? 0)).toBeGreaterThan(0);
@@ -403,11 +422,13 @@ describe("platform api bootstrap", () => {
        FROM event_store_events
        WHERE event_type = 'catalog.blueprint.created'`,
     );
-    const commercialTermsScheduleEvents = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
+    const publishedMarketplaceSalesFeeScheduleEvents = await pools["commercial-terms"].query<
+      Readonly<{ count: string }>
+    >(
       `SELECT COUNT(*) AS count
        FROM event_store_events
-       WHERE event_type IN ('commercial-terms.schedule.created', 'platform-policy.document.created')
-         AND stream_id LIKE 'commercial-terms.schedule-%'`,
+       WHERE event_type = 'platform-policy.document.created'
+         AND payload->>'policyKey' = 'commercial-terms.marketplace-sales-fee-schedule'`,
     );
     const commercialTermsAgreementEvents = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
       `SELECT COUNT(*) AS count
@@ -425,7 +446,7 @@ describe("platform api bootstrap", () => {
     expect(Number(identityAccounts.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(catalogItems.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(catalogBlueprintEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);
-    expect(Number(commercialTermsScheduleEvents.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(3);
+    expect(Number(publishedMarketplaceSalesFeeScheduleEvents.rows[0]?.count ?? 0)).toBe(1);
     expect(Number(commercialTermsAgreementEvents.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(marketplaceListings.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(reputationReviews.rows[0]?.count ?? 0)).toBe(0);

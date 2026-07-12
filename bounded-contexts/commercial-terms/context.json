@@ -5,15 +5,23 @@
     "commercial-terms-schedule",
     "commercial-agreement",
     "commercial-terms-resolution",
+    "marketplace-sales-fee-schedule",
     "checkout-processing-fee-policy",
     "authenticity-fee-policy"
   ],
   "streamPrefix": "commercial-terms.",
   "apiBasePath": "/api/commercial-terms",
-  "slices": ["schedules", "agreements", "resolutions", "checkout-processing-fee", "authenticity-fee"],
+  "slices": [
+    "schedules",
+    "agreements",
+    "resolutions",
+    "marketplace-sales-fee",
+    "checkout-processing-fee",
+    "authenticity-fee"
+  ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
-  "allowedContextDependencies": ["@chase-sets/identity"],
+  "allowedContextDependencies": ["@chase-sets/identity", "@chase-sets/public-presence"],
   "seedRequirements": ["identity"],
   "eventSubscriptions": [
     {
@@ -98,6 +106,11 @@
           ]
         }
       ]
+    },
+    {
+      "mountPath": "/api/public/commercial-terms",
+      "kind": "additional",
+      "requiresAuth": false
     }
   ],
   "readAfterWriteRouteInventory": [
@@ -277,7 +290,7 @@
         "api-client:bounded-contexts/commercial-terms/support/request-support/api-client.ts:POST H5b57320d9a50#1",
         "api-client:bounded-contexts/commercial-terms/support/request-support/api-client.ts:POST H91104146c650#1",
         "api-client:bounded-contexts/commercial-terms/support/request-support/api-client.ts:PUT H84ff06186f96#1",
-        "api-client:bounded-contexts/commercial-terms/support/request-support/api-client.ts:PUT H650a18031662#1"
+        "api-client:bounded-contexts/commercial-terms/support/request-support/api-client.ts:PUT H8f5693b22186#1"
       ],
       "visibleDestination": {
         "description": "Commercial Terms admin request client returns typed command snapshots with commandReceipt metadata attached from platform API response headers."
@@ -460,6 +473,19 @@
           "section": "commerce"
         }
       ]
+    },
+    {
+      "deployable": "public-web",
+      "routes": [
+        {
+          "routeId": "sales-fees",
+          "routePath": "sales-fees",
+          "fileExport": "./routes/public/sales-fees",
+          "routeType": "route",
+          "sourceContext": "commercial-terms",
+          "placement": "root"
+        }
+      ]
     }
   ],
   "shellContributions": [
@@ -492,6 +518,15 @@
       "purpose": "Own commercial-terms-resolution APIs, projections, and resolver queries.",
       "expectedConsumers": ["Internal commercial-terms module composition", "Downstream server resolution"]
     },
+    "marketplace-sales-fee": {
+      "classification": "slice",
+      "purpose": "Own the single published marketplace-sales-fee-schedule policy, capped fee calculation, public read API, and seller-fee page.",
+      "expectedConsumers": [
+        "Internal commercial-terms resolution and seed composition",
+        "Public seller-fee presentation",
+        "Platform policy console"
+      ]
+    },
     "checkout-processing-fee": {
       "classification": "slice",
       "purpose": "Own the checkout-processing-fee-policy definition and admin-managed create/revise API on the shared platform-policy machinery.",
@@ -517,7 +552,14 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide commercial-terms event-store composition and common fee math shared by runtime services.",
-      "expectedConsumers": ["schedules", "agreements", "resolutions", "checkout-processing-fee", "authenticity-fee"]
+      "expectedConsumers": [
+        "schedules",
+        "agreements",
+        "resolutions",
+        "marketplace-sales-fee",
+        "checkout-processing-fee",
+        "authenticity-fee"
+      ]
     },
     "seed-support": {
       "classification": "support",

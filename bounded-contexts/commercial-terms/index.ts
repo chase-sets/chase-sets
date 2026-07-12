@@ -3,7 +3,7 @@ export { default as contextManifest } from "./context.json";
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import { buildCommercialTermsApi } from "./api";
+import { buildCommercialTermsApi, buildCommercialTermsPublicApi } from "./api";
 import { buildCommercialTermsAccountProjectionHandlers } from "./features/resolutions/integrations/account-source/account-projection";
 import { commercialTermsSchemaSql } from "./support/runtime-support/schema";
 import { commercialTermsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
@@ -16,7 +16,7 @@ export const module = defineBoundedContextModule<CommercialTermsServices, PgTran
   schemaSql: commercialTermsSchemaSql,
   schemaMigrations: commercialTermsUnloggedProjectionSchemaMigrations,
   createServices: (pool) => createCommercialTermsServices(pool),
-  buildApis: (services) => [buildCommercialTermsApi(services)],
+  buildApis: (services) => [buildCommercialTermsApi(services), buildCommercialTermsPublicApi(services)],
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({

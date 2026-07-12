@@ -18,9 +18,10 @@ describe("public web deployable", () => {
     const routePaths = routeRecords.map((routeRecord) => routeRecord.routePath);
 
     expect(new Set(routeRecords.map((routeRecord) => routeRecord.contextName))).toEqual(
-      new Set(["pricing", "public-presence"]),
+      new Set(["commercial-terms", "pricing", "public-presence"]),
     );
     expect(routePaths).toEqual([
+      "sales-fees",
       "market/:slug",
       "",
       "welcome",
@@ -30,7 +31,6 @@ describe("public web deployable", () => {
       "privacy",
       "refunds-and-returns",
       "order-protection",
-      "sales-fees",
     ]);
     expect(routePaths).not.toContain("search");
     expect(routePaths).not.toContain("items/:id");
