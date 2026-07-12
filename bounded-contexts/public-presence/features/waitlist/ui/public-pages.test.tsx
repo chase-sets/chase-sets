@@ -246,4 +246,36 @@ describe("public waitlist form migration smoke", () => {
 
     expect(buyList.querySelector("li:first-child")?.textContent).toBe(t("publicPresence.home.paths.buy.point.offers"));
   });
+
+  it("shows the fee primitive, founder economics, balance flywheel, and buyer-side checkout economics", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const sellerEconomicsSection = container.querySelector('[data-public-presence-section="seller_economics"]');
+    const balanceFlywheel = container.querySelector('[data-public-presence-section="balance_flywheel"]');
+    const previewSection = container.querySelector('[data-public-presence-section="product_preview"]');
+    if (!sellerEconomicsSection || !balanceFlywheel || !previewSection) {
+      throw new Error("Expected seller-economics, balance-flywheel, and product-preview sections to render.");
+    }
+
+    expect(sellerEconomicsSection.textContent).toContain("Every listing locks its fee the moment you create it.");
+    expect(sellerEconomicsSection.textContent).toContain("Founders: lock 0%");
+    expect(sellerEconomicsSection.textContent).toContain("Sell. Get balance. Buy.");
+    expect(sellerEconomicsSection.textContent).toContain("$100.00");
+    expect(balanceFlywheel.textContent).toContain("Buy with balance");
+    expect(balanceFlywheel.textContent).toContain("skip card processing entirely");
+    expect(previewSection.textContent).toContain("Shipping");
+    expect(previewSection.textContent).toContain("Card processing");
+    expect(previewSection.textContent).toContain("$0 with Chase Sets balance");
+    expect(previewSection.textContent).toContain("Every order includes Order Protection.");
+    expect(previewSection.querySelector('a[href="/order-protection"]')).not.toBeNull();
+    expect(previewSection.textContent).not.toContain("Order protectionIncluded");
+  });
 });

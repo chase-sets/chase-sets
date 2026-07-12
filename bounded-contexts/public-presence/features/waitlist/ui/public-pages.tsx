@@ -729,7 +729,7 @@ function SellerEconomicsSection() {
       title={t("publicPresence.home.sellerEconomics.title")}
       description={t("publicPresence.home.sellerEconomics.description")}
     >
-      <Grid columns={{ base: 1, lg: 2 }} gap={4}>
+      <Grid columns={{ base: 1, lg: 3 }} gap={4}>
         <Surface tone="subtle" elevated>
           <Stack gap={3}>
             <BadgeRow>
@@ -739,13 +739,76 @@ function SellerEconomicsSection() {
             <Text tone="secondary">{t("publicPresence.home.sellerEconomics.lock.description")}</Text>
             <List
               items={[
-                t("publicPresence.home.sellerEconomics.lock.point.beta"),
+                t("publicPresence.home.sellerEconomics.lock.point.primitive"),
                 t("publicPresence.home.sellerEconomics.lock.point.processing"),
                 t("publicPresence.home.sellerEconomics.lock.point.change"),
               ]}
             />
           </Stack>
         </Surface>
+        <Surface tone="subtle" elevated>
+          <Stack gap={3}>
+            <BadgeRow>
+              <Badge tone="trust">{t("publicPresence.home.sellerEconomics.founders.badge")}</Badge>
+            </BadgeRow>
+            <Heading level={3}>{t("publicPresence.home.sellerEconomics.founders.title")}</Heading>
+            <Text tone="secondary">{t("publicPresence.home.sellerEconomics.founders.description")}</Text>
+            <List
+              items={[
+                t("publicPresence.home.sellerEconomics.founders.point.lock"),
+                t("publicPresence.home.sellerEconomics.founders.point.keep"),
+              ]}
+            />
+          </Stack>
+        </Surface>
+        <Surface tone="subtle" elevated data-public-presence-section="balance_flywheel">
+          <Stack gap={3}>
+            <BadgeRow>
+              <Badge tone="info">{t("publicPresence.home.sellerEconomics.balance.badge")}</Badge>
+            </BadgeRow>
+            <Heading level={3}>{t("publicPresence.home.sellerEconomics.balance.title")}</Heading>
+            <Text tone="secondary">{t("publicPresence.home.sellerEconomics.balance.description")}</Text>
+            <Grid templateColumns="1fr auto 1fr auto 1fr" stackUntil="md" gap={2} align="center">
+              {[
+                { icon: "tag" as const, key: "sell" },
+                { icon: "wallet" as const, key: "balance" },
+                { icon: "cart" as const, key: "buy" },
+              ].flatMap((step, index) => {
+                const node = (
+                  <Stack key={step.key} gap={1} align="center">
+                    <ToneIcon
+                      name={step.icon}
+                      tone="info"
+                      size="md"
+                      label={t(`publicPresence.home.sellerEconomics.balance.node.${step.key}.title`)}
+                    />
+                    <Text size="sm" weight="semibold">
+                      {t(`publicPresence.home.sellerEconomics.balance.node.${step.key}.title`)}
+                    </Text>
+                    <Text size="sm" tone="secondary">
+                      {t(`publicPresence.home.sellerEconomics.balance.node.${step.key}.description`)}
+                    </Text>
+                  </Stack>
+                );
+
+                return index < 2
+                  ? [
+                      node,
+                      <ToneIcon
+                        key={`${step.key}-arrow`}
+                        name="chevronRight"
+                        tone="neutral"
+                        size="sm"
+                        label={t("publicPresence.home.sellerEconomics.balance.next")}
+                      />,
+                    ]
+                  : [node];
+              })}
+            </Grid>
+          </Stack>
+        </Surface>
+      </Grid>
+      <Grid columns={{ base: 1, md: 2 }} gap={4}>
         <PriceBreakdown
           title={t("publicPresence.home.sellerEconomics.math.title")}
           description={t("publicPresence.home.sellerEconomics.math.description")}
@@ -766,6 +829,27 @@ function SellerEconomicsSection() {
           totalLabel={t("publicPresence.home.sellerEconomics.math.total")}
           total={t("publicPresence.home.sellerEconomics.math.total.value")}
           reassurance={t("publicPresence.home.sellerEconomics.math.reassurance")}
+        />
+        <PriceBreakdown
+          title={t("publicPresence.home.sellerEconomics.math.graded.title")}
+          description={t("publicPresence.home.sellerEconomics.math.graded.description")}
+          lines={[
+            {
+              label: t("publicPresence.home.sellerEconomics.math.graded.item"),
+              value: t("publicPresence.home.sellerEconomics.math.graded.item.value"),
+            },
+            {
+              label: t("publicPresence.home.sellerEconomics.math.graded.sellerFee"),
+              value: t("publicPresence.home.sellerEconomics.math.graded.sellerFee.value"),
+            },
+            {
+              label: t("publicPresence.home.sellerEconomics.math.graded.processingFee"),
+              value: t("publicPresence.home.sellerEconomics.math.graded.processingFee.value"),
+            },
+          ]}
+          totalLabel={t("publicPresence.home.sellerEconomics.math.graded.total")}
+          total={t("publicPresence.home.sellerEconomics.math.graded.total.value")}
+          reassurance={t("publicPresence.home.sellerEconomics.math.graded.reassurance")}
         />
       </Grid>
     </PageSection>
@@ -949,22 +1033,22 @@ function ProductSignalPreview() {
               { label: t("publicPresence.preview.total.item"), value: t("publicPresence.preview.total.item.value") },
               { label: t("publicPresence.preview.total.shipping"), value: <DiscountedShippingValue /> },
               {
-                label: t("publicPresence.preview.total.shippingCredit"),
-                value: t("publicPresence.preview.total.shippingCredit.value"),
+                label: t("publicPresence.preview.total.tax"),
+                value: t("publicPresence.preview.total.tax.value"),
               },
               {
-                label: t("publicPresence.preview.total.orderProcessing"),
-                value: t("publicPresence.preview.total.orderProcessing.value"),
-              },
-              {
-                label: t("publicPresence.preview.total.protection"),
-                value: t("publicPresence.preview.total.protection.value"),
+                label: t("publicPresence.preview.total.cardProcessing"),
+                value: t("publicPresence.preview.total.cardProcessing.value"),
               },
             ]}
             totalLabel={t("publicPresence.preview.total.due")}
             total={t("publicPresence.preview.total.due.value")}
             reassurance={t("publicPresence.preview.total.reassurance")}
           />
+          <Text size="sm" tone="tertiary">
+            {t("publicPresence.preview.total.protectionCaption")}{" "}
+            <LinkText href="/order-protection">{t("publicPresence.preview.total.protectionLink")}</LinkText>
+          </Text>
           <Surface tone="subtle">
             <Stack gap={4}>
               <Heading level={3}>{t("publicPresence.preview.trust.title")}</Heading>

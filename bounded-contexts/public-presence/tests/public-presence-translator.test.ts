@@ -108,7 +108,7 @@ describe("public presence translator", () => {
     }
   });
 
-  it("keeps the beta seller fee offer ahead of one landing-page fine-print clause", () => {
+  it("keeps the listing-time fee primitive ahead of one landing-page fine-print clause", () => {
     const landingCopy = Object.entries(publicPresenceEnglishTranslations)
       .filter(([key]) => {
         return key.startsWith("publicPresence.home.") || key.startsWith("publicPresence.faq.");
@@ -116,13 +116,13 @@ describe("public presence translator", () => {
       .map(([key, value]) => `${key}: ${value}`)
       .join("\n");
 
-    const offerIndex = landingCopy.indexOf("0% fees on every listing you create during beta.");
-    const finePrintIndex = landingCopy.indexOf("change a beta listing after beta ends");
+    const primitiveIndex = landingCopy.indexOf("Every listing locks its fee the moment you create it.");
+    const finePrintIndex = landingCopy.indexOf("Fine print: editing price keeps your lock.");
 
-    expect(landingCopy).toContain("Keep 100% of the sale");
-    expect(offerIndex).toBeGreaterThanOrEqual(0);
-    expect(finePrintIndex).toBeGreaterThan(offerIndex);
-    expect(landingCopy.match(/change a beta listing after beta ends/gi)).toHaveLength(1);
+    expect(landingCopy).toContain("You keep 100% of the sale price");
+    expect(primitiveIndex).toBeGreaterThanOrEqual(0);
+    expect(finePrintIndex).toBeGreaterThan(primitiveIndex);
+    expect(landingCopy.match(/Fine print: editing price keeps your lock/gi)).toHaveLength(1);
     expect(landingCopy).not.toContain("Locked while unchanged");
     expect(landingCopy).not.toContain("The lock holds while the listing stays unchanged");
   });
