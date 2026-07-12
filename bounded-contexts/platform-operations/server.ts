@@ -45,3 +45,8 @@ export type {
   PolicyConsoleCrossContextSource,
   PolicyConsoleWritePort,
 } from "./features/policy-console/api/contracts";
+export type {
+  SupportReferenceLookupCrossContextPort,
+  SupportReferenceLookupResult,
+  SupportReferenceLookupSource,
+} from "./features/support-reference-lookup/api/contracts";

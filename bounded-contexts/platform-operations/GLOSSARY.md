@@ -102,3 +102,7 @@ A **Trust Queue** is the planned Platform Operations work queue for account, con
 ### Safety Hold
 
 A **Safety Hold** is the planned Platform Operations restriction that pauses a risky workflow while review is pending.
+
+### Support Reference Lookup
+
+A **Support Reference Lookup** is the Platform Operations admin surface that resolves any support-safe reference (`ORD-`, `SHP-`, `PYO-`, `CSG-`, `CS-SL-`) or raw order/shipment/payout id to the owning record, by routing to that record's owning bounded context.
