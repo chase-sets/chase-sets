@@ -18,4 +18,9 @@ export const pricingUnloggedProjectionSchemaMigrations: readonly BcSchemaMigrati
       "ALTER TABLE pricing_tcgplayer_price_signals SET UNLOGGED;",
     ],
   },
+  {
+    migrationId: "20260711_pricing_repricing_policies_unlogged",
+    description: "Store the replayable RepricingPolicy read-model projection as an unlogged table.",
+    statements: ["SET lock_timeout = '5s';", "ALTER TABLE pricing_repricing_policies SET UNLOGGED;"],
+  },
 ];

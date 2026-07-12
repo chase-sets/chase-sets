@@ -5,11 +5,15 @@ CREATE TABLE IF NOT EXISTS pricing_catalog_item_inputs (
   title text NOT NULL,
   subtitle text NULL,
   status text NOT NULL,
+  category_ids text[] NOT NULL DEFAULT '{}',
   updated_at timestamptz NOT NULL
 );
 
 ALTER TABLE pricing_catalog_item_inputs
   ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en';
+
+ALTER TABLE pricing_catalog_item_inputs
+  ADD COLUMN IF NOT EXISTS category_ids text[] NOT NULL DEFAULT '{}';
 
 CREATE TABLE IF NOT EXISTS pricing_inventory_item_inputs (
   item_id text PRIMARY KEY,
@@ -17,9 +21,13 @@ CREATE TABLE IF NOT EXISTS pricing_inventory_item_inputs (
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
   total_quantity integer NOT NULL CHECK (total_quantity >= 0),
+  acquisition_cost_amount numeric(12, 2) NULL,
   updated_at timestamptz NOT NULL,
   last_stream_version integer NOT NULL CHECK (last_stream_version >= 1)
 );
+
+ALTER TABLE pricing_inventory_item_inputs
+  ADD COLUMN IF NOT EXISTS acquisition_cost_amount numeric(12, 2) NULL;
 
 CREATE TABLE IF NOT EXISTS pricing_inventory_hold_inputs (
   hold_id text PRIMARY KEY,

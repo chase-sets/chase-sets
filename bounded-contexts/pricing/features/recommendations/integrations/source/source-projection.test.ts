@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPricingCatalogInputProjectionHandlers,
+  buildPricingInventoryInputProjectionHandlers,
   buildPricingMarketplaceInputProjectionHandlers,
 } from "./source-projection";
 
@@ -114,5 +115,101 @@ describe("pricing marketplace source projection", () => {
       2,
       "2026-05-09T00:00:00.000Z",
     ]);
+  });
+
+  it("projects catalog item category assignment for repricing-policy catalog-filter scope resolution (#4330)", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const handlers = buildPricingCatalogInputProjectionHandlers({
+      query: async (sql: string, params?: readonly unknown[]) => {
+        calls.push({ sql, params: params ?? [] });
+        return { rows: [] };
+      },
+    });
+
+    await handlers["catalog.catalog-item.category-assigned"]?.({
+      type: "catalog.catalog-item.category-assigned",
+      streamId: "catalog.item-cat_1",
+      streamVersion: 2,
+      data: { categoryId: "cat_electronics" },
+      timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
+    } as never);
+
+    expect(calls[0]?.sql).toContain("category_ids = ARRAY(SELECT DISTINCT unnest(category_ids");
+    expect(calls[0]?.params).toEqual(["cat_1", "cat_electronics", "2026-05-09T00:00:00.000Z"]);
+  });
+
+  it("projects catalog item category removal", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const handlers = buildPricingCatalogInputProjectionHandlers({
+      query: async (sql: string, params?: readonly unknown[]) => {
+        calls.push({ sql, params: params ?? [] });
+        return { rows: [] };
+      },
+    });
+
+    await handlers["catalog.catalog-item.category-removed"]?.({
+      type: "catalog.catalog-item.category-removed",
+      streamId: "catalog.item-cat_1",
+      streamVersion: 3,
+      data: { categoryId: "cat_electronics" },
+      timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
+    } as never);
+
+    expect(calls[0]?.sql).toContain("array_remove(category_ids");
+    expect(calls[0]?.params).toEqual(["cat_1", "cat_electronics", "2026-05-09T00:00:00.000Z"]);
+  });
+
+  it("projects the acquisition cost basis fact for repricing-policy cost-basis floors (#4330)", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const handlers = buildPricingInventoryInputProjectionHandlers({
+      query: async (sql: string, params?: readonly unknown[]) => {
+        calls.push({ sql, params: params ?? [] });
+        return { rows: [] };
+      },
+    });
+
+    await handlers["inventory.item.created"]?.({
+      type: "inventory.item.created",
+      streamId: "inventory.item-inv_1",
+      streamVersion: 1,
+      data: {
+        itemId: "inv_1",
+        accountId: "acc_1",
+        catalogItemId: "cat_1",
+        productId: "prod_1",
+        totalQuantity: 3,
+        acquisitionCostAmount: "6.50",
+      },
+      timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
+    } as never);
+
+    expect(calls[0]?.sql).toContain("acquisition_cost_amount");
+    expect(calls[0]?.params).toEqual(["inv_1", "acc_1", "cat_1", "prod_1", 3, "6.50", "2026-05-09T00:00:00.000Z", 1]);
+  });
+
+  it("stores a null acquisition cost basis when the inventory item omits it", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const handlers = buildPricingInventoryInputProjectionHandlers({
+      query: async (sql: string, params?: readonly unknown[]) => {
+        calls.push({ sql, params: params ?? [] });
+        return { rows: [] };
+      },
+    });
+
+    await handlers["inventory.item.created"]?.({
+      type: "inventory.item.created",
+      streamId: "inventory.item-inv_2",
+      streamVersion: 1,
+      data: {
+        itemId: "inv_2",
+        accountId: "acc_1",
+        catalogItemId: "cat_1",
+        productId: "prod_1",
+        totalQuantity: 3,
+      },
+      timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
+    } as never);
+
+    expect(calls[0]?.params).toEqual(["inv_2", "acc_1", "cat_1", "prod_1", 3, null, "2026-05-09T00:00:00.000Z", 1]);
   });
 });
