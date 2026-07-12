@@ -26,14 +26,8 @@ import { TrustBadge } from "@chase-sets/design-system";
  * established -- so both explainers are plain text via the badge's
  * title/tooltip today; wire the links in once the respective pages land.
  *
- * Numbering deviation: the founder badge is meant to be numbered
- * ("Founder #47"), but the founder-number fact does not exist yet -- the
- * founders-offer activation slice (activation reaction + per-founder number,
- * assigned via a founders-cohort counter stream) is still open.
- * `identity.account.badge-assigned` today carries only `{ badgeKey }`, no
- * number. This renders the badge unnumbered behind the existing badge fact;
- * add the number once that slice lands a fact for it rather than inventing
- * interim storage here.
+ * The founder number is carried by Identity's badge-assigned fact and mirrored
+ * beside the badge key so every buyer-facing surface renders the same number.
  */
 const TRUSTED_SELLER_BADGE_KEY = "trusted-seller";
 const FOUNDER_BADGE_KEY = "founding-account";
@@ -56,8 +50,9 @@ export function hasFounderBadge(badges: readonly string[] | undefined): boolean 
   return Boolean(badges?.includes(FOUNDER_BADGE_KEY));
 }
 
-export function FounderBadge() {
-  const label = t("discovery.features.itemDetail.ui.accountBadges.founder");
+export function FounderBadge({ founderNumber }: { founderNumber?: number | null }) {
+  const baseLabel = t("discovery.features.itemDetail.ui.accountBadges.founder");
+  const label = founderNumber ? `${baseLabel} #${String(founderNumber).padStart(3, "0")}` : baseLabel;
   const explainer = t("discovery.features.itemDetail.ui.accountBadges.founder.explainer");
   return <TrustBadge title={explainer}>{label}</TrustBadge>;
 }

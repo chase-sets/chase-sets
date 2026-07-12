@@ -8,6 +8,7 @@
     "invitation",
     "api-key",
     "consent",
+    "founders-cohort",
     "shipping-address",
     "user-preference"
   ],
@@ -20,6 +21,7 @@
     "invitations",
     "api-keys",
     "consents",
+    "founders-cohort",
     "shipping-addresses",
     "preferences"
   ],
@@ -35,6 +37,19 @@
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
+  "eventReactions": [
+    {
+      "sourceContextName": "marketplace",
+      "reactionName": "identity-founder-claim-reaction",
+      "subscriptionVersion": 1,
+      "eventTypes": ["marketplace.listing.created", "marketplace.offer.submitted"],
+      "order": 10,
+      "reactionHandlerSetNames": ["identity-founder-claim-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    }
+  ],
   "projectionGroups": [
     {
       "projectionName": "identity-account-projection",
@@ -42,6 +57,21 @@
       "ownedTables": ["identity_accounts", "identity_account_display_name_reservations"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "identity-founders-cohort-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["identity_founder_claims"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "identity-founder-claim-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "identity-user-projection",
@@ -210,6 +240,11 @@
           ]
         }
       ]
+    },
+    {
+      "mountPath": "/api/public/identity",
+      "kind": "additional",
+      "requiresAuth": false
     }
   ],
   "anonymousRoutes": [
@@ -1467,6 +1502,11 @@
       "purpose": "Own consents feature behavior, read models, and UI contracts for the identity context.",
       "expectedConsumers": ["Internal identity module composition"]
     },
+    "founders-cohort": {
+      "classification": "slice",
+      "purpose": "Own founders admission, activation-order founder-number claims, the 500-account cap, and claimed-count reads.",
+      "expectedConsumers": ["Internal identity module composition", "Marketplace qualifying-act reaction"]
+    },
     "shipping-addresses": {
       "classification": "slice",
       "purpose": "Own reusable account recipient shipping address behavior, read models, and UI contracts for the identity context.",
@@ -1495,6 +1535,7 @@
         "accounts",
         "api-keys",
         "consents",
+        "founders-cohort",
         "invitations",
         "memberships",
         "preferences",

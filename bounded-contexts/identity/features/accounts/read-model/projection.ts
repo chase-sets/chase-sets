@@ -112,14 +112,32 @@ export function buildAccountProjectionHandlers(db: PgQueryable): ProjectorHandle
         [accountId, event.timing.recordedAt],
       );
     },
+    "identity.account.founders-window-opened": async (event) => {
+      const accountId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const data = event.data as { betaAccessStartedAt: string; foundersWindowEndsAt: string };
+      await db.query(
+        `UPDATE identity_accounts
+         SET founders_window_started_at = $2,
+             founders_window_ends_at = $3,
+             updated_at = $4
+         WHERE account_id = $1`,
+        [accountId, data.betaAccessStartedAt, data.foundersWindowEndsAt, event.timing.recordedAt],
+      );
+    },
     "identity.account.badge-assigned": async (event) => {
       const accountId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
-      const { badgeKey } = event.data as { badgeKey: AccountBadgeKey };
+      const { badgeKey, founderNumber } = event.data as { badgeKey: AccountBadgeKey; founderNumber?: number };
       await updateAccountBadges(db, {
         accountId,
         recordedAt: event.timing.recordedAt,
         update: (badges) => addAccountBadge(badges, badgeKey),
       });
+      if (badgeKey === "founding-account" && founderNumber !== undefined) {
+        await db.query(`UPDATE identity_accounts SET founder_number = $2 WHERE account_id = $1`, [
+          accountId,
+          founderNumber,
+        ]);
+      }
     },
     "identity.account.badge-removed": async (event) => {
       const accountId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
@@ -129,6 +147,9 @@ export function buildAccountProjectionHandlers(db: PgQueryable): ProjectorHandle
         recordedAt: event.timing.recordedAt,
         update: (badges) => badges.filter((assignedBadgeKey) => assignedBadgeKey !== badgeKey),
       });
+      if (badgeKey === "founding-account") {
+        await db.query(`UPDATE identity_accounts SET founder_number = NULL WHERE account_id = $1`, [accountId]);
+      }
     },
   };
 }

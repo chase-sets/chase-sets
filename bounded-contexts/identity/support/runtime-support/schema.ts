@@ -3,6 +3,7 @@ import { identityAccountSchemaSql } from "../../features/accounts/read-model/sch
 import { identityApiKeySchemaSql } from "../../features/api-keys/read-model/schema";
 import { identityConsentSchemaSql } from "../../features/consents/read-model/schema";
 import { identityInvitationSchemaSql } from "../../features/invitations/read-model/schema";
+import { identityFoundersCohortSchemaSql } from "../../features/founders-cohort/read-model/schema";
 import { identityMembershipSchemaSql } from "../../features/memberships/read-model/schema";
 import { identityUserPreferencesSchemaSql } from "../../features/preferences/read-model/schema";
 import { identityShippingAddressSchemaSql } from "../../features/shipping-addresses/read-model/schema";
@@ -25,6 +26,7 @@ export const identitySchemaSql = [
   identityUserSchemaSql,
   identityMembershipSchemaSql,
   identityInvitationSchemaSql,
+  identityFoundersCohortSchemaSql,
   identityApiKeySchemaSql,
   identityConsentSchemaSql,
   identityUserPreferencesSchemaSql,

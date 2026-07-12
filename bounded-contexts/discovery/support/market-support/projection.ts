@@ -473,6 +473,7 @@ async function updateDiscoveryAccountBadges(
   badgeKey: string,
   assigned: boolean,
   updatedAt: string,
+  founderNumber?: number,
 ) {
   await db.query(
     `UPDATE discovery_market_accounts
@@ -493,9 +494,14 @@ async function updateDiscoveryAccountBadges(
            '[]'::jsonb
          )
        END,
+       founder_number = CASE
+         WHEN $3 = 'founding-account' AND $2 THEN COALESCE($5, founder_number)
+         WHEN $3 = 'founding-account' AND NOT $2 THEN NULL
+         ELSE founder_number
+       END,
        updated_at = $4
      WHERE account_id = $1`,
-    [accountId, assigned, badgeKey, updatedAt],
+    [accountId, assigned, badgeKey, updatedAt, founderNumber ?? null],
   );
 }
 
@@ -665,8 +671,8 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
     // topics for other reasons; a fresh page load picks up a badge change.
     "identity.account.badge-assigned": async (event) => {
       const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
-      const { badgeKey } = event.data as { badgeKey: string };
-      await updateDiscoveryAccountBadges(db, accountId, badgeKey, true, event.timing.recordedAt);
+      const { badgeKey, founderNumber } = event.data as { badgeKey: string; founderNumber?: number };
+      await updateDiscoveryAccountBadges(db, accountId, badgeKey, true, event.timing.recordedAt, founderNumber);
     },
     "identity.account.badge-removed": async (event) => {
       const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);

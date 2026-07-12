@@ -8,6 +8,7 @@ import { createAccountRuntime } from "../../features/accounts/api/runtime";
 import { createApiKeyRuntime } from "../../features/api-keys/api/runtime";
 import { createConsentRuntime } from "../../features/consents/api/runtime";
 import { createInvitationRuntime } from "../../features/invitations/api/runtime";
+import { createFoundersCohortRuntime } from "../../features/founders-cohort/api/runtime";
 import { createMembershipRuntime } from "../../features/memberships/api/runtime";
 import { createUserPreferencesRuntime } from "../../features/preferences/api/runtime";
 import { createShippingAddressRuntime } from "../../features/shipping-addresses/api/runtime";
@@ -19,6 +20,7 @@ export type IdentityServices = Readonly<{
   users: ReturnType<typeof createUserRuntime>;
   memberships: ReturnType<typeof createMembershipRuntime>;
   invitations: ReturnType<typeof createInvitationRuntime>;
+  foundersCohort: ReturnType<typeof createFoundersCohortRuntime>;
   apiKeys: ReturnType<typeof createApiKeyRuntime>;
   consents: ReturnType<typeof createConsentRuntime>;
   preferences: ReturnType<typeof createUserPreferencesRuntime>;
@@ -53,6 +55,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   const users = createUserRuntime(deps);
   const memberships = createMembershipRuntime(deps);
   const invitations = createInvitationRuntime(deps);
+  const foundersCohort = createFoundersCohortRuntime(deps, accounts);
   const apiKeys = createApiKeyRuntime(deps);
   const consents = createConsentRuntime(deps);
   const preferences = createUserPreferencesRuntime(deps);
@@ -64,6 +67,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
     users,
     memberships,
     invitations,
+    foundersCohort,
     apiKeys,
     consents,
     preferences,
@@ -74,6 +78,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
       ...users.projectors,
       ...memberships.projectors,
       ...invitations.projectors,
+      ...foundersCohort.projectors,
       ...apiKeys.projectors,
       ...consents.projectors,
       ...preferences.projectors,

@@ -315,6 +315,7 @@ export interface DiscoveryPublicListing extends DiscoveryMarketListing {
   seller_display_name: string | null;
   seller_average_rating?: string | null;
   seller_review_count?: number;
+  seller_founder_number?: number | null;
 }
 
 // Role-split reputation (m108): as-seller counters reflect reviews authored
@@ -328,6 +329,7 @@ export interface DiscoveryPublicAccount {
   created_at: string | null;
   /** Account badges mirror (m87 badge facts, m108 reputation) -- e.g. "trusted-seller". */
   badges: readonly string[];
+  founder_number?: number | null;
   average_rating_as_seller: string | null;
   review_count_as_seller: number;
   rating_1_count_as_seller: number;

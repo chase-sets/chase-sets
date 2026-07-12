@@ -31,6 +31,7 @@
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
+        "identity.account.founders-window-opened",
         "identity.account.suspended",
         "identity.account.reactivated",
         "identity.account.closed"
@@ -39,12 +40,33 @@
       "projectionHandlerSetNames": ["commercial-terms-account-projection"]
     }
   ],
+  "eventReactions": [
+    {
+      "sourceContextName": "identity",
+      "reactionName": "commercial-terms-founders-window-reaction",
+      "subscriptionVersion": 1,
+      "eventTypes": ["identity.account.founders-window-opened"],
+      "order": 11,
+      "reactionHandlerSetNames": ["commercial-terms-founders-window-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    }
+  ],
   "projectionGroups": [
     {
       "projectionName": "commercial-terms-account-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["commercial_terms_account_pages"],
       "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "commercial-terms-founders-window-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["identity"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
     {

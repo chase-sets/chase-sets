@@ -118,6 +118,7 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
             typeof body.displayName === "string" && body.displayName.trim()
               ? body.displayName
               : createOwnedUserDisplayName(challenge.email),
+          foundersBetaAccessStartedAt: admission.invitationId ? new Date().toISOString() : undefined,
         });
       } catch (error) {
         const conflict = readIdentityMutationConflict(error);

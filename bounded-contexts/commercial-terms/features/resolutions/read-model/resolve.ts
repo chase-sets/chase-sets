@@ -124,6 +124,8 @@ type ProjectedAccount = Readonly<{
   account_id: string;
   account_type: CommercialAccountType;
   status: string;
+  founders_window_started_at?: string | null;
+  founders_window_ends_at?: string | null;
 }>;
 
 export type CommercialTermsAccountSource = Readonly<{
@@ -162,7 +164,9 @@ type ActiveAgreement = Readonly<{
 
 async function getProjectedAccount(db: PgQueryable, accountId: string) {
   const result = await db.query<ProjectedAccount>(
-    `SELECT account_id, account_type, status
+    `SELECT account_id, account_type, status,
+            founders_window_started_at::text,
+            founders_window_ends_at::text
      FROM commercial_terms_account_pages
      WHERE account_id = $1`,
     [accountId],
@@ -294,6 +298,19 @@ async function resolveListingTermsBasis(
   ]);
 
   assert(schedule || agreement, `No active commercial terms were found for account ${params.accountId}.`);
+  const foundersWindowActive =
+    account.founders_window_started_at !== null &&
+    account.founders_window_started_at !== undefined &&
+    account.founders_window_ends_at !== null &&
+    account.founders_window_ends_at !== undefined &&
+    account.founders_window_started_at <= effectiveAt &&
+    account.founders_window_ends_at > effectiveAt;
+  assert(
+    !foundersWindowActive ||
+      (agreement?.marketplace_sales_fee_percentage_bps === 0 &&
+        agreement.marketplace_sales_fee_fixed_amount === "0.00"),
+    `Founders window agreement is not ready for account ${params.accountId}.`,
+  );
 
   return {
     accountId: params.accountId,

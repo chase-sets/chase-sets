@@ -5,5 +5,8 @@ export type Account = Readonly<{
   account_type: string;
   status: string;
   badges: readonly string[];
+  founder_number?: number | null;
+  founders_window_started_at?: string | null;
+  founders_window_ends_at?: string | null;
   updated_at: string;
 }>;

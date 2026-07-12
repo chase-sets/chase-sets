@@ -27,7 +27,7 @@ const columns: DataColumn<Account>[] = [
     cell: (row) => (
       <Inline gap={2}>
         <Text element="span">{row.display_name}</Text>
-        <AccountBadgeList badges={row.badges} compact />
+        <AccountBadgeList badges={row.badges} founderNumber={row.founder_number} compact />
       </Inline>
     ),
   },

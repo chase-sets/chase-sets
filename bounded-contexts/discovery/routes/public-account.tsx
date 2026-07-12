@@ -410,7 +410,7 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
           badges={
             <>
               {hasTrustedSellerBadge(account.badges) ? <TrustedSellerBadge /> : null}
-              {hasFounderBadge(account.badges) ? <FounderBadge /> : null}
+              {hasFounderBadge(account.badges) ? <FounderBadge founderNumber={account.founder_number} /> : null}
             </>
           }
           summary={

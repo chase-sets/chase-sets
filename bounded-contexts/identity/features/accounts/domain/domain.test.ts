@@ -44,24 +44,54 @@ describe("account domain", () => {
     const assigned = decideAccount(createdState, {
       type: "AssignAccountBadge",
       badgeKey: "founding-account",
+      founderNumber: 47,
     });
     const assignedState = assigned.reduce(evolveAccount, createdState);
     const assignedAgain = decideAccount(assignedState, {
       type: "AssignAccountBadge",
       badgeKey: "founding-account",
+      founderNumber: 47,
     });
 
     expect(assigned).toEqual([
       {
         type: "identity.account.badge-assigned",
-        data: { badgeKey: "founding-account" },
+        data: { badgeKey: "founding-account", founderNumber: 47 },
       },
     ]);
     expect(assignedState.badges).toEqual(["founding-account"]);
+    expect(assignedState.founderNumber).toBe(47);
     expect(assignedAgain).toEqual([]);
   });
 
-  it("removes account badges idempotently", () => {
+  it("removes operator-managed account badges idempotently", () => {
+    const createdState = decideAccount(initialAccountState, {
+      type: "CreateAccount",
+      accountId: "acc_founder" as never,
+      name: "Founding Store LLC",
+      accountType: "business",
+      displayName: "Founding Store",
+    }).reduce(evolveAccount, initialAccountState);
+    const assignedState = decideAccount(createdState, {
+      type: "AssignAccountBadge",
+      badgeKey: "manual-payout-review",
+    }).reduce(evolveAccount, createdState);
+
+    const removed = decideAccount(assignedState, {
+      type: "RemoveAccountBadge",
+      badgeKey: "manual-payout-review",
+    });
+    const removedState = removed.reduce(evolveAccount, assignedState);
+    const removedAgain = decideAccount(removedState, {
+      type: "RemoveAccountBadge",
+      badgeKey: "manual-payout-review",
+    });
+
+    expect(removedState.badges).toEqual([]);
+    expect(removedAgain).toEqual([]);
+  });
+
+  it("keeps numbered founding account badges permanent", () => {
     const createdState = decideAccount(initialAccountState, {
       type: "CreateAccount",
       accountId: "acc_founder" as never,
@@ -72,20 +102,12 @@ describe("account domain", () => {
     const assignedState = decideAccount(createdState, {
       type: "AssignAccountBadge",
       badgeKey: "founding-account",
+      founderNumber: 47,
     }).reduce(evolveAccount, createdState);
 
-    const removed = decideAccount(assignedState, {
-      type: "RemoveAccountBadge",
-      badgeKey: "founding-account",
-    });
-    const removedState = removed.reduce(evolveAccount, assignedState);
-    const removedAgain = decideAccount(removedState, {
-      type: "RemoveAccountBadge",
-      badgeKey: "founding-account",
-    });
-
-    expect(removedState.badges).toEqual([]);
-    expect(removedAgain).toEqual([]);
+    expect(() => decideAccount(assignedState, { type: "RemoveAccountBadge", badgeKey: "founding-account" })).toThrow(
+      "Founding Account badges are permanent.",
+    );
   });
 
   it("assigns seller trust and manual payout review badges", () => {

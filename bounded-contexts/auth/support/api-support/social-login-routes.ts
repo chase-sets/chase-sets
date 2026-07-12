@@ -345,6 +345,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
           displayName: profile.displayName?.trim() || createOwnedUserDisplayName(email),
           givenName: profile.givenName?.trim() || undefined,
           familyName: profile.familyName?.trim() || undefined,
+          foundersBetaAccessStartedAt: admission.invitationId ? new Date().toISOString() : undefined,
         });
       } catch (error) {
         const conflict = readIdentityMutationConflict(error);

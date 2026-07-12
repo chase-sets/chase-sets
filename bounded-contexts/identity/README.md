@@ -18,6 +18,7 @@ Identity owns users and the accounts they act for in Chase Sets.
 - User Preferences
 - Verification
 - Invitation
+- Founders Cohort
 - Consent
 
 ## Does Not Own
@@ -64,6 +65,8 @@ User preference ownership is governed by [Settings Ownership](../../docs/archite
 - `AccountProfileUpdated`
 - `AccountBadgeAssigned`
 - `AccountBadgeRemoved`
+- `FoundersWindowOpened`
+- `FounderNumberClaimed`
 - `MembershipGranted`
 - `MembershipRevoked`
 - `ContactMethodVerified`

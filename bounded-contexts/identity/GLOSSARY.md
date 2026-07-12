@@ -78,9 +78,41 @@ Notes:
 
 - Account Badges belong to Accounts, not Users, Memberships, Buyer roles, or Seller roles.
 - Account Badges must be assigned through Identity-owned account behavior so replay preserves the same visible account markers.
-- A **Founding Account Badge** marks accounts in the first invited group of marketplace participants.
+- A **Founding Account Badge** is a permanent, numbered Account Badge claimed by an admitted Account's first Qualifying Act, while one of the 500 Founder Numbers remains.
 - A **Trusted Seller Account Badge** marks an Account that operations has approved for standard high-dollar listing and payout-release policies.
 - A **Manual Payout Review Account Badge** marks an Account whose payout release requires enhanced review because Stripe, support, fulfillment, or operations found seller-risk signals.
+
+### Founders Cohort
+
+The **Founders Cohort** is the capped set of admitted Accounts that can claim one of 500 Founder Numbers in activation order.
+
+Notes:
+
+- Admission opens the Account's Founders Window but does not consume a Founder Number.
+- A single event stream serializes Founder Number claims and enforces the cap.
+
+### Founder Number
+
+A **Founder Number** is the permanent activation-order number, from 1 through 500, claimed once per admitted Account by its first Qualifying Act.
+
+### Founders Window
+
+A **Founders Window** is the 60-day period beginning when an Account receives beta access. Every Listing created during that half-open interval locks the Account's 0% Marketplace Sales Fee through the existing listing fee-lock mechanism.
+
+Notes:
+
+- The Founders Window is anchored to beta access, not badge claim.
+- The window includes its start and excludes the instant exactly 60 days later.
+- Identity owns admission and the window timestamps; Commercial Terms implements the window as an account-specific Commercial Agreement.
+
+### Qualifying Act
+
+A **Qualifying Act** is an admitted Account's creation of a Listing or submission of an Offer.
+
+Notes:
+
+- Only the Account that makes the Offer qualifies; an Account receiving an Offer does not.
+- Purchases, invitations, registration, and passive receipt of an Offer are not Qualifying Acts.
 
 ### Membership
 

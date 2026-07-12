@@ -253,6 +253,7 @@ type WorkerIdentityServices = Readonly<{
       id: string | null;
       accountType: "personal" | "business" | "enterprise" | null;
       status: string;
+      foundersWindow?: Readonly<{ startedAt: string; endsAt: string }> | null;
     }> | null>;
   }>;
 }>;
@@ -271,6 +272,8 @@ function createIdentityCommercialTermsAccountSource(
         account_id: account.id,
         account_type: account.accountType,
         status: account.status,
+        founders_window_started_at: account.foundersWindow?.startedAt ?? null,
+        founders_window_ends_at: account.foundersWindow?.endsAt ?? null,
       };
     },
   };

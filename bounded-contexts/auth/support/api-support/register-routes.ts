@@ -54,6 +54,7 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
         givenName: body.givenName ? String(body.givenName) : undefined,
         familyName: body.familyName ? String(body.familyName) : undefined,
         consents: Array.isArray(body.consents) ? body.consents : undefined,
+        foundersBetaAccessStartedAt: admission.invitationId ? new Date().toISOString() : undefined,
       });
     } catch (error) {
       const conflict = readIdentityMutationConflict(error);

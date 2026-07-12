@@ -260,7 +260,8 @@ export type CommercialTermsPolicyRuntime = Readonly<{
   /** Creates an agreement document on its legacy-convention stream id (`commercial-terms.agreement-<agreementId>`). */
   createAgreementDocument: (
     definition: PolicyDefinition<CommercialTermsAgreementPolicyValue>,
-    params: Omit<CreatePolicyDocumentParams<CommercialTermsAgreementPolicyValue>, "documentId">,
+    params: Omit<CreatePolicyDocumentParams<CommercialTermsAgreementPolicyValue>, "documentId"> &
+      Readonly<{ documentId?: string }>,
     context: EventStoreContext,
   ) => Promise<{ agreementId: string; version: number }>;
   reviseAgreementDocument: (
@@ -308,7 +309,7 @@ export function createCommercialTermsPolicyRuntime(
   deps: CommercialTermsPolicyRuntimeDeps,
 ): CommercialTermsPolicyRuntime {
   const cache = deps.cache ?? createPolicyCache();
-  const { commandHandler } = createAggregateCommandHandler<
+  const { commandHandler, repository } = createAggregateCommandHandler<
     PolicyDocumentState,
     PolicyDocumentCommand,
     CommercialTermsPolicyDocumentEvent
@@ -380,7 +381,14 @@ export function createCommercialTermsPolicyRuntime(
       return { scheduleId, version: result.version };
     },
     async createAgreementDocument(definition, params, context) {
-      const agreementId = createId("cag");
+      const agreementId = params.documentId ?? createId("cag");
+      const streamId = agreementStreamId(agreementId);
+      if (params.documentId) {
+        const existing = await repository.load(streamId);
+        if (existing.state.documentId !== null) {
+          return { agreementId, version: existing.version };
+        }
+      }
       await assertNoActiveOverlap(
         deps.db,
         {
@@ -392,7 +400,7 @@ export function createCommercialTermsPolicyRuntime(
         (overlapId) => `Active agreement ${overlapId} already covers that account and effective window.`,
       );
       const command = buildCreatePolicyDocumentCommand(definition, { ...params, documentId: agreementId });
-      const result = await commandHandler({ streamId: agreementStreamId(agreementId), command, context });
+      const result = await commandHandler({ streamId, command, context });
       return { agreementId, version: result.version };
     },
     async reviseAgreementDocument(definition, agreementId, params, context) {

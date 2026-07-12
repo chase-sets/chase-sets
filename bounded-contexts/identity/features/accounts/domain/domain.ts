@@ -17,6 +17,8 @@ export type AccountState = Readonly<{
   displayName: string;
   status: AccountStatus;
   badges: readonly AccountBadgeKey[];
+  founderNumber: number | null;
+  foundersWindow: Readonly<{ startedAt: string; endsAt: string }> | null;
 }>;
 
 export const initialAccountState: AccountState = {
@@ -26,6 +28,8 @@ export const initialAccountState: AccountState = {
   displayName: "",
   status: "active",
   badges: [],
+  founderNumber: null,
+  foundersWindow: null,
 };
 
 export const accountBadgeKeys = ["founding-account", "manual-payout-review", "trusted-seller"] as const;
@@ -51,6 +55,12 @@ export type CloseAccountCommand = Readonly<{ type: "CloseAccount" }>;
 export type AssignAccountBadgeCommand = Readonly<{
   type: "AssignAccountBadge";
   badgeKey: AccountBadgeKey;
+  founderNumber?: number;
+}>;
+export type OpenFoundersWindowCommand = Readonly<{
+  type: "OpenFoundersWindow";
+  betaAccessStartedAt: string;
+  foundersWindowEndsAt: string;
 }>;
 export type RemoveAccountBadgeCommand = Readonly<{
   type: "RemoveAccountBadge";
@@ -63,6 +73,7 @@ export type AccountCommand =
   | SuspendAccountCommand
   | ReactivateAccountCommand
   | CloseAccountCommand
+  | OpenFoundersWindowCommand
   | AssignAccountBadgeCommand
   | RemoveAccountBadgeCommand;
 
@@ -90,7 +101,11 @@ export type AccountReactivatedEvent = DomainEvent<"identity.account.reactivated"
 export type AccountClosedEvent = DomainEvent<"identity.account.closed", EmptyEventData>;
 export type AccountBadgeAssignedEvent = DomainEvent<
   "identity.account.badge-assigned",
-  Readonly<{ badgeKey: AccountBadgeKey }>
+  Readonly<{ badgeKey: AccountBadgeKey; founderNumber?: number }>
+>;
+export type FoundersWindowOpenedEvent = DomainEvent<
+  "identity.account.founders-window-opened",
+  Readonly<{ betaAccessStartedAt: string; foundersWindowEndsAt: string }>
 >;
 export type AccountBadgeRemovedEvent = DomainEvent<
   "identity.account.badge-removed",
@@ -103,6 +118,7 @@ export type AccountEvent =
   | AccountSuspendedEvent
   | AccountReactivatedEvent
   | AccountClosedEvent
+  | FoundersWindowOpenedEvent
   | AccountBadgeAssignedEvent
   | AccountBadgeRemovedEvent;
 
@@ -145,22 +161,47 @@ export const decideAccount: AggregateDecider<AccountState, AccountCommand, Accou
       requireCreatedAccount(state);
       assert(state.status !== "closed", "Account has already been closed.");
       return [{ type: "identity.account.closed", data: EMPTY_EVENT_DATA }];
+    case "OpenFoundersWindow": {
+      requireCreatedAccount(state);
+      if (state.foundersWindow) {
+        return [];
+      }
+      const startedAt = normalizeIsoTimestamp(command.betaAccessStartedAt, "Beta access start");
+      const endsAt = normalizeIsoTimestamp(command.foundersWindowEndsAt, "Founders window end");
+      assert(Date.parse(endsAt) > Date.parse(startedAt), "Founders window must end after beta access starts.");
+      return [
+        {
+          type: "identity.account.founders-window-opened",
+          data: { betaAccessStartedAt: startedAt, foundersWindowEndsAt: endsAt },
+        },
+      ];
+    }
     case "AssignAccountBadge":
       requireCreatedAccount(state);
       assert(state.status !== "closed", "Closed accounts cannot receive badges.");
       assertValidAccountBadge(command.badgeKey);
+      if (command.badgeKey === "founding-account") {
+        assert(
+          Number.isInteger(command.founderNumber) && (command.founderNumber ?? 0) > 0,
+          "Founding Account badges require a positive founder number.",
+        );
+      }
       if (state.badges.includes(command.badgeKey)) {
         return [];
       }
       return [
         {
           type: "identity.account.badge-assigned",
-          data: { badgeKey: command.badgeKey },
+          data: {
+            badgeKey: command.badgeKey,
+            ...(command.badgeKey === "founding-account" ? { founderNumber: command.founderNumber } : {}),
+          },
         },
       ];
     case "RemoveAccountBadge":
       requireCreatedAccount(state);
       assertValidAccountBadge(command.badgeKey);
+      assert(command.badgeKey !== "founding-account", "Founding Account badges are permanent.");
       if (!state.badges.includes(command.badgeKey)) {
         return [];
       }
@@ -185,6 +226,8 @@ export const evolveAccount: AggregateEvolver<AccountState, AccountEvent> = (stat
         displayName: event.data.displayName,
         status: "active",
         badges: [],
+        founderNumber: null,
+        foundersWindow: null,
       };
     case "identity.account.profile-updated":
       return {
@@ -198,15 +241,28 @@ export const evolveAccount: AggregateEvolver<AccountState, AccountEvent> = (stat
       return { ...state, status: "active" };
     case "identity.account.closed":
       return { ...state, status: "closed" };
+    case "identity.account.founders-window-opened":
+      return {
+        ...state,
+        foundersWindow: {
+          startedAt: event.data.betaAccessStartedAt,
+          endsAt: event.data.foundersWindowEndsAt,
+        },
+      };
     case "identity.account.badge-assigned":
       return {
         ...state,
         badges: sortAccountBadges([...state.badges, event.data.badgeKey]),
+        founderNumber:
+          event.data.badgeKey === "founding-account" && event.data.founderNumber !== undefined
+            ? event.data.founderNumber
+            : state.founderNumber,
       };
     case "identity.account.badge-removed":
       return {
         ...state,
         badges: state.badges.filter((badgeKey) => badgeKey !== event.data.badgeKey),
+        founderNumber: event.data.badgeKey === "founding-account" ? null : state.founderNumber,
       };
     default:
       return assertNever(event);
@@ -215,6 +271,12 @@ export const evolveAccount: AggregateEvolver<AccountState, AccountEvent> = (stat
 
 function requireCreatedAccount(state: AccountState) {
   assert(state.id !== null, "Account must be created first.");
+}
+
+function normalizeIsoTimestamp(value: string, fieldName: string) {
+  const normalized = value.trim();
+  assert(Number.isFinite(Date.parse(normalized)), `${fieldName} must be an ISO timestamp.`);
+  return new Date(normalized).toISOString();
 }
 
 function assertValidAccountBadge(badgeKey: string): asserts badgeKey is AccountBadgeKey {

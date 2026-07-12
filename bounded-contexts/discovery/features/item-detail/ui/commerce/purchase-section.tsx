@@ -143,6 +143,7 @@ export function CheckoutPurchaseIntentSection({
     seller_review_count?: number;
     /** Account badges mirror (m87 badge facts, m108 reputation). */
     seller_badges?: readonly string[];
+    seller_founder_number?: number | null;
     graded_card?: DiscoveryGradedCardDetails | null;
   } | null;
   selectedListingSource?: MarketSelectionSource;
@@ -384,7 +385,9 @@ export function CheckoutPurchaseIntentSection({
                     ratingLabel="Seller account reputation"
                   />
                   {hasTrustedSellerBadge(selectedListing?.seller_badges) ? <TrustedSellerBadge /> : null}
-                  {hasFounderBadge(selectedListing?.seller_badges) ? <FounderBadge /> : null}
+                  {hasFounderBadge(selectedListing?.seller_badges) ? (
+                    <FounderBadge founderNumber={selectedListing?.seller_founder_number} />
+                  ) : null}
                 </Inline>
                 <ProductQuantitySummary
                   availability={selectedListingAvailability}

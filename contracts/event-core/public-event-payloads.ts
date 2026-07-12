@@ -24,6 +24,30 @@ export type AuthEventPayloads = Readonly<{
   "auth.session.expired": EmptyEventPayload;
 }>;
 
+export type IdentityFoundersWindowOpenedPayload = Readonly<{
+  betaAccessStartedAt: string;
+  foundersWindowEndsAt: string;
+}>;
+
+export type IdentityFounderNumberClaimedPayload = Readonly<{
+  accountId: AccountId;
+  founderNumber: number;
+  qualifyingActType: "listing-created" | "offer-submitted";
+  qualifyingActId: string;
+  claimedAt: string;
+}>;
+
+export type IdentityAccountBadgeAssignedPayload = Readonly<{
+  badgeKey: string;
+  founderNumber?: number;
+}>;
+
+export type IdentityEventPayloads = Readonly<{
+  "identity.account.founders-window-opened": IdentityFoundersWindowOpenedPayload;
+  "identity.founders-cohort.founder-number-claimed": IdentityFounderNumberClaimedPayload;
+  "identity.account.badge-assigned": IdentityAccountBadgeAssignedPayload;
+}>;
+
 export type InventoryReservationConfirmedPayload = Readonly<{
   orderId: string;
   reservationRequestId: string;
@@ -220,6 +244,20 @@ export type MarketplaceOfferAcceptedPayload = Readonly<{
   acceptedAt: string;
 }>;
 
+export type MarketplaceOfferSubmittedPayload = Readonly<{
+  offerId: string;
+  buyerAccountId: AccountId;
+  catalogItemId: string;
+  productId: string;
+  itemTitle: string;
+  itemSubtitle: string | null;
+  selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
+  productSummary: string | null;
+  shippingDestinationSnapshot: AddressSnapshot;
+  priceAmount: string;
+  quantityRequested: number;
+}>;
+
 export type MarketplacePurchaseLimitsPayload = Readonly<{
   maxUnitsPerOrder: number | null;
   maxUnitsPerDay: number | null;
@@ -352,6 +390,7 @@ export type MarketplaceEventPayloads = Readonly<{
   "platform-operations.reported-content.action-recorded": PlatformOperationsReportedContentActionRecordedPayload;
   "platform-operations.risk-alert.action-recorded": PlatformOperationsRiskAlertActionRecordedPayload;
   "marketplace.offer.accepted": MarketplaceOfferAcceptedPayload;
+  "marketplace.offer.submitted": MarketplaceOfferSubmittedPayload;
 }>;
 
 export type CheckoutSessionPaymentStartedPayload = Readonly<{
@@ -642,6 +681,7 @@ export type PlatformOperationsEventPayloads = Readonly<{
 }>;
 
 export type ChaseSetsEventPayloads = AuthEventPayloads &
+  IdentityEventPayloads &
   CheckoutEventPayloads &
   InventoryEventPayloads &
   OrderingEventPayloads &
