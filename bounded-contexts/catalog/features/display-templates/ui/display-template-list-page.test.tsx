@@ -13,6 +13,7 @@ const { mockCreateDisplayTemplate, mockUseNavigation, mockUseRevalidator, mockUs
 }));
 
 vi.mock("react-router", () => ({
+  useLocation: () => ({ pathname: "/catalog/display-templates", search: "", hash: "", state: null, key: "test" }),
   useNavigation: mockUseNavigation,
   useRevalidator: mockUseRevalidator,
   useSearchParams: mockUseSearchParams,

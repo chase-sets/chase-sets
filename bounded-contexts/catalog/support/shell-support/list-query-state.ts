@@ -1,6 +1,6 @@
 import type { ListResponse } from "@chase-sets/http/responses";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigation, useSearchParams } from "react-router";
+import { useLocation, useNavigation, useSearchParams } from "react-router";
 
 export const CATALOG_LIST_PAGE_SIZE = 50;
 export const CATALOG_LIST_SEARCH_DEBOUNCE_MS = 300;
@@ -239,11 +239,18 @@ export async function loadCatalogListRouteData<T>(
 
 export function useCatalogListQueryControls(query: CatalogListQuery, debounceMs = CATALOG_LIST_SEARCH_DEBOUNCE_MS) {
   const navigation = useNavigation();
+  const location = useLocation();
   const [, setSearchParams] = useSearchParams();
   const [draftSearch, setDraftSearch] = useState(query.search);
   const draftSearchRef = useRef(query.search);
   const pendingSearchRef = useRef<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Kept fresh every render so the debounce timer below can observe the router's
+  // *current* state when it fires, not the state captured when the timer was armed.
+  const navigationRef = useRef(navigation);
+  navigationRef.current = navigation;
+  const pathnameRef = useRef(location.pathname);
+  pathnameRef.current = location.pathname;
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -282,6 +289,47 @@ export function useCatalogListQueryControls(query: CatalogListQuery, debounceMs 
     [clearTimer, commit],
   );
 
+  const commitPendingSearch = useCallback(() => {
+    // A row-level link (e.g. the View button) may have started a client-side
+    // navigation away from this list while the debounce was pending. Committing
+    // the stale search now would interrupt that in-flight navigation (React Router
+    // cancels a pending navigation when a new one starts) and yank the user back
+    // to the list, so drop the pending search instead. Same-pathname navigations
+    // (an earlier filter commit still loading) are still superseded as before.
+    const currentNavigation = navigationRef.current;
+    const navigatingAwayFromList =
+      currentNavigation.state !== "idle" &&
+      currentNavigation.location !== undefined &&
+      currentNavigation.location.pathname !== pathnameRef.current;
+    if (navigatingAwayFromList) {
+      pendingSearchRef.current = null;
+      return;
+    }
+    commit({ search: pendingSearchRef.current ?? "" }, true);
+  }, [commit]);
+
+  // Flush the pending debounce the moment focus leaves the search input. `focusout`
+  // fires synchronously when a pointerdown lands elsewhere — BEFORE the subsequent
+  // `click` runs a link's client-side navigation — so the search commit always starts
+  // ahead of the user's navigation and the navigation (issued last) wins. Without
+  // this, a debounce firing mid-navigation cancels the in-flight detail navigation.
+  // The only focused element while a search debounce is pending is the search input
+  // itself, so any focusout with a live timer means the operator left it.
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const flushOnFocusOut = () => {
+      if (timerRef.current === null) {
+        return;
+      }
+      clearTimer();
+      commitPendingSearch();
+    };
+    document.addEventListener("focusout", flushOnFocusOut, true);
+    return () => document.removeEventListener("focusout", flushOnFocusOut, true);
+  }, [clearTimer, commitPendingSearch]);
+
   const setSearch = useCallback(
     (value: string) => {
       draftSearchRef.current = value;
@@ -289,10 +337,11 @@ export function useCatalogListQueryControls(query: CatalogListQuery, debounceMs 
       setDraftSearch(value);
       clearTimer();
       timerRef.current = setTimeout(() => {
-        commit({ search: pendingSearchRef.current ?? "" }, true);
+        timerRef.current = null;
+        commitPendingSearch();
       }, debounceMs);
     },
-    [clearTimer, commit, debounceMs],
+    [clearTimer, commitPendingSearch, debounceMs],
   );
 
   return {
