@@ -64,6 +64,9 @@ describe("ordering order runtime: order creation and cancellation", () => {
         selectedOptions: [],
         productSummary: null,
         priceAmount: "10.00",
+        marketplaceSalesFeePercentageBps: 500,
+        marketplaceSalesFeeFixedAmount: "0.00",
+        marketplaceSalesFeeCapAmount: "25.00",
         marketplaceSalesFeeUnitAmount: "0.50",
         sellerNetUnitAmount: "9.50",
         termsScheduleId: "cts_offer",
@@ -155,6 +158,9 @@ describe("ordering order runtime: order creation and cancellation", () => {
             selectedOptions: [],
             productSummary: null,
             priceAmount: "10.00",
+            marketplaceSalesFeePercentageBps: 500,
+            marketplaceSalesFeeFixedAmount: "0.00",
+            marketplaceSalesFeeCapAmount: "25.00",
             marketplaceSalesFeeUnitAmount: "0.50",
             sellerNetUnitAmount: "9.50",
             shippingAllowancePercentageBps: 500,
@@ -175,6 +181,9 @@ describe("ordering order runtime: order creation and cancellation", () => {
             selectedOptions: [],
             productSummary: null,
             priceAmount: "10.00",
+            marketplaceSalesFeePercentageBps: 500,
+            marketplaceSalesFeeFixedAmount: "0.00",
+            marketplaceSalesFeeCapAmount: "25.00",
             marketplaceSalesFeeUnitAmount: "0.50",
             sellerNetUnitAmount: "9.50",
             shippingAllowancePercentageBps: 500,
@@ -392,6 +401,111 @@ describe("ordering order runtime: order creation and cancellation", () => {
           marketplaceSalesFeeUnitAmount: "0.00",
         }),
       ],
+    });
+  });
+
+  it("threads byte-exact capped listing economics into a multi-quantity order", async () => {
+    const examples = [
+      { productId: "cat_10::", price: "10.00", quantity: 1, fee: "0.50", net: "9.50" },
+      { productId: "cat_400::", price: "400.00", quantity: 1, fee: "20.00", net: "380.00" },
+      { productId: "cat_600::", price: "600.00", quantity: 1, fee: "25.00", net: "575.00" },
+      { productId: "cat_1000::", price: "1000.00", quantity: 3, fee: "25.00", net: "975.00" },
+    ] as const;
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = createSupplyDb((params) => {
+      const lookup = String(params?.[0]);
+      const example = examples.find(
+        (candidate) => candidate.productId === lookup || `lst_${candidate.price}` === lookup,
+      )!;
+      const productId = example.productId;
+      return [
+        {
+          listingId: `lst_${example.price}`,
+          sellerAccountId: "acc_seller",
+          inventoryItemId: `inv_${example.price}`,
+          catalogItemId: productId.split("::")[0]!,
+          productId,
+          itemTitle: `$${example.price} item`,
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          storageLocationName: "North shelf",
+          shipFromCode: "CHI",
+          priceAmount: example.price,
+          availableQuantity: example.quantity,
+          feeLocks: [
+            {
+              unitCount: example.quantity,
+              terms: {
+                marketplaceSalesFeePercentageBps: 500,
+                marketplaceSalesFeeFixedAmount: "0.00",
+                marketplaceSalesFeeCapAmount: "25.00",
+                shippingAllowancePercentageBps: 500,
+                termsScheduleId: "cts_standard",
+                termsAgreementId: null,
+                termsResolvedAt: "2026-07-12T00:00:00.000Z",
+              },
+              marketplaceSalesFeeUnitAmount: example.fee,
+              sellerNetUnitAmount: example.net,
+            },
+          ],
+          updatedAt: "2026-07-12T00:00:00.000Z",
+        },
+      ];
+    });
+    const services = createOrderingOrderRuntimeForTest({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      carts: { listCartLines: async () => [], checkout: async () => ({ version: 1 }) } as never,
+      shippingQuotePolicy: {
+        quote: () => ({
+          shippingOption: "standard",
+          baseAmount: "4.99",
+          discountAmount: "0.00",
+          chargeAmount: "4.99",
+        }),
+      },
+    });
+
+    await services.createOrdersFromCheckout(
+      {
+        buyerAccountId: "acc_buyer" as never,
+        checkoutSessionId: "chk_cap_examples",
+        sourceType: "buy-now",
+        shippingOption: "standard",
+        shippingAddress,
+        lines: examples.map((example) => ({
+          listingId: `lst_${example.price}`,
+          cartLineId: null,
+          catalogItemId: example.productId.split("::")[0]!,
+          productId: example.productId,
+          itemTitle: `$${example.price} item`,
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: example.quantity,
+        })),
+      },
+      context,
+    );
+
+    const created = readAllEvents().find((event) => event.eventType === "ordering.order.created");
+    expect(created?.payload).toMatchObject({
+      itemSubtotalAmount: "4010.00",
+      commercialTermsSnapshot: {
+        marketplaceSalesFeeAmount: "120.50",
+        sellerNetAmount: "3889.50",
+        marketplaceSalesFeeLines: examples.map((example) => ({
+          unitPriceAmount: example.price,
+          quantity: example.quantity,
+          marketplaceSalesFeePercentageBps: 500,
+          marketplaceSalesFeeFixedAmount: "0.00",
+          marketplaceSalesFeeCapAmount: "25.00",
+          marketplaceSalesFeeUnitAmount: example.fee,
+          marketplaceSalesFeeTotalAmount: example.quantity === 1 ? example.fee : "75.00",
+        })),
+      },
     });
   });
 

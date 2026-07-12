@@ -1,11 +1,18 @@
-import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type {
+  AggregateDecider,
+  AggregateEvolver,
+  DomainEvent,
+  MarketplaceSalesFeeLineSnapshotPayload,
+} from "@chase-sets/event-core";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId, OrderId } from "@chase-sets/primitives/typed-ids";
+import { moneyToCents } from "@chase-sets/primitives/money";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import {
   assert,
   assertNever,
+  ensureNonNegativeInteger,
   ensurePositiveInteger,
   normalizeMoneyAmount,
   normalizeOptionalText,
@@ -38,6 +45,9 @@ export type OrderingOrderLine = Readonly<{
   unitPriceAmount: string;
   quantity: number;
   lineTotalAmount: string;
+  marketplaceSalesFeePercentageBps?: number;
+  marketplaceSalesFeeFixedAmount?: string;
+  marketplaceSalesFeeCapAmount?: string | null;
   marketplaceSalesFeeUnitAmount: string;
   marketplaceSalesFeeTotalAmount: string;
   sellerNetUnitAmount: string;
@@ -57,6 +67,7 @@ export type OrderingReservationRequest = Readonly<{
 
 export type OrderingCommercialTermsSnapshot = Readonly<{
   marketplaceSalesFeeAmount: string;
+  marketplaceSalesFeeLines?: readonly MarketplaceSalesFeeLineSnapshotPayload[];
   sellerNetAmount: string;
   sellerItemNetAmount?: string;
   shippingAllowanceAmount?: string;
@@ -379,6 +390,23 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
     lineTotalAmount: normalizeMoneyAmount(line.lineTotalAmount, {
       fieldName: "Line total",
     }),
+    marketplaceSalesFeePercentageBps: ensureNonNegativeInteger(
+      line.marketplaceSalesFeePercentageBps ?? 0,
+      "Line marketplace sales fee percentage must be zero or more basis points.",
+    ),
+    marketplaceSalesFeeFixedAmount: normalizeMoneyAmount(
+      line.marketplaceSalesFeeFixedAmount ?? line.marketplaceSalesFeeUnitAmount,
+      {
+        fieldName: "Line marketplace sales fee fixed amount",
+        allowZero: true,
+      },
+    ),
+    marketplaceSalesFeeCapAmount:
+      line.marketplaceSalesFeeCapAmount == null
+        ? null
+        : normalizeMoneyAmount(line.marketplaceSalesFeeCapAmount, {
+            fieldName: "Line marketplace sales fee cap amount",
+          }),
     marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(line.marketplaceSalesFeeUnitAmount, {
       fieldName: "Line marketplace sales fee unit amount",
       allowZero: true,
@@ -439,11 +467,45 @@ function normalizeReservationRequests(requests: CreateOrderCommand["reservationR
 }
 
 function normalizeCommercialTermsSnapshot(snapshot: OrderingCommercialTermsSnapshot) {
-  return {
-    marketplaceSalesFeeAmount: normalizeMoneyAmount(snapshot.marketplaceSalesFeeAmount, {
-      fieldName: "Marketplace sales fee amount",
+  const marketplaceSalesFeeAmount = normalizeMoneyAmount(snapshot.marketplaceSalesFeeAmount, {
+    fieldName: "Marketplace sales fee amount",
+    allowZero: true,
+  });
+  const marketplaceSalesFeeLines = (snapshot.marketplaceSalesFeeLines ?? []).map((line) => ({
+    lineId: normalizeRequiredText(line.lineId, "Marketplace sales fee lines must reference an order line."),
+    unitPriceAmount: normalizeMoneyAmount(line.unitPriceAmount, { fieldName: "Fee line unit price" }),
+    quantity: ensurePositiveInteger(line.quantity, "Fee line quantity must be a positive whole number."),
+    marketplaceSalesFeePercentageBps: ensureNonNegativeInteger(
+      line.marketplaceSalesFeePercentageBps,
+      "Fee line percentage must be zero or more basis points.",
+    ),
+    marketplaceSalesFeeFixedAmount: normalizeMoneyAmount(line.marketplaceSalesFeeFixedAmount, {
+      fieldName: "Fee line fixed amount",
       allowZero: true,
     }),
+    marketplaceSalesFeeCapAmount:
+      line.marketplaceSalesFeeCapAmount === null
+        ? null
+        : normalizeMoneyAmount(line.marketplaceSalesFeeCapAmount, { fieldName: "Fee line cap amount" }),
+    marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(line.marketplaceSalesFeeUnitAmount, {
+      fieldName: "Fee line unit fee",
+      allowZero: true,
+    }),
+    marketplaceSalesFeeTotalAmount: normalizeMoneyAmount(line.marketplaceSalesFeeTotalAmount, {
+      fieldName: "Fee line total fee",
+      allowZero: true,
+    }),
+  }));
+  if (marketplaceSalesFeeLines.length > 0) {
+    assert(
+      marketplaceSalesFeeLines.reduce((sum, line) => sum + moneyToCents(line.marketplaceSalesFeeTotalAmount), 0n) ===
+        moneyToCents(marketplaceSalesFeeAmount),
+      "Marketplace sales fee line totals must equal the order marketplace sales fee amount.",
+    );
+  }
+  return {
+    marketplaceSalesFeeAmount,
+    marketplaceSalesFeeLines,
     sellerNetAmount: normalizeMoneyAmount(snapshot.sellerNetAmount, {
       fieldName: "Seller net amount",
       allowZero: true,

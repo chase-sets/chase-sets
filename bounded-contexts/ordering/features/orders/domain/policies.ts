@@ -1,6 +1,13 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId } from "@chase-sets/primitives/typed-ids";
+import {
+  addMoneyAmounts,
+  applyBasisPointsToMoneyAmount,
+  centsToMoneyAmount,
+  moneyToCents,
+  subtractMoneyAmounts,
+} from "@chase-sets/primitives/money";
 import type { PackagePlan, ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import {
   assert,
@@ -58,6 +65,9 @@ export type MarketplaceSupplyCandidate = Readonly<{
 
 export type MarketplaceSupplyFeeLock = Readonly<{
   unitCount: number;
+  marketplaceSalesFeePercentageBps?: number;
+  marketplaceSalesFeeFixedAmount?: string;
+  marketplaceSalesFeeCapAmount?: string | null;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   shippingAllowancePercentageBps: number;
@@ -65,6 +75,32 @@ export type MarketplaceSupplyFeeLock = Readonly<{
   termsAgreementId: string | null;
   termsResolvedAt: string;
 }>;
+
+export type MarketplaceSalesFeeTermsSnapshot = Readonly<{
+  marketplaceSalesFeePercentageBps: number;
+  marketplaceSalesFeeFixedAmount: string;
+  marketplaceSalesFeeCapAmount: string | null;
+}>;
+
+export function quoteMarketplaceSalesFeeFromSnapshot(unitPriceAmount: string, terms: MarketplaceSalesFeeTermsSnapshot) {
+  const percentageAmount = applyBasisPointsToMoneyAmount(
+    unitPriceAmount,
+    terms.marketplaceSalesFeePercentageBps,
+    "ceil",
+  );
+  const uncappedFee = addMoneyAmounts(percentageAmount, terms.marketplaceSalesFeeFixedAmount);
+  const feeCents =
+    terms.marketplaceSalesFeeCapAmount === null
+      ? moneyToCents(uncappedFee)
+      : [moneyToCents(uncappedFee), moneyToCents(terms.marketplaceSalesFeeCapAmount)].reduce((minimum, value) =>
+          value < minimum ? value : minimum,
+        );
+  const marketplaceSalesFeeUnitAmount = centsToMoneyAmount(feeCents);
+  return {
+    marketplaceSalesFeeUnitAmount,
+    sellerNetUnitAmount: subtractMoneyAmounts(unitPriceAmount, marketplaceSalesFeeUnitAmount),
+  };
+}
 
 export type ShippingQuoteResult = Readonly<{
   shippingOption: ShippingOption;

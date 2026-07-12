@@ -31,6 +31,18 @@ describe("payments order input projection", () => {
         totalAmount: "20.81",
         commercialTermsSnapshot: {
           marketplaceSalesFeeAmount: "1.00",
+          marketplaceSalesFeeLines: [
+            {
+              lineId: "oli_1",
+              unitPriceAmount: "20.00",
+              quantity: 1,
+              marketplaceSalesFeePercentageBps: 500,
+              marketplaceSalesFeeFixedAmount: "0.00",
+              marketplaceSalesFeeCapAmount: "25.00",
+              marketplaceSalesFeeUnitAmount: "1.00",
+              marketplaceSalesFeeTotalAmount: "1.00",
+            },
+          ],
           sellerNetAmount: "15.00",
           termsScheduleId: null,
           termsAgreementId: null,
@@ -49,6 +61,18 @@ describe("payments order input projection", () => {
       "1.57",
       "20.81",
       "1.00",
+      JSON.stringify([
+        {
+          lineId: "oli_1",
+          unitPriceAmount: "20.00",
+          quantity: 1,
+          marketplaceSalesFeePercentageBps: 500,
+          marketplaceSalesFeeFixedAmount: "0.00",
+          marketplaceSalesFeeCapAmount: "25.00",
+          marketplaceSalesFeeUnitAmount: "1.00",
+          marketplaceSalesFeeTotalAmount: "1.00",
+        },
+      ]),
       "0.00",
       "0.00",
       "15.00",
@@ -98,6 +122,7 @@ describe("payments order input projection", () => {
 
     const [, params] = db.query.mock.calls[0]!;
     expect(params![8]).toBe("1.00");
-    expect(params![9]).toBe("11.00");
+    expect(params![9]).toBe("[]");
+    expect(params![10]).toBe("11.00");
   });
 });

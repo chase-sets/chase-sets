@@ -81,6 +81,9 @@ export type MarketplaceOfferState = Readonly<{
   status: OfferStatus;
   acceptedSellerAccountId: AccountId | null;
   acceptedAt: string | null;
+  marketplaceSalesFeePercentageBps: number | null;
+  marketplaceSalesFeeFixedAmount: string | null;
+  marketplaceSalesFeeCapAmount: string | null;
   marketplaceSalesFeeUnitAmount: string | null;
   sellerNetUnitAmount: string | null;
   shippingAllowancePercentageBps: number | null;
@@ -107,6 +110,9 @@ export const initialMarketplaceOfferState: MarketplaceOfferState = {
   status: "draft",
   acceptedSellerAccountId: null,
   acceptedAt: null,
+  marketplaceSalesFeePercentageBps: null,
+  marketplaceSalesFeeFixedAmount: null,
+  marketplaceSalesFeeCapAmount: null,
   marketplaceSalesFeeUnitAmount: null,
   sellerNetUnitAmount: null,
   shippingAllowancePercentageBps: null,
@@ -138,6 +144,9 @@ export type AcceptOfferCommand = Readonly<{
   type: "AcceptOffer";
   sellerAccountId: AccountId;
   acceptedAt: string;
+  marketplaceSalesFeePercentageBps: number;
+  marketplaceSalesFeeFixedAmount: string;
+  marketplaceSalesFeeCapAmount: string | null;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   shippingAllowancePercentageBps?: number;
@@ -184,6 +193,9 @@ export type OfferAcceptedEvent = DomainEvent<
     priceAmount: string;
     quantityRequested: number;
     acceptedAt: string;
+    marketplaceSalesFeePercentageBps?: number;
+    marketplaceSalesFeeFixedAmount?: string;
+    marketplaceSalesFeeCapAmount?: string | null;
     marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
     shippingAllowancePercentageBps: number;
@@ -259,6 +271,21 @@ export const decideMarketplaceOffer: AggregateDecider<
             priceAmount: state.priceAmount!,
             quantityRequested: state.quantityRequested,
             acceptedAt: normalizeRequiredText(command.acceptedAt, "Offer acceptance must record a timestamp."),
+            marketplaceSalesFeePercentageBps: normalizePercentageBps(
+              command.marketplaceSalesFeePercentageBps,
+              "Marketplace sales fee percentage",
+            ),
+            marketplaceSalesFeeFixedAmount: normalizeNonNegativeMoneyAmount(
+              command.marketplaceSalesFeeFixedAmount,
+              "Marketplace sales fee fixed amount",
+            ),
+            marketplaceSalesFeeCapAmount:
+              command.marketplaceSalesFeeCapAmount === null
+                ? null
+                : normalizeNonNegativeMoneyAmount(
+                    command.marketplaceSalesFeeCapAmount,
+                    "Marketplace sales fee cap amount",
+                  ),
             marketplaceSalesFeeUnitAmount: normalizeNonNegativeMoneyAmount(
               command.marketplaceSalesFeeUnitAmount,
               "Marketplace sales fee unit amount",
@@ -314,6 +341,9 @@ export const evolveMarketplaceOffer: AggregateEvolver<MarketplaceOfferState, Mar
       status: "submitted",
       acceptedSellerAccountId: null,
       acceptedAt: null,
+      marketplaceSalesFeePercentageBps: null,
+      marketplaceSalesFeeFixedAmount: null,
+      marketplaceSalesFeeCapAmount: null,
       marketplaceSalesFeeUnitAmount: null,
       sellerNetUnitAmount: null,
       shippingAllowancePercentageBps: null,
@@ -332,6 +362,9 @@ export const evolveMarketplaceOffer: AggregateEvolver<MarketplaceOfferState, Mar
       status: "accepted",
       acceptedSellerAccountId: event.data.sellerAccountId,
       acceptedAt: event.data.acceptedAt,
+      marketplaceSalesFeePercentageBps: event.data.marketplaceSalesFeePercentageBps ?? null,
+      marketplaceSalesFeeFixedAmount: event.data.marketplaceSalesFeeFixedAmount ?? null,
+      marketplaceSalesFeeCapAmount: event.data.marketplaceSalesFeeCapAmount ?? null,
       marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
       sellerNetUnitAmount: event.data.sellerNetUnitAmount,
       shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps,

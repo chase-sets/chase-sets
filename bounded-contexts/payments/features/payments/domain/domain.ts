@@ -1,5 +1,6 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
+import type { MarketplaceSalesFeeLineSnapshotPayload } from "@chase-sets/event-core";
 import {
   assert,
   assertNever,
@@ -135,6 +136,8 @@ export type PaymentState = Readonly<{
 export type SellerPayoutComponent = Readonly<{
   orderId: OrderId;
   sellerAccountId: AccountId;
+  marketplaceSalesFeeAmount?: string;
+  marketplaceSalesFeeLines?: readonly MarketplaceSalesFeeLineSnapshotPayload[];
   sellerItemNetAmount: string;
   shippingAllowanceAmount: string;
   sellerShippingPayoutAmount: string;
@@ -639,6 +642,11 @@ function normalizeSellerPayoutComponents(components: readonly SellerPayoutCompon
       component.sellerAccountId,
       "Seller payout component must include a seller account.",
     ) as AccountId,
+    marketplaceSalesFeeAmount: normalizeMoneyAmount(component.marketplaceSalesFeeAmount ?? "0.00", {
+      fieldName: "Marketplace sales fee amount",
+      allowZero: true,
+    }),
+    marketplaceSalesFeeLines: [...(component.marketplaceSalesFeeLines ?? [])],
     sellerItemNetAmount: normalizeMoneyAmount(component.sellerItemNetAmount, {
       fieldName: "Seller item net amount",
       allowZero: true,

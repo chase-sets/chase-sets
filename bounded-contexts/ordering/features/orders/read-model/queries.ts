@@ -15,6 +15,9 @@ export type OrderingOrderLineRow = Readonly<{
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;
+  marketplace_sales_fee_percentage_bps: number;
+  marketplace_sales_fee_fixed_amount: string;
+  marketplace_sales_fee_cap_amount: string | null;
   marketplace_sales_fee_unit_amount: string;
   marketplace_sales_fee_total_amount: string;
   seller_net_unit_amount: string;
@@ -152,6 +155,9 @@ type OrderLinePageRow = Readonly<{
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;
+  marketplace_sales_fee_percentage_bps: number;
+  marketplace_sales_fee_fixed_amount: string;
+  marketplace_sales_fee_cap_amount: string | null;
   marketplace_sales_fee_unit_amount: string;
   marketplace_sales_fee_total_amount: string;
   seller_net_unit_amount: string;
@@ -350,6 +356,9 @@ export async function getPurchase(
          unit_price_amount::text AS unit_price_amount,
          quantity,
          line_total_amount::text AS line_total_amount,
+         marketplace_sales_fee_percentage_bps,
+         marketplace_sales_fee_fixed_amount::text AS marketplace_sales_fee_fixed_amount,
+         marketplace_sales_fee_cap_amount::text AS marketplace_sales_fee_cap_amount,
          marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
          marketplace_sales_fee_total_amount::text AS marketplace_sales_fee_total_amount,
          seller_net_unit_amount::text AS seller_net_unit_amount,
@@ -442,6 +451,9 @@ export async function getSale(
          unit_price_amount::text AS unit_price_amount,
          quantity,
          line_total_amount::text AS line_total_amount,
+         marketplace_sales_fee_percentage_bps,
+         marketplace_sales_fee_fixed_amount::text AS marketplace_sales_fee_fixed_amount,
+         marketplace_sales_fee_cap_amount::text AS marketplace_sales_fee_cap_amount,
          marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
          marketplace_sales_fee_total_amount::text AS marketplace_sales_fee_total_amount,
          seller_net_unit_amount::text AS seller_net_unit_amount,

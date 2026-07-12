@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS payments_order_inputs (
   sales_tax_amount numeric(12, 2) NOT NULL DEFAULT 0,
   total_amount numeric(12, 2) NOT NULL,
   marketplace_sales_fee_amount numeric(12, 2) NOT NULL,
+  marketplace_sales_fee_lines jsonb NOT NULL DEFAULT '[]'::jsonb,
   authenticity_fee_amount numeric(12, 2) NOT NULL DEFAULT 0,
   marketplace_checkout_fee_amount numeric(12, 2) NOT NULL,
   seller_net_amount numeric(12, 2) NOT NULL,
@@ -107,6 +108,14 @@ export const paymentsOrderInputSchemaMigrations = [
       `CREATE INDEX IF NOT EXISTS payments_order_inputs_source_idx
   ON payments_order_inputs (source_type, source_reference_id)
   WHERE source_type IS NOT NULL AND source_reference_id IS NOT NULL`,
+    ],
+  },
+  {
+    migrationId: "20260712_payments_order_inputs_marketplace_sales_fee_lines",
+    description: "Carry Ordering's per-line marketplace sales fee formula snapshots into payment seller economics.",
+    statements: [
+      `ALTER TABLE payments_order_inputs
+  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_lines jsonb NOT NULL DEFAULT '[]'::jsonb`,
     ],
   },
 ] as const;

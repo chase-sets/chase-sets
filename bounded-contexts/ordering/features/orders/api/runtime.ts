@@ -39,6 +39,7 @@ import {
 import {
   assertSupplyAvailable,
   defaultOrderPaymentDeadlinePolicy,
+  quoteMarketplaceSalesFeeFromSnapshot,
   resolveOrderPaymentDeadline,
   resolveTerminalPaymentFailureDeadline,
   type OrderPaymentDeadlinePolicy,
@@ -262,6 +263,9 @@ type SellerOrderDraft = Readonly<{
     unitPriceAmount: string;
     quantity: number;
     lineTotalAmount: string;
+    marketplaceSalesFeePercentageBps: number;
+    marketplaceSalesFeeFixedAmount: string;
+    marketplaceSalesFeeCapAmount: string | null;
     marketplaceSalesFeeUnitAmount: string;
     marketplaceSalesFeeTotalAmount: string;
     sellerNetUnitAmount: string;
@@ -432,6 +436,9 @@ export type OrderingOrderServices = Readonly<{
       selectedOptions: { dimensionId: string; optionId: string }[];
       productSummary: string | null;
       priceAmount: string;
+      marketplaceSalesFeePercentageBps: number;
+      marketplaceSalesFeeFixedAmount: string;
+      marketplaceSalesFeeCapAmount: string | null;
       marketplaceSalesFeeUnitAmount: string;
       sellerNetUnitAmount: string;
       termsScheduleId: string | null;
@@ -458,6 +465,9 @@ export type OrderingOrderServices = Readonly<{
         selectedOptions: { dimensionId: string; optionId: string }[];
         productSummary: string | null;
         priceAmount: string;
+        marketplaceSalesFeePercentageBps: number;
+        marketplaceSalesFeeFixedAmount: string;
+        marketplaceSalesFeeCapAmount: string | null;
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
         shippingAllowancePercentageBps?: number;
@@ -737,6 +747,9 @@ function quotePlan(
   postagePolicy: PostagePolicy,
   priceOverrideAmount?: string,
   feeOverride?: Readonly<{
+    marketplaceSalesFeePercentageBps: number;
+    marketplaceSalesFeeFixedAmount: string;
+    marketplaceSalesFeeCapAmount: string | null;
     marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
     termsScheduleId: string | null;
@@ -782,6 +795,9 @@ function quotePlan(
         ? [
             {
               unitCount: allocation.quantity,
+              marketplaceSalesFeePercentageBps: feeOverride.marketplaceSalesFeePercentageBps,
+              marketplaceSalesFeeFixedAmount: feeOverride.marketplaceSalesFeeFixedAmount,
+              marketplaceSalesFeeCapAmount: feeOverride.marketplaceSalesFeeCapAmount,
               marketplaceSalesFeeUnitAmount: feeOverride.marketplaceSalesFeeUnitAmount,
               sellerNetUnitAmount: feeOverride.sellerNetUnitAmount,
               shippingAllowancePercentageBps:
@@ -793,12 +809,24 @@ function quotePlan(
           ]
         : allocateCandidateFeeLocks(allocation.candidate, allocation.quantity);
       for (const feeAllocation of feeAllocations) {
+        const feeTerms = {
+          marketplaceSalesFeePercentageBps: feeAllocation.marketplaceSalesFeePercentageBps ?? 0,
+          marketplaceSalesFeeFixedAmount:
+            feeAllocation.marketplaceSalesFeeFixedAmount ?? feeAllocation.marketplaceSalesFeeUnitAmount,
+          marketplaceSalesFeeCapAmount: feeAllocation.marketplaceSalesFeeCapAmount ?? null,
+        };
+        const feeQuote = quoteMarketplaceSalesFeeFromSnapshot(unitPriceAmount, feeTerms);
+        if (feeQuote.marketplaceSalesFeeUnitAmount !== feeAllocation.marketplaceSalesFeeUnitAmount) {
+          throw new OrderingDomainError(
+            `Listing ${allocation.candidate.listingId} fee snapshot does not reproduce its locked unit fee.`,
+          );
+        }
         const lineTotalAmount = centsToMoneyAmount(moneyToCents(unitPriceAmount) * BigInt(feeAllocation.unitCount));
         const marketplaceSalesFeeTotalAmount = centsToMoneyAmount(
-          moneyToCents(feeAllocation.marketplaceSalesFeeUnitAmount) * BigInt(feeAllocation.unitCount),
+          moneyToCents(feeQuote.marketplaceSalesFeeUnitAmount) * BigInt(feeAllocation.unitCount),
         );
         const sellerNetTotalAmount = centsToMoneyAmount(
-          moneyToCents(feeAllocation.sellerNetUnitAmount) * BigInt(feeAllocation.unitCount),
+          moneyToCents(feeQuote.sellerNetUnitAmount) * BigInt(feeAllocation.unitCount),
         );
         sellerDraft.lines.push({
           lineId: createId("oli") as OrderLineId,
@@ -815,9 +843,10 @@ function quotePlan(
           unitPriceAmount,
           quantity: feeAllocation.unitCount,
           lineTotalAmount,
-          marketplaceSalesFeeUnitAmount: feeAllocation.marketplaceSalesFeeUnitAmount,
+          ...feeTerms,
+          marketplaceSalesFeeUnitAmount: feeQuote.marketplaceSalesFeeUnitAmount,
           marketplaceSalesFeeTotalAmount,
-          sellerNetUnitAmount: feeAllocation.sellerNetUnitAmount,
+          sellerNetUnitAmount: feeQuote.sellerNetUnitAmount,
           sellerNetTotalAmount,
           termsScheduleId: feeAllocation.termsScheduleId,
           termsAgreementId: feeAllocation.termsAgreementId,
@@ -966,6 +995,9 @@ function chooseBestPlan(
   postagePolicy: PostagePolicy,
   priceOverrideAmount?: string,
   feeOverride?: Readonly<{
+    marketplaceSalesFeePercentageBps: number;
+    marketplaceSalesFeeFixedAmount: string;
+    marketplaceSalesFeeCapAmount: string | null;
     marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
     termsScheduleId: string | null;
@@ -1448,6 +1480,16 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           },
           commercialTermsSnapshot: {
             marketplaceSalesFeeAmount,
+            marketplaceSalesFeeLines: draft.lines.map((line) => ({
+              lineId: line.lineId,
+              unitPriceAmount: line.unitPriceAmount,
+              quantity: line.quantity,
+              marketplaceSalesFeePercentageBps: line.marketplaceSalesFeePercentageBps,
+              marketplaceSalesFeeFixedAmount: line.marketplaceSalesFeeFixedAmount,
+              marketplaceSalesFeeCapAmount: line.marketplaceSalesFeeCapAmount,
+              marketplaceSalesFeeUnitAmount: line.marketplaceSalesFeeUnitAmount,
+              marketplaceSalesFeeTotalAmount: line.marketplaceSalesFeeTotalAmount,
+            })),
             sellerNetAmount,
             sellerItemNetAmount: sellerNetAmount,
             shippingAllowanceAmount: draft.shippingAllowanceAmount,
@@ -1494,6 +1536,9 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       selectedOptions: { dimensionId: string; optionId: string }[];
       productSummary: string | null;
       priceAmount: string;
+      marketplaceSalesFeePercentageBps: number;
+      marketplaceSalesFeeFixedAmount: string;
+      marketplaceSalesFeeCapAmount: string | null;
       marketplaceSalesFeeUnitAmount: string;
       sellerNetUnitAmount: string;
       termsScheduleId: string | null;
@@ -1527,6 +1572,17 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       postagePolicy,
       acceptedOfferPriceAmount,
       {
+        marketplaceSalesFeePercentageBps: params.marketplaceSalesFeePercentageBps,
+        marketplaceSalesFeeFixedAmount: normalizeMoneyAmount(params.marketplaceSalesFeeFixedAmount, {
+          fieldName: "Accepted offer marketplace sales fee fixed amount",
+          allowZero: true,
+        }),
+        marketplaceSalesFeeCapAmount:
+          params.marketplaceSalesFeeCapAmount === null
+            ? null
+            : normalizeMoneyAmount(params.marketplaceSalesFeeCapAmount, {
+                fieldName: "Accepted offer marketplace sales fee cap amount",
+              }),
         marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(params.marketplaceSalesFeeUnitAmount, {
           fieldName: "Accepted offer marketplace sales fee",
           allowZero: true,
@@ -1564,6 +1620,9 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       selectedOptions: { dimensionId: string; optionId: string }[];
       productSummary: string | null;
       priceAmount: string;
+      marketplaceSalesFeePercentageBps: number;
+      marketplaceSalesFeeFixedAmount: string;
+      marketplaceSalesFeeCapAmount: string | null;
       marketplaceSalesFeeUnitAmount: string;
       sellerNetUnitAmount: string;
       termsScheduleId: string | null;

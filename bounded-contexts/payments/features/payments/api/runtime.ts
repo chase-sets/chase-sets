@@ -401,6 +401,8 @@ function buildSellerPayoutComponents(
   orders: readonly Readonly<{
     order_id: string;
     seller_account_id: string;
+    marketplace_sales_fee_amount: string;
+    marketplace_sales_fee_lines?: PaymentOrderInputRow["marketplace_sales_fee_lines"];
     seller_net_amount: string;
     seller_item_net_amount: string;
     shipping_allowance_amount: string;
@@ -416,6 +418,11 @@ function buildSellerPayoutComponents(
       {
         orderId: order.order_id as OrderId,
         sellerAccountId: order.seller_account_id as AccountId,
+        marketplaceSalesFeeAmount: normalizeMoneyAmount(order.marketplace_sales_fee_amount, {
+          fieldName: "Marketplace sales fee amount",
+          allowZero: true,
+        }),
+        marketplaceSalesFeeLines: order.marketplace_sales_fee_lines ?? [],
         sellerItemNetAmount: normalizeMoneyAmount(order.seller_item_net_amount ?? order.seller_net_amount, {
           fieldName: "Seller item net amount",
           allowZero: true,
