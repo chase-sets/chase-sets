@@ -137,6 +137,13 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.founderStory.story":
     "I buy, sell, and ship trading cards myself, and I got tired of watching marketplace fees eat into card margin before a sale even clears. Chase Sets starts from that math: a 0% seller fee lock during beta, buyer totals shown before checkout, and a roadmap shaped by what the waitlist actually asks for.",
   "publicPresence.home.founderStory.title": "Built by someone who lists cards too",
+  "publicPresence.home.gameRoster.description": "Full curated catalogs. Raw and graded. More games as we grow.",
+  "publicPresence.home.gameRoster.game.disneyLorcana": "Disney Lorcana",
+  "publicPresence.home.gameRoster.game.magicTheGathering": "Magic: The Gathering",
+  "publicPresence.home.gameRoster.game.onePieceCardGame": "One Piece",
+  "publicPresence.home.gameRoster.game.pokemon": "Pokemon - EN & Japanese",
+  "publicPresence.home.gameRoster.game.yuGiOh": "Yu-Gi-Oh!",
+  "publicPresence.home.gameRoster.title": "Five games at launch",
   "publicPresence.home.heroHighlight.launch.label": "Buyer totals",
   "publicPresence.home.heroHighlight.launch.value": "Costs visible before payment",
   "publicPresence.home.heroHighlight.lowValue.label": "0% beta seller fees",
@@ -618,6 +625,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.formDescription":
     "Tell us your marketplace intent and first priority so invites reach the right accounts first.",
   "publicPresence.waitlist.formTitle": "Request early access",
+  "publicPresence.waitlist.gamePrefill": "We'll note this as your game. Adjust anytime after signup.",
   "publicPresence.waitlist.game.disneyLorcana": "Disney Lorcana",
   "publicPresence.waitlist.game.magicTheGathering": "Magic: The Gathering",
   "publicPresence.waitlist.game.onePieceCardGame": "One Piece Card Game",
@@ -692,6 +700,14 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.welcome.referral.share.title": "Share your link",
   "publicPresence.welcome.referral.share.x": "Share on X",
   "publicPresence.welcome.referral.title": "Move up the list",
+  "publicPresence.welcome.wavePlacement.description":
+    "Every answer is optional and saves as you go. Partial answers still help us plan invite waves.",
+  "publicPresence.welcome.wavePlacement.saveFailed": "That didn't save. Check your connection and try again.",
+  "publicPresence.welcome.wavePlacement.saved": "Saved",
+  "publicPresence.welcome.wavePlacement.saving": "Saving...",
+  "publicPresence.welcome.wavePlacement.storeLink.label": "Link your TCGplayer or eBay store",
+  "publicPresence.welcome.wavePlacement.storeLink.why": "Sellers with live inventory get earlier waves.",
+  "publicPresence.welcome.wavePlacement.title": "Help us place you in the right wave",
   "publicPresence.welcome.whatNext.point.discord": "Founders circle Discord access follows the first invite waves.",
   "publicPresence.welcome.whatNext.point.email": "Invite and founder-badge emails go to the address you gave us.",
   "publicPresence.welcome.whatNext.point.founders":

@@ -1,5 +1,6 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import {
+  assert,
   assertNever,
   ensureIsoTimestamp,
   normalizeEmail,
@@ -38,6 +39,16 @@ const emptyCohortQuality: WaitlistCohortQuality = {
   storeUrl: null,
   inventorySize: null,
 };
+
+function cohortQualityEquals(left: WaitlistCohortQuality, right: WaitlistCohortQuality): boolean {
+  return (
+    left.hasStoreLink === right.hasStoreLink &&
+    left.storeUrl === right.storeUrl &&
+    left.inventorySize === right.inventorySize &&
+    left.games.length === right.games.length &&
+    left.games.every((game, index) => game === right.games[index])
+  );
+}
 
 function normalizeCohortQuality(
   role: WaitlistCommerceIntent,
@@ -110,7 +121,23 @@ export type RecordWaitlistSignupCommand = Readonly<{
   recordedAt: string;
 }>;
 
-export type WaitlistSignupCommand = RecordWaitlistSignupCommand;
+/**
+ * Progressive cohort-quality save from the post-signup welcome page ("help us
+ * place you in the right wave"). Each field is optional and individually
+ * saved -- only fields present on the command are updated; absent fields keep
+ * their recorded values (never a submit-wall). Keyed by the signup's stream,
+ * so no email round-trip is required after the initial signup.
+ */
+export type ProvideWaitlistCohortQualityCommand = Readonly<{
+  type: "ProvideWaitlistCohortQuality";
+  games?: readonly string[];
+  inventorySize?: string | null;
+  hasStoreLink?: boolean;
+  storeUrl?: string | null;
+  providedAt: string;
+}>;
+
+export type WaitlistSignupCommand = RecordWaitlistSignupCommand | ProvideWaitlistCohortQualityCommand;
 
 export type WaitlistSignupRecordedEvent = DomainEvent<
   "public-presence.waitlist-signup.recorded",
@@ -144,7 +171,20 @@ export type WaitlistSignupUpdatedEvent = DomainEvent<
   }>
 >;
 
-export type WaitlistSignupEvent = WaitlistSignupRecordedEvent | WaitlistSignupUpdatedEvent;
+export type WaitlistCohortQualityProvidedEvent = DomainEvent<
+  "public-presence.waitlist-signup.cohort-quality-provided",
+  Readonly<{
+    signupId: string;
+    /** The full merged cohort-quality record after this save, never a delta. */
+    cohortQuality: WaitlistCohortQuality;
+    providedAt: string;
+  }>
+>;
+
+export type WaitlistSignupEvent =
+  | WaitlistSignupRecordedEvent
+  | WaitlistSignupUpdatedEvent
+  | WaitlistCohortQualityProvidedEvent;
 
 export const decideWaitlistSignup: AggregateDecider<WaitlistSignupState, WaitlistSignupCommand, WaitlistSignupEvent> = (
   state,
@@ -207,6 +247,49 @@ export const decideWaitlistSignup: AggregateDecider<WaitlistSignupState, Waitlis
         },
       ];
     }
+    case "ProvideWaitlistCohortQuality": {
+      assert(state.signupId !== null, "Join the waitlist before adding wave-placement details.");
+      const providedAt = ensureIsoTimestamp(command.providedAt, "Cohort quality must record a timestamp.");
+
+      // Buy-only signups never carry seller cohort-quality data (the quality
+      // bar only ever measures sellers), so a stale client's save is a quiet
+      // no-op rather than an error -- the signup itself stays untouched.
+      if (state.role === "buy") {
+        return [];
+      }
+
+      const current = state.cohortQuality;
+      const hasStoreLink = command.hasStoreLink ?? current.hasStoreLink;
+      const nextCohortQuality: WaitlistCohortQuality = {
+        games: command.games !== undefined ? normalizeWaitlistGames(command.games) : current.games,
+        hasStoreLink,
+        storeUrl: normalizeWaitlistStoreUrl(
+          hasStoreLink,
+          command.storeUrl !== undefined ? command.storeUrl : current.storeUrl,
+        ),
+        inventorySize:
+          command.inventorySize !== undefined
+            ? normalizeWaitlistInventorySize(command.inventorySize)
+            : current.inventorySize,
+      };
+
+      // Individual saves fire per field change; a repeat of the same values
+      // (double-click, retried request) must not append a new event.
+      if (cohortQualityEquals(current, nextCohortQuality)) {
+        return [];
+      }
+
+      return [
+        {
+          type: "public-presence.waitlist-signup.cohort-quality-provided",
+          data: {
+            signupId: state.signupId,
+            cohortQuality: nextCohortQuality,
+            providedAt,
+          },
+        },
+      ];
+    }
     default:
       throw new PublicPresenceDomainError(`Unsupported waitlist command: ${JSON.stringify(command)}`);
   }
@@ -239,6 +322,12 @@ export const evolveWaitlistSignup: AggregateEvolver<WaitlistSignupState, Waitlis
         source: event.data.source,
         cohortQuality: event.data.cohortQuality ?? state.cohortQuality,
         updatedAt: event.data.updatedAt,
+      };
+    case "public-presence.waitlist-signup.cohort-quality-provided":
+      return {
+        ...state,
+        cohortQuality: event.data.cohortQuality,
+        updatedAt: event.data.providedAt,
       };
     default:
       return assertNever(event);

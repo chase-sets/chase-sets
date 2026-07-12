@@ -5,6 +5,7 @@ import {
   initialWaitlistSignupState,
   type WaitlistSignupEvent,
   type WaitlistSignupRecordedEvent,
+  type WaitlistSignupUpdatedEvent,
 } from "./domain";
 
 const source = {
@@ -24,6 +25,13 @@ function expectRecorded(event: WaitlistSignupEvent): WaitlistSignupRecordedEvent
   return event;
 }
 
+function expectUpdated(event: WaitlistSignupEvent): WaitlistSignupUpdatedEvent {
+  if (event.type !== "public-presence.waitlist-signup.updated") {
+    throw new Error(`Expected an updated event, got ${event.type}`);
+  }
+  return event;
+}
+
 describe("waitlist signup domain", () => {
   it("records a normalized signup with implied early-access consent", async () => {
     const events = await decideWaitlistSignup(initialWaitlistSignupState, {
@@ -37,12 +45,13 @@ describe("waitlist signup domain", () => {
     });
 
     expect(events).toHaveLength(1);
-    expect(events[0].data.email).toBe("todd@example.com");
-    expect(events[0].data.interests).toEqual(["low-sales-fees", "pricing-tools"]);
+    const recorded = expectRecorded(events[0]);
+    expect(recorded.data.email).toBe("todd@example.com");
+    expect(recorded.data.interests).toEqual(["low-sales-fees", "pricing-tools"]);
     // Early-access consent is implied by signing up, so it is always granted
     // at the recorded timestamp regardless of any optional marketing opt-in.
-    expect(events[0].data.emailConsentAcceptedAt).toBe("2026-05-07T12:00:00.000Z");
-    expect(events[0].data.marketingConsentAcceptedAt).toBeNull();
+    expect(recorded.data.emailConsentAcceptedAt).toBe("2026-05-07T12:00:00.000Z");
+    expect(recorded.data.marketingConsentAcceptedAt).toBeNull();
   });
 
   it("records optional marketing consent when accepted", async () => {
@@ -56,7 +65,7 @@ describe("waitlist signup domain", () => {
       recordedAt: "2026-05-07T12:00:00.000Z",
     });
 
-    expect(events[0].data.marketingConsentAcceptedAt).toBe("2026-05-07T12:00:00.000Z");
+    expect(expectRecorded(events[0]).data.marketingConsentAcceptedAt).toBe("2026-05-07T12:00:00.000Z");
   });
 
   it("updates an existing signup on duplicate email", async () => {
@@ -80,10 +89,10 @@ describe("waitlist signup domain", () => {
       recordedAt: "2026-05-07T12:05:00.000Z",
     });
 
-    expect(updated.type).toBe("public-presence.waitlist-signup.updated");
-    expect(updated.data.signupId).toBe(recorded.data.signupId);
-    expect(updated.data.role).toBe("both");
-    expect(updated.data.marketingConsentAcceptedAt).toBe("2026-05-07T12:05:00.000Z");
+    const updatedEvent = expectUpdated(updated);
+    expect(updatedEvent.data.signupId).toBe(recorded.data.signupId);
+    expect(updatedEvent.data.role).toBe("both");
+    expect(updatedEvent.data.marketingConsentAcceptedAt).toBe("2026-05-07T12:05:00.000Z");
   });
 
   it("requires a valid email", async () => {
@@ -302,6 +311,154 @@ describe("waitlist signup domain", () => {
 
     const recorded = expectRecorded(events[0]);
     expect(recorded.data.cohortQuality.storeUrl).toBeNull();
+  });
+
+  it("merges an individual welcome-page cohort-quality save into the recorded record", async () => {
+    const [recorded] = await decideWaitlistSignup(initialWaitlistSignupState, {
+      type: "RecordWaitlistSignup",
+      email: "seller@example.com",
+      role: "sell",
+      interests: ["low-sales-fees"],
+      marketingConsentAcceptedAt: null,
+      source,
+      games: ["pokemon"],
+      hasStoreLink: true,
+      storeUrl: "https://example-store.com/shop",
+      inventorySize: "under_100",
+      recordedAt: "2026-05-07T12:00:00.000Z",
+    });
+    const state = evolveWaitlistSignup(initialWaitlistSignupState, recorded);
+
+    const events = await decideWaitlistSignup(state, {
+      type: "ProvideWaitlistCohortQuality",
+      games: ["pokemon", "magic-the-gathering"],
+      providedAt: "2026-05-07T12:10:00.000Z",
+    });
+
+    expect(events).toHaveLength(1);
+    const provided = events[0];
+    if (provided.type !== "public-presence.waitlist-signup.cohort-quality-provided") {
+      throw new Error(`Expected a cohort-quality-provided event, got ${provided.type}`);
+    }
+    expect(provided.data.signupId).toBe(recorded.data.signupId);
+    // Only the saved field changes; the rest of the record is preserved.
+    expect(provided.data.cohortQuality.games).toEqual(["magic-the-gathering", "pokemon"]);
+    expect(provided.data.cohortQuality.hasStoreLink).toBe(true);
+    expect(provided.data.cohortQuality.storeUrl).toBe("https://example-store.com/shop");
+    expect(provided.data.cohortQuality.inventorySize).toBe("under_100");
+
+    const nextState = evolveWaitlistSignup(state, provided);
+    expect(nextState.cohortQuality.games).toEqual(["magic-the-gathering", "pokemon"]);
+    expect(nextState.updatedAt).toBe("2026-05-07T12:10:00.000Z");
+  });
+
+  it("clears the store URL when a cohort-quality save reports no store link", async () => {
+    const [recorded] = await decideWaitlistSignup(initialWaitlistSignupState, {
+      type: "RecordWaitlistSignup",
+      email: "seller@example.com",
+      role: "sell",
+      interests: ["low-sales-fees"],
+      marketingConsentAcceptedAt: null,
+      source,
+      games: ["pokemon"],
+      hasStoreLink: true,
+      storeUrl: "https://example-store.com/shop",
+      recordedAt: "2026-05-07T12:00:00.000Z",
+    });
+    const state = evolveWaitlistSignup(initialWaitlistSignupState, recorded);
+
+    const [provided] = await decideWaitlistSignup(state, {
+      type: "ProvideWaitlistCohortQuality",
+      hasStoreLink: false,
+      storeUrl: null,
+      providedAt: "2026-05-07T12:10:00.000Z",
+    });
+
+    if (provided.type !== "public-presence.waitlist-signup.cohort-quality-provided") {
+      throw new Error(`Expected a cohort-quality-provided event, got ${provided.type}`);
+    }
+    expect(provided.data.cohortQuality.hasStoreLink).toBe(false);
+    expect(provided.data.cohortQuality.storeUrl).toBeNull();
+  });
+
+  it("emits nothing when a repeated cohort-quality save changes no values", async () => {
+    const [recorded] = await decideWaitlistSignup(initialWaitlistSignupState, {
+      type: "RecordWaitlistSignup",
+      email: "seller@example.com",
+      role: "sell",
+      interests: ["low-sales-fees"],
+      marketingConsentAcceptedAt: null,
+      source,
+      games: ["pokemon"],
+      recordedAt: "2026-05-07T12:00:00.000Z",
+    });
+    const state = evolveWaitlistSignup(initialWaitlistSignupState, recorded);
+
+    const events = await decideWaitlistSignup(state, {
+      type: "ProvideWaitlistCohortQuality",
+      games: ["pokemon"],
+      providedAt: "2026-05-07T12:10:00.000Z",
+    });
+
+    expect(events).toHaveLength(0);
+  });
+
+  it("treats a cohort-quality save from a buy-only signup as a quiet no-op", async () => {
+    const [recorded] = await decideWaitlistSignup(initialWaitlistSignupState, {
+      type: "RecordWaitlistSignup",
+      email: "buyer@example.com",
+      role: "buy",
+      interests: ["set-completion"],
+      marketingConsentAcceptedAt: null,
+      source,
+      recordedAt: "2026-05-07T12:00:00.000Z",
+    });
+    const state = evolveWaitlistSignup(initialWaitlistSignupState, recorded);
+
+    const events = await decideWaitlistSignup(state, {
+      type: "ProvideWaitlistCohortQuality",
+      games: ["pokemon"],
+      inventorySize: "2000_plus",
+      providedAt: "2026-05-07T12:10:00.000Z",
+    });
+
+    expect(events).toHaveLength(0);
+  });
+
+  it("rejects a cohort-quality save for a signup that does not exist", async () => {
+    await expect(async () =>
+      decideWaitlistSignup(initialWaitlistSignupState, {
+        type: "ProvideWaitlistCohortQuality",
+        games: ["pokemon"],
+        providedAt: "2026-05-07T12:10:00.000Z",
+      }),
+    ).rejects.toThrow("Join the waitlist before adding wave-placement details.");
+  });
+
+  it("drops unrecognized values in a cohort-quality save instead of rejecting it", async () => {
+    const [recorded] = await decideWaitlistSignup(initialWaitlistSignupState, {
+      type: "RecordWaitlistSignup",
+      email: "seller@example.com",
+      role: "both",
+      interests: ["low-sales-fees"],
+      marketingConsentAcceptedAt: null,
+      source,
+      recordedAt: "2026-05-07T12:00:00.000Z",
+    });
+    const state = evolveWaitlistSignup(initialWaitlistSignupState, recorded);
+
+    const [provided] = await decideWaitlistSignup(state, {
+      type: "ProvideWaitlistCohortQuality",
+      games: ["pokemon", "not-a-real-game"],
+      inventorySize: "not-a-real-bucket",
+      providedAt: "2026-05-07T12:10:00.000Z",
+    });
+
+    if (provided.type !== "public-presence.waitlist-signup.cohort-quality-provided") {
+      throw new Error(`Expected a cohort-quality-provided event, got ${provided.type}`);
+    }
+    expect(provided.data.cohortQuality.games).toEqual(["pokemon"]);
+    expect(provided.data.cohortQuality.inventorySize).toBeNull();
   });
 
   it("refreshes cohort quality signals on an update event", async () => {

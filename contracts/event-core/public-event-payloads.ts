@@ -546,9 +546,21 @@ export type WaitlistSignupUpdatedPayload = WaitlistSignupRecordedPayload &
     updatedAt?: string;
   }>;
 
+/**
+ * Progressive cohort-quality save from the post-signup welcome page: carries
+ * the full merged cohort-quality record (not a delta) so projections replace
+ * the read-model columns without re-deriving merge semantics.
+ */
+export type WaitlistCohortQualityProvidedPayload = Readonly<{
+  signupId: string;
+  cohortQuality: WaitlistCohortQualityPayload;
+  providedAt: string;
+}>;
+
 export type PublicPresenceEventPayloads = Readonly<{
   "public-presence.waitlist-signup.recorded": WaitlistSignupRecordedPayload;
   "public-presence.waitlist-signup.updated": WaitlistSignupUpdatedPayload;
+  "public-presence.waitlist-signup.cohort-quality-provided": WaitlistCohortQualityProvidedPayload;
 }>;
 
 export type PlatformFeedbackSubmittedPayload = Readonly<{

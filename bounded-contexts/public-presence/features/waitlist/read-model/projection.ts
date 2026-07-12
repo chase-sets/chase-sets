@@ -1,5 +1,6 @@
 import type {
   ChaseSetsEventPayloads,
+  WaitlistCohortQualityProvidedPayload,
   WaitlistSignupRecordedPayload,
   WaitlistSignupUpdatedPayload,
 } from "@chase-sets/event-core";
@@ -80,9 +81,40 @@ async function upsertWaitlistSignup(db: PgQueryable, data: WaitlistEventData, ti
   );
 }
 
+/**
+ * Applies a progressive cohort-quality save (welcome-page "wave placement"
+ * step). The event carries the full merged cohort-quality record, so this is
+ * a straight column replace; the row always exists because the recorded
+ * event precedes it in the same stream.
+ */
+async function applyCohortQuality(db: PgQueryable, data: WaitlistCohortQualityProvidedPayload) {
+  await db.query(
+    `UPDATE public_presence_waitlist_signups
+     SET games = $2::jsonb,
+         has_store_link = $3,
+         store_url = $4,
+         inventory_size = $5,
+         updated_at = $6
+     WHERE signup_id = $1`,
+    [
+      data.signupId,
+      JSON.stringify(data.cohortQuality.games),
+      data.cohortQuality.hasStoreLink,
+      data.cohortQuality.storeUrl,
+      data.cohortQuality.inventorySize,
+      data.providedAt,
+    ],
+  );
+}
+
 export function buildWaitlistProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return defineProjectorHandlers<
-    Pick<ChaseSetsEventPayloads, "public-presence.waitlist-signup.recorded" | "public-presence.waitlist-signup.updated">
+    Pick<
+      ChaseSetsEventPayloads,
+      | "public-presence.waitlist-signup.recorded"
+      | "public-presence.waitlist-signup.updated"
+      | "public-presence.waitlist-signup.cohort-quality-provided"
+    >
   >({
     "public-presence.waitlist-signup.recorded": async (event) => {
       const data = event.data;
@@ -91,6 +123,9 @@ export function buildWaitlistProjectionHandlers(db: PgQueryable): ProjectorHandl
     "public-presence.waitlist-signup.updated": async (event) => {
       const data = event.data;
       await upsertWaitlistSignup(db, data, data.updatedAt ?? new Date().toISOString());
+    },
+    "public-presence.waitlist-signup.cohort-quality-provided": async (event) => {
+      await applyCohortQuality(db, event.data);
     },
   });
 }

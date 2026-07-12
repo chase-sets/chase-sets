@@ -47,6 +47,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return {
     discordInviteUrl,
     publicOrigin,
+    // Raw `?game=` slug from a game roster tile or per-game campaign link;
+    // the UI normalizes it against the five supported games.
+    selectedGame: url.searchParams.get("game"),
     source: {
       pagePath: `${url.pathname}${url.search}`,
       referrer: request.headers.get("referer"),
@@ -97,6 +100,14 @@ export async function action({ request }: ActionFunctionArgs) {
     const welcomeUrl = new URL("/welcome", request.url);
     welcomeUrl.searchParams.set("signup", result.id);
     welcomeUrl.searchParams.set("fresh", "1");
+    // The welcome page's progressive "wave placement" step needs the signup's
+    // role (cohort-quality fields exist only for sell/both intent) and any
+    // games already recorded (for prefilling the chips) without a projection
+    // read.
+    welcomeUrl.searchParams.set("role", String(formData.get("role") ?? "both"));
+    for (const game of new Set(formData.getAll("games").map(String))) {
+      welcomeUrl.searchParams.append("game", game);
+    }
     if (optional(formData.get("referredBySignupId"))) {
       // Coarse hint only (never the code itself) so the success page fires
       // waitlist_signup_attributed once; a malformed/self-referral code that
@@ -200,7 +211,12 @@ export default function PublicPresenceHomeRoute() {
           __html: JSON.stringify(buildHomeStructuredData(data.publicOrigin)).replace(/</g, "\\u003c"),
         }}
       />
-      <PublicPresenceHomePage actionData={actionData} discordInviteUrl={data.discordInviteUrl} source={data.source} />
+      <PublicPresenceHomePage
+        actionData={actionData}
+        discordInviteUrl={data.discordInviteUrl}
+        source={data.source}
+        selectedGame={data.selectedGame}
+      />
     </>
   );
 }

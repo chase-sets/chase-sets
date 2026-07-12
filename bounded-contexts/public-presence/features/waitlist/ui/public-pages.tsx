@@ -105,7 +105,7 @@ const interestSelectItems = interestItems.map(({ value, label }) => ({ value, la
 // Wave-1 cohort quality fields, captured only from sell/both-intent signups.
 // See bounded-contexts/public-presence/features/waitlist/domain/common.ts
 // for the canonical WaitlistGame/WaitlistInventorySize enums this mirrors.
-const gameItems = [
+export const gameItems = [
   { value: "pokemon", label: t("publicPresence.waitlist.game.pokemon") },
   { value: "magic-the-gathering", label: t("publicPresence.waitlist.game.magicTheGathering") },
   { value: "yu-gi-oh", label: t("publicPresence.waitlist.game.yuGiOh") },
@@ -113,12 +113,49 @@ const gameItems = [
   { value: "one-piece-card-game", label: t("publicPresence.waitlist.game.onePieceCardGame") },
 ];
 
-const inventorySizeItems = [
+export const inventorySizeItems = [
   { value: "under_100", label: t("publicPresence.waitlist.inventorySize.under100") },
   { value: "100_to_500", label: t("publicPresence.waitlist.inventorySize.100to500") },
   { value: "500_to_2000", label: t("publicPresence.waitlist.inventorySize.500to2000") },
   { value: "2000_plus", label: t("publicPresence.waitlist.inventorySize.2000plus") },
 ];
+
+// The named game roster: campaign-linkable per-game entry points in the
+// canonical WAITLIST_GAMES order. Roster labels are campaign copy (Pokemon
+// leads with the EN & Japanese differentiator), distinct from the shorter
+// waitlist form labels above.
+const gameRosterItems = [
+  { value: "pokemon", label: t("publicPresence.home.gameRoster.game.pokemon") },
+  { value: "magic-the-gathering", label: t("publicPresence.home.gameRoster.game.magicTheGathering") },
+  { value: "yu-gi-oh", label: t("publicPresence.home.gameRoster.game.yuGiOh") },
+  { value: "one-piece-card-game", label: t("publicPresence.home.gameRoster.game.onePieceCardGame") },
+  { value: "disney-lorcana", label: t("publicPresence.home.gameRoster.game.disneyLorcana") },
+];
+
+/**
+ * Normalizes an inbound `?game=` slug (game roster tile click or a per-game
+ * campaign link) to the five supported games; anything else is treated as
+ * absent so an arbitrary query value never reaches the signup form.
+ */
+export function normalizeSelectedGame(value: string | null | undefined): string | null {
+  return value && gameItems.some((item) => item.value === value) ? value : null;
+}
+
+function selectedGameLabel(selectedGame: string | null) {
+  return gameItems.find((item) => item.value === selectedGame)?.label ?? null;
+}
+
+/**
+ * Builds a game-tile href that lands on the hero signup form with
+ * `?game=<slug>` while preserving the visitor's existing query string
+ * (UTM attribution, referral code) from the loader-captured page path.
+ */
+function gameRosterHref(pagePath: string, game: string) {
+  const queryIndex = pagePath.indexOf("?");
+  const params = new URLSearchParams(queryIndex >= 0 ? pagePath.slice(queryIndex + 1) : "");
+  params.set("game", game);
+  return `/?${params.toString()}#waitlist-form`;
+}
 
 type WaitlistMarketplaceIntent = "both" | "buy" | "sell";
 type WaitlistInterest = "low-sales-fees" | "bulk-listing" | "set-completion" | "pricing-tools" | "efficient-shipping";
@@ -411,13 +448,17 @@ export function PublicPresenceHomePage({
   actionData,
   discordInviteUrl,
   source,
+  selectedGame: selectedGameInput = null,
 }: {
   actionData: WaitlistActionData;
   discordInviteUrl?: string | null;
   source: WaitlistPageSource;
+  /** Raw `?game=` slug from the loader (game roster tile / per-game campaign link); normalized here. */
+  selectedGame?: string | null;
 }) {
   const [intent, setIntent] = useState<WaitlistIntent>(defaultIntent);
   const waitlistCounterDisplay = useWaitlistCounterDisplay();
+  const selectedGame = normalizeSelectedGame(selectedGameInput);
 
   useEffect(() => {
     trackWaitlistEvent("landing_page_view", {
@@ -511,10 +552,13 @@ export function PublicPresenceHomePage({
                 panelId="waitlist-form"
                 variant="hero"
                 waitlistCounterDisplay={waitlistCounterDisplay}
+                selectedGame={selectedGame}
               />
             }
           />
         </Stack>
+
+        <GameRosterSection pagePath={source.pagePath} selectedGame={selectedGame} />
 
         <OpenOffersSection />
 
@@ -540,11 +584,42 @@ export function PublicPresenceHomePage({
           intent={intent}
           onIntentChange={setIntent}
           source={source}
+          selectedGame={selectedGame}
         />
 
         <FaqPreview />
       </Page>
     </PublicPresencePageShell>
+  );
+}
+
+// The named game roster strip: the first scannable proof of scope under the
+// hero. Each tile is a campaign-linkable per-game entry point
+// (`/?game=<slug>#waitlist-form`) that preserves UTM/referral attribution and
+// prefills the signup form's game selection. Truth-gated: names exactly the
+// five supported games; the copy line is the approved catalog claim.
+function GameRosterSection({ pagePath, selectedGame }: { pagePath: string; selectedGame: string | null }) {
+  return (
+    <PageSection
+      data-public-presence-section="game_roster"
+      title={t("publicPresence.home.gameRoster.title")}
+      description={t("publicPresence.home.gameRoster.description")}
+    >
+      <Grid columns={{ base: 1, sm: 2, lg: 5 }} gap={3}>
+        {gameRosterItems.map((game) => (
+          <LinkButton
+            key={game.value}
+            href={gameRosterHref(pagePath, game.value)}
+            tone={selectedGame === game.value ? "primary" : "secondary"}
+            size="lg"
+            block
+            onClick={() => trackCtaClick("game_roster", game.value)}
+          >
+            {game.label}
+          </LinkButton>
+        ))}
+      </Grid>
+    </PageSection>
   );
 }
 
@@ -1190,12 +1265,14 @@ function FinalCtaSection({
   intent,
   onIntentChange,
   source,
+  selectedGame = null,
 }: {
   actionData: WaitlistActionData;
   discordInviteUrl?: string | null;
   intent: WaitlistIntent;
   onIntentChange: (intent: WaitlistIntent) => void;
   source: WaitlistPageSource;
+  selectedGame?: string | null;
 }) {
   return (
     <PageSection data-public-presence-section="final_cta">
@@ -1235,6 +1312,7 @@ function FinalCtaSection({
           source={source}
           panelId="waitlist-form-final"
           variant="full"
+          selectedGame={selectedGame}
         />
       </Grid>
     </PageSection>
@@ -1249,6 +1327,7 @@ function WaitlistSignupPanel({
   source,
   variant = "full",
   waitlistCounterDisplay = null,
+  selectedGame = null,
 }: {
   actionData: WaitlistActionData;
   intent: WaitlistIntent;
@@ -1258,13 +1337,26 @@ function WaitlistSignupPanel({
   variant?: "hero" | "full";
   /** Rounded, threshold-gated waitlist headcount. `null` hides the counter (see `WAITLIST_COUNTER_DISPLAY_BUCKET`). */
   waitlistCounterDisplay?: number | null;
+  /** Normalized `?game=` slug from a game roster tile / per-game campaign link; prefills the games selection. */
+  selectedGame?: string | null;
 }) {
   const [marketingConsent, setMarketingConsent] = useState(false);
-  const [games, setGames] = useState<string[]>([]);
+  const [games, setGames] = useState<string[]>(selectedGame ? [selectedGame] : []);
   const [hasStoreLink, setHasStoreLink] = useState(false);
   const formStarted = useRef(false);
   const isHero = variant === "hero";
   const section = isHero ? "hero" : "final_cta";
+  const prefillGameLabel = selectedGameLabel(selectedGame);
+
+  // A game tile clicked after first render (client-side navigation) must
+  // still land in the games selection, so the prefill merges reactively
+  // instead of relying on initial state alone.
+  useEffect(() => {
+    if (!selectedGame) {
+      return;
+    }
+    setGames((current) => (current.includes(selectedGame) ? current : [...current, selectedGame]));
+  }, [selectedGame]);
   // Cohort quality fields are only collected on the full form (not the
   // compact hero/sticky variant) and only for sell/both intent -- they are
   // never a condition of joining the waitlist.
@@ -1342,6 +1434,16 @@ function WaitlistSignupPanel({
             <Text size="sm" tone="secondary">
               {t("publicPresence.waitlist.compactDescription")}
             </Text>
+            {prefillGameLabel ? (
+              // Per-game proof point: a roster tile / per-game campaign link
+              // landed here, so the panel confirms which game is prefilled.
+              <Inline gap={1} align="center">
+                <Badge tone="info">{prefillGameLabel}</Badge>
+                <Text size="sm" tone="secondary">
+                  {t("publicPresence.waitlist.gamePrefill")}
+                </Text>
+              </Inline>
+            ) : null}
             {waitlistCounterDisplay !== null ? (
               <Inline gap={1} align="center">
                 <ToneIcon name="users" tone="primary" size="sm" />
@@ -1394,6 +1496,11 @@ function WaitlistSignupPanel({
               <>
                 <HiddenInput name="role" value={intent.role} />
                 <HiddenInput name="interests" value={intent.interest} />
+                {/* The hero form stays minimal (email + intent, #3954): a game
+                    prefill travels as hidden values, never as a visible field. */}
+                {games.map((game) => (
+                  <HiddenInput key={game} name="games" value={game} />
+                ))}
               </>
             ) : (
               <Grid columns={{ base: 1, md: 2 }} gap={3}>

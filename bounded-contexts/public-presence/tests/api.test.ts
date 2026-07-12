@@ -17,6 +17,7 @@ function createServices(overrides: Partial<WaitlistServices> = {}) {
   const services = {
     commandHandler: vi.fn() as never,
     submitWaitlistSignup: vi.fn(async () => ({ signupId: "wls_test", version: 1 })),
+    provideWaitlistCohortQuality: vi.fn(async () => ({ signupId: "wls_test", version: 2 })),
     listWaitlistSignups: vi.fn(async () => ({ items: [], total: 0 })),
     getWaitlistMetrics: vi.fn(async () => ({
       total_count: 0,
@@ -310,6 +311,46 @@ describe("public presence API", () => {
       }),
       expect.anything(),
     );
+  });
+
+  it("forwards only the fields present on a welcome-page cohort-quality save", async () => {
+    const provideWaitlistCohortQuality = vi.fn(async () => ({ signupId: "wls_public", version: 2 }));
+    const app = publicAppFor(createServices({ provideWaitlistCohortQuality }));
+
+    const response = await app.request("/waitlist/wls_public/cohort-quality", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": "203.0.113.40",
+      },
+      body: JSON.stringify({ games: ["pokemon"] }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ id: "wls_public", version: 2, status: "saved" });
+    // Individual save: only the games field travels; inventory/store fields
+    // must stay absent so the domain leaves them untouched.
+    expect(provideWaitlistCohortQuality).toHaveBeenCalledWith(
+      { signupId: "wls_public", games: ["pokemon"] },
+      expect.anything(),
+    );
+  });
+
+  it("rejects a cohort-quality save for a malformed signup id", async () => {
+    const provideWaitlistCohortQuality = vi.fn(async () => ({ signupId: "wls_public", version: 2 }));
+    const app = publicAppFor(createServices({ provideWaitlistCohortQuality }));
+
+    const response = await app.request("/waitlist/not-a-signup-id/cohort-quality", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": "203.0.113.41",
+      },
+      body: JSON.stringify({ games: ["pokemon"] }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(provideWaitlistCohortQuality).not.toHaveBeenCalled();
   });
 
   it("passes an admin sort selection through to the read model", async () => {

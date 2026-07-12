@@ -9,6 +9,7 @@ export const waitlistAnalyticsEventNames = [
   "waitlist_role_selected",
   "waitlist_interest_selected",
   "waitlist_marketing_consent_checked",
+  "waitlist_cohort_field_saved",
   "referral_link_copied",
   "referral_share_clicked",
   "section_viewed",

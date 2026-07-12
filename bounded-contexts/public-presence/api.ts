@@ -27,6 +27,14 @@ const waitlistReferralSummaryRateLimiter = createInMemoryRateLimiter({
   windowMs: RATE_LIMIT_WINDOW_MS,
 });
 const waitlistSignupIdPattern = /^wls_[0-9a-z]+$/;
+// Welcome-page cohort-quality saves fire once per field change (chips,
+// select, store link), so the ceiling matches the read-side referral-summary
+// limiter rather than the much tighter signup-submit limiter.
+const waitlistCohortQualityRateLimiter = createInMemoryRateLimiter({
+  keyPrefix: "public-presence:waitlist-cohort-quality",
+  max: REFERRAL_SUMMARY_RATE_LIMIT_MAX,
+  windowMs: RATE_LIMIT_WINDOW_MS,
+});
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("publicPresence.api.request.failed");
@@ -149,6 +157,46 @@ export function createPublicWaitlistRoutes(services: WaitlistServices, resolveRa
       );
 
       return c.json({ id: result.signupId, version: result.version, status: "joined" }, 201);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/waitlist/:signupId/cohort-quality", async (c) => {
+    if (waitlistCohortQualityRateLimiter.check(c.req.raw).limited) {
+      return c.json({ error: { code: "rate_limited", message: t("publicPresence.api.rate.limited") } }, 429);
+    }
+
+    const signupId = c.req.param("signupId");
+    if (!waitlistSignupIdPattern.test(signupId)) {
+      return c.json({ error: { code: "validation_failed", message: t("publicPresence.api.request.failed") } }, 400);
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    // Individual saves: only fields present on the request body update the
+    // signup's cohort-quality record; everything else keeps its value.
+    const fields: {
+      games?: readonly string[];
+      inventorySize?: string | null;
+      hasStoreLink?: boolean;
+      storeUrl?: string | null;
+    } = {};
+    if (Array.isArray(body.games)) {
+      fields.games = body.games.map(String);
+    }
+    if ("inventorySize" in body) {
+      fields.inventorySize = typeof body.inventorySize === "string" ? body.inventorySize : null;
+    }
+    if ("hasStoreLink" in body) {
+      fields.hasStoreLink = Boolean(body.hasStoreLink);
+    }
+    if ("storeUrl" in body) {
+      fields.storeUrl = typeof body.storeUrl === "string" ? body.storeUrl : null;
+    }
+
+    try {
+      const result = await services.provideWaitlistCohortQuality({ signupId, ...fields }, publicEventStoreContext());
+      return c.json({ id: result.signupId, version: result.version, status: "saved" });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

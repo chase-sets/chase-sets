@@ -15,6 +15,10 @@ function normalizeSignupId(value: string | null) {
   return waitlistSignupIdPattern.test(trimmed) ? trimmed : null;
 }
 
+function normalizeRole(value: string | null): "buy" | "sell" | "both" | null {
+  return value === "buy" || value === "sell" || value === "both" ? value : null;
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const signupId = normalizeSignupId(url.searchParams.get("signup"));
@@ -35,6 +39,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return {
     signupId,
     attributed: url.searchParams.get("attributed") === "1",
+    // Signup role from the post-signup redirect: gates the sell/both-intent
+    // "wave placement" step. Absent on bookmarked/repeat visits, which hide
+    // the step rather than re-asking for cohort-quality signals a buy-intent
+    // signup never carries.
+    role: normalizeRole(url.searchParams.get("role")),
+    // Games already recorded at signup (or a raw `?game=` campaign slug on a
+    // shared link); the UI normalizes against the five supported games.
+    games: url.searchParams.getAll("game"),
     publicOrigin: process.env.CHASE_SETS_PUBLIC_ORIGIN?.trim() || url.origin,
     discordInviteUrl,
   };
@@ -56,6 +68,8 @@ export default function PublicPresenceWelcomeRoute() {
       publicOrigin={data.publicOrigin || fallbackPublicOrigin}
       discordInviteUrl={data.discordInviteUrl}
       attributed={data.attributed}
+      role={data.role}
+      initialGames={data.games}
     />
   );
 }
