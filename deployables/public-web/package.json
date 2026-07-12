@@ -11,6 +11,7 @@
     "test": "vitest run --config ./vitest.config.ts"
   },
   "dependencies": {
+    "@chase-sets/commercial-terms": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/observability": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",

@@ -1638,6 +1638,9 @@ importers:
 
   deployables/public-web:
     dependencies:
+      '@chase-sets/commercial-terms':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/commercial-terms
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
