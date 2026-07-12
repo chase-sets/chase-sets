@@ -755,6 +755,40 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      - name: Capture staging App Platform bootstrap diagnostics
+        if: failure() && env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
+          if [ -z "$app_id" ]; then
+            echo "No existing App Platform app was found in Terraform state; skipping bootstrap diagnostics."
+            exit 0
+          fi
+
+          mkdir -p artifacts/release-health
+          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" \
+            --component=platform-bootstrap \
+            --log-type=deploy \
+            --log-type=run \
+            --log-type=run_restarted \
+            --tail-lines=300 \
+            --out=artifacts/release-health/staging-app-platform-bootstrap-diagnostics.json || true
+
+      - name: Upload staging App Platform bootstrap diagnostics
+        if: always() && env.SHOULD_DEPLOY != 'false'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staging-app-platform-bootstrap-diagnostics
+          path: infrastructure/digitalocean/platform/artifacts/release-health/staging-app-platform-bootstrap-diagnostics.json
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Configure staging Kubernetes context
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/doks
@@ -948,9 +982,20 @@ jobs:
         if: failure() && env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
+          mkdir -p artifacts/release-health
           pnpm run platform:kubernetes-deployment -- diagnostics \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --release "$CHASE_SETS_HELM_RELEASE" || true
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --out artifacts/release-health/staging-kubernetes-deploy-diagnostics.json || true
+
+      - name: Upload staging Kubernetes deploy diagnostics
+        if: always() && env.SHOULD_DEPLOY != 'false'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staging-kubernetes-deploy-diagnostics
+          path: artifacts/release-health/staging-kubernetes-deploy-diagnostics.json
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Wait for staging ingress URLs
         if: env.SHOULD_DEPLOY != 'false'
@@ -1602,6 +1647,9 @@ jobs:
     outputs:
       superseded: ${{ steps.latest_main.outputs.superseded || 'false' }}
       superseded_by_commit: ${{ steps.latest_main.outputs.latest_main }}
+      rollback_result: ${{ steps.production_rollback.outputs.result || 'not-attempted' }}
+      rollback_target_commit: ${{ steps.production_rollback.outputs.rollback_target_commit || '' }}
+      rollback_reference: ${{ steps.production_rollback.outputs.rollback_reference || '' }}
     concurrency:
       group: platform-deploy-production
       cancel-in-progress: false
@@ -2343,6 +2391,40 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      - name: Capture production App Platform bootstrap diagnostics
+        if: failure() && env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
+          if [ -z "$app_id" ]; then
+            echo "No existing App Platform app was found in Terraform state; skipping bootstrap diagnostics."
+            exit 0
+          fi
+
+          mkdir -p artifacts/release-health
+          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" \
+            --component=platform-bootstrap \
+            --log-type=deploy \
+            --log-type=run \
+            --log-type=run_restarted \
+            --tail-lines=300 \
+            --out=artifacts/release-health/production-app-platform-bootstrap-diagnostics.json || true
+
+      - name: Upload production App Platform bootstrap diagnostics
+        if: always() && env.SHOULD_DEPLOY != 'false'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-app-platform-bootstrap-diagnostics
+          path: infrastructure/digitalocean/platform/artifacts/release-health/production-app-platform-bootstrap-diagnostics.json
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Export production Kubernetes database URLs
         if: env.SHOULD_DEPLOY != 'false'
         env:
@@ -2446,9 +2528,20 @@ jobs:
         if: failure() && env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
+          mkdir -p artifacts/release-health
           pnpm run platform:kubernetes-deployment -- diagnostics \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --release "$CHASE_SETS_HELM_RELEASE" || true
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --out artifacts/release-health/production-kubernetes-deploy-diagnostics.json || true
+
+      - name: Upload production Kubernetes deploy diagnostics
+        if: always() && env.SHOULD_DEPLOY != 'false'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-kubernetes-deploy-diagnostics
+          path: artifacts/release-health/production-kubernetes-deploy-diagnostics.json
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Wait for production domains
         if: env.SHOULD_DEPLOY != 'false'
@@ -2676,9 +2769,11 @@ jobs:
         if: failure() && env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
+          mkdir -p artifacts/release-health
           pnpm run platform:kubernetes-deployment -- diagnostics \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --release "$CHASE_SETS_HELM_RELEASE" || true
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --out artifacts/release-health/production-kubernetes-deploy-diagnostics.json || true
 
       - name: Roll back production Kubernetes release
         id: production_rollback
@@ -2689,27 +2784,40 @@ jobs:
           started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
           rollback_record="artifacts/release-health/production-rollback.json"
+          rollback_reference="github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-automated-production-rollback"
+          rollback_target_commit="${{ steps.rollback_target.outputs.last_known_good_commit }}"
           mkdir -p "$(dirname "$rollback_record")"
+          set +e
           pnpm run platform:kubernetes-deployment -- rollback \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT" \
             --out "$rollback_record" \
             --github-output "$GITHUB_OUTPUT"
+          rollback_command_exit=$?
+          set -e
+          if [ ! -f "$rollback_record" ]; then
+            node - "$rollback_record" "$rollback_command_exit" <<'NODE'
+          const { writeFileSync } = require("node:fs");
+          const [outputPath, exitCode] = process.argv.slice(2);
+          writeFileSync(outputPath, `${JSON.stringify({
+            schemaVersion: "platform-kubernetes-deployment/v1",
+            action: "rollback",
+            release: process.env.CHASE_SETS_HELM_RELEASE,
+            namespace: process.env.CHASE_SETS_KUBERNETES_NAMESPACE,
+            result: "failure",
+            reason: `rollback command exited with code ${exitCode}`,
+          }, null, 2)}\n`);
+          NODE
+          fi
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           rollback_result="$(jq -r '.result // "unknown"' "$rollback_record")"
           rollback_reason="$(jq -r '.reason // empty' "$rollback_record")"
-          rollback_reference="github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-automated-production-rollback"
           {
             echo "completed_at=${completed_at}"
             echo "result=${rollback_result}"
-            if [ "$rollback_result" = "success" ]; then
-              echo "rollback_reference=${rollback_reference}"
-              echo "rollback_target_commit=${{ steps.rollback_target.outputs.last_known_good_commit }}"
-            else
-              echo "rollback_reference="
-              echo "rollback_target_commit="
-            fi
+            echo "rollback_reference=${rollback_reference}"
+            echo "rollback_target_commit=${rollback_target_commit}"
           } >> "$GITHUB_OUTPUT"
           if [ "$rollback_result" = "success" ]; then
             {
@@ -2725,12 +2833,14 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           else
             {
-              echo "## Automated production rollback skipped"
+              echo "## Automated production rollback failed"
               echo
-              echo "A production verification step failed before a Helm release existed, so there was no prior Kubernetes release to roll back."
+              echo "A production verification step failed and the automated Helm rollback did not restore the target revision."
               echo
               echo "- Result: ${rollback_result}"
               echo "- Reason: ${rollback_reason:-unknown}"
+              echo "- Target commit: ${rollback_target_commit}"
+              echo "- Reference: ${rollback_reference}"
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -2956,6 +3066,8 @@ jobs:
             artifacts/release-health/production-rollback.json
             artifacts/release-health/production-rollback-target.json
             artifacts/release-health/production-rollback-readiness.json
+            artifacts/release-health/production-app-platform-bootstrap-diagnostics.json
+            artifacts/release-health/production-kubernetes-deploy-diagnostics.json
           if-no-files-found: ignore
           retention-days: 30
 
@@ -3023,7 +3135,9 @@ jobs:
           BUILD_IMAGE_RESULT: ${{ needs.build-image.result }}
           DEPLOY_STAGING_RESULT: ${{ needs.deploy-staging.result }}
           DEPLOY_PRODUCTION_RESULT: ${{ needs.deploy-production.result }}
+          ROLLBACK_RESULT: ${{ needs.deploy-production.outputs.rollback_result || 'not-attempted' }}
           RECORD_STAGING_HEALTH_RESULT: ${{ needs.record-staging-release-health.result }}
+          ARTIFACTS_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?attempt=${{ github.run_attempt }}
         run: |
           set -euo pipefail
 
@@ -3084,7 +3198,14 @@ jobs:
           - Build Release Image: ${BUILD_IMAGE_RESULT}
           - Deploy Staging: ${DEPLOY_STAGING_RESULT}
           - Deploy Production: ${DEPLOY_PRODUCTION_RESULT}
+          - Rollback: ${ROLLBACK_RESULT}
           - Record Staging Release Health: ${RECORD_STAGING_HEALTH_RESULT}
+          - Diagnostics artifacts: ${ARTIFACTS_URL}
+            - staging-app-platform-bootstrap-diagnostics
+            - staging-kubernetes-deploy-diagnostics
+            - production-app-platform-bootstrap-diagnostics
+            - production-kubernetes-deploy-diagnostics
+            - production-release-health
 
           Next steps:
           1. Inspect the failed job logs and uploaded release-health artifacts.
@@ -3125,6 +3246,81 @@ jobs:
               issue_create_args+=(--milestone "${incident_milestone_title}")
             else
               echo "Open incident milestone '${incident_milestone_title}' was not found; creating issue without a milestone."
+            fi
+
+            gh issue create "${issue_create_args[@]}"
+          fi
+
+  notify-production-rollback-incident:
+    name: Notify Production Rollback Incident
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs:
+      - resolve-release
+      - deploy-production
+    if: always() && needs.deploy-production.outputs.rollback_result == 'failure'
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Create or update rollback incident issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          ARTIFACTS_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?attempt=${{ github.run_attempt }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || github.sha }}
+          ROLLBACK_TARGET_COMMIT: ${{ needs.deploy-production.outputs.rollback_target_commit || 'unknown' }}
+          ROLLBACK_REFERENCE: ${{ needs.deploy-production.outputs.rollback_reference || 'not-recorded' }}
+        run: |
+          set -euo pipefail
+
+          release_commit="${RELEASE_COMMIT:-${GITHUB_SHA}}"
+          release_short="${release_commit:0:12}"
+          title="Incident: Platform Deploy rollback failed for ${release_short}"
+
+          body="$(cat <<EOF
+          Automated production rollback incident signal.
+
+          - Kind: production-deploy-rollback-failure
+          - Workflow run: ${RUN_URL}
+          - Release commit: ${release_commit}
+          - Attempted rollback target commit: ${ROLLBACK_TARGET_COMMIT}
+          - Rollback reference: ${ROLLBACK_REFERENCE}
+          - Diagnostics and release-health artifacts: ${ARTIFACTS_URL}
+
+          This issue is intentionally separate from the primary deploy failure. Inspect the rollback record and Kubernetes diagnostics before attempting another rollback or fix-forward.
+          EOF
+          )"
+
+          existing_issue="$(
+            gh issue list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --state open \
+              --search "\"${title}\" in:title" \
+              --json number \
+              --jq '.[0].number // empty'
+          )"
+
+          if [ -n "${existing_issue}" ]; then
+            gh issue comment "${existing_issue}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
+            echo "Updated rollback incident issue #${existing_issue}."
+          else
+            issue_create_args=(
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --body "${body}" \
+              --label "kind:ops" \
+              --label "area:infrastructure"
+            )
+
+            incident_milestone_title="Incidents"
+            incident_milestone_number="$(
+              gh api --paginate "repos/${GITHUB_REPOSITORY}/milestones?state=open&per_page=100" \
+                --jq '.[] | select(.title == "Incidents") | .number'
+            )"
+
+            if [ -n "${incident_milestone_number}" ]; then
+              issue_create_args+=(--milestone "${incident_milestone_title}")
             fi
 
             gh issue create "${issue_create_args[@]}"
@@ -3171,7 +3367,7 @@ jobs:
               --search "\"Incident: Platform Deploy\" in:title" \
               --limit 200 \
               --json number,title \
-              --jq '.[] | select(.title | startswith("Incident: Platform Deploy failed for ") or startswith("Incident: Platform Deploy superseded before production for ")) | [.number, .title] | @tsv'
+              --jq '.[] | select(.title | startswith("Incident: Platform Deploy failed for ") or startswith("Incident: Platform Deploy rollback failed for ") or startswith("Incident: Platform Deploy superseded before production for ")) | [.number, .title] | @tsv'
           )"
 
           if [ -z "${open_incidents}" ]; then

@@ -1115,6 +1115,18 @@ describe("DigitalOcean platform configuration", () => {
       "Apply production Kubernetes registry pull secret",
     );
     const deployStep = workflowStep(deployProductionJob, "Deploy production Kubernetes release");
+    const productionAppPlatformBootstrapDiagnosticsStep = workflowStep(
+      deployProductionJob,
+      "Capture production App Platform bootstrap diagnostics",
+    );
+    const productionAppPlatformBootstrapDiagnosticsUpload = workflowStep(
+      deployProductionJob,
+      "Upload production App Platform bootstrap diagnostics",
+    );
+    const productionKubernetesDiagnosticsUpload = workflowStep(
+      deployProductionJob,
+      "Upload production Kubernetes deploy diagnostics",
+    );
     const diagnosticsStep = workflowStep(deployProductionJob, "Capture post-cutover production Kubernetes diagnostics");
     const rollbackStep = workflowStep(deployProductionJob, "Roll back production Kubernetes release");
     const releaseHealthStep = workflowSteps(platformProductionWorkflow, "Write release health summary").at(-1);
@@ -1124,9 +1136,22 @@ describe("DigitalOcean platform configuration", () => {
     expect(deployStagingJob).not.toContain("- name: Evaluate production rollback readiness");
     expect(deployStagingJob).not.toContain("- name: Wait for Terraform App Platform deployment");
     expect(deployStagingJob).not.toContain("- name: Wait for previous App Platform deployment");
-    expect(deployStagingJob).not.toContain("- name: Capture App Platform deploy diagnostics");
+    expect(deployStagingJob).toContain("- name: Capture staging App Platform bootstrap diagnostics");
     expect(deployStagingJob).not.toContain("digitalocean-app-deployment.mjs wait ");
-    expect(deployStagingJob).not.toContain("digitalocean-app-deployment.mjs diagnostics");
+    const stagingAppPlatformBootstrapDiagnosticsStep = workflowStep(
+      deployStagingJob,
+      "Capture staging App Platform bootstrap diagnostics",
+    );
+    const stagingAppPlatformBootstrapDiagnosticsUpload = workflowStep(
+      deployStagingJob,
+      "Upload staging App Platform bootstrap diagnostics",
+    );
+    expect(stagingAppPlatformBootstrapDiagnosticsStep).toContain("digitalocean-app-deployment.mjs diagnostics");
+    expect(stagingAppPlatformBootstrapDiagnosticsStep).toContain("--component=platform-bootstrap");
+    expect(stagingAppPlatformBootstrapDiagnosticsStep).toContain(
+      "--out=artifacts/release-health/staging-app-platform-bootstrap-diagnostics.json",
+    );
+    expect(stagingAppPlatformBootstrapDiagnosticsUpload).toContain("name: staging-app-platform-bootstrap-diagnostics");
     expect(deployStagingJob).not.toContain("digitalocean-app-deployment.mjs wait-domains");
     expect(deployStagingJob).not.toContain("- name: Reset stale staging root domain attachment");
     expect(deployStagingJob).not.toContain("- name: Deploy App Platform image");
@@ -1318,6 +1343,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(deployStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
     expect(deployStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
 
+    expect(productionAppPlatformBootstrapDiagnosticsStep).toContain("digitalocean-app-deployment.mjs diagnostics");
+    expect(productionAppPlatformBootstrapDiagnosticsStep).toContain("--component=platform-bootstrap");
+    expect(productionAppPlatformBootstrapDiagnosticsStep).toContain(
+      "production-app-platform-bootstrap-diagnostics.json",
+    );
+    expect(productionAppPlatformBootstrapDiagnosticsUpload).toContain(
+      "name: production-app-platform-bootstrap-diagnostics",
+    );
+    expect(productionKubernetesDiagnosticsUpload).toContain("name: production-kubernetes-deploy-diagnostics");
+
     expect(diagnosticsStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
     expect(diagnosticsStep).toContain("pnpm run platform:kubernetes-deployment -- diagnostics");
     expect(diagnosticsStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
@@ -1332,7 +1367,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(rollbackStep).toContain('rollback_result="$(jq -r');
     expect(rollbackStep).toContain('echo "result=${rollback_result}"');
     expect(rollbackStep).toContain("automated-production-rollback");
-    expect(rollbackStep).toContain("Automated production rollback skipped");
+    expect(rollbackStep).toContain("Automated production rollback failed");
+    expect(rollbackStep).toContain('echo "rollback_target_commit=${rollback_target_commit}"');
+    expect(rollbackStep).toContain("rollback_command_exit");
 
     expect(releaseHealthStep).toContain(
       "RECOVERY_MODE: ${{ steps.production_rollback.outputs.result == 'success' && 'rollback'",
@@ -1347,6 +1384,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(uploadStep).toContain("artifacts/release-health/production-rollback-target.json");
     expect(uploadStep).toContain("artifacts/release-health/production-rollback-readiness.json");
     expect(uploadStep).toContain("artifacts/release-health/production-rollback.json");
+    const rollbackIncidentJob = workflowJob(platformProductionWorkflow, "notify-production-rollback-incident");
+    expect(rollbackIncidentJob).toContain("production-deploy-rollback-failure");
+    expect(rollbackIncidentJob).toContain("Attempted rollback target commit");
+    expect(rollbackIncidentJob).toContain("This issue is intentionally separate from the primary deploy failure");
+    expect(rollbackIncidentJob).toContain("needs.deploy-production.outputs.rollback_result == 'failure'");
   });
 
   it("captures staging wake drill worker status through the internal DOKS worker endpoint", () => {
