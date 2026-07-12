@@ -2,6 +2,7 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 export { createInventoryApiClient, InventoryApiError, inventoryApi } from "../../client";
 export type {
   InventoryApiClientOptions,
+  InventoryAccountSellerSkuItemResolution,
   InventoryCatalogItemSnapshot,
   InventoryImportBatch,
   InventoryImportBatchDetail,

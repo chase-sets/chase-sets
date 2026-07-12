@@ -101,6 +101,9 @@ export function PricingRecommendationListPage({
             <LinkButton href="/account/listings" tone="secondary">
               {t("pricing.features.recommendations.ui.recommendationListPage.listings")}
             </LinkButton>
+            <LinkButton href="/account/bulk-reprice" tone="secondary">
+              {t("pricing.features.recommendations.ui.recommendationListPage.bulk.reprice")}
+            </LinkButton>
             <LinkButton href="/account/inventory/imports" tone="ghost">
               {t("pricing.features.recommendations.ui.recommendationListPage.import")}
             </LinkButton>

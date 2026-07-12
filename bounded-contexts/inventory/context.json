@@ -379,6 +379,24 @@
       }
     },
     {
+      "id": "inventory.account-sku-mappings-resolve-inventory-items",
+      "owner": "inventory",
+      "risk": "informational",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /account-sku-mappings/resolve-inventory-items"
+      ],
+      "visibleDestination": {
+        "description": "A POST-shaped read (the seller-SKU batch is a request body, not query params) that resolves seller SKUs to inventory items live from account_sku_mappings and inventory_items on every call -- no write, no snapshot to trust or distrust; built for m113 bulk reprice ingestion (#4328) to reuse Inventory's native-SKU resolution (m71) without a cross-context write."
+      },
+      "proof": {
+        "authoritativeResponse": "resolveAccountSellerSkusToInventoryItems queries the current account_sku_mappings and inventory_items rows on every call; there is no cached or projected intermediate to go stale.",
+        "tests": [
+          "bounded-contexts/inventory/features/import-batches/tests/account-sku-mappings-resolve-inventory-items.db.test.ts"
+        ]
+      }
+    },
+    {
       "id": "inventory.import-batch-job-snapshot",
       "owner": "inventory",
       "risk": "important",

@@ -52,6 +52,7 @@ import {
 } from "../read-model/queries";
 import {
   normalizeInventoryImportSellerSku,
+  resolveAccountSellerSkusToInventoryItems,
   resolveInventoryImportAccountSkuMapping,
   type InventoryImportAccountSkuMapping,
 } from "../read-model/account-sku-mappings";
@@ -145,6 +146,16 @@ export type InventoryImportBatchServices = Readonly<{
     throwIfLeaseLost?: () => void;
   }) => Promise<number>;
   getImportBatchWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
+  /**
+   * Batch seller-SKU -> inventory-item resolution for cross-context callers
+   * (m113 bulk reprice ingestion) that need to resolve a seller's own
+   * SKUs to inventory items without re-implementing this feature's
+   * native-SKU mapping/ambiguity rules. Read-only; reuses the same
+   * account_sku_mappings table import batches use.
+   */
+  resolveAccountSkuMappingsToInventoryItems: (
+    params: Readonly<{ accountId: AccountId; sellerSkus: readonly string[] }>,
+  ) => ReturnType<typeof resolveAccountSellerSkusToInventoryItems>;
 }>;
 
 type InventoryImportBatchRuntimeDeps = Readonly<{
@@ -1684,6 +1695,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       });
       return buildNativeInventoryExportCsv(rows);
     },
+    resolveAccountSkuMappingsToInventoryItems: (params) => resolveAccountSellerSkusToInventoryItems(deps.db, params),
     resolveRow: (params) => resolveBatchRow(params),
     commitBatch: (params, context) => commitBatchRows(params, context),
     enqueueCreateBatchJob: async (params, context) => {

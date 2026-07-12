@@ -22,6 +22,7 @@
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
     "@chase-sets/http": "workspace:*",
+    "@chase-sets/inventory": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/marketplace": "workspace:*",
     "@chase-sets/platform-policy": "workspace:*",
