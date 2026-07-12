@@ -55,5 +55,14 @@ describe("public presence home route SEO", () => {
         ]),
       }),
     );
+
+    // The launch answer carries the interpolated timeline (#3952): the hard
+    // September 1 date, with no leaked {token} placeholders. The FAQPage node
+    // is the third graph entry by construction.
+    const faqPage = schema["@graph"][2];
+    const launchAnswer = faqPage.mainEntity.find((entry) => entry.name === "Is Chase Sets live yet?");
+    expect(launchAnswer?.acceptedAnswer.text).toContain("September 1, 2026");
+    expect(launchAnswer?.acceptedAnswer.text).toContain("late July 2026");
+    expect(launchAnswer?.acceptedAnswer.text).not.toContain("{");
   });
 });

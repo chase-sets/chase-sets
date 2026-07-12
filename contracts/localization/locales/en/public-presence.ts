@@ -85,7 +85,7 @@ export const publicPresenceEnglishTranslations = {
     "Listings created during beta keep a 0% seller fee until sold. Chase Sets also does not pass separate seller payment-processing fees to sellers. Buyers see any checkout fee before payment.",
   "publicPresence.faq.fees.question": "What do sellers pay during beta?",
   "publicPresence.faq.launch.answer":
-    "Chase Sets is not open for marketplace checkout yet. Request access to tell us whether buying, selling, or both matters most for your account.",
+    "Not yet. Chase Sets opens to everyone on {publicLaunchDate}, and beta invite waves begin {betaWavesWindow}. Join the waitlist for an invite before launch and founders offer eligibility.",
   "publicPresence.faq.launch.question": "Is Chase Sets live yet?",
   "publicPresence.faq.safety.answer":
     "Before payment, checkout shows item details, seller profile, shipping, return options, and support coverage. After purchase, support reviews tracking, payment status, listing evidence, and account context.",
@@ -156,6 +156,22 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.howItWorks.description":
     "The product model is built around repeat card work: sourcing, listing, pricing, shipping, and buying without rebuilding the same decision every time.",
   "publicPresence.home.howItWorks.title": "Built around real card workflows",
+  "publicPresence.home.launchTimeline.action": "Get in line for a beta wave",
+  "publicPresence.home.launchTimeline.description":
+    "Chase Sets opens to everyone on {publicLaunchDate}. Numbered beta invite waves begin {betaWavesWindow}, and invites go to the waitlist first.",
+  "publicPresence.home.launchTimeline.step.founders.badge": "During beta",
+  "publicPresence.home.launchTimeline.step.founders.title": "Founders window runs through beta",
+  "publicPresence.home.launchTimeline.step.founders.description":
+    "Beta access starts your 60-day 0% fee-lock window, and your first listing or offer claims one of 500 numbered founder badges while numbers remain.",
+  "publicPresence.home.launchTimeline.step.launch.badge": "{publicLaunchDate}",
+  "publicPresence.home.launchTimeline.step.launch.title": "Public launch: open signup",
+  "publicPresence.home.launchTimeline.step.launch.description":
+    "On {publicLaunchDate}, signup opens to everyone — no invite needed. Waiting until then means no beta wave and a later shot at the founder numbers.",
+  "publicPresence.home.launchTimeline.step.waves.badge": "Beta invite waves",
+  "publicPresence.home.launchTimeline.step.waves.title": "Invites begin {betaWavesWindow}",
+  "publicPresence.home.launchTimeline.step.waves.description":
+    "Invites go out in numbered waves as marketplace checks pass, so waves carry no fixed dates. Waitlist signups are reviewed for each wave.",
+  "publicPresence.home.launchTimeline.title": "When can I use Chase Sets?",
   "publicPresence.home.openOffers.after.badge": "On Chase Sets",
   "publicPresence.home.openOffers.after.description":
     "The same request becomes a priced offer against the real catalog entry, visible to every matching seller.",
