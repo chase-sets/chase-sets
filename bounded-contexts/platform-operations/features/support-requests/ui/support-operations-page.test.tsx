@@ -8,6 +8,7 @@ import type { SupportRequestDetail, SupportRequestListItem } from "./contracts";
 function buildQueueItem(overrides: Partial<SupportRequestListItem> = {}): SupportRequestListItem {
   return {
     support_request_id: "sup_1",
+    display_reference: "SUP-TEST1234",
     order_id: "ord_1",
     buyer_account_id: "acc_buyer",
     seller_account_id: "acc_seller",

@@ -20,6 +20,94 @@ const pendingOffer = {
 } as const;
 
 describe("support request projection", () => {
+  it("persists the derived display reference when a support case opens", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const handlers = buildSupportRequestProjectionHandlers(db);
+
+    await handlers["support.support-request.opened"]?.({
+      type: "support.support-request.opened",
+      data: {
+        supportRequestId: "sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+        orderId: "ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        flowType: "item-not-as-described",
+        status: "waiting-on-seller",
+        priority: "normal",
+        openedByAccountId: "acc_buyer",
+        openedByRole: "buyer",
+        openedAt: "2026-07-12T00:00:00.000Z",
+        sellerResponseDueAt: "2026-07-13T00:00:00.000Z",
+        supportReviewDueAt: null,
+        sellerConditionAttestationDueAt: null,
+        orderReturnContext: [],
+        returnInvestigation: null,
+        checklist: [],
+      },
+    } as never);
+
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("display_reference"),
+      expect.arrayContaining(["sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9", "SUP-E6K7M8N9"]),
+    );
+  });
+
+  it("replays a non-ULID support request without conflicting with its owned display reference", async () => {
+    const projectedReferences = new Map<string, string>();
+    const db = {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        if (!sql.includes("NULL, NULL, NULL, NULL, $17")) {
+          throw new Error("INSERT has more target columns than expressions");
+        }
+
+        const supportRequestId = values[0] as string;
+        const displayReference = values[16] as string;
+        const existingDisplayReference = projectedReferences.get(supportRequestId);
+
+        if (existingDisplayReference !== undefined && sql.includes("display_reference = EXCLUDED.display_reference")) {
+          throw Object.assign(new Error("duplicate key value violates unique constraint"), {
+            code: "23505",
+            constraint: "support_request_pages_display_reference_key",
+          });
+        }
+
+        projectedReferences.set(supportRequestId, existingDisplayReference ?? displayReference);
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildSupportRequestProjectionHandlers(db);
+    const event = {
+      type: "support.support-request.opened",
+      data: {
+        supportRequestId: "sup_seed_active_product_not_received",
+        orderId: "ord_seed_active_product_not_received",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        flowType: "product-not-received",
+        status: "waiting-on-seller",
+        priority: "normal",
+        openedByAccountId: "acc_buyer",
+        openedByRole: "buyer",
+        openedAt: "2026-07-12T00:00:00.000Z",
+        sellerResponseDueAt: "2026-07-13T00:00:00.000Z",
+        supportReviewDueAt: null,
+        sellerConditionAttestationDueAt: null,
+        orderReturnContext: [],
+        returnInvestigation: null,
+        checklist: [],
+      },
+    } as never;
+
+    await expect(handlers["support.support-request.opened"]?.(event)).resolves.toBeUndefined();
+    await expect(handlers["support.support-request.opened"]?.(event)).resolves.toBeUndefined();
+
+    expect(db.query).toHaveBeenCalledTimes(2);
+    expect(projectedReferences.get("sup_seed_active_product_not_received")).toBe(
+      "sup_seed_active_product_not_received",
+    );
+    expect(db.query.mock.calls[1]?.[0]).not.toContain("display_reference = EXCLUDED.display_reference");
+  });
+
   it("projects the affected line-item amount contract after the additive case event", async () => {
     const db = { query: vi.fn(async () => ({ rows: [] })) };
     const handlers = buildSupportRequestProjectionHandlers(db);

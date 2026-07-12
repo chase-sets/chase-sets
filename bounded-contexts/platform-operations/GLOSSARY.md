@@ -131,4 +131,4 @@ A **Safety Hold** is the planned Platform Operations restriction that pauses a r
 
 ### Support Reference Lookup
 
-A **Support Reference Lookup** is the Platform Operations admin surface that resolves any support-safe reference (`ORD-`, `SHP-`, `PYO-`, `CSG-`, `CS-SL-`) or raw order/shipment/payout id to the owning record, by routing to that record's owning bounded context.
+A **Support Reference Lookup** is the Platform Operations admin surface that resolves any support-safe reference (`ORD-`, `SHP-`, `PYO-`, `SUP-`, `CSG-`, `CS-SL-`) or raw order/shipment/payout/support-request id to the owning record, by routing to that record's owning bounded context.

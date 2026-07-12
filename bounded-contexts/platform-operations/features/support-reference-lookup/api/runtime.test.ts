@@ -21,8 +21,13 @@ function createSources(overrides: Partial<Record<string, SupportReferenceLookupS
     contextName: "checkout",
     lookupByReference: vi.fn(async () => null),
   };
+  const platformOperations: SupportReferenceLookupSource = overrides.platformOperations ?? {
+    contextName: "platform-operations",
+    lookupByReference: vi.fn(async () => null),
+    lookupById: vi.fn(async () => null),
+  };
 
-  return [ordering, checkout];
+  return [ordering, checkout, platformOperations];
 }
 
 describe("resolveSupportReference", () => {
@@ -96,6 +101,30 @@ describe("resolveSupportReference", () => {
 
     expect(result).toEqual(checkoutResult);
     expect(checkout.lookupByReference).toHaveBeenCalledWith("CSG-CARDVAULT");
+  });
+
+  it("delegates SUP- and sup_ references to the support-case source", async () => {
+    const supportCase: SupportReferenceLookupSource = {
+      contextName: "platform-operations",
+      lookupByReference: vi.fn(async () => ({
+        contextName: "platform-operations",
+        entityType: "support-case",
+        displayReference: "SUP-E6K7M8N9",
+        status: "open",
+        summary: "Support case SUP-E6K7M8N9",
+        adminHref: "/support/requests/sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+      })),
+      lookupById: vi.fn(async () => null),
+    };
+    const sources = createSources({ platformOperations: supportCase });
+
+    await expect(resolveSupportReference(sources, "SUP-E6K7M8N9")).resolves.toMatchObject({
+      entityType: "support-case",
+    });
+    expect(supportCase.lookupByReference).toHaveBeenCalledWith("SUP-E6K7M8N9");
+
+    await resolveSupportReference(sources, "sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9");
+    expect(supportCase.lookupById).toHaveBeenCalledWith("sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9");
   });
 
   it("returns null when the owning context has no record for the reference", async () => {

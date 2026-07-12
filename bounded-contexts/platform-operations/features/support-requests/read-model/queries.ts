@@ -9,6 +9,7 @@ import type {
 
 export type SupportRequestListRow = Readonly<{
   support_request_id: string;
+  display_reference: string;
   order_id: string;
   buyer_account_id: string;
   seller_account_id: string;
@@ -50,6 +51,7 @@ export type SupportRequestDetailRow = SupportRequestListRow &
 const listSelect = `
   SELECT
     support_request_id,
+    display_reference,
     order_id,
     buyer_account_id,
     seller_account_id,
@@ -85,6 +87,7 @@ const listSelect = `
 const detailSelect = `
   SELECT
     support_request_id,
+    display_reference,
     order_id,
     buyer_account_id,
     seller_account_id,
@@ -230,7 +233,8 @@ export async function listSupportOperationsQueue(
   if (search) {
     values.push(`%${escapeLikePattern(search)}%`);
     conditions.push(`(
-        support_request_id ILIKE $${values.length} ESCAPE '\\'
+      support_request_id ILIKE $${values.length} ESCAPE '\\'
+        OR display_reference ILIKE $${values.length} ESCAPE '\\'
         OR order_id ILIKE $${values.length} ESCAPE '\\'
         OR buyer_account_id ILIKE $${values.length} ESCAPE '\\'
         OR seller_account_id ILIKE $${values.length} ESCAPE '\\'
@@ -285,6 +289,37 @@ export async function listSupportOperationsQueue(
     items: itemsResult.rows,
     total: Number(countResult.rows[0]?.count ?? 0),
   };
+}
+
+export type SupportRequestReferenceRow = Readonly<
+  Pick<SupportRequestListRow, "support_request_id" | "display_reference" | "status" | "flow_type">
+>;
+
+const supportReferenceSelect = `
+  SELECT support_request_id, display_reference, status, flow_type
+  FROM support_request_pages
+`;
+
+export async function getSupportRequestByDisplayReference(
+  db: PgQueryable,
+  displayReference: string,
+): Promise<SupportRequestReferenceRow | null> {
+  const result = await db.query<SupportRequestReferenceRow>(`${supportReferenceSelect} WHERE display_reference = $1`, [
+    displayReference,
+  ]);
+
+  return result.rows[0] ?? null;
+}
+
+export async function getSupportRequestById(
+  db: PgQueryable,
+  supportRequestId: string,
+): Promise<SupportRequestReferenceRow | null> {
+  const result = await db.query<SupportRequestReferenceRow>(`${supportReferenceSelect} WHERE support_request_id = $1`, [
+    supportRequestId,
+  ]);
+
+  return result.rows[0] ?? null;
 }
 
 export async function getAccountSupportRequest(

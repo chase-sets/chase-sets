@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { normalizeSupportReferenceInput, parseSupportReference } from "./support-reference";
 
 describe("support reference routing primitive", () => {
-  it("routes ORD-/SHP-/PYO- display references to their owning context", () => {
+  it("routes ORD-/SHP-/PYO-/SUP- display references to their owning context", () => {
     expect(parseSupportReference("ORD-A1B2C3D4")).toEqual({
       kind: "display-reference",
       contextName: "ordering",
@@ -17,6 +17,11 @@ describe("support reference routing primitive", () => {
       kind: "display-reference",
       contextName: "settlement",
       reference: "PYO-A1B2C3D4",
+    });
+    expect(parseSupportReference("SUP-A1B2C3D4")).toEqual({
+      kind: "display-reference",
+      contextName: "platform-operations",
+      reference: "SUP-A1B2C3D4",
     });
   });
 
@@ -56,7 +61,7 @@ describe("support reference routing primitive", () => {
     });
   });
 
-  it("routes raw ord_/shp_/pyo_ typed ULIDs by parsing them via parseTypedId", () => {
+  it("routes raw ord_/shp_/pyo_/sup_ typed ULIDs by parsing them via parseTypedId", () => {
     expect(parseSupportReference("ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9")).toEqual({
       kind: "typed-id",
       contextName: "ordering",
@@ -74,6 +79,12 @@ describe("support reference routing primitive", () => {
       contextName: "settlement",
       typedIdPrefix: "pyo",
       id: "pyo_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+    });
+    expect(parseSupportReference("SUP_01JZ6DKP7S7Z4AZ5N5E6K7M8N9")).toEqual({
+      kind: "typed-id",
+      contextName: "platform-operations",
+      typedIdPrefix: "sup",
+      id: "sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
     });
   });
 

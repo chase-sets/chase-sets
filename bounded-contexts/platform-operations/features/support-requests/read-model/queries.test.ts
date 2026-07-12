@@ -1,6 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
-import { listSupportOperationsQueue } from "./queries";
+import { getSupportRequestByDisplayReference, listSupportOperationsQueue } from "./queries";
 
 type QueryCall = Readonly<{ sql: string; params: readonly unknown[] }>;
 
@@ -17,6 +17,24 @@ function buildDb(calls: QueryCall[], countValue = "0", rows: unknown[] = []): Pg
 }
 
 describe("support operations queue read-model query", () => {
+  it("exposes the display reference in queue DTOs and supports indexed reference lookup", async () => {
+    const calls: QueryCall[] = [];
+    const db = buildDb(calls, "1", [
+      { support_request_id: "sup_01", display_reference: "SUP-E6K7M8N9", status: "open", flow_type: "missing-item" },
+    ]);
+
+    const result = await getSupportRequestByDisplayReference(db, "SUP-E6K7M8N9");
+
+    expect(result).toEqual({
+      support_request_id: "sup_01",
+      display_reference: "SUP-E6K7M8N9",
+      status: "open",
+      flow_type: "missing-item",
+    });
+    expect(calls[0]?.sql).toContain("WHERE display_reference = $1");
+    expect(calls[0]?.params).toEqual(["SUP-E6K7M8N9"]);
+  });
+
   it("applies only the now-timestamp filter when no status, priority, or search is supplied", async () => {
     const calls: QueryCall[] = [];
     const db = buildDb(calls);

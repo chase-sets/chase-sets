@@ -1,4 +1,6 @@
 import { formatDateTime, t } from "@chase-sets/localization";
+import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
+import type { SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import { useMemo, useState } from "react";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
@@ -69,6 +71,11 @@ function checklistSummary(request: SupportRequestListItem) {
 
 function SupportRequestTable({ requests }: Readonly<{ requests: readonly SupportRequestListItem[] }>) {
   const columns: DataColumn<SupportRequestListItem>[] = [
+    {
+      key: "reference",
+      header: t("support.features.supportRequests.ui.supportRequestListPage.reference"),
+      cell: (request) => request.display_reference || request.support_request_id,
+    },
     {
       key: "issue",
       header: t("support.features.supportRequests.ui.supportRequestListPage.issue"),
@@ -312,7 +319,7 @@ export function SupportRequestListPage({
         <Banner
           tone="success"
           title={t("support.features.supportRequests.ui.supportRequestListPage.open.success", {
-            id: openedSupportRequestId,
+            id: deriveDisplayReferenceOrRaw(openedSupportRequestId as SupportRequestId),
           })}
         />
       ) : null}

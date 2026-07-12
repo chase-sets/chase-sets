@@ -5,34 +5,40 @@ import { parseTypedId } from "./typed-ids";
  * Checkout's `CSG-`/`CS-SL-` references are its own read-model format (not
  * derived through `display-reference.ts`), but they share the same
  * "paste one string, land on the owning entity" shape as the `ORD-`/`SHP-`/
- * `PYO-` display references, so routing for all five lives here together.
+ * `PYO-`/`SUP-` display references, so routing for all six lives here together.
  */
-export type SupportReferenceContextName = "ordering" | "fulfillment" | "settlement" | "checkout";
+export type SupportReferenceContextName =
+  | "ordering"
+  | "fulfillment"
+  | "settlement"
+  | "checkout"
+  | "platform-operations";
 
-/** A normalized display-style reference (`ORD-`, `SHP-`, `PYO-`, `CSG-`, `CS-SL-`), ready to hand to the owning context's own lookup. */
+/** A normalized display-style reference (`ORD-`, `SHP-`, `PYO-`, `SUP-`, `CSG-`, `CS-SL-`), ready to hand to the owning context's own lookup. */
 export type SupportReferenceRoute = Readonly<{
   kind: "display-reference";
   contextName: SupportReferenceContextName;
   reference: string;
 }>;
 
-/** A raw typed ULID (`ord_...`, `shp_...`, `pyo_...`), ready to hand to the owning context's own by-id lookup. */
+/** A raw typed ULID (`ord_...`, `shp_...`, `pyo_...`, `sup_...`), ready to hand to the owning context's own by-id lookup. */
 export type SupportReferenceTypedIdRoute = Readonly<{
   kind: "typed-id";
   contextName: SupportReferenceContextName;
-  typedIdPrefix: "ord" | "shp" | "pyo";
+  typedIdPrefix: "ord" | "shp" | "pyo" | "sup";
   id: string;
 }>;
 
 export type ParsedSupportReference = SupportReferenceRoute | SupportReferenceTypedIdRoute;
 
-const TYPED_ID_CONTEXT_BY_PREFIX: Readonly<Record<"ord" | "shp" | "pyo", SupportReferenceContextName>> = {
+const TYPED_ID_CONTEXT_BY_PREFIX: Readonly<Record<"ord" | "shp" | "pyo" | "sup", SupportReferenceContextName>> = {
   ord: "ordering",
   shp: "fulfillment",
   pyo: "settlement",
+  sup: "platform-operations",
 };
 
-const TYPED_ID_INPUT_PATTERN = /^(ord|shp|pyo)_(.+)$/i;
+const TYPED_ID_INPUT_PATTERN = /^(ord|shp|pyo|sup)_(.+)$/i;
 
 // Longest/most-specific collapsed (hyphen-free) prefix first so "CS-SL-" and
 // "CSG-" aren't shadowed by a broader prefix.
@@ -45,6 +51,7 @@ const DISPLAY_REFERENCE_PREFIXES: readonly Readonly<{
   { prefix: "ORD-", contextName: "ordering" },
   { prefix: "SHP-", contextName: "fulfillment" },
   { prefix: "PYO-", contextName: "settlement" },
+  { prefix: "SUP-", contextName: "platform-operations" },
 ];
 
 /** Trims and uppercases operator input for display-reference matching. Typed ULIDs are handled separately and keep their own casing rules. */
@@ -68,7 +75,7 @@ export function parseSupportReference(input: string): ParsedSupportReference | n
 
   const typedIdMatch = TYPED_ID_INPUT_PATTERN.exec(trimmed);
   if (typedIdMatch) {
-    const typedIdPrefix = typedIdMatch[1]!.toLowerCase() as "ord" | "shp" | "pyo";
+    const typedIdPrefix = typedIdMatch[1]!.toLowerCase() as "ord" | "shp" | "pyo" | "sup";
     const idSuffix = typedIdMatch[2]!.trim();
     if (!idSuffix) {
       return null;

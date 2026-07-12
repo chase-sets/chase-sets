@@ -90,6 +90,24 @@ describe("platform email template renderer", () => {
     expect(rendered.textBody).toContain("Reorder: /marketplace?reorderFrom=ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9");
   });
 
+  it("renders support-case email copy with the display reference", () => {
+    const rendered = platformEmailTemplateRenderer.render(
+      message({
+        subject: "Support request SUP-E6K7M8N9 opened for order ORD-E6K7M8N9",
+        templateId: "support_request_opened",
+        templateData: {
+          supportReference: "SUP-E6K7M8N9",
+          supportRequestId: "sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+          orderId: "ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+          flowType: "product-not-received",
+        },
+      }),
+    );
+
+    expect(rendered.textBody).toContain("Support reference: SUP-E6K7M8N9");
+    expect(rendered.textBody).not.toContain("sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9");
+  });
+
   it("renders payment captured copy with the borrowed order reference", () => {
     const rendered = platformEmailTemplateRenderer.render(
       message({

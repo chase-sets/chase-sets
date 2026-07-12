@@ -56,6 +56,7 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportRequestListPage.open.submit": "Open support request",
   "support.features.supportRequests.ui.supportRequestListPage.open.success": "Support request {id} is open.",
   "support.features.supportRequests.ui.supportRequestListPage.issue": "Issue",
+  "support.features.supportRequests.ui.supportRequestListPage.reference": "Reference",
   "support.features.supportRequests.ui.supportRequestListPage.order": "Order",
   "support.features.supportRequests.ui.supportRequestListPage.status": "Status",
   "support.features.supportRequests.ui.supportRequestListPage.updated": "Updated",
@@ -81,6 +82,7 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportOperationsPage.no.requests.description":
     "Urgent, overdue, and ready-for-support requests appear here when marketplace support needs operator attention.",
   "support.features.supportRequests.ui.supportOperationsPage.issue": "Issue",
+  "support.features.supportRequests.ui.supportOperationsPage.reference": "Reference",
   "support.features.supportRequests.ui.supportOperationsPage.order": "Order",
   "support.features.supportRequests.ui.supportOperationsPage.order.viewPurchase": "View purchase (buyer)",
   "support.features.supportRequests.ui.supportOperationsPage.order.viewSale": "View sale (seller)",
@@ -213,10 +215,10 @@ export const supportEnglishTranslations = {
   "support.features.supportReferenceLookup.api.route.reference.not.found": "No record was found for that reference.",
   "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.title": "Reference lookup",
   "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.description":
-    "Paste any order, shipment, payout, or checkout reference to find the record it belongs to.",
+    "Paste any order, shipment, payout, support-case, or checkout reference to find the record it belongs to.",
   "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.search.title": "Look up a reference",
   "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.search.description":
-    "Accepts ORD-, SHP-, PYO-, CSG-, and CS-SL- references, and raw order, shipment, or payout ids.",
+    "Accepts ORD-, SHP-, PYO-, SUP-, CSG-, and CS-SL- references, and raw order, shipment, payout, or support-case ids.",
   "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.search.label": "Reference",
   "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.search.placeholder": "e.g. ORD-A1B2C3D4",
   "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.search.submit": "Look up",
