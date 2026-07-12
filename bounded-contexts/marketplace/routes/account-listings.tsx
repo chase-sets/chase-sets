@@ -198,7 +198,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   const { listings, feeLockReport, listingAvailability } = pageReads;
 
-  // m108 #4271: best-effort, outside the write-freshness machinery above --
+  // Best-effort, outside the write-freshness machinery above --
   // behavioral metrics have no write path on this page, so there is nothing
   // to stay fresh against; a transient failure degrades the KPI panel to
   // "not enough orders yet" rather than failing the whole listings page.

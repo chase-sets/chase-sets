@@ -514,7 +514,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         conflictColumns: ["account_id"],
         // created_at is set once here and excluded from the conflict update so a
         // replayed or redelivered "identity.account.created" event never shifts
-        // the public profile's "member since" date (m108, #4268).
+        // the public profile's "member since" date.
         updateColumns: MARKET_ACCOUNT_CREATED_COLUMNS.filter(
           (column) => column !== "account_id" && column !== "created_at",
         ),
@@ -655,7 +655,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         ),
       );
     },
-    // Account badges mirror (m87 badge facts, m108 #4271): the same
+    // Account badges mirror (m87 badge facts): the same
     // add/remove-one-value-from-a-jsonb-array upsert marketplace already
     // uses for `marketplace_account_pages.badges`
     // (features/listings/integrations/supply/supply-projection.ts). No
