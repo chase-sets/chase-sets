@@ -273,15 +273,12 @@ describe("notifications contract", () => {
     ).toBeNull();
 
     expect(
-      applyNotificationChannelPreferences(
-        { ...commerceMessage, category: undefined },
-        [
-          { channel: "email", enabled: false },
-          { channel: "sms", enabled: false },
-          { channel: "rcs", enabled: false },
-          { channel: "web", enabled: false },
-        ],
-      )?.channels.map((channel) => channel.channel),
+      applyNotificationChannelPreferences({ ...commerceMessage, category: undefined }, [
+        { channel: "email", enabled: false },
+        { channel: "sms", enabled: false },
+        { channel: "rcs", enabled: false },
+        { channel: "web", enabled: false },
+      ])?.channels.map((channel) => channel.channel),
     ).toEqual(["email", "sms", "rcs", "web"]);
 
     expect(
