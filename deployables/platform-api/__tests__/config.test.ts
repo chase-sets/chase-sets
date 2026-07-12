@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PLATFORM_INTERNAL_AUTH_SECRET_ENV } from "@chase-sets/platform-runtime/http";
 import { DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS } from "@chase-sets/platform-runtime/ucp";
+import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
 import {
   getContextDatabaseEnvName,
   getContextWaiterDatabaseEnvName,
@@ -140,9 +141,6 @@ function resetConfigEnv() {
   delete process.env.MOBILE_MESSAGING_PROVIDER;
   delete process.env.TWILIO_AUTH_TOKEN;
   delete process.env.TWILIO_WEBHOOK_SIGNATURE_REQUIRED;
-  delete process.env.PAYMENT_RECONCILIATION_INTERVAL_MS;
-  delete process.env.PAYOUT_RECONCILIATION_INTERVAL_MS;
-  delete process.env.SELLER_FUNDS_RELEASE_INTERVAL_MS;
   delete process.env.REALTIME_BATCH_SIZE;
   delete process.env.REALTIME_POLL_INTERVAL_MS;
   delete process.env.REALTIME_HEARTBEAT_INTERVAL_MS;
@@ -229,9 +227,6 @@ describe("platform api config", () => {
     expect(config.controlDatabaseUrl).toBe("postgresql://localhost/chase_sets");
     expect(config.contextDatabaseUrls).toEqual({});
     expect(config.runtimeProfile).toBe("public");
-    expect(config.paymentReconciliationIntervalMs).toBe(300_000);
-    expect(config.payoutReconciliationIntervalMs).toBe(300_000);
-    expect(config.sellerFundsReleaseIntervalMs).toBe(300_000);
     expect(config.deploymentEnvironment).toBe("dev");
     expect(config.dataProfiles).toEqual(["critical-bootstrap", "catalog-integration-bootstrap", "scenario-seed"]);
     expect(config.realtime).toMatchObject({
@@ -489,9 +484,6 @@ describe("platform api config", () => {
     process.env.EASYPOST_WEBHOOK_SECRET = "whsec_easypost_shared";
     process.env.EASYPOST_API_BASE_URL = "https://api.easypost.shared.test/v2";
     process.env.EASYPOST_MODE = "production";
-    process.env.PAYMENT_RECONCILIATION_INTERVAL_MS = "600000";
-    process.env.SELLER_FUNDS_RELEASE_INTERVAL_MS = "900000";
-    process.env.PAYOUT_RECONCILIATION_INTERVAL_MS = "1200000";
     process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
     process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
     process.env.CATALOG_ASSET_S3_REGION = "nyc3";
@@ -509,9 +501,6 @@ describe("platform api config", () => {
       paymentProcessor: config.paymentProcessor,
       moneyMovement: config.moneyMovement,
       postage: config.postage,
-      paymentReconciliationIntervalMs: config.paymentReconciliationIntervalMs,
-      sellerFundsReleaseIntervalMs: config.sellerFundsReleaseIntervalMs,
-      payoutReconciliationIntervalMs: config.payoutReconciliationIntervalMs,
     }).toEqual({
       pool: {
         max: 18,
@@ -549,9 +538,6 @@ describe("platform api config", () => {
         apiBaseUrl: "https://api.easypost.shared.test/v2",
         mode: "production",
       },
-      paymentReconciliationIntervalMs: 600_000,
-      sellerFundsReleaseIntervalMs: 900_000,
-      payoutReconciliationIntervalMs: 1_200_000,
     });
   });
 
@@ -754,7 +740,7 @@ describe("platform api config", () => {
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
 
     expect(loadConfig().stripeGoLive).toMatchObject({
-      apiVersion: "2026-03-25.dahlia",
+      apiVersion: STRIPE_API_VERSION,
       paymentsConfigured: true,
       connectConfigured: true,
       fakeFallbackAllowed: true,
@@ -964,13 +950,6 @@ describe("platform api config", () => {
     );
   });
 
-  it("can disable scheduled payout reconciliation", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.PAYOUT_RECONCILIATION_INTERVAL_MS = "0";
-
-    expect(loadConfig().payoutReconciliationIntervalMs).toBeNull();
-  });
-
   it("loads realtime tuning from environment variables", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.REALTIME_BATCH_SIZE = "25";
@@ -1127,6 +1106,7 @@ describe("platform api config", () => {
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env.NODE_ENV = "production";
     process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_staging_connect_test";
     process.env.REALTIME_STREAM_LIMITER = "local";
     process.env.REALTIME_WAKE_SIGNAL_ENABLED = "false";
     process.env.REALTIME_BACKGROUND_MAINTENANCE_ENABLED = "false";

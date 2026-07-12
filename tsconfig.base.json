@@ -798,6 +798,12 @@
       "@chase-sets/settlement/server": [
         "./bounded-contexts/settlement/server.ts"
       ],
+      "@chase-sets/stripe-config": [
+        "./infrastructure/stripe-config/index.ts"
+      ],
+      "@chase-sets/stripe-config/webhook-events.json": [
+        "./infrastructure/stripe-config/webhook-events.json"
+      ],
       "@chase-sets/stripe-connect": [
         "./infrastructure/stripe-connect/index.ts"
       ],

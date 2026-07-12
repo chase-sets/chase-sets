@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import webhookEventRegistry from "../infrastructure/stripe-config/webhook-events.json" with { type: "json" };
 import {
   MARKETPLACE_STRIPE_MONEY_OPERATIONS_EVIDENCE_VERSION,
   REQUIRED_STRIPE_MONEY_OPERATION_EVENT_ID_GROUPS,
@@ -15,7 +16,7 @@ function proof(overrides = {}) {
     proofCompletedAt: "2026-05-30T12:30:00.000Z",
     environment: "live",
     releaseCommit: "f318fd3577b635959dabc23117f509ed45621268",
-    apiVersion: "2026-03-25.dahlia",
+    apiVersion: webhookEventRegistry.apiVersion,
     paymentWebhookDestination: "https://marketplace.chasesets.com/api/payments/provider/webhooks",
     connectWebhookDestination: "https://marketplace.chasesets.com/api/settlement/provider/money-movement/webhooks",
     connectAccountsApi: "v1",
@@ -121,7 +122,7 @@ describe("marketplace stripe money operations evidence", () => {
       proofCompletedAt: "2026-05-30T12:30:00.000Z",
       environment: "live",
       releaseCommit: "f318fd3577b635959dabc23117f509ed45621268",
-      apiVersion: "2026-03-25.dahlia",
+      apiVersion: webhookEventRegistry.apiVersion,
       paymentWebhookDestination: "https://marketplace.chasesets.com/api/payments/provider/webhooks",
       connectWebhookDestination: "https://marketplace.chasesets.com/api/settlement/provider/money-movement/webhooks",
       connectAccountsApi: "v1",
