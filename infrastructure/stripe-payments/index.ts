@@ -729,7 +729,8 @@ function verifyStripeSignature(
     for (const signature of parsed.signatures) {
       const receivedBuffer = Buffer.from(signature, "hex");
       verified =
-        (expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer)) || verified;
+        (expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer)) ||
+        verified;
     }
   }
 
@@ -990,6 +991,19 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         processorStatus,
         failureCode: null,
         failureMessage: null,
+        occurredAt,
+      };
+    case "payment_intent.canceled":
+      return {
+        eventId: event.id,
+        kind: "payment-cancelled",
+        processorName: "stripe",
+        processorPaymentKind: "payment-intent",
+        processorPaymentReference,
+        internalPaymentId,
+        processorStatus,
+        failureCode: null,
+        failureMessage: "Payment intent was canceled by Stripe.",
         occurredAt,
       };
     case "setup_intent.succeeded":
@@ -1537,6 +1551,21 @@ export function createStripePaymentProcessorGateway(
             liabilityShiftOutcome: await retrieveLiabilityShiftOutcomeForIntent(intent),
           }
         : null;
+    },
+    async cancelPayment(processorPaymentReference: string) {
+      const reference = normalizeOptionalText(processorPaymentReference);
+      if (!reference || !reference.startsWith("pi_")) {
+        throw new Error("Only direct payment intents can be cancelled through the payment processor gateway.");
+      }
+      const intent = await stripeRequest<StripePaymentIntentResponse>(
+        `/v1/payment_intents/${encodeURIComponent(reference)}/cancel`,
+        { method: "POST" },
+      );
+      const result = mapPaymentIntentReconciliationResult(intent);
+      if (!result) {
+        throw new Error("Stripe payment intent cancellation did not return a payment result.");
+      }
+      return result;
     },
     async retrievePaymentResultByPaymentId(paymentId) {
       const normalizedPaymentId = normalizeOptionalText(paymentId);

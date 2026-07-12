@@ -133,6 +133,20 @@ export function createFakePaymentProcessorGateway(
     async retrievePaymentResult(processorPaymentReference) {
       return paymentResults.get(processorPaymentReference) ?? null;
     },
+    async cancelPayment(processorPaymentReference) {
+      const existing = paymentResults.get(processorPaymentReference);
+      const cancelled: ProcessorPaymentReconciliationResult = {
+        processorName: "stripe",
+        processorPaymentKind: "payment-intent",
+        processorPaymentReference,
+        processorStatus: "canceled",
+        outcome: "cancelled",
+        occurredAt: new Date().toISOString(),
+        internalPaymentId: existing?.internalPaymentId ?? null,
+      };
+      paymentResults.set(processorPaymentReference, cancelled);
+      return cancelled;
+    },
     async retrievePaymentResultByPaymentId(paymentId) {
       return paymentResultsByPaymentId.get(paymentId) ?? null;
     },

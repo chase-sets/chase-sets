@@ -5,6 +5,7 @@
     "checkout.session.async_payment_succeeded",
     "checkout.session.async_payment_failed",
     "checkout.session.expired",
+    "payment_intent.canceled",
     "payment_intent.processing",
     "payment_intent.amount_capturable_updated",
     "payment_intent.succeeded",

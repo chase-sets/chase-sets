@@ -2409,6 +2409,13 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           });
           break;
         case "payment-cancelled":
+          if (
+            webhookEvent.processorPaymentKind !== "payment-intent" ||
+            payment.processor_payment_kind !== "payment-intent"
+          ) {
+            await recordProcessed();
+            return { received: true, ignored: true };
+          }
           await commandHandler({
             streamId,
             command: {

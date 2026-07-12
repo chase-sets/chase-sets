@@ -278,6 +278,7 @@ export interface PaymentProcessorGateway {
    */
   createPaymentSession(input: CreateProcessorPaymentInput): Promise<CreatedProcessorPayment>;
   createAgenticPaymentSession?(input: AgenticProcessorPaymentInput): Promise<CreatedProcessorPayment>;
+  cancelPayment(processorPaymentReference: string): Promise<ProcessorPaymentReconciliationResult>;
   retrievePaymentResult(processorPaymentReference: string): Promise<ProcessorPaymentReconciliationResult | null>;
   retrievePaymentResultByPaymentId?(paymentId: PaymentId): Promise<ProcessorPaymentReconciliationResult | null>;
   createRefund(input: CreateProcessorRefundInput): Promise<CreatedProcessorRefund>;

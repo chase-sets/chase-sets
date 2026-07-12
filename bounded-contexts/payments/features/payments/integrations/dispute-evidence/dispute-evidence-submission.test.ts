@@ -176,6 +176,7 @@ function gateway(): PaymentProcessorGateway {
     retrieveSavedPaymentMethod: vi.fn(),
     detachSavedPaymentMethod: vi.fn(),
     createPaymentSession: vi.fn(),
+    cancelPayment: vi.fn(),
     retrievePaymentResult: vi.fn(),
     createRefund: vi.fn(),
     parseWebhook: vi.fn(),
