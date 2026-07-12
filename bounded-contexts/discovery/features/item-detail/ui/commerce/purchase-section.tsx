@@ -22,7 +22,7 @@ import {
 } from "@chase-sets/design-system";
 import { trackItemDetailRailEvent } from "../item-detail-rail-analytics";
 import type { DiscoveryGradedCardDetails } from "../../../../support/client-support/contracts";
-import { hasTrustedSellerBadge, TrustedSellerBadge } from "../account-badges";
+import { FounderBadge, hasFounderBadge, hasTrustedSellerBadge, TrustedSellerBadge } from "../account-badges";
 import {
   formatMoneyAmount,
   getActionErrorMessage,
@@ -384,6 +384,7 @@ export function CheckoutPurchaseIntentSection({
                     ratingLabel="Seller account reputation"
                   />
                   {hasTrustedSellerBadge(selectedListing?.seller_badges) ? <TrustedSellerBadge /> : null}
+                  {hasFounderBadge(selectedListing?.seller_badges) ? <FounderBadge /> : null}
                 </Inline>
                 <ProductQuantitySummary
                   availability={selectedListingAvailability}

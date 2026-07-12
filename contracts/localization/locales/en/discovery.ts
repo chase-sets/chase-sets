@@ -2,6 +2,9 @@ export const discoveryEnglishTranslations = {
   "discovery.features.itemDetail.ui.accountBadges.trusted.seller": "Trusted seller",
   "discovery.features.itemDetail.ui.accountBadges.trusted.seller.explainer":
     "Operations has approved this seller for standard high-dollar listing and payout-release policies.",
+  "discovery.features.itemDetail.ui.accountBadges.founder": "Founder",
+  "discovery.features.itemDetail.ui.accountBadges.founder.explainer":
+    "One of the first accounts to list or make an offer on chase-sets, as part of the marketplace's founding cohort.",
   "discovery.features.itemDetail.ui.similarItems.title": "More like this",
   "discovery.features.itemDetail.ui.similarItems.viewItem": "View item",
   "discovery.features.categories.api.route.category.not.found": "Category not found.",
