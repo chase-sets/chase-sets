@@ -25,6 +25,9 @@ describe("public web deployable", () => {
       "market/:slug",
       "",
       "welcome",
+      "help",
+      "help/:category",
+      "help/:category/:slug",
       "faq",
       "contact",
       "terms",
@@ -68,6 +71,8 @@ describe("public web deployable", () => {
     expect(sitemap.headers.get("Content-Type")).toContain("application/xml");
     expect(sitemapBody).toContain("<loc>https://chasesets.com/</loc>");
     expect(sitemapBody).toContain("<loc>https://chasesets.com/faq</loc>");
+    expect(sitemapBody).toContain("<loc>https://chasesets.com/help</loc>");
+    expect(sitemapBody).toContain("<loc>https://chasesets.com/help/buying/order-protection</loc>");
     expect(sitemapBody).not.toContain("https://chasesets.com/search");
     expect(sitemapBody).not.toContain("/items/");
 

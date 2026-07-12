@@ -1,0 +1,50 @@
+# Help article contract
+
+Public Presence owns the public help corpus under `features/help/domain/articles`. Each article is a locale-suffixed Markdown file named `<slug>.<locale>.md`; English is the first supported corpus and uses `.en.md`.
+
+The build compiler validates every source and generates `features/help/domain/generated/articles.ts`. Public routes import that typed manifest, so request handling never reads or parses Markdown. Run `pnpm --filter @chase-sets/public-presence run compile:help-articles` after editing an article. Public Presence tests fail when the committed manifest is stale, while public-web's production build compiles the corpus before bundling and fails on invalid source.
+
+## Frontmatter
+
+Every article requires:
+
+- `slug`: stable kebab-case URL segment.
+- `title`: locale-specific article title.
+- `description`: locale-specific summary for cards and metadata.
+- `audience`: `buyer`, `seller`, or `developer`.
+- `category`: `getting-started`, `buying`, or `selling`.
+- `revisionDate`: ISO calendar date for the last truth review.
+- `citedPolicies`: policy keys consumed by the later freshness slice; use `[]` when none are cited.
+- `relatedFlows`: flow types consumed by the later deflection slice; use `[]` when none apply.
+- `promiseTable`: behavioral claims with at least one issue or test reference each.
+
+Example:
+
+```yaml
+---
+slug: example
+title: Example
+description: What this article explains.
+audience: buyer
+category: buying
+revisionDate: "2026-07-12"
+citedPolicies: []
+relatedFlows: []
+promiseTable:
+  - claim: The public route renders the compiled article.
+    issues: ["#4352"]
+    tests: ["bounded-contexts/public-presence/features/help/ui/help-pages.test.tsx"]
+---
+```
+
+## Supported Markdown
+
+Article bodies intentionally use a small, safe subset: paragraphs, level-two and level-three headings, unordered or ordered lists, emphasis, strong text, inline code, and links. Raw HTML and level-one headings are rejected. The compiler assigns deterministic heading ids for table-of-contents links.
+
+Root-relative `/help` links must resolve to the hub, a compiled category, or a compiled article. Article-local hash links must resolve to a compiled heading. Relative links are rejected; use a root-relative internal URL, `https://`, or `mailto:` instead.
+
+## Localization decision
+
+Long-form prose stays out of the string catalog. A translated article is a complete peer source such as `example.es.md`, which lets translators revise coherent prose and preserves per-locale review metadata. The localization catalog remains canonical for shared help chrome: audience labels, category labels, navigation, empty/not-found copy, and review labels.
+
+Search is deliberately deferred. The typed manifest and stable article URLs are the seam for a later search index, including the planned semantic-search infrastructure.

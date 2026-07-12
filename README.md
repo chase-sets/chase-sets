@@ -62,7 +62,7 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 - `payments` ([README](bounded-contexts/payments/README.md), `@chase-sets/payments`): owned nouns `payment`, `refund`.
 - `platform-operations` ([README](bounded-contexts/platform-operations/README.md), `@chase-sets/platform-operations`): owned nouns `projection-operation`, `platform-operation-attention`, `sales-performance-kpi`, `fulfillment-latency-kpi`, `conversion-order-kpi`, `dashboard-read-model`, `ops-dashboard`, `gmv-reconciliation-run`, `platform-feedback`, `platform-feedback-prompt`, `rate-limit-policy`, `reported-content`, `risk-alert`, `support-request`.
 - `pricing` ([README](bounded-contexts/pricing/README.md), `@chase-sets/pricing`): owned nouns `market-price-snapshot`, `price-recommendation`, `price-signal`, `trades-tape`, `daily-product-rollup`, `platform-daily-rollup`, `gross-merchandise-value`, `market-state-snapshot`, `repricing-policy`, `repricing-policy-assignment`, `bulk-reprice-job`.
-- `public-presence` ([README](bounded-contexts/public-presence/README.md), `@chase-sets/public-presence`): owned nouns `public-presence`, `waitlist-signup`, `promo-bar-message`.
+- `public-presence` ([README](bounded-contexts/public-presence/README.md), `@chase-sets/public-presence`): owned nouns `public-presence`, `waitlist-signup`, `promo-bar-message`, `help-article`, `help-category`.
 - `settlement` ([README](bounded-contexts/settlement/README.md), `@chase-sets/settlement`): owned nouns `wallet`, `payout`, `payout-readiness`, `ledger-entry`.
 
 ## Deployables
@@ -76,7 +76,7 @@ Deployables are thin composition roots. Business behavior should not live in dep
 - `deployables/marketplace-seed-testing` (`@chase-sets/marketplace-seed-testing`): package scripts `test:db`.
 - `deployables/platform-api` (`@chase-sets/app-platform-api`): package scripts `bootstrap`, `bootstrap:production`, `dev`, `representative-commerce-state`, `representative-commerce-state:production`, `start`, `start:production`, `test`, `test:db`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
 - `deployables/platform-worker` (`@chase-sets/app-platform-worker`): package scripts `bootstrap`, `bootstrap:production`, `dev`, `start`, `start:production`, `test`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
-- `deployables/public-web` (`@chase-sets/app-public-web`): package scripts `build`, `dev`, `start`, `test`, `typecheck`.
+- `deployables/public-web` (`@chase-sets/app-public-web`): package scripts `build`, `dev`, `prebuild`, `start`, `test`, `typecheck`.
 
 Default local ports are sandbox-aware. Each worktree receives a stable
 port block derived from its path so multiple worktrees can run at the same

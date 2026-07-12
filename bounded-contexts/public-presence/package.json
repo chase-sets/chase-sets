@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "compile:help-articles": "node ./features/help/integrations/compile-help-articles.mjs",
+    "check:help-articles": "node ./features/help/integrations/compile-help-articles.mjs --check",
+    "pretest": "pnpm run check:help-articles",
     "typecheck": "tsc -p ./tests/tsconfig.json --noEmit",
     "test": "vitest run --config ./tests/vitest.config.mjs",
     "test:watch": "vitest --config ./tests/vitest.config.mjs",
@@ -37,7 +40,9 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "jsdom": "^29.0.2",
+    "prettier": "^3.8.3",
     "sharp": "^0.34.5",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.4",
+    "yaml": "^2.8.4"
   }
 }

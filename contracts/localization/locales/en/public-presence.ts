@@ -323,36 +323,42 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.workflowImage.description":
     "Inventory, pricing, and fulfillment cues stay together so accounts can move cards without stitching the workflow together by hand.",
   "publicPresence.home.workflowImage.title": "Cards, pricing, and shipping in one operating view",
+  "publicPresence.help.article.meta.title": "{title} | Chase Sets Help",
+  "publicPresence.help.articleCount": "Articles: {count}",
+  "publicPresence.help.audience.buyer.description":
+    "Understand marketplace availability, checkout, protection, refunds, and returns.",
+  "publicPresence.help.audience.buyer.title": "For buyers",
+  "publicPresence.help.audience.developer.description": "Build against Chase Sets public developer interfaces.",
+  "publicPresence.help.audience.developer.title": "For developers",
+  "publicPresence.help.audience.seller.description":
+    "Understand listing economics, order handling, and seller marketplace workflows.",
+  "publicPresence.help.audience.seller.title": "For sellers",
+  "publicPresence.help.breadcrumb": "Help",
+  "publicPresence.help.browseCategory": "Browse {category}",
+  "publicPresence.help.category.buying.description": "Payment, protection, refunds, and return guidance for buyers.",
+  "publicPresence.help.category.buying.title": "Buying",
+  "publicPresence.help.category.eyebrow": "Help category",
+  "publicPresence.help.category.gettingStarted.description":
+    "Start with marketplace availability and the basics of buying and selling on Chase Sets.",
+  "publicPresence.help.category.gettingStarted.title": "Getting started",
+  "publicPresence.help.category.meta.description": "Chase Sets help articles about {category}.",
+  "publicPresence.help.category.meta.title": "{category} | Chase Sets Help",
+  "publicPresence.help.category.selling.description": "Fees, listings, fulfillment, and payout guidance for sellers.",
+  "publicPresence.help.category.selling.title": "Selling",
+  "publicPresence.help.description":
+    "Browse clear, reviewed guidance about buying, selling, marketplace policies, and Chase Sets workflows.",
+  "publicPresence.help.eyebrow": "Knowledge base",
+  "publicPresence.help.lastReviewed": "Last reviewed {date}",
+  "publicPresence.help.meta.description": "Reviewed guidance for buying and selling on Chase Sets.",
+  "publicPresence.help.meta.title": "Help Center | Chase Sets",
+  "publicPresence.help.notFound": "Help article not found",
+  "publicPresence.help.readArticle": "Read article",
+  "publicPresence.help.related.description": "Continue with guidance for the same audience or topic.",
+  "publicPresence.help.related.title": "Related articles",
+  "publicPresence.help.title": "How can we help?",
+  "publicPresence.help.toc.title": "On this page",
   "publicPresence.home.workflowImageAlt":
     "Three marketplace workflow panels showing organized card inventory, pricing review, and shipping preparation.",
-  "publicPresence.info.buyerProtection.description":
-    "Order protection explains the buyer and seller safeguards Chase Sets applies around payment, fulfillment, disputes, returns, payout release, and negative balances.",
-  "publicPresence.info.buyerProtection.eyebrow": "Trust",
-  "publicPresence.info.buyerProtection.chargebacks.body":
-    "When the payment processor reports a dispute or chargeback, Payments records the processor dispute id, lifecycle state, evidence deadline, charge reference, affected orders, and seller payout exposure. Settlement then holds pending seller funds, claws back released seller exposure when needed, and releases a chargeback hold only when the processor dispute is won.",
-  "publicPresence.info.buyerProtection.chargebacks.title": "Chargebacks and disputes",
-  "publicPresence.info.buyerProtection.disputeEvidence.body":
-    "Payments assembles dispute evidence from Chase Sets order records and Fulfillment shipment evidence. Evidence is submitted to the processor only when tracking proof is available; when no tracking proof exists, Payments records that evidence was unavailable instead of inventing proof.",
-  "publicPresence.info.buyerProtection.disputeEvidence.title": "Dispute evidence",
-  "publicPresence.info.buyerProtection.fraud.body":
-    "Early fraud warnings and processor fraud reviews are recorded against the Payment. If an early fraud warning arrives on a captured payment that is not already disputed, the current runtime attempts a refund for the remaining refundable amount when the refund service is configured.",
-  "publicPresence.info.buyerProtection.fraud.title": "Fraud signals",
-  "publicPresence.info.buyerProtection.negativeBalance.body":
-    "If chargebacks, refunds, or payout recovery obligations exceed an account's available wallet balance, Settlement records a negative balance. New sale proceeds and shipping allowances offset that balance before any remaining funds enter normal payout release. Accounts at or beyond the configured collections threshold for the configured grace period move to collections, which pauses new listing availability and payout requests until the wallet returns to good standing.",
-  "publicPresence.info.buyerProtection.negativeBalance.title": "Negative balances",
-  "publicPresence.info.buyerProtection.orders.body":
-    "Checkout and order views keep product, seller, item price, shipping, shipping credit, checkout fee, protection, and fulfillment status visible. Seller sale proceeds and shipping allowances stay pending until delivery, risk, support, and aging rules clear.",
-  "publicPresence.info.buyerProtection.orders.title": "Order visibility",
-  "publicPresence.info.buyerProtection.payment.body":
-    "Payments run through provider-backed checkout flows with final totals visible before confirmation. Card payments may request risk-based 3DS step-up; liability-shift facts inform payment risk and dispute posture, but they do not override Settlement payout-release rules.",
-  "publicPresence.info.buyerProtection.payment.title": "Protected payment",
-  "publicPresence.info.buyerProtection.returns.body":
-    "Fulfillment records delivery, return-to-sender, carrier exceptions, and return outcomes from shipment and postage-provider events. Return and exception evidence can extend seller payout release and gives support a concrete order and shipment record to review.",
-  "publicPresence.info.buyerProtection.returns.title": "Returns and shipment exceptions",
-  "publicPresence.info.buyerProtection.shippingEvidence.body":
-    "Shipping evidence is set from the committed package plan. Current tiers are untracked letter mail, tracked parcel, signature-confirmed shipment, and carrier-insured shipment. Priority shipping requires signature confirmation; declared value at $250 or more requires signature confirmation; declared value at $500 or more requires carrier insurance.",
-  "publicPresence.info.buyerProtection.shippingEvidence.title": "Shipping evidence tiers",
-  "publicPresence.info.buyerProtection.title": "Protection Policy",
   "publicPresence.info.contact.description":
     "Use the public support email for early access, account review, partnership, marketplace policy, and customer questions.",
   "publicPresence.info.contact.eyebrow": "Support",
@@ -363,10 +369,6 @@ export const publicPresenceEnglishTranslations = {
     "Email support@chasesets.com for Chase Sets support and business review questions.",
   "publicPresence.info.contact.support.title": "Customer service",
   "publicPresence.info.contact.title": "Contact Chase Sets",
-  "publicPresence.info.faq.description":
-    "These answers explain marketplace availability, the beta fee lock, order processing, shipping, and what buyers and sellers can expect.",
-  "publicPresence.info.faq.eyebrow": "FAQ",
-  "publicPresence.info.faq.title": "Frequently Asked Questions",
   "publicPresence.info.founders.description":
     "The founders offer in plain language: what you get, how the fee lock works, what buyers pay, and what changes once your window closes.",
   "publicPresence.info.founders.eyebrow": "Founders offer",
@@ -405,19 +407,6 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.info.privacy.use.body":
     "Chase Sets uses waitlist information to understand early demand, prioritize early access, and send product updates when consent is provided.",
   "publicPresence.info.privacy.use.title": "How it is used",
-  "publicPresence.info.refunds.description":
-    "Refund and return handling is tied to order status, payment outcome, shipment progress, and support review.",
-  "publicPresence.info.refunds.eyebrow": "Policy",
-  "publicPresence.info.refunds.future.body":
-    "Return options, dispute paths, payment outcomes, and support contact stay visible before and after checkout so accounts understand the path before money moves.",
-  "publicPresence.info.refunds.future.title": "Marketplace model",
-  "publicPresence.info.refunds.prelaunch.body":
-    "Marketplace checkout opens at launch. Until then, the public site does not create purchases, charges, refunds, or returns.",
-  "publicPresence.info.refunds.prelaunch.title": "Current availability",
-  "publicPresence.info.refunds.support.body":
-    "For questions about refund or return handling, contact support@chasesets.com.",
-  "publicPresence.info.refunds.support.title": "Support",
-  "publicPresence.info.refunds.title": "Refunds and returns",
   "publicPresence.info.sellerFees.description":
     "Chase Sets publishes one standard seller fee schedule for every account, with fee terms confirmed before inventory goes live.",
   "publicPresence.info.sellerFees.eyebrow": "Economics",
@@ -461,6 +450,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.nav.contact": "Contact",
   "publicPresence.nav.faq": "FAQ",
   "publicPresence.nav.foundersTerms": "Founders offer terms",
+  "publicPresence.nav.help": "Help",
   "publicPresence.nav.policies": "Policies",
   "publicPresence.nav.waitlist": "Request early access",
   "publicPresence.nav.privacy": "Privacy",
@@ -574,14 +564,8 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.routes.admin.promoBar.meta.title": "Promo Bar | Experience Admin",
   "publicPresence.routes.admin.campaignAnalytics.meta.title": "Campaign Analytics | Experience Admin",
   "publicPresence.routes.admin.waitlist.meta.title": "Waitlist | Experience Admin",
-  "publicPresence.routes.buyerProtection.meta.description":
-    "Read the Chase Sets order protection model for checkout, payment clarity, order traceability, and support.",
-  "publicPresence.routes.buyerProtection.meta.title": "Order Protection | Chase Sets",
   "publicPresence.routes.contact.meta.description": "Contact Chase Sets at support@chasesets.com.",
   "publicPresence.routes.contact.meta.title": "Contact | Chase Sets",
-  "publicPresence.routes.faq.meta.description":
-    "Answers about Chase Sets marketplace availability, beta seller fees, order processing, shipping, and safety.",
-  "publicPresence.routes.faq.meta.title": "FAQ | Chase Sets",
   "publicPresence.routes.founders.meta.description":
     "Plain-language terms for the Chase Sets founders offer: the 500-founder cap, the numbered badge, and the 60-day 0% fee window.",
   "publicPresence.routes.founders.meta.title": "Founders Offer Terms | Chase Sets",
@@ -593,9 +577,6 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.routes.privacy.meta.description":
     "Read the Chase Sets privacy policy for public-site and early access data.",
   "publicPresence.routes.privacy.meta.title": "Privacy | Chase Sets",
-  "publicPresence.routes.refunds.meta.description":
-    "Read the Chase Sets refunds and returns policy for marketplace orders.",
-  "publicPresence.routes.refunds.meta.title": "Refunds And Returns | Chase Sets",
   "publicPresence.routes.sellerFees.meta.description":
     "Review the single Chase Sets standard seller fee schedule, per-item cap, and listing-time fee confirmation.",
   "publicPresence.routes.sellerFees.meta.title": "Marketplace Seller Fees | Chase Sets",

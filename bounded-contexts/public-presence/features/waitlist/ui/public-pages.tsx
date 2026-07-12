@@ -213,6 +213,7 @@ function resolveHeroIntent(value: string): WaitlistIntent {
 }
 
 const policyLinks = [
+  { href: "/help", label: t("publicPresence.nav.help") },
   { href: "/terms", label: t("publicPresence.nav.terms") },
   { href: "/privacy", label: t("publicPresence.nav.privacy") },
   { href: "/refunds-and-returns", label: t("publicPresence.nav.refunds") },
@@ -358,7 +359,7 @@ export function PublicPresencePageShell({ children }: { children: ReactNode }) {
                   <BrandLink label={t("publicPresence.brand")} />
                 </Inline>
                 <LinkButton
-                  href="#waitlist-form"
+                  href="/#waitlist-form"
                   tone="primary"
                   size="sm"
                   leadingIcon="rocket"
@@ -1147,7 +1148,7 @@ function ProductSignalPreview() {
           returnPolicy={t("publicPresence.preview.listing.returnPolicy.value")}
           primaryAction={
             <LinkButton
-              href="#waitlist-form"
+              href="/#waitlist-form"
               size="sm"
               onClick={() => trackCtaClick("product_preview", "waitlist_form")}
             >

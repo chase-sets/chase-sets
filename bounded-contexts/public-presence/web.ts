@@ -5,3 +5,4 @@ export {
   type WaitlistAnalyticsProperties,
 } from "./support/ui-support/waitlist-analytics";
 export { publicPresenceHasTranslation, publicPresenceT } from "./support/ui-support";
+export { publicHelpArticlePaths } from "./support/ui-support";
