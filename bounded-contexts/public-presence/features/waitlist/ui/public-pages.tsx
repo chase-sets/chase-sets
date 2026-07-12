@@ -50,6 +50,7 @@ import waitlistCardPanelsUrl from "./assets/chase-sets-waitlist-card-panels.webp
 import waitlistCardPanels600wUrl from "./assets/chase-sets-waitlist-card-panels-600w.webp?url";
 import waitlistCardPanels1080wUrl from "./assets/chase-sets-waitlist-card-panels-1080w.webp?url";
 import { trackWaitlistEvent } from "./analytics";
+import { launchTimeline } from "./launch-config";
 import { publicPresenceT as t } from "./public-presence-translator";
 
 export type WaitlistActionData = Readonly<{ status: "error"; message: string }> | null;
@@ -569,6 +570,8 @@ export function PublicPresenceHomePage({
 
         <FoundersOfferSection />
 
+        <LaunchTimelineSection />
+
         <AudiencePathSection onIntentSelect={selectIntent} />
 
         <ProductSignalPreview />
@@ -1054,6 +1057,59 @@ function FoundersOfferSection() {
           </Inline>
         </Stack>
       </Surface>
+    </PageSection>
+  );
+}
+
+// Launch timeline: answers "when can I use this?" with the one hard public
+// date (September 1, 2026) and the beta-wave window before it. Truth gate:
+// wave-to-wave progression is conditioned on ops metrics, so per-wave dates
+// are never promised — the copy stays at "late July" resolution and only the
+// public launch date is concrete. Both values interpolate from
+// `launch-config.ts` so a date change is one edit.
+function LaunchTimelineSection() {
+  const steps = [
+    { key: "waves", badgeTone: "info" as const },
+    { key: "founders", badgeTone: "trust" as const },
+    { key: "launch", badgeTone: "success" as const },
+  ];
+
+  return (
+    <PageSection
+      data-public-presence-section="launch_timeline"
+      title={t("publicPresence.home.launchTimeline.title")}
+      description={t("publicPresence.home.launchTimeline.description", launchTimeline)}
+    >
+      <Grid columns={{ base: 1, md: 3 }} gap={4}>
+        {steps.map((step) => (
+          <Surface key={step.key} tone="subtle" elevated>
+            <Stack gap={3}>
+              <BadgeRow>
+                <Badge tone={step.badgeTone}>
+                  {t(`publicPresence.home.launchTimeline.step.${step.key}.badge`, launchTimeline)}
+                </Badge>
+              </BadgeRow>
+              <Heading level={3}>
+                {t(`publicPresence.home.launchTimeline.step.${step.key}.title`, launchTimeline)}
+              </Heading>
+              <Text tone="secondary">
+                {t(`publicPresence.home.launchTimeline.step.${step.key}.description`, launchTimeline)}
+              </Text>
+            </Stack>
+          </Surface>
+        ))}
+      </Grid>
+      <Inline>
+        <LinkButton
+          href="/#waitlist-form"
+          tone="primary"
+          size="sm"
+          leadingIcon="rocket"
+          onClick={() => trackCtaClick("launch_timeline", "waitlist_form")}
+        >
+          {t("publicPresence.home.launchTimeline.action")}
+        </LinkButton>
+      </Inline>
     </PageSection>
   );
 }
@@ -1640,7 +1696,9 @@ function FaqPreview() {
           <Surface key={question} tone="subtle">
             <Stack gap={2}>
               <Heading level={3}>{t(question)}</Heading>
-              <Text tone="secondary">{t(answer)}</Text>
+              {/* Launch-timeline values interpolate here; keys without those
+                  tokens ignore the extra values. */}
+              <Text tone="secondary">{t(answer, launchTimeline)}</Text>
             </Stack>
           </Surface>
         ))}

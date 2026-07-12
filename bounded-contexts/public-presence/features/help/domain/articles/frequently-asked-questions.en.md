@@ -11,13 +11,16 @@ promiseTable:
   - claim: Marketplace checkout is not open during prelaunch.
     issues: ["#4352"]
     tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"]
+  - claim: Public launch is September 1, 2026, with beta invite waves beginning late July 2026.
+    issues: ["#3952"]
+    tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"]
   - claim: Published fees, checkout, and shipping promises reflect tested marketplace behavior.
     issues: ["#4352"]
     tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx", "bounded-contexts/payments/features/payments/api/runtime.test.ts", "bounded-contexts/fulfillment/features/shipments/api/runtime.test.ts"]
 ---
 ## Is Chase Sets live yet?
 
-Chase Sets is not open for marketplace checkout yet. Request access to tell us whether buying, selling, or both matters most for your account.
+Not yet. Chase Sets opens to everyone on September 1, 2026, and beta invite waves begin late July 2026. Join the waitlist for an invite before launch and founders offer eligibility.
 
 ## Where can sellers review fees?
 

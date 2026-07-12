@@ -318,6 +318,51 @@ describe("public waitlist form migration smoke", () => {
     );
   });
 
+  it("answers 'when can I use this?' with the launch timeline: September 1 date, beta-wave window, no per-wave dates (#3952)", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const foundersSection = container.querySelector('[data-public-presence-section="founders_offer"]');
+    const timelineSection = container.querySelector('[data-public-presence-section="launch_timeline"]');
+    const audienceSection = container.querySelector('[data-public-presence-section="audience_paths"]');
+    const faqSection = container.querySelector('[data-public-presence-section="faq"]');
+    if (!foundersSection || !timelineSection || !audienceSection || !faqSection) {
+      throw new Error("Expected founders-offer, launch-timeline, audience-path, and FAQ sections to render.");
+    }
+
+    // The timeline reads as the founders offer's "when": founders_offer →
+    // launch_timeline → audience_paths.
+    expect(foundersSection.compareDocumentPosition(timelineSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(timelineSection.compareDocumentPosition(audienceSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    // The one hard public date and the season-level beta window, interpolated
+    // from launch-config (no leaked tokens).
+    expect(timelineSection.textContent).toContain("September 1, 2026");
+    expect(timelineSection.textContent).toContain("late July 2026");
+    expect(timelineSection.textContent).not.toContain("{publicLaunchDate}");
+    expect(timelineSection.textContent).not.toContain("{betaWavesWindow}");
+    // Truth gate (#3955): wave-to-wave progression is ops-metric conditioned,
+    // so no per-wave calendar dates may appear.
+    expect(timelineSection.textContent).not.toMatch(/July 31|August \d/i);
+    expect(timelineSection.querySelector('a[href="/#waitlist-form"]')).not.toBeNull();
+
+    // The FAQ preview answers the same question with the same dates.
+    expect(faqSection.textContent).toContain(t("publicPresence.faq.launch.question"));
+    expect(faqSection.textContent).toContain("September 1, 2026");
+    expect(faqSection.textContent).not.toContain("{publicLaunchDate}");
+  });
+
   it("shows seller cohort-quality fields on the final-CTA form by default (role defaults to both)", () => {
     vi.stubGlobal(
       "fetch",

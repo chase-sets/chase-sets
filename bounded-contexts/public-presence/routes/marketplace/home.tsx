@@ -7,6 +7,7 @@ import {
 } from "../../support/request-support/api-client";
 import { PublicPresenceHomePage } from "../../features/waitlist/ui/public-pages";
 import heroImageUrl from "../../features/waitlist/ui/assets/chase-sets-prelaunch-hero.webp?url";
+import { launchTimeline } from "../../features/waitlist/ui/launch-config";
 import { publicPresenceT as t } from "../../features/waitlist/ui/public-presence-translator";
 
 const fallbackPublicOrigin = "https://chasesets.com";
@@ -190,7 +191,9 @@ export function buildHomeStructuredData(publicOrigin = fallbackPublicOrigin) {
           name: t(question),
           acceptedAnswer: {
             "@type": "Answer",
-            text: t(answer),
+            // Launch-timeline values keep the visible FAQ and this
+            // structured data on the same interpolated copy.
+            text: t(answer, launchTimeline),
           },
         })),
       },
