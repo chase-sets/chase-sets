@@ -3,6 +3,7 @@ import {
   createTranslator,
   coerceLocalizedTextMap,
   defaultLocale,
+  formatDisplayIdentity,
   formatLanguageCodeLabel,
   normalizeLocaleCode,
   normalizeLocalizedTextMap,
@@ -62,6 +63,14 @@ describe("localization", () => {
     expect(formatLanguageCodeLabel("ja")).toBe("Japanese");
     expect(formatLanguageCodeLabel("fr")).toBe("fr");
     expect(formatLanguageCodeLabel(null)).toBe("");
+  });
+
+  it("formats display identities with a localized subtitle and title fallback", () => {
+    expect(formatDisplayIdentity(" Bulbasaur 133/132 ", " Mega Evolution, Reverse Holo Rare ")).toBe(
+      "Bulbasaur 133/132 — Mega Evolution, Reverse Holo Rare",
+    );
+    expect(formatDisplayIdentity("Bulbasaur 133/132", "  ")).toBe("Bulbasaur 133/132");
+    expect(formatDisplayIdentity(null, "Reverse Holo Rare")).toBe("Reverse Holo Rare");
   });
 
   it("normalizes localized text maps and can require English", () => {

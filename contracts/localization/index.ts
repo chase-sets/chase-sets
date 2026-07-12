@@ -11,6 +11,26 @@ export {
 } from "./date-time";
 export { formatBpsPercent, type FormatBpsPercentOptions } from "./bps-percent";
 
+export function formatDisplayIdentity(
+  title: string | null | undefined,
+  subtitle: string | null | undefined,
+  translate: Translate = t,
+): string {
+  const normalizedTitle = title?.trim() ?? "";
+  const normalizedSubtitle = subtitle?.trim() ?? "";
+
+  if (normalizedTitle && normalizedSubtitle) {
+    return translate("localization.displayIdentity.title.and.subtitle", {
+      title: normalizedTitle,
+      subtitle: normalizedSubtitle,
+    });
+  }
+
+  return translate("localization.displayIdentity.title", {
+    title: normalizedTitle || normalizedSubtitle,
+  });
+}
+
 export const supportedLocales = ["en"] as const;
 
 export type SupportedLocale = (typeof supportedLocales)[number];

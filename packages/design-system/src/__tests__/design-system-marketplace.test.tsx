@@ -71,6 +71,13 @@ import {
 } from "../index";
 import { minWidthQuery } from "../theme/tokens";
 
+const listingCardLabels = {
+  detailLinkLabel: "View details for this product",
+  saveLabel: "Save this product",
+  savedLabel: "Saved this product",
+  watchingLabel: "Watching this product",
+};
+
 describe("design system marketplace patterns", () => {
   it("does not expose deprecated design-system aliases", () => {
     const retiredAliasNames = [
@@ -570,6 +577,7 @@ describe("design system marketplace patterns", () => {
   it("renders conversion-first marketplace listing signals", () => {
     const markup = renderToString(
       <ListingCard
+        {...listingCardLabels}
         title="2020 Pikachu VMAX"
         imageSrc="/assets/pikachu.webp"
         imageAlt="Pikachu VMAX card"
@@ -607,6 +615,7 @@ describe("design system marketplace patterns", () => {
   it("renders listing product media without image padding or surface chrome", () => {
     const markup = renderToString(
       <ListingCard
+        {...listingCardLabels}
         title="2020 Pikachu VMAX"
         imageSrc="/assets/pikachu-vmax.webp"
         imageAlt="2020 Pikachu VMAX card"
@@ -628,6 +637,7 @@ describe("design system marketplace patterns", () => {
   it("renders listing product media from responsive image descriptors", () => {
     const markup = renderToString(
       <ListingCard
+        {...listingCardLabels}
         title="2020 Pikachu VMAX"
         image={{
           src: "/assets/pikachu-160w.webp",
@@ -658,6 +668,7 @@ describe("design system marketplace patterns", () => {
   it("renders search result cards as side-by-side product-first cards without redundant market copy", () => {
     const markup = renderToString(
       <ListingCard
+        {...listingCardLabels}
         cardLayout="search-result"
         title="Abra 054/132"
         subtitle="Base Set 43 Parallel Set - Reverse Foil Common"
@@ -694,12 +705,14 @@ describe("design system marketplace patterns", () => {
   it("keeps linked search result detail targets separate from rail actions", () => {
     const { container } = render(
       <ListingCard
+        {...listingCardLabels}
+        detailLinkLabel="View details for Abra — Base Set 43 Standard Set Common"
         href="/items/abra"
         cardLayout="search-result"
         title="Abra"
         subtitle="Base Set 43 Standard Set Common"
         imageSrc="/assets/abra-224w.webp"
-        imageAlt="Abra card"
+        imageAlt="Abra — Base Set 43 Standard Set Common"
         imageSlot="compact-product"
         primaryAction={
           <a href="/items/abra?market=buy" aria-label="Add product to Buy Cart">
@@ -710,11 +723,14 @@ describe("design system marketplace patterns", () => {
       />,
     );
 
-    const detailLink = screen.getByRole("link", { name: "View details for Abra" });
+    const detailLink = screen.getByRole("link", { name: "View details for Abra — Base Set 43 Standard Set Common" });
     const heading = screen.getByRole("heading", { name: "Abra" });
     expect(detailLink.textContent).toBe("");
     expect(detailLink.getAttribute("href")).toBe("/items/abra");
-    expect(detailLink.closest("h3")).toBe(heading);
+    expect(detailLink.closest("h3")).toBeNull();
+    expect(detailLink.parentElement?.contains(heading)).toBe(true);
+    expect(heading.hasAttribute("aria-labelledby")).toBe(false);
+    expect(screen.getByRole("img", { name: "Abra — Base Set 43 Standard Set Common" })).toBeTruthy();
     expect(detailLink.className).toContain("pointer-events-auto");
     expect(container.querySelector('article > a[href="/items/abra"]')).toBeNull();
     expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href")).toBe(
@@ -722,9 +738,23 @@ describe("design system marketplace patterns", () => {
     );
   });
 
+  it("uses consumer-provided accessible action labels", () => {
+    const { rerender } = render(
+      <ListingCard {...listingCardLabels} title="Abra" watching primaryAction={<Button>Buy now</Button>} />,
+    );
+
+    expect(screen.getByRole("button", { name: "Save this product" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Watching this product" })).toBeTruthy();
+
+    rerender(<ListingCard {...listingCardLabels} title="Abra" saved primaryAction={<Button>Buy now</Button>} />);
+
+    expect(screen.getByRole("button", { name: "Saved this product" })).toBeTruthy();
+  });
+
   it("keeps loading-only fallback images out of the product-back preview layer", () => {
     const markup = renderToString(
       <ListingCard
+        {...listingCardLabels}
         cardLayout="search-result"
         title="Prismatic Evolutions Booster Pack"
         imageSrc="/assets/booster-pack.webp"
@@ -745,6 +775,7 @@ describe("design system marketplace patterns", () => {
   it("keeps permanent fallback images visible as search result card-back previews", () => {
     const markup = renderToString(
       <ListingCard
+        {...listingCardLabels}
         cardLayout="search-result"
         title="Bayleef 002/132"
         imageSrc="/assets/bayleef-front.webp"
@@ -768,6 +799,7 @@ describe("design system marketplace patterns", () => {
   it("keeps search-result media placeholders free of generic product copy", () => {
     const markup = renderToString(
       <ListingCard
+        {...listingCardLabels}
         cardLayout="search-result"
         title="Prismatic Evolutions Booster Pack"
         subtitle="Sealed booster pack"
@@ -809,6 +841,7 @@ describe("design system marketplace patterns", () => {
   it("renders account reputation once inside listing trust rows", () => {
     render(
       <ListingCard
+        {...listingCardLabels}
         title="2020 Pikachu VMAX"
         price="$1,250.00"
         sellerName="Vaulted Collectibles"
@@ -831,6 +864,7 @@ describe("design system marketplace patterns", () => {
   it("keeps listing cards to one dominant primary action", () => {
     const markup = renderToString(
       <ListingCard
+        {...listingCardLabels}
         title="1999 Base Set Charizard"
         subtitle="Base Set 4 Standard Set Rare Holo"
         price="$428.00"
@@ -885,6 +919,7 @@ describe("design system marketplace patterns", () => {
   it("surfaces an explicit account trust signal even when the seller is not verified", () => {
     const markup = renderToString(
       <ListingCard
+        {...listingCardLabels}
         title="Raw Squirtle lot"
         price="$18.00"
         sellerName="New account"
