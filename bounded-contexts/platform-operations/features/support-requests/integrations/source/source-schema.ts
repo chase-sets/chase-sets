@@ -25,6 +25,21 @@ ALTER TABLE support_order_sources
 CREATE INDEX IF NOT EXISTS support_order_sources_seller_idx
   ON support_order_sources (seller_account_id, updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS support_order_affected_line_amounts (
+  order_id text NOT NULL,
+  line_id text NOT NULL,
+  amount numeric(12,2) NOT NULL,
+  currency_code text NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (order_id, line_id)
+);
+
+CREATE TABLE IF NOT EXISTS support_order_payment_currencies (
+  order_id text PRIMARY KEY,
+  currency_code text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS support_shipment_sources (
   shipment_id text PRIMARY KEY,
   order_id text NOT NULL,

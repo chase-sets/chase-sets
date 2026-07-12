@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS support_request_pages (
   support_review_due_at timestamptz NULL,
   seller_condition_attestation_due_at timestamptz NULL,
   order_return_context jsonb NOT NULL DEFAULT '[]'::jsonb,
+  affected_line_items jsonb NOT NULL DEFAULT '[]'::jsonb,
   return_investigation jsonb NULL,
   checklist jsonb NOT NULL DEFAULT '[]'::jsonb,
   evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -28,6 +29,9 @@ CREATE TABLE IF NOT EXISTS support_request_pages (
 
 ALTER TABLE support_request_pages
   ADD COLUMN IF NOT EXISTS offers jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE support_request_pages
+  ADD COLUMN IF NOT EXISTS affected_line_items jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 ALTER TABLE support_request_pages
   ADD COLUMN IF NOT EXISTS pending_offer jsonb NULL;

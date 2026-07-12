@@ -74,6 +74,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Checkout Session | [Checkout](../bounded-contexts/checkout/GLOSSARY.md) | Active purchase workflow before orders and payment. |
 | Offer Intent | [Checkout](../bounded-contexts/checkout/GLOSSARY.md) | Checkout-owned source intent that captures purchase intent before submitting a Marketplace-owned Offer. |
 | Order | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Commercial commitment between buyer and seller accounts. |
+| Line Item Amount Publication | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Additive Ordering fact publishing canonical line totals for downstream validation. |
 | Purchase | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Buyer-facing order projection. |
 | Sale | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Seller-facing order projection. |
 | Self-Service Purchase Cancellation | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Buyer-initiated cancellation of a paid purchase before Fulfillment starts package preparation. |
@@ -112,6 +113,8 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Merchant Offer ID | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Stable Google-facing offer id derived from immutable Chase Sets Listing identity. |
 | External Seller ID | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Google marketplace seller identifier derived from Chase Sets Account identity for multi-seller Merchant Center submissions. |
 | Platform Feedback | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Internal product feedback, not public account reputation. |
+| Affected Line Item Amount | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Order-line amount and currency fact used by Support to cap offers and adjudications; Payments and Settlement still own accounting. |
+| Affected Line Item Amount Contract | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Support validation boundary for selected lines, one currency, and a non-exceeding remedy amount. |
 | Sign-In Identifier | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Contact value Auth accepts to start an authentication journey, such as email or phone. |
 | Phone Code | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Short-lived Auth challenge sent over SMS and consumed to start or continue a session. |
 | Social Login | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Auth-owned sign-in or registration journey through an external provider. |

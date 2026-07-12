@@ -43,6 +43,27 @@ function openProductNotAsDescribed() {
   });
 }
 
+function openProductNotAsDescribedWithLines(
+  affectedLineItems = [
+    { lineId: "line_1", amount: "10.10", currencyCode: "usd" },
+    { lineId: "line_2", amount: "5.05", currencyCode: "usd" },
+  ],
+) {
+  return decideSupportRequest(initialSupportRequestState, {
+    type: "OpenSupportRequest",
+    supportRequestId: "sup_lines" as never,
+    orderId: "ord_01" as never,
+    orderTotalAmount: "25.00",
+    buyerAccountId: "acc_buyer" as never,
+    sellerAccountId: "acc_seller" as never,
+    flowType: "product-not-as-described",
+    openedByAccountId: "acc_buyer" as never,
+    openedByRole: "buyer",
+    openedAt,
+    affectedLineItems: affectedLineItems as never,
+  });
+}
+
 function openReturnRequest(orderTotalAmount = "249.99") {
   return decideSupportRequest(initialSupportRequestState, {
     type: "OpenSupportRequest",
@@ -122,7 +143,104 @@ function recordPartialRefundOffer(state: SupportRequestState, refundAmount = "12
   });
 }
 
+function openWithAffectedLineItems(
+  affectedLineItems: readonly { lineId: string; amount: string; currencyCode: string }[],
+) {
+  return decideSupportRequest(initialSupportRequestState, {
+    type: "OpenSupportRequest",
+    supportRequestId: "sup_lines" as never,
+    orderId: "ord_01" as never,
+    orderTotalAmount: "25.00",
+    buyerAccountId: "acc_buyer" as never,
+    sellerAccountId: "acc_seller" as never,
+    flowType: "product-not-as-described",
+    openedByAccountId: "acc_buyer" as never,
+    openedByRole: "buyer",
+    openedAt,
+    affectedLineItems,
+  });
+}
+
 describe("support request domain", () => {
+  it("records affected line amounts in a separate additive event", () => {
+    const events = openWithAffectedLineItems([{ lineId: "line_1", amount: "10.00", currencyCode: "usd" }]);
+
+    expect(events.map((event) => event.type)).toEqual([
+      "support.support-request.opened",
+      "support.support-request.affected-line-items-recorded",
+    ]);
+    expect(fold(events).affectedLineItems).toEqual([{ lineId: "line_1", amount: "10.00", currencyCode: "usd" }]);
+  });
+
+  it("caps offers at the selected affected line totals", () => {
+    const state = fold(
+      openWithAffectedLineItems([
+        { lineId: "line_1", amount: "10.00", currencyCode: "usd" },
+        { lineId: "line_2", amount: "5.00", currencyCode: "usd" },
+      ]),
+    );
+
+    expect(() =>
+      decideSupportRequest(state, {
+        type: "RecordSupportResponse",
+        responseId: "rsp_over_cap",
+        offerId: "sof_over_cap",
+        submittedByAccountId: "acc_seller" as never,
+        submittedByRole: "seller",
+        responseType: "offer-partial-refund",
+        offerResolutionType: "partial-refund",
+        refundAmount: "15.01",
+        affectedLineIds: ["line_1", "line_2"],
+        summary: "Over-cap offer.",
+        submittedAt: "2026-05-09T13:05:00.000Z",
+      }),
+    ).toThrow("Refund amount cannot exceed affected line totals.");
+  });
+
+  it("rejects mixed-currency and unrelated-line offers", () => {
+    const mixedCurrencyState = fold(
+      openWithAffectedLineItems([
+        { lineId: "line_1", amount: "10.00", currencyCode: "usd" },
+        { lineId: "line_2", amount: "5.00", currencyCode: "eur" },
+      ]),
+    );
+
+    expect(() =>
+      decideSupportRequest(mixedCurrencyState, {
+        type: "RecordSupportResponse",
+        responseId: "rsp_mixed",
+        offerId: "sof_mixed",
+        submittedByAccountId: "acc_seller" as never,
+        submittedByRole: "seller",
+        responseType: "offer-partial-refund",
+        offerResolutionType: "partial-refund",
+        refundAmount: "10.00",
+        affectedLineIds: ["line_1", "line_2"],
+        summary: "Mixed currency offer.",
+        submittedAt: "2026-05-09T13:05:00.000Z",
+      }),
+    ).toThrow("Affected line items must use one currency.");
+
+    const singleCurrencyState = fold(
+      openWithAffectedLineItems([{ lineId: "line_1", amount: "10.00", currencyCode: "usd" }]),
+    );
+    expect(() =>
+      decideSupportRequest(singleCurrencyState, {
+        type: "RecordSupportResponse",
+        responseId: "rsp_unrelated",
+        offerId: "sof_unrelated",
+        submittedByAccountId: "acc_seller" as never,
+        submittedByRole: "seller",
+        responseType: "offer-partial-refund",
+        offerResolutionType: "partial-refund",
+        refundAmount: "1.00",
+        affectedLineIds: ["line_other"],
+        summary: "Unrelated line offer.",
+        submittedAt: "2026-05-09T13:05:00.000Z",
+      }),
+    ).toThrow("Offer references a line item outside the support request.");
+  });
+
   it("opens product-not-received with seller response deadline and required tracking checklist", () => {
     const events = openProductNotReceived();
 
@@ -444,6 +562,77 @@ describe("support request domain", () => {
     expect(() => recordPartialRefundOffer(state, "25.01")).toThrow(
       "Offer refund amount cannot exceed the order total.",
     );
+  });
+
+  it("publishes and evolves the additive affected line-item amount fact", () => {
+    const events = openProductNotAsDescribedWithLines();
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.type).toBe("support.support-request.opened");
+    expect(events[1]).toMatchObject({
+      type: "support.support-request.affected-line-items-recorded",
+      data: {
+        affectedLineItems: [
+          { lineId: "line_1", amount: "10.10", currencyCode: "usd" },
+          { lineId: "line_2", amount: "5.05", currencyCode: "usd" },
+        ],
+      },
+    });
+    expect(fold(events).affectedLineItems).toHaveLength(2);
+  });
+
+  it("caps partial refund offers at the selected line totals using integer cents", () => {
+    const opened = openProductNotAsDescribedWithLines();
+    const state = fold(opened);
+
+    expect(() => recordPartialRefundOffer(state, "15.16")).toThrow("affected line totals");
+    const offerEvents = recordPartialRefundOffer(state, "15.15");
+    expect(offerEvents[0]).toMatchObject({ data: { offer: { refundAmount: "15.15" } } });
+  });
+
+  it("rejects unrelated and mixed-currency offer line selections", () => {
+    const opened = openProductNotAsDescribedWithLines();
+    const state = fold(opened);
+
+    expect(() =>
+      decideSupportRequest(state, {
+        type: "RecordSupportResponse",
+        responseId: "rsp_unrelated",
+        offerId: "sof_unrelated",
+        submittedByAccountId: "acc_seller" as never,
+        submittedByRole: "seller",
+        responseType: "offer-partial-refund",
+        offerResolutionType: "partial-refund",
+        refundAmount: "1.00",
+        affectedLineIds: ["line_missing"],
+        summary: "Unrelated line.",
+        submittedAt: "2026-05-09T13:05:00.000Z",
+      }),
+    ).toThrow("outside the support request");
+
+    const mixedState = fold(
+      openProductNotAsDescribedWithLines([
+        { lineId: "line_usd", amount: "10.00", currencyCode: "usd" },
+        { lineId: "line_eur", amount: "10.00", currencyCode: "eur" },
+      ]),
+    );
+    expect(() => recordPartialRefundOffer(mixedState, "1.00")).toThrow("one currency");
+  });
+
+  it("applies the same affected-line cap to support adjudication", () => {
+    const state = fold(openProductNotAsDescribedWithLines());
+
+    expect(() =>
+      decideSupportRequest(state, {
+        type: "ResolveSupportRequest",
+        resolutionType: "partial-refund",
+        summary: "Adjudicated refund.",
+        refundAmount: "15.16",
+        resolvedByAccountId: "acc_support" as never,
+        resolvedByRole: "support",
+        resolvedAt: "2026-05-09T14:00:00.000Z",
+      }),
+    ).toThrow("affected line totals");
   });
 
   it("rejects offer resolution types that do not match the response or flow", () => {

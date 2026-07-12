@@ -259,6 +259,10 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
           summary: String(body.summary ?? ""),
           offerResolutionType: typeof body.offerResolutionType === "string" ? body.offerResolutionType : null,
           refundAmount: typeof body.refundAmount === "string" ? body.refundAmount : null,
+          ...(Array.isArray(body.affectedLineIds)
+            ? { affectedLineIds: (body.affectedLineIds as readonly unknown[]).map((entry) => String(entry)) }
+            : {}),
+          ...(typeof body.refundCurrencyCode === "string" ? { refundCurrencyCode: body.refundCurrencyCode } : {}),
           scope: "operations",
         },
         contextResult.context,
@@ -323,6 +327,10 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
           resolutionType: String(body.resolutionType ?? ""),
           summary: String(body.summary ?? ""),
           refundAmount: typeof body.refundAmount === "string" ? body.refundAmount : null,
+          ...(Array.isArray(body.affectedLineIds)
+            ? { affectedLineIds: (body.affectedLineIds as readonly unknown[]).map((entry) => String(entry)) }
+            : {}),
+          ...(typeof body.refundCurrencyCode === "string" ? { refundCurrencyCode: body.refundCurrencyCode } : {}),
           scope: "operations",
         },
         contextResult.context,
@@ -495,12 +503,16 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
 
     const body = await c.req.json();
     try {
+      const affectedLineIds = Array.isArray(body.affectedLineIds)
+        ? (body.affectedLineIds as readonly unknown[]).map((entry) => String(entry))
+        : null;
       const result = await services.openSupportRequest(
         {
           orderId: String(body.orderId ?? ""),
           accountId: access.actor.accountId,
           flowType: String(body.flowType ?? ""),
           openedByRole: String(body.openedByRole ?? ""),
+          ...(affectedLineIds !== null ? { affectedLineIds } : {}),
         },
         context,
       );
@@ -582,6 +594,10 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
           summary: String(body.summary ?? ""),
           offerResolutionType: typeof body.offerResolutionType === "string" ? body.offerResolutionType : null,
           refundAmount: typeof body.refundAmount === "string" ? body.refundAmount : null,
+          ...(Array.isArray(body.affectedLineIds)
+            ? { affectedLineIds: (body.affectedLineIds as readonly unknown[]).map((entry) => String(entry)) }
+            : {}),
+          ...(typeof body.refundCurrencyCode === "string" ? { refundCurrencyCode: body.refundCurrencyCode } : {}),
         },
         context,
       );
@@ -759,6 +775,10 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
           resolutionType: String(body.resolutionType ?? ""),
           summary: String(body.summary ?? ""),
           refundAmount: typeof body.refundAmount === "string" ? body.refundAmount : null,
+          ...(Array.isArray(body.affectedLineIds)
+            ? { affectedLineIds: (body.affectedLineIds as readonly unknown[]).map((entry) => String(entry)) }
+            : {}),
+          ...(typeof body.refundCurrencyCode === "string" ? { refundCurrencyCode: body.refundCurrencyCode } : {}),
         },
         context,
       );

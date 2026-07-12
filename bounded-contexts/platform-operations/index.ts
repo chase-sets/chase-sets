@@ -22,6 +22,7 @@ import {
 } from "./features/risk-alerts/read-model/projection";
 import { buildSupportApi } from "./features/support-requests/api/http";
 import { createSupportRequestMcpHandlers } from "./features/support-requests/api/mcp";
+import { buildSupportAffectedLineAmountProjectionHandlers } from "./features/support-requests/integrations/source/affected-line-amount-projection";
 import {
   buildSupportOrderSourceProjectionHandlers,
   buildSupportShipmentSourceProjectionHandlers,
@@ -72,6 +73,14 @@ export const module = defineBoundedContextModule<
       contextName: "platform-operations",
       manifest: platformOperationsContextManifest,
       handlers: {
+        "ordering.support-affected-line-amount-projection": {
+          subscriptionName: "support.affected-line-amount-projection",
+          buildHandlers: () => buildSupportAffectedLineAmountProjectionHandlers(services.db, "ordering"),
+        },
+        "payments.support-affected-line-amount-projection": {
+          subscriptionName: "support.affected-line-amount-projection",
+          buildHandlers: () => buildSupportAffectedLineAmountProjectionHandlers(services.db, "payments"),
+        },
         "ordering.support-order-source-projection": {
           subscriptionName: "support.order-source-projection",
           buildHandlers: () => buildSupportOrderSourceProjectionHandlers(services.db),

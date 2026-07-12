@@ -99,6 +99,23 @@
       "projectionHandlerSetNames": ["support-order-source-projection"]
     },
     {
+      "sourceContextName": "ordering",
+      "projectionName": "support-affected-line-amount-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["ordering.order.line-item-amounts-published"],
+      "order": 71,
+      "projectionHandlerSetNames": ["support-affected-line-amount-projection"]
+    },
+    {
+      "sourceContextName": "payments",
+      "projectionName": "support-affected-line-amount-projection",
+      "subscriptionVersion": 1,
+      "sourceContextMount": "when-mounted",
+      "eventTypes": ["payments.payment-created"],
+      "order": 72,
+      "projectionHandlerSetNames": ["support-affected-line-amount-projection"]
+    },
+    {
       "sourceContextName": "fulfillment",
       "projectionName": "support-shipment-source-projection",
       "subscriptionVersion": 1,
@@ -145,6 +162,14 @@
       "projectionName": "support-order-source-projection",
       "sourceContextNames": ["ordering"],
       "ownedTables": ["support_order_sources"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "support-affected-line-amount-projection",
+      "sourceContextNames": ["ordering", "payments"],
+      "optionalSourceContextNames": ["payments"],
+      "ownedTables": ["support_order_affected_line_amounts", "support_order_payment_currencies"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },

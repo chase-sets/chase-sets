@@ -30,6 +30,10 @@ Notes:
 - Order lines reference one `CatalogItemId`, one `ProductId`, and one normalized selection snapshot.
 - If condition matters for the item, it appears only through the selected product dimensions.
 
+## Line Item Amount Publication
+
+A **Line Item Amount Publication** is the additive Ordering fact that publishes each committed order line's canonical decimal-string total for downstream contexts. Ordering publishes the amount; it does not decide support remedies or refunds.
+
 ## Order Economics Snapshot
 
 An **Order Economics Snapshot** is the immutable capture of price, shipping, Marketplace-provided fee, and seller-net inputs used when the order is created.

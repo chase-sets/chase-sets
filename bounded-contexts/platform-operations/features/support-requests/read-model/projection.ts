@@ -123,6 +123,19 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
         ],
       );
     },
+    "support.support-request.affected-line-items-recorded": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        affectedLineItems: unknown;
+      };
+
+      await db.query(
+        `UPDATE support_request_pages
+         SET affected_line_items = $2::jsonb
+         WHERE support_request_id = $1`,
+        [data.supportRequestId, JSON.stringify(data.affectedLineItems ?? [])],
+      );
+    },
     "support.support-request.response-recorded": async (event) => {
       const data = event.data as {
         supportRequestId: string;

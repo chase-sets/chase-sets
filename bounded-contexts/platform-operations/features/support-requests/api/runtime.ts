@@ -19,6 +19,7 @@ import {
   normalizeRequiredText,
   SupportDomainError,
   type SupportEvidenceType,
+  type SupportAffectedLineItemAmount,
   type SupportFlowType,
   type SupportOrderReturnContextLine,
   type SupportRequesterRole,
@@ -80,6 +81,7 @@ export type SupportOrderSource = Readonly<{
   status: string;
   total_amount: string;
   return_context: readonly SupportOrderReturnContextLine[];
+  affected_line_amounts: readonly SupportAffectedLineItemAmount[];
 }>;
 
 export type SupportOrderContext = Readonly<{
@@ -87,6 +89,7 @@ export type SupportOrderContext = Readonly<{
   openedByRole: "buyer" | "seller";
   status: string;
   totalAmount: string;
+  affectedLineItems?: readonly SupportAffectedLineItemAmount[];
 }>;
 
 function normalizeOrderId(value: string): OrderId {
@@ -116,6 +119,7 @@ export type SupportRequestServices = Readonly<{
       accountId: string;
       flowType: SupportFlowType | string;
       openedByRole: SupportRequesterRole | string;
+      affectedLineIds?: readonly string[] | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
@@ -144,6 +148,8 @@ export type SupportRequestServices = Readonly<{
       summary: string;
       offerResolutionType?: SupportResolutionType | string | null;
       refundAmount?: string | null;
+      affectedLineIds?: readonly string[] | null;
+      refundCurrencyCode?: string | null;
       scope?: SupportRequestMutationScope;
     }>,
     context: EventStoreContext,
@@ -172,6 +178,8 @@ export type SupportRequestServices = Readonly<{
       resolutionType: SupportResolutionType | string;
       summary: string;
       refundAmount?: string | null;
+      affectedLineIds?: readonly string[] | null;
+      refundCurrencyCode?: string | null;
       scope?: SupportRequestMutationScope;
     }>,
     context: EventStoreContext,
@@ -271,12 +279,27 @@ async function getOrderSource(db: PgQueryable, orderId: string): Promise<Support
        seller_account_id,
        status,
        total_amount::text AS total_amount,
-       return_context
-     FROM support_order_sources
-     WHERE order_id = $1`,
+       return_context,
+       COALESCE(
+         (
+           SELECT jsonb_agg(
+             jsonb_build_object(
+               'lineId', line.line_id,
+               'amount', line.amount::text,
+               'currencyCode', COALESCE(line.currency_code, '')
+             ) ORDER BY line.line_id
+           )
+           FROM support_order_affected_line_amounts AS line
+           WHERE line.order_id = source.order_id
+         ),
+         '[]'::jsonb
+       ) AS affected_line_amounts
+     FROM support_order_sources AS source
+     WHERE source.order_id = $1`,
     [orderId],
   );
-  return result.rows[0] ?? null;
+  const row = result.rows[0];
+  return row ? { ...row, affected_line_amounts: row.affected_line_amounts ?? [] } : null;
 }
 
 function assertParticipantRole(order: SupportOrderSource, accountId: string, role: SupportRequesterRole) {
@@ -297,6 +320,27 @@ function assertParticipantRole(order: SupportOrderSource, accountId: string, rol
   if (order.buyer_account_id !== accountId && order.seller_account_id !== accountId) {
     throw new SupportDomainError("Support request is not available for this account.");
   }
+}
+
+function selectAffectedLineItems(
+  order: SupportOrderSource,
+  requestedLineIds: readonly string[] | null | undefined,
+): readonly SupportAffectedLineItemAmount[] {
+  if (requestedLineIds === null || requestedLineIds === undefined) {
+    return order.affected_line_amounts;
+  }
+
+  if (requestedLineIds.length === 0 || new Set(requestedLineIds).size !== requestedLineIds.length) {
+    throw new SupportDomainError("Affected line items must include one or more unique line ids.");
+  }
+
+  return requestedLineIds.map((lineId) => {
+    const lineItem = order.affected_line_amounts.find((candidate) => candidate.lineId === lineId);
+    if (!lineItem) {
+      throw new SupportDomainError("Affected line item is not part of the order.");
+    }
+    return lineItem;
+  });
 }
 
 function normalizeParticipantLookupRole(value: string): SupportOrderContext["openedByRole"] {
@@ -424,6 +468,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
         openedByRole,
         status: order.status,
         totalAmount: order.total_amount,
+        ...(order.affected_line_amounts.length > 0 ? { affectedLineItems: order.affected_line_amounts } : {}),
       };
     },
     openSupportRequest: async (params, context) => {
@@ -437,6 +482,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       const openedByRole = normalizeRequesterRole(params.openedByRole);
       getSupportFlowDefinition(flowType);
       assertParticipantRole(order, params.accountId, openedByRole);
+      const affectedLineItems = selectAffectedLineItems(order, params.affectedLineIds);
 
       const existing = await findOpenSupportRequestForOrderAndFlow(deps.db, {
         orderId,
@@ -471,6 +517,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           openedByRole,
           openedAt: new Date().toISOString(),
           orderReturnContext: order.return_context,
+          ...(affectedLineItems.length > 0 ? { affectedLineItems } : {}),
           ...(deadlineHours
             ? {
                 sellerResponseHours: deadlineHours.sellerResponseHours,
@@ -525,6 +572,8 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
               ? null
               : normalizeResolutionType(params.offerResolutionType),
           refundAmount: params.refundAmount ?? null,
+          affectedLineIds: params.affectedLineIds ?? null,
+          refundCurrencyCode: params.refundCurrencyCode ?? null,
         },
         context,
       });
@@ -595,6 +644,8 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           resolutionType: normalizeResolutionType(params.resolutionType),
           summary: params.summary,
           refundAmount: params.refundAmount ?? null,
+          affectedLineIds: params.affectedLineIds ?? null,
+          refundCurrencyCode: params.refundCurrencyCode ?? null,
           resolvedByAccountId: params.accountId as AccountId,
           resolvedByRole,
           resolvedAt: new Date().toISOString(),
