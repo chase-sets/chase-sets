@@ -9,6 +9,7 @@ import {
   previewWildcardTlsSecretName,
   previewWildcardTlsSecretNamespace,
 } from "./render-platform-helm-values.mjs";
+import { writeJsonRecord } from "./lib/output-file.mjs";
 
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
 export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v1";
@@ -376,6 +377,34 @@ export function buildDeploymentEvidence(options = {}) {
   };
 }
 
+function redactDiagnosticOutput(output) {
+  return String(output ?? "")
+    .replace(/(authorization\s*:\s*bearer\s+)\S+/gi, "$1[REDACTED]")
+    .replace(/(bearer\s+)\S+/gi, "$1[REDACTED]")
+    .replace(/(postgres(?:ql)?:\/\/)[^\s"']+/gi, "$1[REDACTED]")
+    .replace(/\b(?:gho_|ghp_|dop_v1_|sk_(?:live|test)_)[A-Za-z0-9_-]+/g, "[REDACTED_TOKEN]")
+    .replace(/((?:password|secret|token|api[_-]?key|cookie|database[_-]?url)\s*[=:]\s*)([^\s,;]+)/gi, "$1[REDACTED]");
+}
+
+export function buildKubernetesDiagnosticsRecord(options = {}) {
+  return {
+    schemaVersion: "platform-kubernetes-diagnostics/v1",
+    capturedAt: options.capturedAt ?? new Date().toISOString(),
+    action: "diagnostics",
+    release: options.release ?? defaultRelease,
+    namespace: options.namespace ?? defaultNamespace,
+    workloads: options.workloads ?? platformKubernetesWorkloads(options),
+    commandCount: options.commandCount ?? options.commands?.length ?? 0,
+    commands: (options.commands ?? []).map((command) => ({
+      command: command.command,
+      args: command.args,
+      code: command.code ?? null,
+      stdout: redactDiagnosticOutput(command.stdout),
+      stderr: redactDiagnosticOutput(command.stderr),
+    })),
+  };
+}
+
 export function buildKubernetesRollbackTarget(options = {}) {
   const registryName = requiredOption(options.registryName, "registryName");
   const repository = requiredOption(options.repository, "repository");
@@ -436,7 +465,18 @@ export async function rollbackPlatformOnKubernetes(options = {}) {
   const helmPath = options.helmPath ?? "helm";
   const kubectlPath = options.kubectlPath ?? "kubectl";
   const workloads = options.workloads ?? platformKubernetesWorkloads(options);
-  const releaseExists = options.releaseExists ?? (await helmReleaseExists({ ...options, helmPath }));
+  let releaseExists;
+  try {
+    releaseExists = options.releaseExists ?? (await helmReleaseExists({ ...options, helmPath }));
+  } catch (error) {
+    return buildDeploymentEvidence({
+      ...options,
+      action: "rollback",
+      result: "failure",
+      reason: diagnosticFailureReason(error),
+      workloads,
+    });
+  }
 
   if (!releaseExists) {
     return buildDeploymentEvidence({
@@ -448,12 +488,22 @@ export async function rollbackPlatformOnKubernetes(options = {}) {
     });
   }
 
-  await runProcess({
-    command: helmPath,
-    args: buildHelmRollbackArgs(options),
-    spawn: options.spawn,
-  });
-  await waitForPlatformRollouts({ ...options, kubectlPath, workloads });
+  try {
+    await runProcess({
+      command: helmPath,
+      args: buildHelmRollbackArgs(options),
+      spawn: options.spawn,
+    });
+    await waitForPlatformRollouts({ ...options, kubectlPath, workloads });
+  } catch (error) {
+    return buildDeploymentEvidence({
+      ...options,
+      action: "rollback",
+      result: "failure",
+      reason: diagnosticFailureReason(error),
+      workloads,
+    });
+  }
 
   return buildDeploymentEvidence({
     ...options,
@@ -461,6 +511,11 @@ export async function rollbackPlatformOnKubernetes(options = {}) {
     result: "success",
     workloads,
   });
+}
+
+function diagnosticFailureReason(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/\s+/g, " ").slice(0, 500) || "rollback-command-failed";
 }
 
 // Preview namespaces are created by the Helm deploy (`helm upgrade --install
@@ -555,17 +610,22 @@ export async function helmReleaseExists(options = {}) {
 
 export async function capturePlatformKubernetesDiagnostics(options = {}) {
   const commands = buildDiagnosticsCommands(options);
+  const results = [];
 
   for (const [command, args] of commands) {
-    await runProcess({
+    const result = await runProcess({
       command: command === "kubectl" ? (options.kubectlPath ?? "kubectl") : command,
       args,
       spawn: options.spawn,
+      captureOutput: Boolean(options.captureOutput),
       allowFailure: true,
     });
+    if (options.captureOutput) {
+      results.push({ command, args, ...result });
+    }
   }
 
-  return { commandCount: commands.length };
+  return { commandCount: commands.length, commands: results };
 }
 
 async function waitForPlatformRollouts(options) {
@@ -852,7 +912,13 @@ async function main(argv, env = process.env) {
     return 0;
   }
 
-  await capturePlatformKubernetesDiagnostics(options);
+  const diagnostics = await capturePlatformKubernetesDiagnostics({
+    ...options,
+    captureOutput: Boolean(options.outPath),
+  });
+  if (options.outPath) {
+    await writeJsonRecord(options.outPath, buildKubernetesDiagnosticsRecord({ ...options, ...diagnostics }));
+  }
   return 0;
 }
 

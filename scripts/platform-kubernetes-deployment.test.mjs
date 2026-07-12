@@ -784,6 +784,29 @@ describe("platform Kubernetes deployment", () => {
     expect(calls.slice(2).every((call) => call.args[0] === "rollout")).toBe(true);
   });
 
+  it("records rollback command failures as a separate failure outcome", async () => {
+    const calls = [];
+    const result = await rollbackPlatformOnKubernetes({
+      values: sampleValues,
+      release: "proof",
+      namespace: "production",
+      timeout: "30s",
+      spawn: completedSpawn(calls, [
+        { code: 0, stdout: '{"name":"proof"}' },
+        { code: 1, stderr: "rollback timed out" },
+      ]),
+    });
+
+    expect(result).toMatchObject({
+      action: "rollback",
+      result: "failure",
+      release: "proof",
+      namespace: "production",
+    });
+    expect(result.reason).toContain("helm rollback proof");
+    expect(calls).toHaveLength(2);
+  });
+
   it("detects whether a Helm release exists without logging status output", async () => {
     const calls = [];
     await expect(

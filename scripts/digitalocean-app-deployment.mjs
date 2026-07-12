@@ -4,6 +4,7 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { writeJsonRecord } from "./lib/output-file.mjs";
 
 const TERMINAL_DEPLOYMENT_PHASES = new Set(["ACTIVE", "ERROR", "CANCELED", "CANCELLED", "SUPERSEDED"]);
 
@@ -247,6 +248,56 @@ function componentNamesFromSpecCollection(collection) {
 function deploymentProgressSteps(deployment) {
   const progress = deployment?.progress ?? deployment?.Progress ?? {};
   return progress.steps ?? progress.Steps ?? [];
+}
+
+function normalizeDiagnosticStep(step) {
+  return {
+    name: step.name ?? step.Name ?? step.component_name ?? step.componentName ?? "unnamed-step",
+    status: step.status ?? step.Status ?? step.phase ?? step.Phase ?? "unknown",
+    reason: step.reason?.message ?? step.reason?.code ?? step.Reason?.Message ?? step.Reason?.Code ?? "",
+  };
+}
+
+function diagnosticStepIsBootstrapFailure(step) {
+  return (
+    /platform-bootstrap/i.test(step.name) &&
+    /DeployContainerExitNonZero/i.test(step.reason) &&
+    /error|failed/i.test(step.status)
+  );
+}
+
+function redactDiagnosticOutput(output) {
+  return String(output ?? "")
+    .replace(/(authorization\s*:\s*bearer\s+)\S+/gi, "$1[REDACTED]")
+    .replace(/(bearer\s+)\S+/gi, "$1[REDACTED]")
+    .replace(/(postgres(?:ql)?:\/\/)[^\s"']+/gi, "$1[REDACTED]")
+    .replace(/\b(?:gho_|ghp_|dop_v1_|sk_(?:live|test)_)[A-Za-z0-9_-]+/g, "[REDACTED_TOKEN]")
+    .replace(/((?:password|secret|token|api[_-]?key|cookie|database[_-]?url)\s*[=:]\s*)([^\s,;]+)/gi, "$1[REDACTED]");
+}
+
+export function buildDeploymentDiagnosticsRecord(options = {}) {
+  const steps = (options.steps ?? []).map(normalizeDiagnosticStep);
+  return {
+    schemaVersion: "digitalocean-app-deployment-diagnostics/v1",
+    capturedAt: options.capturedAt ?? new Date().toISOString(),
+    appId: options.appId ?? "",
+    deploymentId: options.deploymentId ?? "",
+    deploymentPhase: options.deploymentPhase ?? "",
+    componentNames: [...(options.componentNames ?? [])].sort(),
+    logTypes: [...(options.logTypes ?? [])].sort(),
+    bootstrapFailure: steps.some(diagnosticStepIsBootstrapFailure),
+    steps,
+    logs: (options.logs ?? []).map((entry) => ({
+      componentName: entry.componentName,
+      logType: entry.logType,
+      ok: entry.ok,
+      ...(entry.ok
+        ? {
+            output: redactDiagnosticOutput(entry.output),
+          }
+        : { error: redactDiagnosticOutput(entry.error) }),
+    })),
+  };
 }
 
 function domainReasonCodes(domain) {
@@ -839,19 +890,20 @@ export async function collectDeploymentDiagnostics(appId, options = {}) {
   log(`App Platform deployment diagnostics for '${appId}':`);
   log(`- deployment: ${deployment.id}${deployment.phase ? ` (${deployment.phase})` : ""}`);
 
+  let steps = [];
   try {
     const deploymentDetails = normalizeDeploymentResponse(
       await runJson("doctl", ["apps", "get-deployment", appId, deployment.id, "--output", "json"], jsonOptions),
     );
-    const steps = deploymentProgressSteps(deploymentDetails);
+    steps = deploymentProgressSteps(deploymentDetails);
 
     if (steps.length > 0) {
       log("Deployment progress:");
       for (const step of steps) {
-        const name = step.name ?? step.Name ?? step.component_name ?? step.componentName ?? "unnamed-step";
-        const status = step.status ?? step.Status ?? step.phase ?? step.Phase ?? "unknown";
-        const reason = step.reason?.message ?? step.reason?.code ?? step.Reason?.Message ?? step.Reason?.Code ?? "";
-        log(`- ${name}: ${status}${reason ? ` - ${reason}` : ""}`);
+        const normalizedStep = normalizeDiagnosticStep(step);
+        log(
+          `- ${normalizedStep.name}: ${normalizedStep.status}${normalizedStep.reason ? ` - ${normalizedStep.reason}` : ""}`,
+        );
       }
     }
   } catch (error) {
@@ -893,7 +945,7 @@ export async function collectDeploymentDiagnostics(appId, options = {}) {
       log(`\n--- ${componentName} ${logType} logs (${deployment.id}) ---`);
       try {
         const output = await command("doctl", args, { timeoutMs: commandTimeoutMs });
-        const trimmed = output.trim();
+        const trimmed = redactDiagnosticOutput(output.trim());
         log(trimmed || "(no log lines returned)");
         collectedLogs.push({ componentName, logType, ok: true, output });
       } catch (error) {
@@ -904,7 +956,18 @@ export async function collectDeploymentDiagnostics(appId, options = {}) {
     }
   }
 
-  return { deploymentId: deployment.id, logs: collectedLogs };
+  const result = { deploymentId: deployment.id, logs: collectedLogs };
+  if (options.includeMetadata) {
+    return {
+      ...result,
+      deploymentPhase: deployment.phase,
+      componentNames,
+      logTypes,
+      steps,
+    };
+  }
+
+  return result;
 }
 
 export async function waitForDomains(appId, hostnames, options = {}) {
@@ -1120,12 +1183,28 @@ async function main(argv) {
       );
     }
 
-    await collectDeploymentDiagnostics(appId, {
+    const outPath = readStringOption(options, "--out");
+    const result = await collectDeploymentDiagnostics(appId, {
       deploymentId: readStringOption(options, "--deployment"),
       componentNames: readStringOptions(options, "--component"),
       logTypes: readStringOptions(options, "--log-type"),
       tailLines: readOption(options, "--tail-lines", 200),
+      includeMetadata: Boolean(outPath),
     });
+    if (outPath) {
+      await writeJsonRecord(
+        outPath,
+        buildDeploymentDiagnosticsRecord({
+          appId,
+          deploymentId: result.deploymentId,
+          deploymentPhase: result.deploymentPhase,
+          componentNames: result.componentNames,
+          logTypes: result.logTypes,
+          steps: result.steps,
+          logs: result.logs,
+        }),
+      );
+    }
     return;
   }
 

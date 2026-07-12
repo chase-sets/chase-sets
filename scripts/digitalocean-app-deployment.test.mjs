@@ -8,6 +8,7 @@ import {
   appRollbackTarget,
   appNotFound,
   appPlatformChanges,
+  buildDeploymentDiagnosticsRecord,
   captureRollbackTarget,
   collectDeploymentDiagnostics,
   destructiveChangesApprovalFingerprint,
@@ -984,6 +985,48 @@ running BUILDING 2026-06-19T22:05:00Z
       ],
     });
     expect(warnings).toEqual([expect.stringContaining("Unable to load platform-worker run logs")]);
+  });
+
+  it("classifies failed bootstrap diagnostics and redacts secret-shaped log values", () => {
+    const record = buildDeploymentDiagnosticsRecord({
+      appId: "app-id",
+      deploymentId: "failed-deployment",
+      deploymentPhase: "ERROR",
+      componentNames: ["platform-bootstrap"],
+      logTypes: ["deploy"],
+      steps: [
+        {
+          name: "platform-bootstrap",
+          status: "ERROR",
+          reason: { code: "DeployContainerExitNonZero" },
+        },
+      ],
+      logs: [
+        {
+          componentName: "platform-bootstrap",
+          logType: "deploy",
+          ok: true,
+          output: "password=do-not-publish token=gho_secret postgres://user:password@db.example/app",
+        },
+      ],
+    });
+
+    expect(record).toMatchObject({
+      schemaVersion: "digitalocean-app-deployment-diagnostics/v1",
+      appId: "app-id",
+      deploymentId: "failed-deployment",
+      bootstrapFailure: true,
+      steps: [
+        {
+          name: "platform-bootstrap",
+          status: "ERROR",
+          reason: "DeployContainerExitNonZero",
+        },
+      ],
+    });
+    expect(record.logs[0].output).not.toContain("do-not-publish");
+    expect(record.logs[0].output).not.toContain("gho_secret");
+    expect(record.logs[0].output).not.toContain("user:password");
   });
 
   it("parses deployment diagnostics details JSON from a failed doctl command stdout", async () => {
