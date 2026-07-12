@@ -11,19 +11,19 @@ import type {
 } from "../../features/public-market-pages/read-model/queries";
 import type {
   GetProductRollupSeriesParams,
-  ProductMarketStatsSnapshot,
   ProductRollupSeriesPoint,
 } from "../../features/market-rollups/read-model/queries";
+import type { ProductMarketStatsSnapshotResponse } from "../../features/market-rollups/api/runtime";
 
 export type { AccountRecommendationListItem } from "../../features/recommendations/read-model/queries";
 export type {
   GetProductRollupSeriesParams,
   MarketStateSnapshotPoint,
   ProductMarketAggregate,
-  ProductMarketStatsSnapshot,
   ProductRollupSeriesPoint,
   RollupGranularity,
 } from "../../features/market-rollups/read-model/queries";
+export type { ProductMarketStatsSnapshotResponse } from "../../features/market-rollups/api/runtime";
 export type {
   PublicMarketPageData,
   PublicMarketPageSitemapEntry,
@@ -144,7 +144,7 @@ export function createPricingApiClient({
     },
     async getProductMarketStatsSnapshot(
       params: Readonly<{ catalogItemId: string; productId: string }>,
-    ): Promise<ProductMarketStatsSnapshot> {
+    ): Promise<ProductMarketStatsSnapshotResponse> {
       return parseJsonResponse(
         await client["market-rollups"][":catalogItemId"][":productId"].stats.$get({
           param: { catalogItemId: params.catalogItemId, productId: params.productId },

@@ -17,7 +17,10 @@ export function createPublicMarketPageRoutes(services: PublicMarketPagesServices
   const app = new Hono<PricingApiEnv>();
 
   app.get("/:slug", async (c) => {
-    const page = await services.getPublicMarketPage(c.req.param("slug"));
+    const [page, display] = await Promise.all([
+      services.getPublicMarketPage(c.req.param("slug")),
+      services.resolveDisplayPolicy(),
+    ]);
     if (!page) {
       return c.json(
         {
@@ -30,6 +33,17 @@ export function createPublicMarketPageRoutes(services: PublicMarketPagesServices
       );
     }
 
+    // The resolved display policy's publicPageCacheTtlSeconds -- a revision
+    // changes this response's shared-cache lifetime without a deploy. The
+    // outer SSR route (routes/marketplace/market-price-history.tsx)
+    // still sets its own static Cache-Control: React Router's `headers()`
+    // export is synchronous and has no request-scoped async policy
+    // resolution today, so that document-level header stays a compiled-
+    // default literal pending a broader loader-header-forwarding convention.
+    c.header(
+      "Cache-Control",
+      `public, max-age=60, s-maxage=${display.publicPageCacheTtlSeconds}, stale-while-revalidate=3600`,
+    );
     return c.json(page);
   });
 

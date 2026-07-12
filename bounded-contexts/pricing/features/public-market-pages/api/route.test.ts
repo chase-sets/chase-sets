@@ -7,6 +7,11 @@ function servicesStub(overrides: Partial<PublicMarketPagesServices> = {}): Publi
   return {
     getPublicMarketPage: vi.fn().mockResolvedValue(null),
     listPublicMarketPageSlugs: vi.fn().mockResolvedValue([]),
+    resolveDisplayPolicy: vi.fn().mockResolvedValue({
+      showVerifiedMarkers: true,
+      publicPageHistoryWindowDays: 180,
+      publicPageCacheTtlSeconds: 86400,
+    }),
     ...overrides,
   };
 }
@@ -37,6 +42,36 @@ describe("public market page routes", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(page);
     expect(services.getPublicMarketPage).toHaveBeenCalledWith("charizard-base-set-cat-1-abc123");
+  });
+
+  it("sets the public page's shared cache TTL from the resolved display policy (#4310)", async () => {
+    const page = {
+      catalogItemId: "cat_1",
+      title: "Charizard (Base Set)",
+      subtitle: null,
+      slug: "charizard-base-set-cat-1-abc123",
+      productId: null,
+      series: [],
+      aggregate: null,
+      marketState: null,
+    };
+    const services = servicesStub({
+      getPublicMarketPage: vi.fn().mockResolvedValue(page),
+      resolveDisplayPolicy: vi.fn().mockResolvedValue({
+        showVerifiedMarkers: true,
+        publicPageHistoryWindowDays: 180,
+        // A revised TTL -- proves the header is live-resolved, not a static literal.
+        publicPageCacheTtlSeconds: 3600,
+      }),
+    });
+    const app = mountApp(services);
+
+    const response = await app.request("/public/market-pages/charizard-base-set-cat-1-abc123");
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe(
+      "public, max-age=60, s-maxage=3600, stale-while-revalidate=3600",
+    );
   });
 
   it("404s for an unresolved slug", async () => {

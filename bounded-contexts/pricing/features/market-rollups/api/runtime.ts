@@ -1,4 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { marketStatHygienePolicy } from "../../market-trades/domain/stat-hygiene-policy";
+import { marketAnalyticsDisplayPolicy } from "../domain/display-policy";
 import {
   runDailyRollupCloser,
   type DailyRollupCloserParams,
@@ -31,7 +34,20 @@ import {
 
 type MarketRollupsRuntimeDeps = Readonly<{
   db: PgQueryable;
+  /** Pricing's mounted platform-policy runtime -- resolves the stat-hygiene and display policies. */
+  policies: PolicyRuntime;
 }>;
+
+/**
+ * The market-rollups query API's stats response, decorated with the
+ * resolved stat-hygiene and display policy fields that shape how consumers
+ * (the item-detail market panel, the public market page) present it.
+ */
+export type ProductMarketStatsSnapshotResponse = ProductMarketStatsSnapshot &
+  Readonly<{
+    statHygiene: Readonly<{ minimumTradeSample: number }>;
+    displayPolicy: Readonly<{ showVerifiedMarkers: boolean }>;
+  }>;
 
 export type MarketRollupsServices = Readonly<{
   /** Scheduled worker entry point (deployables/platform-worker) -- see rollup-maintenance.ts for why this is a job, not a projection. */
@@ -45,7 +61,7 @@ export type MarketRollupsServices = Readonly<{
   ) => Promise<ProductMarketAggregate | null>;
   getProductMarketStatsSnapshot: (
     params: Readonly<{ catalogItemId: string; productId: string }>,
-  ) => Promise<ProductMarketStatsSnapshot>;
+  ) => Promise<ProductMarketStatsSnapshotResponse>;
   /** Platform-wide GMV/volume time series, consumed cross-context by platform-operations' ops dashboard. */
   getPlatformGmvSeries: (params: GetPlatformGmvSeriesParams) => Promise<readonly PlatformGmvSeriesPoint[]>;
   getPlatformGmvForMonth: (params: Readonly<{ yearMonth: string }>) => Promise<string>;
@@ -57,12 +73,31 @@ export type MarketRollupsServices = Readonly<{
 }>;
 
 export function createMarketRollupsRuntime(deps: MarketRollupsRuntimeDeps): MarketRollupsServices {
+  async function resolveStatHygienePolicy() {
+    return (await deps.policies.resolvePolicy(marketStatHygienePolicy)).value;
+  }
+  async function resolveDisplayPolicy() {
+    return (await deps.policies.resolvePolicy(marketAnalyticsDisplayPolicy)).value;
+  }
+
   return {
-    runDailyRollupCloser: (params) => runDailyRollupCloser(deps.db, params),
-    getProductRollupSeries: (params) => getProductRollupSeries(deps.db, params),
+    runDailyRollupCloser: async (params) => runDailyRollupCloser(deps.db, params, await resolveStatHygienePolicy()),
+    getProductRollupSeries: async (params) =>
+      getProductRollupSeries(deps.db, params, (await resolveStatHygienePolicy()).minimumTradeSample),
     getMarketStateSnapshotSeries: (params) => getMarketStateSnapshotSeries(deps.db, params),
     getProductMarketAggregate: (params) => getProductMarketAggregate(deps.db, params),
-    getProductMarketStatsSnapshot: (params) => getProductMarketStatsSnapshot(deps.db, params),
+    getProductMarketStatsSnapshot: async (params) => {
+      const [snapshot, statHygiene, display] = await Promise.all([
+        getProductMarketStatsSnapshot(deps.db, params),
+        resolveStatHygienePolicy(),
+        resolveDisplayPolicy(),
+      ]);
+      return {
+        ...snapshot,
+        statHygiene: { minimumTradeSample: statHygiene.minimumTradeSample },
+        displayPolicy: { showVerifiedMarkers: display.showVerifiedMarkers },
+      };
+    },
     getPlatformGmvSeries: (params) => getPlatformGmvSeries(deps.db, params),
     getPlatformGmvForMonth: (params) => getPlatformGmvForMonth(deps.db, params),
     getPlatformKpiSummary: (params) => getPlatformKpiSummary(deps.db, params),

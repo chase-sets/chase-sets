@@ -71,7 +71,11 @@ The **Trades Tape** is the normalized, ordered history of completed marketplace 
 
 ## Stat-Hygiene Policy
 
-The **Stat-Hygiene Policy** is Pricing's m110 platform-policy declaration of the Trades Tape's manipulation-resistance dials: the minimum trade sample before a median displays, the short/long convenience lookback windows, and the outlier-trimming percentile applied to each tail of an aggregate stats window. Declared as a runtime-configurable policy with a compiled fallback (#4304); the Daily Product Rollup's query and maintenance call sites still read the equivalent hard-coded constants directly, pending the m110 policy-consolidation slice that wires live resolution.
+The **Stat-Hygiene Policy** is Pricing's m110 platform-policy declaration of the Trades Tape's manipulation-resistance dials: the minimum trade sample before a median displays, the short/long convenience lookback windows, the outlier-trimming percentile applied to each tail of an aggregate stats window, and the daily closer job's trailing re-derive window. Declared as a runtime-configurable policy with a compiled fallback (#4304); the Daily Product Rollup's query and maintenance call sites resolve this policy live through Pricing's mounted platform-policy runtime (#4310) -- a revision (e.g. raising the minimum sample) changes suppression behavior without a deploy. `outlierTrimPercentile` remains declared-but-unconsumed: no flagged-outlier input exists yet to trim.
+
+## Market Analytics Display Policy
+
+The **Market Analytics Display Policy** is Pricing's m110 platform-policy declaration of the market-rollups query API's presentation dials, as distinct from the Stat-Hygiene Policy's computation dials: whether verified-sale chart markers render, the Public Market Page's charted history window, and its JSON API's shared (CDN) cache lifetime. Declared with a compiled fallback (#4310); the item-detail market panel and Public Market Page share one Stat-Hygiene Policy minimum-sample gate rather than a per-surface override -- see the policy's own file header for why.
 
 ## Daily Product Rollup
 

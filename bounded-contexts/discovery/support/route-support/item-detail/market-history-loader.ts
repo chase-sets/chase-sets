@@ -1,6 +1,8 @@
 import type { LoaderFunctionArgs } from "react-router";
-import { createPricingRequestApiClient, ROLLUP_MINIMUM_TRADE_SAMPLE } from "@chase-sets/pricing/server";
+import { createPricingRequestApiClient } from "@chase-sets/pricing/server";
 import {
+  DEFAULT_MARKET_HISTORY_MINIMUM_SAMPLE,
+  DEFAULT_SHOW_VERIFIED_MARKERS,
   isMarketHistoryRangeKey,
   resolveMarketHistoryRangeWindow,
   type MarketHistoryResponse,
@@ -54,7 +56,8 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
 
   const data: MarketHistoryResponse = {
     range,
-    minimumSample: ROLLUP_MINIMUM_TRADE_SAMPLE,
+    minimumSample: statsResponse.statHygiene?.minimumTradeSample ?? DEFAULT_MARKET_HISTORY_MINIMUM_SAMPLE,
+    showVerifiedMarkers: statsResponse.displayPolicy?.showVerifiedMarkers ?? DEFAULT_SHOW_VERIFIED_MARKERS,
     series: seriesResponse.items,
     stats: {
       aggregate: statsResponse.aggregate

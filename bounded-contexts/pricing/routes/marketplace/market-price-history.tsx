@@ -68,6 +68,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
  * and this page's own AC accepts freshness "within a day" -- a long shared
  * (CDN) cache with a short browser cache and a revalidation window keeps
  * this genuinely SSR + cacheable rather than a live query on every hit.
+ *
+ * `s-maxage=86400` matches the display policy's `publicPageCacheTtlSeconds`
+ * compiled default (`../../features/market-rollups/domain/display-policy.ts`),
+ * but stays a static literal here: React Router's `headers()` export
+ * is synchronous and this codebase has no request-scoped async policy
+ * resolution to thread a live revision through it. The underlying public
+ * market-pages JSON API this page's loader calls
+ * (`../../features/public-market-pages/api/route.ts`) DOES set its own
+ * Cache-Control from the live-resolved policy -- that is the boundary a
+ * revision actually reaches today. Forwarding it into this document-level
+ * header is a known follow-up, not silently dropped.
  */
 export function headers() {
   return {

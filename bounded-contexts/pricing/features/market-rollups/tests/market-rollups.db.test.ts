@@ -206,7 +206,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     const pool = pools.pricing;
     const handlers = tradeHandlers(pool);
 
-    // Only 2 trades this day -- below ROLLUP_MINIMUM_TRADE_SAMPLE (3).
+    // Only 2 trades this day -- below the stat-hygiene policy's minimumTradeSample compiled default (3).
     for (const [orderId, price, hour] of [
       ["ord_a", "10.00", "09"],
       ["ord_b", "12.00", "13"],
