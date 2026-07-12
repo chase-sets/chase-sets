@@ -9,7 +9,8 @@ export type HelpArticleInline =
   | Readonly<{ type: "emphasis"; value: string }>
   | Readonly<{ type: "strong"; value: string }>
   | Readonly<{ type: "code"; value: string }>
-  | Readonly<{ type: "link"; label: string; href: string }>;
+  | Readonly<{ type: "link"; label: string; href: string }>
+  | Readonly<{ type: "policy-value"; key: string }>;
 
 export type HelpArticleBlock =
   | Readonly<{ type: "paragraph"; content: readonly HelpArticleInline[] }>
@@ -36,4 +37,6 @@ export type HelpArticle = Readonly<{
   href: string;
   headings: readonly Readonly<{ level: 2 | 3; id: string; text: string }>[];
   blocks: readonly HelpArticleBlock[];
+  policyValueKeys: readonly string[];
+  policyChanges?: readonly Readonly<{ effectiveFrom: string; description: string }>[];
 }>;

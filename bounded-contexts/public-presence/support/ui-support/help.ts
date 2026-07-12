@@ -1,1 +1,1 @@
-export { publicHelpArticlePaths } from "../../features/help/domain/article-catalog";
+export { publicHelpArticlePaths, publicHelpCategoryPaths } from "../../features/help/domain/article-catalog";

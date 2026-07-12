@@ -48,3 +48,11 @@ Root-relative `/help` links must resolve to the hub, a compiled category, or a c
 Long-form prose stays out of the string catalog. A translated article is a complete peer source such as `example.es.md`, which lets translators revise coherent prose and preserves per-locale review metadata. The localization catalog remains canonical for shared help chrome: audience labels, category labels, navigation, empty/not-found copy, and review labels.
 
 Search is deliberately deferred. The typed manifest and stable article URLs are the seam for a later search index, including the planned semantic-search infrastructure.
+
+## Live policy values
+
+Articles may use `{{policy:<public-value-key>}}` tokens. The compiler accepts only keys in `public-policy-value-whitelist.mjs`; that file is reviewed like a public-data permission and maps every token to one exact policy field or derivation. Adding a policy or field does not expose it automatically.
+
+The article loader resolves tokens from `GET /api/public-presence/policy-values`. Missing and non-whitelisted values fail compilation, tests, or rendering instead of producing blank copy. Supported types format basis points as percentages, money with its currency, and day counts with units.
+
+The public policy endpoint is not cached; article pages use a five-minute shared-cache lifetime with one minute of stale-while-revalidate. A projected policy revision is therefore visible publicly within six minutes in the worst stale-response case and normally within five. Scheduled active revisions inside the runtime's configurable callout window (30 days by default) render a "Changing on {date}" callout.

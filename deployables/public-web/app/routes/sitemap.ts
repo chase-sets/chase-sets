@@ -1,7 +1,7 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { buildSitemapXml } from "@chase-sets/platform-runtime/seo";
 import { createPricingRequestApiClient } from "@chase-sets/pricing/server";
-import { publicHelpArticlePaths } from "@chase-sets/public-presence/web";
+import { publicHelpArticlePaths, publicHelpCategoryPaths } from "@chase-sets/public-presence/web";
 import { resolvePublicOrigin, shouldIndexPublicWeb } from "../seo";
 
 const STABLE_PUBLIC_PATHS = [
@@ -12,11 +12,9 @@ const STABLE_PUBLIC_PATHS = [
   "/privacy",
   "/refunds-and-returns",
   "/order-protection",
-  "/sales-fees",
   "/founders",
   "/help",
-  "/help/getting-started",
-  "/help/buying",
+  ...publicHelpCategoryPaths,
   ...publicHelpArticlePaths,
 ];
 

@@ -1,70 +1,31 @@
-import { formatBpsPercent, formatMoney } from "@chase-sets/localization";
-import { PublicPresencePageShell, publicPresenceT as t } from "@chase-sets/public-presence/web";
-import { Grid, Heading, Page, PageHeader, Stack, Surface, Text } from "@chase-sets/design-system";
+import { PublicHelpArticlePage } from "@chase-sets/public-presence/web";
+import {
+  findPublicHelpArticleByPath,
+  loadPublicPolicyValues,
+  resolveArticlePolicyValues,
+} from "@chase-sets/public-presence/server";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { createCommercialTermsPublicRequestApiClient } from "../../support/request-support/api-client";
 
-export const meta: MetaFunction = () => [
-  { title: t("publicPresence.routes.sellerFees.meta.title") },
-  { name: "description", content: t("publicPresence.routes.sellerFees.meta.description") },
+const SALES_FEES_PATH = "/sales-fees";
+
+export const meta: MetaFunction<typeof loader> = ({ data }) => [
+  { title: data ? `${data.article.title} | Chase Sets` : "Marketplace fees | Chase Sets" },
+  ...(data ? [{ name: "description", content: data.article.description }] : []),
 ];
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  return createCommercialTermsPublicRequestApiClient(request).getMarketplaceSalesFeeSchedule();
+  const source = findPublicHelpArticleByPath(SALES_FEES_PATH);
+  if (!source) throw new Error("The compiled sales-fees article is unavailable.");
+  const policyValues = await loadPublicPolicyValues(request);
+  const article = resolveArticlePolicyValues(source, policyValues);
+  return { article, related: [] };
+}
+
+export function headers() {
+  return { "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=60" };
 }
 
 export default function SalesFeesRoute() {
-  const schedule = useLoaderData<typeof loader>().value;
-  const percentage = formatBpsPercent(schedule.marketplaceSalesFeePercentageBps);
-  const fixedAmount = formatMoney(schedule.marketplaceSalesFeeFixedAmount, "USD");
-  const capAmount = formatMoney(schedule.marketplaceSalesFeeCapAmount, "USD");
-  const sections = [
-    {
-      title: t("publicPresence.info.sellerFees.predictable.title"),
-      body: t("publicPresence.info.sellerFees.predictable.body", { percentage, fixedAmount, capAmount }),
-    },
-    {
-      title: t("publicPresence.info.sellerFees.lowValue.title"),
-      body: t("publicPresence.info.sellerFees.lowValue.body", { fixedAmount }),
-    },
-    {
-      title: t("publicPresence.info.sellerFees.buyerVisibility.title"),
-      body: t("publicPresence.info.sellerFees.buyerVisibility.body"),
-    },
-    {
-      title: t("publicPresence.info.sellerFees.founders.title"),
-      body: t("publicPresence.info.sellerFees.founders.body"),
-    },
-    {
-      title: t("publicPresence.info.sellerFees.prelaunch.title"),
-      body: t("publicPresence.info.sellerFees.prelaunch.body"),
-    },
-    {
-      title: t("publicPresence.info.sellerFees.questions.title"),
-      body: t("publicPresence.info.sellerFees.questions.body"),
-    },
-  ];
-
-  return (
-    <PublicPresencePageShell>
-      <Page>
-        <PageHeader
-          eyebrow={t("publicPresence.info.sellerFees.eyebrow")}
-          title={t("publicPresence.info.sellerFees.title")}
-          description={t("publicPresence.info.sellerFees.description")}
-        />
-        <Grid columns={{ base: 1, md: 2 }} gap={4}>
-          {sections.map((section) => (
-            <Surface key={section.title} elevated>
-              <Stack gap={3}>
-                <Heading level={2}>{section.title}</Heading>
-                <Text tone="secondary">{section.body}</Text>
-              </Stack>
-            </Surface>
-          ))}
-        </Grid>
-      </Page>
-    </PublicPresencePageShell>
-  );
+  return <PublicHelpArticlePage {...useLoaderData<typeof loader>()} />;
 }

@@ -29,7 +29,8 @@ Public Presence terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Incoming Dependencies
 
-- None today. Public Presence has no durable dependency on another bounded context's read models or events. Internal waitlist review receives an authenticated actor at the deployable composition layer (`AuthenticatedApiEnv`) rather than importing Auth or Identity facts directly.
+- Public articles receive reviewed, field-level public policy values through the `publicPolicySources` host port. The platform API composes resolvers from each owning bounded context; Public Presence never queries another context's policy tables or accepts generic policy documents.
+- Internal waitlist review receives an authenticated actor at the deployable composition layer (`AuthenticatedApiEnv`) rather than importing Auth or Identity facts directly.
 
 ## Outgoing Integration Events
 

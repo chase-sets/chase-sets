@@ -12,11 +12,13 @@ import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import { createPromoBarRuntime } from "../../features/promo-bar/api/runtime";
 import { noopWaitlistAnalyticsRecorder, type WaitlistAnalyticsRecorder } from "../../features/waitlist/api/analytics";
 import { createWaitlistRuntime } from "../../features/waitlist/api/runtime";
+import { createPublicPolicyValuesRuntime, type PublicPolicySource } from "../../features/help/api/public-policy-values";
 
 export type PublicPresenceHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
   waitlistAnalyticsRecorder?: WaitlistAnalyticsRecorder;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
+  publicPolicySources?: readonly PublicPolicySource[];
 }>;
 
 export type PublicPresenceServices = Readonly<{
@@ -25,6 +27,7 @@ export type PublicPresenceServices = Readonly<{
   waitlistAnalyticsRecorder: WaitlistAnalyticsRecorder;
   notificationOutbox: NotificationOutbox;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
+  publicPolicyValues: ReturnType<typeof createPublicPolicyValuesRuntime>;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -49,6 +52,7 @@ export function createPublicPresenceServices(
     db,
     notificationOutbox,
   });
+  const publicPolicyValues = createPublicPolicyValuesRuntime(ports.publicPolicySources ?? []);
 
   return {
     waitlist,
@@ -56,6 +60,7 @@ export function createPublicPresenceServices(
     waitlistAnalyticsRecorder,
     notificationOutbox,
     rateLimitPolicyResolver: ports.rateLimitPolicyResolver,
+    publicPolicyValues,
     projectors: [...waitlist.projectors],
     pool,
     db,

@@ -8,7 +8,7 @@ export const meta: MetaFunction = () => [
 ];
 
 export function headers() {
-  return { "Cache-Control": "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400" };
+  return { "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=60" };
 }
 
 export default HelpHubPage;

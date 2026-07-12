@@ -40,6 +40,7 @@ export {
   createNoopRateLimitPolicyResolver,
   createRateLimitPolicyResolver,
 } from "./features/rate-limit-policy/api/rate-limit-policy-resolver";
+export { rateLimitPolicy } from "./features/rate-limit-policy/domain/rate-limit-policy";
 export type {
   PolicyConsoleCrossContextPort,
   PolicyConsoleCrossContextSource,

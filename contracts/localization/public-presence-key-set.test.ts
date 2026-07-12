@@ -5,8 +5,8 @@ import { publicPresenceEnglishTranslations } from "./locales/en/public-presence"
 // Tripwire for unintended public-presence locale key changes. Rebaseline this
 // fingerprint in the same PR whenever you intentionally add/remove/rename keys.
 const englishPublicPresenceKeySet = {
-  count: 575,
-  sha256: "29bec33280fd71c6e4eb79fb25286f686458de33434912e10dbbd7a44a48fb0b",
+  count: 576,
+  sha256: "6b1c08acc532aec46e02823dd59356a5e4cdf2c6a49b262a45c08aa1010508eb",
 } as const;
 
 describe("public-presence locale key set", () => {
