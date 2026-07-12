@@ -104,6 +104,7 @@ import {
   type CreateUcpRoutesOptions,
 } from "@chase-sets/platform-runtime/ucp";
 import type { AgentGrantConsentDirectory, AgentGrantSpendPolicy } from "@chase-sets/platform-runtime/agent-guardrails";
+import type { AgentGrantActivityDirectory } from "@chase-sets/platform-runtime/mcp-audit-log";
 import {
   createRealtimeStatusSnapshot,
   createRealtimeRoutes,
@@ -150,6 +151,7 @@ export type BuildPlatformApiOptions = Readonly<{
   ucp?: CreateUcpRoutesOptions;
   agentGrantSpendPolicy?: AgentGrantSpendPolicy;
   agentGrantConsent?: AgentGrantConsentDirectory;
+  agentGrantActivity?: AgentGrantActivityDirectory;
   ucpAp2MandateVerifier?: UcpAp2MandateVerifier;
   internalAuthSecret?: string;
   adminRegistrationEnabled?: boolean;
@@ -619,6 +621,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
         linkedPlatformAuthorizations: identityServices.identity.linkedPlatformAuthorizations,
         resolveActor,
         agentGrantConsent: options.agentGrantConsent,
+        agentGrantActivity: options.agentGrantActivity,
         revokeStoredPaymentMethodsForAgentGrant:
           paymentsServices?.payments?.revokeSavedCheckoutInstrumentsForAgentGrant,
       }),

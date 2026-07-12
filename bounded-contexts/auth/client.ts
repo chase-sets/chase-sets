@@ -64,6 +64,24 @@ async function postJson<T>(
   );
 }
 
+async function putJson<T>(
+  fetchImpl: typeof globalThis.fetch,
+  url: string,
+  body: Record<string, unknown>,
+  headers?: HeadersInit,
+) {
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set("Content-Type", "application/json");
+
+  return parseJsonResponse<T>(
+    await fetchImpl(url, {
+      method: "PUT",
+      headers: requestHeaders,
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
 export function createAuthApiClient({
   baseUrl = DEFAULT_BASE_URL,
   fetch = globalThis.fetch,
@@ -173,3 +191,46 @@ export function createAuthApiClient({
 }
 
 export const authApi = createAuthApiClient();
+
+const DEFAULT_UCP_OAUTH_BASE_URL = "/ucp/oauth";
+
+// Client for the connected-agents self-service surface. The UCP OAuth grant,
+// mandate, and activity routes are Auth-owned but mounted at /ucp/oauth rather than /api/auth
+// (bounded-contexts/auth/support/ucp-support/oauth.ts), so this is a distinct base URL from
+// createAuthApiClient rather than a second baseUrl on the same client instance.
+export function createUcpOAuthApiClient({
+  baseUrl = DEFAULT_UCP_OAUTH_BASE_URL,
+  fetch = globalThis.fetch,
+  headers: initialHeaders,
+  credentials = "include",
+}: AuthApiClientOptions = {}) {
+  const configuredFetch: typeof globalThis.fetch = (input, init = {}) =>
+    fetch(input, {
+      ...init,
+      credentials: init.credentials ?? credentials,
+    });
+  const headers = resolveHeaders(initialHeaders);
+  const buildUrl = (path: string) => new URL(path, `${baseUrl}/`).toString();
+
+  return {
+    async listAgentGrants<T>(): Promise<T> {
+      return parseJsonResponse<T>(await configuredFetch(buildUrl("authorizations"), { headers }));
+    },
+    async getAgentGrant<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(await configuredFetch(buildUrl(`authorizations/${id}`), { headers }));
+    },
+    async listAgentGrantActivity<T>(id: string, query = ""): Promise<T> {
+      const search = new URLSearchParams(query).toString();
+      const path = `authorizations/${id}/activity`;
+      return parseJsonResponse<T>(
+        await configuredFetch(search ? `${buildUrl(path)}?${search}` : buildUrl(path), { headers }),
+      );
+    },
+    async revokeAgentGrant<T>(id: string): Promise<T> {
+      return postJson<T>(configuredFetch, buildUrl(`authorizations/${id}/revoke`), {}, headers);
+    },
+    async updateAgentGrantMandate<T>(id: string, mandate: Record<string, unknown>): Promise<T> {
+      return putJson<T>(configuredFetch, buildUrl(`authorizations/${id}/mandate`), mandate, headers);
+    },
+  };
+}

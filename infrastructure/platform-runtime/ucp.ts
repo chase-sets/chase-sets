@@ -46,6 +46,7 @@ import {
   type AgentGrantGuardrailViolation,
   type AgentGrantRateLimiter,
 } from "./agent-guardrails";
+import { platformMcpAuditLogSchemaSql } from "./mcp-audit-log";
 
 export {
   buildUcpBusinessProfile,
@@ -529,6 +530,8 @@ CREATE INDEX IF NOT EXISTS platform_ucp_agent_profiles_expires_at_idx
   ON platform_ucp_agent_profiles (expires_at);
 
 ${platformAgentGuardrailsSchemaSql}
+
+${platformMcpAuditLogSchemaSql}
 `;
 
 function requestOrigin(request: Request) {

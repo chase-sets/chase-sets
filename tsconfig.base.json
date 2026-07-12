@@ -639,6 +639,9 @@
       "@chase-sets/platform-runtime/mcp": [
         "./infrastructure/platform-runtime/mcp.ts"
       ],
+      "@chase-sets/platform-runtime/mcp-audit-log": [
+        "./infrastructure/platform-runtime/mcp-audit-log.ts"
+      ],
       "@chase-sets/platform-runtime/mcp-contracts": [
         "./infrastructure/platform-runtime/mcp-contracts.ts"
       ],

@@ -130,7 +130,6 @@ const canonicalReserveZeroConsumerExports = [
   "StickyBar",
   "Subheading",
   "surfaceSemanticToneClasses",
-  "Switch",
   "Tag",
   "TagInput",
   "ThemeScope",

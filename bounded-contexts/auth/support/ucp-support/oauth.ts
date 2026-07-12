@@ -14,6 +14,7 @@ import {
   type AgentGrantConsentDirectory,
   type AgentSpendingMandate,
 } from "@chase-sets/platform-runtime/agent-guardrails";
+import type { AgentGrantActivityDirectory } from "@chase-sets/platform-runtime/mcp-audit-log";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf } from "../../features/sessions/domain/auth-flow";
@@ -143,6 +144,9 @@ export type UcpOAuthRoutesOptions = Readonly<{
   revokeStoredPaymentMethodsForAgentGrant?: (
     params: Readonly<{ accountId: string; agentGrantId: string; revokedAt: string }>,
   ) => Promise<unknown>;
+  // Read model over the MCP audit sink (infrastructure/platform-runtime/mcp-audit-log.ts),
+  // filtered to one grant. Powers the connected-agents activity view.
+  agentGrantActivity?: AgentGrantActivityDirectory;
 }>;
 
 const MAX_CLIENT_METADATA_URL_LENGTH = 2048;
@@ -544,34 +548,76 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     }
 
     const authorizations = await options.linkedPlatformAuthorizations.listForAccount(actor.accountId);
-    const consent = options.agentGrantConsent;
+    const clientDisplay = await resolveClientDisplayMap(
+      options.auth,
+      authorizations.map((authorization) => authorization.client_id),
+    );
     return c.json({
       authorizations: await Promise.all(
-        authorizations.map(async (authorization) => {
-          const [mandate, spend] = consent
-            ? await Promise.all([
-                consent.resolveMandate(authorization.authorization_id),
-                consent.getSpendSummary(authorization.authorization_id),
-              ])
-            : [undefined, undefined];
-          return {
-            id: authorization.authorization_id,
-            platform_profile_url: authorization.platform_profile_url,
-            client_id: authorization.client_id,
-            scopes: normalizeScopes(authorization.scopes),
-            status: authorization.status,
-            access_token_expires_at: authorization.access_token_expires_at,
-            refresh_token_expires_at: authorization.refresh_token_expires_at,
-            granted_at: authorization.granted_at,
-            last_refreshed_at: authorization.last_refreshed_at,
-            revoked_at: authorization.revoked_at,
-            revocation_reason: authorization.revocation_reason,
-            updated_at: authorization.updated_at,
-            ...(mandate ? { spending_mandate: mandateToJson(mandate) } : {}),
-            ...(spend ? { spend: { daily_cents: spend.dailyCents, monthly_cents: spend.monthlyCents } } : {}),
-          };
-        }),
+        authorizations.map((authorization) => authorizationToJson(options, authorization, clientDisplay)),
       ),
+    });
+  });
+
+  // Single-grant detail read, backing the connected-agents detail page. Ownership is enforced
+  // the same way the mandate route enforces it: the grant must appear in the account's list.
+  app.get("/authorizations/:id", async (c) => {
+    const actor = await options.resolveActor(c.req.raw);
+    if (!actor) {
+      return c.json({ error: "login_required" }, 401);
+    }
+
+    const authorizationId = c.req.param("id");
+    const authorizations = await options.linkedPlatformAuthorizations.listForAccount(actor.accountId);
+    const authorization = authorizations.find((candidate) => candidate.authorization_id === authorizationId);
+    if (!authorization) {
+      return c.json({ error: "not_found", error_description: "No linked agent grant matches this account." }, 404);
+    }
+
+    const clientDisplay = await resolveClientDisplayMap(options.auth, [authorization.client_id]);
+    return c.json({ authorization: await authorizationToJson(options, authorization, clientDisplay) });
+  });
+
+  // Activity view: a read model over the MCP audit sink, filtered to one grant. Backs the
+  // "watches tool activity accrue" acceptance criterion for the connected-agents UI.
+  app.get("/authorizations/:id/activity", async (c) => {
+    if (!options.agentGrantActivity) {
+      return c.json({ error: "unsupported", error_description: "Agent grant activity is not configured." }, 404);
+    }
+
+    const actor = await options.resolveActor(c.req.raw);
+    if (!actor) {
+      return c.json({ error: "login_required" }, 401);
+    }
+
+    const authorizationId = c.req.param("id");
+    const authorizations = await options.linkedPlatformAuthorizations.listForAccount(actor.accountId);
+    if (!authorizations.some((authorization) => authorization.authorization_id === authorizationId)) {
+      return c.json({ error: "not_found", error_description: "No linked agent grant matches this account." }, 404);
+    }
+
+    const limit = readPositiveIntOrDefault(c.req.query("limit"), 50);
+    const offset = readPositiveIntOrDefault(c.req.query("offset"), 0);
+    const page = await options.agentGrantActivity.listForGrant({
+      accountId: actor.accountId,
+      grantId: authorizationId,
+      limit,
+      offset,
+    });
+    return c.json({
+      activity: page.items.map((item) => ({
+        id: item.id,
+        occurred_at: item.occurredAt,
+        outcome: item.outcome,
+        method: item.method,
+        tool_name: item.toolName,
+        resource_uri: item.resourceUri,
+        audit_event_name: item.auditEventName,
+        target_type: item.targetType,
+        reason: item.reason,
+        limit_kind: item.limitKind,
+      })),
+      total: page.total,
     });
   });
 
@@ -643,6 +689,81 @@ function mandateToJson(mandate: AgentSpendingMandate) {
     human_present_required: mandate.humanPresentRequired,
     allowed_rails: mandate.allowedRails,
   };
+}
+
+type AuthorizationSummary = Readonly<{
+  authorization_id: string;
+  platform_profile_url: string;
+  client_id: string;
+  scopes: readonly string[];
+  status: string;
+  access_token_expires_at: string;
+  refresh_token_expires_at: string | null;
+  granted_at: string;
+  last_refreshed_at: string | null;
+  revoked_at: string | null;
+  revocation_reason: string | null;
+  updated_at: string;
+}>;
+
+type ClientDisplayInfo = Readonly<{ clientName: string | null; clientUri: string | null }>;
+
+async function authorizationToJson(
+  options: UcpOAuthRoutesOptions,
+  authorization: AuthorizationSummary,
+  clientDisplay: ReadonlyMap<string, ClientDisplayInfo>,
+) {
+  const consent = options.agentGrantConsent;
+  const [mandate, spend] = consent
+    ? await Promise.all([
+        consent.resolveMandate(authorization.authorization_id),
+        consent.getSpendSummary(authorization.authorization_id),
+      ])
+    : [undefined, undefined];
+  const display = clientDisplay.get(authorization.client_id);
+
+  return {
+    id: authorization.authorization_id,
+    platform_profile_url: authorization.platform_profile_url,
+    client_id: authorization.client_id,
+    client_name: display?.clientName ?? null,
+    client_uri: display?.clientUri ?? null,
+    scopes: normalizeScopes(authorization.scopes),
+    status: authorization.status,
+    access_token_expires_at: authorization.access_token_expires_at,
+    refresh_token_expires_at: authorization.refresh_token_expires_at,
+    granted_at: authorization.granted_at,
+    last_refreshed_at: authorization.last_refreshed_at,
+    revoked_at: authorization.revoked_at,
+    revocation_reason: authorization.revocation_reason,
+    updated_at: authorization.updated_at,
+    ...(mandate ? { spending_mandate: mandateToJson(mandate) } : {}),
+    ...(spend ? { spend: { daily_cents: spend.dailyCents, monthly_cents: spend.monthlyCents } } : {}),
+  };
+}
+
+// DCR-registered clients carry a display name/site (identity_ucp_oauth_clients); CIMD-only
+// clients (bare https:// client_id, never persisted here) fall back to null and the UI shows
+// the platform_profile_url instead. Batched by client_id so the list route stays O(1) queries.
+async function resolveClientDisplayMap(
+  auth: AuthServices,
+  clientIds: readonly string[],
+): Promise<ReadonlyMap<string, ClientDisplayInfo>> {
+  const uniqueIds = [...new Set(clientIds)];
+  if (uniqueIds.length === 0) {
+    return new Map();
+  }
+
+  const result = await auth.db.query<{ client_id: string; client_name: string | null; client_uri: string | null }>(
+    `SELECT client_id, client_name, client_uri FROM identity_ucp_oauth_clients WHERE client_id = ANY($1::text[])`,
+    [uniqueIds],
+  );
+  return new Map(result.rows.map((row) => [row.client_id, { clientName: row.client_name, clientUri: row.client_uri }]));
+}
+
+function readPositiveIntOrDefault(value: string | undefined, fallback: number): number {
+  const parsed = value ? Number.parseInt(value, 10) : Number.NaN;
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 function parseSpendingMandate(
