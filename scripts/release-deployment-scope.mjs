@@ -8,14 +8,6 @@ import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.m
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 
-const emptyScopeOutput = {
-  deploy: "false",
-  exposure_posture_changed: "false",
-  exposure_posture_categories: "",
-  exposure_posture_categories_json: "[]",
-  changed_files_json: "[]",
-};
-
 const forceDeployOutput = {
   deploy: "true",
   exposure_posture_changed: "false",
@@ -44,18 +36,6 @@ export function resolveReleaseDeploymentScope(options, dependencies = {}) {
   const releaseCommit = requireNonEmpty(options.releaseCommit, "release commit is required.");
 
   git(exec, gitPath, ["fetch", "origin", "production"], { cwd, ignoreFailure: true });
-
-  if (eventName === "push") {
-    git(exec, gitPath, ["fetch", "origin", "main"], { cwd });
-    const latestMain = revParse(exec, gitPath, "origin/main", cwd);
-    if (releaseCommit !== latestMain) {
-      writeOutputs(append, options.githubOutputPath, emptyScopeOutput);
-      log(
-        `Release commit ${releaseCommit} is no longer origin/main (${latestMain}); skipping stale deployment before staging.`,
-      );
-      return { deploy: false, reason: "stale-push", baseCommit: null, latestMain, output: emptyScopeOutput };
-    }
-  }
 
   if (eventName === "workflow_dispatch" && options.forceDeploy === true) {
     writeOutputs(append, options.githubOutputPath, forceDeployOutput);

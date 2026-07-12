@@ -1672,6 +1672,18 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       "PRODUCTION_RELEASE_LOCK_REFERENCE: ${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}",
     );
+    const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    expect(deployStagingJob).toContain("applied: ${{ steps.staging_applied.outputs.applied || 'false' }}");
+    expect(deployStagingJob).toContain("- name: Mark staging applied");
+    expect(deployStagingJob).toContain('echo "applied=true" >> "$GITHUB_OUTPUT"');
+    expect(deployStagingJob).not.toContain("Confirm automatic deploy is latest main");
+    expect(platformProductionWorkflow).toContain(
+      "if: always() && needs.resolve-release.outputs.deployment_required == 'true' && (needs.deploy-staging.outputs.applied != 'true' || needs.deploy-production.outputs.superseded == 'true')",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "STAGING_APPLIED: ${{ needs.deploy-staging.outputs.applied || 'false' }}",
+    );
+    expect(platformProductionWorkflow).toContain('attempt_reason="staging-not-applied"');
     expect(platformProductionWorkflow).toContain("started_at: ${{ steps.staging_started.outputs.started_at }}");
     expect(platformProductionWorkflow).toContain("completed_at: ${{ steps.staging_completed.outputs.completed_at }}");
     expect(platformProductionWorkflow).toContain("- name: Record staging start");
@@ -1770,7 +1782,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("record-staging-release-health:");
     expect(platformProductionWorkflow).toContain("name: Record Staging Release Health");
     expect(platformProductionWorkflow).toContain(
-      "if: always() && needs.resolve-release.outputs.deployment_required == 'true' && (needs.deploy-staging.outputs.deployed != 'true' || needs.deploy-production.outputs.superseded == 'true')",
+      "if: always() && needs.resolve-release.outputs.deployment_required == 'true' && (needs.deploy-staging.outputs.applied != 'true' || needs.deploy-production.outputs.superseded == 'true')",
     );
     expect(platformProductionWorkflow).toContain("- deploy-production");
     expect(platformProductionWorkflow).toContain("RELEASE_HEALTH_OUT: artifacts/release-health/staging-release.json");
@@ -3321,7 +3333,7 @@ describe("DigitalOcean platform configuration", () => {
     const stagingBuyNowEvidenceStep = workflowStep(platformProductionWorkflow, "Upload staging Buy Now probe evidence");
     const stagingMoneySmokeStep = workflowStep(platformProductionWorkflow, "Staging Stripe money smoke");
     const previewMoneySmokeStep = workflowStep(platformPrWorkflow, "Stripe money smoke");
-    const markStagingDeployedIndex = platformProductionWorkflow.indexOf("- name: Mark staging deployed");
+    const markStagingDeployedIndex = platformProductionWorkflow.indexOf("- name: Mark staging applied");
 
     expect(stagingPlaywrightVersionStep).toContain("id: staging-playwright-chromium");
     expect(stagingPlaywrightVersionStep).toContain("pnpm exec playwright --version");

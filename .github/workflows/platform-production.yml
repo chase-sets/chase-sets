@@ -280,7 +280,8 @@ jobs:
     if: needs.resolve-release.outputs.deployment_required == 'true'
     environment: staging
     outputs:
-      deployed: ${{ steps.staging_deployed.outputs.deployed }}
+      deployed: ${{ steps.staging_applied.outputs.deployed || 'false' }}
+      applied: ${{ steps.staging_applied.outputs.applied || 'false' }}
       platform_image_digest: ${{ steps.image.outputs.digest }}
       started_at: ${{ steps.staging_started.outputs.started_at }}
       completed_at: ${{ steps.staging_completed.outputs.completed_at }}
@@ -387,23 +388,6 @@ jobs:
             echo "Checked out ${checked_out_commit}, expected release commit ${release_commit}." >&2
             exit 1
           fi
-
-      - name: Confirm automatic deploy is latest main
-        id: latest_main
-        if: github.event_name == 'push'
-        run: |
-          set -euo pipefail
-          git fetch origin main
-          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
-          latest_main="$(git rev-parse origin/main)"
-          if [ "$release_commit" != "$latest_main" ]; then
-            echo "Release commit ${release_commit} is no longer origin/main (${latest_main}); skipping stale staging deployment."
-            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
-            echo "SHOULD_DEPLOY=false" >> "$GITHUB_ENV"
-            exit 0
-          fi
-          echo "should_deploy=true" >> "$GITHUB_OUTPUT"
-          echo "SHOULD_DEPLOY=true" >> "$GITHUB_ENV"
 
       - name: Validate staging configuration
         if: env.SHOULD_DEPLOY != 'false'
@@ -1423,10 +1407,12 @@ jobs:
             PLATFORM_AUTH_BASE_URL="https://${marketplace_domain}" \
             pnpm run stripe:money-smoke -- --edge-check --seller-flow
 
-      - name: Mark staging deployed
-        id: staging_deployed
+      - name: Mark staging applied
+        id: staging_applied
         if: env.SHOULD_DEPLOY != 'false'
-        run: echo "deployed=true" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
+          echo "applied=true" >> "$GITHUB_OUTPUT"
 
       - name: Record staging completion
         id: staging_completed
@@ -1441,7 +1427,7 @@ jobs:
       - resolve-release
       - deploy-staging
       - deploy-production
-    if: always() && needs.resolve-release.outputs.deployment_required == 'true' && (needs.deploy-staging.outputs.deployed != 'true' || needs.deploy-production.outputs.superseded == 'true')
+    if: always() && needs.resolve-release.outputs.deployment_required == 'true' && (needs.deploy-staging.outputs.applied != 'true' || needs.deploy-production.outputs.superseded == 'true')
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -1540,7 +1526,7 @@ jobs:
           EXPOSURE_POSTURE_CATEGORIES: ${{ needs.resolve-release.outputs.exposure_posture_categories }}
           DEPLOYMENT_REQUIRED: ${{ needs.resolve-release.outputs.deployment_required }}
           STAGING_JOB_RESULT: ${{ needs.deploy-staging.result }}
-          STAGING_DEPLOYED: ${{ needs.deploy-staging.outputs.deployed }}
+          STAGING_APPLIED: ${{ needs.deploy-staging.outputs.applied || 'false' }}
           STAGING_STARTED_AT: ${{ needs.deploy-staging.outputs.started_at }}
           STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}
           CANARY_RESULT: ${{ needs.deploy-staging.outputs.buy_now_probe_result || 'skipped' }}
@@ -1566,12 +1552,12 @@ jobs:
           set -euo pipefail
           staging_result="${STAGING_JOB_RESULT:-unknown}"
           attempt_reason="staging-${staging_result}"
-          if [ "${STAGING_DEPLOYED:-}" = "true" ]; then
+          if [ "${STAGING_APPLIED:-}" = "true" ]; then
             staging_result="success"
-            attempt_reason="staging-deployed"
+            attempt_reason="staging-applied"
           elif [ "$staging_result" = "success" ]; then
             staging_result="skipped"
-            attempt_reason="staging-not-deployed"
+            attempt_reason="staging-not-applied"
           fi
 
           attempt_result="$staging_result"

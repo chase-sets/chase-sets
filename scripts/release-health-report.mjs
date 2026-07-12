@@ -1144,7 +1144,7 @@ function isStaleStagingSkip(record) {
   return (
     record.attempt?.phase === "staging" &&
     record.staging?.result === "skipped" &&
-    ["stale-release", "staging-not-deployed"].includes(record.attempt?.reason)
+    ["stale-release", "staging-not-deployed", "staging-not-applied"].includes(record.attempt?.reason)
   );
 }
 

@@ -7,6 +7,7 @@ import { writeJsonRecord } from "./lib/output-file.mjs";
 export const RELEASE_HEALTH_VERSION = "release-health/v1";
 
 export function parseReleaseHealthArgs(argv, env = process.env) {
+  const stagingResult = readOption(argv, "--staging-result") ?? readEnv("STAGING_RESULT", env) ?? "unknown";
   return {
     outPath: readOption(argv, "--out") ?? readEnv("RELEASE_HEALTH_OUT", env),
     releaseCommit: readOption(argv, "--release-commit") ?? readEnv("RELEASE_COMMIT", env),
@@ -36,7 +37,12 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     deploymentRequired: normalizeBoolean(
       readOption(argv, "--deployment-required") ?? readEnv("DEPLOYMENT_REQUIRED", env) ?? "true",
     ),
-    stagingResult: readOption(argv, "--staging-result") ?? readEnv("STAGING_RESULT", env) ?? "unknown",
+    stagingResult,
+    stagingApplied: normalizeBoolean(
+      readOption(argv, "--staging-applied") ??
+        readEnv("STAGING_APPLIED", env) ??
+        (normalizeResult(stagingResult) === "success" ? "true" : "false"),
+    ),
     stagingStartedAt: readOption(argv, "--staging-started-at") ?? readEnv("STAGING_STARTED_AT", env) ?? null,
     stagingCompletedAt: readOption(argv, "--staging-completed-at") ?? readEnv("STAGING_COMPLETED_AT", env) ?? null,
     canaryResult: readOption(argv, "--canary-result") ?? readEnv("CANARY_RESULT", env) ?? "skipped",
@@ -162,6 +168,10 @@ export function buildReleaseHealthRecord(input) {
     ? [...input.exposurePostureCategories].sort()
     : [];
   const canaryCohortSize = Number.isInteger(input.canaryCohortSize) ? input.canaryCohortSize : null;
+  const stagingApplied =
+    typeof input.stagingApplied === "boolean"
+      ? input.stagingApplied
+      : normalizeResult(input.stagingResult) === "success";
 
   if (!isCommitSha(input.releaseCommit)) {
     errors.push("releaseCommit must be a 40-character Git commit SHA.");
@@ -247,6 +257,7 @@ export function buildReleaseHealthRecord(input) {
       startedAt: emptyToNull(input.stagingStartedAt),
       completedAt: emptyToNull(input.stagingCompletedAt),
       result: normalizeResult(input.stagingResult),
+      applied: stagingApplied,
     },
     canary: {
       startedAt: emptyToNull(input.canaryStartedAt),
