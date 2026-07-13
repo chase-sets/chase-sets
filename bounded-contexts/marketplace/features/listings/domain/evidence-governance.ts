@@ -1,7 +1,7 @@
 import { activeListingPhotos, type MarketplaceListingPhoto } from "./domain";
 
 /**
- * Listing Evidence asset governance (issue #4985).
+ * Listing Evidence asset governance.
  *
  * Beyond the existing per-file upload byte limit, the evidence set is bounded
  * by a total active-entry count and a total stored-byte budget, and every

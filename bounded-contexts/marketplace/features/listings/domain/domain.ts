@@ -138,8 +138,8 @@ export type MarketplaceListingPhotoAssetSet = Readonly<{
 export type MarketplaceListingPhotoStatus = "active" | "replaced" | "removed";
 
 /**
- * A typed Listing Evidence entry (issue #4985). The `listingPhotos` container
- * name is retained deliberately; #4984 owns the generic-terminology rename of
+ * A typed Listing Evidence entry. The `listingPhotos` container name is
+ * retained deliberately; a follow-up owns the generic-terminology rename of
  * the container, DB column, and event keys. This slice enriches each entry
  * into typed evidence (configured slot/view kind, lifecycle status, immutable
  * asset revision, capture time) and adds the add-classify/replace/remove/
@@ -1033,7 +1033,7 @@ const LISTING_PHOTO_SLOT_TOKEN_PATTERN = /^[a-z][a-z0-9-]{1,63}$/;
 
 /**
  * Validates a configured evidence slot/view-kind token. Slots are opaque
- * configured identifiers (issue #4985): the Listing aggregate never interprets
+ * configured identifiers: the Listing aggregate never interprets
  * their business meaning, it only enforces that classified entries carry a
  * well-formed token so coverage can match them to policy-resolved slots.
  */
@@ -1083,7 +1083,7 @@ function normalizeListingPhotos(photos: readonly MarketplaceListingPhotoDraft[])
 
 /**
  * Replay-safe defaulting for a single stored/legacy evidence entry. Legacy
- * untyped photos (recorded before #4985) lack the typed fields; this is the
+ * untyped photos recorded before typed evidence lack the typed fields; this is the
  * explicit migration/reclassification behavior — they become `active`,
  * unclassified evidence with a hash-derived asset revision. Unlike
  * `normalizeListingPhotos` this never throws, so historical events always

@@ -1,7 +1,7 @@
 import { activeListingPhotos, type MarketplaceListingPhoto } from "./domain";
 
 /**
- * Public-safe Listing Evidence gallery projection (issue #4985).
+ * Public-safe Listing Evidence gallery projection.
  *
  * Buyer-facing reads must expose only buyer-safe metadata. Storage keys,
  * source hashes, byte sizes, original filenames, account/storage paths,
@@ -10,8 +10,8 @@ import { activeListingPhotos, type MarketplaceListingPhoto } from "./domain";
  * private evidence set down to that buyer-safe shape; public read paths pass
  * evidence through it, while seller-owned surfaces keep the full entry.
  *
- * Consumed by #4986 (seller preview) and #4989 (buyer order review). Exposed
- * here as the canonical contract.
+ * Consumed by seller preview and buyer order review. Exposed here as the
+ * canonical contract.
  */
 export type MarketplaceListingPublicGalleryImageAsset = Readonly<{
   role: string;

@@ -2,12 +2,12 @@ import type { ResolvedListingEvidenceRequirements } from "../../listing-evidence
 import { activeListingPhotos, type MarketplaceListingPhoto } from "./domain";
 
 /**
- * Generic Listing Evidence coverage evaluator (issue #4985).
+ * Generic Listing Evidence coverage evaluator.
  *
  * This is the single authoritative "is the present typed evidence sufficient
  * for the resolved requirement?" function. It is pure and deterministic: it
  * takes a policy-resolved requirement snapshot (produced by
- * `listing-evidence-policy`, the #4983 contract) plus the listing's evidence
+ * `listing-evidence-policy`) plus the listing's evidence
  * set, and returns stable machine codes describing what is unmet — never
  * thrown English policy text. UI copy is looked up from these codes via
  * localization (`evidenceCoverageCodeLocaleKey`).
@@ -17,8 +17,8 @@ import { activeListingPhotos, type MarketplaceListingPhoto } from "./domain";
  * front+back requirement is two distinct slots that two front photos cannot
  * satisfy, and a slab-label slot is enforced generically.
  *
- * Consumed by #4984 (publication + Offer Acceptance gate) and #4986/#4988
- * (seller readiness UI). #4985 exposes it; #4984 wires it into the gate.
+ * Consumed by the publication and Offer Acceptance gate and the seller
+ * readiness UI. This module exposes the evaluator for those workflows.
  */
 export type EvidenceCoverageCode =
   | "min-photo-count-unmet"

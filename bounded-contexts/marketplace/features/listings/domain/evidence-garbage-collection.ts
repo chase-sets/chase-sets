@@ -1,5 +1,5 @@
 /**
- * Listing Evidence storage lifecycle / garbage collection (issue #4985).
+ * Listing Evidence storage lifecycle and garbage collection.
  *
  * Current (active) evidence stays available while a Listing can transact.
  * Commitment-referenced revisions stay available for the order/support

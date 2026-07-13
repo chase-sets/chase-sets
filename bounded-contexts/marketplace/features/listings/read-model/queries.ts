@@ -53,7 +53,7 @@ export type MarketplaceItemListingRow = MarketplaceListingListRow &
      * Buyer-safe evidence gallery. Public item-listing reads expose only this
      * sanitized view; `listing_photos` is emptied on public rows so storage
      * keys, source hashes, byte sizes, filenames, and non-active audit entries
-     * never leak (#4985).
+     * never leak.
      */
     public_gallery: readonly MarketplaceListingPublicGalleryImage[];
   }>;

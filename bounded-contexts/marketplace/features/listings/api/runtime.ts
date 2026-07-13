@@ -253,8 +253,8 @@ export type MarketplaceListingServices = Readonly<{
   ) => Promise<{ listingId: string; version: number }>;
   /**
    * Builds the immutable Listing Evidence Snapshot for a listing's current
-   * active evidence. #4987 consumes this at Offer Acceptance to publish the
-   * committed evidence. `policyHash` is null until #4984 records the resolved
+   * active evidence. The Offer Acceptance flow consumes this to publish the
+   * committed evidence. `policyHash` is null until the resolved
    * requirement snapshot on the listing.
    */
   getListingEvidenceSnapshot: (
@@ -1350,7 +1350,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       const listing = await loadOwnedListingState(params.listingId, params.accountId);
       return buildListingEvidenceSnapshot({
         evidence: listing.listingPhotos,
-        // #4984 will record the resolved requirement snapshot (and its policy
+        // The publication gate will record the resolved requirement snapshot (and its policy
         // hash) on the listing; until then the commitment policy fingerprint
         // is unknown here.
         policyHash: null,
@@ -1380,7 +1380,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
 
       // Referenced source hashes: every ACTIVE evidence entry across all
       // scanned listings must be retained (dedup safety). Commitment-snapshot
-      // references are added here once #4987 records them.
+      // references are added here once Offer Acceptance records them.
       const referencedSourceHashes = new Set<string>();
       const entries: EvidenceGarbageCollectionEntry[] = [];
       for (const row of rows.rows) {
@@ -1403,7 +1403,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             // The read model does not carry a per-entry retirement timestamp;
             // the listing's updated_at is a safe coarse proxy — an asset is
             // only collected once the whole listing has been quiet for the
-            // safe delay. #4990's migration can add a precise timestamp.
+            // safe delay. A future migration can add a precise timestamp.
             retiredAt: row.updated_at,
             sourceHash,
             storageKeys,

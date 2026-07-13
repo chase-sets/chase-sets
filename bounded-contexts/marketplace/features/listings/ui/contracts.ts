@@ -169,7 +169,7 @@ export interface MarketplaceMarketSummary {
 export interface MarketplaceItemListing extends MarketplaceListingListItem {
   seller_display_name: string | null;
   visible_quantity: number;
-  /** Buyer-safe evidence gallery; `listing_photos` is empty on public rows (#4985). */
+  /** Buyer-safe evidence gallery; `listing_photos` is empty on public rows. */
   public_gallery: readonly MarketplaceListingPublicGalleryImage[];
 }
 

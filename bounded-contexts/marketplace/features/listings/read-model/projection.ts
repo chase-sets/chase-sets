@@ -86,7 +86,7 @@ function assertUpdatedListingRow(
 
 /**
  * Read-modify-write for the `listing_photos` JSONB array. The typed Listing
- * Evidence lifecycle events (#4985) carry deltas rather than the full array, so
+ * Evidence lifecycle events carry deltas rather than the full array, so
  * the projector rehydrates the current array, applies the delta, and writes it
  * back. Safe because the projector applies a stream's events sequentially in
  * order.
