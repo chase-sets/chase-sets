@@ -104,7 +104,7 @@ function resolveBuyerEmail(orders: readonly PaymentsAccountOrderInput[]) {
 }
 
 function needsProcessorBuyerEmail(payment: Readonly<{ status: string; processor_payment_kind?: string | null }>) {
-  return payment.status === "pending-confirmation" && payment.processor_payment_kind === "checkout-session";
+  return payment.status === "pending-confirmation";
 }
 
 const GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENV = "GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED";

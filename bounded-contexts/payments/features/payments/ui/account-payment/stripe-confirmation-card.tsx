@@ -23,8 +23,20 @@ type StripePaymentElement = {
   destroy(): void;
 };
 
+type StripePaymentElementOptions = {
+  wallets: {
+    applePay: "auto";
+    googlePay: "auto";
+  };
+  defaultValues?: {
+    billingDetails: {
+      email: string;
+    };
+  };
+};
+
 type StripeCheckoutController = {
-  createPaymentElement(): StripePaymentElement;
+  createPaymentElement(options: StripePaymentElementOptions): StripePaymentElement;
   loadActions(): Promise<StripeCheckoutActionsLoadResult>;
   changeAppearance?(appearance: StripeElementsAppearance): void;
 };
@@ -53,7 +65,7 @@ type StripeCheckoutOptions = {
 };
 
 type StripeElements = {
-  create(type: "payment"): StripePaymentElement;
+  create(type: "payment", options: StripePaymentElementOptions): StripePaymentElement;
   update?(options: { appearance: StripeElementsAppearance }): void;
 };
 
@@ -224,7 +236,24 @@ export function StripeConfirmationCard({
               clientSecret,
               appearance: stripeElementsAppearance,
             });
-        const paymentElement = checkout ? checkout.createPaymentElement() : elements!.create("payment");
+        const paymentElementOptions: StripePaymentElementOptions = {
+          wallets: {
+            applePay: "auto",
+            googlePay: "auto",
+          },
+          ...(buyerEmail
+            ? {
+                defaultValues: {
+                  billingDetails: {
+                    email: buyerEmail,
+                  },
+                },
+              }
+            : {}),
+        };
+        const paymentElement = checkout
+          ? checkout.createPaymentElement(paymentElementOptions)
+          : elements!.create("payment", paymentElementOptions);
         paymentElement.mount(container);
 
         const checkoutActionsResult = checkout ? await checkout.loadActions() : null;
@@ -273,7 +302,13 @@ export function StripeConfirmationCard({
       stripeRef.current = null;
       setIsReady(false);
     };
-  }, [payment.payment_id, payment.processor_client_secret, payment.processor_publishable_key, payment.status]);
+  }, [
+    buyerEmail,
+    payment.payment_id,
+    payment.processor_client_secret,
+    payment.processor_publishable_key,
+    payment.status,
+  ]);
 
   // Theme changes restyle the mounted Payment Element in place. Remounting here
   // would destroy whatever the buyer has already typed.

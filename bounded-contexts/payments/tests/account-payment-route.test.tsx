@@ -105,6 +105,13 @@ type StripeCheckoutOptionsMock = Readonly<{
   };
 }>;
 
+const walletElementOptions = {
+  wallets: {
+    applePay: "auto",
+    googlePay: "auto",
+  },
+};
+
 const { mockUseActionData, mockUseLoaderData, mockUseRevalidator } = vi.hoisted(() => ({
   mockUseActionData: vi.fn(),
   mockUseLoaderData: vi.fn(),
@@ -582,6 +589,7 @@ describe("marketplace account payment route", () => {
         processor_publishable_key: "pk_test_123",
       }),
       orders: [buildPurchase()],
+      buyerEmail: "buyer@example.com",
     });
 
     (window as StripeWindow).Stripe = vi.fn(() => ({
@@ -623,7 +631,14 @@ describe("marketplace account payment route", () => {
         }),
       }),
     });
-    expect(elementsCreate).toHaveBeenCalledWith("payment");
+    expect(elementsCreate).toHaveBeenCalledWith("payment", {
+      ...walletElementOptions,
+      defaultValues: {
+        billingDetails: {
+          email: "buyer@example.com",
+        },
+      },
+    });
     expect(paymentElement.mount).toHaveBeenCalled();
   });
 
@@ -657,8 +672,9 @@ describe("marketplace account payment route", () => {
       destroy: vi.fn(),
     };
     const confirm = vi.fn().mockResolvedValue({});
+    const createPaymentElement = vi.fn(() => paymentElement);
     const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
-      createPaymentElement: vi.fn(() => paymentElement),
+      createPaymentElement,
       loadActions: vi.fn().mockResolvedValue({
         type: "success",
         actions: { confirm },
@@ -716,6 +732,14 @@ describe("marketplace account payment route", () => {
       },
     });
     expect(initCheckoutOptions?.elementsOptions.appearance.rules).toBeUndefined();
+    expect(createPaymentElement).toHaveBeenCalledWith({
+      ...walletElementOptions,
+      defaultValues: {
+        billingDetails: {
+          email: "buyer@example.com",
+        },
+      },
+    });
     expect(paymentElement.mount).toHaveBeenCalled();
   });
 

@@ -278,7 +278,7 @@ describe("checkout session page", () => {
     expect(markup).toContain("Refunds and returns");
     expect(markup).toContain('href="/refunds-and-returns"');
     expect(markup).toContain("Guest checkout contact and shipping details are used");
-    expect(markup).toContain("Card details stay in the secure payment step.");
+    expect(markup).toContain("Card and wallet details stay in the secure payment step.");
     expect(markup).not.toContain("Recalculate fulfillment");
     expect(markup).not.toContain("Card Vault");
     expect(markup).not.toContain("Optimized seller listing");
@@ -431,7 +431,7 @@ describe("checkout session page", () => {
     );
 
     expect(cardOnlyMarkup).toContain("Payment method");
-    expect(cardOnlyMarkup).toContain("Card");
+    expect(cardOnlyMarkup).toContain("Card or wallet");
     expect(cardOnlyMarkup).toContain('name="paymentMethodCategory" value="card"');
     expect(cardOnlyMarkup).not.toContain("Bank account");
     expect(cardOnlyMarkup).not.toContain('value="bank-account"');
