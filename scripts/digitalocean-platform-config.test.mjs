@@ -3239,6 +3239,7 @@ describe("DigitalOcean platform configuration", () => {
 
   it("reconfigures Terraform whenever the observability migration switches state keys", () => {
     expect(occurrenceCount(platformObservabilityStateMigrationWorkflow, "-reconfigure")).toBe(2);
+    expect(platformObservabilityStateMigrationWorkflow).toContain('-state="$shared_work"');
   });
 
   it("keeps every checked-in observability stack file deployed or explicitly excluded", () => {
