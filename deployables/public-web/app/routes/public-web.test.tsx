@@ -35,6 +35,8 @@ describe("public web deployable", () => {
       "refunds-and-returns",
       "order-protection",
       "founders",
+      "compare/tcgplayer",
+      "compare/ebay",
     ]);
     expect(routePaths).not.toContain("search");
     expect(routePaths).not.toContain("items/:id");
@@ -72,6 +74,8 @@ describe("public web deployable", () => {
     expect(sitemapBody).toContain("<loc>https://chasesets.com/</loc>");
     expect(sitemapBody).toContain("<loc>https://chasesets.com/faq</loc>");
     expect(sitemapBody).toContain("<loc>https://chasesets.com/help</loc>");
+    expect(sitemapBody).toContain("<loc>https://chasesets.com/compare/tcgplayer</loc>");
+    expect(sitemapBody).toContain("<loc>https://chasesets.com/compare/ebay</loc>");
     expect(sitemapBody).toContain("<loc>https://chasesets.com/help/buying/order-protection</loc>");
     expect(sitemapBody).toContain("<loc>https://chasesets.com/help/selling</loc>");
     expect(sitemapBody).not.toContain("https://chasesets.com/search");

@@ -339,6 +339,22 @@
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
+        },
+        {
+          "routeId": "compare-tcgplayer",
+          "routePath": "compare/tcgplayer",
+          "fileExport": "./routes/marketplace/compare-tcgplayer",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "compare-ebay",
+          "routePath": "compare/ebay",
+          "fileExport": "./routes/marketplace/compare-ebay",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
         }
       ]
     },
