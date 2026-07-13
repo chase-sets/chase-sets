@@ -121,6 +121,11 @@ export interface PaymentsAccountOrderInput {
   pending_payment_at: string | null;
   payment_deadline_at: string | null;
   payment_deadline_policy: string | null;
+  listing_evidence?: readonly Readonly<{
+    line_id: string;
+    item_title: string;
+    gallery: readonly import("../../../support/request-support/listing-evidence").MarketplaceListingPublicGalleryImage[];
+  }>[];
 }
 
 export interface PaymentsMarketplaceCheckoutFeePolicy {

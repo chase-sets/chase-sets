@@ -1,4 +1,5 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import type { MarketplaceListingPublicGalleryImage } from "../../../support/request-support/listing-evidence";
 
 export interface OrderingOrderProjection {
   order_id: string;
@@ -74,6 +75,7 @@ export interface OrderingOrderProjectionLine {
   marketplace_sales_fee_total_amount: string;
   seller_net_unit_amount: string;
   seller_net_total_amount: string;
+  listing_evidence_gallery?: readonly MarketplaceListingPublicGalleryImage[];
 }
 
 export interface OrderingOrderProjectionHold {

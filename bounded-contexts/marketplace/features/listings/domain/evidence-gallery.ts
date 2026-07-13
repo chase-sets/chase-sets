@@ -1,4 +1,5 @@
-import { activeListingPhotos, type MarketplaceListingPhoto } from "./domain";
+import type { ListingEvidenceSnapshot } from "./evidence-snapshot";
+import { activeListingPhotos, type MarketplaceListingPhoto, type MarketplaceListingPhotoAssetVariant } from "./domain";
 
 /**
  * Public-safe Listing Evidence gallery projection.
@@ -65,4 +66,51 @@ export function toPublicListingGallery(
       // roles only.
       assets: photo.assetSet.variants.map(publicAsset),
     }));
+}
+
+/**
+ * Buyer-safe projection for an immutable commitment snapshot. The adapter
+ * deliberately reuses `toPublicListingGallery`, so historical reads have the
+ * same privacy boundary as current Listing reads.
+ */
+export function toPublicListingEvidenceSnapshotGallery(
+  snapshot: ListingEvidenceSnapshot | null | undefined,
+): MarketplaceListingPublicGalleryImage[] {
+  if (!snapshot) {
+    return [];
+  }
+
+  const evidence: MarketplaceListingPhoto[] = snapshot.evidence.map((item) => {
+    const assets = item.assets.map(
+      (asset) =>
+        ({
+          ...asset,
+          role: asset.role as MarketplaceListingPhotoAssetVariant["role"],
+          generatedAt: snapshot.createdAt,
+        }) as MarketplaceListingPhotoAssetVariant,
+    );
+    const source = assets.find((asset) => asset.role === "source") ?? assets[0];
+
+    return {
+      photoId: item.photoId,
+      originalFilename: null,
+      altText: null,
+      slotId: item.slotId,
+      viewKind: item.viewKind,
+      status: "active",
+      sortOrder: item.sortOrder,
+      capturedAt: item.capturedAt,
+      uploadedAt: item.uploadedAt,
+      assetRevision: item.assetRevision,
+      replacesPhotoId: null,
+      assetSet: {
+        kind: "listing-photo",
+        sourceHash: item.sourceHash,
+        source: source ?? ({} as MarketplaceListingPhotoAssetVariant),
+        variants: source ? assets.filter((asset) => asset !== source) : [],
+      },
+    };
+  });
+
+  return toPublicListingGallery(evidence);
 }

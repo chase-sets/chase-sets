@@ -4,6 +4,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { OrderId } from "@chase-sets/primitives/typed-ids";
 import { withOrderDisplayReference } from "./display-reference";
 import { releaseSellerOrderCapacityClaim } from "../api/order-capacity";
+import type { ListingEvidenceSnapshot } from "../../../support/request-support/listing-evidence";
 
 export function buildOrderingOrderProjectionHandlers(
   db: PgQueryable,
@@ -89,6 +90,7 @@ export function buildOrderingOrderProjectionHandlers(
           marketplaceSalesFeeTotalAmount: string;
           sellerNetUnitAmount: string;
           sellerNetTotalAmount: string;
+          listingEvidenceSnapshot?: ListingEvidenceSnapshot | null;
         }>;
         reservationRequests: Array<{
           reservationRequestId: string;
@@ -260,9 +262,10 @@ export function buildOrderingOrderProjectionHandlers(
              marketplace_sales_fee_unit_amount,
              marketplace_sales_fee_total_amount,
              seller_net_unit_amount,
-             seller_net_total_amount
+             seller_net_total_amount,
+             listing_evidence_snapshot
            ) VALUES (
-             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
            )
            ON CONFLICT (order_id, line_id) DO UPDATE
            SET line_index = EXCLUDED.line_index,
@@ -283,7 +286,8 @@ export function buildOrderingOrderProjectionHandlers(
                marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
                marketplace_sales_fee_total_amount = EXCLUDED.marketplace_sales_fee_total_amount,
                seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
-               seller_net_total_amount = EXCLUDED.seller_net_total_amount`,
+               seller_net_total_amount = EXCLUDED.seller_net_total_amount,
+               listing_evidence_snapshot = EXCLUDED.listing_evidence_snapshot`,
           [
             data.orderId,
             line.lineId,
@@ -306,6 +310,7 @@ export function buildOrderingOrderProjectionHandlers(
             line.marketplaceSalesFeeTotalAmount,
             line.sellerNetUnitAmount,
             line.sellerNetTotalAmount,
+            line.listingEvidenceSnapshot ? JSON.stringify(line.listingEvidenceSnapshot) : null,
           ],
         );
       }

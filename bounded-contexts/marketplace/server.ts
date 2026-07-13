@@ -19,6 +19,31 @@ export {
 } from "./support/request-support/anonymous-listing-draft";
 export type { ListingPhotoStorage } from "./support/runtime-support";
 export {
+  buildListingEvidenceSnapshot,
+  LISTING_EVIDENCE_SNAPSHOT_SCHEMA_VERSION,
+} from "./features/listings/domain/evidence-snapshot";
+export type {
+  BuildListingEvidenceSnapshotInput,
+  ListingEvidenceSnapshot,
+  ListingEvidenceSnapshotAsset,
+  ListingEvidenceSnapshotItem,
+} from "./features/listings/domain/evidence-snapshot";
+export {
+  toPublicListingGallery,
+  toPublicListingEvidenceSnapshotGallery,
+} from "./features/listings/domain/evidence-gallery";
+export type {
+  MarketplaceListingPublicGalleryImage,
+  MarketplaceListingPublicGalleryImageAsset,
+} from "./features/listings/domain/evidence-gallery";
+export { evaluateEvidenceCoverage } from "./features/listings/domain/evidence-coverage";
+export type {
+  EvidenceCoverageCode,
+  EvidenceCoverageResult,
+  EvidenceSlotCoverage,
+  EvaluateEvidenceCoverageOptions,
+} from "./features/listings/domain/evidence-coverage";
+export {
   marketplaceRealtimeManifest,
   marketplaceRealtimeRegistration,
   marketplaceRealtimeRouteTopics,

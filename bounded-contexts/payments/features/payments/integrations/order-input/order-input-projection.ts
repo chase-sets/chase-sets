@@ -29,6 +29,11 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
         buyerAccountId: string;
         sellerAccountId: string;
         shippingDestinationSnapshot?: AddressSnapshot | null;
+        lines?: readonly Readonly<{
+          lineId: string;
+          itemTitle: string;
+          listingEvidenceSnapshot?: unknown;
+        }>[];
         salesTaxAmount?: string;
         totalAmount: string;
         shippingAllowanceAmount?: string;
@@ -90,8 +95,9 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
            updated_at,
            cancelled_at,
            ready_for_fulfillment_at,
-           shipping_destination_snapshot
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, 'pending-reservation', NULL, NULL, NULL, $26, $26, NULL, NULL, $27)
+           shipping_destination_snapshot,
+           listing_evidence_snapshots
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, 'pending-reservation', NULL, NULL, NULL, $26, $26, NULL, NULL, $27, $28)
          ON CONFLICT (order_id) DO UPDATE
          SET source_type = EXCLUDED.source_type,
              source_reference_id = EXCLUDED.source_reference_id,
@@ -124,7 +130,8 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
               updated_at = EXCLUDED.updated_at,
              cancelled_at = EXCLUDED.cancelled_at,
              ready_for_fulfillment_at = EXCLUDED.ready_for_fulfillment_at,
-             shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot`,
+             shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot,
+             listing_evidence_snapshots = EXCLUDED.listing_evidence_snapshots`,
         [
           data.orderId,
           data.sourceType,
@@ -168,6 +175,19 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
           data.shippingDestinationSnapshot
             ? JSON.stringify(paymentEntryAddressSnapshot(data.shippingDestinationSnapshot))
             : null,
+          JSON.stringify(
+            (data.lines ?? []).flatMap((line) =>
+              line.listingEvidenceSnapshot
+                ? [
+                    {
+                      lineId: line.lineId,
+                      itemTitle: line.itemTitle,
+                      listingEvidenceSnapshot: line.listingEvidenceSnapshot,
+                    },
+                  ]
+                : [],
+            ),
+          ),
         ],
       );
     },

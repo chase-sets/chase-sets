@@ -172,6 +172,9 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.item.subtotal": "Item subtotal",
   "ordering.features.orders.ui.orderDetailPage.line.total": "Line total",
   "ordering.features.orders.ui.orderDetailPage.lines": "Lines",
+  "ordering.features.orders.ui.orderDetailPage.seller.evidence.at.acceptance": "Seller evidence at acceptance",
+  "ordering.features.orders.ui.orderDetailPage.seller.evidence.at.acceptance.description":
+    "Seller-supplied condition evidence committed when this offer was accepted.",
   "ordering.features.orders.ui.orderDetailPage.marketplace.fee": "Marketplace sales fee",
   "ordering.features.orders.ui.orderDetailPage.next.steps": "Next steps",
   "ordering.features.orders.ui.orderDetailPage.no.schedule.snapshot": "No schedule snapshot",

@@ -242,6 +242,7 @@ function accountOrderInputSnapshot(order: AccountOrderInputForApi) {
     terms_agreement_id: order.terms_agreement_id,
     terms_resolved_at: order.terms_resolved_at,
     status: order.status,
+    listing_evidence: order.listing_evidence,
   };
 }
 

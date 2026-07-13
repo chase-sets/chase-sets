@@ -230,6 +230,7 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
                           termsAgreementId: row.terms_agreement_id,
                           termsResolvedAt: row.terms_resolved_at,
                           quantityRequested: row.quantity_requested,
+                          listingEvidenceSnapshot: row.listing_evidence_snapshot,
                         })),
                       },
                       params.context,
@@ -264,6 +265,7 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
                       shippingAllowancePercentageBps: params.shippingAllowancePercentageBps,
                       shippingDestinationSnapshot: params.shippingDestinationSnapshot,
                       quantityRequested: params.quantityRequested,
+                      listingEvidenceSnapshot: params.listingEvidenceSnapshot,
                     },
                     params.context,
                   );

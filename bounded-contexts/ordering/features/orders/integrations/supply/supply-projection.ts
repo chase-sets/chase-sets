@@ -4,6 +4,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { ListingEvidenceSnapshot } from "../../../../support/request-support/listing-evidence";
 
 type AcceptedOfferParams = Readonly<{
   offerId: string;
@@ -29,6 +30,7 @@ type AcceptedOfferParams = Readonly<{
   quantityRequested: number;
   acceptanceBatchId: string | null;
   acceptanceBatchSize: number | null;
+  listingEvidenceSnapshot: ListingEvidenceSnapshot | null;
   context: EventStoreContext;
 }>;
 
@@ -46,6 +48,14 @@ type SellerOrderCapacityClearedProjectionPayload = Readonly<{
   accountId: string;
 }>;
 
+type MarketplaceOfferAcceptedProjectionPayload = ChaseSetsEventPayloads["marketplace.offer.accepted"] &
+  Readonly<{
+    /** Published by the Marketplace acceptance producer; optional until that producer lands. */
+    listingEvidenceSnapshot?: ListingEvidenceSnapshot | null;
+    listingId?: string;
+    inventoryItemId?: string;
+  }>;
+
 type OrderingMarketplaceSupplyProjectionEventPayloads = Pick<
   ChaseSetsEventPayloads,
   | "marketplace.listing.created"
@@ -57,9 +67,9 @@ type OrderingMarketplaceSupplyProjectionEventPayloads = Pick<
   | "marketplace.listing.withdrawn"
   | "marketplace.seller-listing-availability.disabled"
   | "marketplace.seller-listing-availability.enabled"
-  | "marketplace.offer.accepted"
 > &
   Readonly<{
+    "marketplace.offer.accepted": MarketplaceOfferAcceptedProjectionPayload;
     "catalog.catalog-item.product-measures-resolved": CatalogProductMeasuresResolvedProjectionPayload;
     // Not yet declared on the shared ChaseSetsEventPayloads contract (the
     // marketplace Order Capacity decider ships the events without
@@ -453,9 +463,10 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            accepted_at,
            acceptance_batch_id,
            acceptance_batch_size,
+           listing_evidence_snapshot,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
          )
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -481,6 +492,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              accepted_at = EXCLUDED.accepted_at,
              acceptance_batch_id = EXCLUDED.acceptance_batch_id,
              acceptance_batch_size = EXCLUDED.acceptance_batch_size,
+             listing_evidence_snapshot = EXCLUDED.listing_evidence_snapshot,
              updated_at = EXCLUDED.updated_at`,
         [
           data.offerId,
@@ -507,6 +519,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.acceptedAt,
           data.acceptanceBatchId ?? null,
           data.acceptanceBatchSize ?? null,
+          data.listingEvidenceSnapshot ? JSON.stringify(data.listingEvidenceSnapshot) : null,
           event.timing.recordedAt,
         ],
       );
@@ -516,6 +529,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         marketplaceSalesFeePercentageBps: data.marketplaceSalesFeePercentageBps ?? 0,
         marketplaceSalesFeeFixedAmount: data.marketplaceSalesFeeFixedAmount ?? data.marketplaceSalesFeeUnitAmount,
         marketplaceSalesFeeCapAmount: data.marketplaceSalesFeeCapAmount ?? null,
+        listingEvidenceSnapshot: data.listingEvidenceSnapshot ?? null,
         context: {
           tenantId: event.tenantId,
           audit: event.audit,

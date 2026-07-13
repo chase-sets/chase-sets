@@ -1,6 +1,11 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { VersionSelectedOptionEntry } from "../domain/common";
+import {
+  toPublicListingEvidenceSnapshotGallery,
+  type ListingEvidenceSnapshot,
+  type MarketplaceListingPublicGalleryImage,
+} from "../../../support/request-support/listing-evidence";
 
 export type OrderingOrderLineRow = Readonly<{
   line_id: string;
@@ -22,6 +27,7 @@ export type OrderingOrderLineRow = Readonly<{
   marketplace_sales_fee_total_amount: string;
   seller_net_unit_amount: string;
   seller_net_total_amount: string;
+  listing_evidence_gallery: readonly MarketplaceListingPublicGalleryImage[];
 }>;
 
 export type OrderingOrderHoldRow = Readonly<{
@@ -168,6 +174,7 @@ type OrderLinePageRow = Readonly<{
   marketplace_sales_fee_total_amount: string;
   seller_net_unit_amount: string;
   seller_net_total_amount: string;
+  listing_evidence_snapshot: ListingEvidenceSnapshot | null;
 }>;
 
 const baseOrderSelect = `
@@ -264,9 +271,11 @@ const baseOrderSelect = `
 `;
 
 function mapOrderLine(row: OrderLinePageRow): OrderingOrderLineRow {
+  const { listing_evidence_snapshot, ...safeRow } = row;
   return {
-    ...row,
+    ...safeRow,
     selected_options: Array.isArray(row.selected_options) ? (row.selected_options as VersionSelectedOptionEntry[]) : [],
+    listing_evidence_gallery: toPublicListingEvidenceSnapshotGallery(listing_evidence_snapshot),
   };
 }
 
@@ -371,7 +380,8 @@ export async function getPurchase(
          marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
          marketplace_sales_fee_total_amount::text AS marketplace_sales_fee_total_amount,
          seller_net_unit_amount::text AS seller_net_unit_amount,
-         seller_net_total_amount::text AS seller_net_total_amount
+         seller_net_total_amount::text AS seller_net_total_amount,
+         listing_evidence_snapshot
        FROM ordering_order_line_pages
        WHERE order_id = $1
        ORDER BY line_index ASC, line_id ASC`,
@@ -466,7 +476,8 @@ export async function getSale(
          marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
          marketplace_sales_fee_total_amount::text AS marketplace_sales_fee_total_amount,
          seller_net_unit_amount::text AS seller_net_unit_amount,
-         seller_net_total_amount::text AS seller_net_total_amount
+         seller_net_total_amount::text AS seller_net_total_amount,
+         listing_evidence_snapshot
        FROM ordering_order_line_pages
        WHERE order_id = $1
        ORDER BY line_index ASC, line_id ASC`,

@@ -15,6 +15,7 @@ import {
   CheckoutLayout,
   Divider,
   Grid,
+  ImageGallery,
   Inset,
   LinkButton,
   MarketplaceNotice,
@@ -297,6 +298,38 @@ export default function MarketplaceAccountPaymentNewRoute() {
                 },
               ]}
             />
+            {data.orders.some((order) => (order.listing_evidence ?? []).length > 0) ? (
+              <PageSection title={t("payments.routes.marketplace.accountPaymentNew.seller.evidence.at.acceptance")}>
+                <Stack gap={3}>
+                  {data.orders.flatMap((order) =>
+                    (order.listing_evidence ?? []).map((evidence) => {
+                      const images = evidence.gallery.flatMap((image) => {
+                        const asset =
+                          image.assets.find((candidate) => candidate.role === "catalog-detail") ??
+                          image.assets.find((candidate) => candidate.role === "search-card") ??
+                          image.assets[0];
+                        return asset
+                          ? [{ src: asset.publicUrl, alt: image.altText ?? `${evidence.item_title} evidence` }]
+                          : [];
+                      });
+                      return (
+                        <Surface key={`${order.order_id}:${evidence.line_id}`} elevated>
+                          <Stack gap={2}>
+                            <Text weight="semibold">{evidence.item_title}</Text>
+                            <ImageGallery images={images} aspectRatio="3/4" thumbnailPlacement="left" />
+                            <Text size="sm" tone="secondary">
+                              {t(
+                                "payments.routes.marketplace.accountPaymentNew.seller.evidence.at.acceptance.description",
+                              )}
+                            </Text>
+                          </Stack>
+                        </Surface>
+                      );
+                    }),
+                  )}
+                </Stack>
+              </PageSection>
+            ) : null}
           </Stack>
         }
       >
