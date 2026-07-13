@@ -50,6 +50,11 @@ import waitlistCardPanelsUrl from "./assets/chase-sets-waitlist-card-panels.webp
 import waitlistCardPanels600wUrl from "./assets/chase-sets-waitlist-card-panels-600w.webp?url";
 import waitlistCardPanels1080wUrl from "./assets/chase-sets-waitlist-card-panels-1080w.webp?url";
 import { trackWaitlistEvent } from "./analytics";
+import {
+  checkoutFeeTranslationValues,
+  fallbackCheckoutFeePreview,
+  type CheckoutFeePreview,
+} from "./checkout-fee-preview";
 import { launchTimeline } from "./launch-config";
 import { publicPresenceT as t } from "./public-presence-translator";
 
@@ -451,12 +456,15 @@ export function PublicPresenceHomePage({
   discordInviteUrl,
   source,
   selectedGame: selectedGameInput = null,
+  checkoutFeePreview = fallbackCheckoutFeePreview,
 }: {
   actionData: WaitlistActionData;
   discordInviteUrl?: string | null;
   source: WaitlistPageSource;
   /** Raw `?game=` slug from the loader (game roster tile / per-game campaign link); normalized here. */
   selectedGame?: string | null;
+  /** Live buyer-side checkout processing presentation from the loader; falls back to the compiled launch terms. */
+  checkoutFeePreview?: CheckoutFeePreview;
 }) {
   const [intent, setIntent] = useState<WaitlistIntent>(defaultIntent);
   const waitlistCounterDisplay = useWaitlistCounterDisplay();
@@ -574,7 +582,7 @@ export function PublicPresenceHomePage({
 
         <AudiencePathSection onIntentSelect={selectIntent} />
 
-        <ProductSignalPreview />
+        <ProductSignalPreview checkoutFeePreview={checkoutFeePreview} />
 
         <MarketplaceModelSection />
 
@@ -591,7 +599,7 @@ export function PublicPresenceHomePage({
           selectedGame={selectedGame}
         />
 
-        <FaqPreview />
+        <FaqPreview checkoutFeePreview={checkoutFeePreview} />
       </Page>
     </PublicPresencePageShell>
   );
@@ -1159,7 +1167,11 @@ function MarketplaceModelSection() {
   );
 }
 
-function ProductSignalPreview() {
+function ProductSignalPreview({ checkoutFeePreview }: { checkoutFeePreview: CheckoutFeePreview }) {
+  // The concrete buyer-side checkout-fee presentation: the card processing
+  // line states the real passthrough terms and the sample order resolves to
+  // a concrete total, instead of a fee "quoted before payment".
+  const checkoutFee = checkoutFeeTranslationValues(checkoutFeePreview);
   return (
     <PageSection
       id="product-preview"
@@ -1225,7 +1237,7 @@ function ProductSignalPreview() {
         <Stack gap={4}>
           <PriceBreakdown
             title={t("publicPresence.preview.total.title")}
-            description={t("publicPresence.preview.total.description")}
+            description={t("publicPresence.preview.total.description", checkoutFee)}
             lines={[
               { label: t("publicPresence.preview.total.item"), value: t("publicPresence.preview.total.item.value") },
               { label: t("publicPresence.preview.total.shipping"), value: <DiscountedShippingValue /> },
@@ -1234,13 +1246,13 @@ function ProductSignalPreview() {
                 value: t("publicPresence.preview.total.tax.value"),
               },
               {
-                label: t("publicPresence.preview.total.cardProcessing"),
-                value: t("publicPresence.preview.total.cardProcessing.value"),
+                label: t("publicPresence.preview.total.cardProcessing", checkoutFee),
+                value: t("publicPresence.preview.total.cardProcessing.value", checkoutFee),
               },
             ]}
             totalLabel={t("publicPresence.preview.total.due")}
-            total={t("publicPresence.preview.total.due.value")}
-            reassurance={t("publicPresence.preview.total.reassurance")}
+            total={t("publicPresence.preview.total.due.value", checkoutFee)}
+            reassurance={t("publicPresence.preview.total.reassurance", checkoutFee)}
           />
           <Text size="sm" tone="tertiary">
             {t("publicPresence.preview.total.protectionCaption")}{" "}
@@ -1257,7 +1269,8 @@ function ProductSignalPreview() {
                 <Stack key={title} gap={1}>
                   <Text weight="semibold">{t(title)}</Text>
                   <Text size="sm" tone="secondary">
-                    {t(description)}
+                    {/* Checkout-fee values interpolate here; keys without those tokens ignore the extra values. */}
+                    {t(description, checkoutFee)}
                   </Text>
                 </Stack>
               ))}
@@ -1674,11 +1687,12 @@ function WaitlistSignupPanel({
   return panel;
 }
 
-function FaqPreview() {
+function FaqPreview({ checkoutFeePreview }: { checkoutFeePreview: CheckoutFeePreview }) {
   const previewQuestions = [
     ["publicPresence.faq.launch.question", "publicPresence.faq.launch.answer"],
     ["publicPresence.faq.fees.question", "publicPresence.faq.fees.answer"],
   ];
+  const answerValues = { ...launchTimeline, ...checkoutFeeTranslationValues(checkoutFeePreview) };
 
   return (
     <PageSection
@@ -1696,9 +1710,9 @@ function FaqPreview() {
           <Surface key={question} tone="subtle">
             <Stack gap={2}>
               <Heading level={3}>{t(question)}</Heading>
-              {/* Launch-timeline values interpolate here; keys without those
-                  tokens ignore the extra values. */}
-              <Text tone="secondary">{t(answer, launchTimeline)}</Text>
+              {/* Launch-timeline and checkout-fee values interpolate here;
+                  keys without those tokens ignore the extra values. */}
+              <Text tone="secondary">{t(answer, answerValues)}</Text>
             </Stack>
           </Surface>
         ))}

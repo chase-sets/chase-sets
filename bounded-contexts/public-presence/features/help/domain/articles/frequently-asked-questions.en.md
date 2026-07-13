@@ -5,7 +5,7 @@ description: Short answers about marketplace availability, seller fees, shipping
 audience: buyer
 category: getting-started
 revisionDate: "2026-07-12"
-citedPolicies: []
+citedPolicies: ["commercial-terms.checkout-processing-fee"]
 relatedFlows: []
 promiseTable:
   - claim: Marketplace checkout is not open during prelaunch.
@@ -24,7 +24,7 @@ Not yet. Chase Sets opens to everyone on September 1, 2026, and beta invite wave
 
 ## Where can sellers review fees?
 
-The current [marketplace sales fee schedule](/sales-fees) explains the standard seller fee, per-item cap, and listing-time fee confirmation. Buyers see any checkout fee before payment.
+The current [marketplace sales fee schedule](/sales-fees) explains the standard seller fee, per-item cap, and listing-time fee confirmation. Buyers pay only payment processing at cost, shown before payment: {{policy:checkout-processing-fee.card.bps}} plus {{policy:checkout-processing-fee.card.fixed}} by card, {{policy:checkout-processing-fee.bank-account.bps}} plus {{policy:checkout-processing-fee.bank-account.fixed}} by bank account, and {{policy:checkout-processing-fee.platform-credit.bps}} plus {{policy:checkout-processing-fee.platform-credit.fixed}} with Chase Sets credit.
 
 ## How does shipping work?
 

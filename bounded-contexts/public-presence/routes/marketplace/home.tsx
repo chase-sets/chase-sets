@@ -7,6 +7,14 @@ import {
 } from "../../support/request-support/api-client";
 import { PublicPresenceHomePage } from "../../features/waitlist/ui/public-pages";
 import heroImageUrl from "../../features/waitlist/ui/assets/chase-sets-prelaunch-hero.webp?url";
+import {
+  buildCheckoutFeePreview,
+  checkoutFeeTranslationValues,
+  fallbackCheckoutFeePreview,
+  selectCheckoutProcessingTerms,
+  type CheckoutFeePreview,
+} from "../../features/waitlist/ui/checkout-fee-preview";
+import { loadPublicPolicyValues } from "../../features/help/integrations/public-policy-values-client";
 import { launchTimeline } from "../../features/waitlist/ui/launch-config";
 import { publicPresenceT as t } from "../../features/waitlist/ui/public-presence-translator";
 
@@ -45,9 +53,29 @@ export async function loader({ request }: LoaderFunctionArgs) {
       "[public-presence] CHASE_SETS_DISCORD_INVITE_URL is not set. The Discord CTA will not render until it is configured.",
     );
   }
+  // Buyer-side checkout fee transparency: the preview and FAQ state the live
+  // whitelisted checkout processing terms. When the public policy read is
+  // unavailable the landing page must still render, so it falls back to the
+  // compiled launch terms -- the same compiled-fallback doctrine Payments
+  // applies to this policy.
+  let checkoutFeePreview: CheckoutFeePreview = fallbackCheckoutFeePreview;
+  try {
+    const policyValues = await loadPublicPolicyValues(request);
+    checkoutFeePreview = buildCheckoutFeePreview(selectCheckoutProcessingTerms(policyValues.values));
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(
+        `[public-presence] Live checkout processing terms are unavailable; the landing preview is using the compiled launch terms. ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
   return {
     discordInviteUrl,
     publicOrigin,
+    checkoutFeePreview,
     // Raw `?game=` slug from a game roster tile or per-game campaign link;
     // the UI normalizes it against the five supported games.
     selectedGame: url.searchParams.get("game"),
@@ -151,9 +179,15 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => {
   ];
 };
 
-export function buildHomeStructuredData(publicOrigin = fallbackPublicOrigin) {
+export function buildHomeStructuredData(
+  publicOrigin = fallbackPublicOrigin,
+  checkoutFeePreview: CheckoutFeePreview = fallbackCheckoutFeePreview,
+) {
   const normalizedOrigin = normalizeOrigin(publicOrigin);
   const homeUrl = publicUrl(normalizedOrigin, "/");
+  // Launch-timeline and checkout-fee values keep the visible FAQ and this
+  // structured data on the same interpolated copy.
+  const faqAnswerValues = { ...launchTimeline, ...checkoutFeeTranslationValues(checkoutFeePreview) };
 
   return {
     "@context": "https://schema.org",
@@ -191,9 +225,7 @@ export function buildHomeStructuredData(publicOrigin = fallbackPublicOrigin) {
           name: t(question),
           acceptedAnswer: {
             "@type": "Answer",
-            // Launch-timeline values keep the visible FAQ and this
-            // structured data on the same interpolated copy.
-            text: t(answer, launchTimeline),
+            text: t(answer, faqAnswerValues),
           },
         })),
       },
@@ -211,7 +243,10 @@ export default function PublicPresenceHomeRoute() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(buildHomeStructuredData(data.publicOrigin)).replace(/</g, "\\u003c"),
+          __html: JSON.stringify(buildHomeStructuredData(data.publicOrigin, data.checkoutFeePreview)).replace(
+            /</g,
+            "\\u003c",
+          ),
         }}
       />
       <PublicPresenceHomePage
@@ -219,6 +254,7 @@ export default function PublicPresenceHomeRoute() {
         discordInviteUrl={data.discordInviteUrl}
         source={data.source}
         selectedGame={data.selectedGame}
+        checkoutFeePreview={data.checkoutFeePreview}
       />
     </>
   );

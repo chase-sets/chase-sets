@@ -1,15 +1,27 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { findHelpArticle, listRelatedHelpArticles } from "../../features/help/ui/help-route-data";
+import {
+  findHelpArticle,
+  listRelatedHelpArticles,
+  resolveArticlePolicyValues,
+} from "../../features/help/ui/help-route-data";
 import { HelpArticlePage } from "../../features/help/ui/help-pages";
+import { loadPublicPolicyValues } from "../../features/help/integrations/public-policy-values-client";
 import { publicPresenceT as t } from "../../features/waitlist/ui/public-presence-translator";
 
-export function loader({ params }: LoaderFunctionArgs) {
-  const article = findHelpArticle(params.category, params.slug);
-  if (!article) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
+  const source = findHelpArticle(params.category, params.slug);
+  if (!source) {
     throw new Response(t("publicPresence.help.notFound"), { status: 404 });
   }
-  return { article, related: listRelatedHelpArticles(article) };
+  // Token-bearing articles resolve their whitelisted live policy values at
+  // render, exactly like the /sales-fees composition; token-free articles
+  // stay read-free.
+  const article =
+    source.policyValueKeys.length > 0
+      ? resolveArticlePolicyValues(source, await loadPublicPolicyValues(request))
+      : source;
+  return { article, related: listRelatedHelpArticles(source) };
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => {

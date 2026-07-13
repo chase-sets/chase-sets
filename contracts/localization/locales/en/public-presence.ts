@@ -82,7 +82,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.faq.description":
     "Short answers about marketplace availability, founding seller fees, order processing, shipping, and order protection.",
   "publicPresence.faq.fees.answer":
-    "Listings created during beta keep a 0% seller fee until sold. Chase Sets also does not pass separate seller payment-processing fees to sellers. Buyers see any checkout fee before payment.",
+    "Listings created during beta keep a 0% seller fee until sold. Chase Sets also does not pass separate seller payment-processing fees to sellers. Buyers pay only payment processing at cost, shown before payment: {checkoutCardRate} + {checkoutCardFixed} by card, {checkoutBankRate} by bank account, $0.00 with Chase Sets balance.",
   "publicPresence.faq.fees.question": "What do sellers pay during beta?",
   "publicPresence.faq.launch.answer":
     "Not yet. Chase Sets opens to everyone on {publicLaunchDate}, and beta invite waves begin {betaWavesWindow}. Join the waitlist for an invite before launch and founders offer eligibility.",
@@ -476,7 +476,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.nav.sellerFees": "Marketplace sales fees",
   "publicPresence.nav.terms": "Terms",
   "publicPresence.preview.section.description":
-    "Sample UI showing how price, seller profile, condition, shipping, earned shipping credit, order processing, returns, and order protection stay together before checkout.",
+    "Sample UI showing how price, seller profile, condition, shipping, earned shipping credit, card processing, returns, and order protection stay together before checkout.",
   "publicPresence.preview.section.title": "Preview the buying experience",
   "publicPresence.preview.listing.badge": "Sample listing",
   "publicPresence.preview.listing.title": "Pikachu Illustration Rare",
@@ -508,20 +508,20 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.preview.total.shipping.original": "$4.65",
   "publicPresence.preview.total.shipping.net": "$0.48 tracked shipping",
   "publicPresence.preview.total.shipping.value": "$0.48 tracked shipping",
-  "publicPresence.preview.total.cardProcessing": "Card processing",
-  "publicPresence.preview.total.cardProcessing.value": "At checkout · $0 with Chase Sets balance",
+  "publicPresence.preview.total.cardProcessing": "Card processing ({checkoutCardRate} + {checkoutCardFixed})",
+  "publicPresence.preview.total.cardProcessing.value": "{checkoutCardFee} · $0 with Chase Sets balance",
   "publicPresence.preview.total.due": "Estimated order total",
-  "publicPresence.preview.total.due.value": "Shown before payment",
+  "publicPresence.preview.total.due.value": "{checkoutCardTotal}",
   "publicPresence.preview.total.protectionCaption": "Every order includes Order Protection.",
   "publicPresence.preview.total.protectionLink": "Read the protection policy",
   "publicPresence.preview.total.tax": "Tax",
-  "publicPresence.preview.total.tax.value": "Shown before payment",
+  "publicPresence.preview.total.tax.value": "$0.00 in this sample",
   "publicPresence.preview.total.description":
-    "Checkout shows item, one combined Shipping line, tax, and card processing before payment. Pay with Chase Sets balance and card processing is $0.",
+    "Checkout shows item, one combined Shipping line, tax, and card processing ({checkoutCardRate} + {checkoutCardFixed}) before payment. Pay with Chase Sets balance and card processing is $0.",
   "publicPresence.preview.total.reassurance":
-    "Item, shipping, and tax stay visible before payment. Card processing appears at checkout; Chase Sets balance makes it $0. Protection is included on every order.",
+    "Every line is visible before payment. Card processing is {checkoutCardRate} + {checkoutCardFixed}; Chase Sets balance makes it $0, for a {checkoutBalanceTotal} total on this sample order. Protection is included on every order.",
   "publicPresence.preview.trust.payment.description":
-    "Provider-backed checkout confirms the final charge before you pay. Card processing appears at checkout; paying with Chase Sets balance makes it $0.",
+    "Provider-backed checkout confirms the final charge before you pay. Card processing is {checkoutCardRate} + {checkoutCardFixed}, shown before payment; paying with Chase Sets balance makes it $0.",
   "publicPresence.preview.trust.payment.title": "Secure payment review",
   "publicPresence.preview.trust.shipping.description":
     "One combined Shipping line shows any buyer overflow after the shipping allowance. Higher-value orders can qualify for shipping covered by the allowance; protection included.",
