@@ -303,6 +303,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.seller.listing.availability": "Seller Listing Availability",
   "marketplace.features.listings.ui.listingListPage.turn.off.listings": "Turn off listings",
   "marketplace.features.listings.ui.listingListPage.turn.on.listings": "Turn on listings",
+  "marketplace.features.listings.ui.listingListPage.update.away.settings": "Update away settings",
   "marketplace.features.listings.ui.listingListPage.updated": "Updated",
   "marketplace.features.listings.ui.listingListPage.use.existing.inventory": "Use existing inventory",
   "marketplace.features.listings.ui.listingListPage.visible.to.buyers": "Visible to buyers",

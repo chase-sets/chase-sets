@@ -39,8 +39,20 @@ type ListingPageRow = {
   updated_at: string;
 };
 
+type SellerListingAvailabilityPageRow = {
+  account_id: string;
+  status: string;
+  disabled_reason_category: string | null;
+  available_again_on: string | null;
+  available_again_at: string | null;
+  disabled_at: string | null;
+  enabled_at: string | null;
+  updated_at: string;
+};
+
 class ProjectionDb implements PgQueryable {
   public readonly listings = new Map<string, ListingPageRow>();
+  public readonly sellerListingAvailability = new Map<string, SellerListingAvailabilityPageRow>();
   public readonly realtimePayloads: unknown[] = [];
 
   async query<Row = Record<string, unknown>>(
@@ -118,6 +130,36 @@ class ProjectionDb implements PgQueryable {
     if (sql.includes("SELECT * FROM marketplace_listing_pages WHERE listing_id = $1")) {
       const row = this.listings.get(String(values[0]));
       return { rows: (row ? [row] : []) as Row[], rowCount: row ? 1 : 0 };
+    }
+
+    if (sql.includes("INSERT INTO marketplace_seller_listing_availability_pages (") && sql.includes("'unavailable'")) {
+      const row: SellerListingAvailabilityPageRow = {
+        account_id: String(values[0]),
+        status: "unavailable",
+        disabled_reason_category: values[1] === null ? null : String(values[1]),
+        available_again_on: values[2] === null ? null : String(values[2]),
+        available_again_at: values[3] === null ? null : String(values[3]),
+        disabled_at: String(values[4]),
+        enabled_at: null,
+        updated_at: String(values[5]),
+      };
+      this.sellerListingAvailability.set(row.account_id, row);
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("INSERT INTO marketplace_seller_listing_availability_pages (") && sql.includes("'available'")) {
+      const row: SellerListingAvailabilityPageRow = {
+        account_id: String(values[0]),
+        status: "available",
+        disabled_reason_category: null,
+        available_again_on: null,
+        available_again_at: null,
+        disabled_at: null,
+        enabled_at: String(values[1]),
+        updated_at: String(values[2]),
+      };
+      this.sellerListingAvailability.set(row.account_id, row);
+      return { rows: [], rowCount: 1 };
     }
 
     if (sql.includes("INSERT INTO realtime_projection_outbox (")) {
@@ -352,6 +394,94 @@ describe("marketplace listing projection", () => {
           }),
         }),
       ],
+    });
+  });
+
+  it("projects the authoritative resume instant onto the seller listing availability page", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.seller-listing-availability.disabled"]!(
+      event(
+        "marketplace.seller-listing-availability.disabled",
+        {
+          accountId: "acc_seller",
+          reasonCategory: "travel",
+          availableAgainOn: "2026-07-20",
+          availableAgainAt: "2026-07-20T05:00:00.000Z",
+          disabledAt: "2026-07-13T12:00:00.000Z",
+        },
+        "marketplace.seller-listing-availability-acc_seller",
+      ),
+    );
+
+    expect(db.sellerListingAvailability.get("acc_seller")).toMatchObject({
+      account_id: "acc_seller",
+      status: "unavailable",
+      disabled_reason_category: "travel",
+      available_again_on: "2026-07-20",
+      available_again_at: "2026-07-20T05:00:00.000Z",
+    });
+  });
+
+  it("projects legacy disabled events with no availableAgainAt payload key as a null column, existing rows unaffected", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.seller-listing-availability.disabled"]!(
+      event(
+        "marketplace.seller-listing-availability.disabled",
+        {
+          accountId: "acc_seller",
+          reasonCategory: "audit",
+          availableAgainOn: "2026-06-01",
+          disabledAt: "2026-05-13T12:00:00.000Z",
+          // No `availableAgainAt` key -- matches a pre-migration stored event.
+        },
+        "marketplace.seller-listing-availability-acc_seller",
+      ),
+    );
+
+    expect(db.sellerListingAvailability.get("acc_seller")).toMatchObject({
+      status: "unavailable",
+      available_again_on: "2026-06-01",
+      available_again_at: null,
+    });
+  });
+
+  it("clears the resume instant when availability is re-enabled", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.seller-listing-availability.disabled"]!(
+      event(
+        "marketplace.seller-listing-availability.disabled",
+        {
+          accountId: "acc_seller",
+          reasonCategory: "travel",
+          availableAgainOn: "2026-07-20",
+          availableAgainAt: "2026-07-20T05:00:00.000Z",
+          disabledAt: "2026-07-13T12:00:00.000Z",
+        },
+        "marketplace.seller-listing-availability-acc_seller",
+      ),
+    );
+    await handlers["marketplace.seller-listing-availability.enabled"]!(
+      event(
+        "marketplace.seller-listing-availability.enabled",
+        {
+          accountId: "acc_seller",
+          enabledAt: "2026-07-14T00:00:00.000Z",
+        },
+        "marketplace.seller-listing-availability-acc_seller",
+      ),
+    );
+
+    expect(db.sellerListingAvailability.get("acc_seller")).toMatchObject({
+      status: "available",
+      available_again_on: null,
+      available_again_at: null,
+      enabled_at: "2026-07-14T00:00:00.000Z",
     });
   });
 });

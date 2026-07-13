@@ -60,6 +60,7 @@ function accountAccessRequired(returnTo: string) {
       status: "available" as const,
       disabled_reason_category: null,
       available_again_on: null,
+      available_again_at: null,
       disabled_at: null,
       enabled_at: null,
       updated_at: "1970-01-01T00:00:00.000Z",
@@ -111,6 +112,7 @@ function createFreshWriteRecoveryPageReads(
       status: availabilityStatus,
       disabled_reason_category: null,
       available_again_on: null,
+      available_again_at: null,
       disabled_at: null,
       enabled_at: null,
       updated_at: "1970-01-01T00:00:00.000Z",
@@ -235,6 +237,11 @@ export async function action({ request }: ActionFunctionArgs) {
           await api.disableSellerListingAvailability({
             reasonCategory: String(formData.get("reasonCategory") ?? ""),
             availableAgainOn: String(formData.get("availableAgainOn") ?? ""),
+            // Captured client-side by the disable form (seller-local
+            // start-of-day for the chosen date); empty when JavaScript
+            // never ran, which the domain treats as informational-only,
+            // same as before this instant existed.
+            availableAgainAt: String(formData.get("availableAgainAt") ?? ""),
           }),
           `/account/listings?${AVAILABILITY_ACTION_PARAM}=disabled`,
         ),

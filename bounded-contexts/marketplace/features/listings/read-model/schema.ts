@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS marketplace_seller_listing_availability_pages (
   status text NOT NULL DEFAULT 'available',
   disabled_reason_category text NULL,
   available_again_on date NULL,
+  available_again_at timestamptz NULL,
   disabled_at timestamptz NULL,
   enabled_at timestamptz NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -98,4 +99,7 @@ CREATE TABLE IF NOT EXISTS marketplace_seller_listing_availability_pages (
 
 CREATE INDEX IF NOT EXISTS marketplace_seller_listing_availability_status_idx
   ON marketplace_seller_listing_availability_pages (status, updated_at DESC);
+
+ALTER TABLE marketplace_seller_listing_availability_pages
+  ADD COLUMN IF NOT EXISTS available_again_at timestamptz NULL;
 `;

@@ -4,13 +4,31 @@ export type SellerListingAvailabilityStatus = "available" | "unavailable";
 
 export type SellerListingAvailabilityReasonCategory = "travel" | "audit" | "operations" | "other";
 
+/**
+ * Who or what set the current `.enabled` fact. `"seller"` is an explicit
+ * seller action; `"scheduled"` is an automated resume triggered by an away
+ * window sweep. Legacy events recorded before this field existed carry no
+ * `enabledBy` payload key and read back as `"seller"` -- every enable before
+ * an automated sweep existed was, definitionally, a seller action.
+ */
+export type SellerListingAvailabilityEnabledBy = "seller" | "scheduled";
+
 export type SellerListingAvailabilityState = Readonly<{
   accountId: string | null;
   status: SellerListingAvailabilityStatus;
   disabledReasonCategory: SellerListingAvailabilityReasonCategory | null;
   availableAgainOn: string | null;
+  /**
+   * The authoritative resume instant. Only present when the disable that
+   * produced the current `unavailable` state carried one -- legacy
+   * `.disabled` events recorded before this field existed leave it `null`
+   * even when `availableAgainOn` is set, per the replay-safe legacy ruling:
+   * a bare `availableAgainOn` date never participates in automated resume.
+   */
+  availableAgainAt: string | null;
   disabledAt: string | null;
   enabledAt: string | null;
+  enabledBy: SellerListingAvailabilityEnabledBy | null;
 }>;
 
 export const initialSellerListingAvailabilityState: SellerListingAvailabilityState = {
@@ -18,8 +36,10 @@ export const initialSellerListingAvailabilityState: SellerListingAvailabilitySta
   status: "available",
   disabledReasonCategory: null,
   availableAgainOn: null,
+  availableAgainAt: null,
   disabledAt: null,
   enabledAt: null,
+  enabledBy: null,
 };
 
 export type DisableSellerListingAvailabilityCommand = Readonly<{
@@ -27,6 +47,13 @@ export type DisableSellerListingAvailabilityCommand = Readonly<{
   accountId: string;
   reasonCategory: SellerListingAvailabilityReasonCategory | null;
   availableAgainOn: string | null;
+  /**
+   * The authoritative resume instant, captured at the edge (the seller's
+   * local start-of-day for their chosen date, converted to an instant
+   * client-side). Optional: `null` means an indefinite away period with no
+   * planned return. When present it must be strictly after `disabledAt`.
+   */
+  availableAgainAt: string | null;
   disabledAt: string;
 }>;
 
@@ -34,6 +61,7 @@ export type EnableSellerListingAvailabilityCommand = Readonly<{
   type: "EnableSellerListingAvailability";
   accountId: string;
   enabledAt: string;
+  enabledBy: SellerListingAvailabilityEnabledBy;
 }>;
 
 export type SellerListingAvailabilityCommand =
@@ -46,6 +74,7 @@ export type SellerListingAvailabilityDisabledEvent = DomainEvent<
     accountId: string;
     reasonCategory: SellerListingAvailabilityReasonCategory | null;
     availableAgainOn: string | null;
+    availableAgainAt: string | null;
     disabledAt: string;
   }
 >;
@@ -55,6 +84,7 @@ export type SellerListingAvailabilityEnabledEvent = DomainEvent<
   {
     accountId: string;
     enabledAt: string;
+    enabledBy: SellerListingAvailabilityEnabledBy;
   }
 >;
 
@@ -95,6 +125,43 @@ function normalizeIsoDate(value: string | null) {
   return normalized;
 }
 
+/**
+ * Normalizes the authoritative resume instant. The domain accepts only a
+ * fully-formed instant -- it never infers a timezone from a bare date, that
+ * conversion happens client-side where the seller's local timezone is
+ * actually known.
+ */
+function normalizeAvailableAgainAt(value: string | null) {
+  if (value === null) {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = new Date(normalized);
+  assert(!Number.isNaN(parsed.valueOf()), "Available again instant is invalid.");
+  return parsed.toISOString();
+}
+
+/**
+ * The instant is authoritative once present, so the display-only
+ * `availableAgainOn` date is derived from it rather than trusted verbatim
+ * from the caller -- the two fields can never disagree. This is a UTC
+ * calendar-day slice of the instant: display continuity only, not a
+ * timezone-accurate reconstruction of the seller's local date (which lives
+ * client-side, where the instant was produced).
+ */
+function resolveAvailableAgainOn(availableAgainOn: string | null, availableAgainAt: string | null) {
+  if (availableAgainAt !== null) {
+    return availableAgainAt.slice(0, 10);
+  }
+
+  return normalizeIsoDate(availableAgainOn);
+}
+
 function normalizeReasonCategory(value: SellerListingAvailabilityReasonCategory | null) {
   return value;
 }
@@ -108,14 +175,27 @@ export const decideSellerListingAvailability: AggregateDecider<
     case "DisableSellerListingAvailability": {
       const accountId = normalizeAccountId(command.accountId);
       const reasonCategory = normalizeReasonCategory(command.reasonCategory);
-      const availableAgainOn = normalizeIsoDate(command.availableAgainOn);
       const disabledAt = command.disabledAt.trim();
       assert(disabledAt.length > 0, "Disabled timestamp is required.");
 
+      const availableAgainAt = normalizeAvailableAgainAt(command.availableAgainAt);
+      if (availableAgainAt !== null) {
+        assert(
+          new Date(availableAgainAt).valueOf() > new Date(disabledAt).valueOf(),
+          "Available again instant must be after the disable time.",
+        );
+      }
+      const availableAgainOn = resolveAvailableAgainOn(command.availableAgainOn, availableAgainAt);
+
+      // A disable command while already unavailable is a refresh -- a seller
+      // extending or shortening time away -- not a no-op, UNLESS every
+      // field is byte-identical to the current state (idempotent
+      // double-submit protection, e.g. a retried request).
       if (
         state.status === "unavailable" &&
         state.disabledReasonCategory === reasonCategory &&
-        state.availableAgainOn === availableAgainOn
+        state.availableAgainOn === availableAgainOn &&
+        state.availableAgainAt === availableAgainAt
       ) {
         return [];
       }
@@ -127,6 +207,7 @@ export const decideSellerListingAvailability: AggregateDecider<
             accountId,
             reasonCategory,
             availableAgainOn,
+            availableAgainAt,
             disabledAt,
           },
         },
@@ -147,6 +228,7 @@ export const decideSellerListingAvailability: AggregateDecider<
           data: {
             accountId,
             enabledAt,
+            enabledBy: command.enabledBy,
           },
         },
       ];
@@ -167,8 +249,13 @@ export const evolveSellerListingAvailability: AggregateEvolver<
         status: "unavailable",
         disabledReasonCategory: event.data.reasonCategory,
         availableAgainOn: event.data.availableAgainOn,
+        // Legacy ruling: events recorded before this field existed carry no
+        // `availableAgainAt` payload key at all, so it reads back as `null`
+        // here -- informational-only, never a resume trigger.
+        availableAgainAt: event.data.availableAgainAt ?? null,
         disabledAt: event.data.disabledAt,
         enabledAt: state.enabledAt,
+        enabledBy: state.enabledBy,
       };
     case "marketplace.seller-listing-availability.enabled":
       return {
@@ -176,8 +263,13 @@ export const evolveSellerListingAvailability: AggregateEvolver<
         status: "available",
         disabledReasonCategory: null,
         availableAgainOn: null,
+        availableAgainAt: null,
         disabledAt: state.disabledAt,
         enabledAt: event.data.enabledAt,
+        // Legacy ruling: events recorded before this field existed carry no
+        // `enabledBy` payload key, so they read back as `"seller"` -- every
+        // enable before an automated sweep existed was a seller action.
+        enabledBy: event.data.enabledBy ?? "seller",
       };
     default:
       return assertNever(event);

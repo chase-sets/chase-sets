@@ -104,7 +104,21 @@ Notes:
 - Turning it off does not mutate individual Listing Status values.
 - While off, active listings are hidden from buyer browse and purchase flows, direct listing URLs remain reachable as unavailable, and Offer Acceptance is disabled.
 - Existing carts, checkout sessions, orders, payments, fulfillment, and account buying ability are not changed by this overlay.
-- `availableAgainOn` is private operational context, not an automatic resume trigger.
+- `availableAgainAt` is the authoritative Resume Instant: an optional timestamp asserted to be after the disable time, captured client-side from the seller's own local timezone. It is the only field an automated resume sweep may act on.
+- `availableAgainOn` is a display-only date derived from `availableAgainAt` for continuity. A bare `availableAgainOn` with no `availableAgainAt` -- including every event recorded before the Resume Instant existed -- is informational only and never triggers an automatic resume.
+- A seller may re-disable while already unavailable to change the reason or Resume Instant without an enable/disable flap; this emits a new disabled fact.
+- Enabling records `enabledBy`: `"seller"` for an explicit seller action, `"scheduled"` for an automated resume. Events recorded before this field existed read back as `"seller"`.
+
+## Resume Instant
+
+The **Resume Instant** is the authoritative point in time when a Seller Listing Availability away period ends and listings become eligible to resume, recorded as `availableAgainAt` on the disabling fact.
+
+Notes:
+
+- The Resume Instant is owned by Marketplace.
+- It is optional: absent means an indefinite away period with no planned return.
+- It is captured client-side as the seller's own local start-of-day for their chosen return date; Marketplace never infers a seller's timezone server-side.
+- Only a disabling fact that carries a Resume Instant participates in an automated resume; a bare `availableAgainOn` display date never does.
 
 ## Report
 
@@ -176,6 +190,30 @@ A **Review Summary** is the canonical aggregate snapshot for an account derived 
 ## Cancellation Rate
 
 **Cancellation Rate** is the Seller Reliability metric measuring the share of a seller's orders (in the rolling window) the seller directly cancelled -- buyer-initiated and payment-deadline cancellations are not seller-caused and are excluded.
+
+## Planned Seller Capacity And Time Away
+
+These planned terms pre-register upcoming seller time-away and order-capacity language (the m127 seller time-away & capacity milestone cluster). They are not shipped behavior until their owning milestone adds events, read models, APIs, and UI. Seller Listing Availability and its Resume Instant, defined above, are already shipped and are the foundation these planned terms build on.
+
+### Away Window
+
+An **Away Window** is the planned scheduled start and end pairing a seller sets in advance so Seller Listing Availability disables and resumes automatically without a same-day manual action.
+
+### Scheduled Restore
+
+A **Scheduled Restore** is the planned automated enable triggered when an Away Window or a Resume Instant sweep determines a seller's away period has ended. It records `enabledBy: "scheduled"` on the resulting Seller Listing Availability enabled fact.
+
+### Order Capacity
+
+**Order Capacity** is the planned seller-set limit on how many concurrently Open Orders a seller account will accept before new commitments are held back.
+
+### Open Order
+
+An **Open Order** is the planned count of a seller's orders that have not yet reached a terminal fulfillment or cancellation state, used as the numerator against Order Capacity.
+
+### At Capacity
+
+**At Capacity** is the planned seller state when Open Order count meets or exceeds Order Capacity, analogous to Seller Listing Availability but driven by order volume rather than a seller-declared away period.
 
 ## Planned Reputation And Authenticity
 

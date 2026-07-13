@@ -127,6 +127,7 @@ function createServices(): MarketplaceListingServices {
       status: "available",
       disabled_reason_category: null,
       available_again_on: null,
+      available_again_at: null,
       disabled_at: null,
       enabled_at: null,
       updated_at: "1970-01-01T00:00:00.000Z",
@@ -891,6 +892,51 @@ describe("marketplace listing routes", () => {
         accountId: "acc_seller",
         reasonCategory: "audit",
         availableAgainOn: "2026-06-01",
+        availableAgainAt: null,
+      },
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_seller",
+          performedByUserId: "usr_seller",
+        }),
+      }),
+    );
+  });
+
+  it("forwards the client-captured authoritative resume instant when disabling seller listing availability", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["listings.view", "listings.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listing-availability/disable", {
+        method: "POST",
+        body: JSON.stringify({
+          reasonCategory: "travel",
+          availableAgainOn: "2026-07-20",
+          availableAgainAt: "2026-07-20T05:00:00.000Z",
+        }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(services.disableSellerListingAvailability).toHaveBeenCalledWith(
+      {
+        accountId: "acc_seller",
+        reasonCategory: "travel",
+        availableAgainOn: "2026-07-20",
+        availableAgainAt: "2026-07-20T05:00:00.000Z",
       },
       expect.objectContaining({
         audit: expect.objectContaining({

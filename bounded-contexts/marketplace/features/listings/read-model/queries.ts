@@ -83,6 +83,7 @@ export type MarketplaceSellerListingAvailabilityRow = Readonly<{
   status: "available" | "unavailable";
   disabled_reason_category: string | null;
   available_again_on: string | null;
+  available_again_at: string | null;
   disabled_at: string | null;
   enabled_at: string | null;
   updated_at: string;
@@ -650,6 +651,7 @@ export async function getSellerListingAvailability(
        status,
        disabled_reason_category,
        available_again_on::text AS available_again_on,
+       available_again_at::text AS available_again_at,
        disabled_at::text AS disabled_at,
        enabled_at::text AS enabled_at,
        updated_at::text AS updated_at
@@ -664,6 +666,7 @@ export async function getSellerListingAvailability(
       status: "available",
       disabled_reason_category: null,
       available_again_on: null,
+      available_again_at: null,
       disabled_at: null,
       enabled_at: null,
       updated_at: new Date(0).toISOString(),
