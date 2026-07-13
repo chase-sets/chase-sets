@@ -1,0 +1,500 @@
+name: Platform Observability State Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "migrate observability tfstate" to continue.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-observability-state-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Migrate Observability Terraform State (Plan-Only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+      TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+      TF_VAR_grafana_admin_password: ${{ secrets.OBSERVABILITY_GRAFANA_ADMIN_PASSWORD }}
+      TF_VAR_otel_write_token: ${{ secrets.OBSERVABILITY_OTEL_WRITE_TOKEN }}
+      TF_VAR_prometheus_query_token: ${{ secrets.PROMETHEUS_QUERY_TOKEN }}
+      TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
+      TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || 'us-east-2' }}
+      TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
+      TF_VAR_ses_aws_secret_access_key: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}
+      TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+      TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
+      TF_VAR_grafana_smtp_from_address: ${{ vars.SES_FROM_EMAIL || 'notifications@chasesets.com' }}
+
+    steps:
+      - name: Confirm one-shot migration
+        run: |
+          set -euo pipefail
+          expected="migrate observability tfstate"
+          if [ "${{ inputs.confirm }}" != "$expected" ]; then
+            echo "Confirmation input did not match exactly; expected '${expected}'." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Validate migration inputs
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            AWS_ACCESS_KEY_ID \
+            AWS_SECRET_ACCESS_KEY \
+            DIGITALOCEAN_ACCESS_TOKEN \
+            TF_VAR_grafana_admin_password \
+            TF_VAR_otel_write_token \
+            TF_VAR_prometheus_query_token \
+            TF_VAR_ses_aws_access_key_id \
+            TF_VAR_ses_aws_secret_access_key \
+            TF_VAR_ses_configuration_set_name \
+            TF_VAR_ses_source_arn
+          do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required observability migration input(s): %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Pull and archive both source states
+        working-directory: infrastructure/digitalocean/observability
+        run: |
+          set -euo pipefail
+          migration_root="${RUNNER_TEMP}/observability-state-migration"
+          archive_root="${GITHUB_WORKSPACE}/artifacts/observability-state-archives"
+          mkdir -p "$migration_root" "$archive_root"
+
+          init_remote() {
+            local state_key="$1"
+            ../../../scripts/terraform-init-with-retry.sh \
+              -backend-config=bucket=chase-sets-terraform-state \
+              -backend-config="key=${state_key}" \
+              -backend-config=region=us-east-1 \
+              -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+              -backend-config=skip_credentials_validation=true \
+              -backend-config=skip_metadata_api_check=true \
+              -backend-config=skip_region_validation=true \
+              -backend-config=skip_requesting_account_id=true \
+              -backend-config=use_path_style=true \
+              -backend-config=use_lockfile=true
+          }
+
+          pull_source_state() {
+            local state_key="$1"
+            local output_path="$2"
+            init_remote "$state_key"
+            terraform state pull > "$output_path"
+            jq -e '.version == 4 and (.resources | type == "array")' "$output_path" >/dev/null
+          }
+
+          production_state="${migration_root}/production.tfstate"
+          staging_state="${migration_root}/staging.tfstate"
+          pull_source_state observability/production.tfstate "$production_state"
+          pull_source_state observability/staging.tfstate "$staging_state"
+
+          tar -czf "${archive_root}/observability-production-source-state.tar.gz" \
+            -C "$migration_root" production.tfstate
+          tar -czf "${archive_root}/observability-staging-source-state.tar.gz" \
+            -C "$migration_root" staging.tfstate
+
+          cat > "${migration_root}/source-state-manifest.txt" <<EOF
+          production key: observability/production.tfstate
+          staging key: observability/staging.tfstate
+          run: ${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}
+          EOF
+          cp "${migration_root}/source-state-manifest.txt" "$archive_root/"
+
+      - name: Upload source state archives
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sensitive-observability-state-migration-archives-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/observability-state-archives
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Migrate state, import staging aliases, and verify the plan
+        working-directory: infrastructure/digitalocean/observability
+        run: |
+          set -Eeuo pipefail
+          migration_root="${RUNNER_TEMP}/observability-state-migration"
+          local_root="${migration_root}/local"
+          local_module="${local_root}/infrastructure/digitalocean/observability"
+          production_before="${migration_root}/production.tfstate"
+          production_work="${migration_root}/production-work.tfstate"
+          shared_before="${migration_root}/shared-before.tfstate"
+          shared_work="${migration_root}/shared-work.tfstate"
+          shared_state_exists=false
+          migration_pushed=false
+          migration_committed=false
+
+          init_remote() {
+            local state_key="$1"
+            ../../../scripts/terraform-init-with-retry.sh \
+              -backend-config=bucket=chase-sets-terraform-state \
+              -backend-config="key=${state_key}" \
+              -backend-config=region=us-east-1 \
+              -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+              -backend-config=skip_credentials_validation=true \
+              -backend-config=skip_metadata_api_check=true \
+              -backend-config=skip_region_validation=true \
+              -backend-config=skip_requesting_account_id=true \
+              -backend-config=use_path_style=true \
+              -backend-config=use_lockfile=true
+          }
+
+          restore_remote_states() {
+            local restore_failed=false
+            set +e
+            echo "Restoring remote state because the guarded migration did not complete." >&2
+
+            init_remote observability/production.tfstate
+            if ! terraform state push -force "$production_before"; then
+              restore_failed=true
+            fi
+
+            if [ "$shared_state_exists" = true ]; then
+              init_remote observability/shared.tfstate
+              if ! terraform state push -force "$shared_before"; then
+                restore_failed=true
+              fi
+            else
+              if ! aws s3api delete-object \
+                --endpoint-url https://nyc3.digitaloceanspaces.com \
+                --bucket chase-sets-terraform-state \
+                --key observability/shared.tfstate; then
+                restore_failed=true
+              fi
+            fi
+            set -e
+
+            if [ "$restore_failed" = true ]; then
+              echo "State restoration was not fully successful; stop all observability Terraform activity and use the uploaded source archives." >&2
+            fi
+          }
+
+          on_error() {
+            local exit_code=$?
+            trap - ERR
+            if [ "$migration_pushed" = true ] && [ "$migration_committed" = false ]; then
+              restore_remote_states
+            fi
+            exit "$exit_code"
+          }
+          trap on_error ERR
+
+          cp "$production_before" "$production_work"
+
+          init_remote observability/shared.tfstate
+          shared_error="${migration_root}/shared-pull-error.txt"
+          if terraform state pull > "$shared_before" 2>"$shared_error"; then
+            shared_state_exists=true
+          elif grep -qi 'no state file was found' "$shared_error"; then
+            jq '.resources = [] | .serial = 0' \
+              "$production_before" > "$shared_before"
+          else
+            cat "$shared_error" >&2
+            exit 1
+          fi
+          cp "$shared_before" "$shared_work"
+
+          rm -rf "$local_root"
+          mkdir -p "${local_root}/infrastructure/digitalocean" "${local_root}/infrastructure/observability"
+          cp -R "${GITHUB_WORKSPACE}/infrastructure/digitalocean/observability" "$local_root/infrastructure/digitalocean/"
+          cp -R "${GITHUB_WORKSPACE}/infrastructure/observability/stack" "$local_root/infrastructure/observability/"
+          rm -rf "$local_module/.terraform" "$local_module/artifacts"
+          sed -i '/backend "s3" {}/d' "$local_module/versions.tf"
+          terraform -chdir="$local_module" init -backend=false
+
+          has_state_address() {
+            local state_path="$1"
+            local address="$2"
+            terraform -chdir="$local_module" state list -state="$state_path" | grep -Fqx -- "$address"
+          }
+
+          move_production_resource() {
+            local source_address="$1"
+            local destination_address="$2"
+            if has_state_address "$shared_work" "$destination_address"; then
+              echo "Shared state already contains ${destination_address}; skipping state mv."
+              return
+            fi
+            if ! has_state_address "$production_work" "$source_address"; then
+              echo "Production state is missing ${source_address}, and shared state does not contain ${destination_address}." >&2
+              exit 1
+            fi
+            terraform -chdir="$local_module" state mv \
+              -state="$production_work" \
+              -state-out="$shared_work" \
+              "$source_address" "$destination_address"
+          }
+
+          move_production_resource digitalocean_volume.observability_data digitalocean_volume.observability_data
+          move_production_resource digitalocean_droplet.observability digitalocean_droplet.observability
+          move_production_resource digitalocean_firewall.observability digitalocean_firewall.observability
+          move_production_resource \
+            'digitalocean_record.observability_a["grafana"]' \
+            'digitalocean_record.observability_a["production-grafana"]'
+          move_production_resource \
+            'digitalocean_record.observability_a["otel"]' \
+            'digitalocean_record.observability_a["production-otel"]'
+          move_production_resource \
+            'digitalocean_record.observability_a["prometheus"]' \
+            'digitalocean_record.observability_a["production-prometheus"]'
+
+          staging_zone="staging.chasesets.com"
+          staging_records_json="${migration_root}/staging-records.json"
+          doctl compute domain records list "$staging_zone" --output json > "$staging_records_json"
+          for endpoint in grafana otel prometheus; do
+            address="digitalocean_record.observability_a[\"staging-${endpoint}\"]"
+            if has_state_address "$shared_work" "$address"; then
+              echo "Shared state already contains ${address}; skipping import."
+              continue
+            fi
+
+            record_id="$(jq -r --arg endpoint "$endpoint" '
+              [.[] | select(.type == "A" and .name == $endpoint)]
+              | if length == 1 then .[0].id else empty end
+            ' "$staging_records_json")"
+            if [ -z "$record_id" ]; then
+              echo "Expected exactly one staging A record for ${endpoint}.${staging_zone}." >&2
+              exit 1
+            fi
+            terraform -chdir="$local_module" import \
+              -input=false \
+              -no-color \
+              -state="$shared_work" \
+              "$address" "${staging_zone},${record_id}"
+          done
+
+          required_shared_addresses=(
+            digitalocean_volume.observability_data
+            digitalocean_droplet.observability
+            digitalocean_firewall.observability
+            'digitalocean_record.observability_a["production-grafana"]'
+            'digitalocean_record.observability_a["production-otel"]'
+            'digitalocean_record.observability_a["production-prometheus"]'
+            'digitalocean_record.observability_a["staging-grafana"]'
+            'digitalocean_record.observability_a["staging-otel"]'
+            'digitalocean_record.observability_a["staging-prometheus"]'
+          )
+          for address in "${required_shared_addresses[@]}"; do
+            if ! has_state_address "$shared_work" "$address"; then
+              echo "Shared migration state is missing ${address}." >&2
+              exit 1
+            fi
+          done
+
+          verify_plan() {
+            local plan_json="$1"
+            local phase="$2"
+            local summary_path="${GITHUB_WORKSPACE}/artifacts/observability-state-migration/${phase}-verification-summary.json"
+            mkdir -p "$(dirname "$summary_path")"
+            PLAN_JSON_PATH="$plan_json" PLAN_PHASE="$phase" PLAN_SUMMARY_PATH="$summary_path" node <<'NODE'
+          const fs = require("node:fs");
+
+          const plan = JSON.parse(fs.readFileSync(process.env.PLAN_JSON_PATH, "utf8"));
+          const changes = Array.isArray(plan.resource_changes) ? plan.resource_changes : [];
+          const byAddress = new Map(changes.map((change) => [change.address, change]));
+          const actionsFor = (address) => byAddress.get(address)?.change?.actions ?? [];
+          const failures = [];
+
+          const destructive = changes
+            .filter((change) => {
+              const actions = change.change?.actions ?? [];
+              return (
+                actions.includes("delete") ||
+                actions.includes("replace") ||
+                (actions.includes("create") && actions.includes("delete"))
+              );
+            })
+            .map((change) => ({ address: change.address, actions: change.change?.actions ?? [] }));
+          if (destructive.length > 0) {
+            failures.push(`destructive actions: ${JSON.stringify(destructive)}`);
+          }
+
+          const unexpectedCreates = changes
+            .filter((change) => (change.change?.actions ?? []).includes("create"))
+            .map((change) => ({ address: change.address, actions: change.change?.actions ?? [] }));
+          if (unexpectedCreates.length > 0) {
+            failures.push(`unexpected creates: ${JSON.stringify(unexpectedCreates)}`);
+          }
+
+          const dropletAddress = "digitalocean_droplet.observability";
+          const droplet = byAddress.get(dropletAddress);
+          if (!droplet) {
+            failures.push(`missing ${dropletAddress} in plan JSON`);
+          } else {
+            const dropletActions = droplet.change?.actions ?? [];
+            const dropletId = droplet.change?.after?.id ?? droplet.change?.before?.id;
+            if (String(dropletId) !== "577048531") {
+              failures.push(`${dropletAddress} does not retain Droplet 577048531`);
+            }
+            if (dropletActions.includes("delete") || dropletActions.includes("create")) {
+              failures.push(`${dropletAddress} is not retained in place: ${dropletActions.join(",")}`);
+            }
+            const beforeVolumeIds = JSON.stringify(droplet.change?.before?.volume_ids ?? []);
+            const afterVolumeIds = JSON.stringify(droplet.change?.after?.volume_ids ?? []);
+            if (beforeVolumeIds !== afterVolumeIds) {
+              failures.push(`${dropletAddress} would detach or attach a volume: ${beforeVolumeIds} -> ${afterVolumeIds}`);
+            }
+          }
+
+          const volumeAddress = "digitalocean_volume.observability_data";
+          const volume = byAddress.get(volumeAddress);
+          if (!volume) {
+            failures.push(`missing ${volumeAddress} in plan JSON`);
+          } else {
+            const volumeActions = volume.change?.actions ?? [];
+            const volumeName = volume.change?.after?.name ?? volume.change?.before?.name;
+            if (volumeName !== "chase-sets-observability-data") {
+              failures.push(`${volumeAddress} does not retain chase-sets-observability-data`);
+            }
+            if (volumeActions.includes("delete") || volumeActions.includes("create")) {
+              failures.push(`${volumeAddress} is not retained in place: ${volumeActions.join(",")}`);
+            }
+          }
+
+          for (const endpoint of ["grafana", "otel", "prometheus"]) {
+            const address = `digitalocean_record.observability_a["staging-${endpoint}"]`;
+            const change = byAddress.get(address);
+            const actions = actionsFor(address);
+            if (!change) {
+              failures.push(`missing ${address} in plan JSON`);
+              continue;
+            }
+            if (actions.some((action) => !["no-op", "update", "read"].includes(action))) {
+              failures.push(`${address} is not an in-place update/no-op: ${actions.join(",")}`);
+            }
+            const after = change.change?.after ?? {};
+            if (after.domain !== "staging.chasesets.com" || after.name !== endpoint || after.type !== "A") {
+              failures.push(`${address} does not retain the expected staging A-record identity`);
+            }
+          }
+
+          const summary = {
+            phase: process.env.PLAN_PHASE,
+            destructiveActions: destructive,
+            unexpectedCreates,
+            dropletActions: actionsFor(dropletAddress),
+            volumeActions: actionsFor(volumeAddress),
+            stagingAliasActions: Object.fromEntries(
+              ["grafana", "otel", "prometheus"].map((endpoint) => [
+                endpoint,
+                actionsFor(`digitalocean_record.observability_a["staging-${endpoint}"]`),
+              ]),
+            ),
+            failures,
+          };
+          fs.writeFileSync(process.env.PLAN_SUMMARY_PATH, `${JSON.stringify(summary, null, 2)}\n`);
+          if (failures.length > 0) {
+            console.error(`Observability verification plan failed for ${process.env.PLAN_PHASE}:`);
+            for (const failure of failures) console.error(`- ${failure}`);
+            process.exit(1);
+          }
+          console.log(`Observability verification plan passed for ${process.env.PLAN_PHASE}.`);
+          NODE
+          }
+
+          local_plan="${migration_root}/local-verification.tfplan"
+          local_plan_json="${migration_root}/local-verification-plan.json"
+          terraform -chdir="$local_module" plan \
+            -input=false \
+            -lock=false \
+            -out="$local_plan"
+          terraform -chdir="$local_module" show -json "$local_plan" > "$local_plan_json"
+          verify_plan "$local_plan_json" local
+          terraform -chdir="$local_module" show -no-color "$local_plan" > \
+            "${GITHUB_WORKSPACE}/artifacts/observability-state-migration/local-verification-plan.txt"
+
+          init_remote observability/production.tfstate
+          current_production="${migration_root}/production-current.tfstate"
+          terraform state pull > "$current_production"
+          if ! cmp -s "$current_production" "$production_before"; then
+            echo "Production state changed after the source archive; refusing to overwrite concurrent work." >&2
+            exit 1
+          fi
+
+          init_remote observability/shared.tfstate
+          current_shared="${migration_root}/shared-current.tfstate"
+          if terraform state pull > "$current_shared" 2>"${migration_root}/shared-current-error.txt"; then
+            if [ "$shared_state_exists" = false ] || ! cmp -s "$current_shared" "$shared_before"; then
+              echo "Shared state changed after it was pulled; refusing to overwrite concurrent work." >&2
+              exit 1
+            fi
+          elif [ "$shared_state_exists" = true ]; then
+            cat "${migration_root}/shared-current-error.txt" >&2
+            exit 1
+          fi
+
+          init_remote observability/production.tfstate
+          terraform state push "$production_work"
+          migration_pushed=true
+          init_remote observability/shared.tfstate
+          terraform state push "$shared_work"
+
+          remote_plan="${migration_root}/remote-verification.tfplan"
+          remote_plan_json="${migration_root}/remote-verification-plan.json"
+          terraform plan \
+            -input=false \
+            -lock-timeout=5m \
+            -out="$remote_plan"
+          terraform show -json "$remote_plan" > "$remote_plan_json"
+          verify_plan "$remote_plan_json" remote
+          terraform show -no-color "$remote_plan" > \
+            "${GITHUB_WORKSPACE}/artifacts/observability-state-migration/remote-verification-plan.txt"
+
+          migration_committed=true
+          trap - ERR
+
+      - name: Upload verification artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: observability-state-migration-verification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/observability-state-migration
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Summarize migration outcome
+        if: always()
+        run: |
+          {
+            echo "## Observability Terraform State Migration"
+            echo
+            echo "- Source archives: uploaded before any state move"
+            echo "- Destination: observability/shared.tfstate"
+            echo "- Execution mode: plan-only; no infrastructure apply is present"
+            echo "- Verification artifacts: uploaded with this run"
+          } >> "$GITHUB_STEP_SUMMARY"
