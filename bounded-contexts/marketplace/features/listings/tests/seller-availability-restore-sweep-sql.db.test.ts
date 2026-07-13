@@ -17,6 +17,11 @@ import { buildMarketplaceListingProjectionHandlers } from "../read-model/project
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 const contextNames = ["marketplace"] as const;
+const DAY_IN_MS = 24 * 60 * 60 * 1_000;
+
+function daysAfter(instant: number, days: number): string {
+  return new Date(instant + days * DAY_IN_MS).toISOString();
+}
 
 function context(accountId: string): EventStoreContext {
   return {
@@ -94,6 +99,11 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
   it("restores a due account, is idempotent on re-sweep, and never surfaces a legacy availableAgainOn-only row", async () => {
     const pool = pools.marketplace;
     const services = buildServices(pool);
+    const disableClock = Date.now();
+    // Resume instants stay relative to the runtime disable clock so the domain's after-disable invariant cannot stale.
+    const dueAt = daysAfter(disableClock, 1);
+    const now = daysAfter(disableClock, 2);
+    const notYetAt = daysAfter(disableClock, 3);
 
     // Due: an authoritative resume instant in the past.
     await services.listings.disableSellerListingAvailability(
@@ -101,7 +111,7 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
         accountId: "acc_away_due",
         reasonCategory: "travel",
         availableAgainOn: null,
-        availableAgainAt: "2026-07-01T00:00:00.000Z",
+        availableAgainAt: dueAt,
       },
       context("acc_away_due"),
     );
@@ -113,7 +123,7 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
         accountId: "acc_away_not_yet",
         reasonCategory: "travel",
         availableAgainOn: null,
-        availableAgainAt: "2026-12-01T00:00:00.000Z",
+        availableAgainAt: notYetAt,
       },
       context("acc_away_not_yet"),
     );
@@ -128,7 +138,6 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
        ) VALUES ('acc_away_legacy', 'unavailable', 'travel', '2020-01-01', NULL, '2020-01-01T00:00:00.000Z', now())`,
     );
 
-    const now = "2026-07-13T12:00:00.000Z";
     const due = await listDueSellerAvailabilityRestores(pool, { now });
     expect(due.map((row) => row.account_id)).toEqual(["acc_away_due"]);
 
@@ -153,13 +162,19 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
   it("clamps the batch limit and processes the most-overdue accounts first", async () => {
     const pool = pools.marketplace;
     const services = buildServices(pool);
+    const disableClock = Date.now();
+    // Resume instants stay relative to the runtime disable clock so the domain's after-disable invariant cannot stale.
+    const earliestAt = daysAfter(disableClock, 1);
+    const middleAt = daysAfter(disableClock, 2);
+    const latestAt = daysAfter(disableClock, 3);
+    const now = daysAfter(disableClock, 4);
 
     await services.listings.disableSellerListingAvailability(
       {
         accountId: "acc_away_earliest",
         reasonCategory: "travel",
         availableAgainOn: null,
-        availableAgainAt: "2026-06-01T00:00:00.000Z",
+        availableAgainAt: earliestAt,
       },
       context("acc_away_earliest"),
     );
@@ -169,7 +184,7 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
         accountId: "acc_away_middle",
         reasonCategory: "travel",
         availableAgainOn: null,
-        availableAgainAt: "2026-06-15T00:00:00.000Z",
+        availableAgainAt: middleAt,
       },
       context("acc_away_middle"),
     );
@@ -179,13 +194,12 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
         accountId: "acc_away_latest",
         reasonCategory: "travel",
         availableAgainOn: null,
-        availableAgainAt: "2026-07-01T00:00:00.000Z",
+        availableAgainAt: latestAt,
       },
       context("acc_away_latest"),
     );
     await catchUpAvailabilityProjection(pool, "acc_away_latest");
 
-    const now = "2026-07-13T12:00:00.000Z";
     const sweep = await services.listings.sweepDueSellerAvailabilityRestores({ now, limit: 1 }, context("system"));
     expect(sweep).toEqual({ checked: 1, restored: 1, skipped: 0 });
     await catchUpAvailabilityProjection(pool, "acc_away_earliest");
@@ -210,19 +224,23 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
     const pool = pools.marketplace;
     const services = buildServices(pool);
     const accountId = "acc_away_race";
+    const disableClock = Date.now();
+    // Resume instants stay relative to the runtime disable clock so the domain's after-disable invariant cannot stale.
+    const initiallyDueAt = daysAfter(disableClock, 1);
+    const now = daysAfter(disableClock, 2);
+    const extendedUntil = daysAfter(disableClock, 3);
 
     await services.listings.disableSellerListingAvailability(
       {
         accountId,
         reasonCategory: "travel",
         availableAgainOn: null,
-        availableAgainAt: "2026-07-01T00:00:00.000Z",
+        availableAgainAt: initiallyDueAt,
       },
       context(accountId),
     );
     await catchUpAvailabilityProjection(pool, accountId);
 
-    const now = "2026-07-13T12:00:00.000Z";
     // The sweep's due-query observes the account as due and captures its
     // Resume Instant as `dueBy`.
     const due = await listDueSellerAvailabilityRestores(pool, { now });
@@ -236,7 +254,7 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
         accountId,
         reasonCategory: "travel",
         availableAgainOn: null,
-        availableAgainAt: "2026-08-01T00:00:00.000Z",
+        availableAgainAt: extendedUntil,
       },
       context(accountId),
     );
@@ -250,7 +268,7 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
     );
 
     const row = await readAvailabilityRow(pool, accountId);
-    expect(row).toMatchObject({ status: "unavailable", available_again_at: "2026-08-01T00:00:00.000Z" });
+    expect(row).toMatchObject({ status: "unavailable", available_again_at: extendedUntil });
 
     // No duplicate `.enabled` fact landed on the stream.
     const events = await pool.query<{ event_type: string }>(
