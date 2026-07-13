@@ -84,12 +84,24 @@ export type CatalogSyncProviderParticipationUnit = Readonly<{
   explanation: string;
 }>;
 
+export type CatalogSyncProviderParticipationEstimate = Readonly<{
+  totalEstimatedRequestCount: number | null;
+  estimateState: "estimated" | "estimate-unavailable";
+  estimateReason: string | null;
+  creditConsumingProviders: readonly Readonly<{
+    providerKey: string;
+    displayName: string;
+    unitKeys: readonly CatalogIntegrationUnitKey[];
+  }>[];
+}>;
+
 export type CatalogSyncProviderParticipationPreview = Readonly<{
   previewVersion: "catalog-sync-provider-participation-preview-v1";
   scope: CatalogSyncScope;
   status: "ready" | "degraded" | "blocked";
   startAllowed: boolean;
   units: readonly CatalogSyncProviderParticipationUnit[];
+  estimate: CatalogSyncProviderParticipationEstimate;
   blockers: readonly CatalogSyncProviderParticipationBlocker[];
   explanation: string;
 }>;
@@ -158,11 +170,11 @@ export async function previewCatalogSyncProviderParticipation(input: {
     unit.requirement === "required" ? unit.blockers.filter((blocker) => blocker.severity === "error") : [],
   );
   const allBlockers = [...missingRequiredUnitBlockers, ...blockers];
-  const selectedUnits = units.filter((unit) => unit.selected);
-  const selectedIneligibleOptional = selectedUnits.some(
+  const hasIneligibleOptional = units.some(
     (unit) => unit.requirement === "optional" && unit.eligibility === "ineligible",
   );
-  const status = allBlockers.length > 0 ? "blocked" : selectedIneligibleOptional ? "degraded" : "ready";
+  const status = allBlockers.length > 0 ? "blocked" : hasIneligibleOptional ? "degraded" : "ready";
+  const estimate = aggregateCatalogSyncProviderParticipationEstimate(units);
 
   return {
     previewVersion: "catalog-sync-provider-participation-preview-v1",
@@ -170,6 +182,7 @@ export async function previewCatalogSyncProviderParticipation(input: {
     status,
     startAllowed: status !== "blocked",
     units,
+    estimate,
     blockers: allBlockers,
     explanation:
       status === "blocked"
@@ -178,6 +191,50 @@ export async function previewCatalogSyncProviderParticipation(input: {
           ? "The required provider units are eligible, but at least one selected optional unit cannot participate."
           : "Eligible provider units are ready to pull Source Observations for this Catalog scope.",
   };
+}
+
+export function aggregateCatalogSyncProviderParticipationEstimate(
+  units: readonly CatalogSyncProviderParticipationUnit[],
+  selectedUnitKeys?: ReadonlySet<string>,
+): CatalogSyncProviderParticipationEstimate {
+  const selectedEligibleUnits = units.filter(
+    (unit) =>
+      unit.eligibility === "eligible" && unit.selected && (!selectedUnitKeys || selectedUnitKeys.has(unit.unitKey)),
+  );
+  const estimates = selectedEligibleUnits.map((unit) => unit.estimate);
+  const unavailableEstimate = estimates.find((estimate) => estimate.estimatedRequestCount === null);
+  const creditConsumingProviders = creditConsumingProviderSummaries(selectedEligibleUnits);
+
+  return {
+    totalEstimatedRequestCount: unavailableEstimate
+      ? null
+      : estimates.reduce((total, estimate) => total + (estimate.estimatedRequestCount ?? 0), 0),
+    estimateState: unavailableEstimate ? "estimate-unavailable" : "estimated",
+    estimateReason: unavailableEstimate?.estimateReason ?? null,
+    creditConsumingProviders,
+  };
+}
+
+function creditConsumingProviderSummaries(
+  units: readonly CatalogSyncProviderParticipationUnit[],
+): CatalogSyncProviderParticipationEstimate["creditConsumingProviders"] {
+  const summaries = new Map<
+    string,
+    { providerKey: string; displayName: string; unitKeys: CatalogIntegrationUnitKey[] }
+  >();
+  for (const unit of units) {
+    if (unit.providerKey.toLowerCase() !== "scrydex") {
+      continue;
+    }
+    const summary = summaries.get(unit.providerKey) ?? {
+      providerKey: unit.providerKey,
+      displayName: unit.displayName,
+      unitKeys: [],
+    };
+    summary.unitKeys.push(unit.unitKey);
+    summaries.set(unit.providerKey, summary);
+  }
+  return [...summaries.values()];
 }
 
 export function normalizeCatalogSyncScope(scope: CatalogSyncScope): CatalogSyncScope {
@@ -245,7 +302,7 @@ async function planProviderUnit(input: {
 
   const childExecutionScope =
     blockers.length === 0 ? childScopeForProviderUnit(input.scope, input.version, input.unitKey) : null;
-  const selected = input.explicitlySelected || input.required || (blockers.length === 0 && input.required);
+  const selected = input.explicitlySelected || input.required || blockers.length === 0;
   const estimate =
     childExecutionScope && adapter ? await planEstimate(adapter, input.unitKey, childExecutionScope, blockers) : null;
   const eligibility = blockers.some((blocker) => blocker.severity === "error") ? "ineligible" : "eligible";
@@ -259,7 +316,7 @@ async function planProviderUnit(input: {
     role: providerParticipationRole(input.version),
     requirement: input.required ? "required" : "optional",
     eligibility,
-    defaultSelected: input.required && eligibility === "eligible",
+    defaultSelected: eligibility === "eligible",
     selected,
     childExecutionScope,
     estimate: estimate ?? {

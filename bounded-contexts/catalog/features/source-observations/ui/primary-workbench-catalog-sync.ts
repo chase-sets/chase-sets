@@ -25,6 +25,9 @@ export function catalogSyncFor(input: {
   const units = input.catalogSyncPreview
     ? catalogSyncUnitsFromPreview(input.catalogSyncPreview)
     : input.sourceScopeWorkset.units.map((unit, index) => catalogSyncUnit(unit, index));
+  const initialSelectedUnitKeys = new Set(
+    units.flatMap((unit) => (unit.selected && unit.unitKey ? [unit.unitKey] : [])),
+  );
   const selectedEligibleUnits = units.filter((unit) => unit.selected && unit.eligibility === "eligible");
   const baseBlockers = catalogSyncBlockers({
     canManage: input.canManage,
@@ -63,6 +66,18 @@ export function catalogSyncFor(input: {
       previewVersion: "catalog-sync-provider-participation-preview-v1",
       status: previewStatus,
       startAllowed,
+      estimate: catalogSyncEstimateForSelection(
+        {
+          units,
+          estimate: input.catalogSyncPreview?.estimate ?? {
+            totalEstimatedRequestCount: null,
+            estimateState: "estimate-unavailable",
+            estimateReason: null,
+            creditConsumingProviders: [],
+          },
+        },
+        initialSelectedUnitKeys,
+      ),
       explanation: input.catalogSyncPreview
         ? input.catalogSyncPreview.explanation
         : blockers.length === 0
@@ -80,6 +95,33 @@ export function catalogSyncFor(input: {
       blockers,
       copyKey: blockers.length > 0 ? "catalog.primary.import.blocked" : null,
     },
+  };
+}
+
+export function catalogSyncEstimateForSelection(
+  preview: Pick<CatalogPrimaryWorkbenchCatalogSyncReadModel["preview"], "units" | "estimate">,
+  selectedUnitKeys: ReadonlySet<string>,
+): CatalogPrimaryWorkbenchCatalogSyncReadModel["preview"]["estimate"] {
+  const selectedEligibleUnits = preview.units.filter(
+    (unit) => unit.unitKey && selectedUnitKeys.has(unit.unitKey) && unit.eligibility === "eligible",
+  );
+  const unavailableEstimate = selectedEligibleUnits.find(
+    (unit) => unit.estimate?.estimatedRequestCount === null || !unit.estimate,
+  );
+  const selectedKeys = new Set(selectedEligibleUnits.map((unit) => unit.unitKey));
+
+  return {
+    totalEstimatedRequestCount: unavailableEstimate
+      ? null
+      : selectedEligibleUnits.reduce((total, unit) => total + (unit.estimate?.estimatedRequestCount ?? 0), 0),
+    estimateState: unavailableEstimate ? "estimate-unavailable" : "estimated",
+    estimateReason: unavailableEstimate?.estimate?.estimateReason ?? null,
+    creditConsumingProviders: preview.estimate.creditConsumingProviders
+      .map((provider) => ({
+        ...provider,
+        unitKeys: provider.unitKeys.filter((unitKey) => selectedKeys.has(unitKey)),
+      }))
+      .filter((provider) => provider.unitKeys.length > 0),
   };
 }
 

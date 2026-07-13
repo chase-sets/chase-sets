@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
 import type { ProviderAdapter, ProviderImportScope } from "./provider-adapters/provider-adapter";
-import { previewCatalogSyncProviderParticipation, type CatalogSyncScope } from "./catalog-sync-scope-planner";
+import {
+  aggregateCatalogSyncProviderParticipationEstimate,
+  previewCatalogSyncProviderParticipation,
+  type CatalogSyncScope,
+} from "./catalog-sync-scope-planner";
 import {
   catalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -10,7 +14,7 @@ import { unitKeyForCatalogProviderProfileVersion } from "./catalog-integration-i
 import { LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY } from "./provider-adapters/lorcanajson";
 
 describe("Catalog sync scope planner", () => {
-  it("plans Pokemon Expansion sync with required TCGdex and optional TCGplayer-style participation", async () => {
+  it("defaults every eligible mapped provider role into Pokemon Expansion participation", async () => {
     const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
     const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
     const tcgdexUnitKey = unitKeyForCatalogProviderProfileVersion(tcgdex);
@@ -19,8 +23,8 @@ describe("Catalog sync scope planner", () => {
     const tcgplayerPlanImport = vi.fn(fakePlanImport(205));
     const preview = await previewCatalogSyncProviderParticipation({
       scope: pokemonBaseSetScope({
-        requiredUnitKeys: [tcgdexUnitKey],
-        selectedUnitKeys: [tcgplayerUnitKey],
+        requiredUnitKeys: [],
+        selectedUnitKeys: [],
       }),
       providerProfileVersions: [tcgdex, tcgplayer],
       providerAdapterRegistry: new ProviderAdapterRegistry([
@@ -36,6 +40,12 @@ describe("Catalog sync scope planner", () => {
       [tcgdexUnitKey, "primary-source-observation", "required", true],
       [tcgplayerUnitKey, "supplemental-marketplace-reference", "optional", true],
     ]);
+    expect(preview.units.every((unit) => unit.defaultSelected)).toBe(true);
+    expect(preview.estimate).toMatchObject({
+      totalEstimatedRequestCount: 2,
+      estimateState: "estimated",
+      creditConsumingProviders: [],
+    });
     expect(preview.units[0]?.childExecutionScope).toMatchObject({
       provider: "tcgdex",
       ingestionUnitKey: tcgdexUnitKey,
@@ -61,6 +71,11 @@ describe("Catalog sync scope planner", () => {
         values: expect.objectContaining({ productLineId: "3", setName: "Base Set" }),
       }),
     );
+
+    expect(aggregateCatalogSyncProviderParticipationEstimate(preview.units, new Set([tcgdexUnitKey]))).toMatchObject({
+      totalEstimatedRequestCount: 1,
+      estimateState: "estimated",
+    });
   });
 
   it("limits participation to an explicitly selected optional provider unit", async () => {

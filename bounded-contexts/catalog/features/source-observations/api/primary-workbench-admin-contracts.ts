@@ -527,6 +527,16 @@ export type CatalogPrimaryWorkbenchCatalogSyncReadModel = Readonly<{
     status: "ready" | "degraded" | "blocked";
     startAllowed: boolean;
     explanation: string;
+    estimate: Readonly<{
+      totalEstimatedRequestCount: number | null;
+      estimateState: "estimated" | "estimate-unavailable";
+      estimateReason: string | null;
+      creditConsumingProviders: readonly Readonly<{
+        providerKey: string;
+        displayName: string;
+        unitKeys: readonly string[];
+      }>[];
+    }>;
     blockers: readonly Readonly<{
       code: string;
       severity: "info" | "warning" | "error";

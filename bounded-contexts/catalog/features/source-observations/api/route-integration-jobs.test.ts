@@ -200,6 +200,12 @@ describe("source observation routes: integration and bulk review jobs", () => {
       status: "ready",
       startAllowed: true,
       units: [],
+      estimate: {
+        totalEstimatedRequestCount: 0,
+        estimateState: "estimated",
+        estimateReason: null,
+        creditConsumingProviders: [],
+      },
       blockers: [],
       explanation: "Eligible provider units are ready to pull Source Observations for this Catalog scope.",
     };
@@ -338,6 +344,12 @@ describe("source observation routes: integration and bulk review jobs", () => {
         status: "ready",
         startAllowed: true,
         units: [],
+        estimate: {
+          totalEstimatedRequestCount: 0,
+          estimateState: "estimated",
+          estimateReason: null,
+          creditConsumingProviders: [],
+        },
         blockers: [],
         explanation: "Eligible provider units are ready to pull Source Observations for this Catalog scope.",
       },

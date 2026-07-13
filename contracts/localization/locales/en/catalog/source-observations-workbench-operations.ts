@@ -11,6 +11,12 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.blocked": "Blocked",
   "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.description":
     "Select provider participation inside this Catalog scope, preview the fan-out, and start one parent sync run.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.costPreview.creditProviders":
+    "Credit-consuming providers",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.costPreview.requests": "Estimated requests",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.costPreview.title": "Aggregate cost preview",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.costPreview.unavailable":
+    "Aggregate estimate unavailable",
   "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.empty.description":
     "Select a Catalog scope that can be planned by active provider units.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.empty.title": "No provider units",
