@@ -132,6 +132,7 @@ components:
       progressDeadlineSeconds: 900
       rollbackWindowRevisions: 3
       analysis:
+        enabled: false
         path: "/health/ready"
         initialDelay: "30s"
         interval: "10s"
@@ -206,6 +207,7 @@ components:
       progressDeadlineSeconds: 900
       rollbackWindowRevisions: 3
       analysis:
+        enabled: false
         path: "/health/ready"
         initialDelay: "30s"
         interval: "10s"
@@ -507,6 +509,7 @@ components:
       progressDeadlineSeconds: 900
       rollbackWindowRevisions: 3
       analysis:
+        enabled: false
         path: "/health/ready"
         initialDelay: "30s"
         interval: "10s"

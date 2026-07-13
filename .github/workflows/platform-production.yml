@@ -360,7 +360,7 @@ jobs:
       CHASE_SETS_HELM_RELEASE: chase-sets-platform
       CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
       CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
-      ARGO_ROLLOUTS_ENABLED: "true"
+      ARGO_ROLLOUTS_ENABLED: ${{ vars.STAGING_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}
       APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
       # DOKS is the primary rollout lane and always runs. The App Platform lane
       # is legacy: it exists only to keep App Platform's alias DNS reconciled

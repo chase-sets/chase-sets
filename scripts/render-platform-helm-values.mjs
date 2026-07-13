@@ -254,6 +254,7 @@ function rolloutValues(enabled, nginxEnabled, analysisPath) {
     progressDeadlineSeconds: 900,
     rollbackWindowRevisions: 3,
     analysis: {
+      enabled: false,
       path: analysisPath,
       initialDelay: "30s",
       interval: "10s",

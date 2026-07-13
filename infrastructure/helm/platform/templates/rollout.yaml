@@ -32,9 +32,11 @@ spec:
       steps:
       {{- range $weight := $component.rollout.canary.weights }}
         - setWeight: {{ $weight }}
+        {{- if $component.rollout.analysis.enabled }}
         - analysis:
             templates:
               - templateName: {{ include "chase-sets-platform.analysisTemplateName" (dict "root" $ "name" $name) }}
+        {{- end }}
         {{- if eq (int $weight) (int $component.rollout.canary.pauseAfterWeight) }}
         - pause: {}
         {{- end }}
