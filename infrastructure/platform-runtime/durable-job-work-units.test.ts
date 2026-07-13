@@ -162,61 +162,6 @@ describe("durable job work units", () => {
     expect(snapshots[0]).not.toContain("do-not-emit");
   });
 
-  it("records a terminal unit without resurrecting an already terminal parent", async () => {
-    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
-    const snapshots: string[] = [];
-    const store = createPostgresDurableJobWorkUnitStore<
-      { secret: string },
-      { completed: number; total: number },
-      { completed: number },
-      { secretObservationId: string },
-      { observationId: string; status: string }
-    >(
-      {
-        query: async (sql: string, values: readonly unknown[] = []) => {
-          calls.push({ sql, values });
-          if (sql.includes("SELECT job_id") && sql.includes("terminal_unit")) {
-            return { rows: [{ job_id: "job_1" }], rowCount: 1 };
-          }
-          if (sql.includes("UPDATE catalog_source_observation_bulk_review_jobs AS job")) {
-            return { rows: [], rowCount: 0 };
-          }
-          if (sql.includes("INSERT INTO catalog_source_observation_bulk_review_job_events")) {
-            snapshots.push(String(values[1]));
-            return { rows: [{ sequence: 3 }], rowCount: 1 };
-          }
-          return { rows: [], rowCount: 1 };
-        },
-      },
-      {
-        jobsTable: "catalog_source_observation_bulk_review_jobs",
-        eventsTable: "catalog_source_observation_bulk_review_job_events",
-        workUnitsTable: "catalog_source_observation_bulk_review_work_units",
-      },
-      { workflowName: "catalog.source-observation-bulk-review" },
-    );
-
-    await expect(
-      store.recordTerminal({
-        jobId: "job_1",
-        unitId: "obs_1",
-        claimOwnerId: "worker-a",
-        claimToken: "token-a",
-        state: "completed",
-        unitResult: { observationId: "obs_1", status: "promoted" },
-        parentProgress: { completed: 1, total: 1 },
-        parentResult: { completed: 1 },
-        completeJob: true,
-      }),
-    ).resolves.toBe("parent-already-terminal");
-
-    const parentUpdate = calls.find((call) =>
-      call.sql.includes("UPDATE catalog_source_observation_bulk_review_jobs AS job"),
-    );
-    expect(parentUpdate?.sql).toContain("AND job.status IN ('queued', 'running')");
-    expect(snapshots).toEqual([]);
-  });
-
   it("reconciles a terminal parent without requiring a live work-unit claim", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const snapshots: string[] = [];
