@@ -197,6 +197,41 @@ export function createWalletRoutes(services: WalletServices) {
     });
   });
 
+  /**
+   * Account-facing Wallet Adjustment detail: the account holder's own
+   * `payouts.view` self-scope, never the platform-admin `wallet-adjustments.view`
+   * permission. `getWalletAdjustmentForAccount` returns null for any
+   * adjustment that does not belong to the caller's own account, so an
+   * adjustment on someone else's wallet is indistinguishable from "does not
+   * exist" -- account holders never learn whether a reference belongs to
+   * another account.
+   */
+  app.get("/wallet/adjustments/:reference", async (c) => {
+    const access = requireWalletAccess(c, "payouts.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const reference = c.req.param("reference");
+    const adjustment = await services.getWalletAdjustmentForAccount({
+      reference,
+      accountId: access.actor.accountId,
+    });
+    if (!adjustment) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: "not_found",
+            message: t("settlement.features.wallets.api.route.wallet.adjustment.not.found"),
+          },
+        }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    return c.json(adjustment);
+  });
+
   app.post("/wallet/refund-debits", async (c) => {
     const access = authorizeOperatorWalletMutation(c, "POST /wallet/refund-debits");
     if (access.response) {

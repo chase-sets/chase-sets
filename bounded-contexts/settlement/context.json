@@ -358,6 +358,13 @@
           "fileExport": "./routes/marketplace/account-settlement",
           "routeType": "route",
           "sourceContext": "settlement"
+        },
+        {
+          "routeId": "account-wallet-adjustment",
+          "routePath": "account/wallet/adjustments/:reference",
+          "fileExport": "./routes/marketplace/account-wallet-adjustment",
+          "routeType": "route",
+          "sourceContext": "settlement"
         }
       ]
     }

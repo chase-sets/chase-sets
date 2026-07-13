@@ -29,6 +29,7 @@ function adjustment(overrides: Partial<SettlementWalletAdjustmentRow> = {}): Set
     adjustment_id: "wad_test",
     status: "requested",
     target_account_id: "acc_test",
+    display_reference: "WAD-B2C3D4E5",
     direction: "credit",
     amount: "10.00",
     currency_code: "usd",

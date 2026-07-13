@@ -31,6 +31,22 @@ export type SettlementLedgerEntryRow = Readonly<{
   posted_at: string;
   available_at: string | null;
   updated_at: string;
+  /**
+   * Wallet Adjustment linkage (ADR 0020), present only when `kind` is
+   * `"adjustment"` -- `null` for every other ledger entry kind. Joined in
+   * from `settlement_wallet_adjustment_pages` so the account-facing ledger
+   * can present a Wallet Adjustment detail link and reversal status without
+   * exposing the raw `description` free text, which may carry an operator's
+   * internal explanation. `listWalletEntries` is the only query that
+   * populates these; every other reader of `SettlementLedgerEntryRow` leaves
+   * them `undefined` at the type level via the optional modifier below.
+   */
+  adjustment_id?: string | null;
+  adjustment_display_reference?: string | null;
+  adjustment_status?: "requested" | "approved" | "rejected" | "posted" | "reversed" | null;
+  adjustment_reason_code?: string | null;
+  adjustment_reversal_of_adjustment_id?: string | null;
+  adjustment_reversed_by_adjustment_id?: string | null;
 }>;
 
 const walletSelect = `
@@ -153,23 +169,31 @@ export async function listWalletEntries(
     ),
     db.query<SettlementLedgerEntryRow>(
       `SELECT
-         ledger_entry_id,
-         account_id,
-         kind,
-         direction,
-         amount::text AS amount,
-         currency_code,
-         funds_status,
-         order_id,
-         payment_id,
-         payout_id,
-         description,
-         posted_at,
-         available_at,
-         updated_at
-       FROM settlement_ledger_entry_pages
-       WHERE account_id = $1
-       ORDER BY posted_at DESC, ledger_entry_id DESC
+         entry.ledger_entry_id,
+         entry.account_id,
+         entry.kind,
+         entry.direction,
+         entry.amount::text AS amount,
+         entry.currency_code,
+         entry.funds_status,
+         entry.order_id,
+         entry.payment_id,
+         entry.payout_id,
+         entry.description,
+         entry.posted_at,
+         entry.available_at,
+         entry.updated_at,
+         adjustment.adjustment_id AS adjustment_id,
+         adjustment.display_reference AS adjustment_display_reference,
+         adjustment.status AS adjustment_status,
+         adjustment.reason_code AS adjustment_reason_code,
+         adjustment.reversal_of_adjustment_id AS adjustment_reversal_of_adjustment_id,
+         adjustment.reversed_by_adjustment_id AS adjustment_reversed_by_adjustment_id
+       FROM settlement_ledger_entry_pages entry
+       LEFT JOIN settlement_wallet_adjustment_pages adjustment
+         ON adjustment.posted_ledger_entry_id = entry.ledger_entry_id
+       WHERE entry.account_id = $1
+       ORDER BY entry.posted_at DESC, entry.ledger_entry_id DESC
        LIMIT $2 OFFSET $3`,
       [params.accountId, limit, offset],
     ),

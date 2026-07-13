@@ -10,6 +10,7 @@ function adjustment(overrides: Partial<SettlementWalletAdjustment> = {}): Settle
     adjustment_id: "wad_1",
     status: "posted",
     target_account_id: "acc_target",
+    display_reference: "WAD-A1B2C3D4",
     direction: "credit",
     amount: "25.00",
     currency_code: "usd",

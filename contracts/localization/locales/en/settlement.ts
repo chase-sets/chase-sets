@@ -858,4 +858,85 @@ export const settlementEnglishTranslations = {
   "settlement.features.wallets.ui.walletWorkbenchPage.no.ledger.title": "No ledger activity",
   "settlement.features.wallets.ui.walletWorkbenchPage.no.ledger.description":
     "Ledger entries for this account appear here once posted.",
+
+  "settlement.features.wallets.api.route.wallet.adjustment.not.found": "Wallet adjustment not found.",
+
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reason.transaction.correction":
+    "General transaction correction",
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reason.refund.correction":
+    "Refund correction",
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reason.fee.correction":
+    "Fee correction",
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reason.dispute.resolution":
+    "Dispute resolution",
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reason.fraud.recovery":
+    "Fraud recovery",
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reason.support.resolution":
+    "Support case resolution",
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reason.legal.obligation":
+    "Legal correction",
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reason.goodwill.cash.credit":
+    "Goodwill credit",
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reason.operational.error":
+    "Operational correction",
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reason.other":
+    "Other correction",
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.posted.credit.title":
+    "You received a {amount} wallet credit",
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.posted.debit.title":
+    "A {amount} wallet debit was applied to your account",
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.posted.body":
+    "{reasonCategory}. Your resulting wallet balance is {resultingBalance}. Reference: {reference}.",
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reversed.title":
+    "Wallet adjustment {reference} was reversed",
+  "settlement.features.wallets.integrations.transactionalNotifications.walletAdjustmentNotificationIntents.reversed.body":
+    "The adjustment {originalReference} was reversed by a new correcting entry, {reversalReference}. Your resulting wallet balance is {resultingBalance}.",
+
+  "settlement.features.wallets.ui.walletAdjustmentAccountCopy.status.under.review": "Under review",
+  "settlement.features.wallets.ui.walletAdjustmentAccountCopy.status.not.applied": "Not applied",
+  "settlement.features.wallets.ui.walletAdjustmentAccountCopy.status.posted": "Posted",
+  "settlement.features.wallets.ui.walletAdjustmentAccountCopy.status.reversed": "Reversed",
+  "settlement.features.wallets.ui.walletAdjustmentAccountCopy.direction.credit": "Credit",
+  "settlement.features.wallets.ui.walletAdjustmentAccountCopy.direction.debit": "Debit",
+
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.wallet": "Wallet",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.title": "Wallet adjustment {reference}",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.description":
+    "Why this adjustment happened, its effect on your balance, and how to reach support if something looks wrong.",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.view.wallet": "View wallet",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.details": "Details",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.direction": "Direction",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.amount": "Amount",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.reason": "Reason",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.requested": "Requested",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.posted": "Posted",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.resulting.balance": "Resulting balance",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.about.this.adjustment": "About this adjustment",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.cash.equivalent.title":
+    "This is cash-equivalent, not promotional credit",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.cash.equivalent.description":
+    "A wallet adjustment is part of your available balance -- spendable and eligible for payout the same as any other funds. It is reviewed corrections, not a promotional balance.",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.reversal.section": "Reversal status",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.corrects.title":
+    "This entry corrects an earlier adjustment",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.corrects.description":
+    "This entry corrects an earlier adjustment, {reference}.",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.view.original.entry": "View original entry",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.reversed.title": "This adjustment was reversed",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.reversed.description":
+    "This adjustment was reversed on {date}. See the correcting entry, {reference}.",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.view.correcting.entry": "View correcting entry",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.provisional.note":
+    "Wallet adjustments are reviewed corrections and can be reversed if a mistake is later found. If this entry is reversed, a linked correcting entry will appear here and you will be notified again.",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.support.title": "Questions about this adjustment?",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.support.description":
+    "Contact support and reference {reference} so we can locate this adjustment right away.",
+  "settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.contact.support": "Contact support",
+
+  "settlement.features.wallets.ui.walletPage.kind.adjustment": "Wallet adjustment",
+  "settlement.features.wallets.ui.walletPage.adjustment.reversed": "Reversed",
+  "settlement.features.wallets.ui.walletPage.view.adjustment.details": "View details",
+
+  "settlement.routes.marketplace.accountWalletAdjustment.adjustment.not.found": "Wallet adjustment not found.",
+  "settlement.routes.marketplace.accountWalletAdjustment.wallet.adjustment": "Wallet Adjustment",
 } as const;
