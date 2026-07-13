@@ -39,6 +39,8 @@ function review(overrides = {}) {
     checkoutLaunchGuestAndSignedInReviewed: true,
     checkoutLaunchDesktopMobileAccessibilityReviewed: true,
     checkoutLaunchNoPreConfirmationSideEffects: true,
+    checkoutLaunchObservabilitySupportSecurityHandoffsReviewed: true,
+    checkoutLaunchFulfillmentAssignmentBeforeSessionReviewed: true,
     checkoutLaunchFreshStateCleanupReviewed: true,
     checkoutLaunchNoLegacyCompatibilityPaths: true,
     publicPresenceLaunchCopyReviewed: true,
@@ -102,6 +104,8 @@ describe("marketplace promotion evidence", () => {
         checkoutLaunchGuestAndSignedInReviewed: true,
         checkoutLaunchDesktopMobileAccessibilityReviewed: true,
         checkoutLaunchNoPreConfirmationSideEffects: true,
+        checkoutLaunchObservabilitySupportSecurityHandoffsReviewed: true,
+        checkoutLaunchFulfillmentAssignmentBeforeSessionReviewed: true,
         checkoutLaunchFreshStateCleanupReviewed: true,
         checkoutLaunchNoLegacyCompatibilityPaths: true,
         publicPresenceLaunchCopyReviewed: true,
@@ -158,6 +162,8 @@ describe("marketplace promotion evidence", () => {
           checkoutLaunchGuestAndSignedInReviewed: false,
           checkoutLaunchDesktopMobileAccessibilityReviewed: false,
           checkoutLaunchNoPreConfirmationSideEffects: false,
+          checkoutLaunchObservabilitySupportSecurityHandoffsReviewed: false,
+          checkoutLaunchFulfillmentAssignmentBeforeSessionReviewed: false,
           checkoutLaunchFreshStateCleanupReviewed: false,
           checkoutLaunchNoLegacyCompatibilityPaths: false,
         }),
@@ -180,6 +186,12 @@ describe("marketplace promotion evidence", () => {
     );
     expect(evidence.errors).toContain(
       "Marketplace promotion review must prove checkoutLaunchNoPreConfirmationSideEffects=true.",
+    );
+    expect(evidence.errors).toContain(
+      "Marketplace promotion review must prove checkoutLaunchObservabilitySupportSecurityHandoffsReviewed=true.",
+    );
+    expect(evidence.errors).toContain(
+      "Marketplace promotion review must prove checkoutLaunchFulfillmentAssignmentBeforeSessionReviewed=true.",
     );
     expect(evidence.errors).toContain(
       "Marketplace promotion review must prove checkoutLaunchFreshStateCleanupReviewed=true.",
@@ -388,6 +400,8 @@ describe("marketplace promotion evidence", () => {
       "checkoutLaunchGuestAndSignedInReviewed",
       "checkoutLaunchDesktopMobileAccessibilityReviewed",
       "checkoutLaunchNoPreConfirmationSideEffects",
+      "checkoutLaunchObservabilitySupportSecurityHandoffsReviewed",
+      "checkoutLaunchFulfillmentAssignmentBeforeSessionReviewed",
       "checkoutLaunchFreshStateCleanupReviewed",
       "checkoutLaunchNoLegacyCompatibilityPaths",
       "publicPresenceLaunchCopyReviewed",
