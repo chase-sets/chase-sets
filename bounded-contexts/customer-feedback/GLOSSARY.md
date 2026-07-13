@@ -6,7 +6,8 @@ The context is named **Customer Feedback** — the ubiquitous language for the
 capability that owns customer-satisfaction capture. It deliberately is **not**
 Support, Platform Operations, or Notifications: those contexts own, respectively,
 support cases, operational projections, and delivery channels. Customer Feedback
-owns survey instruments, invitations, responses, and satisfaction analytics.
+owns survey instruments, invitations, responses, satisfaction analytics, and
+feedback cases.
 
 ## Customer Satisfaction
 
@@ -35,6 +36,13 @@ Notes:
 - A survey has a `surveyKind` (`transactional-csat` or `legacy-experience-rating`)
   and a `surveyVersion` / `questionVersion` identity.
 - Only `transactional-csat` surveys are CSAT-eligible.
+
+## Survey
+
+**Survey** is the event-contract noun for a versioned Customer Feedback
+instrument and its submitted answer. The launch survey is the CSAT Survey; the
+generic event noun leaves room for separately versioned future instruments
+without treating them as CSAT.
 
 ## Survey Version
 
@@ -66,6 +74,33 @@ Notes:
 A **CSAT Response** is a submitted survey answer: a 1–5 rating, an optional
 comment, and separately versioned follow-up consent, tied to the invitation and
 its survey version.
+
+## Feedback Case
+
+A **Feedback Case** is the event-sourced operational lifecycle opened from one
+immutable CSAT Response. It moves through `new`, `triaged`, `actioned`, and
+`closed`, with explicit reopen. Ownership, priority, due date, disposition,
+linked work, and follow-up are attributed case facts; they never modify the
+customer response.
+
+Ratings from 1 through 3 open a case automatically. A manager may explicitly
+flag any submitted response. Both paths use the same per-invitation stream, so one
+response maps to one case by default.
+
+## Feedback Case Disposition
+
+A **Feedback Case Disposition** records the operational outcome that makes a
+triaged case actioned. Supported outcomes include support resolution, product
+change, customer education, no action, duplicate, spam, and redacted. A duplicate
+case references its primary case but retains its own response and history.
+
+## Feedback Case Follow-up
+
+**Feedback Case Follow-up** is case-specific customer contact through an existing
+contact method. It can be requested and sent only while the response's affirmative
+versioned consent remains applicable. The consent is not marketing permission;
+withdrawal cancels pending follow-up, and duplicate, spam, or redacted cases cannot
+use it.
 
 ## Workflow Outcome Code
 

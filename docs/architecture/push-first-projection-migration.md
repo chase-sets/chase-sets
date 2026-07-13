@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (117)
+## Projection Groups (119)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -65,6 +65,8 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `commercial-terms:platform-policy-document-projection` | Commercial Terms | **commercial-terms** | push-enabled | 1/1 |
 | `customer-feedback:customer-feedback-csat-analytics-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-csat-invitation-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
+| `customer-feedback:customer-feedback-feedback-case-opening` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
+| `customer-feedback:customer-feedback-feedback-case-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `discovery:discovery-category-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-google-shopping-feed-row-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-item-detail-projection` | Discovery | **catalog** | push-enabled | 1/1 |
@@ -157,7 +159,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations** | push-enabled | 2/2 |
 
-Totals: 97 `push-enabled`, 17 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 97 `push-enabled`, 20 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (71)
 
