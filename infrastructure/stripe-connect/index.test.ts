@@ -1361,6 +1361,7 @@ describe("money movement adapters", () => {
       webhookSecret: "whsec_test",
     });
     const rawBody = JSON.stringify({
+      id: "evt_payout_failed",
       type: "payout.failed",
       created: 1_776_000_000,
       data: {
@@ -1381,7 +1382,7 @@ describe("money movement adapters", () => {
       }),
     ).resolves.toEqual({
       kind: "payout-failed",
-      providerEventId: "stripe:payout.failed:po_123",
+      providerEventId: "evt_payout_failed",
       payoutId: "pyo_123",
       providerPayoutReference: "po_123",
       providerStatus: "failed",
@@ -1496,7 +1497,7 @@ describe("money movement adapters", () => {
         rawBody,
         signatureHeader: stripeSignature(rawBody, "whsec_test"),
       }),
-    ).resolves.toBeNull();
+    ).rejects.toThrow("Stripe readiness webhook is missing its provider account reference.");
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 

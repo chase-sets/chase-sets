@@ -167,6 +167,11 @@
       "purpose": "Create and observe external payment processor intents from the API host."
     },
     {
+      "portName": "webhookTelemetry",
+      "providedBy": "platform-api",
+      "purpose": "Record support-safe Stripe webhook failure classes, retry decisions, and provider event references."
+    },
+    {
       "portName": "balanceCreditResolver",
       "providedBy": "settlement",
       "purpose": "Apply available settlement wallet balance as checkout credit without Payments querying Settlement storage."

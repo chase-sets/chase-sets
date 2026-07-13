@@ -16,6 +16,7 @@ import { createPayoutReadinessRuntime } from "../../features/payout-readiness/ap
 import type { MoneyMovementGateway } from "@chase-sets/money-movement";
 import { createNoopSettlementOperationsRecorder, type SettlementOperationsRecorder } from "./operations";
 import type { PayoutDestinationFrictionPolicy, SensitiveActionVerifier } from "../../features/payouts/api/runtime";
+import type { ProviderWebhookTelemetry } from "@chase-sets/http/provider-errors";
 
 export type SettlementHostPorts = Readonly<{
   moneyMovementGateway?: MoneyMovementGateway;
@@ -24,6 +25,7 @@ export type SettlementHostPorts = Readonly<{
   negativeBalancePolicy?: NegativeBalancePolicy;
   payoutDestinationFrictionPolicy?: Partial<PayoutDestinationFrictionPolicy>;
   sensitiveActionVerifier?: SensitiveActionVerifier;
+  webhookTelemetry?: ProviderWebhookTelemetry;
 }>;
 
 export type SettlementServices = Readonly<{
@@ -102,6 +104,7 @@ export function createSettlementServices(
     policies,
     payoutDestinationFrictionPolicy: ports.payoutDestinationFrictionPolicy,
     sensitiveActionVerifier: ports.sensitiveActionVerifier,
+    webhookTelemetry: ports.webhookTelemetry,
   });
 
   return {

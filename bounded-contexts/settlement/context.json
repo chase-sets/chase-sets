@@ -179,6 +179,11 @@
       "purpose": "Provider-neutral money movement adapter for payout setup, platform-balance transfers, connected-account payouts, and payout webhooks."
     },
     {
+      "portName": "webhookTelemetry",
+      "providedBy": "platform-api",
+      "purpose": "Record support-safe Stripe webhook failure classes, retry decisions, and provider event references."
+    },
+    {
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable outbound notification outbox consumed only by event projectors."

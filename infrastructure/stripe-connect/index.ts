@@ -9,6 +9,7 @@ import {
   ProviderAdapterError,
   providerFailureCategoryFromHttpStatus,
   providerFailureCategoryFromText,
+  ProviderWebhookError,
 } from "@chase-sets/http/provider-errors";
 
 export type StripeConnectMoneyMovementOptions = Readonly<{
@@ -243,6 +244,39 @@ function parseStripeSignature(signatureHeader: string | null) {
   }
 
   return { timestamp, signatures };
+}
+
+function parseStripeWebhookEnvelope(rawBody: string): StripeEventEnvelope {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawBody);
+  } catch (error) {
+    throw new ProviderWebhookError(
+      "schema-mismatch",
+      "Stripe webhook payload is not valid JSON.",
+      null,
+      null,
+      false,
+      error,
+    );
+  }
+
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    typeof (parsed as { id?: unknown }).id !== "string" ||
+    typeof (parsed as { type?: unknown }).type !== "string"
+  ) {
+    throw new ProviderWebhookError(
+      "schema-mismatch",
+      "Stripe webhook envelope is missing its id or type.",
+      null,
+      null,
+      false,
+    );
+  }
+
+  return parsed as StripeEventEnvelope;
 }
 
 function verifyStripeSignature(
@@ -1047,14 +1081,31 @@ export function createStripeConnectMoneyMovementGateway(
       };
     },
     async parseMoneyMovementWebhook(input) {
-      verifyStripeSignature(input.rawBody, input.signatureHeader, webhookSecrets, webhookToleranceSeconds);
-      const event = JSON.parse(input.rawBody) as StripeEventEnvelope;
+      try {
+        verifyStripeSignature(input.rawBody, input.signatureHeader, webhookSecrets, webhookToleranceSeconds);
+      } catch (error) {
+        throw new ProviderWebhookError(
+          "signature-invalid",
+          error instanceof Error ? error.message : "Stripe webhook signature verification failed.",
+          null,
+          null,
+          true,
+          error,
+        );
+      }
+      const event = parseStripeWebhookEnvelope(input.rawBody);
       const object = event.data?.object;
 
       if (event.type && accountStrategy.handlesReadinessWebhook(event.type)) {
         const providerReference = accountReferenceFromReadinessWebhook(event, object);
         if (!providerReference) {
-          return null;
+          throw new ProviderWebhookError(
+            "schema-mismatch",
+            "Stripe readiness webhook is missing its provider account reference.",
+            event.id,
+            event.type,
+            false,
+          );
         }
         const readiness = mapAccountReadiness(await accountStrategy.retrieveAccount(providerReference));
 
@@ -1068,7 +1119,13 @@ export function createStripeConnectMoneyMovementGateway(
       }
 
       if (!object || typeof object !== "object") {
-        return null;
+        throw new ProviderWebhookError(
+          "schema-mismatch",
+          "Stripe money-movement webhook object is missing.",
+          event.id,
+          event.type,
+          false,
+        );
       }
 
       const occurredAt = occurredAtFromEvent(event);
@@ -1111,7 +1168,13 @@ export function createStripeConnectMoneyMovementGateway(
         } satisfies MoneyMovementWebhookEvent;
       }
 
-      return null;
+      throw new ProviderWebhookError(
+        "unknown-event",
+        "Stripe money-movement webhook event type is not supported.",
+        event.id,
+        event.type,
+        false,
+      );
     },
   };
 }

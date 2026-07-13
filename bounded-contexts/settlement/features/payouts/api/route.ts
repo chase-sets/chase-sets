@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { SettlementApiEnv } from "../../../api";
+import { providerWebhookErrorFromUnknown } from "@chase-sets/http/provider-errors";
 import { toPayoutReconciliationJobStatus, type PayoutCommandSnapshot, type PayoutServices } from "./runtime";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
@@ -64,9 +65,35 @@ function validationErrorMessage(error: unknown) {
     : errorMessage(error);
 }
 
-function isProviderWebhookVerificationError(error: unknown) {
-  const message = errorMessage(error).toLowerCase();
-  return message.includes("signature") || message.includes("webhook secret");
+function providerWebhookFailureResponse(c: { json: (body: unknown, status?: number) => Response }, error: unknown) {
+  const classified = providerWebhookErrorFromUnknown(error);
+  const ignored =
+    classified.failureClass === "unknown-event" ||
+    classified.failureClass === "schema-mismatch" ||
+    classified.failureClass === "inbox-conflict";
+  if (ignored) {
+    return c.json(
+      {
+        received: true,
+        ignored: true,
+        failure_class: classified.failureClass,
+      },
+      200,
+    );
+  }
+
+  return c.json(
+    {
+      error: {
+        code: `provider_webhook_${classified.failureClass.replaceAll("-", "_")}`,
+        message:
+          classified.failureClass === "handler-failure" ? "Provider webhook handler failed." : classified.message,
+        failure_class: classified.failureClass,
+        retryable: classified.retryable,
+      },
+    },
+    400,
+  );
 }
 
 function sellerPayoutSnapshot(payout: PayoutCommandSnapshot): PayoutCommandSnapshot {
@@ -417,16 +444,7 @@ export function createMoneyMovementWebhookRoutes(services: PayoutServices) {
 
       return c.json(result, 200);
     } catch (error) {
-      const verificationError = isProviderWebhookVerificationError(error);
-      return c.json(
-        {
-          error: {
-            code: verificationError ? "validation_failed" : "provider_webhook_processing_failed",
-            message: errorMessage(error),
-          },
-        },
-        verificationError ? 400 : 500,
-      );
+      return providerWebhookFailureResponse(c, error);
     }
   });
 

@@ -68,6 +68,7 @@ import {
   recordMcpAuditRecord,
   recordPublicPresenceWaitlistAnalytics,
   recordProjectionFreshnessWakeEnqueue,
+  recordProviderWebhookIngestion,
   recordRealtimeAuthorizationRejected,
   recordRealtimeBatchRead,
   recordRealtimeConnectionClosed,
@@ -141,6 +142,28 @@ const settlementOperationsRecorder = {
       type: "settlement.operation",
       ...settlementOperationLogFields(event),
     });
+  },
+};
+const webhookTelemetry = {
+  record(event: Parameters<typeof recordProviderWebhookIngestion>[0]) {
+    recordProviderWebhookIngestion(event);
+    const fields = {
+      type: "provider.webhook.ingestion",
+      endpoint: event.endpoint,
+      failure_class: event.failureClass ?? "none",
+      outcome: event.outcome,
+      status_code: event.statusCode,
+      retryable: event.retryable,
+      provider_event_id: event.providerEventId ?? null,
+      event_kind: event.eventKind ?? null,
+    };
+    if (event.outcome === "failed") {
+      logger.error("Provider webhook ingestion failed.", fields);
+    } else if (event.failureClass) {
+      logger.warn("Provider webhook ingestion classified.", fields);
+    } else {
+      logger.info("Provider webhook ingestion completed.", fields);
+    }
   },
 };
 const postageLabelProvider =
@@ -265,6 +288,7 @@ const runtime = createPlatformApiHost({
   runtimeLifecycle,
   hostPorts: {
     processorGateway: paymentProcessorGateway,
+    webhookTelemetry,
     moneyMovementGateway,
     operationsRecorder: settlementOperationsRecorder,
     postageLabelProvider,

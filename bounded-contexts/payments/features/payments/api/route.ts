@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { resolveClientAddress, resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
+import { providerWebhookErrorFromUnknown } from "@chase-sets/http/provider-errors";
 import { PaymentsRateLimitExceededError, type PaymentServices } from "./runtime";
 import { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request";
 import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
@@ -66,9 +67,36 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("payments.features.payments.api.route.request.failed");
 }
 
-function isProviderWebhookVerificationError(error: unknown) {
-  const message = errorMessage(error).toLowerCase();
-  return message.includes("signature") || message.includes("webhook secret");
+function providerWebhookFailureResponse(c: { json: (body: unknown, status?: number) => Response }, error: unknown) {
+  const classified = providerWebhookErrorFromUnknown(error);
+  const ignored =
+    classified.failureClass === "unknown-event" ||
+    classified.failureClass === "schema-mismatch" ||
+    classified.failureClass === "inbox-conflict";
+  const status = ignored ? 200 : 400;
+  if (ignored) {
+    return c.json(
+      {
+        received: true,
+        ignored: true,
+        failure_class: classified.failureClass,
+      },
+      status,
+    );
+  }
+
+  return c.json(
+    {
+      error: {
+        code: `provider_webhook_${classified.failureClass.replaceAll("-", "_")}`,
+        message:
+          classified.failureClass === "handler-failure" ? "Provider webhook handler failed." : classified.message,
+        failure_class: classified.failureClass,
+        retryable: classified.retryable,
+      },
+    },
+    status,
+  );
 }
 
 function errorCode(error: unknown) {
@@ -744,16 +772,7 @@ export function createPaymentProcessorWebhookRoutes(services: PaymentServices) {
 
       return c.json(result, 200);
     } catch (error) {
-      const verificationError = isProviderWebhookVerificationError(error);
-      return c.json(
-        {
-          error: {
-            code: verificationError ? "validation_failed" : "provider_webhook_processing_failed",
-            message: errorMessage(error),
-          },
-        },
-        verificationError ? 400 : 500,
-      );
+      return providerWebhookFailureResponse(c, error);
     }
   });
 

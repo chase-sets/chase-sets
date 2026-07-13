@@ -42,6 +42,7 @@ export function SettlementMoneyHealthPage({
     provider_name: string;
     adapter_mode: string;
     webhook_signature_required: boolean;
+    webhook_failure_classes: readonly string[];
     platform_balance_supported: boolean;
     connected_account_payouts_supported: boolean;
   }>;
@@ -108,6 +109,11 @@ export function SettlementMoneyHealthPage({
               value: providerHealth.webhook_signature_required
                 ? t("settlement.features.payouts.ui.moneyHealthPage.required")
                 : t("settlement.features.payouts.ui.moneyHealthPage.local.only"),
+            },
+            {
+              id: "webhook-failure-classes",
+              label: t("settlement.features.payouts.ui.moneyHealthPage.webhook.failure.classes"),
+              value: providerHealth.webhook_failure_classes.join(", "),
             },
             {
               id: "balance",

@@ -44,6 +44,12 @@ import {
 import { moneyStatusDetails } from "@chase-sets/http/money-status";
 import type { MoneyMovementGateway, MoneyMovementWebhookEvent } from "@chase-sets/money-movement";
 import {
+  ProviderWebhookError,
+  providerWebhookErrorFromUnknown,
+  type ProviderWebhookTelemetry,
+  type ProviderWebhookTelemetryEvent,
+} from "@chase-sets/http/provider-errors";
+import {
   classifySettlementProviderError,
   createNoopSettlementOperationsRecorder,
   type SettlementOperationsRecorder,
@@ -103,6 +109,7 @@ type PayoutRuntimeDeps = Readonly<{
   notificationOutbox?: NotificationOutbox;
   payoutDestinationFrictionPolicy?: Partial<PayoutDestinationFrictionPolicy>;
   sensitiveActionVerifier?: SensitiveActionVerifier;
+  webhookTelemetry?: ProviderWebhookTelemetry;
   /** The settlement-owned platform-policy runtime; absent falls back to the compiled payout-bounds default. */
   policies?: Pick<PolicyRuntime, "resolvePolicy">;
 }>;
@@ -521,6 +528,14 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
   );
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const operationsRecorder = deps.operationsRecorder ?? createNoopSettlementOperationsRecorder();
+  const webhookTelemetry = deps.webhookTelemetry ?? { record: (_event: ProviderWebhookTelemetryEvent) => undefined };
+  const recordWebhookTelemetry = (event: ProviderWebhookTelemetryEvent) => {
+    try {
+      webhookTelemetry.record(event);
+    } catch {
+      // Telemetry must never change webhook acknowledgement or retry behavior.
+    }
+  };
   const destinationFrictionPolicy = payoutDestinationFrictionPolicy(deps.payoutDestinationFrictionPolicy);
   const sensitiveActionVerifier = deps.sensitiveActionVerifier ?? (async () => false);
   const { commandHandler, repository } = createAggregateCommandHandler({
@@ -1362,6 +1377,13 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         provider_name: deps.moneyMovementGateway.providerName,
         adapter_mode: deps.moneyMovementGateway.providerName === "fake" ? "fake" : "provider",
         webhook_signature_required: deps.moneyMovementGateway.providerName !== "fake",
+        webhook_failure_classes: [
+          "signature-invalid",
+          "unknown-event",
+          "schema-mismatch",
+          "handler-failure",
+          "inbox-conflict",
+        ],
         platform_balance_supported: true,
         connected_account_payouts_supported: true,
       };
@@ -1884,11 +1906,33 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
     },
     failPayout: failPayoutAndReverseWallet,
     async processMoneyMovementWebhook(params, context) {
-      const event = await deps.moneyMovementGateway.parseMoneyMovementWebhook(params);
+      let event: MoneyMovementWebhookEvent | null;
+      try {
+        event = await deps.moneyMovementGateway.parseMoneyMovementWebhook(params);
+      } catch (error) {
+        const classified = providerWebhookErrorFromUnknown(error);
+        recordWebhookTelemetry({
+          endpoint: "settlement",
+          failureClass: classified.failureClass,
+          outcome: classified.retryable ? "failed" : "ignored",
+          statusCode: classified.retryable ? 400 : 200,
+          retryable: classified.retryable,
+          providerEventId: classified.providerEventId,
+          eventKind: classified.eventKind,
+        });
+        throw classified;
+      }
       if (!event) {
         await recordOperation({
           kind: "money-movement-webhook-ignored",
           reason: "Provider webhook event was unsupported.",
+        });
+        recordWebhookTelemetry({
+          endpoint: "settlement",
+          failureClass: "unknown-event",
+          outcome: "ignored",
+          statusCode: 200,
+          retryable: false,
         });
         return { received: true, ignored: true };
       }
@@ -1900,11 +1944,60 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           providerPayoutReference: providerObjectReferenceFromEvent(event) ?? undefined,
           reason: "Provider webhook event was already processed.",
         });
-        return { received: true, ignored: true };
+        recordWebhookTelemetry({
+          endpoint: "settlement",
+          failureClass: "inbox-conflict",
+          outcome: "ignored",
+          statusCode: 200,
+          retryable: false,
+          providerEventId: event.providerEventId,
+          eventKind: event.kind,
+        });
+        return { received: true, ignored: true, failure_class: "inbox-conflict" as const };
       }
-      const result = await handleMoneyMovementEvent(event, context);
-      await recordProviderWebhookEvent(event);
-      return result;
+      try {
+        const result = await handleMoneyMovementEvent(event, context);
+        const recorded = await recordProviderWebhookEvent(event);
+        if (!recorded) {
+          recordWebhookTelemetry({
+            endpoint: "settlement",
+            failureClass: "inbox-conflict",
+            outcome: "ignored",
+            statusCode: 200,
+            retryable: false,
+            providerEventId: event.providerEventId,
+            eventKind: event.kind,
+          });
+          return { received: true, ignored: true, failure_class: "inbox-conflict" as const };
+        }
+        recordWebhookTelemetry({
+          endpoint: "settlement",
+          failureClass: null,
+          outcome: "processed",
+          statusCode: 200,
+          retryable: false,
+          providerEventId: event.providerEventId,
+          eventKind: event.kind,
+        });
+        return result;
+      } catch (error) {
+        const classified = providerWebhookErrorFromUnknown(error, {
+          providerEventId: event.providerEventId,
+          eventKind: event.kind,
+        });
+        if (classified.failureClass !== "inbox-conflict") {
+          recordWebhookTelemetry({
+            endpoint: "settlement",
+            failureClass: "handler-failure",
+            outcome: "failed",
+            statusCode: 400,
+            retryable: true,
+            providerEventId: event.providerEventId,
+            eventKind: event.kind,
+          });
+        }
+        throw classified;
+      }
     },
     reconcileProviderPayout,
     reconcilePayoutsNeedingAttention,

@@ -1034,7 +1034,7 @@ describe("Stripe payment processor gateway", () => {
         rawBody: chargeRefundBody,
         signatureHeader: signature(chargeRefundBody, "whsec_test", now),
       }),
-    ).resolves.toBeNull();
+    ).rejects.toThrow("Stripe webhook event type is not supported.");
     await expect(
       gateway.parseWebhook({
         rawBody: refundBody,
@@ -1107,7 +1107,7 @@ describe("Stripe payment processor gateway", () => {
         rawBody: refundBody,
         signatureHeader: signature(refundBody, "whsec_test", now),
       }),
-    ).resolves.toBeNull();
+    ).rejects.toThrow("Stripe webhook event type is not supported.");
   });
 
   it("maps early fraud warnings through charge enrichment", async () => {

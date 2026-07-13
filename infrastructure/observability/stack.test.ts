@@ -78,6 +78,9 @@ describe("observability stack contracts", () => {
     expect(readStackFile("grafana/provisioning/datasources/datasources.yml")).toContain("Tempo");
     expect(readStackFile("grafana/dashboards/platform-api-overview.json")).toContain("Platform API Overview");
     expect(readStackFile("grafana/dashboards/platform-api-overview.json")).toContain("UCP operation rate");
+    expect(readStackFile("grafana/dashboards/platform-api-overview.json")).toContain(
+      "Stripe webhook ingestion classes",
+    );
     expect(readStackFile("grafana/dashboards/public-presence-waitlist.json")).toContain(
       "Public Presence Waitlist Funnel",
     );
@@ -159,6 +162,15 @@ describe("observability stack contracts", () => {
     );
     expect(readStackFile("grafana/provisioning/alerting/catalog-integration-alerts.yml")).toContain(
       "Catalog option query failures",
+    );
+    expect(readStackFile("grafana/provisioning/alerting/stripe-webhook-alerts.yml")).toContain(
+      "Sustained Stripe webhook signature failures",
+    );
+    expect(readStackFile("grafana/provisioning/alerting/stripe-webhook-alerts.yml")).toContain(
+      "Stripe webhook handler-failure spike",
+    );
+    expect(readStackFile("grafana/provisioning/alerting/stripe-webhook-alerts.yml")).toContain(
+      "Stripe webhook retry/dead-letter growth",
     );
   });
 

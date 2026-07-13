@@ -122,6 +122,7 @@ const mcpAuditCounter = lazyCounter("chase_sets_mcp_audit_records_total");
 const publicPresenceWaitlistEventCounter = lazyCounter("chase_sets_public_presence_waitlist_events_total");
 const itemDetailRailEventCounter = lazyCounter("chase_sets_marketplace_item_detail_rail_events_total");
 const settlementOperationCounter = lazyCounter("chase_sets_settlement_operations_total");
+const providerWebhookIngestionCounter = lazyCounter("chase_sets_stripe_webhook_ingestion_total");
 const checkoutObservabilityEventCounter = lazyCounter("chase_sets_checkout_observability_events_total");
 const postWriteConsistencyEventCounter = lazyCounter("chase_sets_post_write_consistency_events_total");
 const catalogIntegrationOptionQueryCounter = lazyCounter("chase_sets_catalog_integration_option_queries_total");
@@ -997,6 +998,27 @@ export function recordSettlementOperationSignal(
     setup_surface: event.setupSurface ?? "none",
     safe_category: event.safeCategory ?? "none",
     readiness_status: event.readinessStatus ?? "unknown",
+  });
+}
+
+export type ProviderWebhookIngestionSignal = Readonly<{
+  endpoint: "payments" | "settlement";
+  failureClass: string | null;
+  outcome: "processed" | "ignored" | "failed";
+  statusCode: number;
+  retryable: boolean;
+  providerEventId?: string | null;
+  eventKind?: string | null;
+}>;
+
+export function recordProviderWebhookIngestion(event: ProviderWebhookIngestionSignal): void {
+  providerWebhookIngestionCounter.add(1, {
+    endpoint: event.endpoint,
+    failure_class: boundedMetricLabel(event.failureClass ?? "none"),
+    outcome: event.outcome,
+    status_code: event.statusCode,
+    retryable: event.retryable ? "true" : "false",
+    event_kind: boundedMetricLabel(event.eventKind ?? "none"),
   });
 }
 

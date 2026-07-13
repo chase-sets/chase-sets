@@ -272,6 +272,7 @@ export const settlementEnglishTranslations = {
   "settlement.features.payouts.ui.moneyHealthPage.unavailable.2": "Unavailable",
   "settlement.features.payouts.ui.moneyHealthPage.updated": "Updated",
   "settlement.features.payouts.ui.moneyHealthPage.webhook.signatures": "Webhook signatures",
+  "settlement.features.payouts.ui.moneyHealthPage.webhook.failure.classes": "Webhook failure classes",
   "settlement.features.payouts.ui.payoutDetailPage.account": "Account: ",
   "settlement.features.payouts.ui.payoutDetailPage.amount": "Amount: ",
   "settlement.features.payouts.ui.payoutDetailPage.back.to.payouts": "Back to payouts",

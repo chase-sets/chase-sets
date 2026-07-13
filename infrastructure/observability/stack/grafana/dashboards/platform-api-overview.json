@@ -90,6 +90,18 @@
           "legendFormat": "idempotency {{transport}} {{operation}} {{result}}"
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Stripe webhook ingestion classes",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (endpoint, failure_class, outcome) (rate(chase_sets_stripe_webhook_ingestion_total[5m]))",
+          "legendFormat": "{{endpoint}} {{failure_class}} {{outcome}}"
+        }
+      ]
     }
   ]
 }
