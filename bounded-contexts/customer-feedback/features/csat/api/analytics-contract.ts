@@ -105,3 +105,53 @@ export type CsatAnalyticsSnapshot = Readonly<{
   }>;
   health: CsatProjectionHealth;
 }>;
+
+export type CsatAdminQueueFilters = Readonly<{
+  from?: string;
+  to?: string;
+  surveyVersion?: SurveyVersionId;
+  outcomeCodes?: readonly CsatWorkflowOutcomeCode[];
+  customerRoles?: readonly OutcomeSubjectKind[];
+  states?: readonly string[];
+  ratings?: readonly CsatRatingValue[];
+  followUpConsent?: "granted" | "not-granted";
+}>;
+
+export type CsatAdminQueueQuery = CsatAdminQueueFilters &
+  Readonly<{
+    cursor?: string | null;
+    direction?: "next" | "previous";
+    limit?: number;
+  }>;
+
+export type CsatAdminQueueItem = Readonly<{
+  invitationId: string;
+  state: string;
+  surveyVersion: SurveyVersionId;
+  outcomeCode: string;
+  customerRole: OutcomeSubjectKind;
+  eligibleAt: string;
+  issuedAt: string | null;
+  presentedAt: string | null;
+  submittedAt: string | null;
+  dismissedAt: string | null;
+  expiredAt: string | null;
+  rating: CsatRatingValue | null;
+  followUpConsent: boolean | null;
+}>;
+
+export type CsatAdminQueuePage = Readonly<{
+  items: readonly CsatAdminQueueItem[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+  limit: number;
+}>;
+
+export type CsatAdminExportAudit = Readonly<{
+  actorId: string;
+  filters: CsatAdminQueueFilters;
+  startedAt: string;
+  completedAt: string;
+  rowCount: number;
+  result: "completed" | "failed";
+}>;

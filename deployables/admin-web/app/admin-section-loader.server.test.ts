@@ -160,7 +160,7 @@ describe("admin section loader", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(Response);
       expect((error as Response).status).toBe(302);
-      expect((error as Response).headers.get("Location")).toBe("/support/platform-feedback");
+      expect((error as Response).headers.get("Location")).toBe("/support/csat");
     }
   });
 
@@ -169,7 +169,7 @@ describe("admin section loader", () => {
     ["access", "accounts.view", "memberships.view", "/access/memberships"],
     ["growth", "google-shopping.view", "public-presence.view", "/growth/waitlist"],
     ["commerce", "commercial-terms.view", "postage-policies.view", "/commerce/postage-policies"],
-    ["support", "support.manage", "platform-feedback.view", "/support/platform-feedback"],
+    ["support", "support.manage", "platform-feedback.view", "/support/csat"],
     ["platform", "projection-operations.view", "projection-operations.view", "/platform/projections"],
   ] as const)(
     "redirects %s section home actors with %s to their first visible route",
