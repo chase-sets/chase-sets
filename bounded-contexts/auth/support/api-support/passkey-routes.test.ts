@@ -12,6 +12,7 @@ import {
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
+import { createAuthServicesFake } from "../auth-support/test-support";
 import type { AuthServices } from "../runtime-support/services";
 import { passkeyMatchesChallengeUser, registerPasskeyRoutes, resolvePasskeyRegistrationUserId } from "./passkey-routes";
 import type { AuthApiEnv } from "./support";
@@ -65,7 +66,7 @@ function createServices() {
     query: vi.fn(async () => ({ rows: [] })),
   };
 
-  return {
+  return createAuthServicesFake({
     db,
     auth: {
       issueChallenge: vi.fn(() => "challenge_value"),
@@ -86,25 +87,7 @@ function createServices() {
         },
       ]),
     },
-    registrationAdmission: {
-      mode: "open",
-      disposableEmailMode: "enforce",
-      disposableEmailDomains: ["mailinator.com"],
-    },
     sessions: {
-      commandHandler: vi.fn(async (input) => ({
-        version: 1,
-        state: {
-          id: input.command.sessionId,
-          userId: input.command.userId,
-          accountId: input.command.accountId,
-          availableAccountIds: input.command.availableAccountIds,
-          authenticationMethod: input.command.authenticationMethod,
-          status: "active",
-          expiresAt: input.command.expiresAt,
-        },
-        storedEvents: [{ recordedAt: new Date().toISOString() }],
-      })),
       getSession: vi.fn(async (sessionId: string) => ({
         session_id: sessionId,
         user_id: "usr_new",
@@ -116,8 +99,7 @@ function createServices() {
         updated_at: new Date().toISOString(),
       })),
     },
-    projectors: [],
-  } as unknown as AuthServices;
+  });
 }
 
 function withCommandReceipt<T extends object>(body: T, source: SourceCommitPosition): T {
