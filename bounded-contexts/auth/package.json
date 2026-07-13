@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --config ./tests/vitest.config.mjs",
-    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude support/auth-support/store.db.test.ts",
-    "test:db": "vitest run --config ./tests/vitest.config.mjs support/auth-support/store.db.test.ts",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude support/auth-support/store.db.test.ts --exclude support/runtime-support/seed.db.test.ts",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs support/auth-support/store.db.test.ts support/runtime-support/seed.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "chaseSets": {
