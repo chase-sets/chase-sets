@@ -18,9 +18,26 @@ import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../read-mode
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
 import { PayoutReadinessPanel } from "../../payout-readiness/ui/payout-readiness-panel";
 import { sellerFundsAvailableAt, sellerFundsHoldPolicy } from "../domain/funds-hold-policy";
+import type { WalletAdjustmentReasonCode } from "../domain/wallet-adjustment";
+import { walletAdjustmentCustomerReasonCategoryLabel } from "../integrations/transactional-notifications/wallet-adjustment-notification-intents";
 
 function directionTone(direction: string): Tone {
   return direction === "credit" ? "success" : "danger";
+}
+
+/**
+ * `kind === "adjustment"` rows never render the raw `description` column --
+ * that free-text field can carry the operator's internal explanation
+ * (`ledgerDescription` in `wallet-adjustment-runtime.ts`). Instead this shows
+ * the same customer-safe reason category used in the adjustment's own notice
+ * and detail page, with a link to the full accessible disclosure.
+ */
+function isWalletAdjustmentEntry(row: SettlementLedgerEntryRow): boolean {
+  return row.kind === "adjustment" && Boolean(row.adjustment_display_reference);
+}
+
+function walletAdjustmentDetailHref(row: SettlementLedgerEntryRow): string {
+  return `/account/wallet/adjustments/${row.adjustment_display_reference}`;
 }
 
 function fundsStatusTone(status: string): Tone {
@@ -258,16 +275,26 @@ export function SettlementWalletPage({
             {
               key: "kind",
               header: t("settlement.features.wallets.ui.walletPage.kind"),
-              cell: (row) => (
-                <Stack gap={1}>
-                  <Text weight="semibold">{row.kind}</Text>
-                  {row.description ? (
+              cell: (row) =>
+                isWalletAdjustmentEntry(row) ? (
+                  <Stack gap={1}>
+                    <Text weight="semibold">{t("settlement.features.wallets.ui.walletPage.kind.adjustment")}</Text>
                     <Text size="sm" tone="secondary">
-                      {row.description}
+                      {walletAdjustmentCustomerReasonCategoryLabel(
+                        row.adjustment_reason_code as WalletAdjustmentReasonCode,
+                      )}
                     </Text>
-                  ) : null}
-                </Stack>
-              ),
+                  </Stack>
+                ) : (
+                  <Stack gap={1}>
+                    <Text weight="semibold">{row.kind}</Text>
+                    {row.description ? (
+                      <Text size="sm" tone="secondary">
+                        {row.description}
+                      </Text>
+                    ) : null}
+                  </Stack>
+                ),
             },
             {
               key: "direction",
@@ -283,15 +310,30 @@ export function SettlementWalletPage({
             {
               key: "status",
               header: t("settlement.features.wallets.ui.walletPage.status"),
-              cell: (row) =>
-                row.direction === "credit" ? (
+              cell: (row) => {
+                if (isWalletAdjustmentEntry(row)) {
+                  return (
+                    <Stack gap={1}>
+                      {row.adjustment_status === "reversed" ? (
+                        <Badge tone="neutral">
+                          {t("settlement.features.wallets.ui.walletPage.adjustment.reversed")}
+                        </Badge>
+                      ) : null}
+                      <LinkButton href={walletAdjustmentDetailHref(row)} tone="secondary" size="sm">
+                        {t("settlement.features.wallets.ui.walletPage.view.adjustment.details")}
+                      </LinkButton>
+                    </Stack>
+                  );
+                }
+                return row.direction === "credit" ? (
                   <Stack gap={1}>
                     <Badge tone={fundsStatusTone(row.funds_status)}>{row.funds_status}</Badge>
                     <Text size="sm" tone="secondary">
                       {fundsAvailabilityLabel(row)}
                     </Text>
                   </Stack>
-                ) : null,
+                ) : null;
+              },
             },
             {
               key: "posted_at",

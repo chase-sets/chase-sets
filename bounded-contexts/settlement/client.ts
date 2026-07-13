@@ -3,7 +3,10 @@ import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse, type MutationResult } from "@chase-sets/http/responses";
 import type { buildSettlementApi } from "./api";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "./features/wallets/read-model/queries";
-import type { SettlementWalletAdjustmentRow } from "./features/wallets/read-model/wallet-adjustment-queries";
+import type {
+  SettlementWalletAdjustmentAccountDetailRow,
+  SettlementWalletAdjustmentRow,
+} from "./features/wallets/read-model/wallet-adjustment-queries";
 import type { WalletAdjustmentPreview } from "./features/wallets/api/wallet-adjustment-preview";
 import type {
   SettlementPayoutRow,
@@ -78,6 +81,7 @@ export type SettlementPayoutSetupRefreshResult = MutationResult<SettlementPayout
 
 export type SettlementWalletAdjustment = SettlementWalletAdjustmentRow;
 export type SettlementWalletAdjustmentPreview = WalletAdjustmentPreview;
+export type SettlementWalletAdjustmentAccountDetail = SettlementWalletAdjustmentAccountDetailRow;
 
 export type SettlementRequestWalletAdjustmentInput = Readonly<{
   targetAccountId: string;
@@ -165,6 +169,15 @@ export function createSettlementApiClient({
       return parseJsonResponse(
         await client.wallet.entries.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
+          header: headers,
+        }),
+      );
+    },
+    /** Account-facing, self-scoped Wallet Adjustment detail -- redacted to the account-safe shape, never the platform-admin `wallet-adjustments.view` row. */
+    async getAccountWalletAdjustment(reference: string): Promise<SettlementWalletAdjustmentAccountDetail> {
+      return parseJsonResponse(
+        await client.wallet.adjustments[":reference"].$get({
+          param: { reference },
           header: headers,
         }),
       );

@@ -5,6 +5,8 @@ export type SettlementWalletAdjustmentRow = Readonly<{
   adjustment_id: string;
   status: "requested" | "approved" | "rejected" | "posted" | "reversed";
   target_account_id: string;
+  /** Support-safe, account-facing reference (`WAD-...`); empty string for legacy rows written before this column existed. */
+  display_reference: string;
   direction: "credit" | "debit";
   amount: string;
   currency_code: string;
@@ -42,6 +44,7 @@ const walletAdjustmentSelect = `
     adjustment_id,
     status,
     target_account_id,
+    display_reference,
     direction,
     amount::text AS amount,
     currency_code,
@@ -83,6 +86,95 @@ export async function getWalletAdjustment(
     `${walletAdjustmentSelect}
      WHERE adjustment_id = $1`,
     [adjustmentId],
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * The account-facing Wallet Adjustment detail shape: deliberately narrower
+ * than {@link SettlementWalletAdjustmentRow}. It never carries the raw
+ * `adjustment_id`/ledger-entry id, the operator's free-text `explanation`,
+ * `evidence_references`, actor ids (`requested_by`/`approved_by`/etc.), or
+ * internal governance detail (elevation reasons, policy thresholds,
+ * self-benefiting/negative-balance flags, rejection reason) -- those are
+ * operator-only per the account-facing money-UI rule and ADR 0020's
+ * customer-safe/operator-only distinction. Linked reversal entries are
+ * exposed only by their own support-safe display reference, never their raw
+ * id, so an account holder can navigate the link without ever seeing an
+ * internal identifier.
+ */
+export type SettlementWalletAdjustmentAccountDetailRow = Readonly<{
+  status: "requested" | "approved" | "rejected" | "posted" | "reversed";
+  display_reference: string;
+  direction: "credit" | "debit";
+  amount: string;
+  currency_code: string;
+  reason_code: string;
+  requested_at: string;
+  posted_at: string | null;
+  available_balance_before: string | null;
+  available_balance_after: string | null;
+  reversed_at: string | null;
+  /** The original adjustment's display reference, present only when this row is itself a reversal's correcting entry. */
+  reversal_of_display_reference: string | null;
+  /** The correcting reversal's display reference, present only once this adjustment has been reversed. */
+  reversed_by_display_reference: string | null;
+}>;
+
+const walletAdjustmentAccountDetailSelect = `
+  SELECT
+    adjustment.status,
+    adjustment.display_reference,
+    adjustment.direction,
+    adjustment.amount::text AS amount,
+    adjustment.currency_code,
+    adjustment.reason_code,
+    adjustment.requested_at,
+    adjustment.posted_at,
+    adjustment.available_balance_before::text AS available_balance_before,
+    adjustment.available_balance_after::text AS available_balance_after,
+    adjustment.reversed_at,
+    original.display_reference AS reversal_of_display_reference,
+    reversal.display_reference AS reversed_by_display_reference
+  FROM settlement_wallet_adjustment_pages adjustment
+  LEFT JOIN settlement_wallet_adjustment_pages original
+    ON original.adjustment_id = adjustment.reversal_of_adjustment_id
+  LEFT JOIN settlement_wallet_adjustment_pages reversal
+    ON reversal.adjustment_id = adjustment.reversed_by_adjustment_id
+`;
+
+/**
+ * Self-scoped lookup for the account-facing adjustment detail surface: the
+ * account holder pastes or follows a link to their own `WAD-...` reference
+ * (or the raw typed id, from a server-rendered link), and this returns null
+ * -- the same as "not found" -- for any adjustment that does not belong to
+ * `accountId`. Account holders authorize by owning the account, never by a
+ * platform permission, so a mismatch must never distinguish "exists on
+ * someone else's account" from "does not exist." The result is redacted at
+ * the SQL layer (see {@link SettlementWalletAdjustmentAccountDetailRow}), not
+ * merely at the route boundary.
+ */
+export async function getWalletAdjustmentForAccount(
+  db: PgQueryable,
+  params: Readonly<{ reference: string; accountId: string }>,
+): Promise<SettlementWalletAdjustmentAccountDetailRow | null> {
+  const reference = params.reference.trim();
+  if (!reference) {
+    return null;
+  }
+
+  const isTypedId = /^wad_/i.test(reference);
+  // A typed Wallet Adjustment id is a ULID (`wad_` + uppercase Crockford body)
+  // stored verbatim, so it must be matched with its exact case -- lowercasing
+  // it would corrupt the ULID body and miss every real adjustment. A display
+  // reference (`WAD-...`) is uppercased so an account holder can paste it in
+  // any case.
+  const normalizedReference = isTypedId ? reference : reference.toUpperCase();
+  const result = await db.query<SettlementWalletAdjustmentAccountDetailRow>(
+    `${walletAdjustmentAccountDetailSelect}
+     WHERE ${isTypedId ? "adjustment.adjustment_id = $1" : "adjustment.display_reference = $1"}
+       AND adjustment.target_account_id = $2`,
+    [normalizedReference, params.accountId],
   );
   return result.rows[0] ?? null;
 }

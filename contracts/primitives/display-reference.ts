@@ -10,6 +10,7 @@ export const DISPLAY_REFERENCE_PREFIX_BY_TYPED_ID_PREFIX = {
   shp: "SHP",
   pyo: "PYO",
   sup: "SUP",
+  wad: "WAD",
 } as const;
 
 export type DisplayReferenceTypedIdPrefix = keyof typeof DISPLAY_REFERENCE_PREFIX_BY_TYPED_ID_PREFIX;

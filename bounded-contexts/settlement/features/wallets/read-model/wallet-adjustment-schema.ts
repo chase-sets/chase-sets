@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS settlement_wallet_adjustment_pages (
   status text NOT NULL
     CHECK (status IN ('requested', 'approved', 'rejected', 'posted', 'reversed')),
   target_account_id text NOT NULL,
+  display_reference text NOT NULL DEFAULT '',
   direction text NOT NULL CHECK (direction IN ('credit', 'debit')),
   amount numeric(12, 2) NOT NULL,
   currency_code text NOT NULL,
@@ -58,10 +59,42 @@ CREATE INDEX IF NOT EXISTS settlement_wallet_adjustment_pages_ledger_entry_idx
   WHERE posted_ledger_entry_id IS NOT NULL;
 `;
 
+/**
+ * `display_reference` is added to already-deployed tables idempotently
+ * outside the base `CREATE TABLE` (matching the payout display-reference
+ * precedent), and its uniqueness is enforced by a `CONCURRENTLY` index in its
+ * own migration statement since that index type cannot run inside a
+ * transaction. Rows written before this migration ran keep the empty-string
+ * default and are excluded from the uniqueness check via the partial index.
+ */
+const settlementWalletAdjustmentDisplayReferenceColumnSql = `
+ALTER TABLE settlement_wallet_adjustment_pages
+  ADD COLUMN IF NOT EXISTS display_reference text NOT NULL DEFAULT '';
+`;
+
+const settlementWalletAdjustmentDisplayReferenceUniqueIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS settlement_wallet_adjustment_pages_display_reference_key
+  ON settlement_wallet_adjustment_pages (display_reference)
+  WHERE display_reference <> '';`;
+
 export const settlementWalletAdjustmentSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20260713_settlement_wallet_adjustment_pages",
     description: "Create the Wallet Adjustment lifecycle read model and its lookup indexes (additive, replay-safe).",
     statements: ["SET lock_timeout = '5s';", settlementWalletAdjustmentSchemaSql],
+  },
+  {
+    migrationId: "20260714_settlement_wallet_adjustment_display_reference_column",
+    description:
+      "Add the support-safe/account-facing Wallet Adjustment display reference column outside boot-time schema SQL " +
+      "(additive, replay-safe).",
+    statements: ["SET lock_timeout = '5s';", settlementWalletAdjustmentDisplayReferenceColumnSql],
+  },
+  {
+    migrationId: "20260714_settlement_wallet_adjustment_display_reference_idx",
+    description:
+      "Add the Wallet Adjustment display reference unique index outside boot-time schema SQL. Rows written before " +
+      "this migration ran keep the empty-string default and are excluded from the uniqueness check; the " +
+      "projector always populates a real reference for every adjustment it creates.",
+    statements: ["SET lock_timeout = '5s';", settlementWalletAdjustmentDisplayReferenceUniqueIndexSql],
   },
 ];

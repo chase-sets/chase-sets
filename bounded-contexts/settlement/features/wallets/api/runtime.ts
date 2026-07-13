@@ -7,6 +7,7 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { AccountId, LedgerEntryId, OrderId, PaymentId, PayoutId } from "@chase-sets/primitives/typed-ids";
 import { settlementClearancePolicy, type SettlementClearancePolicyValue } from "../domain/clearance-policy";
 import {
@@ -21,6 +22,10 @@ import {
 } from "../read-model/queries";
 import { buildWalletProjectionHandlers } from "../read-model/projection";
 import { buildWalletAdjustmentProjectionHandlers } from "../read-model/wallet-adjustment-projection";
+import {
+  getWalletAdjustmentForAccount,
+  type SettlementWalletAdjustmentAccountDetailRow,
+} from "../read-model/wallet-adjustment-queries";
 import {
   decideWallet,
   evolveWallet,
@@ -50,6 +55,8 @@ type WalletRuntimeDeps = Readonly<{
   negativeBalancePolicy?: NegativeBalancePolicy;
   /** The settlement-owned platform-policy runtime; absent falls back to the compiled clearance-policy default. */
   policies?: Pick<PolicyRuntime, "resolvePolicy">;
+  /** Enqueues Wallet Adjustment account notices; omitted in tests that don't exercise notifications. */
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 export type NegativeBalancePolicy = Readonly<{
@@ -87,6 +94,10 @@ export type WalletServices = Readonly<{
   listWalletEntries: (
     params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
   ) => Promise<{ items: SettlementLedgerEntryRow[]; total: number }>;
+  /** Self-scoped, account-safe Wallet Adjustment detail lookup for the account-facing ledger detail surface; returns null for any adjustment not owned by `accountId`. */
+  getWalletAdjustmentForAccount: (
+    params: Readonly<{ reference: string; accountId: string }>,
+  ) => Promise<SettlementWalletAdjustmentAccountDetailRow | null>;
   listNegativeBalanceAccounts: (
     params?: Readonly<{ limit?: number; offset?: number }>,
   ) => Promise<{ items: SettlementWalletRow[]; total: number }>;
@@ -218,6 +229,7 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
     },
     getWallet: (accountId) => getWallet(deps.db, accountId),
     listWalletEntries: (params) => listWalletEntries(deps.db, params),
+    getWalletAdjustmentForAccount: (params) => getWalletAdjustmentForAccount(deps.db, params),
     listNegativeBalanceAccounts: (params = {}) => listNegativeBalanceAccounts(deps.db, params),
     ensureWallet,
     async postEntry(params, context) {
@@ -362,7 +374,7 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
         projectionName: "settlement-wallet-projection",
         handlers: {
           ...buildWalletProjectionHandlers(deps.db),
-          ...buildWalletAdjustmentProjectionHandlers(deps.db),
+          ...buildWalletAdjustmentProjectionHandlers(deps.db, deps.notificationOutbox),
         },
       }),
     ],

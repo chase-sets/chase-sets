@@ -21,11 +21,13 @@ describe("display reference primitive", () => {
       shp: "SHP",
       pyo: "PYO",
       sup: "SUP",
+      wad: "WAD",
     });
     expect(displayReferencePrefixForTypedIdPrefix("ord")).toBe("ORD");
     expect(displayReferencePrefixForTypedIdPrefix("shp")).toBe("SHP");
     expect(displayReferencePrefixForTypedIdPrefix("pyo")).toBe("PYO");
     expect(displayReferencePrefixForTypedIdPrefix("sup")).toBe("SUP");
+    expect(displayReferencePrefixForTypedIdPrefix("wad")).toBe("WAD");
   });
 
   it("rejects unsupported typed-id prefixes", () => {

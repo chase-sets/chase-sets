@@ -13,6 +13,7 @@ export type {
   SettlementWalletRow,
   SettlementWalletAdjustment,
   SettlementWalletAdjustmentRow,
+  SettlementWalletAdjustmentAccountDetail,
   SettlementWalletAdjustmentPreview,
   SettlementRequestWalletAdjustmentInput,
   SettlementPreviewWalletAdjustmentInput,

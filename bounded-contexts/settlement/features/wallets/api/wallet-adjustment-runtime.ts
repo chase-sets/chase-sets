@@ -7,6 +7,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, LedgerEntryId, UserId, WalletAdjustmentId } from "@chase-sets/primitives/typed-ids";
+import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import type { SettlementWalletRow } from "../read-model/queries";
 import type { WalletServices } from "./runtime";
 import {
@@ -270,6 +271,10 @@ function snapshotFromState(state: WalletAdjustmentState): WalletAdjustmentSnapsh
     adjustment_id: state.adjustmentId,
     status: state.status,
     target_account_id: state.targetAccountId as AccountId,
+    // Deterministic from the adjustment id alone -- safe to compute on the
+    // command-owned snapshot without the projection's collision-retry dance,
+    // which only matters for the database's persisted uniqueness guarantee.
+    display_reference: deriveDisplayReferenceOrRaw(state.adjustmentId),
     direction: state.direction as LedgerEntryDirection,
     amount: state.amount as string,
     currency_code: state.currencyCode as CurrencyCode,

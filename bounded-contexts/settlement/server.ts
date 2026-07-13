@@ -38,6 +38,16 @@ export type { SettlementPayoutBoundsPolicyValue } from "./features/payouts/domai
  */
 export { lookupPayoutBySupportId, lookupPayoutBySupportReference } from "./features/payouts/read-model/support-lookup";
 export type { SettlementSupportLookupRow } from "./features/payouts/read-model/support-lookup";
+/**
+ * Support-safe Wallet Adjustment-by-reference lookups for the same unified
+ * support-reference router (`WAD-...` / `wad_...`), assembled behind the same
+ * `supportReferenceLookupCrossContext` host port as the payout lookups above.
+ */
+export {
+  lookupWalletAdjustmentBySupportId,
+  lookupWalletAdjustmentBySupportReference,
+} from "./features/wallets/read-model/wallet-adjustment-support-lookup";
+export type { SettlementWalletAdjustmentSupportLookupRow } from "./features/wallets/read-model/wallet-adjustment-support-lookup";
 export {
   getProtectionReserveSummary,
   type ProtectionReserveSummary,

@@ -75,9 +75,12 @@ import {
   getProtectionReserveSummary,
   lookupPayoutBySupportId,
   lookupPayoutBySupportReference,
+  lookupWalletAdjustmentBySupportId,
+  lookupWalletAdjustmentBySupportReference,
   settlementClearancePolicy,
   settlementPayoutBoundsPolicy,
   type SettlementSupportLookupRow,
+  type SettlementWalletAdjustmentSupportLookupRow,
 } from "@chase-sets/settlement/server";
 import {
   attachApiMountMiddleware,
@@ -337,9 +340,20 @@ export function createPlatformApiHost(
   if (settlementPool) {
     supportReferenceLookupCrossContextSources.push({
       contextName: "settlement",
+      // Both payouts (PYO-/pyo_) and Wallet Adjustments (WAD-/wad_) route to
+      // "settlement" -- the reference/id's own prefix disambiguates which
+      // owned entity to resolve, so this dispatches on prefix rather than
+      // needing two separate cross-context sources for one context name.
       lookupByReference: async (reference) =>
-        adaptSettlementSupportLookup(await lookupPayoutBySupportReference(settlementPool, reference)),
-      lookupById: async (id) => adaptSettlementSupportLookup(await lookupPayoutBySupportId(settlementPool, id)),
+        reference.toUpperCase().startsWith("WAD-")
+          ? adaptSettlementWalletAdjustmentSupportLookup(
+              await lookupWalletAdjustmentBySupportReference(settlementPool, reference.toUpperCase()),
+            )
+          : adaptSettlementSupportLookup(await lookupPayoutBySupportReference(settlementPool, reference)),
+      lookupById: async (id) =>
+        id.toLowerCase().startsWith("wad_")
+          ? adaptSettlementWalletAdjustmentSupportLookup(await lookupWalletAdjustmentBySupportId(settlementPool, id))
+          : adaptSettlementSupportLookup(await lookupPayoutBySupportId(settlementPool, id)),
     });
   }
   if (checkoutPool) {
@@ -499,6 +513,23 @@ function adaptSettlementSupportLookup(row: SettlementSupportLookupRow | null): S
     displayReference: row.display_reference || null,
     status: row.status,
     summary: `Payout ${row.display_reference || row.payout_id}`,
+    adminHref: null,
+  };
+}
+
+function adaptSettlementWalletAdjustmentSupportLookup(
+  row: SettlementWalletAdjustmentSupportLookupRow | null,
+): SupportReferenceLookupResult | null {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    contextName: "settlement",
+    entityType: "wallet-adjustment",
+    displayReference: row.display_reference || null,
+    status: row.status,
+    summary: `Wallet adjustment ${row.display_reference || row.adjustment_id}`,
     adminHref: null,
   };
 }
