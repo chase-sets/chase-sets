@@ -4,6 +4,7 @@ import {
   type ActionFunctionArgs,
   redirect,
   useLoaderData,
+  useLocation,
   useNavigate,
   useNavigation,
   useSearchParams,
@@ -28,7 +29,7 @@ import { SearchPage } from "../features/search/ui/search-page";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 
 const PAGE_SIZE = 24;
-const SEARCH_DEBOUNCE_MS = 300;
+export const SEARCH_DEBOUNCE_MS = 300;
 const MARKETPLACE_DESCRIPTION = t("discovery.routes.search.browse.the.chase.sets.marketplace.with");
 const EMPTY_SEARCH_RESULT = {
   search: "",
@@ -276,11 +277,18 @@ type DiscoverySearchRouteData = typeof EMPTY_SEARCH_RESULT | Awaited<ReturnType<
 function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData }) {
   const navigate = useNavigate();
   const navigation = useNavigation();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const draftSearchRef = useRef(data.search);
   const pendingSearchRef = useRef<string | null>(null);
   const restoreSearchFocusRef = useRef(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Kept fresh every render so the debounce timer below can observe the router's
+  // *current* state when it fires, not the state captured when the timer was armed.
+  const navigationRef = useRef(navigation);
+  navigationRef.current = navigation;
+  const pathnameRef = useRef(location.pathname);
+  pathnameRef.current = location.pathname;
   const [draftSearchState, setDraftSearchState] = useState(() => ({
     committedSearch: data.search,
     value: data.search,
@@ -459,6 +467,49 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     [navigate, searchParams, setSearchParams],
   );
 
+  const commitPendingSearch = useCallback(() => {
+    // A result card (or another in-page link) may have started a client-side
+    // navigation away from this search page while the debounce was pending.
+    // Committing the stale search now would interrupt that in-flight navigation
+    // (React Router cancels a pending navigation when a new one starts) and yank
+    // the user back to the search results, so drop the pending search instead.
+    // Same-pathname navigations (an earlier filter commit still loading) are
+    // still superseded as before.
+    const currentNavigation = navigationRef.current;
+    const navigatingAwayFromSearch =
+      currentNavigation.state !== "idle" &&
+      currentNavigation.location !== undefined &&
+      currentNavigation.location.pathname !== pathnameRef.current;
+    if (navigatingAwayFromSearch) {
+      pendingSearchRef.current = null;
+      return;
+    }
+    updateSearchParams({ search: pendingSearchRef.current ?? "" }, true);
+  }, [updateSearchParams]);
+
+  // Flush the pending debounce the moment focus leaves the search input.
+  // `focusout` fires synchronously when a pointerdown lands elsewhere — BEFORE
+  // the subsequent `click` runs a result card's client-side navigation — so the
+  // search commit always starts ahead of the user's navigation and the
+  // navigation (issued last) wins. Without this, a debounce firing mid-
+  // navigation cancels the in-flight detail navigation. The only focused
+  // element while a search debounce is pending is the search input itself, so
+  // any focusout with a live timer means the shopper left it.
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const flushOnFocusOut = () => {
+      if (searchTimerRef.current === null) {
+        return;
+      }
+      clearSearchTimer();
+      commitPendingSearch();
+    };
+    document.addEventListener("focusout", flushOnFocusOut, true);
+    return () => document.removeEventListener("focusout", flushOnFocusOut, true);
+  }, [clearSearchTimer, commitPendingSearch]);
+
   function handleSearchChange(value: string) {
     restoreSearchFocusRef.current = true;
     draftSearchRef.current = value;
@@ -466,7 +517,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     setDraftSearchState((current) => ({ ...current, value }));
     clearSearchTimer();
     searchTimerRef.current = setTimeout(() => {
-      updateSearchParams({ search: pendingSearchRef.current ?? "" }, true);
+      searchTimerRef.current = null;
+      commitPendingSearch();
     }, SEARCH_DEBOUNCE_MS);
   }
 
