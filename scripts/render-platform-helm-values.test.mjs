@@ -639,7 +639,7 @@ describe("render platform Helm values", () => {
         weights: [10, 25, 50, 100],
         pauseAfterWeight: 10,
       },
-      analysis: { path: "/health/ready", count: 3, failureLimit: 0 },
+      analysis: { path: "/health/ready", count: 5, failureLimit: 2 },
     });
     expect(values.components.marketplace.rollout).toEqual(values.components["public-web"].rollout);
     expect(values.components["platform-api"].rollout).toEqual(values.components["public-web"].rollout);

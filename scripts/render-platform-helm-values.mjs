@@ -255,10 +255,10 @@ function rolloutValues(enabled, nginxEnabled, analysisPath) {
     rollbackWindowRevisions: 3,
     analysis: {
       path: analysisPath,
-      initialDelay: "5s",
+      initialDelay: "30s",
       interval: "10s",
-      count: 3,
-      failureLimit: 0,
+      count: 5,
+      failureLimit: 2,
       timeoutSeconds: 5,
     },
     canary: {
