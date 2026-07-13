@@ -135,6 +135,7 @@ export async function performMarketplaceHandoff(
 
     if (readinessAction === "selected-offer" && review.selectedOffer) {
       const result = await marketplaceApi.acceptOfferMatch(review.selectedOffer.offerId, {
+        listingId: review.selectedOffer.listingId,
         feeQuoteFingerprint: review.selectedOffer.feeQuoteFingerprint,
         sourceActionKey: `sell-confirm:${confirmationId}:${line.line_id}:selected:${review.selectedOffer.offerId}`,
       });
@@ -145,10 +146,14 @@ export async function performMarketplaceHandoff(
     }
 
     if (readinessAction === "smart-match") {
+      const acceptanceBatchId = `offer-acceptance:${confirmationId}:${line.line_id}`;
       for (const target of review.productOfferTargets) {
         const result = await marketplaceApi.acceptOfferMatch(target.offerId, {
+          listingId: target.listingId,
           feeQuoteFingerprint: target.feeQuoteFingerprint,
           sourceActionKey: `sell-confirm:${confirmationId}:${line.line_id}:match:${target.offerId}`,
+          acceptanceBatchId,
+          acceptanceBatchSize: review.productOfferTargets.length,
         });
         writeResults.push(result);
         acceptedOfferIds.push(target.offerId);

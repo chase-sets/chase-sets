@@ -20,6 +20,7 @@ import {
   type MarketplaceVersionSchema,
 } from "../../features/offers/domain/versioning";
 import { addReviewWindowDays, REVIEW_WINDOW_DAYS, type ReviewRole } from "../../features/reviews/domain/common";
+import { buildListingEvidenceSnapshot } from "../../features/listings/domain/evidence-snapshot";
 import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/runtime";
 import { quoteMarketplaceTerms } from "./fee-quotes";
 import { createMarketplaceServices, type MarketplaceServices } from "./services";
@@ -650,6 +651,7 @@ async function acceptReservedSeedOffer(
   services: ReturnType<typeof createMarketplaceServices>,
   offer: OfferSeed,
   sellerAccountId: AccountId,
+  listing: ListingSeed,
   context: ReturnType<typeof createSeedContextFor>,
 ) {
   const quote = await quoteMarketplaceTerms(services.commercialTermsResolver, {
@@ -657,12 +659,25 @@ async function acceptReservedSeedOffer(
     priceAmount: offer.priceAmount,
   });
 
+  const acceptedAt = new Date().toISOString();
+  const listingEvidencePolicyHash = "seed:listing-evidence-policy";
   await services.offers.commandHandler({
     streamId: `marketplace.offer-${offer.offerId}`,
     command: {
       type: "AcceptOffer",
       sellerAccountId,
-      acceptedAt: new Date().toISOString(),
+      listingId: listing.listingId,
+      inventoryItemId: listing.inventoryItemId,
+      listingVersion: 2,
+      listingEvidencePolicyId: null,
+      listingEvidencePolicyVersion: null,
+      listingEvidencePolicyHash,
+      listingEvidenceSnapshot: buildListingEvidenceSnapshot({
+        evidence: [],
+        policyHash: listingEvidencePolicyHash,
+        createdAt: acceptedAt,
+      }),
+      acceptedAt,
       marketplaceSalesFeePercentageBps: quote.marketplace_sales_fee_percentage_bps,
       marketplaceSalesFeeFixedAmount: quote.marketplace_sales_fee_fixed_amount,
       marketplaceSalesFeeCapAmount: quote.marketplace_sales_fee_cap_amount,
@@ -811,7 +826,19 @@ export async function seedMarketplaceDatabase(
     throw new Error("Reserved accepted seed offer is missing from the marketplace seed list.");
   }
 
-  await acceptReservedSeedOffer(services, acceptedSeedOffer, identitySeedIds.demo.accountId, context);
+  const acceptedSeedListing = listings.find(
+    (listing) => listing.listingId === marketplaceReservedSeedIds.listings.twilightMasqueradeEliteTrainerActive,
+  );
+  if (!acceptedSeedListing) {
+    throw new Error("Reserved accepted seed Listing is missing from the marketplace seed list.");
+  }
+  await acceptReservedSeedOffer(
+    services,
+    acceptedSeedOffer,
+    identitySeedIds.demo.accountId,
+    acceptedSeedListing,
+    context,
+  );
 
   const reviewEligibleSeedOffer = offers.find(
     (offer) => offer.offerId === marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerEncore,
@@ -820,7 +847,13 @@ export async function seedMarketplaceDatabase(
     throw new Error("Reserved review-eligible seed offer is missing from the marketplace seed list.");
   }
 
-  await acceptReservedSeedOffer(services, reviewEligibleSeedOffer, identitySeedIds.demo.accountId, context);
+  await acceptReservedSeedOffer(
+    services,
+    reviewEligibleSeedOffer,
+    identitySeedIds.demo.accountId,
+    acceptedSeedListing,
+    context,
+  );
 }
 
 function createReputationSeedContext(accountId: string, userId: string): EventStoreContext {

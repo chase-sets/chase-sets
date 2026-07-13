@@ -139,7 +139,7 @@
     {
       "sourceContextName": "marketplace",
       "reactionName": "ordering-marketplace-offer-acceptance",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "eventTypes": ["marketplace.offer.accepted"],
       "order": 50,
       "reactionHandlerSetNames": ["ordering-marketplace-offer-acceptance"],

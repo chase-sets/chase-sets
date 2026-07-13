@@ -3,6 +3,7 @@ import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/prim
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId, OfferId } from "@chase-sets/primitives/typed-ids";
 import type { JsonObject } from "@chase-sets/primitives/json";
+import type { ListingEvidenceSnapshot } from "../../listings/domain/evidence-snapshot";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -81,6 +82,13 @@ export type MarketplaceOfferState = Readonly<{
   quantityRequested: number;
   status: OfferStatus;
   acceptedSellerAccountId: AccountId | null;
+  acceptedListingId: string | null;
+  acceptedInventoryItemId: string | null;
+  acceptedListingVersion: number | null;
+  listingEvidencePolicyId: string | null;
+  listingEvidencePolicyVersion: number | null;
+  listingEvidencePolicyHash: string | null;
+  listingEvidenceSnapshot: ListingEvidenceSnapshot | null;
   acceptedAt: string | null;
   marketplaceSalesFeePercentageBps: number | null;
   marketplaceSalesFeeFixedAmount: string | null;
@@ -110,6 +118,13 @@ export const initialMarketplaceOfferState: MarketplaceOfferState = {
   quantityRequested: 0,
   status: "draft",
   acceptedSellerAccountId: null,
+  acceptedListingId: null,
+  acceptedInventoryItemId: null,
+  acceptedListingVersion: null,
+  listingEvidencePolicyId: null,
+  listingEvidencePolicyVersion: null,
+  listingEvidencePolicyHash: null,
+  listingEvidenceSnapshot: null,
   acceptedAt: null,
   marketplaceSalesFeePercentageBps: null,
   marketplaceSalesFeeFixedAmount: null,
@@ -145,6 +160,13 @@ export type AcceptOfferCommand = Readonly<{
   type: "AcceptOffer";
   csatOutcomeFact?: JsonObject;
   sellerAccountId: AccountId;
+  listingId: string;
+  inventoryItemId: string;
+  listingVersion: number;
+  listingEvidencePolicyId: string | null;
+  listingEvidencePolicyVersion: number | null;
+  listingEvidencePolicyHash: string;
+  listingEvidenceSnapshot: ListingEvidenceSnapshot;
   acceptedAt: string;
   marketplaceSalesFeePercentageBps: number;
   marketplaceSalesFeeFixedAmount: string;
@@ -185,6 +207,9 @@ export type OfferAcceptedEvent = DomainEvent<
     offerId: OfferId;
     buyerAccountId: AccountId;
     sellerAccountId: AccountId;
+    listingId: string;
+    inventoryItemId: string;
+    listingVersion: number;
     catalogItemId: CatalogItemId;
     productId: ProductKey;
     itemTitle: string;
@@ -205,6 +230,10 @@ export type OfferAcceptedEvent = DomainEvent<
     termsAgreementId: string | null;
     termsResolvedAt: string;
     feeQuoteFingerprint: string;
+    listingEvidencePolicyId: string | null;
+    listingEvidencePolicyVersion: number | null;
+    listingEvidencePolicyHash: string;
+    listingEvidenceSnapshot: ListingEvidenceSnapshot;
     acceptanceBatchId: string | null;
     acceptanceBatchSize: number | null;
     csatOutcomeFact?: JsonObject;
@@ -264,6 +293,15 @@ export const decideMarketplaceOffer: AggregateDecider<
             offerId: state.offerId,
             buyerAccountId: state.buyerAccountId!,
             sellerAccountId: command.sellerAccountId,
+            listingId: normalizeRequiredText(command.listingId, "Offer acceptance must reference a listing."),
+            inventoryItemId: normalizeRequiredText(
+              command.inventoryItemId,
+              "Offer acceptance must reference inventory.",
+            ),
+            listingVersion: ensurePositiveInteger(
+              command.listingVersion,
+              "Offer acceptance must record a positive listing version.",
+            ),
             catalogItemId: state.catalogItemId!,
             productId: state.productId!,
             itemTitle: state.itemTitle!,
@@ -308,6 +346,13 @@ export const decideMarketplaceOffer: AggregateDecider<
               command.feeQuoteFingerprint,
               "Offer acceptance must record a fee quote fingerprint.",
             ),
+            listingEvidencePolicyId: normalizeOptionalText(command.listingEvidencePolicyId),
+            listingEvidencePolicyVersion: command.listingEvidencePolicyVersion,
+            listingEvidencePolicyHash: normalizeRequiredText(
+              command.listingEvidencePolicyHash,
+              "Offer acceptance must record the Listing Evidence Policy hash.",
+            ),
+            listingEvidenceSnapshot: command.listingEvidenceSnapshot,
             acceptanceBatchId: normalizeOptionalText(command.acceptanceBatchId),
             acceptanceBatchSize:
               command.acceptanceBatchId == null
@@ -344,6 +389,13 @@ export const evolveMarketplaceOffer: AggregateEvolver<MarketplaceOfferState, Mar
       quantityRequested: event.data.quantityRequested,
       status: "submitted",
       acceptedSellerAccountId: null,
+      acceptedListingId: null,
+      acceptedInventoryItemId: null,
+      acceptedListingVersion: null,
+      listingEvidencePolicyId: null,
+      listingEvidencePolicyVersion: null,
+      listingEvidencePolicyHash: null,
+      listingEvidenceSnapshot: null,
       acceptedAt: null,
       marketplaceSalesFeePercentageBps: null,
       marketplaceSalesFeeFixedAmount: null,
@@ -365,6 +417,13 @@ export const evolveMarketplaceOffer: AggregateEvolver<MarketplaceOfferState, Mar
       ...state,
       status: "accepted",
       acceptedSellerAccountId: event.data.sellerAccountId,
+      acceptedListingId: event.data.listingId,
+      acceptedInventoryItemId: event.data.inventoryItemId,
+      acceptedListingVersion: event.data.listingVersion,
+      listingEvidencePolicyId: event.data.listingEvidencePolicyId,
+      listingEvidencePolicyVersion: event.data.listingEvidencePolicyVersion,
+      listingEvidencePolicyHash: event.data.listingEvidencePolicyHash,
+      listingEvidenceSnapshot: event.data.listingEvidenceSnapshot,
       acceptedAt: event.data.acceptedAt,
       marketplaceSalesFeePercentageBps: event.data.marketplaceSalesFeePercentageBps ?? null,
       marketplaceSalesFeeFixedAmount: event.data.marketplaceSalesFeeFixedAmount ?? null,

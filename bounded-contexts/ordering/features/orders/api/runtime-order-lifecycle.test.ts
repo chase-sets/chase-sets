@@ -10,11 +10,28 @@ import {
   taxSnapshot,
 } from "./runtime-test-harness";
 
+const exactCommitment = (listingId: string, inventoryItemId: string) => ({
+  listingId,
+  inventoryItemId,
+  listingVersion: 3,
+  feeQuoteFingerprint: "sha256:fee-quote",
+  listingEvidencePolicyId: "pol_listing_evidence",
+  listingEvidencePolicyVersion: 2,
+  listingEvidencePolicyHash: "sha256:policy",
+  listingEvidenceSnapshot: {
+    schemaVersion: 1 as const,
+    policyHash: "sha256:policy",
+    snapshotHash: `sha256:evidence:${listingId}`,
+    createdAt: "2026-03-31T00:00:00.000Z",
+    evidence: [],
+  },
+});
+
 describe("ordering order runtime: order creation and cancellation", () => {
   it("constrains accepted-offer commitments to the accepting seller", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const db = createSupplyDb((params) => {
-      expect(params?.[1]).toBe("acc_seller");
+      expect(params?.[0]).toBe("lst_1");
       return [
         {
           listingId: "lst_1",
@@ -57,6 +74,7 @@ describe("ordering order runtime: order creation and cancellation", () => {
         offerId: "off_1",
         buyerAccountId: "acc_buyer" as never,
         sellerAccountId: "acc_seller" as never,
+        ...exactCommitment("lst_1", "inv_1"),
         catalogItemId: "cat_1",
         productId: "cat_1::",
         itemTitle: "Charizard",
@@ -107,11 +125,11 @@ describe("ordering order runtime: order creation and cancellation", () => {
   it("groups accepted offer batches by buyer and seller into one allowance-bearing order", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const db = createSupplyDb((params) => {
-      const productId = String(params?.[0] ?? "");
-      expect(params?.[1]).toBe("acc_seller");
+      const listingId = String(params?.[0] ?? "");
+      const productId = listingId === "lst_1" ? "cat_1::" : "cat_2::";
       return [
         {
-          listingId: productId === "cat_1::" ? "lst_1" : "lst_2",
+          listingId,
           sellerAccountId: "acc_seller",
           inventoryItemId: productId === "cat_1::" ? "inv_1" : "inv_2",
           catalogItemId: productId === "cat_1::" ? "cat_1" : "cat_2",
@@ -155,6 +173,7 @@ describe("ordering order runtime: order creation and cancellation", () => {
             offerId: "off_1",
             buyerAccountId: "acc_buyer" as never,
             sellerAccountId: "acc_seller" as never,
+            ...exactCommitment("lst_1", "inv_1"),
             catalogItemId: "cat_1",
             productId: "cat_1::",
             itemTitle: "Charizard",
@@ -178,6 +197,7 @@ describe("ordering order runtime: order creation and cancellation", () => {
             offerId: "off_2",
             buyerAccountId: "acc_buyer" as never,
             sellerAccountId: "acc_seller" as never,
+            ...exactCommitment("lst_2", "inv_2"),
             catalogItemId: "cat_2",
             productId: "cat_2::",
             itemTitle: "Blastoise",

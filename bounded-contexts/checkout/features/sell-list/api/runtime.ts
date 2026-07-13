@@ -133,6 +133,7 @@ export type AddCheckoutSellListLineInput = Readonly<{
   sellerAccountId: AccountId;
   lineType: "selected-offer" | "product";
   offerId?: string | null;
+  listingId?: string | null;
   buyerAccountId?: string | null;
   buyerDisplayName?: string | null;
   offerPriceAmount?: string | null;
@@ -293,6 +294,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     return {
       ...params,
       offerId: params.offerId ?? null,
+      listingId: params.listingId ?? null,
       buyerAccountId: params.buyerAccountId ?? null,
       buyerDisplayName: params.buyerDisplayName ?? null,
       offerPriceAmount: params.offerPriceAmount ?? null,
@@ -527,6 +529,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
               lineId: line.lineId,
               lineType: line.lineType,
               offerId: line.offerId,
+              listingId: line.listingId,
               buyerAccountId: line.buyerAccountId,
               buyerDisplayName: line.buyerDisplayName,
               offerPriceAmount: line.offerPriceAmount,

@@ -9,6 +9,7 @@ describe("checkout sell list domain", () => {
       lineId: "sll_1" as never,
       lineType: "product",
       offerId: null,
+      listingId: null,
       buyerAccountId: null,
       buyerDisplayName: null,
       offerPriceAmount: null,
@@ -58,6 +59,7 @@ describe("checkout sell list domain", () => {
       lineId: "sll_2" as never,
       lineType: "selected-offer",
       offerId: "off_1",
+      listingId: "lst_1",
       buyerAccountId: "acc_buyer",
       buyerDisplayName: "Ash Ketchum",
       offerPriceAmount: "350.00",
@@ -94,6 +96,7 @@ describe("checkout sell list domain", () => {
         lineId: "sll_1" as never,
         lineType: "selected-offer",
         offerId: null,
+        listingId: null,
         buyerAccountId: null,
         buyerDisplayName: null,
         offerPriceAmount: null,
@@ -107,7 +110,7 @@ describe("checkout sell list domain", () => {
         fallbackMode: "none",
         minimumListingPriceAmount: null,
       }),
-    ).toThrow("Selected offer sell-list lines must reference an offer.");
+    ).toThrow("Selected offer sell-list lines must reference an Offer and exact Listing.");
 
     expect(() =>
       decideCheckoutSellList(initialCheckoutSellListState, {
@@ -128,6 +131,7 @@ describe("checkout sell list domain", () => {
       lineId: "sll_offer" as never,
       lineType: "selected-offer",
       offerId: "off_1",
+      listingId: "lst_1",
       buyerAccountId: "acc_buyer",
       buyerDisplayName: "Ash",
       offerPriceAmount: "20.00",
@@ -147,6 +151,7 @@ describe("checkout sell list domain", () => {
       lineId: "sll_product" as never,
       lineType: "product",
       offerId: null,
+      listingId: null,
       buyerAccountId: null,
       buyerDisplayName: null,
       offerPriceAmount: null,

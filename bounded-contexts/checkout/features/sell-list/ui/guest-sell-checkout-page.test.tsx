@@ -13,6 +13,7 @@ const selectedOfferLine: CheckoutSellListLineRow = {
   line_id: "sll_1",
   line_type: "selected-offer",
   offer_id: "off_1",
+  listing_id: "lst_1",
   buyer_account_id: "acc_buyer",
   buyer_display_name: "Buyer",
   offer_price_amount: "38.00",

@@ -307,7 +307,7 @@ describe("checkout web routes: sell checkout session", () => {
             itemTitle: "Mewtwo",
             productId: "prod_1",
             quantity: 1,
-            selectedOffer: { offerId: "off_1", feeQuoteFingerprint: "quote_1" },
+            selectedOffer: { offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
             productOfferTargets: [],
             fallbackListing: null,
             skippedReasons: [],
@@ -437,6 +437,7 @@ describe("checkout web routes: sell checkout session", () => {
 
     await expectSellConfirmationRedirect(result);
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
+      listingId: "lst_1",
       feeQuoteFingerprint: "quote_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
     });
@@ -506,6 +507,7 @@ describe("checkout web routes: sell checkout session", () => {
     expect(mockGetSellListConfirmation).toHaveBeenCalledWith("slc_chk_sell_1");
     expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
+      listingId: "lst_1",
       feeQuoteFingerprint: "quote_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
     });
@@ -663,6 +665,7 @@ describe("checkout web routes: sell checkout session", () => {
     await expectSellConfirmationRedirect(result);
     expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
+      listingId: "lst_1",
       feeQuoteFingerprint: "quote_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
     });
@@ -685,6 +688,7 @@ describe("checkout web routes: sell checkout session", () => {
     await expectSellConfirmationRedirect(result);
     expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
+      listingId: "lst_1",
       feeQuoteFingerprint: "quote_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
     });
@@ -703,7 +707,7 @@ describe("checkout web routes: sell checkout session", () => {
             itemTitle: "Mewtwo",
             productId: "prod_1",
             quantity: 1,
-            selectedOffer: { offerId: "off_1", feeQuoteFingerprint: "quote_1" },
+            selectedOffer: { offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
             productOfferTargets: [],
             fallbackListing: { inventoryItemId: "inv_extra", priceAmount: "40.00", quantityCap: 1 },
             skippedReasons: [],
@@ -895,7 +899,12 @@ describe("checkout web routes: sell checkout session", () => {
                 quantity: 2,
                 selectedOffer: null,
                 productOfferTargets: [
-                  { offerId: "off_product_1", feeQuoteFingerprint: "quote_product_1", quantity: 1 },
+                  {
+                    offerId: "off_product_1",
+                    listingId: "lst_product_1",
+                    feeQuoteFingerprint: "quote_product_1",
+                    quantity: 1,
+                  },
                 ],
                 fallbackListing: null,
                 skippedReasons: [],
@@ -911,8 +920,11 @@ describe("checkout web routes: sell checkout session", () => {
     await expectSellConfirmationRedirect(result);
     expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_product_1", {
+      listingId: "lst_product_1",
       feeQuoteFingerprint: "quote_product_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_product:match:off_product_1",
+      acceptanceBatchId: "offer-acceptance:slc_chk_sell_1:sll_product",
+      acceptanceBatchSize: 1,
     });
   });
 
@@ -977,7 +989,14 @@ describe("checkout web routes: sell checkout session", () => {
             productId: "prod_1",
             quantity: 4,
             selectedOffer: null,
-            productOfferTargets: [{ offerId: "off_product_1", feeQuoteFingerprint: "quote_product_1", quantity: 1 }],
+            productOfferTargets: [
+              {
+                offerId: "off_product_1",
+                listingId: "lst_product_1",
+                feeQuoteFingerprint: "quote_product_1",
+                quantity: 1,
+              },
+            ],
             fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
             skippedReasons: [],
           },
@@ -997,8 +1016,11 @@ describe("checkout web routes: sell checkout session", () => {
 
     await expectSellConfirmationRedirect(result);
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_product_1", {
+      listingId: "lst_product_1",
       feeQuoteFingerprint: "quote_product_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_product:match:off_product_1",
+      acceptanceBatchId: "offer-acceptance:slc_chk_sell_1:sll_product",
+      acceptanceBatchSize: 1,
     });
     expect(mockCreateListing).toHaveBeenCalledWith({
       inventoryItemId: "inv_1",
@@ -1084,7 +1106,14 @@ describe("checkout web routes: sell checkout session", () => {
             productId: "prod_1",
             quantity: 1,
             selectedOffer: null,
-            productOfferTargets: [{ offerId: "off_product_1", feeQuoteFingerprint: "quote_product_1", quantity: 2 }],
+            productOfferTargets: [
+              {
+                offerId: "off_product_1",
+                listingId: "lst_product_1",
+                feeQuoteFingerprint: "quote_product_1",
+                quantity: 2,
+              },
+            ],
             fallbackListing: null,
             skippedReasons: [],
           },

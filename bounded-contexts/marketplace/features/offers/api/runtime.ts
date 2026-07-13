@@ -19,6 +19,13 @@ import { evaluateListingEvidenceReadiness } from "../../listings/domain/listing-
 import { resolveListingEvidenceRequirements } from "../../listings/api/evidence-requirement-resolver";
 import { getMarketplaceAccountRisk } from "../../listings/read-model/queries";
 import {
+  decideSellerListingAvailability,
+  evolveSellerListingAvailability,
+  initialSellerListingAvailabilityState,
+  type SellerListingAvailabilityEvent,
+} from "../../listings/domain/seller-listing-availability";
+import { buildListingEvidenceSnapshot, type ListingEvidenceSnapshot } from "../../listings/domain/evidence-snapshot";
+import {
   decideMarketplaceOffer,
   evolveMarketplaceOffer,
   initialMarketplaceOfferState,
@@ -47,6 +54,7 @@ import {
   getPublicOffer,
   getSubmittedOffer,
   getOfferMatch,
+  getOfferMatchForListing,
   getOfferBuyerMute,
   listOfferBuyerMutes,
   listSubmittedOffers,
@@ -62,6 +70,36 @@ export class MarketplaceOfferFeeQuoteStaleError extends Error {
 }
 
 export { MarketplaceOfferAbuseControlError };
+
+export class MarketplaceOfferAcceptanceReadinessError extends Error {
+  public constructor(
+    public readonly code:
+      | "offer_already_accepted"
+      | "listing_not_eligible"
+      | "listing_evidence_incomplete"
+      | "listing_seller_trust_incomplete",
+    public readonly details: Readonly<Record<string, unknown>> = {},
+  ) {
+    super(
+      code === "offer_already_accepted"
+        ? "Offer has already been accepted."
+        : code === "listing_evidence_incomplete"
+          ? "Listing Evidence requirements are incomplete."
+          : code === "listing_seller_trust_incomplete"
+            ? "Seller trust requirements are incomplete for this Listing."
+            : "The selected Listing is no longer eligible for this Offer.",
+    );
+    this.name = "MarketplaceOfferAcceptanceReadinessError";
+  }
+}
+
+export type MarketplaceOfferAcceptanceResult = Readonly<{
+  offerId: OfferId;
+  listingId: string;
+  inventoryItemId: string;
+  listingEvidenceSnapshot: ListingEvidenceSnapshot;
+  version: number;
+}>;
 
 export type MarketplaceOfferServices = Readonly<{
   commandHandler: CommandHandler<MarketplaceOfferCommand, MarketplaceOfferState, MarketplaceOfferEvent>;
@@ -90,11 +128,14 @@ export type MarketplaceOfferServices = Readonly<{
     params: Readonly<{
       offerId: OfferId;
       sellerAccountId: AccountId;
+      listingId: string;
       feeQuoteFingerprint?: string | null;
       sourceActionKey?: string | null;
+      acceptanceBatchId?: string | null;
+      acceptanceBatchSize?: number | null;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ offerId: OfferId; version: number }>;
+  ) => Promise<MarketplaceOfferAcceptanceResult>;
   declineOfferMatch: (
     params: Readonly<{
       offerId: OfferId;
@@ -121,6 +162,7 @@ export type MarketplaceOfferServices = Readonly<{
     params: Readonly<{
       offerId: OfferId;
       sellerAccountId: AccountId;
+      listingId: string;
     }>,
   ) => Promise<MarketplaceListingTermsPreview>;
   listSubmittedOffers: (params: Parameters<typeof listSubmittedOffers>[1]) => ReturnType<typeof listSubmittedOffers>;
@@ -133,9 +175,12 @@ export type MarketplaceOfferServices = Readonly<{
 }>;
 
 export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): MarketplaceOfferServices {
+  const offerCodec = createPassthroughDomainEventCodec<MarketplaceOfferEvent>();
+  const listingCodec = createPassthroughDomainEventCodec<MarketplaceListingEvent>();
+  const sellerAvailabilityCodec = createPassthroughDomainEventCodec<SellerListingAvailabilityEvent>();
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<MarketplaceOfferEvent>(),
+    codec: offerCodec,
     initialState: () => initialMarketplaceOfferState,
     evolve: evolveMarketplaceOffer,
     decide: decideMarketplaceOffer,
@@ -147,12 +192,19 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     evolve: evolveMarketplaceOfferSellerControl,
     decide: decideMarketplaceOfferSellerControl,
   });
-  const { commandHandler: listingCommandHandler, repository: listingRepository } = createAggregateCommandHandler({
+  const { repository: listingRepository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<MarketplaceListingEvent>(),
+    codec: listingCodec,
     initialState: () => initialMarketplaceListingState,
     evolve: evolveMarketplaceListing,
     decide: decideMarketplaceListing,
+  });
+  const { repository: sellerAvailabilityRepository } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: sellerAvailabilityCodec,
+    initialState: () => initialSellerListingAvailabilityState,
+    evolve: evolveSellerListingAvailability,
+    decide: decideSellerListingAvailability,
   });
 
   async function getCatalogItemSnapshot(catalogItemId: string) {
@@ -276,8 +328,8 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     });
   }
 
-  async function quoteOfferAcceptanceTerms(offerId: OfferId, sellerAccountId: AccountId) {
-    const offer = await getOfferMatch(deps.db, offerId, sellerAccountId);
+  async function quoteOfferAcceptanceTerms(offerId: OfferId, sellerAccountId: AccountId, listingId: string) {
+    const offer = await getOfferMatchForListing(deps.db, offerId, sellerAccountId, listingId);
     if (!offer) {
       throw new Error("Offer not found.");
     }
@@ -421,107 +473,216 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
 
       return { listingId: params.listingId, buyerAccountId: params.buyerAccountId, version: result.version };
     },
-    previewOfferAcceptanceTerms: async (params) => quoteOfferAcceptanceTerms(params.offerId, params.sellerAccountId),
+    previewOfferAcceptanceTerms: async (params) =>
+      quoteOfferAcceptanceTerms(params.offerId, params.sellerAccountId, params.listingId),
     acceptOffer: async (params, context) => {
-      const current = await repository.load(`marketplace.offer-${params.offerId}`);
-      if (current.state.status === "accepted" && current.state.acceptedSellerAccountId === params.sellerAccountId) {
-        return { offerId: params.offerId, version: current.version };
+      const offerStreamId = `marketplace.offer-${params.offerId}`;
+      const current = await repository.load(offerStreamId);
+      if (current.state.status === "accepted") {
+        if (
+          current.state.acceptedSellerAccountId === params.sellerAccountId &&
+          current.state.acceptedListingId === params.listingId &&
+          current.state.acceptedInventoryItemId &&
+          current.state.listingEvidenceSnapshot
+        ) {
+          return {
+            offerId: params.offerId,
+            listingId: current.state.acceptedListingId,
+            inventoryItemId: current.state.acceptedInventoryItemId,
+            listingEvidenceSnapshot: current.state.listingEvidenceSnapshot,
+            version: current.version,
+          };
+        }
+        throw new MarketplaceOfferAcceptanceReadinessError("offer_already_accepted", {
+          acceptedSellerAccountId: current.state.acceptedSellerAccountId,
+          acceptedListingId: current.state.acceptedListingId,
+        });
       }
 
-      const offer = await getOfferMatch(deps.db, params.offerId, params.sellerAccountId);
+      const listingStreamId = `marketplace.listing-${params.listingId}`;
+      const availabilityStreamId = `marketplace.seller-listing-availability-${params.sellerAccountId}`;
+      const [offer, listing, sellerAvailability] = await Promise.all([
+        getOfferMatchForListing(deps.db, params.offerId, params.sellerAccountId, params.listingId),
+        listingRepository.load(listingStreamId),
+        sellerAvailabilityRepository.load(availabilityStreamId),
+      ]);
 
       if (!offer) {
-        throw new Error("Offer not found.");
+        throw new MarketplaceOfferAcceptanceReadinessError("listing_not_eligible", { listingId: params.listingId });
       }
-      if (offer.buyer_account_id === params.sellerAccountId) {
+      if (current.state.buyerAccountId === params.sellerAccountId) {
         throw new Error("Accounts cannot accept their own offers.");
       }
-      if (offer.seller_listing_availability_status === "unavailable") {
+      if (sellerAvailability.state.status === "unavailable") {
         throw new Error("Seller listing availability is off.");
       }
-      if (!offer.can_fulfill) {
+      const exactListing = listing.state;
+      if (
+        exactListing.listingId !== params.listingId ||
+        exactListing.accountId !== params.sellerAccountId ||
+        exactListing.status !== "active" ||
+        !exactListing.productId ||
+        !exactListing.catalogItemId ||
+        !exactListing.priceAmount ||
+        exactListing.productId !== current.state.productId ||
+        exactListing.catalogItemId !== current.state.catalogItemId
+      ) {
+        throw new MarketplaceOfferAcceptanceReadinessError("listing_not_eligible", { listingId: params.listingId });
+      }
+      if (!exactListing.inventoryItemId || !offer.can_fulfill) {
         throw new Error("Seller does not have enough active supply to accept this offer.");
       }
-      const listingAggregate = await listingRepository.load(`marketplace.listing-${offer.listing_id}`);
-      const listing = listingAggregate.state;
-      if (
-        listing.listingId === null ||
-        listing.accountId !== params.sellerAccountId ||
-        listing.status !== "active" ||
-        !listing.catalogItemId ||
-        !listing.productId ||
-        !listing.priceAmount
-      ) {
-        throw new Error("Listing is not eligible for a new commitment.");
-      }
-      const evaluatedAt = new Date().toISOString();
+      const acceptedAt = new Date().toISOString();
       let evidenceRequirements;
       try {
         evidenceRequirements = await resolveListingEvidenceRequirements(deps, {
           accountId: params.sellerAccountId,
-          catalogItemId: listing.catalogItemId,
-          productId: listing.productId,
-          selectedOptions: listing.selectedOptions,
-          gradedItem: listing.gradedCard !== null,
-          priceAmount: listing.priceAmount,
-          evaluatedAt,
+          catalogItemId: exactListing.catalogItemId,
+          productId: exactListing.productId,
+          selectedOptions: exactListing.selectedOptions,
+          gradedItem: exactListing.gradedCard !== null,
+          priceAmount: exactListing.priceAmount,
+          evaluatedAt: acceptedAt,
         });
       } catch {
         throw new Error("Listing evidence requirements are unavailable.");
       }
-      await listingCommandHandler({
-        streamId: `marketplace.listing-${offer.listing_id}`,
-        command: { type: "RefreshListingEvidenceRequirements", evidenceRequirements },
-        context,
-      });
       const requiresSellerFacts = evidenceRequirements.requirements.sellerTrustRequirements.length > 0;
       const accountRisk = requiresSellerFacts
         ? await getMarketplaceAccountRisk(deps.db, params.sellerAccountId)
         : { review_count: 0, badges: [] as readonly string[] };
       const readiness = evaluateListingEvidenceReadiness({
         snapshot: evidenceRequirements,
-        evidence: listing.evidence,
+        evidence: exactListing.evidence,
         seller: { reviewCount: accountRisk.review_count, badgeKeys: accountRisk.badges },
-        now: evaluatedAt,
+        now: acceptedAt,
       });
       if (!readiness.ready) {
-        throw new Error("Listing evidence requirements are not met.");
+        const code = readiness.unmetCodes.includes("seller-trust-requirement-unmet")
+          ? "listing_seller_trust_incomplete"
+          : "listing_evidence_incomplete";
+        throw new MarketplaceOfferAcceptanceReadinessError(code, {
+          listingId: params.listingId,
+          unmetCodes: readiness.unmetCodes,
+        });
       }
+      const requirementEvents = decideMarketplaceListing(exactListing, {
+        type: "RefreshListingEvidenceRequirements",
+        evidenceRequirements,
+      });
+      const listingEvidenceSnapshot = buildListingEvidenceSnapshot({
+        evidence: exactListing.evidence,
+        policyHash: evidenceRequirements.policyHash,
+        createdAt: acceptedAt,
+      });
       const quote = await quoteMarketplaceTerms(deps.commercialTermsResolver, {
         accountId: params.sellerAccountId,
-        priceAmount: offer.price_amount,
+        priceAmount: String(current.state.priceAmount),
       });
       assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
-      const acceptedAt = new Date().toISOString();
-
-      const result = await commandHandler({
-        streamId: `marketplace.offer-${params.offerId}`,
-        command: {
-          type: "AcceptOffer",
+      const [acceptedEvent] = decideMarketplaceOffer(current.state, {
+        type: "AcceptOffer",
+        sellerAccountId: params.sellerAccountId,
+        listingId: params.listingId,
+        inventoryItemId: exactListing.inventoryItemId,
+        listingVersion: listing.version + requirementEvents.length,
+        listingEvidencePolicyId: evidenceRequirements.policyId,
+        listingEvidencePolicyVersion: evidenceRequirements.policyVersion,
+        listingEvidencePolicyHash: evidenceRequirements.policyHash,
+        listingEvidenceSnapshot,
+        acceptedAt,
+        csatOutcomeFact: createOfferAcceptedCsatOutcomeFact({
           sellerAccountId: params.sellerAccountId,
+          offerId: params.offerId,
           acceptedAt,
-          csatOutcomeFact: createOfferAcceptedCsatOutcomeFact({
-            sellerAccountId: params.sellerAccountId,
-            offerId: params.offerId,
-            acceptedAt,
-          }),
-          marketplaceSalesFeePercentageBps: quote.marketplace_sales_fee_percentage_bps,
-          marketplaceSalesFeeFixedAmount: quote.marketplace_sales_fee_fixed_amount,
-          marketplaceSalesFeeCapAmount: quote.marketplace_sales_fee_cap_amount,
-          marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
-          sellerNetUnitAmount: quote.seller_net_unit_amount,
-          shippingAllowancePercentageBps: quote.shipping_allowance_percentage_bps,
-          termsScheduleId: quote.schedule_id,
-          termsAgreementId: quote.agreement_id,
-          termsResolvedAt: quote.resolved_at,
-          feeQuoteFingerprint: quote.fee_quote_fingerprint,
-          acceptanceBatchId: null,
-          acceptanceBatchSize: null,
-        },
-        context,
+        }),
+        marketplaceSalesFeePercentageBps: quote.marketplace_sales_fee_percentage_bps,
+        marketplaceSalesFeeFixedAmount: quote.marketplace_sales_fee_fixed_amount,
+        marketplaceSalesFeeCapAmount: quote.marketplace_sales_fee_cap_amount,
+        marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
+        sellerNetUnitAmount: quote.seller_net_unit_amount,
+        shippingAllowancePercentageBps: quote.shipping_allowance_percentage_bps,
+        termsScheduleId: quote.schedule_id,
+        termsAgreementId: quote.agreement_id,
+        termsResolvedAt: quote.resolved_at,
+        feeQuoteFingerprint: quote.fee_quote_fingerprint,
+        acceptanceBatchId: params.acceptanceBatchId ?? null,
+        acceptanceBatchSize: params.acceptanceBatchSize ?? null,
       });
+      if (!acceptedEvent || acceptedEvent.type !== "marketplace.offer.accepted") {
+        throw new Error("Offer acceptance did not produce a commitment fact.");
+      }
+      const listingCommitmentEvent: MarketplaceListingEvent = {
+        type: "marketplace.listing.offer-commitment-recorded",
+        data: {
+          offerId: params.offerId,
+          quantity: current.state.quantityRequested,
+          evidenceSnapshotHash: listingEvidenceSnapshot.snapshotHash,
+          committedAt: acceptedAt,
+        },
+      };
+      const availabilityCheckEvent: SellerListingAvailabilityEvent = {
+        type: "marketplace.seller-listing-availability.commitment-checked",
+        data: { offerId: params.offerId, listingId: params.listingId, checkedAt: acceptedAt },
+      };
+      const appendToStreams = deps.eventStore.appendToStreams;
+      if (!appendToStreams) {
+        throw new Error("Offer acceptance requires atomic multi-stream append support.");
+      }
 
-      return { offerId: params.offerId, version: result.version };
+      try {
+        await appendToStreams([
+          {
+            streamId: offerStreamId,
+            expectedVersion: current.version,
+            events: [offerCodec.encode(acceptedEvent)],
+            context,
+          },
+          {
+            streamId: listingStreamId,
+            expectedVersion: listing.version,
+            events: [...requirementEvents, listingCommitmentEvent].map((event) => listingCodec.encode(event)),
+            context,
+          },
+          {
+            streamId: availabilityStreamId,
+            expectedVersion: sellerAvailability.version === 0 ? "no_stream" : sellerAvailability.version,
+            events: [sellerAvailabilityCodec.encode(availabilityCheckEvent)],
+            context,
+          },
+        ]);
+      } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict") {
+          const latest = await repository.load(offerStreamId);
+          if (
+            latest.state.acceptedSellerAccountId === params.sellerAccountId &&
+            latest.state.acceptedListingId === params.listingId &&
+            latest.state.acceptedInventoryItemId &&
+            latest.state.listingEvidenceSnapshot
+          ) {
+            return {
+              offerId: params.offerId,
+              listingId: latest.state.acceptedListingId,
+              inventoryItemId: latest.state.acceptedInventoryItemId,
+              listingEvidenceSnapshot: latest.state.listingEvidenceSnapshot,
+              version: latest.version,
+            };
+          }
+          throw new MarketplaceOfferAcceptanceReadinessError(
+            latest.state.status === "accepted" ? "offer_already_accepted" : "listing_not_eligible",
+            { listingId: params.listingId },
+          );
+        }
+        throw error;
+      }
+
+      return {
+        offerId: params.offerId,
+        listingId: params.listingId,
+        inventoryItemId: exactListing.inventoryItemId,
+        listingEvidenceSnapshot,
+        version: current.version + 1,
+      };
     },
     listSubmittedOffers: (params) => listSubmittedOffers(deps.db, params),
     getSubmittedOffer: (offerId, buyerAccountId) => getSubmittedOffer(deps.db, offerId, buyerAccountId),

@@ -72,9 +72,11 @@ export function parseSellListReviewPlan(value: string): SellListReviewPlan | nul
         const selectedOffer =
           selectedOfferSource &&
           stringValue(selectedOfferSource.offerId) &&
+          stringValue(selectedOfferSource.listingId) &&
           stringValue(selectedOfferSource.feeQuoteFingerprint)
             ? {
                 offerId: stringValue(selectedOfferSource.offerId),
+                listingId: stringValue(selectedOfferSource.listingId),
                 feeQuoteFingerprint: stringValue(selectedOfferSource.feeQuoteFingerprint),
               }
             : null;
@@ -84,10 +86,13 @@ export function parseSellListReviewPlan(value: string): SellListReviewPlan | nul
               .filter((target): target is Record<string, unknown> => target !== null)
               .map((target) => ({
                 offerId: stringValue(target.offerId),
+                listingId: stringValue(target.listingId),
                 feeQuoteFingerprint: stringValue(target.feeQuoteFingerprint),
                 quantity: positiveIntegerValue(target.quantity),
               }))
-              .filter((target) => target.offerId && target.feeQuoteFingerprint && target.quantity > 0)
+              .filter(
+                (target) => target.offerId && target.listingId && target.feeQuoteFingerprint && target.quantity > 0,
+              )
           : [];
         const fallbackSource = objectValue(entry.fallbackListing);
         const fallbackListing =

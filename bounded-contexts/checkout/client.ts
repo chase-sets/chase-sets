@@ -94,6 +94,7 @@ export type AddCheckoutCartLinesResponse = Readonly<{
 export type AddCheckoutSellListLineRequest = Readonly<{
   lineType: "selected-offer" | "product";
   offerId?: string | null;
+  listingId?: string | null;
   buyerAccountId?: string | null;
   buyerDisplayName?: string | null;
   offerPriceAmount?: string | null;
