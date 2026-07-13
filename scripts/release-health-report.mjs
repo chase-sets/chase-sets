@@ -14,6 +14,7 @@ const NON_BUY_NOW_UAT_VERSION = "non-buy-now-post-write-freshness-uat/v1";
 const ROUTE_MATRIX_EVIDENCE_VERSION = "read-consistency-route-matrix-evidence/v1";
 const PUSH_WAKE_CAPACITY_EVIDENCE_VERSION = "push-wake-capacity-evidence/v1";
 const EPHEMERAL_VERIFICATION_VERSION = "ephemeral-verification/v1";
+const MERGE_GROUP_FAILURE_SIGNATURES_VERSION = "merge-group-failure-signatures/v1";
 const FRESHNESS_SUSTAINED_WINDOW_TARGET_DAYS = 30;
 const CAPACITY_REVIEW_MIN_DEPLOYABLE_ATTEMPTS = 10;
 const CAPACITY_REVIEW_STAGING_DURATION_WARN_SECONDS = 20 * 60;
@@ -84,6 +85,7 @@ export async function runReleaseHealthReport(options) {
     evidenceArtifacts: classified.evidenceArtifacts,
     capacityArtifacts: classified.capacityArtifacts,
     verificationArtifacts: classified.verificationArtifacts,
+    mergeGroupFailureArtifacts: classified.mergeGroupFailureArtifacts,
     ignoredArtifactCount: classified.ignoredArtifacts.length,
   });
 
@@ -104,6 +106,7 @@ export function buildReleaseHealthReport(input) {
   const gates = summarizeGatePosture(records);
   const capacityEvidence = summarizeCapacityEvidence(input.capacityArtifacts ?? []);
   const stagingElimination = summarizeStagingElimination(records, input.verificationArtifacts ?? []);
+  const mergeGroupFailures = summarizeMergeGroupFailureArtifacts(input.mergeGroupFailureArtifacts ?? []);
   const capacityReview = evaluateCapacityAndImageReview({
     records,
     deployableRecords,
@@ -130,6 +133,7 @@ export function buildReleaseHealthReport(input) {
     slo,
     freshness,
     capacityEvidence,
+    mergeGroupFailures,
     capacityReview,
     stagingElimination,
   };
@@ -158,6 +162,9 @@ export function buildReleaseHealthReport(input) {
     `- Blocking gate failures: ${summary.gates.blockingFailures}`,
     `- Advisory gate warnings: ${summary.gates.advisoryWarnings}`,
     `- Deferred-proof gates: ${summary.gates.deferredProof}`,
+    `- Merge-group failure signatures: ${summary.mergeGroupFailures.trackedSignatures}`,
+    `- Merge-group suspect-flaky findings: ${summary.mergeGroupFailures.suspectFlaky}`,
+    `- Merge-group composition attributions: ${summary.mergeGroupFailures.attributed}`,
     `- Average queue wait: ${formatOptionalSeconds(summary.timing.averageQueueWaitSeconds)}`,
     `- Average merge to staging start: ${formatOptionalSeconds(summary.timing.averageMergeToStagingSeconds)}`,
     `- Batch-size posture: ${summary.slo.batchSizeRecommendation}`,
@@ -181,6 +188,19 @@ export function buildReleaseHealthReport(input) {
     "| Job | Retries | Flaky failures |",
     "| --- | --- | --- |",
     ...formatCiRows(summary.ci),
+    "",
+    "## Merge-Group Failure Signatures",
+    "",
+    `- Posture: ${summary.mergeGroupFailures.posture}`,
+    `- Latest report window: ${summary.mergeGroupFailures.window}`,
+    `- Tracked signatures: ${summary.mergeGroupFailures.trackedSignatures}`,
+    `- Suspect-flaky findings: ${summary.mergeGroupFailures.suspectFlaky}`,
+    `- Composition-attributed findings: ${summary.mergeGroupFailures.attributed}`,
+    `- Deterministic repeats requiring a new commit: ${summary.mergeGroupFailures.deterministicRepeats}`,
+    "",
+    "| Classification | Signature | Occurrences | PR attribution |",
+    "| --- | --- | ---: | --- |",
+    ...formatMergeGroupFailureRows(summary.mergeGroupFailures),
     "",
     "## Production Gate Posture",
     "",
@@ -302,6 +322,7 @@ export function classifyReleaseHealthArtifacts(artifacts) {
   const evidenceArtifacts = [];
   const capacityArtifacts = [];
   const verificationArtifacts = [];
+  const mergeGroupFailureArtifacts = [];
   const ignoredArtifacts = [];
 
   for (const artifact of artifacts) {
@@ -315,12 +336,21 @@ export function classifyReleaseHealthArtifacts(artifacts) {
       capacityArtifacts.push({ ...artifact, record });
     } else if (schemaVersion === EPHEMERAL_VERIFICATION_VERSION) {
       verificationArtifacts.push({ ...artifact, record });
+    } else if (schemaVersion === MERGE_GROUP_FAILURE_SIGNATURES_VERSION) {
+      mergeGroupFailureArtifacts.push({ ...artifact, record });
     } else {
       ignoredArtifacts.push(artifact);
     }
   }
 
-  return { releaseRecords, evidenceArtifacts, capacityArtifacts, verificationArtifacts, ignoredArtifacts };
+  return {
+    releaseRecords,
+    evidenceArtifacts,
+    capacityArtifacts,
+    verificationArtifacts,
+    mergeGroupFailureArtifacts,
+    ignoredArtifacts,
+  };
 }
 
 function summarizeStagingElimination(records, artifacts) {
@@ -341,6 +371,52 @@ function summarizeStagingElimination(records, artifacts) {
     verificationFailureCount,
     decision: eligible ? "eligible-for-explicit-retirement-review" : "retain-persistent-staging",
   };
+}
+
+function summarizeMergeGroupFailureArtifacts(artifacts) {
+  const latest = artifacts
+    .map((artifact) => artifact.record ?? artifact)
+    .filter((record) => record?.schemaVersion === MERGE_GROUP_FAILURE_SIGNATURES_VERSION)
+    .sort((left, right) => Date.parse(right.checkedAt ?? "") - Date.parse(left.checkedAt ?? ""))[0];
+  if (!latest) {
+    return {
+      posture: "not-provided",
+      window: "unknown",
+      trackedSignatures: 0,
+      suspectFlaky: 0,
+      attributed: 0,
+      deterministicRepeats: 0,
+      failures: [],
+    };
+  }
+  return {
+    posture: latest.failures?.length ? "warning" : "success",
+    window: latest.window ? `${latest.window.start} to ${latest.window.end}` : "unknown",
+    trackedSignatures: latest.counts?.trackedSignatures ?? latest.failures?.length ?? 0,
+    suspectFlaky:
+      latest.counts?.suspectFlaky ??
+      latest.failures?.filter((failure) => failure.classification === "suspect-flaky").length ??
+      0,
+    attributed:
+      latest.counts?.attributed ??
+      latest.failures?.filter((failure) => failure.classification === "attributed-to-pr").length ??
+      0,
+    deterministicRepeats:
+      latest.counts?.deterministicRepeats ??
+      latest.failures?.filter((failure) => failure.classification === "new-commit-required").length ??
+      0,
+    failures: Array.isArray(latest.failures) ? latest.failures : [],
+  };
+}
+
+function formatMergeGroupFailureRows(summary) {
+  if (summary.failures.length === 0) {
+    return ["| none | no failed merge-group signature in the latest report | 0 | none |"];
+  }
+  return summary.failures.map((failure) => {
+    const signature = `${failure.testFile ?? "unknown"} > ${failure.testName ?? "unknown"}`;
+    return `| ${escapeMarkdownCell(failure.classification ?? "observed")} | ${escapeMarkdownCell(signature)} | ${failure.occurrenceCount ?? 0} | ${failure.attributedPr ? `PR #${failure.attributedPr}` : "none"} |`;
+  });
 }
 
 function formatReleaseRow(record) {

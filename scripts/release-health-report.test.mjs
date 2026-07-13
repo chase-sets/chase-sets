@@ -145,6 +145,8 @@ describe("release health report", () => {
     expect(result.markdown).toContain("## CI Flake Posture");
     expect(result.markdown).toContain("| verify:static | 1 | 1 |");
     expect(result.markdown).toContain("## Production Gate Posture");
+    expect(result.markdown).toContain("## Merge-Group Failure Signatures");
+    expect(result.markdown).toContain("Merge-group failure signatures: 0");
     expect(result.markdown).toContain("| production-smoke-and-marker | 1 | 0 | 0 |");
     expect(result.markdown).toContain("| post-deploy-projection-readiness | 0 | 1 | 0 |");
     expect(result.markdown).toContain("| exposure-posture-proof | 0 | 0 | 1 |");
@@ -176,11 +178,27 @@ describe("release health report", () => {
       releaseCommit: "a".repeat(40),
       result: "success",
     };
+    const mergeGroupFailures = {
+      schemaVersion: "merge-group-failure-signatures/v1",
+      checkedAt: "2026-05-31T14:00:00.000Z",
+      window: { start: "2026-05-24T14:00:00.000Z", end: "2026-05-31T14:00:00.000Z" },
+      counts: { trackedSignatures: 1, suspectFlaky: 1, attributed: 0, deterministicRepeats: 0 },
+      failures: [
+        {
+          classification: "suspect-flaky",
+          testFile: "tests/marketplace-seed.test.ts",
+          testName: "support requests are seeded",
+          occurrenceCount: 1,
+          attributedPr: null,
+        },
+      ],
+    };
     const classified = classifyReleaseHealthArtifacts([
       { file: "release.json", record: release },
       { file: "guest-buy-now-freshness-probe.json", record: probe },
       { file: "push-wake-capacity-evidence.json", record: capacity },
       { file: "ephemeral-verification.json", record: verification },
+      { file: "merge-group-failure-signatures.json", record: mergeGroupFailures },
       { file: "production-readiness-gate.json", record: { schemaVersion: "marketplace-production-readiness/v1" } },
     ]);
 
@@ -188,6 +206,7 @@ describe("release health report", () => {
     expect(classified.evidenceArtifacts.map((artifact) => artifact.record)).toEqual([probe]);
     expect(classified.capacityArtifacts.map((artifact) => artifact.record)).toEqual([capacity]);
     expect(classified.verificationArtifacts.map((artifact) => artifact.record)).toEqual([verification]);
+    expect(classified.mergeGroupFailureArtifacts.map((artifact) => artifact.record)).toEqual([mergeGroupFailures]);
     expect(classified.ignoredArtifacts).toHaveLength(1);
   });
 
@@ -214,6 +233,40 @@ describe("release health report", () => {
     });
     expect(result.markdown).toContain("Persistent staging-only catch rate: 0%");
     expect(result.markdown).toContain("Staging retirement decision: eligible-for-explicit-retirement-review");
+  });
+
+  it("surfaces the latest merge-group signature posture in the release-health report", () => {
+    const result = buildReleaseHealthReport({
+      checkedAt: "2026-05-31T15:00:00.000Z",
+      records: [record()],
+      mergeGroupFailureArtifacts: [
+        {
+          record: {
+            schemaVersion: "merge-group-failure-signatures/v1",
+            checkedAt: "2026-05-31T14:00:00.000Z",
+            window: { start: "2026-05-24T14:00:00.000Z", end: "2026-05-31T14:00:00.000Z" },
+            counts: { trackedSignatures: 1, suspectFlaky: 0, attributed: 1, deterministicRepeats: 0 },
+            failures: [
+              {
+                classification: "attributed-to-pr",
+                testFile: "tests/marketplace-seed.test.ts",
+                testName: "support requests are seeded",
+                occurrenceCount: 3,
+                attributedPr: 4980,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(result.summary.mergeGroupFailures).toMatchObject({
+      posture: "warning",
+      trackedSignatures: 1,
+      attributed: 1,
+    });
+    expect(result.markdown).toContain("attributed-to-pr");
+    expect(result.markdown).toContain("PR #4980");
   });
 
   it("marks capacity review eligible only with enough healthy releases and passing evidence", () => {

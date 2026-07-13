@@ -1,0 +1,39 @@
+{
+  "groups": [
+    {
+      "runId": 29211613828,
+      "runAttempt": 1,
+      "createdAt": "2026-07-12T22:10:00.000Z",
+      "conclusion": "failure",
+      "headSha": "cccccccccccccccccccccccccccccccccccccccc",
+      "url": "https://github.com/chase-sets/chase-sets/actions/runs/29211613828",
+      "composition": [
+        {
+          "number": 4980,
+          "headSha": "2222222222222222222222222222222222222222",
+          "changedFiles": ["bounded-contexts/marketplace/src/projections/display-reference.ts"]
+        }
+      ],
+      "failures": [
+        {
+          "signature": "seed-support-request",
+          "testFile": "tests/marketplace-seed.test.ts",
+          "testName": "support requests are seeded",
+          "assertionShape": "to have a length of <number>",
+          "failureClass": "test",
+          "jobName": "marketplace-seed-testing"
+        }
+      ]
+    },
+    {
+      "runId": 29211620000,
+      "runAttempt": 1,
+      "createdAt": "2026-07-12T22:14:00.000Z",
+      "conclusion": "success",
+      "headSha": "dddddddddddddddddddddddddddddddddddddddd",
+      "url": "https://github.com/chase-sets/chase-sets/actions/runs/29211620000",
+      "composition": [],
+      "failures": []
+    }
+  ]
+}

@@ -28,6 +28,8 @@ Queue behavior:
 - Documentation-only and non-deployable changes may batch when the merge queue can still prove `PR Required`.
 - Increase beyond two only when release-health metrics show low staging failure, low production smoke failure, low rollback/fix-forward rate, low canary abort rate, low queue wait, and low main-to-production drift.
 - If a batched merge group turns red, split and retry the batch to isolate the offending pull request before re-enqueueing healthy changes. This reduces deploy count on green paths but can add bisection time when a grouped PR fails `PR Required`.
+
+Merge-group failure signatures are reported by `.github/workflows/platform-merge-group-failure-signatures.yml` and are read-only evidence. The reporter deduplicates the first bounded test failure by test file, test name, and assertion shape across synthetic groups. A signature that fails and then passes in the next group without a relevant file diff is marked `suspect-flaky` for review; it is never auto-ignored. A signature that fails only when one pull request is present is composition-attributed to that pull request. Operators and agents must not re-enqueue an unchanged deterministic failure; request a new head commit from the attributed pull request. Queue membership and workflow configuration are never mutated by the report.
 - Keep stale release behavior from the deployment workflow: if a queued automatic deployment starts after a newer `origin/main` exists, skip that stale deployment and let the newest release proceed.
 - Keep direct pushes disabled for normal work. Emergency release bypass must be explicit and audited.
 

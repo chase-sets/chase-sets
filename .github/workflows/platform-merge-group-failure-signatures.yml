@@ -1,0 +1,46 @@
+name: Platform Merge-Group Failure Signatures
+
+on:
+  schedule:
+    # Daily after merge-group runs have settled.
+    - cron: "37 12 * * *"
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: platform-merge-group-failure-signatures
+  cancel-in-progress: false
+
+jobs:
+  report:
+    name: Report Merge-Group Failure Signatures
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Build merge-group failure signature report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-health
+          pnpm run ops -- release-health:merge-group-failure-signatures \
+            --out artifacts/release-health/merge-group-failure-signatures.json \
+            --markdown-out artifacts/release-health/merge-group-failure-signatures.md \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload merge-group failure signature report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-merge-group-failure-signatures-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-health/merge-group-failure-signatures.*
+          if-no-files-found: ignore
+          retention-days: 30
