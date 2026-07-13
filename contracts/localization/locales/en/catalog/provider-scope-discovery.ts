@@ -1,4 +1,6 @@
 export const catalogProviderScopeDiscoveryEnglishTranslations = {
+  "catalog.features.providerScopeDiscovery.api.route.schedule.not.found":
+    "No refresh schedule exists for that provider.",
   "catalog.features.providerScopeDiscovery.ui.schedulePanel.title": "Scheduled source-option refresh",
   "catalog.features.providerScopeDiscovery.ui.schedulePanel.description":
     "Free providers refresh their scope options on a schedule so new sets reach the scope registry without a manual pull. Credit-metered providers stay manual-only by config.",
@@ -11,11 +13,13 @@ export const catalogProviderScopeDiscoveryEnglishTranslations = {
   "catalog.features.providerScopeDiscovery.ui.schedulePanel.schedule.manual.only": "Manual only",
   "catalog.features.providerScopeDiscovery.ui.schedulePanel.schedule.disabled": "Disabled",
   "catalog.features.providerScopeDiscovery.ui.schedulePanel.last.run": "Last run",
+  "catalog.features.providerScopeDiscovery.ui.schedulePanel.last.run.summary": "Last run: {value}",
   "catalog.features.providerScopeDiscovery.ui.schedulePanel.last.run.never": "Never",
   "catalog.features.providerScopeDiscovery.ui.schedulePanel.last.run.succeeded": "Succeeded",
   "catalog.features.providerScopeDiscovery.ui.schedulePanel.last.run.failed": "Failed",
   "catalog.features.providerScopeDiscovery.ui.schedulePanel.last.run.skipped.no.targets": "Skipped (no targets)",
   "catalog.features.providerScopeDiscovery.ui.schedulePanel.next.run": "Next run",
+  "catalog.features.providerScopeDiscovery.ui.schedulePanel.next.run.summary": "Next run: {value}",
   "catalog.features.providerScopeDiscovery.ui.schedulePanel.pause": "Pause",
   "catalog.features.providerScopeDiscovery.ui.schedulePanel.resume": "Resume",
   "catalog.features.providerScopeDiscovery.ui.schedulePanel.run.now": "Run now",

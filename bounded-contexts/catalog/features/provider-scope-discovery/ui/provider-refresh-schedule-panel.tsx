@@ -99,7 +99,9 @@ function ScheduleRow({
       </WorkbenchActionRow>
       <WorkbenchActionRow>
         <WorkbenchText size="xs" tone="secondary">
-          {`${t("catalog.features.providerScopeDiscovery.ui.schedulePanel.last.run")}: ${lastRunLabel(item)}`}
+          {t("catalog.features.providerScopeDiscovery.ui.schedulePanel.last.run.summary", {
+            value: lastRunLabel(item),
+          })}
         </WorkbenchText>
         {item.lastRunStatus === "failed" ? (
           <Badge tone="danger">{t("catalog.features.providerScopeDiscovery.ui.schedulePanel.last.run.failed")}</Badge>
@@ -107,7 +109,9 @@ function ScheduleRow({
       </WorkbenchActionRow>
       {scheduledActive && item.nextRunAt ? (
         <WorkbenchText size="xs" tone="secondary">
-          {`${t("catalog.features.providerScopeDiscovery.ui.schedulePanel.next.run")}: ${formatTimestamp(item.nextRunAt)}`}
+          {t("catalog.features.providerScopeDiscovery.ui.schedulePanel.next.run.summary", {
+            value: formatTimestamp(item.nextRunAt),
+          })}
         </WorkbenchText>
       ) : null}
       {canManageCatalog ? (

@@ -1123,7 +1123,7 @@
         "api-route:bounded-contexts/catalog/features/provider-scope-mapping/api/route.ts:POST /commands",
         "api-route:bounded-contexts/catalog/features/provider-scope-mapping/api/route.ts:POST /propose",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hdcd26315160c#1",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H1a6779d74627#1"
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hfba4475095e7#1"
       ],
       "visibleDestination": {
         "routeId": "scope-coverage-detail",

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
+import { t } from "@chase-sets/localization";
 import type { Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { ProviderScopeDiscoveryServices } from "./runtime";
@@ -105,7 +106,7 @@ function providerNotFound(c: Context<CatalogAuthoringEnv>) {
     {
       error: {
         code: "provider_refresh_schedule_not_found",
-        message: "No refresh schedule exists for that provider.",
+        message: t("catalog.features.providerScopeDiscovery.api.route.schedule.not.found"),
       },
     },
     404,
