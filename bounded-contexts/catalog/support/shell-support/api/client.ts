@@ -1921,6 +1921,20 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    async getCatalogSyncScopeState<T>(scope: unknown): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/catalog-sync-scope/state`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify({ scope }),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async retrySourceObservationIntegrationJob<T>(jobId: string): Promise<T> {
       return sourceObservationIntegrationJobLifecycleCommand<T>({
         baseUrl,

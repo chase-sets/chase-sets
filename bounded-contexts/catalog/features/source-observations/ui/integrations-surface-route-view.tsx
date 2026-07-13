@@ -3,7 +3,11 @@ import { Await } from "react-router";
 import { t } from "@chase-sets/localization";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
-import type { CatalogSyncRun, SourceObservationIntegrationImportPreview } from "./contracts";
+import type {
+  CatalogScopeSyncUnitStateReadModel,
+  CatalogSyncRun,
+  SourceObservationIntegrationImportPreview,
+} from "./contracts";
 import type { CatalogAliasReviewReadModel } from "../../alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
@@ -29,6 +33,7 @@ export type CatalogIntegrationsRouteData = Readonly<{
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
   deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
   deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
+  deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
   deferredAliasReview?: Promise<CatalogAliasReviewReadModel | null> | null;
 }>;
 
@@ -67,6 +72,7 @@ export function CatalogIntegrationsSurfaceRouteView({
       deferredSourceOptions={routeData.deferredSourceOptions ?? null}
       deferredImportPreview={routeData.deferredImportPreview ?? null}
       deferredCatalogSyncRun={routeData.deferredCatalogSyncRun ?? null}
+      deferredScopeSyncState={routeData.deferredScopeSyncState ?? null}
     />
   );
 }

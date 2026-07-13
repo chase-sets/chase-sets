@@ -1,6 +1,10 @@
 import { useMemo, type ReactElement } from "react";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
-import type { CatalogSyncRun, SourceObservationIntegrationImportPreview } from "./contracts";
+import type {
+  CatalogScopeSyncUnitStateReadModel,
+  CatalogSyncRun,
+  SourceObservationIntegrationImportPreview,
+} from "./contracts";
 import {
   catalogControlPlaneRouteSurface,
   type CatalogControlPlaneRouteSurfaceKey,
@@ -23,6 +27,7 @@ export interface CatalogIntegrationsSurfacePageProps {
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
   deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
   deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
+  deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
 }
 
 // One audience surface route body: composes the shared workbench shell around the
@@ -38,6 +43,7 @@ export function CatalogIntegrationsSurfacePage({
   deferredSourceOptions = null,
   deferredImportPreview = null,
   deferredCatalogSyncRun = null,
+  deferredScopeSyncState = null,
 }: CatalogIntegrationsSurfacePageProps) {
   const surfaceDefinition = useMemo(() => catalogControlPlaneRouteSurface(surface), [surface]);
 
@@ -54,6 +60,7 @@ export function CatalogIntegrationsSurfacePage({
         deferredSourceOptions,
         deferredImportPreview,
         deferredCatalogSyncRun,
+        deferredScopeSyncState,
       })}
     </CatalogWorkbenchShell>
   );

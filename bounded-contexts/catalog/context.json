@@ -32,6 +32,7 @@
     "provider-scope-mapping",
     "reference-data",
     "scope-registry",
+    "scope-sync-state",
     "source-observations"
   ],
   "allowedSupportDirectories": [
@@ -528,6 +529,11 @@
       "purpose": "Own reviewed provider execution coordinates that map one provider unit to one canonical Catalog Scope Record.",
       "expectedConsumers": ["source-observations", "Internal catalog module composition"]
     },
+    "scope-sync-state": {
+      "classification": "slice",
+      "purpose": "Own durable per-(Catalog sync scope, provider unit) sync state that survives across sync runs, so a scope page can show who settled/failed/never-synced and a failed provider can be retried without re-running the whole scope.",
+      "expectedConsumers": ["source-observations", "Internal catalog module composition"]
+    },
     "source-observations": {
       "classification": "slice",
       "purpose": "Own provider source observations, review workflow, and promotion of candidate provider facts into canonical Catalog Items.",
@@ -836,6 +842,7 @@
         "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /reapply",
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /catalog-sync-scope/preview",
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /catalog-sync-scope/runs",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /catalog-sync-scope/state",
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs",
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/preview",
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/:jobId/cancel",
@@ -867,10 +874,10 @@
       ],
       "visibleDestination": {
         "routeId": "integrations",
-        "description": "Source Observation workbench mutations return scoped job, review, Catalog sync scope preview/run, candidate generation, merge-candidate command payload preview, import preview, impact, and provider-profile snapshots to the same operator workflow; durable job event streams correct later progress without requiring an immediate projection-backed refresh."
+        "description": "Source Observation workbench mutations return scoped job, review, Catalog sync scope preview/run/state, candidate generation, merge-candidate command payload preview, import preview, impact, and provider-profile snapshots to the same operator workflow; durable job event streams correct later progress without requiring an immediate projection-backed refresh."
       },
       "proof": {
-        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, candidate generation, merge-candidate review command payload preview, and observation review routes return the durable job/profile/review/preview/candidate snapshot produced by the command service in the same request. Catalog sync scope preview returns the computed provider participation preview snapshot without enqueuing a provider job. Catalog sync scope run enqueue returns the durable parent run snapshot with selected provider-unit snapshots and child fan-out links. Candidate generation returns the generated merge-candidate snapshot correlated to the requested sync run or scope. Merge-candidate review command previews return the exact split/update route and body payload from the candidate review row, and the submitted command routes return the command-owned candidate snapshot. Route tests cover Catalog sync scope preview/run, job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, candidate generation service wiring, merge-candidate command payload previews, and preview/impact responses.",
+        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, candidate generation, merge-candidate review command payload preview, and observation review routes return the durable job/profile/review/preview/candidate snapshot produced by the command service in the same request. Catalog sync scope preview returns the computed provider participation preview snapshot without enqueuing a provider job. Catalog sync scope run enqueue returns the durable parent run snapshot with selected provider-unit snapshots and child fan-out links. Catalog sync scope state returns the durable per-scope-per-provider-unit sync state snapshot read directly from catalog_scope_sync_state, the same table the fan-out and worker completion/failure hooks upsert into, so the response is never behind the write it reflects. Candidate generation returns the generated merge-candidate snapshot correlated to the requested sync run or scope. Merge-candidate review command previews return the exact split/update route and body payload from the candidate review row, and the submitted command routes return the command-owned candidate snapshot. Route tests cover Catalog sync scope preview/run/state, job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, candidate generation service wiring, merge-candidate command payload previews, and preview/impact responses.",
         "tests": [
           "bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-review-command-payloads.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/runtime-service-facets.test.ts",
@@ -904,6 +911,7 @@
       "surfaces": [
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:PATCH H661a4c9c6ed8#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H0be18cbb16a4#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H17cd86e76cd7#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H2ccae70b986c#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H4713b23308ae#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5916ed4aed53#1",

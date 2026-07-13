@@ -23,8 +23,9 @@ import type {
   CatalogPrimaryWorkbenchCatalogSyncUnitReadModel,
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
-import type { CatalogSyncRun } from "../../contracts";
+import type { CatalogScopeSyncUnitStateReadModel, CatalogSyncRun } from "../../contracts";
 import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
+import { CommandHiddenInputs } from "./command-controls";
 import { BlockerList, stateLabel } from "./workbench-formatting";
 
 type CatalogSyncUnitRow = CatalogPrimaryWorkbenchCatalogSyncUnitReadModel;
@@ -32,9 +33,11 @@ type CatalogSyncUnitRow = CatalogPrimaryWorkbenchCatalogSyncUnitReadModel;
 export function CatalogSyncScopeModule({
   readModel,
   deferredCatalogSyncRun = null,
+  deferredScopeSyncState = null,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
+  deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
 }>) {
   const catalogSync = readModel.catalogSync;
   const defaultSelectedUnitKeys = catalogSync.preview.units
@@ -233,6 +236,8 @@ export function CatalogSyncScopeModule({
         </WorkbenchForm>
 
         <DeferredCatalogSyncRunProgress deferredCatalogSyncRun={deferredCatalogSyncRun} />
+
+        <DeferredScopeSyncStateSection readModel={readModel} deferredScopeSyncState={deferredScopeSyncState} />
       </WorkbenchStack>
     </WorkflowModule>
   );
@@ -348,6 +353,177 @@ function CatalogSyncRunProgress({ run }: Readonly<{ run: CatalogSyncRun }>) {
       </WorkbenchStack>
     </WorkbenchDetailPanel>
   );
+}
+
+// Durable per-scope sync state: unlike `CatalogSyncRunProgress` above (one
+// in-flight run's child jobs), this survives across runs. It answers "who
+// settled, who failed, who never ran" for the scope as a whole, and lets an
+// operator retry exactly one failed provider without touching the settled
+// ones or re-running the whole scope.
+function DeferredScopeSyncStateSection({
+  readModel,
+  deferredScopeSyncState,
+}: Readonly<{
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  deferredScopeSyncState: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
+}>) {
+  if (!deferredScopeSyncState) {
+    return null;
+  }
+
+  return (
+    <Suspense
+      fallback={
+        <WorkbenchDetailPanel>
+          <WorkbenchText>
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.loading")}
+          </WorkbenchText>
+        </WorkbenchDetailPanel>
+      }
+    >
+      <Await resolve={deferredScopeSyncState}>
+        {(units) => (units && units.length > 0 ? <ScopeSyncStateTable readModel={readModel} units={units} /> : null)}
+      </Await>
+    </Suspense>
+  );
+}
+
+function ScopeSyncStateTable({
+  readModel,
+  units,
+}: Readonly<{
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  units: readonly CatalogScopeSyncUnitStateReadModel[];
+}>) {
+  return (
+    <WorkbenchDetailPanel data-catalog-scope-sync-state="ready">
+      <WorkbenchStack>
+        <WorkbenchText tone="foreground" weight="semibold">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.title")}
+        </WorkbenchText>
+        <WorkbenchText size="sm" tone="secondary">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.description")}
+        </WorkbenchText>
+        <DataTable
+          rows={[...units]}
+          columns={[
+            {
+              key: "unit",
+              header: t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.table.providerUnit"),
+              cell: (unit) => <WorkbenchDataCell title={unit.displayName} description={unit.unitKey} />,
+            },
+            {
+              key: "state",
+              header: t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.column.state"),
+              cell: (unit) => <Badge tone={scopeSyncStateTone(unit.state)}>{stateLabel(unit.state)}</Badge>,
+            },
+            {
+              key: "counts",
+              header: t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.column.counts"),
+              cell: (unit) => (
+                <KeyValueList
+                  items={[
+                    {
+                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.observed"),
+                      value:
+                        unit.observedCount ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                    },
+                    {
+                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.changed"),
+                      value:
+                        unit.changedCount ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                    },
+                  ]}
+                />
+              ),
+            },
+            {
+              key: "lastRun",
+              header: t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.column.lastRun"),
+              cell: (unit) => (
+                <WorkbenchStack gap="sm">
+                  <WorkbenchText size="xs">
+                    {t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.parentRun", {
+                      value: unit.lastSyncRunId ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.none"),
+                    })}
+                  </WorkbenchText>
+                  <WorkbenchText size="xs" tone="secondary">
+                    {unit.lastCompletedAt ??
+                      t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.neverCompleted")}
+                  </WorkbenchText>
+                </WorkbenchStack>
+              ),
+            },
+            {
+              key: "actions",
+              header: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
+              align: "right",
+              cell: (unit) =>
+                scopeSyncUnitRetryAvailable(unit) ? (
+                  <ScopeSyncUnitRetryAction readModel={readModel} unit={unit} />
+                ) : null,
+            },
+          ]}
+          caption="Catalog scope sync state"
+          density="compact"
+          getRowId={(unit) => `${unit.providerKey}:${unit.unitKey}`}
+          getRowProps={(unit) => ({
+            "data-catalog-scope-sync-state-row": "true",
+            "data-catalog-scope-sync-state-provider": unit.providerKey,
+            "data-catalog-scope-sync-state-unit": unit.unitKey,
+            "data-catalog-scope-sync-state-value": unit.state,
+          })}
+          emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.empty.title")}
+          emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.empty.description")}
+        />
+      </WorkbenchStack>
+    </WorkbenchDetailPanel>
+  );
+}
+
+// Retry is only ever offered for a unit that needs operator attention
+// (failed/stale) and has a job to retry — clicking it reuses the existing
+// per-job retry command scoped to exactly that job, so every other unit's
+// durable state (including settled ones) is untouched.
+function scopeSyncUnitRetryAvailable(unit: CatalogScopeSyncUnitStateReadModel): boolean {
+  return (unit.state === "failed" || unit.state === "stale") && Boolean(unit.lastJobId);
+}
+
+function ScopeSyncUnitRetryAction({
+  readModel,
+  unit,
+}: Readonly<{
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  unit: CatalogScopeSyncUnitStateReadModel;
+}>) {
+  return (
+    <WorkbenchForm
+      variant="button"
+      method="post"
+      action={catalogPrimaryWorkbenchHref({ ...readModel.routeContext, jobId: unit.lastJobId }, "import-to-promotion")}
+      data-catalog-primary-workbench-command="retry-import-job"
+      data-catalog-scope-sync-state-retry-provider={unit.providerKey}
+      data-catalog-scope-sync-state-retry-unit={unit.unitKey}
+    >
+      <CommandHiddenInputs readModel={readModel} intent="retry-import-job" jobId={unit.lastJobId} />
+      <Button type="submit" size="sm" tone="secondary">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.retry")}
+      </Button>
+    </WorkbenchForm>
+  );
+}
+
+function scopeSyncStateTone(state: CatalogScopeSyncUnitStateReadModel["state"]) {
+  if (state === "settled") {
+    return "success";
+  }
+  if (state === "failed" || state === "stale") {
+    return "danger";
+  }
+  if (state === "running" || state === "pending") {
+    return "info";
+  }
+  return "neutral";
 }
 
 function syncStatusTone(status: CatalogPrimaryWorkbenchReadModel["catalogSync"]["status"]) {

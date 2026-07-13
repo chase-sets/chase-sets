@@ -20,6 +20,7 @@ import type {
   CatalogProviderProfileAuthoringModel,
   CatalogIntegrationControlPlaneOverview,
   CatalogMergeCandidateListItem,
+  CatalogScopeSyncUnitStateReadModel,
   CatalogSyncRun,
   SourceObservationIntegrationImportPreview,
   SourceObservationIntegrationJobScope,
@@ -281,6 +282,7 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
     ),
     deferredImportPreview: selectedImportPreview(api, readModel.routeContext),
     deferredCatalogSyncRun: selectedCatalogSyncRun(api, readModel.routeContext),
+    deferredScopeSyncState: selectedCatalogScopeSyncState(api, readModel.catalogSync),
     deferredAliasReview: selectedScopeAliasReview(api, readModel.routeContext),
   };
 }
@@ -499,6 +501,31 @@ async function selectedCatalogSyncRun(
 
   try {
     return await api.getCatalogSyncRun<CatalogSyncRun>(context.jobId);
+  } catch {
+    return null;
+  }
+}
+
+// The durable per-scope sync state (survives across runs), keyed off the same
+// scope the "Sync scope" action itself submits — so the scope page's state
+// panel and the "Sync scope" fan-out always agree on which scope they mean.
+async function selectedCatalogScopeSyncState(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  catalogSync: CatalogPrimaryWorkbenchReadModel["catalogSync"],
+): Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> {
+  if (typeof api.getCatalogSyncScopeState !== "function") {
+    return null;
+  }
+  const scope = catalogSyncScopeFromReadModel(catalogSync);
+  if (!scope) {
+    return null;
+  }
+
+  try {
+    const response = await api.getCatalogSyncScopeState<{ items?: readonly CatalogScopeSyncUnitStateReadModel[] }>(
+      scope,
+    );
+    return response.items ?? null;
   } catch {
     return null;
   }
