@@ -3242,6 +3242,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformObservabilityStateMigrationWorkflow).toContain('-state="$shared_work"');
   });
 
+  it("preserves the live SSH posture during the observability state migration", () => {
+    expect(platformObservabilityStateMigrationWorkflow).toContain(
+      "TF_VAR_ssh_key_fingerprints: ${{ vars.OBSERVABILITY_SSH_KEY_FINGERPRINTS || '[]' }}",
+    );
+    expect(platformObservabilityStateMigrationWorkflow).toContain(
+      "TF_VAR_ssh_source_addresses: ${{ vars.OBSERVABILITY_SSH_SOURCE_ADDRESSES || '[]' }}",
+    );
+  });
+
   it("keeps every checked-in observability stack file deployed or explicitly excluded", () => {
     const stackFiles = listFilesRecursively(resolve("infrastructure/observability/stack"));
 

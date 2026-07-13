@@ -34,6 +34,8 @@ jobs:
       TF_VAR_otel_write_token: ${{ secrets.OBSERVABILITY_OTEL_WRITE_TOKEN }}
       TF_VAR_prometheus_query_token: ${{ secrets.PROMETHEUS_QUERY_TOKEN }}
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
+      TF_VAR_ssh_key_fingerprints: ${{ vars.OBSERVABILITY_SSH_KEY_FINGERPRINTS || '[]' }}
+      TF_VAR_ssh_source_addresses: ${{ vars.OBSERVABILITY_SSH_SOURCE_ADDRESSES || '[]' }}
       TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || 'us-east-2' }}
       TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
       TF_VAR_ses_aws_secret_access_key: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}
