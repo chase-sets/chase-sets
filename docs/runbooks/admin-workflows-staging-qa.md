@@ -26,6 +26,25 @@ Record only the actor alias in GitHub evidence. Keep emails, passwords, user ids
 
 The partial-actor rows mirror the local evidence rows in [Admin Shell Smoke Matrix](./admin-shell-smoke-matrix.md). Those local tests are regression guardrails only; #65 still needs deployed browser confirmation for the staging actor aliases above.
 
+The five single-permission rows (`admin-qa-security-manage`, `admin-qa-memberships-view`, `admin-qa-postage-policies-view`, `admin-qa-public-presence-view`, `admin-qa-platform-feedback-view`) stay local-only: Identity grants whole roles (`platform-admin`, `owner`, `manager`, `fulfillment`, `viewer`), not scoped single-permission memberships, so there is no way to provision a real staging identity that holds exactly one permission. They remain proven by [Admin Shell Smoke Matrix](./admin-shell-smoke-matrix.md) partial-actor rows until a scoped permission grant primitive exists in Identity. Do not fabricate deployed evidence for these five rows; record them as `controlled-unavailable` with a reference to this limitation.
+
+## Fixture Provisioning
+
+The six remaining actor matrix rows (every row except the five single-permission rows above) map to real, grantable roles and are provisioned by an idempotent, staging-only operator action, following the same explicit-action pattern as [Staging Representative Commerce State](./staging-representative-commerce-state.md):
+
+```bash
+ADMIN_QA_ACTOR_FIXTURES_CONFIRM="provision admin qa fixtures" \
+pnpm --filter @chase-sets/app-platform-api run admin-qa-actor-fixtures:production
+```
+
+For local or non-standard non-production environments, set `ADMIN_QA_ACTOR_FIXTURES_ALLOW_LOCAL=true` with the same confirmation phrase. The command refuses to run when `DEPLOYMENT_ENVIRONMENT=production`.
+
+The preferred staging operation is the `Platform Staging Admin QA Actor Fixtures` GitHub Actions workflow (`.github/workflows/platform-staging-admin-qa-actor-fixtures.yml`). It is manually dispatched with the confirmation phrase, reads staging database URLs from Terraform state, and runs the fixture command against current staging. Run it after every `Platform Staging Reset` (#3350), since that reset destroys the admin-qa actor fixtures along with everything else.
+
+Each fixture is magic-link only (no password to leak), stable across reruns, and skipped when it already exists, so reruns after a reset are cheap and reruns mid-cycle are no-ops. `admin-qa-platform-admin` is a dedicated QA identity distinct from the real `PLATFORM_ADMIN_EMAIL` bootstrap operator identity, granted through platform-bootstrap authority the same way normal deployment bootstrap grants it. The command's evidence output lists only `actorAlias`, `roleKey`, `signInHost`, and per-fixture `createdAccount`/`createdUser`/`createdMembership`/`createdConsent` booleans; it never prints emails, account ids, user ids, membership ids, or credentials. Use `ADMIN_QA_ACTOR_FIXTURES_EVIDENCE_OUT` to write that evidence to a file for the workflow artifact.
+
+Signing in as a provisioned alias still requires the private magic-link credential from operator tooling; this command only ensures the identity, role grant, and sign-in host exist. It does not replace the deployed browser evidence collection described below.
+
 ## Evidence Rules
 
 Each GitHub issue comment should use this shape:
@@ -292,9 +311,10 @@ For commerce marketplace data, prefer the [Staging Representative Commerce State
 
 ## Verification Sequence
 
-1. Confirm every actor alias has private credentials or a private credential owner.
-2. Sign in through the intended host for each alias.
-3. Capture the landing route, section navigation, account-select behavior, and denied-write behavior where applicable.
-4. Run each section checklist issue with the least-privilege actor that proves the behavior.
-5. File a narrower bug under milestone #65 for any unexpected route error, permission leak, stale state, or missing fixture.
-6. Close #3016 only after all actor aliases have deployed staging evidence and representative state gaps are either resolved or tracked in narrower milestone issues.
+1. Run the [Fixture Provisioning](#fixture-provisioning) command or workflow so the six real-role actor aliases exist (skip if already provisioned and no staging reset has run since).
+2. Confirm every actor alias has private credentials or a private credential owner.
+3. Sign in through the intended host for each alias.
+4. Capture the landing route, section navigation, account-select behavior, and denied-write behavior where applicable.
+5. Run each section checklist issue with the least-privilege actor that proves the behavior.
+6. File a narrower bug under milestone #65 for any unexpected route error, permission leak, stale state, or missing fixture.
+7. Close #3016 only after all six provisionable actor aliases have deployed staging evidence, the five single-permission rows are recorded `controlled-unavailable` per the note above, and representative state gaps are either resolved or tracked in narrower milestone issues.

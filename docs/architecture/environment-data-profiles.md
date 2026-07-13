@@ -12,6 +12,8 @@ Environment data setup is split by purpose, not by deployable.
 
 `representative-commerce-state` is explicit staging commerce state. It is production-like, internally controlled marketplace activity for staging review and operational validation. It does not create fake Catalog Items. It keeps Catalog integration output in place, selects active current Catalog Items with product measurement snapshots that have not yet received marketplace activity, then creates representative internal accounts, inventory, listings, offers, purchases, sales, shipments, payments, settlement, payouts, reviews, support requests, notifications, and edge cases around those products. It must be run only by staging reset or an operator-confirmed staging refresh workflow, never as implicit deployment bootstrap.
 
+`admin-qa-actor-fixtures` is explicit staging Identity fixtures for the m65 Admin Workflows Staging QA actor matrix (issue #3016). It provisions the support-safe `admin-qa-*` staging actor aliases that map to real, whole-role Identity grants (`platform-admin`, `owner`, `manager`, `fulfillment`, `viewer`), each magic-link only and idempotent. It does not attempt to provision the single-permission partial-actor rows because Identity has no scoped single-permission membership grant; those stay proven by local regression guardrails only. It must be run only by an operator-confirmed staging fixture workflow, never as implicit deployment bootstrap.
+
 ## Environment Policy
 
 | Environment | Data profiles |
@@ -22,7 +24,7 @@ Environment data setup is split by purpose, not by deployable.
 | Staging | `critical-bootstrap`, `catalog-integration-bootstrap` |
 | Production | `critical-bootstrap`, `catalog-integration-bootstrap` |
 
-Staging may additionally run `representative-commerce-state` through an explicit operator action after deployment or reset.
+Staging may additionally run `representative-commerce-state` and `admin-qa-actor-fixtures` through an explicit operator action after deployment or reset.
 
 Staging and production are long-lived. They should receive real operator actions and provider imports. Staging may receive synthetic commerce usage, but the synthetic layer must be clearly internal, idempotent, and derived from current Catalog integration data instead of replacing it.
 
@@ -42,3 +44,5 @@ Dev, preview, and tests may auto-create a small provider-backed scenario set so 
 - Scenario seeds must remain replay-safe and idempotent in non-production.
 - Representative commerce state must remain blocked in production and must require an explicit staging confirmation phrase.
 - Representative commerce state must query current active Catalog Items and prefer items with no existing listings or offers.
+- Admin QA actor fixtures must remain blocked in production and must require an explicit staging confirmation phrase.
+- Admin QA actor fixture evidence must never include emails, account ids, user ids, membership ids, or credentials.

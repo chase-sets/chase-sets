@@ -1,0 +1,137 @@
+name: Platform Staging Admin QA Actor Fixtures
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Ref containing the fixture provisioning code. Defaults to main.
+        required: false
+        default: main
+        type: string
+      confirm:
+        description: Type "provision admin qa fixtures" to provision the support-safe admin-qa-* staging actor fixtures.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-admin-qa-actor-fixtures-staging
+  cancel-in-progress: false
+
+jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Admin QA Actor Fixtures
+    runs-on: ubuntu-latest
+    if: inputs.confirm != 'provision admin qa fixtures'
+    steps:
+      - name: Refuse unconfirmed admin-qa actor fixtures
+        run: |
+          echo 'Confirmation text did not match exactly; expected "provision admin qa fixtures".' >&2
+          exit 1
+
+  provision-admin-qa-actor-fixtures:
+    name: Provision Admin QA Actor Fixtures
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped' && inputs.confirm == 'provision admin qa fixtures'
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_environment: staging
+      DEPLOYMENT_ENVIRONMENT: staging
+      NODE_ENV: production
+      ADMIN_QA_ACTOR_FIXTURES_CONFIRM: provision admin qa fixtures
+      ADMIN_QA_ACTOR_FIXTURES_EVIDENCE_OUT: ${{ github.workspace }}/artifacts/admin-qa-actor-fixtures/admin-qa-actor-fixtures-evidence.json
+      PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+      CATALOG_ASSET_STORAGE_KIND: s3
+      CATALOG_ASSET_S3_BUCKET: chase-sets-staging-catalog-assets
+      CATALOG_ASSET_S3_REGION: nyc3
+      CATALOG_ASSET_S3_ENDPOINT: https://nyc3.digitaloceanspaces.com
+      CATALOG_ASSET_PUBLIC_BASE_URL: https://assets.staging.chasesets.com
+      CATALOG_ASSET_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+      CATALOG_ASSET_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+      MARKETPLACE_LISTING_PHOTO_STORAGE_KIND: s3
+      MARKETPLACE_LISTING_PHOTO_S3_BUCKET: chase-sets-staging-catalog-assets
+      MARKETPLACE_LISTING_PHOTO_S3_REGION: nyc3
+      MARKETPLACE_LISTING_PHOTO_S3_ENDPOINT: https://nyc3.digitaloceanspaces.com
+      MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL: https://assets.staging.chasesets.com
+      MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+      MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+    steps:
+      - name: Confirm fixture provisioning
+        run: |
+          set -euo pipefail
+          echo "Admin QA actor fixture provisioning confirmed."
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release commit
+        run: |
+          set -euo pipefail
+          node ./scripts/resolve-release-commit.mjs \
+            --release-ref "${{ inputs.release_ref }}" \
+            --checkout true
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - name: Terraform init staging platform state
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=landing/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Export staging database URLs
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          state_path="${RUNNER_TEMP}/platform-staging.tfstate.json"
+          terraform state pull > "$state_path"
+          node ../../../scripts/terraform-state-database-urls.mjs \
+            --state "$state_path" \
+            --environment staging \
+            --github-env "$GITHUB_ENV"
+
+      - name: Provision admin-qa actor fixtures
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/admin-qa-actor-fixtures
+          pnpm --filter @chase-sets/app-platform-api run admin-qa-actor-fixtures:production
+
+      - name: Upload admin-qa actor fixtures evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: admin-qa-actor-fixtures-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/admin-qa-actor-fixtures
+          if-no-files-found: error
+          retention-days: 30

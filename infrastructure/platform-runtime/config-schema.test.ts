@@ -60,6 +60,7 @@ describe("platform runtime config schema", () => {
       "catalog-integration-bootstrap",
       "scenario-seed",
       "representative-commerce-state",
+      "admin-qa-actor-fixtures",
     ]);
   });
 

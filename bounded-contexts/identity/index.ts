@@ -40,6 +40,6 @@ export const module = defineBoundedContextModule<IdentityServices, PgTransaction
         },
       },
     }),
-  seedProfiles: ["scenario-seed", "representative-commerce-state"],
+  seedProfiles: ["scenario-seed", "representative-commerce-state", "admin-qa-actor-fixtures"],
   seed: seedIdentityDatabase,
 });

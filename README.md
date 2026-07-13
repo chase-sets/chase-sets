@@ -74,7 +74,7 @@ Deployables are thin composition roots. Business behavior should not live in dep
 - `deployables/admin-web` (`@chase-sets/app-admin-web`): package scripts `build`, `dev`, `start`, `test`, `typecheck`.
 - `deployables/marketplace` (`@chase-sets/app-marketplace-web`): package scripts `build`, `dev`, `start`, `test`, `typecheck`.
 - `deployables/marketplace-seed-testing` (`@chase-sets/marketplace-seed-testing`): package scripts `test:db`.
-- `deployables/platform-api` (`@chase-sets/app-platform-api`): package scripts `bootstrap`, `bootstrap:production`, `dev`, `representative-commerce-state`, `representative-commerce-state:production`, `start`, `start:production`, `test`, `test:db`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
+- `deployables/platform-api` (`@chase-sets/app-platform-api`): package scripts `admin-qa-actor-fixtures`, `admin-qa-actor-fixtures:production`, `bootstrap`, `bootstrap:production`, `dev`, `representative-commerce-state`, `representative-commerce-state:production`, `start`, `start:production`, `test`, `test:db`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
 - `deployables/platform-worker` (`@chase-sets/app-platform-worker`): package scripts `bootstrap`, `bootstrap:production`, `dev`, `start`, `start:production`, `test`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
 - `deployables/public-web` (`@chase-sets/app-public-web`): package scripts `build`, `dev`, `prebuild`, `start`, `test`, `typecheck`.
 

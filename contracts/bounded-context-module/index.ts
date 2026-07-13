@@ -474,6 +474,7 @@ export const ENVIRONMENT_DATA_PROFILES = [
   "catalog-integration-bootstrap",
   "scenario-seed",
   "representative-commerce-state",
+  "admin-qa-actor-fixtures",
 ] as const;
 
 export type EnvironmentDataProfile = (typeof ENVIRONMENT_DATA_PROFILES)[number];

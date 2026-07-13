@@ -46,6 +46,12 @@ export const representativeCommerceStateDataProfiles: readonly EnvironmentDataPr
   "representative-commerce-state",
 ];
 
+export const adminQaActorFixturesDataProfiles: readonly EnvironmentDataProfile[] = [
+  "critical-bootstrap",
+  "catalog-integration-bootstrap",
+  "admin-qa-actor-fixtures",
+];
+
 export type ApiContextManifest = Readonly<{
   contextName: string;
   apiDeployables?: readonly string[];
