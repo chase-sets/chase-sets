@@ -205,6 +205,7 @@ export const decideRefund: AggregateDecider<RefundState, RefundCommand, RefundEv
       if (state.status === "failed") {
         return [];
       }
+      assert(state.status !== "issued", "Issued refunds cannot fail.");
       return [
         {
           type: "payments.refund-failed",

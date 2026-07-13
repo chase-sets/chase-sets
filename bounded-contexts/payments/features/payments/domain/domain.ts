@@ -123,6 +123,7 @@ export type PaymentState = Readonly<{
   failureCode: string | null;
   failureMessage: string | null;
   createdAt: string | null;
+  authorizedAt: string | null;
   capturedAt: string | null;
   failedAt: string | null;
   cancelledAt: string | null;
@@ -186,6 +187,7 @@ export const initialPaymentState: PaymentState = {
   failureCode: null,
   failureMessage: null,
   createdAt: null,
+  authorizedAt: null,
   capturedAt: null,
   failedAt: null,
   cancelledAt: null,
@@ -916,15 +918,22 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
       ];
     case "RecordPaymentAuthorization":
       assert(state.paymentId !== null, "Payment must be created first.");
-      if (state.status === "captured" || state.status === "cancelled") {
+      if (state.capturedAt !== null || state.status === "cancelled") {
         return [];
       }
+      if (state.authorizedAt) {
+        return [];
+      }
+      const authorizationProcessorStatus = normalizeRequiredText(
+        command.processorStatus,
+        "Processor status is required.",
+      );
       return [
         {
           type: "payments.payment-authorized",
           data: {
             paymentId: state.paymentId,
-            processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
+            processorStatus: authorizationProcessorStatus,
             authorizedAt: ensureIsoTimestamp(command.authorizedAt, "Payment authorization must include a timestamp."),
           },
         },
@@ -1006,7 +1015,7 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
       if (state.status === "cancelled") {
         return [];
       }
-      assert(state.status !== "captured", "Captured payments cannot be cancelled.");
+      assert(state.capturedAt === null, "Captured payments cannot be cancelled.");
       return [
         {
           type: "payments.payment-cancelled",
@@ -1412,6 +1421,7 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         failureCode: null,
         failureMessage: null,
         createdAt: event.data.createdAt,
+        authorizedAt: null,
         capturedAt: null,
         failedAt: null,
         cancelledAt: null,
@@ -1431,6 +1441,7 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
       return {
         ...state,
         processorStatus: event.data.processorStatus,
+        authorizedAt: event.data.authorizedAt,
       };
     case "payments.payment-captured":
       return {
