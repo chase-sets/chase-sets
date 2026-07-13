@@ -1214,7 +1214,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(productionAbortIndex).toBeLessThan(diagnosticsIndex);
     expect(diagnosticsIndex).toBeLessThan(rollbackIndex);
     expect(rollbackIndex).toBeLessThan(markerIndex);
-    expect(deployStagingJob).toContain('ARGO_ROLLOUTS_ENABLED: "true"');
+    expect(deployStagingJob).toContain("STAGING_ARGO_ROLLOUTS_ENABLED");
     expect(deployProductionJob).toContain("PRODUCTION_ARGO_ROLLOUTS_ENABLED");
     expect(platformProductionWorkflow).toContain("kubectl-argo-rollouts-linux-amd64");
     expect(platformProductionWorkflow).toContain("d1c98f59f6d3716b7a35aa540506764700a358448dd6a10e92381b7aa294d00b");
