@@ -30,6 +30,9 @@ import { createBulkRepriceIngestionRuntime, type BulkRepriceMarketplaceListingGa
  */
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const runBenchmark = process.env.RUN_BULK_REPRICE_BENCHMARK === "1";
+if (!databaseBaseUrl && process.env.CI && runBenchmark) {
+  throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
+}
 const describeBenchmark = databaseBaseUrl && runBenchmark ? describe : describe.skip;
 const contextNames = ["pricing"] as const;
 const TOTAL_ROWS = Number(process.env.BULK_REPRICE_BENCHMARK_ROWS ?? 250_000);

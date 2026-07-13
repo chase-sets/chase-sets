@@ -22,6 +22,9 @@ import {
 } from "./test-support";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
+if (!adminDatabaseUrl && process.env.CI) {
+  throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
+}
 const describeDb = adminDatabaseUrl ? describe : describe.skip;
 
 type TestContextName = "source" | "target";

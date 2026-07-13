@@ -9,6 +9,9 @@ import { createPostgresEventStore } from "./event-store";
 import { createIsolatedPostgresTestSchema, type IsolatedPostgresTestSchema } from "./postgres-db-test-support";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
+if (!adminDatabaseUrl && process.env.CI) {
+  throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
+}
 const describeDb = adminDatabaseUrl ? describe : describe.skip;
 
 type CounterEvent = DomainEvent<"counter.incremented", { by: number }>;

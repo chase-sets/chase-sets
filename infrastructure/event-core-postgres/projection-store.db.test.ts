@@ -3,6 +3,9 @@ import { createPostgresProjectionStore } from "./projection-store";
 import { createIsolatedPostgresTestSchema, type IsolatedPostgresTestSchema } from "./postgres-db-test-support";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
+if (!adminDatabaseUrl && process.env.CI) {
+  throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
+}
 const describeDb = adminDatabaseUrl ? describe : describe.skip;
 
 describeDb("postgres projection store real database integration", () => {

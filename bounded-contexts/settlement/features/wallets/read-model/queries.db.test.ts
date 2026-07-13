@@ -11,6 +11,9 @@ import { module as settlementModule } from "../../../index";
 import { listPendingCreditEntriesMaturedBy } from "./queries";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
+if (!databaseBaseUrl && process.env.CI) {
+  throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
+}
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 const contextNames = ["settlement"] as const;
 const now = "2026-07-05T18:00:00.000Z";
