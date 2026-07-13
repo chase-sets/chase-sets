@@ -6,6 +6,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, LedgerEntryId, UserId, WalletAdjustmentId } from "@chase-sets/primitives/typed-ids";
+import type { SettlementWalletRow } from "../read-model/queries";
 import type { WalletServices } from "./runtime";
 import {
   availableBalanceBeforePosting,
@@ -19,6 +20,11 @@ import {
   type WalletAdjustmentState,
 } from "../domain/wallet-adjustment";
 import {
+  buildWalletAdjustmentPreview,
+  computeWalletBalanceRevision,
+  type WalletAdjustmentPreview,
+} from "./wallet-adjustment-preview";
+import {
   getWalletAdjustment,
   listIncompleteWalletAdjustments,
   listWalletAdjustments,
@@ -28,6 +34,7 @@ import {
   compareMoney,
   normalizeCurrencyCode,
   normalizeLedgerEntryDirection,
+  normalizeMoneyAmount,
   SettlementDomainError,
   subtractMoney,
   type CurrencyCode,
@@ -35,6 +42,23 @@ import {
 } from "../../../support/runtime-support/common";
 
 const MAX_CONCURRENCY_RETRIES = 5;
+
+/**
+ * Raised when an operator confirms a Wallet Adjustment against a balance
+ * revision that no longer matches the authoritative wallet -- the balance moved
+ * between preview and confirmation. The API surface maps this to a 409 so the
+ * operator re-previews rather than posting against unseen state.
+ */
+export class StaleWalletBalanceError extends Error {
+  public readonly code = "stale_balance_revision" as const;
+  public constructor(
+    public readonly expectedBalanceRevision: string,
+    public readonly currentBalanceRevision: string,
+  ) {
+    super("Wallet balance changed since preview; re-preview before confirming this adjustment.");
+    this.name = "StaleWalletBalanceError";
+  }
+}
 
 function isConcurrencyConflict(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "concurrency_conflict";
@@ -87,6 +111,18 @@ export type RequestWalletAdjustmentInput = Readonly<{
   requestedAt?: string;
   selfBenefiting: boolean;
   reversalOfAdjustmentId?: WalletAdjustmentId | null;
+  /** When present, the request is rejected unless the authoritative wallet still matches the previewed balance. */
+  expectedBalanceRevision?: string | null;
+}>;
+
+export type PreviewWalletAdjustmentInput = Readonly<{
+  targetAccountId: AccountId;
+  direction: LedgerEntryDirection;
+  amount: string;
+  currencyCode?: CurrencyCode;
+  reasonCode: WalletAdjustmentReasonCode;
+  selfBenefiting: boolean;
+  controls?: WalletAdjustmentControls;
 }>;
 
 export type ApproveWalletAdjustmentInput = Readonly<{
@@ -121,6 +157,10 @@ export type ReverseWalletAdjustmentInput = Readonly<{
 
 export type WalletAdjustmentServices = Readonly<{
   deriveAdjustmentId: (idempotencyKey: string, targetAccountId: AccountId) => WalletAdjustmentId;
+  /** Authoritative, projection-independent preview of a proposed adjustment's balance and governance consequence. */
+  preview: (input: PreviewWalletAdjustmentInput) => Promise<WalletAdjustmentPreview>;
+  /** The target account's authoritative wallet summary for the operator adjustment surface. */
+  getAccountSummary: (accountId: string) => Promise<SettlementWalletRow>;
   request: (input: RequestWalletAdjustmentInput, context: EventStoreContext) => Promise<WalletAdjustmentSnapshot>;
   approve: (input: ApproveWalletAdjustmentInput, context: EventStoreContext) => Promise<WalletAdjustmentSnapshot>;
   reject: (input: RejectWalletAdjustmentInput, context: EventStoreContext) => Promise<WalletAdjustmentSnapshot>;
@@ -237,6 +277,20 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
     context: EventStoreContext,
   ): Promise<WalletAdjustmentSnapshot> {
     const adjustmentId = deriveWalletAdjustmentId(input.idempotencyKey, input.targetAccountId);
+    // Confirm the operator is acting on the balance they previewed. A duplicate
+    // retry of an already-recorded adjustment is exempt: the request is an
+    // idempotent no-op, so an intervening balance move must not turn a
+    // successful retry into a spurious conflict.
+    if (input.expectedBalanceRevision) {
+      const existing = await loadState(adjustmentId);
+      if (existing.status === null) {
+        const wallet = await deps.wallets.loadWalletState(input.targetAccountId);
+        const currentRevision = computeWalletBalanceRevision(wallet);
+        if (currentRevision !== input.expectedBalanceRevision) {
+          throw new StaleWalletBalanceError(input.expectedBalanceRevision, currentRevision);
+        }
+      }
+    }
     const state = await runCommand(
       adjustmentId,
       {
@@ -458,8 +512,25 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
     return { original: snapshotFromState(originalState), reversal: reversalSnapshot };
   }
 
+  async function preview(input: PreviewWalletAdjustmentInput): Promise<WalletAdjustmentPreview> {
+    const wallet = await deps.wallets.loadWalletState(input.targetAccountId);
+    return buildWalletAdjustmentPreview(wallet, {
+      direction: normalizeLedgerEntryDirection(input.direction),
+      amount: normalizeMoneyAmount(input.amount, { fieldName: "Wallet Adjustment amount" }),
+      currencyCode: normalizeCurrencyCode(input.currencyCode ?? "usd"),
+      reasonCode: input.reasonCode,
+      selfBenefiting: input.selfBenefiting,
+      // A first-class adjustment (not a reversal) never carries the
+      // reversal-after-settlement elevation reason.
+      reversalAfterFundsSettled: false,
+      ...(input.controls ? { controls: input.controls } : {}),
+    });
+  }
+
   return {
     deriveAdjustmentId: deriveWalletAdjustmentId,
+    preview,
+    getAccountSummary: (accountId) => deps.wallets.getWallet(accountId),
     request,
     approve,
     reject,

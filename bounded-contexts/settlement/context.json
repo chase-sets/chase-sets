@@ -496,7 +496,6 @@
       "risk": "critical",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/adjustments",
         "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/dispute-holds",
         "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/dispute-releases",
         "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/negative-balances/evaluate-collections",
@@ -511,6 +510,30 @@
           "bounded-contexts/settlement/features/wallets/api/route.test.ts",
           "bounded-contexts/settlement/features/wallets/domain/domain.test.ts",
           "bounded-contexts/settlement/features/wallets/read-model/queries.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "settlement.wallet-adjustment-api-command-snapshots",
+      "owner": "settlement",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.ts:POST /wallet-adjustments",
+        "api-route:bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.ts:POST /wallet-adjustments/preview",
+        "api-route:bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.ts:POST /wallet-adjustments/:adjustmentId/approve",
+        "api-route:bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.ts:POST /wallet-adjustments/:adjustmentId/reject",
+        "api-route:bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.ts:POST /wallet-adjustments/:adjustmentId/reverse"
+      ],
+      "visibleDestination": {
+        "description": "Typed wallet-adjustment preview, request, approve, reject, and reverse commands return the command-owned adjustment snapshot (or the authoritative preview) built from the just-committed aggregate state, so the operator surface never depends on the wallet-adjustment read-model projection converging."
+      },
+      "proof": {
+        "authoritativeResponse": "createWalletAdjustmentRuntime returns snapshotFromState built from the WalletAdjustment aggregate state produced by the request/approve/reject/reverse command; preview returns buildWalletAdjustmentPreview computed from the authoritative wallet aggregate balance rather than a projection; a stale previewed balance revision is rejected with a 409 before any posting, and deterministic server-scoped ids make retries return the original adjustment.",
+        "tests": [
+          "bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.test.ts",
+          "bounded-contexts/settlement/features/wallets/api/wallet-adjustment-preview.test.ts",
+          "bounded-contexts/settlement/features/wallets/api/wallet-adjustment-runtime.test.ts"
         ]
       }
     },
