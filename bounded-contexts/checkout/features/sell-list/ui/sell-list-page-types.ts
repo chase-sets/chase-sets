@@ -1,9 +1,12 @@
+import type { MarketplaceListingEvidenceCoverage } from "../../../support/request-support/marketplace-listing-evidence";
+
 export type SellListOfferReview = Readonly<{
   lineId: string;
   status: "ready" | "unavailable";
   terms: SellListTermsPreview | null;
   comparison: SellListOfferTermsComparison | null;
   message: string | null;
+  evidence?: MarketplaceListingEvidenceCoverage | null;
 }>;
 
 export type SellListOfferTermsComparisonField =
@@ -56,6 +59,7 @@ export type SellListProductOfferReview = Readonly<{
       seller_net_unit_amount: string;
       fee_quote_fingerprint: string;
     }>;
+    evidence?: MarketplaceListingEvidenceCoverage | null;
   }>[];
   message: string | null;
 }>;

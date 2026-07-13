@@ -107,6 +107,12 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingDetailPage.choose.photos": "or choose JPEG, PNG, or WebP files",
   "marketplace.features.listings.ui.listingDetailPage.drop.listing.photos": "Drop evidence images here",
   "marketplace.features.listings.ui.listingDetailPage.listing.photos": "Listing evidence",
+  "marketplace.features.listings.api.route.listing.photo.multipart":
+    "Listing photo uploads must use multipart/form-data.",
+  "marketplace.features.listings.api.route.listing.photo.replacement.multipart":
+    "Listing photo replacements must use multipart/form-data.",
+  "marketplace.features.listings.api.route.listing.photo.replacement.required":
+    "A replacement listing photo is required.",
   "marketplace.features.listings.ui.listingDetailPage.listing.photos.description":
     "Uploads are normalized into WebP variants for listing evidence and buyer review.",
   "marketplace.features.listings.evidenceCoverage.min-photo-count-unmet":

@@ -728,6 +728,25 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
     return c.json(listing);
   });
 
+  app.get("/listings/:id/evidence-coverage", async (c) => {
+    const access = requireListingAccess(c, "listings.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    try {
+      return c.json(
+        await services.getListingEvidenceCoverage({
+          accountId: access.actor.accountId,
+          listingId: c.req.param("id"),
+          now: c.req.query("now") || undefined,
+        }),
+      );
+    } catch (error) {
+      return c.json({ error: { code: "not_found", message: errorMessage(error) } }, 404);
+    }
+  });
+
   app.get("/listings/:id/fee-history", async (c) => {
     const access = requireListingAccess(c, "listings.view");
     if (access.response) {
@@ -852,7 +871,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     try {
       if (!isMultipartRequest(c)) {
-        throw new Error("Listing photo uploads must use multipart/form-data.");
+        throw new Error(t("marketplace.features.listings.api.route.listing.photo.multipart"));
       }
       const formData = await c.req.formData();
       const result = await services.addListingPhotos(
@@ -865,6 +884,95 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
       );
 
       return c.json({ id: result.listingId, version: result.version, status: "photos-added" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/listings/:id/photos/:photoId/classify", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      const body = await c.req.json<Record<string, unknown>>();
+      const result = await services.classifyListingPhoto(
+        {
+          accountId: access.actor.accountId,
+          listingId: c.req.param("id"),
+          photoId: c.req.param("photoId"),
+          slotId: parseOptionalString(body.slotId),
+          viewKind: parseOptionalString(body.viewKind),
+          altText: parseOptionalString(body.altText),
+          capturedAt: parseOptionalString(body.capturedAt),
+        },
+        context,
+      );
+      return c.json({ id: result.listingId, version: result.version, status: "photo-classified" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/listings/:id/photos/:photoId/replace", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      if (!isMultipartRequest(c)) {
+        throw new Error(t("marketplace.features.listings.api.route.listing.photo.replacement.multipart"));
+      }
+      const formData = await c.req.formData();
+      const file = formData.get("listingPhoto");
+      if (!(file instanceof File)) {
+        throw new Error(t("marketplace.features.listings.api.route.listing.photo.replacement.required"));
+      }
+      const upload = await fileToPhotoUpload(file, formValue(formData, "listingPhotoAltText"));
+      if (!upload) {
+        throw new Error(t("marketplace.features.listings.api.route.listing.photo.replacement.required"));
+      }
+      const result = await services.replaceListingPhoto(
+        {
+          accountId: access.actor.accountId,
+          listingId: c.req.param("id"),
+          replacedPhotoId: c.req.param("photoId"),
+          upload,
+          slotId: parseOptionalString(formValue(formData, "slotId")),
+          viewKind: parseOptionalString(formValue(formData, "viewKind")),
+          capturedAt: parseOptionalString(formValue(formData, "capturedAt")),
+        },
+        context,
+      );
+      return c.json({ id: result.listingId, version: result.version, status: "photo-replaced" });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

@@ -278,6 +278,75 @@ describe("checkout sell list page", () => {
     expect(markup).not.toContain("settlement internals");
   });
 
+  it("surfaces evaluator coverage and blocks selected-offer checkout until evidence is complete", () => {
+    const markup = renderToString(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+        offerReviews={[
+          {
+            lineId: "sll_offer",
+            status: "ready",
+            terms: {
+              basis_amount: "350.00",
+              marketplace_sales_fee_unit_amount: "35.00",
+              seller_net_unit_amount: "315.00",
+              shipping_allowance_percentage_bps: 0,
+              fee_quote_fingerprint: "fee_selected",
+            },
+            comparison: null,
+            message: null,
+            evidence: {
+              listingId: "lst_charizard",
+              listingStatus: "active",
+              evidence: [],
+              policyHash: "sha256:policy",
+              policyVersion: 1,
+              requirements: {
+                minimumPhotoCount: 1,
+                requiredSlots: [
+                  {
+                    slotId: "condition",
+                    viewKind: "condition",
+                    minimumWidthPixels: null,
+                    minimumHeightPixels: null,
+                    maximumAgeHours: null,
+                  },
+                ],
+                sellerTrustRequirements: [],
+                buyerAcknowledgment: "none",
+              },
+              coverage: {
+                complete: false,
+                unmetCodes: ["slot-missing", "min-photo-count-unmet"],
+                slots: [
+                  {
+                    slotId: "condition",
+                    viewKind: "condition",
+                    satisfied: false,
+                    matchedPhotoId: null,
+                    unmetCode: "slot-missing",
+                  },
+                ],
+                activePhotoCount: 0,
+                minimumPhotoCount: 1,
+              },
+              updatedAt: "2026-07-13T00:00:00.000Z",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Evidence needs action");
+    expect(markup).toContain("Required listing evidence");
+    expect(markup).toContain("lst_charizard");
+    expect(markup).toContain("Add the required photo for this view.");
+    expect(markup).toContain('name="listingPhoto"');
+    expect(markup).toContain("disabled");
+    expect(markup).not.toContain('Continue to seller checkout">Continue to seller checkout</button>');
+  });
+
   it("lets a product line submit fallback listing checkout when inventory is available", () => {
     const productWithoutMatches: CheckoutSellListLineRow = {
       ...productLine,

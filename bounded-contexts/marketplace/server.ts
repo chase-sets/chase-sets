@@ -1,10 +1,12 @@
 export { createMarketplaceRequestApiClient, MarketplaceApiError } from "./support/request-support/api-client";
+export { evidenceCoverageCodeLocaleKey } from "./features/listings/domain/evidence-coverage";
 export type {
   MarketplaceListingInventoryItemOption,
   MarketplaceListingDetail,
   MarketplaceAnonymousListingDraftIntent,
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
+  MarketplaceListingEvidenceCoverage,
   OfferMatchListItem,
   OfferBuyerMute,
   PublicOfferDetail,

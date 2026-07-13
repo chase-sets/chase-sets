@@ -125,7 +125,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `FeatureCard` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Feature Card. | `No production consumer yet.` |
 | `Field` | `packages/design-system/src/components/forms/field.tsx` | Purpose not documented; symbol name suggests: Field. | `No production consumer yet.` |
 | `Fieldset` | `packages/design-system/src/components/forms/fieldset.tsx` | Purpose not documented; symbol name suggests: Fieldset. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-context-bar.tsx` |
-| `FileDropzone` | `packages/design-system/src/components/forms/file-dropzone.tsx` | Purpose not documented; symbol name suggests: File Dropzone. | `bounded-contexts/marketplace/features/listings/ui/listing-create-page.tsx` |
+| `FileDropzone` | `packages/design-system/src/components/forms/file-dropzone.tsx` | Purpose not documented; symbol name suggests: File Dropzone. | `bounded-contexts/checkout/features/sell-list/ui/sell-list-line-rows.tsx` |
 | `FilterArea` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Filter Area. | `bounded-contexts/auth/features/sessions/ui/session-list-page.tsx` |
 | `FilterBar` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Filter Bar. | `bounded-contexts/platform-operations/features/platform-feedback/ui/admin-pages.tsx` |
 | `FilterBottomSheet` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Filter Bottom Sheet. | `No production consumer yet.` |

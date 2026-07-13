@@ -893,6 +893,8 @@
       "surfaces": [
         "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-line-rows.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-line-rows.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-line-rows.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-line-rows.tsx:H2df726441e2a#4",
         "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx:H3e14b6cf2e85#1",
         "route-action:bounded-contexts/checkout/routes/account-sell-list.tsx"
       ],
@@ -903,7 +905,7 @@
         "readModelTables": ["checkout_sell_list_line_pages", "checkout_sell_list_confirmation_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Sell List add/remove and readiness forms submit through the account Sell List action, which redirects with a Checkout commit receipt; the account Sell List loader waits on line and confirmation projections, while seller checkout start revalidates checkout.sell-list-readiness.v1 before continuing."
+          "behavior": "Sell List add/remove, evidence remediation, and readiness forms submit through the account Sell List action, which redirects to a fresh account Sell List read; the loader waits on line, confirmation, and Marketplace evidence responses, while seller checkout start revalidates checkout.sell-list-readiness.v1 before continuing."
         }
       },
       "proof": {
