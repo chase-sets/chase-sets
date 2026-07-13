@@ -1,19 +1,42 @@
-# DigitalOcean Platform Infrastructure
+# DigitalOcean Platform Terraform
 
-This Terraform root manages staging and production platform infrastructure plus legacy preview validation state. Live PR previews deploy to Kubernetes namespaces through the platform Helm chart. The operational deployment workflow lives in [DigitalOcean Platform Deployment Runbook](../../../docs/runbooks/digitalocean-platform-deployment.md). [ADR 0018](../../../docs/adr/0018-doks-compute-runtime.md) records the accepted pre-launch decision to move compute/runtime orchestration from App Platform to DOKS after #101 deploy stabilization and #97 beta-clock start.
+This Terraform root owns the durable staging and production data plane that backs the DOKS runtime:
 
-This root owns:
+- managed Postgres, per-context databases, users, transaction pools, and least-privilege listener grants;
+- DigitalOcean uptime checks and managed-Postgres alerts;
+- environment/domain outputs consumed by deployment and smoke workflows; and
+- Catalog asset endpoint outputs for the sibling `catalog-assets` root.
 
-- DigitalOcean App Platform composition for staging and production landing, admin, and marketplace web surfaces.
-- Staging and production profiled `platform-api`, private `platform-worker`, and platform bootstrap job.
-- DigitalOcean managed PostgreSQL with per-context databases plus a control database for staging and production. PR previews use disposable in-cluster Postgres in their Kubernetes namespace and must not create per-PR DigitalOcean managed database clusters.
-- DigitalOcean App Platform domain attachments for App Platform hosts plus temporary redirects from legacy dash-based staging hosts to their nested replacements. Stable staging mail, delegation, and asset DNS live in the sibling `environment-dns` Terraform root; staging nested alias CNAMEs live here because they depend on the app ingress. App Platform owns the apex A/AAAA records created for its primary domains.
-- App Platform environment wiring for the Catalog asset buckets and CDN domains owned by the sibling `catalog-assets` Terraform root.
+Runtime compute, commands, environment-key contracts, replicas, probes, and ingress live with the Kubernetes slice in [infrastructure/helm/platform](../../helm/platform/README.md). DNS and mail records live in [environment-dns](../environment-dns/README.md). This root intentionally contains no application compute or deploy-target resources.
 
-Initialize this root only after the state bucket has been created by [state-bootstrap](../state-bootstrap/README.md). Use `platform/previews/pr-<number>.tfstate` for PR previews, `landing/staging.tfstate` for staging, and `landing/production.tfstate` for production.
+## State And Decommission Ordering
 
-Staging keeps the `db-s-2vcpu-4gb` cluster size for the checked-in connection budget, but its create-time storage allocation is pinned to `staging_database_storage_size_mib = 25600`. The database resource ignores subsequent `storage_size_mib` drift so normal staging deploys do not attempt a destructive storage/profile mutation against the existing cluster. The smaller storage allocation activates on the next `Platform Staging Reset`, which destroys and recreates staging Postgres in the approved rebuild window.
+Remote state keys remain `landing/staging.tfstate` and `landing/production.tfstate`. Removing a resource from configuration does not delete its state manually: Terraform must retain the prior state so an operator-reviewed apply can plan the provider destroy.
 
-Run `pnpm install --frozen-lockfile` from the repo root before applying this Terraform root.
+The configuration removal in issue #4055 is intentionally destructive for the retired application resource. Do not merge or apply it until the production DNS cutover has completed, DOKS health and critical marketplace flows have been verified, and the launch owner has ended the rollback soak. Then review the real-state plans for the expected application deletes and no managed-Postgres replacement before applying.
 
-The target App Platform component contract is tested offline by `scripts/digitalocean-runtime-topology.mjs`. Production runtime modes are `production-landing`, `production-proof`, and `production-public`; `admin-support-api`, `admin-support-worker`, and `admin-support-bootstrap` are retired component names and should not reappear outside a reviewed rollback.
+Never run `terraform state rm` for retired application resources. That would orphan billable infrastructure instead of decommissioning it.
+
+## Credential-Free Validation
+
+```sh
+terraform init -backend=false
+terraform fmt -check -recursive
+terraform validate
+```
+
+Run these commands from this directory. They validate configuration only and do not inspect or mutate remote state.
+
+## Stateful Destroy Guard Override
+
+Durable resources use `prevent_destroy`. A deliberate database rebuild therefore requires an operator-confirmed workflow and a temporary source edit locally; never commit a disabled destroy guard. The staging reset workflow owns the reviewed recreation sequence. Production database replacement requires a separate incident or migration plan.
+
+## Boundaries
+
+- `infrastructure/digitalocean/doks`: cluster and node-pool foundation.
+- `infrastructure/helm/platform`: DOKS workloads, runtime topology, probes, ingress, and generated values.
+- `infrastructure/digitalocean/environment-dns`: stable environment DNS, mail, and DOKS live-host records.
+- `infrastructure/digitalocean/catalog-assets`: Spaces bucket and CDN.
+- `infrastructure/digitalocean/observability`: telemetry storage and endpoints.
+
+The current operator workflow is documented in [DOKS Platform Operations](../../../docs/runbooks/doks-platform-operations.md).

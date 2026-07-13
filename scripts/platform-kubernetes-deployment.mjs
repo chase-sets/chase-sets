@@ -95,17 +95,23 @@ export function buildHelmUpgradeArgs(options = {}) {
       }
     : requestedEnvOverrides;
   const environmentValuesPath = platformValuesPathForEnvironment(envOverrides.DEPLOYMENT_ENVIRONMENT);
-  const doksIngressSetArgs =
-    envOverrides.DEPLOYMENT_ENVIRONMENT === "staging"
-      ? buildDoksIngressHelmSetArgs(buildDoksIngressValues({ env: options.env ?? {} }))
-      : envOverrides.DEPLOYMENT_ENVIRONMENT === "preview"
-        ? buildDoksIngressHelmSetArgs(
-            buildPreviewDoksIngressValues({
-              env: options.env ?? {},
-              previewIdentifier: envOverrides.PREVIEW_IDENTIFIER ?? options.env?.PREVIEW_IDENTIFIER,
-            }),
-          )
-        : [];
+  const doksIngressSetArgs = ["staging", "production"].includes(envOverrides.DEPLOYMENT_ENVIRONMENT)
+    ? buildDoksIngressHelmSetArgs(
+        buildDoksIngressValues({
+          env: {
+            ...(options.env ?? {}),
+            DEPLOYMENT_ENVIRONMENT: envOverrides.DEPLOYMENT_ENVIRONMENT,
+          },
+        }),
+      )
+    : envOverrides.DEPLOYMENT_ENVIRONMENT === "preview"
+      ? buildDoksIngressHelmSetArgs(
+          buildPreviewDoksIngressValues({
+            env: options.env ?? {},
+            previewIdentifier: envOverrides.PREVIEW_IDENTIFIER ?? options.env?.PREVIEW_IDENTIFIER,
+          }),
+        )
+      : [];
   const previewPostgresSetArgs =
     envOverrides.DEPLOYMENT_ENVIRONMENT === "preview" ? ["--set", "previewPostgres.enabled=true"] : [];
   // Preview workloads (including the in-cluster preview Postgres) schedule

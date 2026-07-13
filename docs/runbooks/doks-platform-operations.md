@@ -1,8 +1,8 @@
 # DOKS Platform Operations
 
-This runbook is the operator reference for the DOKS runtime accepted by [ADR 0018](../adr/0018-doks-compute-runtime.md). It covers the Kubernetes equivalents for the App Platform actions in [DigitalOcean Platform Deployment](./digitalocean-platform-deployment.md): deploy inspection, rollout status, rollback, logs, ingress/certificates, runtime Secret rotation, and cutover recovery.
+This runbook is the operator reference for the DOKS runtime accepted by [ADR 0018](../adr/0018-doks-compute-runtime.md). It covers deploy inspection, rollout status, rollback, logs, ingress/certificates, and runtime Secret rotation.
 
-Use this runbook only after the target DOKS cluster exists through `infrastructure/digitalocean/doks` and the platform Helm chart exists through `infrastructure/helm/platform`. Until staging cutover completes, App Platform remains the live serving path.
+Use this runbook after the target DOKS cluster exists through `infrastructure/digitalocean/doks` and the platform Helm chart exists through `infrastructure/helm/platform`. DOKS is the only runtime deploy target.
 
 ## State And Names
 
@@ -87,7 +87,7 @@ kubectl config current-context
 
 Use the GitHub Actions workflows for normal deploys and evidence. Use `Platform Staging Helm Recovery` (`.github/workflows/platform-staging-helm-recovery.yml`) for owner-approved staging Helm rollback recovery when a DOKS release is stuck or a staging deploy cannot progress. Use a local operator shell only for incident investigation, cutover rehearsal, or an owner-approved emergency recovery that cannot be completed through a workflow.
 
-Use `Platform Staging DOKS Cutover Evidence` (`.github/workflows/platform-staging-doks-cutover-evidence.yml`) to rehearse and prove the cutover without moving live traffic. Dispatch requires the exact confirmation phrase `run staging doks cutover evidence`, a `phase` (`rehearse` targets the `doks.<zone>` shadow hosts, `flip-soak` targets the live hosts after the flip), the DOKS ingress load balancer IPv4 as `ingress_target`, and optionally a `load_balancer_id`. It captures support-safe cutover evidence with `pnpm run cutover:doks-evidence` (which platform served each host, the served TLS certificate chain, and — when a load balancer id is given — load balancer health) and reruns the staging UAT battery (smoke, marketplace critical flows, Buy Now freshness probes, Stripe money smoke) against the phase's DOKS hosts. It uploads `staging-doks-cutover-evidence-<run>-<attempt>` and fails when any host is served by the wrong platform, fails TLS, or is unreachable.
+Use the normal staging deployment workflow and its release-health artifacts to prove the live DOKS hosts. The retired cutover-only evidence workflow is intentionally absent after decommission.
 
 Use `Platform Staging Bootstrap Hook Drill` (`.github/workflows/platform-staging-bootstrap-hook-drill.yml`) for the staging-only bootstrap hook acceptance drill. Dispatch requires the exact confirmation phrase `run staging bootstrap hook drill`. The workflow uses the current staging DOKS release `chase-sets-platform` and namespace `chase-sets-platform`, captures redacted Helm/Kubernetes/smoke artifacts, injects a live held lock on the Catalog `bounded_context_schema_migrations` relation through an existing ready `platform-worker` pod, runs a successful Helm upgrade that must quiesce the worker and release the lock before bootstrap proceeds, then runs a controlled failed-bootstrap upgrade with non-secret values and verifies Helm atomic rollback plus smoke. `held-lock-evidence.json` proves #4048/#4463/#4464 only when `result` is `released`, `lockRelease.status` is `observed`, `lockRelease.releasedDuring` is `successful-bootstrap-upgrade`, and the drill record is `success`. If held-lock setup fails, the workflow stops before Helm upgrade and reports a support-safe `setup-failed` blocker without database URLs, credentials, raw pod names, customer data, or provider data.
 
@@ -156,7 +156,7 @@ If a node is NotReady, first confirm DigitalOcean maintenance or DOKS node-pool 
 
 ## Rollback
 
-Rollback uses Helm release history, not App Platform image mutation. The automated production path should call the helper:
+Rollback uses Helm release history. The automated production path should call the helper:
 
 ```bash
 pnpm run platform:kubernetes-deployment -- rollback \
@@ -292,79 +292,16 @@ For the staging evidence attached to the rollout PR/issue:
 4. Let the workflow verification tail finish. Confirm all three Rollouts become `Healthy`, the production job begins only after staging promotion, and the release-health artifact retains the existing smoke/freshness decisions.
 5. Rehearse failure only in a controlled staging window: temporarily patch one generated `AnalysisTemplate` to an unreachable canary URL, deploy a new staging revision, and verify its AnalysisRun becomes `Failed`, the Rollout becomes `Degraded`/aborted, and nginx returns the canary weight to `0`. Immediately restore the source-owned template with the next Helm deploy and verify `Healthy`. Never perform this drill in production and never replace it with a fake metrics provider in committed configuration.
 
-Production remains a separate operator flip. After #4053 has installed the production add-ons, proven production DOKS ingress on internal/shadow hosts, and completed the DNS rollback rehearsal, set the production GitHub Environment variable `PRODUCTION_ARGO_ROLLOUTS_ENABLED=true`. Leave it absent/false before that cutover; Helm fails closed if the flip requests nginx proportional routing without an enabled DOKS Ingress.
+Set the production GitHub Environment variable `PRODUCTION_ARGO_ROLLOUTS_ENABLED=true` only after production ingress and rollout analysis have been proven. Helm fails closed if the switch requests nginx proportional routing without an enabled DOKS Ingress.
 
-## DNS Cutover And Rehearsed Rollback
+## Live DNS And Certificates
 
-The cutover keeps **both platforms serving** and makes the flip an instant, reversible DNS change. App Platform is kept warm through the entire staging soak and the production low-signup window (#4053) so rollback is always a DNS-only step. Two independent controls in [infrastructure/digitalocean/environment-dns](../../infrastructure/digitalocean/environment-dns/README.md) drive it, coordinated with the matching `staging_app_serving` switch in [infrastructure/digitalocean/platform](../../infrastructure/digitalocean/platform):
 
-- `doks_ingress_target` (load balancer IPv4) creates the **shadow validation hosts** `doks.staging.chasesets.com`, `www.doks.…`, `marketplace.doks.…`, `admin.doks.…`. DOKS serves and issues certificates on these while App Platform serves the live hosts. No live traffic moves.
-- `staging_app_serving=doks` creates the **live-host cutover records** (apex + `www`/`marketplace`/`admin` `A` records at the load balancer).
+`infrastructure/digitalocean/environment-dns` owns the live DOKS A records. `doks_ingress_target` must match the load-balancer IPv4 address. There are no shadow-host or alternate-serving switches.
 
-### 1. Rehearse (both platforms serving)
+If a `Certificate` is pending, inspect cert-manager `Order` and `Challenge` resources. For HTTP-01 failures, confirm the Ingress class, host, live DNS target, PROXY protocol configuration, and redirect middleware before retrying a release.
 
-1. Install the add-ons and confirm a stable load balancer IPv4.
-2. Apply environment-dns with `doks_ingress_target=<lb-ip>` (leave `staging_app_serving=app-platform`). Only the shadow hosts appear; App Platform still owns every live host.
-3. Prove the DOKS pipeline against the shadow hosts:
-
-   ```bash
-   node ./scripts/platform-ingress-wait.mjs \
-     --url https://doks.staging.chasesets.com/ \
-     --url https://admin.doks.staging.chasesets.com/health/ready \
-     --url https://marketplace.doks.staging.chasesets.com/health/ready
-   ```
-
-4. Confirm `Certificate` resources are `Ready` and cert-manager `Order`/`Challenge` completed.
-5. Prove the DOKS pipeline end-to-end and capture support-safe cutover evidence by dispatching `Platform Staging DOKS Cutover Evidence` with `phase=rehearse`, `ingress_target=<lb-ip>`, and the confirmation phrase. It reruns the full staging UAT battery against the `doks.<zone>` shadow hosts and records, per host, which platform served it (resolved address vs the load balancer target), the served TLS certificate chain, and load balancer health. Sign the parity checklist off in #4050 from the uploaded `staging-doks-cutover-evidence-<run>-<attempt>` artifact.
-
-### 2. Flip (instant cutover)
-
-1. Release the colliding App Platform records **before** adding the DOKS live-host records:
-   - Apply the platform root with `staging_app_serving=doks` to drop the `www`/`marketplace`/`admin` `staging_app_alias` CNAMEs.
-   - Release the App Platform staging apex domain so DO stops auto-managing the `staging.chasesets.com` apex record.
-2. Apply environment-dns with `doks_ingress_target=<lb-ip>` and `staging_app_serving=doks`. The apex + `www`/`marketplace`/`admin` `A` records now point at the load balancer.
-3. Wait for HTTPS probes on the live hosts:
-
-   ```bash
-   node ./scripts/platform-ingress-wait.mjs \
-     --url https://staging.chasesets.com/ \
-     --url https://admin.staging.chasesets.com/health/ready \
-     --url https://marketplace.staging.chasesets.com/health/ready
-   ```
-
-4. Run the staging UAT battery. Re-prove the cut-over surface by dispatching `Platform Staging DOKS Cutover Evidence` with `phase=flip-soak` and the same `ingress_target`; it runs the battery and captures cutover evidence against the live hosts now served by DOKS. Keep TTL low (`doks_ingress_ttl`, 300s default) until confidence is recorded.
-
-### 3. Rollback (rehearsed)
-
-1. Flip `staging_app_serving` back to `app-platform` in both the platform root and environment-dns and apply. The DOKS live-host records are removed; the App Platform `staging_app_alias` CNAMEs and apex domain management return.
-2. Re-attach the App Platform apex domain if it was released.
-3. Confirm HTTPS probes pass against App Platform and record the rollback evidence.
-
-Because App Platform never left, rollback is a DNS change plus apex re-attach — no redeploy. The shadow hosts stay in place, so the next flip attempt needs no re-rehearsal.
-
-### Production
-
-Production live hosts (root `chasesets.com` zone) are owned by the platform/runtime roots today, not environment-dns. The production flip in #4053 repoints those root-zone records at the production load balancer using the same shadow-then-flip pattern, during the low-signup window, with App Platform kept warm for the same DNS-only rollback.
-
-Certificate incidents:
-
-- If `Certificate` is pending, inspect cert-manager `Order` and `Challenge` resources before changing DNS.
-- If HTTP-01 challenges fail, confirm the Ingress class, host, DNS target, PROXY protocol config, and any redirect middleware.
-- If production cert issuance fails during cutover, pause the flip and keep App Platform serving until certificate evidence is green.
-
-## App Platform To DOKS Action Map
-
-| Old App Platform action | DOKS equivalent |
-| --- | --- |
-| `doctl apps get <app-id>` | `helm status <release> --namespace <namespace>` plus `kubectl get deployments,pods,ingress` |
-| Wait for active deployment | `pnpm run platform:kubernetes-deployment -- deploy ...` or `kubectl rollout status deployment/<name>` |
-| Force App Platform deployment | Helm upgrade with the same immutable image tag |
-| App deployment diagnostics | `pnpm run platform:kubernetes-deployment -- diagnostics ...` |
-| App image rollback | `pnpm run platform:kubernetes-deployment -- rollback ...` |
-| App domain wait | `scripts/platform-ingress-wait.mjs` and HTTPS smoke against Ingress hosts |
-| App spec environment variable update | `platform-kubernetes-secret.mjs` followed by Helm upgrade or Deployment restart |
-| App Platform component logs | `kubectl logs --selector app.kubernetes.io/component=<component>` |
-| App Platform worker scale | Helm values or HPA/KEDA policy; manual `kubectl scale` only during an incident with owner approval |
+Runtime rollback uses Helm history; it does not change DNS. A DNS change requires a separate incident decision because DOKS is the only deploy target.
 
 ## Evidence Rules
 

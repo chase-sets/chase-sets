@@ -2,13 +2,11 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  appPlatformChanges,
   approvedDestructiveChangeAddressesFromText,
   assertNoDestructiveChanges,
   destructiveChangesApprovalFingerprint,
   destructiveResourceChanges,
   durableDatabaseDestructiveResourceChanges,
-  planAppChanged,
   postgresClusterIdFromPlan,
   renderTerraformPlanSummaryMarkdown,
   terraformPlanSummary,
@@ -17,14 +15,6 @@ import {
 function planFor(resourceChanges) {
   return {
     resource_changes: resourceChanges,
-  };
-}
-
-function appChange(actions) {
-  return {
-    type: "digitalocean_app",
-    name: "platform",
-    change: { actions },
   };
 }
 
@@ -38,32 +28,11 @@ function resourceChange(address, actions) {
 }
 
 describe("Terraform plan inspection", () => {
-  it("detects create, update, and delete actions for the platform app", () => {
-    expect(appPlatformChanges(planFor([appChange(["create"])]))).toBe(true);
-    expect(appPlatformChanges(planFor([appChange(["update"])]))).toBe(true);
-    expect(appPlatformChanges(planFor([appChange(["delete"])]))).toBe(true);
-  });
-
-  it("ignores no-op platform app actions and unrelated resources", () => {
-    expect(appPlatformChanges(planFor([appChange(["no-op"])]))).toBe(false);
-    expect(
-      appPlatformChanges(
-        planFor([
-          {
-            type: "digitalocean_database_cluster",
-            name: "postgres",
-            change: { actions: ["update"] },
-          },
-        ]),
-      ),
-    ).toBe(false);
-  });
-
   it("summarizes destructive Terraform changes", () => {
     expect(
       destructiveResourceChanges(
         planFor([
-          resourceChange("digitalocean_app.platform", ["update"]),
+          resourceChange("digitalocean_uptime_check.platform", ["update"]),
           resourceChange("digitalocean_database_cluster.postgres", ["delete", "create"]),
           resourceChange('digitalocean_database_db.contexts["auth"]', ["delete"]),
           {
@@ -94,7 +63,7 @@ describe("Terraform plan inspection", () => {
     expect(
       durableDatabaseDestructiveResourceChanges(
         planFor([
-          resourceChange("digitalocean_app.platform", ["delete", "create"]),
+          resourceChange("digitalocean_uptime_check.platform", ["delete", "create"]),
           resourceChange("digitalocean_database_cluster.postgres", ["delete", "create"]),
           resourceChange('digitalocean_database_db.contexts["checkout"]', ["delete"]),
           resourceChange('digitalocean_database_user.contexts["checkout"]', ["delete"]),
@@ -153,13 +122,13 @@ describe("Terraform plan inspection", () => {
   });
 
   it("blocks destructive Terraform changes unless an override marker is present", () => {
-    const plan = planFor([resourceChange("digitalocean_app.platform", ["delete", "create"])]);
+    const plan = planFor([resourceChange("digitalocean_uptime_check.platform", ["delete", "create"])]);
 
     expect(() => assertNoDestructiveChanges(plan)).toThrow("Production Terraform plan contains destructive changes");
     expect(assertNoDestructiveChanges(plan, { allowDestructiveChanges: true })).toEqual([
       {
-        address: "digitalocean_app.platform",
-        type: "digitalocean_app",
+        address: "digitalocean_uptime_check.platform",
+        type: "digitalocean_uptime_check",
         name: "platform",
         actions: ["delete", "create"],
       },
@@ -223,22 +192,10 @@ The resources are retired by a reviewed context merge.
     expect(approvalText).not.toContain('digitalocean_database_db.contexts["experience"]');
   });
 
-  it("reads Terraform JSON plan output for app-change detection", async () => {
-    const changed = await planAppChanged("tfplan", {
-      commandOutput: async (command, args) => {
-        expect(command).toBe("terraform");
-        expect(args).toEqual(["show", "-json", "tfplan"]);
-        return JSON.stringify(planFor([appChange(["update"])]));
-      },
-    });
-
-    expect(changed).toBe(true);
-  });
-
   it("summarizes Terraform plan change counts and changed resource addresses", () => {
     const summary = terraformPlanSummary(
       planFor([
-        resourceChange("digitalocean_app.platform", ["update"]),
+        resourceChange("digitalocean_uptime_check.platform", ["update"]),
         resourceChange('digitalocean_database_db.contexts["checkout"]', ["create"]),
         resourceChange("digitalocean_record.old", ["delete"]),
         resourceChange("digitalocean_database_user.contexts", ["no-op"]),
@@ -251,9 +208,9 @@ The resources are retired by a reviewed context merge.
       change: 1,
       destroy: 1,
       resources: [
-        { address: "digitalocean_app.platform", actions: ["update"] },
         { address: 'digitalocean_database_db.contexts["checkout"]', actions: ["create"] },
         { address: "digitalocean_record.old", actions: ["delete"] },
+        { address: "digitalocean_uptime_check.platform", actions: ["update"] },
       ],
       omittedResources: 0,
     });
@@ -261,7 +218,7 @@ The resources are retired by a reviewed context merge.
 
   it("renders Terraform plan summaries for workflow step summaries", () => {
     expect(
-      renderTerraformPlanSummaryMarkdown(planFor([resourceChange("digitalocean_app.platform", ["update"])]), {
+      renderTerraformPlanSummaryMarkdown(planFor([resourceChange("digitalocean_uptime_check.platform", ["update"])]), {
         title: "Production Terraform plan",
       }),
     ).toContain("### Production Terraform plan");

@@ -137,14 +137,8 @@ export function parseGuestBuyNowProbeArgs(argv, env = process.env) {
       readOption(argv, "--account-password") ??
       readEnv("GUEST_BUY_NOW_PROBE_ACCOUNT_PASSWORD", env) ??
       readEnv("MARKETPLACE_E2E_PASSWORD", env),
-    adminEmail:
-      readEnv("GUEST_BUY_NOW_PROBE_ADMIN_EMAIL", env) ??
-      readEnv("PLATFORM_ADMIN_EMAIL", env) ??
-      readEnv("TF_VAR_platform_admin_email", env),
-    adminPassword:
-      readEnv("GUEST_BUY_NOW_PROBE_ADMIN_PASSWORD", env) ??
-      readEnv("PLATFORM_ADMIN_PASSWORD", env) ??
-      readEnv("TF_VAR_platform_admin_password", env),
+    adminEmail: readEnv("GUEST_BUY_NOW_PROBE_ADMIN_EMAIL", env) ?? readEnv("PLATFORM_ADMIN_EMAIL", env),
+    adminPassword: readEnv("GUEST_BUY_NOW_PROBE_ADMIN_PASSWORD", env) ?? readEnv("PLATFORM_ADMIN_PASSWORD", env),
     environment: readOption(argv, "--environment") ?? readEnv("GUEST_BUY_NOW_PROBE_ENVIRONMENT", env) ?? "staging",
     productionProofReference:
       readOption(argv, "--production-proof-reference") ??

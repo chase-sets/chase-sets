@@ -258,23 +258,6 @@ jobs:
       TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
       TF_VAR_environment: preview
       TF_VAR_preview_identifier: pr-${{ matrix.pr_number }}
-      TF_VAR_platform_image_repository: chase-sets-platform
-      TF_VAR_platform_image_tag: pr-${{ matrix.pr_number }}-${{ matrix.image_sha }}
-      TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-      TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-      TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-      TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
-      TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
-      TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
-      TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-      TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-      TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
-      TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
-      TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
-      TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
-      TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
-      TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
-      TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
     steps:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main

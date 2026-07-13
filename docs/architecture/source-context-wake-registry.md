@@ -31,7 +31,7 @@ The registry is environment-global, so per-environment rollout is enforced by de
 - `PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS` — staging `*`, production `public-presence`, previews `*` while the wake switches are off; this lets production landing smoke prove the waitlist projection path without enabling every staging-enabled source context.
 
 Broader production enablement expands `PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS` only after the production proof gates pass (#1243 topology parity, #1244 connection budgets, #1237 SLO/load proof).
-The tier decision is now explicit: on the current `db-s-2vcpu-4gb` production tier, the rolling-deploy overlap budget is 64/94 and the 80% tier-upgrade trigger is 75. The remaining wave-2 listener expansion needs three more direct contexts (`catalog`, `commercial-terms`, `fulfillment`) and fits at 70/94, below the trigger, so the checked-in scale fits the current tier. Re-run the capacity evidence before adding listeners or increasing component scale because each direct listener context adds two overlap connections. Run `pnpm run ops push-wake:capacity-evidence -- --out artifacts/release-health/push-wake-capacity-evidence.json` for the checked-in no-secret evidence record.
+Before adding listeners or increasing component scale, recalculate steady and rolling-overlap demand from the current Terraform listener/pool topology and Helm replica/concurrency values. Each direct listener context adds overlap connections, so a previous tier decision is not reusable after topology changes.
 
 ## Registry Fields
 

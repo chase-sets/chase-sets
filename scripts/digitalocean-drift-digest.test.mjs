@@ -25,8 +25,7 @@ describe("digitalocean-drift-digest", () => {
         restoreDrillPrefix: "cs-stg-drill-",
         registryRepository: "chase-sets-platform",
         registryRetentionDays: 7,
-        runtimeTopologyModes: ["preview", "staging", "production-landing", "production-proof", "production-public"],
-        retiredProfileComponentNames: ["admin-support-api", "admin-support-bootstrap", "admin-support-worker"],
+        retiredComputeProvider: "digitalocean-apps",
         observability: {
           shared: {
             dropletBackupsExpected: false,
@@ -70,8 +69,8 @@ describe("digitalocean-drift-digest", () => {
     expect(result.record.resources.apps).toEqual([
       expect.objectContaining({
         name: "chase-sets-platform",
-        classification: "terraform-managed",
-        terraformRoot: "infrastructure/digitalocean/platform",
+        classification: "retired-chase-sets-compute",
+        terraformRoot: null,
         components: expect.arrayContaining([
           expect.objectContaining({ name: "admin-support-api" }),
           expect.objectContaining({ name: "platform-api" }),
@@ -81,7 +80,7 @@ describe("digitalocean-drift-digest", () => {
     expect(result.record.findings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          category: "component-topology",
+          category: "retired-compute-present",
           resourceType: "app",
           resourceName: "chase-sets-platform",
           severity: "warning",

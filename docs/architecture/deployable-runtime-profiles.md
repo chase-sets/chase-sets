@@ -8,7 +8,7 @@ Runtime profiles describe how production composition roots run without changing 
 
 The typed profile contract is exported from `@chase-sets/platform-runtime` and implemented in `infrastructure/platform-runtime/runtime-profiles.ts`.
 
-The DigitalOcean App Platform component baseline for those profiles is exported from `scripts/digitalocean-runtime-topology.mjs`; use it for expected-vs-actual topology evidence instead of copying component lists into release notes.
+The DOKS component baseline is owned by `infrastructure/helm/platform/runtime-values.json` and its generated Helm values; use it for expected-vs-actual topology evidence instead of copying component lists into release notes.
 
 Production mode, API profile, and worker profile use the same names:
 

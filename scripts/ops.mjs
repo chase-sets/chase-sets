@@ -156,10 +156,6 @@ export const SUBCOMMANDS = {
     script: "read-consistency-route-matrix-deploy-window.mjs",
     description: "Support-safe staging route-matrix deploy-window state artifact.",
   },
-  "push-wake:capacity-evidence": {
-    script: "push-wake-capacity-evidence.mjs",
-    description: "CI-safe push-wake connection budget and listener expansion evidence.",
-  },
   "push-wake:load-evidence": {
     script: "push-wake-load-evidence.mjs",
     description: "No-secret budget evaluation for captured push-wake load artifacts.",
@@ -195,10 +191,6 @@ export const SUBCOMMANDS = {
   "rollback:readiness": {
     script: "rollback-readiness.mjs",
     description: "Rollback readiness gate record.",
-  },
-  "rollback:staging-drill": {
-    script: "digitalocean-staging-rollback-drill.mjs",
-    description: "Run the staging-only App Platform rollback drill.",
   },
   "wake:drills": {
     script: "staging-wake-drills.mjs",

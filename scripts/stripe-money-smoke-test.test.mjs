@@ -761,14 +761,14 @@ describe("stripe money smoke test", () => {
     ]);
   });
 
-  it("uses Terraform admin credential fallbacks when registering a throwaway seller", async () => {
+  it("uses Kubernetes runtime admin credentials when registering a throwaway seller", async () => {
     const calls = [];
     const result = await runSellerFlow("https://marketplace.preview.test", {
       fetchImpl: createSmokeFetch(calls),
       env: {
         PLATFORM_AUTH_BASE_URL: "https://marketplace.preview.test",
-        TF_VAR_platform_admin_email: "admin@example.test",
-        TF_VAR_platform_admin_password: "correct horse battery staple",
+        PLATFORM_ADMIN_EMAIL: "admin@example.test",
+        PLATFORM_ADMIN_PASSWORD: "correct horse battery staple",
         SMOKE_REGISTER_SELLER: "true",
         SMOKE_SELLER_EMAIL: "stripe-smoke@example.test",
         SMOKE_SELLER_PASSWORD: "preview smoke password",
@@ -798,9 +798,7 @@ describe("stripe money smoke test", () => {
           SMOKE_SELLER_PASSWORD: "preview smoke password",
         },
       }),
-    ).rejects.toThrow(
-      "Missing PLATFORM_ADMIN_EMAIL or TF_VAR_platform_admin_email, PLATFORM_ADMIN_PASSWORD or TF_VAR_platform_admin_password.",
-    );
+    ).rejects.toThrow("Missing PLATFORM_ADMIN_EMAIL, PLATFORM_ADMIN_PASSWORD.");
 
     expect(calls.map((call) => new URL(call.url).pathname)).not.toContain("/api/auth/register");
   });

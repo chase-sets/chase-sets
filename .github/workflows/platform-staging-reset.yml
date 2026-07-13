@@ -9,17 +9,17 @@ on:
         default: main
         type: string
       confirm:
-        description: Type "reset staging" to destroy and recreate staging App Platform and Postgres.
+        description: Type "reset staging" to destroy and recreate staging managed Postgres.
         required: true
         type: string
 
 permissions:
+  actions: write
   contents: read
   checks: read
 
 concurrency:
-  # Staging reset rebuilds and pushes the platform image. Share this lane with
-  # registry cleanup so DigitalOcean GC cannot overlap registry writes.
+  # Keep reset serialized with the deploy lane so database credentials cannot rotate during a rollout.
   group: platform-registry-mutation
   cancel-in-progress: false
 
@@ -36,35 +36,10 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_VAR_environment: staging
-      TF_VAR_platform_image_repository: chase-sets-platform
-      TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
       TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
       TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-      TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-      TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-      TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-      TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
-      TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
-      TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
-      TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-      TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-      TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
-      TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
-      TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
-      TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
-      TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
-      TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
-      TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
-      TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
-      TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
-      TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
-      TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
-      TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-      TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
-      TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
-      TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
       TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
       TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
       TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
@@ -75,9 +50,7 @@ jobs:
       TF_VAR_observability_enabled: ${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}
       TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
       TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
-      DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
-      PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
-      APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
+      DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}
     steps:
       - name: Confirm destructive reset
         run: |
@@ -146,7 +119,6 @@ jobs:
             echo "Checked out ${checked_out_commit}, expected release commit ${release_commit}." >&2
             exit 1
           fi
-          echo "TF_VAR_platform_image_tag=${release_commit}" >> "$GITHUB_ENV"
 
       - name: Validate staging configuration
         env:
@@ -159,16 +131,7 @@ jobs:
           for name in \
             AWS_ACCESS_KEY_ID \
             AWS_SECRET_ACCESS_KEY \
-            DIGITALOCEAN_ACCESS_TOKEN \
-            TF_VAR_platform_internal_auth_secret \
-            TF_VAR_platform_admin_email \
-            TF_VAR_platform_admin_password \
-            TF_VAR_discord_invite_url \
-            TF_VAR_stripe_secret_key \
-            TF_VAR_stripe_publishable_key \
-            TF_VAR_stripe_webhook_secret \
-            TF_VAR_stripe_connect_webhook_secret \
-            TF_VAR_easypost_api_key
+            DIGITALOCEAN_ACCESS_TOKEN
           do
             if [ -z "${!name:-}" ]; then
               missing+=("$name")
@@ -258,36 +221,8 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           TF_VAR_google_workspace_dkim_txt_value: ${{ vars.GOOGLE_WORKSPACE_DKIM_TXT_VALUE || '' }}
+          TF_VAR_doks_ingress_target: ${{ env.DOKS_INGRESS_TARGET }}
         run: terraform apply -auto-approve
-
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-        id: buildx
-        continue-on-error: true
-
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-        if: steps.buildx.outcome == 'failure'
-
-      - name: Build and push App Platform image
-        run: |
-          set -euo pipefail
-          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
-          if [ -z "$registry_name" ]; then
-            doctl registry create "$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK" --region nyc3
-            registry_name="$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK"
-          fi
-
-          doctl registry login --expiry-seconds 3600
-          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${{ steps.release.outputs.release_commit }}"
-          docker buildx build \
-            --pull \
-            --cache-from type=gha,scope=platform-image \
-            --cache-to type=gha,scope=platform-image,mode=min \
-            --push \
-            --tag "$image" \
-            .
-
-          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
-          echo "Pushed ${image}@${digest}"
 
       - name: Terraform init
         working-directory: infrastructure/digitalocean/platform
@@ -311,97 +246,6 @@ jobs:
         working-directory: infrastructure/digitalocean/platform
         run: terraform fmt -check -recursive
 
-      - name: Reconcile staging App Platform alias DNS state
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_platform_image_tag: ${{ steps.release.outputs.release_commit }}
-          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
-          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
-          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
-          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
-          TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
-          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
-          TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
-          TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
-          TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
-          TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
-          TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
-          TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
-          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
-          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
-          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
-          TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
-          TF_VAR_ses_aws_secret_access_key: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}
-          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
-          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
-          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
-          TF_VAR_observability_enabled: ${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}
-          TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
-          TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
-        run: |
-          set -euo pipefail
-          zone="staging.chasesets.com"
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "No existing App Platform app was found in Terraform state; skipping alias DNS state reconciliation."
-            exit 0
-          fi
-
-          target="$(doctl apps get "$app_id" --format DefaultIngress --no-header | sed -e 's#^https://##' -e 's#/$##' || true)"
-          if [ -z "$target" ]; then
-            echo "No App Platform default ingress was found for ${app_id}; skipping alias DNS state reconciliation."
-            exit 0
-          fi
-
-          records_json="$(doctl compute domain records list "$zone" --output json)"
-          for name in admin marketplace www; do
-            address="digitalocean_record.staging_app_alias[\"${name}\"]"
-            if terraform state show "$address" >/dev/null 2>&1; then
-              continue
-            fi
-
-            record_id="$(printf '%s' "$records_json" | jq -r --arg name "$name" --arg target "$target" 'first(.[] | select(.type == "CNAME" and .name == $name and (.data | rtrimstr(".")) == $target) | .id) // empty')"
-            if [ -z "$record_id" ]; then
-              echo "No live CNAME found for ${name}.${zone}; Terraform will create it."
-              continue
-            fi
-
-            terraform import "$address" "${zone},${record_id}"
-          done
-
-      - name: Wait for previous App Platform deployment
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "No existing App Platform app was found in Terraform state; skipping deployment wait."
-            exit 0
-          fi
-
-          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
-
       - name: Terraform destroy staging platform
         working-directory: infrastructure/digitalocean/platform
         env:
@@ -410,30 +254,6 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_platform_image_tag: ${{ steps.release.outputs.release_commit }}
-          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
-          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
-          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
-          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
-          TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
-          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
-          TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
-          TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
-          TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
-          TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
-          TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
-          TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
-          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
-          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
           TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
           TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
           TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
@@ -599,117 +419,14 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: terraform apply -auto-approve tfplan
 
-      - name: Wait for Terraform App Platform deployment
-        working-directory: infrastructure/digitalocean/platform
+      - name: Queue DOKS redeploy after database recreation
         env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          app_id="$(terraform output -raw app_id)"
-          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
-
-      - name: Reset stale staging root domain attachment
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          app_id="$(terraform output -raw app_id)"
-          node ../../../scripts/digitalocean-app-deployment.mjs reset-domain "$app_id" staging.chasesets.com
-
-      - name: Wait for staging domains
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          app_id="$(terraform output -raw app_id)"
-          landing_domain="$(terraform output -raw landing_domain)"
-          admin_domain="$(terraform output -raw admin_domain)"
-          mapfile -t legacy_public_redirect_domains < <(terraform output -json legacy_public_redirect_domains | jq -r '.[]')
-          mapfile -t marketplace_domains < <(terraform output -json marketplace_domains | jq -r '.[]')
-          mapfile -t staging_root_marketplace_domains < <(terraform output -json staging_root_marketplace_domains | jq -r '.[]')
-          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ "${#marketplace_domains[@]}" -eq 0 ] || [ "${#staging_root_marketplace_domains[@]}" -eq 0 ]; then
-            echo "Required staging domains were not present in Terraform outputs." >&2
-            exit 1
-          fi
-
-          node ../../../scripts/digitalocean-app-deployment.mjs wait-domains \
-            "$app_id" \
-            "$landing_domain" \
-            "$admin_domain" \
-            "${legacy_public_redirect_domains[@]}" \
-            "${marketplace_domains[@]}" \
-            "${staging_root_marketplace_domains[@]}" \
-            --timeout-seconds=1800 \
-            --poll-seconds=30
-
-      - name: Smoke check
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
-          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          SMOKE_REQUIRE_ADMIN: "true"
-          SMOKE_REQUIRE_MARKETPLACE: "true"
-          SMOKE_REQUIRE_MARKETPLACE_ROOT: "true"
-          SMOKE_REQUIRE_LEGACY_REDIRECT: "true"
-          SMOKE_WRITE_WAITLIST: "false"
-          SMOKE_SOURCE: staging-reset-smoke
-          SMOKE_UTM_CAMPAIGN: staging-reset
-          SMOKE_FETCH_ATTEMPTS: "24"
-          SMOKE_FETCH_RETRY_DELAY_MS: "5000"
-        run: |
-          set -euo pipefail
-          landing_domain="$(terraform output -raw landing_domain)"
-          admin_domain="$(terraform output -raw admin_domain)"
-          catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
-          legacy_public_redirect_domain="$(terraform output -json legacy_public_redirect_domains | jq -r '.[0] // empty')"
-          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          staging_root_marketplace_domain="$(terraform output -json staging_root_marketplace_domains | jq -r '.[0] // empty')"
-          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$catalog_asset_public_base_url" ] || [ -z "$legacy_public_redirect_domain" ] || [ -z "$marketplace_domain" ] || [ -z "$staging_root_marketplace_domain" ]; then
-            echo "Required staging smoke domains were not present in Terraform outputs." >&2
-            exit 1
-          fi
-
-          if [ -n "$TF_VAR_google_social_login_client_id" ] &&
-            [ -n "$TF_VAR_google_social_login_client_secret" ] &&
-            [ -n "$TF_VAR_facebook_social_login_client_id" ] &&
-            [ -n "$TF_VAR_facebook_social_login_client_secret" ]; then
-            export SMOKE_REQUIRE_SOCIAL_LOGIN=true
-          else
-            export SMOKE_REQUIRE_SOCIAL_LOGIN=false
-          fi
-
-          cd ../../..
-          export MARKETPLACE_ROOT_WEB_URL="https://${staging_root_marketplace_domain}"
-          pnpm run smoke:platform -- \
-            "https://${landing_domain}" \
-            "https://${admin_domain}" \
-            "https://${marketplace_domain}" \
-            "https://${legacy_public_redirect_domain}"
-          catalog_asset_root_status=""
-          for attempt in $(seq 1 12); do
-            catalog_asset_root_status="$(curl --silent --show-error --location --head --output /dev/null --write-out '%{http_code}' \
-              "${catalog_asset_public_base_url}/" || true)"
-            echo "Catalog asset CDN root status ${catalog_asset_root_status} on attempt ${attempt}."
-            if [ "$catalog_asset_root_status" = "403" ]; then
-              break
-            fi
-            sleep 10
-          done
-          if [ "$catalog_asset_root_status" != "403" ]; then
-            echo "Catalog asset CDN root must stay protected; expected 403, got ${catalog_asset_root_status:-none}." >&2
-            exit 1
-          fi
-          echo "Catalog asset CDN root returned expected protected status 403."
+          release_commit="${{ steps.release.outputs.release_commit }}"
+          gh workflow run platform-production.yml \
+            --ref "$release_commit" \
+            -f release_ref="$release_commit" \
+            -f force_deploy=true
+          echo "Queued the DOKS deployment workflow to rotate runtime database Secrets and redeploy staging."

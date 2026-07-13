@@ -123,7 +123,7 @@ Operators can use DigitalOcean Droplet backups for host-image recovery, and Digi
 
 The drift digest reports observability Droplet backup state and volume size. Backup-on or oversized shared observability volumes are warning findings because they are unexpected pre-launch spend posture.
 
-Provision the shared stack with `infrastructure/digitalocean/observability` before enabling App Platform telemetry export. Use backend key `observability/shared.tfstate`. The root outputs the exact GitHub values to set:
+Provision the shared stack with `infrastructure/digitalocean/observability` before enabling DOKS telemetry export. Use backend key `observability/shared.tfstate`. The root outputs the exact GitHub values to set:
 
 - `app_platform_otlp_headers` -> `OBSERVABILITY_OTLP_HEADERS` secret in both long-lived GitHub environments while the stack is shared.
 - `environment_endpoints` -> staging and production Grafana, OTLP, and Prometheus endpoint inventory.
@@ -153,7 +153,7 @@ Close the DOKS observability rewire only after live evidence proves:
 
 - staging and production signals appear in one Grafana/Prometheus/Loki/Tempo stack with `deployment.environment` separation;
 - Kubernetes collector metrics include bounded namespace/deployment/pod/node labels and no customer identifiers;
-- alert notifications fire through the replacement path that supersedes `PLATFORM_ALERT_EMAILS`-equivalent App Platform alerts;
+- alert notifications fire through the source-owned observability and managed-Postgres alert paths;
 - the retired duplicate observability Droplet, volume, backups, DNS records, and token references are removed or have a named follow-up with owner-approved launch-time revisit criteria.
 
 Use these Prometheus checks for the acceptance record; both results must be non-empty from the same Prometheus host:

@@ -35,19 +35,6 @@ function readStringOption(argv, name, defaultValue = undefined) {
   return argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length) ?? defaultValue;
 }
 
-export function appPlatformChanges(plan) {
-  return Boolean(
-    plan.resource_changes?.some((resourceChange) => {
-      if (resourceChange.type !== "digitalocean_app" || resourceChange.name !== "platform") {
-        return false;
-      }
-
-      const actions = resourceChange.change?.actions ?? [];
-      return actions.length > 0 && actions.some((action) => action !== "no-op");
-    }),
-  );
-}
-
 export function terraformPlanSummary(plan, options = {}) {
   const maxResources = options.maxResources ?? 50;
   const changes = (plan.resource_changes ?? [])
@@ -299,11 +286,6 @@ export function assertNoDestructiveChanges(plan, options = {}) {
   );
 }
 
-export async function planAppChanged(tfplanPath, options = {}) {
-  const output = await (options.commandOutput ?? commandOutput)("terraform", ["show", "-json", tfplanPath]);
-  return appPlatformChanges(JSON.parse(output));
-}
-
 export async function readPostgresClusterIdFromPlan(tfplanPath, options = {}) {
   const output = await (options.commandOutput ?? commandOutput)("terraform", ["show", "-json", tfplanPath]);
   return postgresClusterIdFromPlan(JSON.parse(output));
@@ -320,16 +302,6 @@ export function readTerraformPlanSummaryMarkdown(tfplanJsonPath, options = {}) {
 
 async function main(argv) {
   const [command, ...args] = argv;
-
-  if (command === "plan-app-changed") {
-    const [tfplanPath] = args;
-    if (!tfplanPath) {
-      throw new Error("Usage: node ./scripts/terraform-plan-inspection.mjs plan-app-changed <tfplan>");
-    }
-
-    console.log(String(await planAppChanged(tfplanPath)));
-    return;
-  }
 
   if (command === "assert-no-destructive-changes") {
     const [tfplanPath, ...options] = args;
@@ -379,7 +351,7 @@ async function main(argv) {
   }
 
   throw new Error(
-    "Usage: node ./scripts/terraform-plan-inspection.mjs <plan-app-changed|assert-no-destructive-changes|postgres-cluster-id|summarize-plan>",
+    "Usage: node ./scripts/terraform-plan-inspection.mjs <assert-no-destructive-changes|postgres-cluster-id|summarize-plan>",
   );
 }
 

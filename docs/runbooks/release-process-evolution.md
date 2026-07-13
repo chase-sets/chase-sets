@@ -68,7 +68,7 @@ Emergency release behavior:
 
 ## Release Locks
 
-`PRODUCTION_RELEASE_LOCKED=true` pauses production promotion. The production deployment workflow evaluates the lock before production configuration validation, Terraform planning, or App Platform deployment.
+`PRODUCTION_RELEASE_LOCKED=true` pauses production promotion. The production deployment workflow evaluates the lock before production configuration validation, Terraform planning, or the DOKS rollout.
 
 Required production GitHub Environment variables:
 
@@ -98,7 +98,7 @@ The generator reads the current production lock inputs, validates lock reason re
 
 ## Post-Deploy Production Verification
 
-The platform ships via a DigitalOcean App Platform rolling deploy. There is no canary deployment: production is not split into cohorts and traffic is never weighted between an old and new release. After the rolling deploy reaches `ACTIVE`, the workflow runs synthetic, operator-safe post-deploy checks against the already-deployed release before advancing the `production` marker. The intent is to catch a broken production reality early, not to gate a traffic split that does not exist.
+The platform ships through Helm and Argo Rollouts on DOKS. The workflow runs synthetic, operator-safe post-deploy checks before advancing the `production` marker and retains the previous Helm revision as the rollback target.
 
 The post-deploy checks are:
 
@@ -271,18 +271,17 @@ The report includes SLO posture for cautious merge-queue batch tuning. Initial t
 
 Increase deployable batch size only when all thresholds pass, p95 queue wait is known, and there are at least 10 recent deployable release attempts. The report returns `increase-to-2`, `hold`, or `decrease-or-hold`; do not mutate repository merge queue rules automatically from the report. If any threshold fails, decrease or hold batch size until the cause is understood.
 
-The same report includes a release process review checklist plus the Capacity and Image Review section. Review it weekly during the milestone sweep and after each production deploy batch. Use `release-health/v1` records, projection freshness artifacts, and `push-wake-capacity-evidence/v1`; do not resize staging or split image groups from memory, anecdotes, or one-off local timings.
+The same report includes a release process review checklist plus the Capacity and Image Review section. Review it weekly during the milestone sweep and after each production deploy batch. Use `release-health/v1` records, projection freshness artifacts, and current Helm/Terraform values; do not resize staging from memory, anecdotes, or one-off local timings.
 
-Generate current checked-in connection-budget evidence before a capacity review:
+Generate the current release-health report before a capacity review:
 
 ```powershell
-pnpm run ops push-wake:capacity-evidence --out .\artifacts\release-health\push-wake-capacity-evidence.json
 pnpm run ops release-health:report `
   --dir .\artifacts\release-health `
   --out .\artifacts\release-health\summary.md
 ```
 
-Staging capacity tuning is intentionally explicit. The current Terraform knobs are `staging_database_size`, `worker_instance_size_slug`, `worker_instance_count`, `worker_job_concurrency`, and `worker_database_pool_max`; their defaults keep staging representative enough for the shared full-platform environment. Change them only through a PR after the report shows passing production proof, passing projection freshness, passing connection-budget evidence, no staging abort or stale-skip cause under review, and at least 10 deployable release attempts. A healthy report may return `eligible-for-staging-capacity-downsize-review`, which means "open a deliberate PR for the proposed window," not "auto-downsize." If staging or production duration p95 exceeds 20 minutes while proof and budget checks pass, open a follow-up issue in the infrastructure milestone before changing Terraform.
+Staging capacity tuning is intentionally explicit. Managed-Postgres size stays in Terraform; worker/API replicas, autoscaling, concurrency, and client pool limits live in the Helm runtime values. Change them only through a PR after the report shows passing production proof, passing projection freshness, a reviewed connection envelope, no staging abort or stale-skip cause under review, and at least 10 deployable release attempts.
 
 Keep the shared platform image unless release-health data repeatedly shows that one deployable boundary causes disproportionate queue wait, staging duration, production duration, rollback cost, or operator recovery effort. The report keeps image splitting `deferred-shared-image` until at least three pressure signals recur in the reviewed evidence. A split image group must come with its own owner, dashboard, production marker, rollback path, and release-health gate before it reduces risk.
 

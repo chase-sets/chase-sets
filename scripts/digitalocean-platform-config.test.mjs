@@ -2,13 +2,13 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
-import { retiredProfileComponentNames, runtimeTopologyBaselines } from "./digitalocean-runtime-topology.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
 const platformOutputs = readFileSync(resolve("infrastructure/digitalocean/platform/outputs.tf"), "utf8");
 const platformVariables = readFileSync(resolve("infrastructure/digitalocean/platform/variables.tf"), "utf8");
+const platformRuntimeValues = readFileSync(resolve("infrastructure/helm/platform/runtime-values.json"), "utf8");
 const doksMain = readFileSync(resolve("infrastructure/digitalocean/doks/main.tf"), "utf8");
 const observabilityMain = readFileSync(resolve("infrastructure/digitalocean/observability/main.tf"), "utf8");
 const observabilityLocals = readFileSync(resolve("infrastructure/digitalocean/observability/locals.tf"), "utf8");
@@ -105,10 +105,6 @@ const platformPostgresGrowthEvidenceWorkflow = readFileSync(
   resolve(".github/workflows/platform-postgres-growth-evidence.yml"),
   "utf8",
 );
-const platformStagingRollbackDrillWorkflow = readFileSync(
-  resolve(".github/workflows/platform-staging-rollback-drill.yml"),
-  "utf8",
-);
 const platformStagingHelmRecoveryWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-helm-recovery.yml"),
   "utf8",
@@ -188,52 +184,9 @@ function expectTerraformAssignment(source, localName, expression) {
 }
 
 describe("DigitalOcean platform runbook", () => {
-  it("documents the expected production profiled component baseline and topology drift check", () => {
-    expect(digitaloceanPlatformRunbook).toContain(
-      "Expected production App Platform component baseline before public marketplace promotion",
-    );
-    expect(digitaloceanPlatformRunbook).toContain("`public-web` service size `apps-s-1vcpu-1gb` with one instance");
-    expect(digitaloceanPlatformRunbook).toContain(
-      "profiled `platform-api` service size `apps-s-1vcpu-1gb` with two instances",
-    );
-    expect(digitaloceanPlatformRunbook).toContain("`platform-bootstrap` job size `apps-s-1vcpu-1gb`");
-    expect(digitaloceanPlatformRunbook).toContain(
-      "Full App Platform static-site hosting is deferred while the home route still owns the no-JavaScript waitlist form action",
-    );
-    expect(digitaloceanPlatformRunbook).toContain(
-      "retired `admin-support-api`, `admin-support-worker`, and `admin-support-bootstrap` component names must not appear",
-    );
-    expect(digitaloceanPlatformRunbook).toContain(
-      "warns if retired admin-support component names reappear in one App Platform app",
-    );
-    expect(digitaloceanPlatformRunbook).toContain("Runtime topology and component-count baseline");
-    expect(digitaloceanPlatformRunbook).toContain("`production-landing`");
-    expect(digitaloceanPlatformRunbook).toContain("`production-proof`");
-    expect(digitaloceanPlatformRunbook).toContain("`production-public`");
-    expect(digitaloceanPlatformRunbook).toContain("## Staging Database Restore Drill");
-    expect(digitaloceanPlatformRunbook).toContain("`timings.forkToAvailableMs`");
-    expect(digitaloceanPlatformRunbook).toContain("`cs-stg-drill-*`");
-    expect(digitaloceanPlatformRunbook).toContain("run staging database restore drill");
-    expect(digitaloceanPlatformRunbook).toContain("## Staging Rollback Drill");
-    expect(digitaloceanPlatformRunbook).toContain("run staging rollback drill");
-    expect(digitaloceanPlatformRunbook).toContain("artifacts/staging-rollback-drill/staging-rollback-drill.json");
-    for (const componentName of retiredProfileComponentNames) {
-      expect(digitaloceanPlatformRunbook).toContain(componentName);
-    }
-    for (const modeName of Object.keys(runtimeTopologyBaselines)) {
-      expect(digitaloceanPlatformRunbook).toContain(`\`${modeName}\``);
-    }
-  });
-
   it("documents the database companion sequence for deployable profiles", () => {
-    expect(digitaloceanPlatformRunbook).toContain(
-      "Database lifecycle is a companion track to runtime profile migration, not a side effect of it.",
-    );
-    expect(digitaloceanPlatformRunbook).toContain("`provisioned_context_names`, `active_runtime_context_names`");
-    expect(digitaloceanPlatformRunbook).toContain(
-      "Topology/release-health evidence for profile migration must include",
-    );
-    expect(digitaloceanPlatformRunbook).toContain("projection rebuild for derived read models");
+    expect(digitaloceanPlatformRunbook).toContain("managed Postgres, context databases and pools");
+    expect(digitaloceanPlatformRunbook).toContain("Database Operations");
 
     expect(deployableProfileDatabaseCompanion).toContain(
       "Deployable profiles control which runtime slices are mounted",
@@ -405,7 +358,7 @@ describe("DigitalOcean platform configuration", () => {
   it("keeps staging landing under the environment namespace and redirects the legacy dash host", () => {
     expect(platformLocals).toContain('local.is_staging ? "www.${var.environment}.${var.root_domain}"');
     expect(platformLocals).not.toContain('local.is_staging ? "${var.environment}.${var.root_domain}"');
-    expect(platformLocals).toContain('"landing-${var.environment}.${var.root_domain}"     = local.landing_domain');
+    expect(platformLocals).toContain('"landing-${var.environment}.${var.root_domain}"');
   });
 
   it("uploads support-safe representative commerce selector evidence", () => {
@@ -425,7 +378,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(uploadStep).toContain("if-no-files-found: error");
   });
 
-  it("wires Catalog asset storage into production and non-production Catalog promotion components", () => {
+  it("keeps Catalog asset wiring available to the DOKS runtime", () => {
     for (const key of [
       "CATALOG_ASSET_STORAGE_KIND",
       "CATALOG_ASSET_S3_BUCKET",
@@ -435,20 +388,10 @@ describe("DigitalOcean platform configuration", () => {
       "CATALOG_ASSET_S3_ACCESS_KEY_ID",
       "CATALOG_ASSET_S3_SECRET_ACCESS_KEY",
     ]) {
-      expect(occurrenceCount(platformMain, `key   = "${key}"`)).toBe(3);
+      expect(platformRuntimeValues).toContain(`"${key}"`);
     }
 
-    expect(platformMain).toContain('name               = "platform-api"');
-    expect(platformMain).toContain('name               = "platform-worker"');
-    expect(platformMain).toContain('name               = "platform-bootstrap"');
-    expect(platformMain).not.toContain('name               = "admin-support-api"');
-    expect(platformMain).not.toContain('name               = "admin-support-worker"');
-    expect(platformMain).not.toContain('name               = "admin-support-bootstrap"');
-    expect(platformMain).toContain("value = var.spaces_access_id");
-    expect(platformMain).toContain("value = var.spaces_secret_key");
     expect(platformLocals).toContain("catalog_asset_s3_endpoint");
-    expect(platformLocals).toContain("chase-sets-preview-catalog-assets");
-    expect(platformLocals).toContain("https://assets.preview.${var.root_domain}");
     expect(platformLocals).toContain("catalog_asset_public_base_url");
     expect(platformOutputs).toContain('output "catalog_asset_public_base_url"');
     expect(platformOutputs).toContain('output "catalog_asset_s3_bucket"');
@@ -456,37 +399,6 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformOutputs).toContain('output "catalog_asset_s3_region"');
     expect(platformVariables).not.toContain('variable "catalog_asset_s3_bucket"');
     expect(platformVariables).not.toContain('variable "catalog_asset_public_base_url"');
-
-    const platformBootstrapJob = terraformJobBlock(platformMain, "platform-bootstrap");
-    const platformWorker = terraformWorkerBlock(platformMain, "platform-worker");
-    expect(platformVariables).toContain('variable "platform_bootstrap_owner"');
-    expect(platformVariables).toContain('contains(["app-platform", "doks"], var.platform_bootstrap_owner)');
-    // #4738: App Platform clamps worker instance_count 0 back to 1, so the
-    // worker component is omitted entirely (empty for_each list) when DOKS owns
-    // the platform runtime, and present with local.worker_instances otherwise.
-    expectTerraformAssignment(
-      platformLocals,
-      "app_platform_worker_instances",
-      'var.platform_bootstrap_owner == "doks" ? [] : [local.worker_instances]',
-    );
-    expect(platformMain).toContain('dynamic "worker" {');
-    expect(platformMain).toContain("for_each = local.app_platform_worker_instances");
-    expect(platformMain).not.toContain("instance_count     = local.app_platform_worker_instances");
-    expect(platformProductionWorkflow).toContain(
-      "TF_VAR_platform_bootstrap_owner: ${{ vars.DOKS_INGRESS_TARGET != '' && 'doks' || 'app-platform' }}",
-    );
-    expect(platformWorker).toContain("instance_count     = worker.value");
-    expect(platformWorker).not.toContain("local.public_web_instances");
-    expect(platformWorker).not.toContain("local.marketplace_web_instances");
-    expect(platformWorker).not.toContain("local.api_instances");
-    expect(platformBootstrapJob).toContain('key   = "PLATFORM_BOOTSTRAP_OWNER"');
-    expect(platformBootstrapJob).toContain("value = var.platform_bootstrap_owner");
-    expect(platformBootstrapJob).toContain("PLATFORM_BOOTSTRAP_OWNER:-app-platform");
-    expect(platformBootstrapJob).toContain(
-      "Skipping App Platform platform-bootstrap because PLATFORM_BOOTSTRAP_OWNER=doks; DOKS is the schema-bootstrap owner.",
-    );
-    expect(platformBootstrapJob).toContain('key   = "DEPLOYMENT_ENVIRONMENT"');
-    expect(platformBootstrapJob).toContain("value = var.environment");
   });
 
   it("parses the production Postgres cluster id from indented Terraform state fallback output", () => {
@@ -520,79 +432,23 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionRestorePointCleanupWorkflow).toContain("PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES");
   });
 
-  it("wires shared Catalog provider runtime config through Catalog API, worker, and bootstrap components without checked-in secrets", () => {
-    expect(platformVariables).toContain('variable "tcgplayer_automation_tcg_auth_cookie"');
-    expect(platformVariables).toContain('variable "scrydex_api_key"');
-    expect(platformVariables).toContain('variable "scrydex_team_id"');
-    expect(platformVariables).toContain("scrydex_api_key and scrydex_team_id must be configured together.");
-    expect(platformVariables).toContain("sensitive   = true");
-    expect(platformVariables).toContain('default     = ""');
-    expect(platformLocals).toContain("catalog_provider_runtime_env");
-    expect(platformLocals).toContain("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
-    expect(platformLocals).toContain("value  = var.tcgplayer_automation_tcg_auth_cookie");
-    expect(platformLocals).toContain("SCRYDEX_API_KEY");
-    expect(platformLocals).toContain("value  = var.scrydex_api_key");
-    expect(platformLocals).toContain("SCRYDEX_TEAM_ID");
-    expect(platformLocals).toContain("value  = var.scrydex_team_id");
-    expect(platformLocals).not.toContain("SCRYDEX_ONE_PIECE_API_KEY");
-    expect(platformLocals).not.toContain("SCRYDEX_ONE_PIECE_TEAM_ID");
-    expect(platformLocals).toContain("CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES");
-    expect(platformLocals).toContain('value  = local.is_production ? "dry-run-only" : "open"');
-    expect(platformLocals).toContain('value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""');
-    expect(occurrenceCount(platformMain, "for_each = local.catalog_provider_runtime_env")).toBe(3);
-    expect(terraformJobBlock(platformMain, "platform-bootstrap")).toContain(
-      "for_each = local.catalog_provider_runtime_env",
-    );
-    expect(platformPrWorkflow).toContain("TF_VAR_tcgplayer_automation_tcg_auth_cookie: pr-validation-tcgplayer-cookie");
-    expect(platformPrWorkflow).toContain("TF_VAR_scrydex_api_key: pr-validation-scrydex-api-key");
-    expect(platformPrWorkflow).toContain("TF_VAR_scrydex_team_id: pr-validation-scrydex-team");
-    expect(platformProductionWorkflow).toContain(
-      "TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}",
-    );
-    expect(platformProductionWorkflow).toContain("TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}");
-    expect(platformProductionWorkflow).toContain("TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}");
-    expect(platformStagingResetWorkflow).toContain(
-      "TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}",
-    );
-    expect(platformStagingResetWorkflow).toContain("TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}");
-    expect(platformStagingResetWorkflow).toContain("TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}");
-    expect(platformMain).not.toMatch(
-      /TCGAuthTicket|TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE\s*=\s*"[^"]+"|SCRYDEX_API_KEY\s*=\s*"[^"]+"|SCRYDEX_TEAM_ID\s*=\s*"[^"]+"/,
-    );
-  });
-
-  it("keeps deterministic platform admin bootstrap owned by one pre-deploy job", () => {
-    const platformApiService = terraformServiceBlock(platformMain, "platform-api");
-    const platformWorkerService = terraformWorkerBlock(platformMain, "platform-worker");
-    const platformBootstrapJob = terraformJobBlock(platformMain, "platform-bootstrap");
-
-    for (const key of ["PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD", "PLATFORM_ADMIN_DISPLAY_NAME"]) {
-      expect(platformBootstrapJob).toContain(`key   = "${key}"`);
+  it("keeps shared Catalog provider runtime keys in the Kubernetes-owned values", () => {
+    for (const key of [
+      "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE",
+      "SCRYDEX_API_KEY",
+      "SCRYDEX_TEAM_ID",
+      "CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES",
+    ]) {
+      expect(platformRuntimeValues).toContain(`"${key}"`);
     }
-
-    expect(platformMain).not.toContain("admin-support-bootstrap remains only for landing-only production");
-    expect(platformMain).not.toContain("local.marketplace_public_enabled ? [] : [1]");
-    expect(platformMain).not.toContain("app-admin-support-api");
-    expect(platformMain).not.toContain("app-admin-support-worker");
-    expect(platformLocals).toContain("for context_name in local.context_database_names :");
-    expect(platformLocals).not.toContain("admin_support_context_database_env");
-    for (const block of [platformApiService, platformWorkerService, platformBootstrapJob]) {
-      expect(block).toContain("for_each = local.context_database_env");
-      expect(block).not.toContain("for_each = local.admin_support_context_database_env");
-    }
+    expect(platformRuntimeValues).not.toContain("SCRYDEX_ONE_PIECE_API_KEY");
+    expect(platformRuntimeValues).not.toContain("SCRYDEX_ONE_PIECE_TEAM_ID");
+    expect(platformRuntimeValues).not.toMatch(/TCGAuthTicket|SCRYDEX_API_KEY\s*:\s*"[^"]+"/);
   });
 
   it("keeps staging smoke under active auth registration rate limits", () => {
-    const platformApiService = terraformServiceBlock(platformMain, "platform-api");
-    const platformWorkerService = terraformWorkerBlock(platformMain, "platform-worker");
-    const platformBootstrapJob = terraformJobBlock(platformMain, "platform-bootstrap");
-
-    expect(platformLocals).toContain("rate_limit_runtime_env = local.is_staging ? {");
-    expect(platformLocals).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX = {");
-    expect(platformLocals).toContain('value  = "30"');
-    expect(platformApiService).toContain("for_each = local.rate_limit_runtime_env");
-    expect(platformWorkerService).not.toContain("for_each = local.rate_limit_runtime_env");
-    expect(platformBootstrapJob).not.toContain("for_each = local.rate_limit_runtime_env");
+    expect(platformRuntimeValues).toContain('"CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX"');
+    expect(platformRuntimeValues).toContain('"value": "30"');
   });
 
   it("keeps shared Catalog asset buckets and CDN domains in their own stable root", () => {
@@ -634,374 +490,19 @@ describe("DigitalOcean platform configuration", () => {
     expect(digitaloceanPlatformRunbook).toContain("temporary source edit locally");
   });
 
-  it("routes non-production UCP agent discovery and transport paths to platform-api", () => {
-    expect(platformLocals).toContain('ucp_route_prefixes   = ["/.well-known", "/ucp"]');
-    expect(platformLocals).toContain("ucp_ingress_routes");
-    expect(platformMain).toContain("for_each = local.ucp_ingress_routes");
-    expect(platformMain).toContain("prefix = rule.value.path_prefix");
-    expect(platformMain).toContain('name                 = "platform-api"');
+  it("routes UCP agent discovery and transport paths to platform-api", () => {
+    expect(renderPlatformHelmValuesScript).toContain('"/.well-known"');
+    expect(renderPlatformHelmValuesScript).toContain('"/ucp"');
   });
 
   it("routes native MCP transport paths to platform-api", () => {
-    expect(platformLocals).toContain("native_mcp_route_prefixes = [");
-    expect(platformLocals).toContain('"/mcp"');
-    expect(platformLocals).toContain("native_mcp_ingress_routes");
-    expect(platformMain).toContain("for_each = local.native_mcp_ingress_routes");
-    expect(platformMain).toContain("prefix = rule.value.path_prefix");
-    expect(platformMain).toContain('name                 = "platform-api"');
+    expect(renderPlatformHelmValuesScript).toContain('"/mcp"');
   });
 
-  it("wires Google Workspace SSO into profiled platform runtime components", () => {
-    expect(platformMain).not.toContain('name               = "admin-support-api"');
-    expect(occurrenceCount(platformMain, 'key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_ID"')).toBe(2);
-    expect(occurrenceCount(platformMain, 'key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"')).toBe(2);
-    expect(occurrenceCount(platformMain, 'key   = "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"')).toBe(2);
-  });
-
-  it("keeps App Platform database and runner budgets explicit by component", () => {
-    expectTerraformAssignment(platformLocals, "api_database_pool_max", '"6"');
-    expectTerraformAssignment(platformLocals, "worker_default_database_pool_max", "local.is_staging ? 14 : 8");
-    expectTerraformAssignment(platformLocals, "worker_database_pool_max", "tostring(var.worker_database_pool_max");
-    expectTerraformAssignment(platformLocals, "bootstrap_database_pool_max", '"4"');
-    expectTerraformAssignment(platformLocals, "worker_projection_concurrency", 'local.is_staging ? "2" : "1"');
-    expectTerraformAssignment(platformLocals, "worker_operations_concurrency", 'local.is_staging ? "2" : "1"');
-    expectTerraformAssignment(platformLocals, "worker_wake_concurrency", 'local.is_staging ? "3" : "2"');
-    expectTerraformAssignment(platformLocals, "worker_wake_hot_lane_runners", '"1"');
-    expectTerraformAssignment(platformLocals, "worker_wake_standard_lane_runners", 'local.is_staging ? "2" : "1"');
-    expectTerraformAssignment(platformLocals, "worker_wake_bulk_lane_runners", '"1"');
-    expectTerraformAssignment(platformLocals, "worker_wake_statement_timeout_ms", '"30000"');
-    expectTerraformAssignment(platformLocals, "worker_default_job_concurrency", "local.is_staging ? 4 : 1");
-    expectTerraformAssignment(platformLocals, "worker_job_concurrency", "tostring(var.worker_job_concurrency");
-    expectTerraformAssignment(platformLocals, "worker_inventory_import_concurrency", '"1"');
-    expectTerraformAssignment(platformLocals, "source_observation_bulk_job_lanes", 'local.is_staging ? "4" : "1"');
-    expectTerraformAssignment(platformLocals, "source_observation_bulk_workflow_cap", 'local.is_staging ? "4" : "1"');
-    expectTerraformAssignment(platformLocals, "source_observation_bulk_job_cap", 'local.is_staging ? "2" : "1"');
-    expectTerraformAssignment(platformLocals, "catalog_authoring_bulk_job_lanes", 'local.is_staging ? "3" : "1"');
-    expectTerraformAssignment(
-      platformLocals,
-      "source_observation_integration_job_lanes",
-      'local.is_staging ? "4" : "1"',
-    );
-    expectTerraformAssignment(platformLocals, "inventory_import_batch_job_lanes", 'local.is_staging ? "4" : "1"');
-    expectTerraformAssignment(platformLocals, "pricing_recommendation_job_lanes", 'local.is_staging ? "3" : "1"');
-    expectTerraformAssignment(
-      platformLocals,
-      "settlement_payout_reconciliation_job_lanes",
-      'local.is_staging ? "2" : "1"',
-    );
-    expectTerraformAssignment(platformLocals, "public_web_instances", "1");
-    expectTerraformAssignment(platformLocals, "marketplace_web_instances", "local.is_production ? 2 : 1");
-    expect(platformMain).toContain("instance_count     = local.public_web_instances");
-    expect(platformMain).toContain("instance_count     = local.marketplace_web_instances");
-    expectTerraformAssignment(platformLocals, "default_worker_instances", "local.is_staging ? 2 : 1");
-    expectTerraformAssignment(
-      platformLocals,
-      "worker_default_instance_size_slug",
-      'local.is_staging ? "apps-s-1vcpu-2gb" : var.app_instance_size_slug',
-    );
-    expectTerraformAssignment(
-      platformLocals,
-      "worker_instance_size_slug",
-      'trimspace(var.worker_instance_size_slug) != "" ? var.worker_instance_size_slug : local.worker_default_instance_size_slug',
-    );
-    expectTerraformAssignment(
-      platformLocals,
-      "worker_instances",
-      "var.worker_instance_count > 0 ? var.worker_instance_count : local.default_worker_instances",
-    );
-    expectTerraformAssignment(
-      platformLocals,
-      "app_platform_worker_instances",
-      'var.platform_bootstrap_owner == "doks" ? [] : [local.worker_instances]',
-    );
-    expect(platformVariables).toContain('variable "worker_instance_size_slug"');
-    expect(platformVariables).toContain('variable "worker_instance_count"');
-    expect(platformVariables).toContain('variable "worker_job_concurrency"');
-    expect(platformVariables).toContain('variable "worker_database_pool_max"');
-    expect(platformVariables).toContain('default     = "db-s-2vcpu-4gb"');
-    expect(platformVariables).toContain('variable "staging_database_size"');
-    expect(platformVariables).toContain('variable "staging_database_storage_size_mib"');
-    expect(platformVariables).toContain("default     = 25600");
-    expect(platformLocals).toContain("local.is_staging ? var.staging_database_size");
-    expect(platformLocals).toContain("local.is_staging ? var.staging_database_storage_size_mib : null");
-    expect(platformLocals).toContain("staging_context_database_connection_pool_sizes");
-    expect(platformLocals).toContain("catalog         = 6");
-    expect(platformLocals).toContain("control         = 4");
-    expect(platformMain).toContain("storage_size_mib = local.database_storage_size_mib");
-    expect(platformMain).toContain("ignore_changes  = [storage_size_mib]");
-    expect(platformMain).toContain("size       = local.context_database_connection_pool_sizes[each.key]");
-    expect(occurrenceCount(platformMain, "value = local.api_database_pool_max")).toBe(1);
-    expect(occurrenceCount(platformMain, "value = local.worker_database_pool_max")).toBe(1);
-    expect(occurrenceCount(platformMain, "instance_size_slug = local.worker_instance_size_slug")).toBe(1);
-    expect(occurrenceCount(platformMain, "value = local.bootstrap_database_pool_max")).toBe(1);
-    expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"')).toBe(1);
-    expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT"')).toBe(1);
-    expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"')).toBe(1);
-    expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"')).toBe(1);
-    for (const key of [
-      "CATALOG_AUTHORING_BULK_JOB_LANE_COUNT",
-      "CATALOG_AUTHORING_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
-      "CATALOG_AUTHORING_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
-      "SOURCE_OBSERVATION_INTEGRATION_JOB_LANE_COUNT",
-      "SOURCE_OBSERVATION_INTEGRATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
-      "SOURCE_OBSERVATION_INTEGRATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
-      "INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT",
-      "INVENTORY_IMPORT_BATCH_JOB_MAX_CONCURRENT_RUNNERS",
-      "INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
-      "INVENTORY_IMPORT_BATCH_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
-      "PRICING_RECOMMENDATION_JOB_LANE_COUNT",
-      "PRICING_RECOMMENDATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
-      "PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
-      "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_LANE_COUNT",
-      "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
-      "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
-    ]) {
-      expect(occurrenceCount(platformMain, `key   = "${key}"`)).toBe(1);
-    }
-    expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_MAX_CONCURRENT_RUNNERS"')).toBe(1);
-    expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_HOT_LANE_RUNNER_COUNT"')).toBe(1);
-    expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT"')).toBe(1);
-    expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_BULK_LANE_RUNNER_COUNT"')).toBe(1);
-    expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_STATEMENT_TIMEOUT_MS"')).toBe(1);
-    expect(terraformStringList(platformLocals, "worker_listener_source_contexts").sort()).toEqual(
-      directListenerSourceContextsFromRegistry(sourceContextWakeRegistry),
-    );
-    expect(platformLocals).toContain("worker_listener_database_urls");
-    expect(occurrenceCount(platformMain, "for_each = local.worker_listener_database_urls")).toBe(1);
-    expect(platformMain).toContain('key   = "WORKER_LISTENER_DATABASE_URL_${upper(replace(env.key, "-", "_"))}"');
-    expect(platformLocals).toContain(
-      'context_name => "cs_${local.database_name_token}_${replace(context_name, "-", "_")}_wake_listener"',
-    );
-    expect(platformLocals).toContain("wake_listener_database_names");
-    expect(platformLocals).toContain("wake_listener_grant_contexts");
-    expect(platformLocals).toContain(
-      'api_waiter_contexts             = ["catalog", "discovery", "inventory", "marketplace"]',
-    );
-    expect(platformLocals).toContain(
-      "wake_listener_contexts          = distinct(concat(local.worker_listener_source_contexts, local.api_waiter_contexts))",
-    );
-    expect(platformLocals).toContain("worker_listener_database_urls = (local.is_production || local.is_staging) ? {");
-    expect(platformLocals).toContain("api_waiter_database_urls = (local.is_production || local.is_staging) ? {");
-    expect(platformLocals).toContain("context_waiter_database_env = {");
-    expect(platformLocals).toContain('context_name => "DATABASE_URL_${upper(replace(context_name, "-", "_"))}_WAITER"');
-    expect(platformLocals).toContain("urlencode(digitalocean_database_user.wake_listeners[context_name].name)");
-    expect(platformLocals).toContain("urlencode(digitalocean_database_user.wake_listeners[context_name].password)");
-    expect(platformLocals).toContain("urlencode(local.wake_listener_database_names[context_name])");
-    // Listener URLs must never regress to the owning context users or the
-    // full-DML App Platform bindings (#1243 least privilege).
-    expect(platformLocals).not.toContain("urlencode(digitalocean_database_user.contexts[context_name].name)");
-    expect(platformLocals).not.toContain('context_name => format("$${db-%s.DATABASE_URL}", context_name)');
-    expectTerraformAssignment(
-      platformLocals,
-      "read_consistency_wake_before_wait_enabled",
-      'local.is_staging ? "true" : "false"',
-    );
-    expectTerraformAssignment(
-      platformLocals,
-      "read_consistency_readiness_notifications_enabled",
-      'local.is_staging ? "true" : "false"',
-    );
-    expect(occurrenceCount(platformMain, 'key   = "READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED"')).toBe(1);
-    expect(occurrenceCount(platformMain, 'key   = "READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED"')).toBe(1);
-    expect(occurrenceCount(platformMain, 'key   = "PLATFORM_WORK_SIGNAL_DATABASE_URL"')).toBe(2);
-    expect(platformMain).toContain("for_each = local.api_waiter_database_urls");
-    expect(platformMain).toContain("key   = local.context_waiter_database_env[env.key]");
-    expectTerraformAssignment(
-      platformLocals,
-      "worker_projection_wake_relay_enabled",
-      '(local.is_staging || local.is_production) ? "true" : "false"',
-    );
-    expectTerraformAssignment(
-      platformLocals,
-      "event_store_wake_notifications_enabled",
-      '(local.is_staging || local.is_production) ? "true" : "false"',
-    );
-    expectTerraformAssignment(
-      platformLocals,
-      "projection_wake_source_contexts",
-      'local.is_production ? "public-presence" : "*"',
-    );
-    expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_WAKE_RELAY_ENABLED"')).toBe(1);
-    expect(occurrenceCount(platformMain, 'key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"')).toBe(3);
-    expect(occurrenceCount(platformMain, 'key   = "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS"')).toBe(3);
-    expect(platformMain).toContain('check "worker_runner_capacity"');
-    expect(platformMain).toContain("tonumber(local.worker_projection_concurrency)");
-    expect(platformMain).toContain("tonumber(local.worker_operations_concurrency)");
-    expect(platformMain).toContain("tonumber(local.worker_job_concurrency)");
-    expect(platformMain).toContain("tonumber(local.worker_inventory_import_concurrency)");
-    expect(platformMain).toContain("tonumber(local.worker_wake_concurrency)");
-    expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_OPERATION_RUNNER_COUNT"')).toBe(1);
-    // #4738: the worker is rendered through a conditional dynamic block so the
-    // App Platform component is absent entirely when DOKS owns the runtime.
-    expect(platformMain).toContain(
-      'dynamic "worker" {\n      for_each = local.app_platform_worker_instances\n      content {\n        name               = "platform-worker"',
-    );
-    expect(platformMain).not.toMatch(/name\s+= "platform-worker"[\s\S]*?http_port\s+= 8080/);
-  });
-
-  it("fits every worker runner group (including the operations executor) inside the worker pool budget", () => {
-    // Regression guard for #4620: #4599 added the projection-operations runner
-    // group (default 2) without counting it against worker_database_pool_max,
-    // so total runner concurrency (9) exceeded the pool (7) and the runtime
-    // capacity guard crash-looped the staging worker. Compute the same sum the
-    // runtime asserts, per environment, so this class fails the plan/CI instead
-    // of the pod.
-    const readConcurrencyLocal = (localName) => {
-      const match = platformLocals.match(new RegExp(`${localName}\\s+=\\s+(.+)`));
-      if (!match) {
-        throw new Error(`local.${localName} is missing from platform locals.`);
-      }
-      const expression = match[1];
-      const staging = expression.match(/local\.is_staging \? "?(\d+)"?/);
-      const otherwise = expression.match(/: "?(\d+)"?/);
-      const literal = expression.match(/^"?(\d+)"?/);
-      return {
-        staging: Number(staging?.[1] ?? literal?.[1]),
-        production: Number(otherwise?.[1] ?? literal?.[1]),
-      };
-    };
-
-    const groups = [
-      "worker_projection_concurrency",
-      "worker_operations_concurrency",
-      "worker_job_concurrency",
-      "worker_inventory_import_concurrency",
-      "worker_dispatch_concurrency",
-      "worker_scheduled_concurrency",
-      "worker_wake_concurrency",
-    ].map(readConcurrencyLocal);
-
-    // worker_job_concurrency wraps its is_staging default in a var override;
-    // read the default (worker_default_job_concurrency) for the budget sum.
-    const jobDefault = readConcurrencyLocal("worker_default_job_concurrency");
-    groups[2] = jobDefault;
-
-    const poolMax = readConcurrencyLocal("worker_default_database_pool_max");
-    const stagingTotal = groups.reduce((total, group) => total + group.staging, 0);
-    const productionTotal = groups.reduce((total, group) => total + group.production, 0);
-
-    expect(stagingTotal).toBe(14);
-    expect(productionTotal).toBe(8);
-    expect(stagingTotal).toBeLessThanOrEqual(poolMax.staging);
-    expect(productionTotal).toBeLessThanOrEqual(poolMax.production);
-  });
-
-  it("models the push-wake connection budget and listener topology parity as plan-time checks", () => {
-    expectTerraformAssignment(platformLocals, "api_component_count", "1");
-    expectTerraformAssignment(platformLocals, "worker_component_count", "1");
-    expectTerraformAssignment(platformLocals, "runtime_profile_name", "local.runtime_profile");
-    expectTerraformAssignment(
-      platformLocals,
-      "api_total_pool_demand",
-      "tonumber(local.api_database_pool_max) * local.api_component_count * local.api_instances",
-    );
-    expectTerraformAssignment(
-      platformLocals,
-      "worker_total_pool_demand",
-      "tonumber(local.worker_database_pool_max) * local.worker_component_count * local.worker_instances",
-    );
-    expectTerraformAssignment(
-      platformLocals,
-      "relay_listener_demand",
-      "(local.is_production || local.is_staging) ? length(local.worker_listener_source_contexts) : 0",
-    );
-    expect(platformLocals).toContain("api_waiter_listener_demand = (local.is_production || local.is_staging) ? (");
-    expectTerraformAssignment(platformLocals, "bootstrap_demand", "tonumber(local.bootstrap_database_pool_max)");
-    expect(platformLocals).toContain("pgbouncer_server_backend_allocation = (");
-    expect(platformLocals).toContain("sum(values(local.context_database_connection_pool_sizes))");
-    expect(platformLocals).toContain("cluster_connection_limits = {");
-    expectTerraformAssignment(platformLocals, '"db-s-1vcpu-1gb"', "19");
-    expectTerraformAssignment(platformLocals, '"db-s-2vcpu-4gb"', "94");
-    expectTerraformAssignment(platformLocals, '"db-s-4vcpu-8gb"', "194");
-    expectTerraformAssignment(
-      platformLocals,
-      "cluster_connection_limit",
-      "lookup(local.cluster_connection_limits, local.database_size, 0)",
-    );
-    expectTerraformAssignment(platformLocals, "connection_budget_upgrade_trigger_percent", "80");
-    expect(platformLocals).toContain("connection_budget_upgrade_trigger = floor(");
-    // #4655 converged production query traffic onto pools, so the cluster
-    // backend demand is the same non-branching PgBouncer server-side allocation
-    // model in every environment (no is_production direct-binding branch).
-    expect(platformLocals).toContain("cluster_backend_demand = (");
-    expect(platformLocals).toContain("cluster_backend_demand_deploy_overlap = (");
-    expect(platformLocals).not.toContain("cluster_backend_demand = local.is_production ? (");
-    expect(platformLocals).toContain(
-      "local.pgbouncer_server_backend_allocation + local.relay_listener_demand + local.api_waiter_listener_demand + local.bootstrap_demand",
-    );
-    expect(platformLocals).toContain(
-      "local.pgbouncer_server_backend_allocation + 2 * local.relay_listener_demand + 2 * local.api_waiter_listener_demand + local.bootstrap_demand",
-    );
-    expect(platformLocals).toContain("production_context_database_connection_pool_size_overrides = {");
-    expect(platformLocals).toContain(
-      "context_name => lookup(local.production_context_database_connection_pool_size_overrides, context_name, 1)",
-    );
-    expect(platformLocals).toContain(
-      "connection_pool_contexts = toset(keys(local.context_database_connection_pool_sizes))",
-    );
-    expect(platformMain).toContain("for_each = local.connection_pool_contexts");
-    expect(platformMain).not.toContain("for_each = local.non_production_connection_pool_contexts");
-    // Production no longer attaches App Platform database bindings (#4655).
-    expect(platformMain).not.toContain("db_user      = digitalocean_database_user.contexts[database.key].name");
-    expect(platformLocals).not.toContain('context_name => format("$${db-%s.DATABASE_URL}", context_name)');
-    expect(platformLocals).toContain("active_profile_connection_budget = {");
-    expectTerraformAssignment(platformLocals, "profile", "local.runtime_profile_name");
-    expectTerraformAssignment(platformLocals, "active_context_count", "length(local.active_runtime_context_names)");
-    expectTerraformAssignment(platformLocals, "provisioned_context_count", "length(local.provisioned_context_names)");
-    expectTerraformAssignment(platformLocals, "api_waiter_listener_demand", "local.api_waiter_listener_demand");
-    expectTerraformAssignment(
-      platformLocals,
-      "steady_state_headroom",
-      "local.cluster_connection_limit - local.cluster_backend_demand",
-    );
-    expectTerraformAssignment(
-      platformLocals,
-      "rolling_deploy_headroom",
-      "local.cluster_connection_limit - local.cluster_backend_demand_deploy_overlap",
-    );
-    expectTerraformAssignment(
-      platformLocals,
-      "rolling_deploy_upgrade_trigger_percent",
-      "local.connection_budget_upgrade_trigger_percent",
-    );
-    expectTerraformAssignment(
-      platformLocals,
-      "rolling_deploy_upgrade_trigger",
-      "local.connection_budget_upgrade_trigger",
-    );
-    expect(platformLocals).toContain("rolling_deploy_upgrade_required = (");
-    expect(platformLocals).toContain("production_pgbouncer_ready = true");
-    expect(platformLocals).toContain("connection_budget_profiles = {");
-    expect(platformLocals).toContain("landing = merge(local.active_profile_connection_budget");
-    expect(platformLocals).toContain("active_context_count      = length(local.landing_context_names)");
-    expect(platformLocals).toContain("proof = merge(local.active_profile_connection_budget");
-    expect(platformLocals).toContain("public = merge(local.active_profile_connection_budget");
-    expect(platformOutputs).toContain('output "connection_budget_profiles"');
-    expect(platformOutputs).toContain("value = local.connection_budget_profiles");
-
-    expect(platformMain).toContain('check "wake_connection_budget"');
-    expect(platformMain).toContain("local.cluster_backend_demand <= local.cluster_connection_limit");
-    expect(platformMain).toContain("local.cluster_backend_demand_deploy_overlap <= local.cluster_connection_limit");
-    expect(platformMain).toContain(
-      'error_message = "Worst-case steady-state backend demand exceeds the budgeted DigitalOcean database tier connection limit. Reduce pool maxima, instance counts, or listener source contexts, or scale database_size, and update docs/architecture/push-wake-connection-budget.md."',
-    );
-    expect(platformMain).toContain(
-      'error_message = "Rolling-deploy overlap backend demand exceeds the budgeted DigitalOcean database tier connection limit. Reduce pool maxima, instance counts, or listener source contexts, or scale database_size before adding push-wake load."',
-    );
-    expect(platformMain).toContain('check "wake_connection_budget_tier_upgrade_trigger"');
-    expect(platformMain).toContain("local.connection_budget_upgrade_trigger_percent");
-    expect(platformMain).toContain(
-      'error_message = "Rolling-deploy overlap backend demand exceeds 80% of the selected DigitalOcean database tier. Upgrade database_size to db-s-4vcpu-8gb or land production transaction pools before increasing platform-api/platform-worker scale."',
-    );
-
-    expect(platformMain).toContain('check "wake_listener_topology_parity"');
-    expect(platformMain).toContain(
-      "((local.is_production || local.is_staging) ? length(local.worker_listener_source_contexts) : 0)",
-    );
-    expect(platformMain).toContain("contains(keys(local.worker_listener_database_urls), context_name)");
-
-    expect(platformMain).toContain('check "worker_runner_capacity"');
-    expect(existsSync(resolve("docs/architecture/push-wake-connection-budget.md"))).toBe(true);
+  it("wires Google Workspace SSO into the DOKS runtime", () => {
+    expect(platformRuntimeValues).toContain('"GOOGLE_SOCIAL_LOGIN_CLIENT_ID"');
+    expect(platformRuntimeValues).toContain('"GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"');
+    expect(platformRuntimeValues).toContain('"ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"');
   });
 
   it("provisions dedicated least-privilege wake-listener users with same-apply grants", () => {
@@ -1012,8 +513,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain("for_each   = local.wake_listener_database_users");
     expect(platformLocals).toContain("wake_listener_database_users = (local.is_production || local.is_staging) ? {");
 
-    // Grants run inside the same terraform apply, before the app spec update
-    // restarts workers with the listener URLs.
+    // Grants run inside the same Terraform apply that rotates the DOKS runtime
+    // database URLs.
     expect(platformMain).toContain('resource "terraform_data" "wake_listener_database_grants"');
     expect(platformMain).toContain("count = length(local.wake_listener_grant_contexts) > 0 ? 1 : 0");
     expect(platformMain).toContain(
@@ -1021,17 +522,6 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformMain).toContain('kind     = "wake-listener"');
     expect(platformMain).toContain("user     = digitalocean_database_user.wake_listeners[context_name].name");
-    const appDependsOn = platformMain.slice(
-      platformMain.lastIndexOf(
-        "depends_on",
-        platformMain.indexOf('resource "digitalocean_record" "staging_app_alias"'),
-      ),
-    );
-    expect(platformMain).toMatch(
-      /depends_on = \[\n    digitalocean_database_db\.contexts,\n    digitalocean_database_user\.contexts,\n    digitalocean_database_user\.wake_listeners,\n    terraform_data\.context_database_grants,\n    terraform_data\.wake_listener_database_grants,\n  \]/,
-    );
-    expect(appDependsOn).toContain("terraform_data.wake_listener_database_grants");
-
     // The grant script understands the wake-listener kind and grants only
     // CONNECT + schema USAGE + event-store SELECT for it.
     expect(grantScript).toContain('GRANT_KINDS = Object.freeze(["owner", "wake-listener"])');
@@ -1049,7 +539,7 @@ describe("DigitalOcean platform configuration", () => {
       '"//${urlencode(lookup(local.wake_listener_database_users, context_name, "missing-wake-listener-user"))}:",',
     );
     expect(platformMain).toContain(
-      'error_message = "Relay listener URLs must use the dedicated wake-listener database users (LISTEN + read-only event-store access), never the owning context users or App Platform bindings."',
+      'error_message = "Relay listener URLs must use the dedicated wake-listener database users (LISTEN + read-only event-store access), never the owning context users."',
     );
   });
 
@@ -1123,14 +613,6 @@ describe("DigitalOcean platform configuration", () => {
       "Apply production Kubernetes registry pull secret",
     );
     const deployStep = workflowStep(deployProductionJob, "Deploy production Kubernetes release");
-    const productionAppPlatformBootstrapDiagnosticsStep = workflowStep(
-      deployProductionJob,
-      "Capture production App Platform bootstrap diagnostics",
-    );
-    const productionAppPlatformBootstrapDiagnosticsUpload = workflowStep(
-      deployProductionJob,
-      "Upload production App Platform bootstrap diagnostics",
-    );
     const productionKubernetesDiagnosticsUpload = workflowStep(
       deployProductionJob,
       "Upload production Kubernetes deploy diagnostics",
@@ -1142,27 +624,7 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(deployStagingJob).not.toContain("- name: Capture production rollback target");
     expect(deployStagingJob).not.toContain("- name: Evaluate production rollback readiness");
-    expect(deployStagingJob).not.toContain("- name: Wait for Terraform App Platform deployment");
-    expect(deployStagingJob).not.toContain("- name: Wait for previous App Platform deployment");
-    expect(deployStagingJob).toContain("- name: Capture staging App Platform bootstrap diagnostics");
-    expect(deployStagingJob).not.toContain("digitalocean-app-deployment.mjs wait ");
-    const stagingAppPlatformBootstrapDiagnosticsStep = workflowStep(
-      deployStagingJob,
-      "Capture staging App Platform bootstrap diagnostics",
-    );
-    const stagingAppPlatformBootstrapDiagnosticsUpload = workflowStep(
-      deployStagingJob,
-      "Upload staging App Platform bootstrap diagnostics",
-    );
-    expect(stagingAppPlatformBootstrapDiagnosticsStep).toContain("digitalocean-app-deployment.mjs diagnostics");
-    expect(stagingAppPlatformBootstrapDiagnosticsStep).toContain("--component=platform-bootstrap");
-    expect(stagingAppPlatformBootstrapDiagnosticsStep).toContain(
-      "--out=artifacts/release-health/staging-app-platform-bootstrap-diagnostics.json",
-    );
-    expect(stagingAppPlatformBootstrapDiagnosticsUpload).toContain("name: staging-app-platform-bootstrap-diagnostics");
-    expect(deployStagingJob).not.toContain("digitalocean-app-deployment.mjs wait-domains");
-    expect(deployStagingJob).not.toContain("- name: Reset stale staging root domain attachment");
-    expect(deployStagingJob).not.toContain("- name: Deploy App Platform image");
+    expect(deployStagingJob).not.toContain("digitalocean-app-deployment.mjs");
     expect(stagingSmokeStep).toContain("timeout-minutes: 12");
     expect(stagingSmokeStep).toContain('SMOKE_FETCH_TIMEOUT_MS: "15000"');
     expect(productionSmokeStep).toContain("timeout-minutes: 15");
@@ -1297,21 +759,17 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformHelmStagingValues).toContain('connectionFromEnv: "PLATFORM_WORK_SIGNAL_DATABASE_URL"');
     expect(platformHelmStagingValues).toContain("platform_projection_wake_intents");
     expect(platformHelmStagingValues).toContain("state IN ('queued', 'failed')");
-    expect(platformMain).toContain('key   = "PLATFORM_WORK_SIGNAL_DATABASE_URL"');
+    expect(platformRuntimeValues).toContain('"PLATFORM_WORK_SIGNAL_DATABASE_URL"');
     expect(platformHelmStagingValues).not.toContain("WORKER_PROJECTION_OPERATION_RUNNER_COUNT");
     expect(stagingDeployStep).toContain('--runtime-env "CHASE_SETS_RUNTIME_PROFILE=public"');
     expect(stagingDeployStep).toContain(
       '--runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap"',
     );
-    // Regression guard for the admin.doks.staging shadow host 404ing before
-    // reaching Google OAuth: the Helm chart's static ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS
-    // default is "" (see envValueDefaults in render-platform-helm-values.mjs),
-    // and the DOKS deploy is a separate platform-api process from the App
-    // Platform one that reads it from Terraform directly — without this
-    // runtime-env override the DOKS platform-api always treats admin Google
-    // Workspace SSO as unconfigured and 404s `/api/auth/social/google/start`.
+    // Regression guard for the staging admin host 404ing before Google OAuth:
+    // the canonical Helm default is empty, so the deploy must thread the
+    // environment-specific hosted-domain value explicitly.
     expect(stagingDeployStep).toContain(
-      '--runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${TF_VAR_admin_google_workspace_hosted_domains:-}"',
+      '--runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS:-}"',
     );
     expect(stagingDeployStep).toContain(
       '--runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}"',
@@ -1319,12 +777,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingDeployStep).toContain('--runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}"');
     expect(stagingDeployStep).toContain('--runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}"');
     expect(stagingDeployStep).toContain('--runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}"');
-    // Runtime-env parity with the App Platform path and the preview deploy
-    // (platform-pr.yml): the DOKS Helm chart bakes per-domain origins,
-    // notification/provider config, and optional provider endpoints as ""/noop
-    // defaults, so every value the App Platform platform-api/admin-web/worker
-    // reads from a Terraform var must be threaded here or it arrives empty on
-    // DOKS (the #5159 silent-misconfig class).
+    // The canonical Helm values use safe empty/noop defaults, so the deploy
+    // must thread environment-specific origins and provider configuration.
     expect(stagingDeployStep).toContain(
       "terraform -chdir=infrastructure/digitalocean/platform output -raw landing_domain",
     );
@@ -1333,9 +787,9 @@ describe("DigitalOcean platform configuration", () => {
       '--runtime-env "NOTIFICATION_EMAIL_PROVIDER=${TF_VAR_notification_email_provider:-noop}"',
     );
     expect(stagingDeployStep).toContain(
-      '--runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${TF_VAR_stripe_connect_accounts_api:-v2}"',
+      '--runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${STRIPE_CONNECT_ACCOUNTS_API:-v2}"',
     );
-    expect(stagingDeployStep).toContain('--runtime-env "EASYPOST_MODE=${TF_VAR_easypost_mode:-test}"');
+    expect(stagingDeployStep).toContain('--runtime-env "EASYPOST_MODE=${EASYPOST_MODE:-test}"');
     expect(stagingDeployStep).toContain(
       'add_optional_runtime_env "CHASE_SETS_MARKETPLACE_ORIGIN" "${marketplace_domain:+https://${marketplace_domain}}"',
     );
@@ -1344,11 +798,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingDeployStep).toContain(
       'add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"',
     );
+    expect(stagingDeployStep).toContain('add_optional_runtime_env "STRIPE_API_BASE_URL" "${STRIPE_API_BASE_URL:-}"');
     expect(stagingDeployStep).toContain(
-      'add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"',
-    );
-    expect(stagingDeployStep).toContain(
-      'add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"',
+      'add_optional_runtime_env "EASYPOST_API_BASE_URL" "${EASYPOST_API_BASE_URL:-}"',
     );
     expect(stagingDeployStep).toContain('"${optional_runtime_env[@]}"');
     expect(stagingDeployStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
@@ -1402,24 +854,20 @@ describe("DigitalOcean platform configuration", () => {
       '--runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap"',
     );
     expect(deployStep).toContain(
-      '--runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${TF_VAR_admin_google_workspace_hosted_domains:-}"',
+      '--runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS:-}"',
     );
     expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}"');
     expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}"');
     expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}"');
     expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}"');
-    // Runtime-env parity with the App Platform path and the preview deploy
-    // (platform-pr.yml): see the staging assertion above for the #5159
-    // silent-misconfig class this guards.
+    // Production uses the same explicit runtime contract as staging and preview.
     expect(deployStep).toContain("terraform -chdir=infrastructure/digitalocean/platform output -raw landing_domain");
     expect(deployStep).toContain('--runtime-env "CHASE_SETS_PUBLIC_ORIGIN=https://${landing_domain}"');
     expect(deployStep).toContain(
       '--runtime-env "NOTIFICATION_EMAIL_PROVIDER=${TF_VAR_notification_email_provider:-noop}"',
     );
-    expect(deployStep).toContain(
-      '--runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${TF_VAR_stripe_connect_accounts_api:-v2}"',
-    );
-    expect(deployStep).toContain('--runtime-env "EASYPOST_MODE=${TF_VAR_easypost_mode:-test}"');
+    expect(deployStep).toContain('--runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${STRIPE_CONNECT_ACCOUNTS_API:-v2}"');
+    expect(deployStep).toContain('--runtime-env "EASYPOST_MODE=${EASYPOST_MODE:-test}"');
     expect(deployStep).toContain(
       'add_optional_runtime_env "CHASE_SETS_MARKETPLACE_ORIGIN" "${marketplace_domain:+https://${marketplace_domain}}"',
     );
@@ -1428,22 +876,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(deployStep).toContain(
       'add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"',
     );
-    expect(deployStep).toContain('add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"');
-    expect(deployStep).toContain(
-      'add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"',
-    );
+    expect(deployStep).toContain('add_optional_runtime_env "STRIPE_API_BASE_URL" "${STRIPE_API_BASE_URL:-}"');
+    expect(deployStep).toContain('add_optional_runtime_env "EASYPOST_API_BASE_URL" "${EASYPOST_API_BASE_URL:-}"');
     expect(deployStep).toContain('"${optional_runtime_env[@]}"');
     expect(deployStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
     expect(deployStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
 
-    expect(productionAppPlatformBootstrapDiagnosticsStep).toContain("digitalocean-app-deployment.mjs diagnostics");
-    expect(productionAppPlatformBootstrapDiagnosticsStep).toContain("--component=platform-bootstrap");
-    expect(productionAppPlatformBootstrapDiagnosticsStep).toContain(
-      "production-app-platform-bootstrap-diagnostics.json",
-    );
-    expect(productionAppPlatformBootstrapDiagnosticsUpload).toContain(
-      "name: production-app-platform-bootstrap-diagnostics",
-    );
     expect(productionKubernetesDiagnosticsUpload).toContain("name: production-kubernetes-deploy-diagnostics");
 
     expect(diagnosticsStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
@@ -1584,44 +1022,6 @@ describe("DigitalOcean platform configuration", () => {
     expect(databaseNames).toContain("chase_sets_production_platform_ops");
   });
 
-  it("routes staging root as the managed primary marketplace host", () => {
-    expect(platformLocals).toContain('environment_zone    = "${var.environment}.${var.root_domain}"');
-    expect(platformLocals).toContain("staging_root_marketplace_domains = local.is_staging");
-    expect(platformLocals).toContain('"${var.environment}.${var.root_domain}"');
-    expect(platformLocals).toContain(
-      "all_marketplace_domains = concat(local.marketplace_domains, local.staging_root_marketplace_domains)",
-    );
-    expect(platformLocals).toContain(
-      "app_primary_domain      = local.is_staging ? local.staging_root_marketplace_domains[0] : local.public_domains[0]",
-    );
-    expect(platformLocals).toContain(
-      "concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains)",
-    );
-    expect(platformLocals).toContain("for domain in local.all_marketplace_domains");
-    expect(platformLocals).toContain("production_retained_marketplace_uptime_check_targets = local.is_production");
-    expect(platformLocals).toContain(
-      '"marketplace-${replace("marketplace.${var.root_domain}", ".", "-")}" = "https://marketplace.${var.root_domain}/health/ready"',
-    );
-    expect(platformLocals).toContain("}, local.production_retained_marketplace_uptime_check_targets)");
-    expect(platformMain).toContain("for_each = local.staging_root_marketplace_domains");
-    expect(platformMain).toContain("for_each = local.all_marketplace_domains");
-    expect(platformMain).toContain('type = domain.value == local.app_primary_domain ? "PRIMARY" : "ALIAS"');
-    expect(platformLocals).toContain("app_domain_zones = merge(");
-    expect(platformLocals).toContain("domain => local.is_staging ? local.environment_zone : var.root_domain");
-    expect(platformMain).toContain("zone = local.app_domain_zones[domain.value]");
-    expect(platformMain).toContain("zone = local.app_domain_zones[local.admin_domain]");
-    expect(platformLocals).toContain("staging_app_alias_record_names");
-    expect(platformLocals).not.toContain("staging_root_app_platform_ipv4_records");
-    expect(platformLocals).not.toContain("staging_root_app_platform_ipv6_records");
-    expect(platformMain).toContain('resource "digitalocean_record" "staging_app_alias"');
-    expect(platformMain).toContain('type   = "CNAME"');
-    expect(platformMain).toContain("digitalocean_app.platform.default_ingress");
-    expect(platformMain).not.toContain('resource "digitalocean_record" "staging_root_app_platform_ipv4"');
-    expect(platformMain).not.toContain('resource "digitalocean_record" "staging_root_app_platform_ipv6"');
-    expect(platformMain).toContain('name                 = "marketplace"');
-    expect(platformMain).toContain('name                 = "platform-api"');
-  });
-
   it("keeps production marketplace promotion explicitly gated", () => {
     expect(platformVariables).toContain('variable "production_marketplace_public_enabled"');
     expect(platformVariables).toContain("production_marketplace_public_enabled may only be true for production.");
@@ -1652,8 +1052,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).toContain(
       "production_checkout_launch_evidence_reference is required when production_checkout_launch_evidence_approved is true.",
     );
-    expect(platformVariables).toContain('variable "checkout_shopify_simple_kill_switch_active"');
-    expect(platformVariables).toContain("Hard runtime kill switch for Shopify-simple checkout entry.");
+    expect(platformRuntimeValues).toContain('"CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE"');
     expect(platformVariables).toContain('variable "production_stripe_money_operations_approved"');
     expect(platformVariables).toContain("production_stripe_money_operations_approved may only be true for production.");
     expect(platformVariables).toContain('variable "production_stripe_money_operations_reference"');
@@ -1693,27 +1092,11 @@ describe("DigitalOcean platform configuration", () => {
       "production_tax_readiness_reference is required when production_tax_readiness_approved is true.",
     );
     expect(platformVariables).toContain('var.production_runtime_profile == "landing"');
-    expect(platformVariables).toContain('startswith(var.stripe_secret_key, "sk_live")');
-    expect(platformVariables).toContain('startswith(var.stripe_publishable_key, "pk_live")');
-    expect(platformVariables).toContain('variable "stripe_connect_webhook_secret"');
-    expect(platformVariables).toContain(
-      "stripe_connect_webhook_secret is required outside gated landing-only production and during production proof/public platform runtime.",
-    );
-    expect(platformVariables).toContain('variable "stripe_connect_accounts_api"');
-    expect(platformVariables).toContain("stripe_connect_accounts_api must be v1 or v2.");
-    expect(platformMain).toContain('key   = "STRIPE_CONNECT_WEBHOOK_SECRET"');
-    expect(platformMain).toContain("value = var.stripe_connect_webhook_secret");
-    expect(platformMain).toContain('key   = "STRIPE_CONNECT_ACCOUNTS_API"');
-    expect(platformMain).toContain("value = var.stripe_connect_accounts_api");
-    expect(platformVariables).not.toContain('variable "stripe_connect_return_url"');
-    expect(platformVariables).not.toContain('variable "stripe_connect_refresh_url"');
-    expect(platformMain).not.toContain('key   = "STRIPE_CONNECT_RETURN_URL"');
-    expect(platformMain).not.toContain('key   = "STRIPE_CONNECT_REFRESH_URL"');
-    expect(platformVariables).toContain('variable "easypost_webhook_secret"');
-    expect(platformVariables).toContain(
-      "easypost_webhook_secret is required when production platform runtime is proof or public.",
-    );
-    expect(platformVariables).toContain('var.easypost_mode == "production"');
+    expect(platformRuntimeValues).toContain('"STRIPE_CONNECT_WEBHOOK_SECRET"');
+    expect(platformRuntimeValues).toContain('"STRIPE_CONNECT_ACCOUNTS_API"');
+    expect(platformRuntimeValues).toContain('"EASYPOST_WEBHOOK_SECRET"');
+    expect(platformRuntimeValues).not.toContain('"STRIPE_CONNECT_RETURN_URL"');
+    expect(platformRuntimeValues).not.toContain('"STRIPE_CONNECT_REFRESH_URL"');
     expect(platformLocals).toContain("platform_enabled = (");
     expect(platformLocals).toContain('local.runtime_profile != "landing"');
     expect(platformLocals).toContain("placeholder_evidence_references = [");
@@ -1724,32 +1107,18 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformLocals).toContain("marketplace_public_enabled = (");
     expect(platformLocals).toContain('local.is_non_production || local.runtime_profile == "public"');
-    expect(platformLocals).not.toContain("api_component_name");
-    expect(platformLocals).toContain('api_private_url               = "$${platform-api.PRIVATE_URL}"');
-    expect(platformLocals).toContain("admin_web_internal_api_origin = local.api_private_url");
     expect(platformLocals).not.toContain("production_proof_web_enabled");
-    expect(platformLocals).not.toContain("marketplace_web_enabled");
     expect(platformLocals).toContain("marketplace_domains = local.marketplace_public_enabled");
     expect(platformLocals).toContain('local.is_production ? "marketplace.${var.root_domain}"');
-    expect(platformLocals).toContain("provider_webhook_ingress_routes = {");
-    expect(platformLocals).toContain('"/api/payments/provider/webhooks"');
-    expect(platformLocals).toContain('"/api/settlement/provider/money-movement/webhooks"');
+    expect(renderPlatformHelmValuesScript).toContain('"/api/payments/provider/webhooks"');
+    expect(renderPlatformHelmValuesScript).toContain('"/api/settlement/provider/money-movement/webhooks"');
     expect(platformLocals).not.toContain("proof_api_ingress_routes");
     expect(platformLocals).not.toContain("proof_admin_api_ingress_routes");
     expect(platformLocals).not.toContain("proof_web_ingress_routes");
-    expect(platformMain).not.toContain('key   = "CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED"');
-    expect(platformMain).not.toContain('key   = "CHASE_SETS_MARKETPLACE_PROOF_ACCESS_PERMISSION"');
-    const marketplaceService = terraformServiceBlock(platformMain, "marketplace");
-    expect(marketplaceService).toContain('key   = "STRIPE_PUBLISHABLE_KEY"');
-    expect(marketplaceService).toContain("value = var.stripe_publishable_key");
-    expect(marketplaceService).toContain('type  = "SECRET"');
-    expect(marketplaceService).toContain('key   = "CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE"');
-    expect(marketplaceService).toContain('value = var.checkout_shopify_simple_kill_switch_active ? "true" : "false"');
-    const adminWebService = terraformServiceBlock(platformMain, "admin-web");
-    expect(adminWebService).toContain('key   = "CHASE_SETS_INTERNAL_API_ORIGIN"');
-    expect(adminWebService).toContain("value = local.admin_web_internal_api_origin");
-    expect(adminWebService).toContain('key   = "CHASE_SETS_MARKETPLACE_ORIGIN"');
-    expect(adminWebService).toContain("value = local.marketplace_origin");
+    expect(platformRuntimeValues).toContain('"STRIPE_PUBLISHABLE_KEY"');
+    expect(platformRuntimeValues).toContain('"CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE"');
+    expect(platformRuntimeValues).toContain('"CHASE_SETS_INTERNAL_API_ORIGIN"');
+    expect(platformRuntimeValues).toContain('"CHASE_SETS_MARKETPLACE_ORIGIN"');
     expect(platformLocals).toContain("context_names = local.active_runtime_context_names");
     expect(platformMain).not.toContain('check "production_marketplace_proof"');
     expect(platformMain).toContain('check "production_marketplace_promotion"');
@@ -1798,8 +1167,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain(
       'error_message = "Production marketplace promotion requires approved Fulfillment postage evidence before live shipment labels."',
     );
-    expect(platformMain).toContain('key   = "EASYPOST_WEBHOOK_SECRET"');
-    expect(platformMain).toContain("value = var.easypost_webhook_secret");
+    expect(platformRuntimeValues).toContain('"EASYPOST_WEBHOOK_SECRET"');
     expect(platformMain).toContain('check "production_transactional_email_readiness"');
     expect(platformMain).toContain("var.production_transactional_email_approved");
     expect(platformMain).toContain(
@@ -1815,17 +1183,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain(
       'error_message = "Production marketplace promotion requires approved Tax readiness evidence before live order creation."',
     );
-    expect(platformMain).toContain("for_each = local.marketplace_public_enabled ? [1] : []");
-    expect(platformMain).not.toContain("for_each = local.marketplace_public_enabled ? [] : [1]");
-    expect(platformMain).not.toContain("for_each = local.platform_enabled ? [1] : []");
-    expect(platformMain).not.toContain("for_each = local.marketplace_web_enabled");
-    expect(platformMain).toContain("for_each = local.provider_webhook_ingress_routes");
-    expect(platformMain).not.toContain("for_each = local.proof_api_ingress_routes");
-    expect(platformMain).not.toContain("for_each = local.proof_admin_api_ingress_routes");
-    expect(platformMain).not.toContain("for_each = local.proof_web_ingress_routes");
-    expect(platformMain).toContain(
-      'value = local.is_production && local.marketplace_public_enabled ? "true" : "false"',
-    );
+    expect(renderPlatformHelmValuesScript).toContain("platformApiIngressPrefixes");
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
     );
@@ -2114,12 +1472,10 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_checkout_launch_evidence_reference: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}",
+      "CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}",
     );
-    expect(occurrenceCount(platformProductionWorkflow, "TF_VAR_checkout_shopify_simple_kill_switch_active")).toBe(2);
-    expect(platformStagingResetWorkflow).toContain(
-      "TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}",
-    );
+    expect(occurrenceCount(platformProductionWorkflow, "CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE:")).toBe(2);
+    expect(platformStagingResetWorkflow).not.toContain("CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE");
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_stripe_money_operations_approved: ${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
     );
@@ -2127,10 +1483,10 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_stripe_money_operations_reference: ${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "TF_VAR_stripe_connect_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}",
+      "STRIPE_CONNECT_WEBHOOK_SECRET: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
+      "STRIPE_CONNECT_ACCOUNTS_API: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_support_operations_approved: ${{ vars.PRODUCTION_SUPPORT_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
@@ -2145,16 +1501,16 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_fulfillment_postage_reference: ${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+      "EASYPOST_WEBHOOK_SECRET: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+      "GOOGLE_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+      "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}",
+      "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_transactional_email_approved: ${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED == 'true' && 'true' || 'false' }}",
@@ -2252,7 +1608,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain("group: platform-deploy-staging");
     expect(platformRegistryCleanupWorkflow).toContain("DOCR garbage collection makes the registry read-only");
     expect(platformProductionWorkflow).toContain("release-tags DOCR images");
-    expect(platformStagingResetWorkflow).toContain("Staging reset rebuilds and pushes the platform image");
+    expect(platformStagingResetWorkflow).toContain("Queue DOKS redeploy after database recreation");
     expect(deployLaneStep).toContain('const workflows = ["platform-production.yml", "platform-staging-reset.yml"];');
     expect(deployLaneStep).toContain('const statuses = ["queued", "in_progress", "waiting", "requested", "pending"];');
     expect(deployLaneStep).toContain('reason: "deploy-lane-active"');
@@ -2509,12 +1865,10 @@ describe("DigitalOcean platform configuration", () => {
 
     // Optional provider endpoints must never be passed as empty --runtime-env
     // overrides: the deploy script fails closed on empty values, and the Helm
-    // chart's preview env defaults already carry the retired App Platform
+    // chart's preview env defaults already carry the runtime
     // preview posture when a repository variable is unset.
-    expect(previewJob).toContain('add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"');
-    expect(previewJob).toContain(
-      'add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"',
-    );
+    expect(previewJob).toContain('add_optional_runtime_env "STRIPE_API_BASE_URL" "${STRIPE_API_BASE_URL:-}"');
+    expect(previewJob).toContain('add_optional_runtime_env "EASYPOST_API_BASE_URL" "${EASYPOST_API_BASE_URL:-}"');
     expect(previewJob).toContain('add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"');
     expect(previewJob).toContain('add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"');
     expect(previewJob).toContain(
@@ -2613,8 +1967,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(buildStep).not.toContain("--push");
     expect(buildStep).toContain('echo "built=true" >> "$GITHUB_OUTPUT"');
 
-    // The smoke mirrors App Platform run commands and health checks from
-    // infrastructure/digitalocean/platform/main.tf so a non-booting image
+    // The smoke mirrors Kubernetes run commands and health checks so a non-booting image
     // fails the parallel build job instead of crashing the deploy lane
     // (issue #1417).
     const smokeStep = workflowStep(platformProductionWorkflow, "Boot smoke release image");
@@ -2632,10 +1985,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(smokeIndex).toBeLessThan(pushIndex);
   });
 
-  it("boot-smokes the merge queue App Platform image with deploy-time web component semantics", () => {
+  it("boot-smokes the merge queue runtime image with deploy-time web component semantics", () => {
     const dockerImageJob = workflowJob(platformPrWorkflow, "docker-image");
-    const buildStep = workflowStep(platformPrWorkflow, "Build App Platform image");
-    const smokeStep = workflowStep(platformPrWorkflow, "Boot smoke App Platform image");
+    const buildStep = workflowStep(platformPrWorkflow, "Build runtime image");
+    const smokeStep = workflowStep(platformPrWorkflow, "Boot smoke runtime image");
     const releaseSmokeStep = workflowStep(platformProductionWorkflow, "Boot smoke release image");
 
     expect(dockerImageJob).toContain(
@@ -2660,15 +2013,15 @@ describe("DigitalOcean platform configuration", () => {
       expect(smokeStep).toContain(deployTimeSemantics);
     }
 
-    const buildIndex = platformPrWorkflow.indexOf("- name: Build App Platform image");
-    const smokeIndex = platformPrWorkflow.indexOf("- name: Boot smoke App Platform image");
+    const buildIndex = platformPrWorkflow.indexOf("- name: Build runtime image");
+    const smokeIndex = platformPrWorkflow.indexOf("- name: Boot smoke runtime image");
     expect(buildIndex).toBeLessThan(smokeIndex);
   });
 
-  it("publishes the boot-smoked merge queue App Platform image by tree tag only after validation", () => {
+  it("publishes the boot-smoked merge queue runtime image by tree tag only after validation", () => {
     const dockerImageJob = workflowJob(platformPrWorkflow, "docker-image");
-    const buildStep = workflowStep(platformPrWorkflow, "Build App Platform image");
-    const smokeStep = workflowStep(platformPrWorkflow, "Boot smoke App Platform image");
+    const buildStep = workflowStep(platformPrWorkflow, "Build runtime image");
+    const smokeStep = workflowStep(platformPrWorkflow, "Boot smoke runtime image");
     const pushStep = workflowStep(platformPrWorkflow, "Push boot-smoked merge-group image");
     const skippedPushStep = workflowStep(platformPrWorkflow, "Report skipped merge-group image push");
 
@@ -2699,8 +2052,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(skippedPushStep).toContain("DigitalOcean registry credentials are unavailable");
     expect(skippedPushStep).toContain("build and boot smoke still validated the image");
 
-    const buildIndex = platformPrWorkflow.indexOf("- name: Build App Platform image");
-    const smokeIndex = platformPrWorkflow.indexOf("- name: Boot smoke App Platform image");
+    const buildIndex = platformPrWorkflow.indexOf("- name: Build runtime image");
+    const smokeIndex = platformPrWorkflow.indexOf("- name: Boot smoke runtime image");
     const pushIndex = platformPrWorkflow.indexOf("- name: Push boot-smoked merge-group image");
     const skippedPushIndex = platformPrWorkflow.indexOf("- name: Report skipped merge-group image push");
     expect(buildIndex).toBeLessThan(smokeIndex);
@@ -2708,34 +2061,22 @@ describe("DigitalOcean platform configuration", () => {
     expect(smokeIndex).toBeLessThan(skippedPushIndex);
   });
 
-  it("deploys App Platform releases by the verified image digest", () => {
-    const stagingImageStep = workflowStep(platformProductionWorkflow, "Build and push App Platform image");
-    const productionImageStep = workflowStep(platformProductionWorkflow, "Verify promoted App Platform image");
-
-    expect(platformVariables).toContain('variable "platform_image_digest"');
-    expect(platformVariables).toContain('regex("^sha256:[a-f0-9]{64}$", var.platform_image_digest)');
-    expect(
-      occurrenceCount(platformMain, 'tag           = var.platform_image_digest == "" ? var.platform_image_tag : null'),
-    ).toBe(6);
-    expect(
-      occurrenceCount(
-        platformMain,
-        'digest        = var.platform_image_digest != "" ? var.platform_image_digest : null',
-      ),
-    ).toBe(6);
+  it("deploys Kubernetes releases by the verified image digest", () => {
+    const stagingImageStep = workflowStep(platformProductionWorkflow, "Resolve staged release image");
+    const productionImageStep = workflowStep(platformProductionWorkflow, "Verify promoted release image");
 
     expect(platformProductionWorkflow).toContain("platform_image_digest: ${{ steps.image.outputs.digest }}");
     expect(stagingImageStep).toContain('digest="$(docker buildx imagetools inspect "$image" --format');
-    expect(stagingImageStep).toContain('echo "TF_VAR_platform_image_digest=${digest}" >> "$GITHUB_ENV"');
+    expect(stagingImageStep).toContain('echo "PLATFORM_IMAGE_DIGEST=${digest}" >> "$GITHUB_ENV"');
     expect(platformProductionWorkflow).toContain(
-      "TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}",
+      "PLATFORM_IMAGE_DIGEST: ${{ needs.deploy-staging.outputs.platform_image_digest }}",
     );
 
-    expect(productionImageStep).toContain('expected_digest="${TF_VAR_platform_image_digest}"');
-    expect(productionImageStep).toContain("Staging did not publish a verified App Platform image digest");
+    expect(productionImageStep).toContain('expected_digest="${PLATFORM_IMAGE_DIGEST}"');
+    expect(productionImageStep).toContain("Staging did not publish a verified release image digest");
     expect(productionImageStep).toContain('if [ "$digest" != "$expected_digest" ]; then');
     expect(productionImageStep).toContain("did not match staging verified digest");
-    expect(productionImageStep).toContain('echo "TF_VAR_platform_image_digest=${digest}" >> "$GITHUB_ENV"');
+    expect(productionImageStep).toContain('echo "PLATFORM_IMAGE_DIGEST=${digest}" >> "$GITHUB_ENV"');
   });
 
   it("keeps the release image dependency layer cacheable without pnpm fetch", () => {
@@ -2875,7 +2216,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(renderPlatformHelmValuesScript).not.toContain("secretName: `${previewIdentifier}-platform-tls`");
   });
 
-  it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {
+  it("delegates staging DNS while DOKS live routing coexists with mail records", () => {
     expect(environmentDnsVariables).toContain('condition     = var.environment == "staging"');
     expect(environmentDnsLocals).toContain('environment_zone = "${var.environment}.${var.root_domain}"');
     expect(environmentDnsMain).toContain('resource "digitalocean_domain" "environment"');
@@ -2890,151 +2231,33 @@ describe("DigitalOcean platform configuration", () => {
     expect(environmentDnsLocals).toContain(
       'catalog_asset_cdn_endpoint = "chase-sets-${var.environment}-catalog-assets.${var.data_region}.cdn.digitaloceanspaces.com."',
     );
-    expect(environmentDnsVariables).toContain('variable "staging_app_serving"');
     expect(environmentDnsVariables).toContain('variable "doks_ingress_target"');
     expect(environmentDnsVariables).toContain("DOKS ingress load balancer IPv4 address");
-    expect(environmentDnsLocals).toContain("doks_shadow_records = local.doks_ingress_target_configured");
-    expect(environmentDnsLocals).toContain("local.doks_ingress_target_configured && local.serving_from_doks");
-    expect(environmentDnsLocals).toContain('fqdn = "marketplace.doks.${local.environment_zone}"');
+    expect(environmentDnsLocals).toContain("local.doks_ingress_target_configured ? {");
+    expect(environmentDnsLocals).toContain(
+      'fqdn = name == "@" ? local.environment_zone : "${name}.${local.environment_zone}"',
+    );
     expect(environmentDnsMain).toContain('check "doks_ingress_serving_target"');
-    expect(environmentDnsMain).toContain('resource "digitalocean_record" "doks_ingress_shadow"');
     expect(environmentDnsMain).toContain('resource "digitalocean_record" "doks_ingress_serving"');
-    expect(environmentDnsMain).toContain("for_each = local.doks_shadow_records");
     expect(environmentDnsMain).toContain("for_each = local.doks_serving_records");
     expect(environmentDnsMain).toContain('type   = "A"');
-    expect(environmentDnsOutputs).toContain('output "doks_ingress_shadow_domains"');
     expect(environmentDnsOutputs).toContain('output "doks_ingress_serving_domains"');
     expect(platformProductionWorkflow).toContain("Terraform apply staging environment DNS");
     expect(platformStagingResetWorkflow).toContain("Terraform apply staging environment DNS");
-    expect(platformProductionWorkflow).toContain("Reconcile staging App Platform alias DNS state");
-    expect(platformProductionWorkflow).toContain('doctl apps get "$app_id" --format DefaultIngress --no-header');
-    expect(platformProductionWorkflow).toContain("TF_VAR_platform_internal_auth_secret");
-    expect(platformProductionWorkflow).toContain('terraform import "$address" "${zone},${record_id}"');
-    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
-      "TF_VAR_digitalocean_token",
-    );
-    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
-      "TF_VAR_platform_admin_password",
-    );
-    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
-      "TF_VAR_stripe_secret_key",
-    );
-    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
-      "TF_VAR_easypost_api_key",
-    );
-    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
-      "TF_VAR_easypost_webhook_secret",
-    );
-    expect(platformStagingResetWorkflow).toContain("Reconcile staging App Platform alias DNS state");
-    expect(platformStagingResetWorkflow).toContain('doctl apps get "$app_id" --format DefaultIngress --no-header');
-    expect(platformStagingResetWorkflow).toContain("TF_VAR_platform_internal_auth_secret");
-    expect(platformStagingResetWorkflow).toContain('terraform import "$address" "${zone},${record_id}"');
-    expect(platformProductionWorkflow).not.toContain("Reset stale staging root domain attachment");
-    expect(platformProductionWorkflow).not.toContain('reset-domain "$app_id" staging.chasesets.com');
-    expect(platformStagingResetWorkflow).toContain("Reset stale staging root domain attachment");
-    expect(platformStagingResetWorkflow).toContain('reset-domain "$app_id" staging.chasesets.com');
+    expect(platformProductionWorkflow).not.toContain("staging_app_serving");
+    expect(platformStagingResetWorkflow).not.toContain("staging_app_serving");
   });
 
-  it("makes DOKS the primary rollout lane with a single-flag App Platform kill switch (#4049)", () => {
+  it("keeps DOKS as the single rollout lane", () => {
     const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
-    const reconcileStep = workflowStep(deployStagingJob, "Reconcile staging App Platform alias DNS state");
     const envDnsApplyStep = workflowStep(deployStagingJob, "Terraform apply staging environment DNS");
-    const shadowStep = workflowStep(deployStagingJob, "Verify staging DOKS shadow hosts");
     const smokeStep = workflowSteps(deployStagingJob, "Smoke check").at(-1);
 
-    // Single-flag kill switch: one repo variable, defaulting to enabled, drives
-    // the legacy App Platform lane. #4055 flips it to "disabled".
-    expect(deployStagingJob).toContain("APP_PLATFORM_LANE: ${{ vars.APP_PLATFORM_LANE || 'enabled' }}");
-    expect(reconcileStep).toContain("env.APP_PLATFORM_LANE != 'disabled'");
-
-    // The DOKS rollout, ingress wait, and shadow verification never gate on the
-    // kill switch — DOKS is the primary lane and always runs.
-    expect(workflowStep(deployStagingJob, "Deploy staging Kubernetes release")).not.toContain("APP_PLATFORM_LANE");
-    expect(workflowStep(deployStagingJob, "Wait for staging ingress URLs")).not.toContain("APP_PLATFORM_LANE");
-    expect(shadowStep).not.toContain("APP_PLATFORM_LANE");
-
-    // #4604 serving flags flow from repo variables into environment-dns so the
-    // deploy lane can publish shadow hosts and flip live-host serving.
-    expect(deployStagingJob).toContain("STAGING_APP_SERVING: ${{ vars.STAGING_APP_SERVING || 'app-platform' }}");
     expect(deployStagingJob).toContain("DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}");
-    expect(envDnsApplyStep).toContain("TF_VAR_staging_app_serving: ${{ env.STAGING_APP_SERVING }}");
     expect(envDnsApplyStep).toContain("TF_VAR_doks_ingress_target: ${{ env.DOKS_INGRESS_TARGET }}");
-
-    // Pre-cutover DOKS proof: TLS-validating probes against the doks.<zone>
-    // shadow hosts, ordered after the rollout's live-host ingress wait and
-    // before the smoke tail, skipping cleanly until shadow hosts are published.
-    expect(shadowStep).toContain("terraform output -json doks_ingress_shadow_domains");
-    expect(shadowStep).toContain("./scripts/platform-ingress-wait.mjs");
-    expect(shadowStep).toContain("skipping pre-cutover shadow verification");
-    const ingressWaitIndex = deployStagingJob.indexOf("- name: Wait for staging ingress URLs");
-    const shadowIndex = deployStagingJob.indexOf("- name: Verify staging DOKS shadow hosts");
-    const smokeIndex = deployStagingJob.lastIndexOf("- name: Smoke check");
-    expect(ingressWaitIndex).toBeLessThan(shadowIndex);
-    expect(shadowIndex).toBeLessThan(smokeIndex);
-
-    // Smoke targets the live hosts, i.e. whichever platform serves live traffic.
-    expect(smokeStep).toContain("serving platform: ${STAGING_APP_SERVING}");
-  });
-
-  it("wires staging and production app telemetry to the secured observability stack", () => {
-    expect(platformVariables).toContain('variable "observability_enabled"');
-    expect(platformVariables).toContain('variable "observability_otlp_headers"');
-    expect(platformLocals).toContain("observability_runtime_env");
-    expect(platformLocals).toContain("OTEL_EXPORTER_OTLP_ENDPOINT = {");
-    expect(platformLocals).toContain("OTEL_EXPORTER_OTLP_HEADERS = {");
-    expect(platformMain).toContain('check "staging_production_observability_export"');
-    expect(occurrenceCount(platformMain, "for_each = local.observability_runtime_env")).toBe(4);
-    expect(platformProductionWorkflow).toContain(
-      "TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}",
-    );
-    expect(platformProductionWorkflow).toContain(
-      "Staging observability requires OBSERVABILITY_OTLP_HEADERS secret or OBSERVABILITY_ENABLED=false.",
-    );
-    expect(platformProductionWorkflow).toContain(
-      "Production observability requires OBSERVABILITY_OTLP_HEADERS secret or OBSERVABILITY_ENABLED=false.",
-    );
-    expect(platformStagingResetWorkflow).toContain(
-      "TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}",
-    );
-    expect(platformStagingResetWorkflow).toContain(
-      "Staging observability requires OBSERVABILITY_OTLP_HEADERS secret or OBSERVABILITY_ENABLED=false.",
-    );
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("environment: staging");
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
-      "PROMETHEUS_QUERY_TOKEN: ${{ secrets.PROMETHEUS_QUERY_TOKEN || '' }}",
-    );
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("route-matrix-config-failure.json");
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_OUT");
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("ROUTE_MATRIX_CHECKOUT_PROBE_OUT");
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("ROUTE_MATRIX_ACCOUNT_CART_PROBE_OUT");
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("Drive checkout route-matrix sample");
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("pnpm run guest-buy-now:freshness-probe");
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("route-matrix-probe+${GITHUB_RUN_ID}");
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("Drive account-cart route-matrix sample");
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("STAGING_ACCOUNT_CART_CONSISTENCY_OBSERVATION_JSON");
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("pnpm run ops account-cart:consistency-probe");
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
-      'observation_file="${RUNNER_TEMP}/route-matrix-account-cart-observation.json"',
-    );
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("Generate route-matrix sampler artifact");
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("pnpm run ops read-consistency:route-matrix-sampler");
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
-      '--checkout-probe-file "${ROUTE_MATRIX_CHECKOUT_PROBE_OUT}"',
-    );
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
-      '--account-cart-probe-file "${ROUTE_MATRIX_ACCOUNT_CART_PROBE_OUT}"',
-    );
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
-      'schemaVersion: "read-consistency-route-matrix-config-failure/v1"',
-    );
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain('secrets: "not-written"');
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain('prometheusUrl: "not-written"');
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
-      "Missing required staging route-matrix evidence configuration",
-    );
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain('--prometheus-token "${PROMETHEUS_QUERY_TOKEN}"');
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("artifacts/wake-drills/*.json");
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("artifacts/wake-drills/*.md");
+    expect(deployStagingJob).not.toContain("APP_PLATFORM_LANE");
+    expect(deployStagingJob).not.toContain("STAGING_APP_SERVING");
+    expect(smokeStep).toContain("live staging hosts served by DOKS");
   });
 
   it("gates route-matrix evidence generation on the segment-level projection lag SLO regression gate", () => {
@@ -3081,27 +2304,30 @@ describe("DigitalOcean platform configuration", () => {
       expect(job).toContain("TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
       expect(job).toContain("TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}");
       expect(job).toContain("TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}");
-      expect(job).toContain("TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}");
-      expect(job).toContain("TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}");
-      expect(job).toContain("TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}");
-      expect(job).toContain("TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}");
       expect(job).toContain("TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}");
       expect(job).toContain("TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}");
     }
 
-    expect(stagingJob).toContain("TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}");
-    expect(stagingJob).toContain("TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}");
-    expect(stagingJob).toContain("TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}");
+    for (const job of [stagingJob, productionJob]) {
+      expect(job).toContain("PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}");
+      expect(job).toContain("PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}");
+      expect(job).toContain("PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}");
+    }
+    expect(resetJob).not.toContain("PLATFORM_INTERNAL_AUTH_SECRET");
+
+    expect(stagingJob).toContain("STRIPE_API_BASE_URL: ${{ vars.STRIPE_API_BASE_URL || '' }}");
+    expect(stagingJob).toContain("STRIPE_CONNECT_ACCOUNTS_API: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}");
+    expect(stagingJob).toContain("EASYPOST_WEBHOOK_SECRET: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}");
     expect(productionJob).toContain(
-      "TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}",
+      "STRIPE_API_BASE_URL: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}",
     );
     expect(productionJob).toContain(
-      "TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
+      "STRIPE_CONNECT_ACCOUNTS_API: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
     );
     expect(productionJob).toContain(
-      "TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+      "EASYPOST_WEBHOOK_SECRET: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
     );
-    expect(resetJob).toContain('echo "TF_VAR_platform_image_tag=${release_commit}" >> "$GITHUB_ENV"');
+    expect(resetJob).toContain("Queue DOKS redeploy after database recreation");
 
     const platformPlanApplySteps = [
       ...workflowSteps(platformProductionWorkflow, "Terraform plan"),
@@ -3167,19 +2393,17 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformPreviewCleanupWorkflow).toContain("group: platform-preview-pr-${{ matrix.pr_number }}");
     expect(platformPreviewCleanupWorkflow).toContain("TF_VAR_preview_identifier: pr-${{ matrix.pr_number }}");
-    expect(platformPreviewCleanupWorkflow).toContain(
-      "TF_VAR_platform_image_tag: pr-${{ matrix.pr_number }}-${{ matrix.image_sha }}",
-    );
+    expect(platformPreviewCleanupWorkflow).not.toContain("TF_VAR_platform_image_tag");
     expect(platformPreviewCleanupWorkflow).toContain("ref: ${{ matrix.checkout_ref }}");
     expect(platformPreviewCleanupWorkflow).toContain(
       "-backend-config=key=platform/previews/pr-${{ matrix.pr_number }}.tfstate",
     );
-    expect(platformPreviewCleanupWorkflow).not.toContain("Wait for active App Platform deployment");
+    expect(platformPreviewCleanupWorkflow).not.toContain("doctl apps");
     expect(platformPreviewCleanupWorkflow).not.toContain("digitalocean-app-deployment.mjs");
     expect(digitaloceanPlatformRunbook).toContain(
       "Inspect the uploaded cleanup logs before removing a legacy state key by hand.",
     );
-    expect(digitaloceanPlatformRunbook).not.toContain("waits for any active App Platform deployment to finish");
+    expect(digitaloceanPlatformRunbook).toContain("DOKS is the single compute deploy target");
     expect(digitaloceanPlatformRunbook).not.toContain(
       "the DigitalOcean deployment helper treats the missing app as no active deployment to wait for",
     );
@@ -3332,18 +2556,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityLocals).toContain("setunion(toset(keys(local.stack_files)), local.stack_file_exclusions)");
   });
 
-  it("splits app and data regions and manages uptime checks", () => {
-    expect(platformVariables).toContain('variable "app_region"');
-    expect(platformVariables).toContain('default     = "nyc"');
+  it("pins the managed data region and manages uptime checks", () => {
     expect(platformVariables).toContain('variable "data_region"');
     expect(platformVariables).toContain('default     = "nyc3"');
     expect(platformMain).toContain("region           = var.data_region");
-    expect(platformMain).toContain("region = var.app_region");
     expect(platformMain).toContain('resource "digitalocean_uptime_check" "platform"');
     expect(platformMain).toContain('resource "digitalocean_uptime_alert" "platform_down"');
     expect(platformLocals).toContain("uptime_check_targets = merge(");
-    expect(platformLocals).toContain("realtime_stream_limiter");
-    expect(platformMain).toContain('check "api_realtime_coordination"');
   });
 
   it("keeps production managed Postgres standby posture guarded and alerting source-owned", () => {
@@ -3415,44 +2634,6 @@ describe("DigitalOcean platform configuration", () => {
     expect(uploadStep).toContain("retention-days: 30");
     expect(platformDatabaseRestoreDrillWorkflow).not.toContain("PRODUCTION_DATABASE_CLUSTER_ID");
     expect(platformDatabaseRestoreDrillWorkflow).not.toContain("DEPLOYMENT_ENVIRONMENT: production");
-  });
-
-  it("runs the App Platform rollback drill as a confirmed staging-only workflow", () => {
-    const drillJob = workflowJob(platformStagingRollbackDrillWorkflow, "staging-rollback-drill");
-    const drillStep = workflowStep(platformStagingRollbackDrillWorkflow, "Run staging rollback drill");
-    const uploadStep = workflowStep(platformStagingRollbackDrillWorkflow, "Upload staging rollback drill evidence");
-
-    expect(platformStagingRollbackDrillWorkflow).toContain("workflow_dispatch:");
-    expect(platformStagingRollbackDrillWorkflow).toContain("run staging rollback drill");
-    expect(platformStagingRollbackDrillWorkflow).toContain("rollback_digest");
-    expect(platformStagingRollbackDrillWorkflow).toContain("rollback_reference");
-    expect(platformStagingRollbackDrillWorkflow).toContain("permissions:\n  contents: read");
-    expect(platformStagingRollbackDrillWorkflow).toContain("group: platform-deploy-staging");
-    expect(platformStagingRollbackDrillWorkflow).toContain("cancel-in-progress: false");
-    expect(drillJob).toContain("environment: staging");
-    expect(drillJob).toContain("timeout-minutes: 60");
-    expect(drillJob).toContain("DEPLOYMENT_ENVIRONMENT: staging");
-    expect(drillJob).toContain("STAGING_APP_NAME: chase-sets-staging-platform");
-    expect(platformStagingRollbackDrillWorkflow).toContain("actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10");
-    expect(platformStagingRollbackDrillWorkflow).toContain(
-      "digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
-    );
-    expect(platformStagingRollbackDrillWorkflow).toContain(
-      "docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
-    );
-    expect(drillStep).toContain("STAGING_ROLLBACK_DRILL_OUT");
-    expect(drillStep).toContain("ROLLBACK_TARGET_DIGEST: ${{ inputs.rollback_digest }}");
-    expect(drillStep).toContain("ROLLBACK_TARGET_REFERENCE: ${{ inputs.rollback_reference }}");
-    expect(drillStep).toContain("node ./scripts/digitalocean-staging-rollback-drill.mjs");
-    expect(drillStep).toContain("doctl registry login --expiry-seconds 3600");
-    expect(uploadStep).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
-    expect(uploadStep).toContain("platform-staging-rollback-drill-${{ github.run_id }}-${{ github.run_attempt }}");
-    expect(uploadStep).toContain("if-no-files-found: error");
-    expect(uploadStep).toContain("retention-days: 30");
-    expect(platformStagingRollbackDrillWorkflow).toContain("Report staging rollback drill failure");
-    expect(platformStagingRollbackDrillWorkflow).toContain("Report staging rollback drill recovery");
-    expect(platformStagingRollbackDrillWorkflow).not.toContain("environment: production");
-    expect(platformStagingRollbackDrillWorkflow).not.toContain("PRODUCTION_DATABASE_CLUSTER_ID");
   });
 
   it("runs staging Helm recovery as a confirmed DOKS-only rollback workflow", () => {
@@ -3732,10 +2913,10 @@ describe("DigitalOcean platform configuration", () => {
       "SMOKE_INVITATION_PROJECTION_TIMEOUT_MS: ${{ vars.STAGING_STRIPE_MONEY_SMOKE_INVITATION_PROJECTION_TIMEOUT_MS || '300000' }}",
     );
     expect(stagingMoneySmokeStep).toContain(
-      "PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || env.TF_VAR_platform_admin_email || '' }}",
+      "PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || env.PLATFORM_ADMIN_EMAIL || '' }}",
     );
     expect(stagingMoneySmokeStep).toContain(
-      "PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || env.TF_VAR_platform_admin_password || '' }}",
+      "PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || env.PLATFORM_ADMIN_PASSWORD || '' }}",
     );
     expect(stagingMoneySmokeStep).not.toContain("STRIPE_CONNECT_RETURN_URL");
     expect(stagingMoneySmokeStep).not.toContain("STRIPE_CONNECT_REFRESH_URL");

@@ -3,7 +3,7 @@
 Cluster ingress, load balancer, and TLS add-ons for the DOKS runtime accepted by
 [ADR 0018](../../../docs/adr/0018-doks-compute-runtime.md) and milestone #103
 (issue #4045). This is the DOKS equivalent of the routing and certificate surface
-App Platform provides today.
+DOKS requires at the cluster edge.
 
 It owns five cluster-scoped concerns:
 

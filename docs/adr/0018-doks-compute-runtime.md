@@ -8,7 +8,7 @@ Supersedes the compute-runtime posture in [ADR 0015](./0015-deployables-as-runti
 
 ## Context
 
-The current DigitalOcean App Platform deploy lane is being stabilized under milestone #101. That work should finish before changing the production compute substrate. At the same time, App Platform is now the main operational constraint for deploy cadence, runtime topology control, worker handoff, and deployment observability.
+At decision time, the DigitalOcean App Platform deploy lane was being stabilized under milestone #101 and was the main operational constraint for deploy cadence, runtime topology control, worker handoff, and deployment observability.
 
 Chase Sets is also about to enter the 30-day beta campaign window tracked by #97. The platform should settle on the production compute model before public launch traffic and campaign learning make infrastructure churn more expensive.
 
@@ -56,6 +56,6 @@ Pause or revisit the migration if any of these are observed:
 
 The migration raises operational complexity: cluster upgrades, node pools, ingress, pod disruption budgets, rollout strategy, autoscaling, image promotion, and Kubernetes observability become Chase Sets responsibilities. The trade is accepted because the platform gains clearer runtime control, worker shutdown/handoff semantics, deployment introspection, and topology flexibility before launch traffic hardens the deployment path.
 
-The App Platform runbook remains the current operating guide until #103 replaces it. Cross-link #103 execution docs from [DigitalOcean Platform Deployment](../runbooks/digitalocean-platform-deployment.md), [Deployable Runtime Profiles](../architecture/deployable-runtime-profiles.md), and the docs index when the DOKS runbook lands.
+DOKS is now the implemented compute runtime. [DigitalOcean Platform Deployment](../runbooks/digitalocean-platform-deployment.md) documents the supporting Terraform and deployment composition; [DOKS Platform Operations](../runbooks/doks-platform-operations.md) is the runtime operator guide.
 
 This decision supports issue #4042 and sequences milestone #103 after #101 and #97.

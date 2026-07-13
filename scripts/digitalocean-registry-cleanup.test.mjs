@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   DIGITALOCEAN_REGISTRY_CLEANUP_VERSION,
-  fetchProtectedAppTags,
   runDigitalOceanRegistryCleanup,
   selectTagsForDeletion,
 } from "./digitalocean-registry-cleanup.mjs";
@@ -34,35 +33,6 @@ describe("digitalocean-registry-cleanup", () => {
     ).toEqual(["cccccccccccccccccccccccccccccccccccccccc", "old-main"]);
   });
 
-  it("fetches protected image tags from named App Platform specs", async () => {
-    const tags = await fetchProtectedAppTags(["chase-sets-staging-platform"], {
-      commandOutput: async (_command, args) => {
-        if (args[1] === "list") {
-          return JSON.stringify([
-            {
-              id: "app-id",
-              spec: { name: "chase-sets-staging-platform" },
-            },
-            {
-              id: "other-id",
-              spec: { name: "unrelated" },
-            },
-          ]);
-        }
-
-        return JSON.stringify({
-          spec: {
-            services: [{ image: { tag: "staging-sha" } }],
-            workers: [{ image: { tag: "worker-sha" } }],
-            jobs: [{ image: { tag: "bootstrap-sha" } }],
-          },
-        });
-      },
-    });
-
-    expect(tags).toEqual(["staging-sha", "worker-sha", "bootstrap-sha"]);
-  });
-
   it("records dry-run cleanup selections without deleting tags or starting garbage collection", async () => {
     const calls = [];
     const result = await runDigitalOceanRegistryCleanup(
@@ -71,19 +41,12 @@ describe("digitalocean-registry-cleanup", () => {
         retentionDays: 7,
         retainRecentShaTreeTags: 1,
         dryRun: true,
-        appNames: ["chase-sets-staging-platform"],
-        protectedTags: ["manual-keep"],
+        protectedTags: ["current-staging", "manual-keep"],
         checkedAt: "2026-05-15T12:00:00.000Z",
       },
       {
         commandOutput: async (_command, args) => {
           calls.push(args);
-          if (args[0] === "apps" && args[1] === "list") {
-            return JSON.stringify([{ id: "app-id", spec: { name: "chase-sets-staging-platform" } }]);
-          }
-          if (args[0] === "apps" && args[1] === "get") {
-            return JSON.stringify({ spec: { services: [{ image: { tag: "current-staging" } }] } });
-          }
           if (args[0] === "registry" && args[1] === "repository" && args[2] === "list-tags") {
             return JSON.stringify([
               { tag: "current-staging", digest: "sha256:current", updated_at: "2026-03-01T00:00:00.000Z" },
@@ -107,7 +70,6 @@ describe("digitalocean-registry-cleanup", () => {
       repository: "chase-sets-platform",
       retentionDays: 7,
       retainRecentShaTreeTags: 1,
-      protectedAppNames: ["chase-sets-staging-platform"],
       protectedTags: ["current-staging", "manual-keep"],
       protectedDigests: ["sha256:current"],
       retainedRecentShaTreeTags: [
@@ -134,7 +96,6 @@ describe("digitalocean-registry-cleanup", () => {
         repository: "chase-sets-platform",
         retentionDays: 7,
         dryRun: false,
-        appNames: [],
         protectedTags: [],
         checkedAt: "2026-05-15T12:00:00.000Z",
       },
@@ -177,7 +138,6 @@ describe("digitalocean-registry-cleanup", () => {
         repository: "chase-sets-platform",
         retentionDays: 7,
         dryRun: false,
-        appNames: [],
         protectedTags: [],
         checkedAt: "2026-05-15T12:00:00.000Z",
       },

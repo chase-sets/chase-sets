@@ -216,20 +216,19 @@ jobs:
         env:
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
+          GOOGLE_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          FACEBOOK_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
           SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
-          if [ -n "$TF_VAR_google_social_login_client_id" ] &&
-            [ -n "$TF_VAR_google_social_login_client_secret" ] &&
-            [ -n "$TF_VAR_facebook_social_login_client_id" ] &&
-            [ -n "$TF_VAR_facebook_social_login_client_secret" ]; then
+          if [ -n "$GOOGLE_SOCIAL_LOGIN_CLIENT_ID" ] &&
+            [ -n "$GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET" ] &&
+            [ -n "$FACEBOOK_SOCIAL_LOGIN_CLIENT_ID" ] &&
+            [ -n "$FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET" ]; then
             export SMOKE_REQUIRE_SOCIAL_LOGIN=true
           else
             export SMOKE_REQUIRE_SOCIAL_LOGIN=false

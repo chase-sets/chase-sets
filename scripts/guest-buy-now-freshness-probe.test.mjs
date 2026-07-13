@@ -595,15 +595,15 @@ describe("guest Buy Now freshness probe", () => {
     });
   });
 
-  it("uses Terraform deploy admin credentials for freshness probe synthetic account provisioning", () => {
+  it("uses Kubernetes runtime admin credentials for freshness probe synthetic account provisioning", () => {
     const parsed = parseGuestBuyNowProbeArgs(["--item-path", "/items/canary"], {
       GUEST_BUY_NOW_PROBE_BASE_URL: "https://marketplace.staging.chasesets.com",
       GUEST_BUY_NOW_PROBE_ADMIN_BASE_URL: "https://admin.staging.chasesets.com",
       GUEST_BUY_NOW_PROBE_FIXTURE_KEY: "canary-fixture",
       GUEST_BUY_NOW_PROBE_GUEST_EMAIL: "guest-buy-now-canary@example.test",
       GUEST_BUY_NOW_PROBE_SEARCH_QUERY: "pikachu",
-      TF_VAR_platform_admin_email: "platform-admin@example.test",
-      TF_VAR_platform_admin_password: "platform-admin-password",
+      PLATFORM_ADMIN_EMAIL: "platform-admin@example.test",
+      PLATFORM_ADMIN_PASSWORD: "platform-admin-password",
     });
 
     expect(parsed.adminEmail).toBe("platform-admin@example.test");

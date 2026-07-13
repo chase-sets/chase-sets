@@ -39,7 +39,7 @@ Surface names are uppercased with punctuation converted to underscores. For exam
 
 Production runs the documented defaults unless an incident response explicitly tunes a surface.
 
-Staging keeps rate limits active so deploy smoke exercises the same limiter behavior as production. The staging App Platform API sets `CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX=30` so the deployed smoke suite's serial synthetic-account registrations and Playwright retries fit inside the one-hour `auth.register.ip` window from a single GitHub runner IP without disabling abuse protection.
+Staging keeps rate limits active so deploy smoke exercises the same limiter behavior as production. The canonical Helm runtime values set `CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX=30` so the deployed smoke suite's serial synthetic-account registrations and Playwright retries fit inside the one-hour `auth.register.ip` window from a single GitHub runner IP without disabling abuse protection.
 
 ## Defaults
 

@@ -2,7 +2,7 @@
 
 This chart is the first renderable Kubernetes scaffold for the Chase Sets platform runtime components accepted by milestone #103 and issue #4047.
 
-It mirrors the current DigitalOcean App Platform component topology:
+It is the canonical runtime topology for the DOKS deploy target:
 
 - `public-web`
 - `marketplace`
@@ -11,7 +11,7 @@ It mirrors the current DigitalOcean App Platform component topology:
 - `platform-worker`
 - `platform-bootstrap`
 
-`values.yaml` is generated from the existing App Platform Terraform shape and stays the preview-safe baseline. `values.staging.yaml` is generated alongside it for DOKS staging-only component overrides, including representative platform-worker wake capacity and the horizontally scaled, explicitly resourced platform API.
+`runtime-values.json` is the checked-in source for component commands, ports, routes, probes, and environment-key contracts. `values.yaml` is generated from it as the preview-safe baseline. `values.staging.yaml` is generated alongside it for staging-only component overrides, including representative platform-worker wake capacity and the horizontally scaled, explicitly resourced platform API.
 
 ```bash
 node ./scripts/render-platform-helm-values.mjs
@@ -56,7 +56,7 @@ Preview namespaces do not install collectors or kube-state-metrics. The cluster 
 
 ## Ingress
 
-`doksIngress` is disabled by default while App Platform still owns public routing. Staging deploys enable it only when `DOKS_INGRESS_TARGET` is set; the render/deploy values use the `STAGING_APP_SERVING` flag to choose the active host set:
+`doksIngress` is disabled in the preview-safe baseline. Staging and production deploys enable it when `DOKS_INGRESS_TARGET` is set and use the live host set:
 
 ```yaml
 doksIngress:
@@ -99,7 +99,7 @@ doksIngress:
           service: admin-web
 ```
 
-When `STAGING_APP_SERVING=app-platform`, hosts are the `doks.<zone>` shadow validation names. When it flips to `doks`, hosts become the live staging apex plus `www`, `marketplace`, and `admin`. The chart renders one `Ingress` and one SAN `Certificate` for the active host set. Provider webhook, MCP, UCP, well-known, and `/api` paths stay routed to `platform-api` before the web catch-all. The matching DNS records live in `infrastructure/digitalocean/environment-dns` and remain disabled until a DOKS load balancer target is known.
+The live staging hosts are the apex plus `www`, `marketplace`, and `admin`. The chart renders one `Ingress` and one SAN `Certificate` for that host set. Provider webhook, MCP, UCP, well-known, and `/api` paths stay routed to `platform-api` before the web catch-all. The matching DNS records live in `infrastructure/digitalocean/environment-dns` and remain disabled until a DOKS load balancer target is known.
 
 ## Health Probes
 
@@ -131,7 +131,7 @@ Staging renders Argo `Rollout` resources for the three public traffic owners: `p
 
 Each Rollout keeps the existing component Service as stable, adds a canary Service, and owns a component-specific stable Ingress. Isolating routes is required: cloning the former shared multi-service Ingress would apply nginx canary annotations to unrelated paths and couple independently progressing components. The controller shifts 10%, runs three checks against the canary Service's existing JSON readiness endpoint, and pauses. After CI smoke, projection convergence, Buy Now freshness, and money smoke pass, the workflow promotes the hold; 25%, 50%, and 100% each repeat the readiness analysis. One failed measurement aborts the update, and a three-revision rollback window lets the Helm restore-point flow fast-track recent stable revisions.
 
-Rollout activation fails Helm rendering unless DOKS ingress is enabled; this prevents a rollout from claiming proportional exposure while no traffic router exists. Production stays gated by the `PRODUCTION_ARGO_ROLLOUTS_ENABLED` GitHub Environment variable until the #4053 DOKS ingress/DNS cutover is complete. Do not flip it while App Platform still serves production traffic.
+Rollout activation fails Helm rendering unless DOKS ingress is enabled; this prevents a rollout from claiming proportional exposure while no traffic router exists. Production remains gated by the `PRODUCTION_ARGO_ROLLOUTS_ENABLED` GitHub Environment variable.
 
 ## Validation
 
@@ -163,7 +163,7 @@ The harness uses the Dockerized Helm image `alpine/helm:3.15.4`, so a local `hel
 
 ## Deployment Helper
 
-`platform:kubernetes-deployment` is the DOKS deploy workflow helper for issue #4049. It provides the command contract that replaces App Platform deploy/wait/diagnostics calls:
+`platform:kubernetes-deployment` is the DOKS deploy workflow helper. It provides the deploy, wait, diagnostics, rollback, and secret-rotation command contract:
 
 ```bash
 pnpm run platform:kubernetes-deployment -- plan --image registry.digitalocean.com/chase-sets/chase-sets-platform:<tag> --namespace staging --release chase-sets-staging
@@ -178,6 +178,6 @@ Deploy uses `helm upgrade --install --wait --atomic`, waits for ordinary Deploym
 
 ## Boundaries
 
-This chart intentionally does not own ingress controller installation, certificate issuer installation, external secrets, or App Platform removal. The cluster-scoped Argo controller contract lives with the other DOKS add-ons in `scripts/doks-cluster-addons.mjs`.
+This chart intentionally does not own ingress controller installation, certificate issuer installation, or external secrets. The cluster-scoped Argo controller contract lives with the other DOKS add-ons in `scripts/doks-cluster-addons.mjs`.
 
 `platform-bootstrap` renders as a Helm `pre-install,pre-upgrade` hook. Before running bootstrap it scales the worker Deployment targets to zero through the in-image `bootstrap-quiesce.mjs` wrapper, waits for those pods to drain, then runs the existing bootstrap command. If bootstrap fails or exceeds `CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS`, the wrapper restores the previous worker replica counts before returning the failing exit code so Helm aborts before new pods roll. The hook Job uses `activeDeadlineSeconds` below Helm's rollout timeout so Kubernetes reports a Job failure before Helm reaches its generic condition timeout. During first install, missing worker Deployments are skipped because there is no outgoing version to quiesce yet.

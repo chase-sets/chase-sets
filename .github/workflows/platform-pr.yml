@@ -292,7 +292,7 @@ jobs:
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         if: steps.buildx.outcome == 'failure'
 
-      - name: Build App Platform image
+      - name: Build runtime image
         run: |
           set -euo pipefail
           docker buildx build \
@@ -303,7 +303,7 @@ jobs:
             --tag chase-sets-platform:pr-validation \
             .
 
-      - name: Boot smoke App Platform image
+      - name: Boot smoke runtime image
         if: github.event_name == 'merge_group'
         env:
           PLATFORM_IMAGE: chase-sets-platform:pr-validation
@@ -469,25 +469,6 @@ jobs:
       TF_VAR_spaces_secret_key: pr-validation-secret-key
       TF_VAR_environment: preview
       TF_VAR_preview_identifier: pr-0
-      TF_VAR_platform_image_repository: chase-sets-platform
-      TF_VAR_platform_image_tag: pr-validation
-      TF_VAR_platform_internal_auth_secret: pr-validation-internal-auth-secret
-      TF_VAR_platform_admin_email: ops+pr@chasesets.com
-      TF_VAR_platform_admin_password: pr-validation-password-please-rotate
-      TF_VAR_platform_admin_display_name: Platform Admin
-      TF_VAR_discord_invite_url: https://discord.gg/pr-validation
-      TF_VAR_stripe_secret_key: sk_test_pr_validation
-      TF_VAR_stripe_publishable_key: pk_test_pr_validation
-      TF_VAR_stripe_webhook_secret: whsec_pr_validation
-      TF_VAR_stripe_connect_webhook_secret: whsec_pr_validation
-      TF_VAR_easypost_api_key: EZTK_pr_validation
-      TF_VAR_voyage_api_key: ""
-      TF_VAR_easypost_mode: test
-      TF_VAR_google_social_login_client_id: google-pr-validation-client
-      TF_VAR_google_social_login_client_secret: google-pr-validation-secret
-      TF_VAR_admin_google_workspace_hosted_domains: chasesets.com
-      TF_VAR_facebook_social_login_client_id: facebook-pr-validation-client
-      TF_VAR_facebook_social_login_client_secret: facebook-pr-validation-secret
       TF_VAR_notification_email_provider: noop
       TF_VAR_alert_emails: "[]"
     steps:
@@ -567,21 +548,6 @@ jobs:
       TF_VAR_spaces_secret_key: pr-validation-secret-key
       TF_VAR_environment: production
       TF_VAR_kubernetes_version: 1.33.1-do.4
-      TF_VAR_platform_image_repository: chase-sets-platform
-      TF_VAR_platform_image_tag: pr-validation-production
-      TF_VAR_platform_internal_auth_secret: pr-validation-internal-auth-secret
-      TF_VAR_platform_admin_email: ops+pr@chasesets.com
-      TF_VAR_platform_admin_password: pr-validation-password-please-rotate
-      TF_VAR_platform_admin_display_name: Platform Admin
-      TF_VAR_discord_invite_url: https://discord.gg/pr-validation
-      TF_VAR_tcgplayer_automation_tcg_auth_cookie: pr-validation-tcgplayer-cookie
-      TF_VAR_scrydex_api_key: pr-validation-scrydex-api-key
-      TF_VAR_scrydex_team_id: pr-validation-scrydex-team
-      TF_VAR_google_social_login_client_id: ""
-      TF_VAR_google_social_login_client_secret: ""
-      TF_VAR_admin_google_workspace_hosted_domains: ""
-      TF_VAR_facebook_social_login_client_id: ""
-      TF_VAR_facebook_social_login_client_secret: ""
       TF_VAR_notification_email_provider: noop
       TF_VAR_alert_emails: "[]"
       DESTRUCTIVE_CHANGE_ALLOW_FILE: .github/deployment/production-destructive-change-approved.md
@@ -666,28 +632,6 @@ jobs:
       TF_VAR_spaces_secret_key: pr-validation-secret-key
       TF_VAR_environment: staging
       TF_VAR_kubernetes_version: 1.33.1-do.4
-      TF_VAR_platform_image_repository: chase-sets-platform
-      TF_VAR_platform_image_tag: pr-validation-staging
-      TF_VAR_platform_internal_auth_secret: pr-validation-internal-auth-secret
-      TF_VAR_platform_admin_email: ops+pr@chasesets.com
-      TF_VAR_platform_admin_password: pr-validation-password-please-rotate
-      TF_VAR_platform_admin_display_name: Platform Admin
-      TF_VAR_discord_invite_url: https://discord.gg/pr-validation
-      TF_VAR_stripe_secret_key: sk_test_pr_validation
-      TF_VAR_stripe_publishable_key: pk_test_pr_validation
-      TF_VAR_stripe_webhook_secret: whsec_pr_validation
-      TF_VAR_stripe_connect_webhook_secret: whsec_pr_validation
-      TF_VAR_easypost_api_key: EZTK_pr_validation
-      TF_VAR_voyage_api_key: ""
-      TF_VAR_easypost_mode: test
-      TF_VAR_tcgplayer_automation_tcg_auth_cookie: pr-validation-tcgplayer-cookie
-      TF_VAR_scrydex_api_key: pr-validation-scrydex-api-key
-      TF_VAR_scrydex_team_id: pr-validation-scrydex-team
-      TF_VAR_google_social_login_client_id: google-pr-validation-client
-      TF_VAR_google_social_login_client_secret: google-pr-validation-secret
-      TF_VAR_admin_google_workspace_hosted_domains: chasesets.com
-      TF_VAR_facebook_social_login_client_id: facebook-pr-validation-client
-      TF_VAR_facebook_social_login_client_secret: facebook-pr-validation-secret
       TF_VAR_notification_email_provider: noop
       TF_VAR_alert_emails: "[]"
     steps:
@@ -725,7 +669,6 @@ jobs:
           terraform -chdir="$tmp" init -backend=false
           terraform -chdir="$tmp" plan -refresh=false -lock=false \
             -var=doks_ingress_target=203.0.113.10 \
-            -var=staging_app_serving=doks \
             -out=tfplan
 
       - name: Terraform init platform without remote backend
@@ -903,13 +846,12 @@ jobs:
       TF_INPUT: "false"
       TF_VAR_environment: preview
       TF_VAR_preview_identifier: pr-${{ github.event.pull_request.number }}
-      TF_VAR_platform_image_repository: chase-sets-platform
-      TF_VAR_platform_image_tag: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+      PLATFORM_IMAGE_TAG: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
-      TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
-      TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
-      TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
-      TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
+      STRIPE_CONNECT_ACCOUNTS_API: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
+      STRIPE_API_BASE_URL: ${{ vars.STRIPE_API_BASE_URL || '' }}
+      EASYPOST_API_BASE_URL: ${{ vars.EASYPOST_API_BASE_URL || '' }}
+      EASYPOST_MODE: ${{ vars.EASYPOST_MODE || 'test' }}
       TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
       TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
       TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
@@ -931,16 +873,16 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
-          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
-          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
-          TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
+          PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          CHASE_SETS_DISCORD_INVITE_URL: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY || '' }}
           TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
           TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
           TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
@@ -955,15 +897,15 @@ jobs:
             AWS_ACCESS_KEY_ID \
             AWS_SECRET_ACCESS_KEY \
             DIGITALOCEAN_ACCESS_TOKEN \
-            TF_VAR_platform_internal_auth_secret \
-            TF_VAR_platform_admin_email \
-            TF_VAR_platform_admin_password \
-            TF_VAR_discord_invite_url \
-            TF_VAR_stripe_secret_key \
-            TF_VAR_stripe_publishable_key \
-            TF_VAR_stripe_webhook_secret \
-            TF_VAR_stripe_connect_webhook_secret \
-            TF_VAR_easypost_api_key
+            PLATFORM_INTERNAL_AUTH_SECRET \
+            PLATFORM_ADMIN_EMAIL \
+            PLATFORM_ADMIN_PASSWORD \
+            CHASE_SETS_DISCORD_INVITE_URL \
+            STRIPE_SECRET_KEY \
+            STRIPE_PUBLISHABLE_KEY \
+            STRIPE_WEBHOOK_SECRET \
+            STRIPE_CONNECT_WEBHOOK_SECRET \
+            EASYPOST_API_KEY
           do
             if [ -z "${!name:-}" ]; then
               missing+=("$name")
@@ -975,7 +917,7 @@ jobs:
             exit 1
           fi
 
-          if [[ "${TF_VAR_stripe_secret_key}" != sk_test* || "${TF_VAR_stripe_publishable_key}" != pk_test* ]]; then
+          if [[ "${STRIPE_SECRET_KEY}" != sk_test* || "${STRIPE_PUBLISHABLE_KEY}" != pk_test* ]]; then
             echo "Preview deployments require Stripe test-mode keys. Use staging for complete Stripe-delivered webhook proof and production only for approved live proof." >&2
             exit 1
           fi
@@ -1035,7 +977,7 @@ jobs:
           fi
 
           doctl registry login --expiry-seconds 3600
-          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
+          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${PLATFORM_IMAGE_TAG}"
           docker buildx build \
             --pull \
             --cache-from type=gha,scope=platform-image \
@@ -1109,53 +1051,35 @@ jobs:
           DEPLOYMENT_ENVIRONMENT: preview
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
-          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
-          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
-          TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
-          TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}
-          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          CHASE_SETS_DISCORD_INVITE_URL: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY || '' }}
+          EASYPOST_WEBHOOK_SECRET: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}
+          GOOGLE_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          FACEBOOK_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
           TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
           TF_VAR_ses_aws_secret_access_key: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}
           TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
-          TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
-          TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
-          TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
+          TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
+          SCRYDEX_API_KEY: ${{ secrets.SCRYDEX_API_KEY || '' }}
+          SCRYDEX_TEAM_ID: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
         run: |
           set -euo pipefail
           export CATALOG_ASSET_S3_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
           export CATALOG_ASSET_S3_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
-          export CHASE_SETS_DISCORD_INVITE_URL="${TF_VAR_discord_invite_url:-}"
-          export EASYPOST_API_KEY="${TF_VAR_easypost_api_key:-}"
-          export VOYAGE_API_KEY="${TF_VAR_voyage_api_key:-}"
-          export EASYPOST_WEBHOOK_SECRET="${TF_VAR_easypost_webhook_secret:-}"
-          export FACEBOOK_SOCIAL_LOGIN_CLIENT_ID="${TF_VAR_facebook_social_login_client_id:-}"
-          export FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET="${TF_VAR_facebook_social_login_client_secret:-}"
-          export GOOGLE_SOCIAL_LOGIN_CLIENT_ID="${TF_VAR_google_social_login_client_id:-}"
-          export GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET="${TF_VAR_google_social_login_client_secret:-}"
           export OTEL_EXPORTER_OTLP_HEADERS=""
-          export PLATFORM_ADMIN_EMAIL="${TF_VAR_platform_admin_email:-}"
-          export PLATFORM_ADMIN_PASSWORD="${TF_VAR_platform_admin_password:-}"
-          export PLATFORM_INTERNAL_AUTH_SECRET="${TF_VAR_platform_internal_auth_secret:-}"
-          export SCRYDEX_API_KEY="${TF_VAR_scrydex_api_key:-}"
-          export SCRYDEX_TEAM_ID="${TF_VAR_scrydex_team_id:-}"
           export SES_AWS_ACCESS_KEY_ID="${TF_VAR_ses_aws_access_key_id:-}"
           export SES_AWS_SECRET_ACCESS_KEY="${TF_VAR_ses_aws_secret_access_key:-}"
           export SES_SOURCE_ARN="${TF_VAR_ses_source_arn:-}"
-          export STRIPE_CONNECT_WEBHOOK_SECRET="${TF_VAR_stripe_connect_webhook_secret:-}"
-          export STRIPE_PUBLISHABLE_KEY="${TF_VAR_stripe_publishable_key:-}"
-          export STRIPE_SECRET_KEY="${TF_VAR_stripe_secret_key:-}"
-          export STRIPE_WEBHOOK_SECRET="${TF_VAR_stripe_webhook_secret:-}"
-          export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
 
           node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
 
@@ -1191,7 +1115,7 @@ jobs:
           # Optional provider endpoint overrides are only passed when the
           # repository variable is set. When absent, the Helm chart's preview
           # env defaults apply (real Stripe/EasyPost API bases, empty SES
-          # values), matching the retired App Platform preview posture where
+          # values), matching the intentionally disposable preview posture where
           # empty env values fell through to runtime provider defaults.
           optional_runtime_env=()
           add_optional_runtime_env() {
@@ -1202,8 +1126,8 @@ jobs:
           add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"
           add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"
           add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"
-          add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"
-          add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"
+          add_optional_runtime_env "STRIPE_API_BASE_URL" "${STRIPE_API_BASE_URL:-}"
+          add_optional_runtime_env "EASYPOST_API_BASE_URL" "${EASYPOST_API_BASE_URL:-}"
 
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
@@ -1219,8 +1143,8 @@ jobs:
             --runtime-env "CATALOG_ASSET_S3_ENDPOINT=https://nyc3.digitaloceanspaces.com" \
             --runtime-env "CATALOG_ASSET_S3_REGION=nyc3" \
             --runtime-env "NOTIFICATION_EMAIL_PROVIDER=${TF_VAR_notification_email_provider:-noop}" \
-            --runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${TF_VAR_stripe_connect_accounts_api:-v2}" \
-            --runtime-env "EASYPOST_MODE=${TF_VAR_easypost_mode:-test}" \
+            --runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${STRIPE_CONNECT_ACCOUNTS_API:-v2}" \
+            --runtime-env "EASYPOST_MODE=${EASYPOST_MODE:-test}" \
             "${optional_runtime_env[@]}" \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
@@ -1361,7 +1285,7 @@ jobs:
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         if: steps.buildx.outcome == 'failure'
 
-      - name: Build App Platform image
+      - name: Build runtime image
         run: |
           set -euo pipefail
           docker buildx build \

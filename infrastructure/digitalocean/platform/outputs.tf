@@ -1,11 +1,3 @@
-output "app_id" {
-  value = digitalocean_app.platform.id
-}
-
-output "live_url" {
-  value = digitalocean_app.platform.live_url
-}
-
 output "postgres_cluster_id" {
   value = try(digitalocean_database_cluster.postgres[0].id, null)
 }
@@ -57,10 +49,6 @@ output "admin_domain" {
 
 output "uptime_check_targets" {
   value = local.uptime_check_targets
-}
-
-output "connection_budget_profiles" {
-  value = local.connection_budget_profiles
 }
 
 output "production_database_standby_posture" {

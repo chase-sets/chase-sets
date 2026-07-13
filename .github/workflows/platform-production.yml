@@ -223,8 +223,7 @@ jobs:
           set -euo pipefail
 
           # Build-time success does not prove runtime success (issue #1417):
-          # start each web component exactly as App Platform does (run_command
-          # and health_check from infrastructure/digitalocean/platform/main.tf)
+          # start each web component exactly with the production commands and health endpoints used by DOKS
           # so a non-booting image fails this parallel job before the push and
           # never reaches the deploy lane.
           boot_smoke() {
@@ -310,37 +309,36 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_VAR_environment: staging
-      TF_VAR_platform_image_repository: chase-sets-platform
-      TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
-      TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
+      PLATFORM_IMAGE_TAG: ${{ needs.resolve-release.outputs.release_commit }}
+      CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
       TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
       TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-      TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-      TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-      TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-      TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
-      TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
-      TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
-      TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-      TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-      TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
-      TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
-      TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
-      TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
-      TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
-      TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
-      TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}
-      TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
-      TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
-      TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
-      TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
-      TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
-      TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-      TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
-      TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
-      TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+      PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+      PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+      PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+      PLATFORM_ADMIN_DISPLAY_NAME: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
+      DISCORD_INVITE_URL: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
+      STRIPE_CONNECT_ACCOUNTS_API: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
+      STRIPE_API_BASE_URL: ${{ vars.STRIPE_API_BASE_URL || '' }}
+      EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+      VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY || '' }}
+      EASYPOST_API_BASE_URL: ${{ vars.EASYPOST_API_BASE_URL || '' }}
+      EASYPOST_WEBHOOK_SECRET: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}
+      EASYPOST_MODE: ${{ vars.EASYPOST_MODE || 'test' }}
+      TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
+      SCRYDEX_API_KEY: ${{ secrets.SCRYDEX_API_KEY || '' }}
+      SCRYDEX_TEAM_ID: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
+      GOOGLE_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+      GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+      ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
+      FACEBOOK_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+      FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
       TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
       TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
       TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
@@ -351,10 +349,6 @@ jobs:
       TF_VAR_observability_enabled: ${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}
       TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
       TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
-      # DOKS owns schema bootstrap once its estate is active. App Platform
-      # stays deployed for alias/DNS compatibility, but its pre-deploy
-      # bootstrap becomes a logged no-op while DOKS ingress exists.
-      TF_VAR_platform_bootstrap_owner: ${{ vars.DOKS_INGRESS_TARGET != '' && 'doks' || 'app-platform' }}
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
       CHASE_SETS_HELM_RELEASE: chase-sets-platform
@@ -363,23 +357,7 @@ jobs:
       ARGO_ROLLOUTS_ENABLED: ${{ vars.STAGING_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}
       BETA_WAVE_SIZE: ${{ vars.BETA_WAVE_SIZE || '' }}
       BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT: ${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '' }}
-      APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
-      # DOKS is the primary rollout lane and always runs. The App Platform lane
-      # is legacy: it exists only to keep App Platform's alias DNS reconciled
-      # while both platforms serve during the #4053 cutover window. Flipping the
-      # single APP_PLATFORM_LANE repo variable to "disabled" is the #4055 kill
-      # switch — it stops the workflow maintaining App Platform without touching
-      # the DOKS rollout, smoke, or shadow-host verification below.
-      APP_PLATFORM_LANE: ${{ vars.APP_PLATFORM_LANE || 'enabled' }}
-      # Which platform serves the live staging hosts. #4604 wires this into the
-      # environment-dns root: "app-platform" keeps App Platform on the live
-      # hosts (DOKS proven via shadow hosts); "doks" flips the live A records to
-      # the DOKS load balancer. Smoke always targets the live hosts, so it runs
-      # against whichever platform serves live traffic.
-      STAGING_APP_SERVING: ${{ vars.STAGING_APP_SERVING || 'app-platform' }}
-      # DOKS ingress load balancer IPv4. When set, environment-dns publishes the
-      # doks.<zone> shadow validation hosts so the rollout lane can prove DOKS
-      # ingress + cert-manager before any live-host flip.
+      # DOKS ingress load balancer IPv4 used by the live staging DNS records.
       DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}
     steps:
       - name: Record staging start
@@ -417,15 +395,15 @@ jobs:
             AWS_ACCESS_KEY_ID \
             AWS_SECRET_ACCESS_KEY \
             DIGITALOCEAN_ACCESS_TOKEN \
-            TF_VAR_platform_internal_auth_secret \
-            TF_VAR_platform_admin_email \
-            TF_VAR_platform_admin_password \
-            TF_VAR_discord_invite_url \
-            TF_VAR_stripe_secret_key \
-            TF_VAR_stripe_publishable_key \
-            TF_VAR_stripe_webhook_secret \
-            TF_VAR_stripe_connect_webhook_secret \
-            TF_VAR_easypost_api_key
+            PLATFORM_INTERNAL_AUTH_SECRET \
+            PLATFORM_ADMIN_EMAIL \
+            PLATFORM_ADMIN_PASSWORD \
+            DISCORD_INVITE_URL \
+            STRIPE_SECRET_KEY \
+            STRIPE_PUBLISHABLE_KEY \
+            STRIPE_WEBHOOK_SECRET \
+            STRIPE_CONNECT_WEBHOOK_SECRET \
+            EASYPOST_API_KEY
           do
             if [ -z "${!name:-}" ]; then
               missing+=("$name")
@@ -442,7 +420,7 @@ jobs:
             exit 1
           fi
 
-          if [[ "${TF_VAR_stripe_secret_key}" != sk_test* || "${TF_VAR_stripe_publishable_key}" != pk_test* ]]; then
+          if [[ "${STRIPE_SECRET_KEY}" != sk_test* || "${STRIPE_PUBLISHABLE_KEY}" != pk_test* ]]; then
             echo "Staging requires dedicated Stripe test-mode keys; production live-mode keys must not be used in the staging GitHub Environment." >&2
             exit 1
           fi
@@ -544,9 +522,6 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           TF_VAR_google_workspace_dkim_txt_value: ${{ vars.GOOGLE_WORKSPACE_DKIM_TXT_VALUE || '' }}
-          # #4604 serving flags: default reproduces today's App Platform serving
-          # and publishes the DOKS shadow hosts when DOKS_INGRESS_TARGET is set.
-          TF_VAR_staging_app_serving: ${{ env.STAGING_APP_SERVING }}
           TF_VAR_doks_ingress_target: ${{ env.DOKS_INGRESS_TARGET }}
         run: terraform apply -auto-approve
 
@@ -558,7 +533,7 @@ jobs:
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         if: env.SHOULD_DEPLOY != 'false' && steps.buildx.outcome == 'failure'
 
-      - name: Build and push App Platform image
+      - name: Resolve staged release image
         if: env.SHOULD_DEPLOY != 'false'
         id: image
         run: |
@@ -570,7 +545,7 @@ jobs:
           fi
 
           doctl registry login --expiry-seconds 3600
-          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
+          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${PLATFORM_IMAGE_TAG}"
           if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
             echo "Reusing merge-queue validated image ${image}; skipping rebuild."
           else
@@ -586,7 +561,7 @@ jobs:
           digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
           echo "image=${image}" >> "$GITHUB_OUTPUT"
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
-          echo "TF_VAR_platform_image_digest=${digest}" >> "$GITHUB_ENV"
+          echo "PLATFORM_IMAGE_DIGEST=${digest}" >> "$GITHUB_ENV"
           echo "Pushed ${image}@${digest}"
 
       - name: Terraform init
@@ -613,87 +588,7 @@ jobs:
         working-directory: infrastructure/digitalocean/platform
         run: terraform fmt -check -recursive
 
-      # Legacy App Platform lane: only reconcile App Platform's alias CNAMEs
-      # while the lane is enabled. The #4055 kill switch (APP_PLATFORM_LANE
-      # = disabled) skips this without affecting the DOKS rollout below.
-      - name: Reconcile staging App Platform alias DNS state
-        if: env.SHOULD_DEPLOY != 'false' && env.APP_PLATFORM_LANE != 'disabled'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
-          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
-          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
-          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
-          TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
-          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
-          TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
-          TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
-          TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}
-          TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
-          TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
-          TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
-          TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
-          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
-          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
-          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
-          TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
-          TF_VAR_ses_aws_secret_access_key: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}
-          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
-          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
-          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
-          TF_VAR_observability_enabled: ${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}
-          TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
-          TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
-        run: |
-          set -euo pipefail
-          zone="staging.chasesets.com"
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "No existing App Platform app was found in Terraform state; skipping alias DNS state reconciliation."
-            exit 0
-          fi
-
-          target="$(doctl apps get "$app_id" --format DefaultIngress --no-header | sed -e 's#^https://##' -e 's#/$##' || true)"
-          if [ -z "$target" ]; then
-            echo "No App Platform default ingress was found for ${app_id}; skipping alias DNS state reconciliation."
-            exit 0
-          fi
-
-          records_json="$(doctl compute domain records list "$zone" --output json)"
-          for name in admin marketplace www; do
-            address="digitalocean_record.staging_app_alias[\"${name}\"]"
-            if terraform state show "$address" >/dev/null 2>&1; then
-              continue
-            fi
-
-            record_id="$(printf '%s' "$records_json" | jq -r --arg name "$name" --arg target "$target" 'first(.[] | select(.type == "CNAME" and .name == $name and (.data | rtrimstr(".")) == $target) | .id) // empty')"
-            if [ -z "$record_id" ]; then
-              echo "No live CNAME found for ${name}.${zone}; Terraform will create it."
-              continue
-            fi
-
-            terraform import "$address" "${zone},${record_id}"
-          done
-
-      # Staleness develops while waiting for or holding the serialized deploy
-      # lane (42% of staging deploys never promoted); re-check before the
-      # expensive apply so superseded releases skip in seconds (issue #1418).
+      # Reconcile the DOKS-owned live staging records.
       - name: Re-check release freshness before staging apply
         if: env.SHOULD_DEPLOY != 'false' && github.event_name == 'push'
         run: |
@@ -720,8 +615,6 @@ jobs:
           terraform show -json tfplan > artifacts/terraform-plans/staging-tfplan.json
           node ../../../scripts/terraform-plan-inspection.mjs summarize-plan artifacts/terraform-plans/staging-tfplan.json --title="Staging Terraform plan" >> "$GITHUB_STEP_SUMMARY"
           echo "plan_written=true" >> "$GITHUB_OUTPUT"
-          app_changed="$(node ../../../scripts/terraform-plan-inspection.mjs plan-app-changed tfplan)"
-          echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
 
       - name: Upload staging Terraform plan
         if: always() && env.SHOULD_DEPLOY != 'false' && steps.terraform_plan.outputs.plan_written == 'true'
@@ -769,40 +662,6 @@ jobs:
           path: infrastructure/digitalocean/platform/artifacts/terraform-errored-state/staging-errored.tfstate
           if-no-files-found: error
           retention-days: 1
-
-      - name: Capture staging App Platform bootstrap diagnostics
-        if: failure() && env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "No existing App Platform app was found in Terraform state; skipping bootstrap diagnostics."
-            exit 0
-          fi
-
-          mkdir -p artifacts/release-health
-          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" \
-            --component=platform-bootstrap \
-            --log-type=deploy \
-            --log-type=run \
-            --log-type=run_restarted \
-            --tail-lines=300 \
-            --out=artifacts/release-health/staging-app-platform-bootstrap-diagnostics.json || true
-
-      - name: Upload staging App Platform bootstrap diagnostics
-        if: always() && env.SHOULD_DEPLOY != 'false'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: staging-app-platform-bootstrap-diagnostics
-          path: infrastructure/digitalocean/platform/artifacts/release-health/staging-app-platform-bootstrap-diagnostics.json
-          if-no-files-found: ignore
-          retention-days: 30
 
       - name: Configure staging Kubernetes context
         if: env.SHOULD_DEPLOY != 'false'
@@ -953,28 +812,28 @@ jobs:
           set -euo pipefail
           export CATALOG_ASSET_S3_ACCESS_KEY_ID="${TF_VAR_spaces_access_id:-}"
           export CATALOG_ASSET_S3_SECRET_ACCESS_KEY="${TF_VAR_spaces_secret_key:-}"
-          export CHASE_SETS_DISCORD_INVITE_URL="${TF_VAR_discord_invite_url:-}"
-          export EASYPOST_API_KEY="${TF_VAR_easypost_api_key:-}"
-          export VOYAGE_API_KEY="${TF_VAR_voyage_api_key:-}"
-          export EASYPOST_WEBHOOK_SECRET="${TF_VAR_easypost_webhook_secret:-}"
-          export FACEBOOK_SOCIAL_LOGIN_CLIENT_ID="${TF_VAR_facebook_social_login_client_id:-}"
-          export FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET="${TF_VAR_facebook_social_login_client_secret:-}"
-          export GOOGLE_SOCIAL_LOGIN_CLIENT_ID="${TF_VAR_google_social_login_client_id:-}"
-          export GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET="${TF_VAR_google_social_login_client_secret:-}"
+          export CHASE_SETS_DISCORD_INVITE_URL="${DISCORD_INVITE_URL:-}"
+          export EASYPOST_API_KEY="${EASYPOST_API_KEY:-}"
+          export VOYAGE_API_KEY="${VOYAGE_API_KEY:-}"
+          export EASYPOST_WEBHOOK_SECRET="${EASYPOST_WEBHOOK_SECRET:-}"
+          export FACEBOOK_SOCIAL_LOGIN_CLIENT_ID="${FACEBOOK_SOCIAL_LOGIN_CLIENT_ID:-}"
+          export FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET="${FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET:-}"
+          export GOOGLE_SOCIAL_LOGIN_CLIENT_ID="${GOOGLE_SOCIAL_LOGIN_CLIENT_ID:-}"
+          export GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET="${GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET:-}"
           export OTEL_EXPORTER_OTLP_HEADERS="${TF_VAR_observability_otlp_headers:-}"
-          export PLATFORM_ADMIN_EMAIL="${TF_VAR_platform_admin_email:-}"
-          export PLATFORM_ADMIN_PASSWORD="${TF_VAR_platform_admin_password:-}"
-          export PLATFORM_INTERNAL_AUTH_SECRET="${TF_VAR_platform_internal_auth_secret:-}"
-          export SCRYDEX_API_KEY="${TF_VAR_scrydex_api_key:-}"
-          export SCRYDEX_TEAM_ID="${TF_VAR_scrydex_team_id:-}"
+          export PLATFORM_ADMIN_EMAIL="${PLATFORM_ADMIN_EMAIL:-}"
+          export PLATFORM_ADMIN_PASSWORD="${PLATFORM_ADMIN_PASSWORD:-}"
+          export PLATFORM_INTERNAL_AUTH_SECRET="${PLATFORM_INTERNAL_AUTH_SECRET:-}"
+          export SCRYDEX_API_KEY="${SCRYDEX_API_KEY:-}"
+          export SCRYDEX_TEAM_ID="${SCRYDEX_TEAM_ID:-}"
           export SES_AWS_ACCESS_KEY_ID="${TF_VAR_ses_aws_access_key_id:-}"
           export SES_AWS_SECRET_ACCESS_KEY="${TF_VAR_ses_aws_secret_access_key:-}"
           export SES_SOURCE_ARN="${TF_VAR_ses_source_arn:-}"
-          export STRIPE_CONNECT_WEBHOOK_SECRET="${TF_VAR_stripe_connect_webhook_secret:-}"
-          export STRIPE_PUBLISHABLE_KEY="${TF_VAR_stripe_publishable_key:-}"
-          export STRIPE_SECRET_KEY="${TF_VAR_stripe_secret_key:-}"
-          export STRIPE_WEBHOOK_SECRET="${TF_VAR_stripe_webhook_secret:-}"
-          export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
+          export STRIPE_CONNECT_WEBHOOK_SECRET="${STRIPE_CONNECT_WEBHOOK_SECRET:-}"
+          export STRIPE_PUBLISHABLE_KEY="${STRIPE_PUBLISHABLE_KEY:-}"
+          export STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY:-}"
+          export STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET:-}"
+          export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE:-}"
 
           node ./scripts/platform-kubernetes-secret.mjs \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
@@ -1020,12 +879,9 @@ jobs:
             exit 1
           fi
 
-          # Per-domain base URLs the App Platform path derives from Terraform
-          # locals (public-web CHASE_SETS_PUBLIC_ORIGIN, admin-web
-          # CHASE_SETS_MARKETPLACE_ORIGIN). The DOKS Helm chart bakes these as ""
-          # (see envValueDefaults in render-platform-helm-values.mjs), so without
-          # threading them the DOKS public-web falls back to the hardcoded
-          # production canonical origin (https://chasesets.com) on staging.
+          # Resolve per-domain base URLs from the durable platform root. The
+          # canonical Helm defaults are empty, so staging must thread the live
+          # origins explicitly instead of falling back to the production apex.
           landing_domain="$(terraform -chdir=infrastructure/digitalocean/platform output -raw landing_domain)"
           marketplace_domain="$(terraform -chdir=infrastructure/digitalocean/platform output -json marketplace_domains | jq -r 'first(.[]) // empty')"
           if [ -z "$landing_domain" ]; then
@@ -1035,8 +891,7 @@ jobs:
 
           # Optional provider endpoint/origin overrides are only passed when set:
           # the deploy script fails closed on empty --runtime-env values, and the
-          # Helm chart's env defaults already carry the retired App Platform
-          # posture when a repository variable is unset (mirrors platform-pr.yml).
+          # canonical Helm defaults apply when a repository variable is unset.
           optional_runtime_env=()
           add_optional_runtime_env() {
             if [ -n "$2" ]; then
@@ -1047,8 +902,8 @@ jobs:
           add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"
           add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"
           add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"
-          add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"
-          add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"
+          add_optional_runtime_env "STRIPE_API_BASE_URL" "${STRIPE_API_BASE_URL:-}"
+          add_optional_runtime_env "EASYPOST_API_BASE_URL" "${EASYPOST_API_BASE_URL:-}"
 
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
@@ -1057,11 +912,11 @@ jobs:
             --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
             --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
-            --runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${TF_VAR_admin_google_workspace_hosted_domains:-}" \
+            --runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS:-}" \
             --runtime-env "CHASE_SETS_PUBLIC_ORIGIN=https://${landing_domain}" \
             --runtime-env "NOTIFICATION_EMAIL_PROVIDER=${TF_VAR_notification_email_provider:-noop}" \
-            --runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${TF_VAR_stripe_connect_accounts_api:-v2}" \
-            --runtime-env "EASYPOST_MODE=${TF_VAR_easypost_mode:-test}" \
+            --runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${STRIPE_CONNECT_ACCOUNTS_API:-v2}" \
+            --runtime-env "EASYPOST_MODE=${EASYPOST_MODE:-test}" \
             --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}" \
             --runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}" \
             --runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}" \
@@ -1146,44 +1001,6 @@ jobs:
             --delay-ms 30000 \
             "${ingress_args[@]}"
 
-      # Pre-cutover DOKS proof (#4604, epic #4059): while App Platform still
-      # serves the live hosts, prove the DOKS rollout is externally serving on
-      # the doks.<zone> shadow hosts with valid cert-manager TLS. The ingress
-      # wait does a TLS-validating HTTPS GET, so a missing or invalid
-      # certificate fails the step. Skips cleanly until DOKS_INGRESS_TARGET is
-      # set (no shadow hosts published yet). Once serving flips to DOKS, the
-      # live-host ingress wait above is itself the DOKS proof.
-      - name: Verify staging DOKS shadow hosts
-        if: env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/environment-dns
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          serving="$(terraform output -raw staging_app_serving)"
-          echo "Staging live hosts serve from: ${serving}."
-          mapfile -t shadow_domains < <(terraform output -json doks_ingress_shadow_domains | jq -r '.[]')
-          if [ "${#shadow_domains[@]}" -eq 0 ]; then
-            echo "No DOKS ingress shadow hosts are published (DOKS_INGRESS_TARGET unset); skipping pre-cutover shadow verification."
-            exit 0
-          fi
-
-          shadow_args=()
-          for hostname in "${shadow_domains[@]}"; do
-            shadow_args+=(--url "https://${hostname}/health/ready")
-          done
-
-          cd ../../..
-          node ./scripts/platform-ingress-wait.mjs \
-            --attempts 60 \
-            --delay-ms 30000 \
-            "${shadow_args[@]}"
-          echo "DOKS ingress shadow hosts served valid TLS and readiness ahead of the #4053 cutover."
-
-      # Second freshness re-check before the ~3.5-minute smoke/critical-flow/
-      # canary tail: a superseded release's staging state has no consumer, so
-      # skip the verification work too (issue #1418).
       - name: Re-check release freshness before staging verification
         if: env.SHOULD_DEPLOY != 'false' && github.event_name == 'push'
         run: |
@@ -1202,11 +1019,11 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
-          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          GOOGLE_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
+          FACEBOOK_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
@@ -1221,9 +1038,7 @@ jobs:
           SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
-          # Smoke targets the live hosts, which resolve to whichever platform
-          # serves live traffic per the #4604 STAGING_APP_SERVING flag.
-          echo "Smoking the live staging hosts (serving platform: ${STAGING_APP_SERVING})."
+          echo "Smoking the live staging hosts served by DOKS."
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
@@ -1235,10 +1050,10 @@ jobs:
             exit 1
           fi
 
-          if [ -n "$TF_VAR_google_social_login_client_id" ] &&
-            [ -n "$TF_VAR_google_social_login_client_secret" ] &&
-            [ -n "$TF_VAR_facebook_social_login_client_id" ] &&
-            [ -n "$TF_VAR_facebook_social_login_client_secret" ]; then
+          if [ -n "$GOOGLE_SOCIAL_LOGIN_CLIENT_ID" ] &&
+            [ -n "$GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET" ] &&
+            [ -n "$FACEBOOK_SOCIAL_LOGIN_CLIENT_ID" ] &&
+            [ -n "$FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET" ]; then
             export SMOKE_REQUIRE_SOCIAL_LOGIN=true
           else
             export SMOKE_REQUIRE_SOCIAL_LOGIN=false
@@ -1624,8 +1439,8 @@ jobs:
           SMOKE_SELLER_PASSWORD: staging-stripe-${{ github.run_id }}-${{ github.run_attempt }}
           SMOKE_SELLER_DISPLAY_NAME: Stripe Staging Smoke ${{ github.run_id }}-${{ github.run_attempt }}
           SMOKE_INVITATION_PROJECTION_TIMEOUT_MS: ${{ vars.STAGING_STRIPE_MONEY_SMOKE_INVITATION_PROJECTION_TIMEOUT_MS || '300000' }}
-          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || env.TF_VAR_platform_admin_email || '' }}
-          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || env.TF_VAR_platform_admin_password || '' }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || env.PLATFORM_ADMIN_EMAIL || '' }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || env.PLATFORM_ADMIN_PASSWORD || '' }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
@@ -1878,9 +1693,9 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_VAR_environment: production
-      TF_VAR_platform_image_repository: chase-sets-platform
-      TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
-      TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}
+      PLATFORM_IMAGE_TAG: ${{ needs.resolve-release.outputs.release_commit }}
+      PLATFORM_IMAGE_DIGEST: ${{ needs.deploy-staging.outputs.platform_image_digest }}
+      DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}
       TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || 'landing') }}
       TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
       TF_VAR_production_marketplace_promotion_approved: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}
@@ -1889,7 +1704,7 @@ jobs:
       TF_VAR_production_marketplace_checkout_fee_reference: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE || '' }}
       TF_VAR_production_checkout_launch_evidence_approved: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_checkout_launch_evidence_reference: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}
-      TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
+      CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
       TF_VAR_production_stripe_money_operations_approved: ${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_stripe_money_operations_reference: ${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE || '' }}
       TF_VAR_production_support_operations_approved: ${{ vars.PRODUCTION_SUPPORT_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}
@@ -1904,33 +1719,33 @@ jobs:
       TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
       TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-      TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-      TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-      TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-      TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
-      TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+      PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+      PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+      PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+      PLATFORM_ADMIN_DISPLAY_NAME: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
+      DISCORD_INVITE_URL: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
       TF_VAR_production_tax_readiness_approved: ${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_tax_readiness_reference: ${{ vars.PRODUCTION_TAX_READINESS_REFERENCE || '' }}
-      TF_VAR_tax_provider_backed_quotes_required: ${{ vars.TAX_PROVIDER_BACKED_QUOTES_REQUIRED == 'true' && 'true' || 'false' }}
-      TF_VAR_stripe_secret_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_SECRET_KEY || '' }}
-      TF_VAR_stripe_publishable_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
-      TF_VAR_stripe_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_WEBHOOK_SECRET || '' }}
-      TF_VAR_stripe_connect_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}
-      TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}
-      TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}
-      TF_VAR_easypost_api_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_API_KEY || '' }}
-      TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
-      TF_VAR_easypost_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.EASYPOST_API_BASE_URL || '' }}
-      TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}
-      TF_VAR_easypost_mode: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.EASYPOST_MODE || 'production') || 'test' }}
-      TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
-      TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
-      TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
-      TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
-      TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-      TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
-      TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
-      TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+      TAX_PROVIDER_BACKED_QUOTES_REQUIRED: ${{ vars.TAX_PROVIDER_BACKED_QUOTES_REQUIRED == 'true' && 'true' || 'false' }}
+      STRIPE_SECRET_KEY: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_SECRET_KEY || '' }}
+      STRIPE_PUBLISHABLE_KEY: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
+      STRIPE_WEBHOOK_SECRET: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_WEBHOOK_SECRET || '' }}
+      STRIPE_CONNECT_WEBHOOK_SECRET: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}
+      STRIPE_CONNECT_ACCOUNTS_API: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}
+      STRIPE_API_BASE_URL: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}
+      EASYPOST_API_KEY: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_API_KEY || '' }}
+      VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY || '' }}
+      EASYPOST_API_BASE_URL: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.EASYPOST_API_BASE_URL || '' }}
+      EASYPOST_WEBHOOK_SECRET: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}
+      EASYPOST_MODE: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.EASYPOST_MODE || 'production') || 'test' }}
+      TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
+      SCRYDEX_API_KEY: ${{ secrets.SCRYDEX_API_KEY || '' }}
+      SCRYDEX_TEAM_ID: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
+      GOOGLE_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+      GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+      ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
+      FACEBOOK_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+      FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
       TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
       TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
       TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
@@ -2042,10 +1857,10 @@ jobs:
             AWS_ACCESS_KEY_ID \
             AWS_SECRET_ACCESS_KEY \
             DIGITALOCEAN_ACCESS_TOKEN \
-            TF_VAR_platform_internal_auth_secret \
-            TF_VAR_platform_admin_email \
-            TF_VAR_platform_admin_password \
-            TF_VAR_discord_invite_url
+            PLATFORM_INTERNAL_AUTH_SECRET \
+            PLATFORM_ADMIN_EMAIL \
+            PLATFORM_ADMIN_PASSWORD \
+            DISCORD_INVITE_URL
           do
             if [ -z "${!name:-}" ]; then
               missing+=("$name")
@@ -2062,11 +1877,11 @@ jobs:
             exit 1
           fi
 
-          if [ -n "${TF_VAR_admin_google_workspace_hosted_domains:-}" ]; then
+          if [ -n "${ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS:-}" ]; then
             google_sso_missing=()
             for name in \
-              TF_VAR_google_social_login_client_id \
-              TF_VAR_google_social_login_client_secret
+              GOOGLE_SOCIAL_LOGIN_CLIENT_ID \
+              GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET
             do
               if [ -z "${!name:-}" ]; then
                 google_sso_missing+=("$name")
@@ -2082,12 +1897,12 @@ jobs:
           if [ "${TF_VAR_production_runtime_profile:-landing}" != "landing" ]; then
             marketplace_missing=()
             for name in \
-              TF_VAR_stripe_secret_key \
-              TF_VAR_stripe_publishable_key \
-              TF_VAR_stripe_webhook_secret \
-              TF_VAR_stripe_connect_webhook_secret \
-              TF_VAR_easypost_api_key \
-              TF_VAR_easypost_webhook_secret
+              STRIPE_SECRET_KEY \
+              STRIPE_PUBLISHABLE_KEY \
+              STRIPE_WEBHOOK_SECRET \
+              STRIPE_CONNECT_WEBHOOK_SECRET \
+              EASYPOST_API_KEY \
+              EASYPOST_WEBHOOK_SECRET
             do
               if [ -z "${!name:-}" ]; then
                 marketplace_missing+=("$name")
@@ -2099,22 +1914,22 @@ jobs:
               exit 1
             fi
 
-            if [[ "${TF_VAR_stripe_secret_key}" != sk_live* || "${TF_VAR_stripe_publishable_key}" != pk_live* ]]; then
+            if [[ "${STRIPE_SECRET_KEY}" != sk_live* || "${STRIPE_PUBLISHABLE_KEY}" != pk_live* ]]; then
               echo "Production proof/public platform deployment requires Stripe live-mode keys." >&2
               exit 1
             fi
 
-            if [ "${TF_VAR_easypost_mode:-}" != "production" ]; then
+            if [ "${EASYPOST_MODE:-}" != "production" ]; then
               echo "Production proof/public platform deployment requires EASYPOST_MODE=production." >&2
               exit 1
             fi
 
-            if [ -n "${TF_VAR_stripe_api_base_url:-}" ]; then
+            if [ -n "${STRIPE_API_BASE_URL:-}" ]; then
               echo "Production proof/public platform deployment requires STRIPE_API_BASE_URL to be unset." >&2
               exit 1
             fi
 
-            if [ -n "${TF_VAR_easypost_api_base_url:-}" ]; then
+            if [ -n "${EASYPOST_API_BASE_URL:-}" ]; then
               echo "Production proof/public platform deployment requires EASYPOST_API_BASE_URL to be unset." >&2
               exit 1
             fi
@@ -2238,7 +2053,7 @@ jobs:
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         if: env.SHOULD_DEPLOY != 'false' && steps.buildx.outcome == 'failure'
 
-      - name: Verify promoted App Platform image
+      - name: Verify promoted release image
         if: env.SHOULD_DEPLOY != 'false'
         id: image
         run: |
@@ -2250,15 +2065,15 @@ jobs:
           fi
 
           doctl registry login --expiry-seconds 3600
-          expected_digest="${TF_VAR_platform_image_digest}"
+          expected_digest="${PLATFORM_IMAGE_DIGEST}"
           if [ -z "$expected_digest" ]; then
-            echo "Staging did not publish a verified App Platform image digest; refusing production promotion." >&2
+            echo "Staging did not publish a verified release image digest; refusing production promotion." >&2
             exit 1
           fi
 
-          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
+          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${PLATFORM_IMAGE_TAG}"
           if ! docker buildx imagetools inspect "$image" >/tmp/promoted-image.txt; then
-            echo "Promoted image ${image} was not found. Run a successful staging deployment for ${TF_VAR_platform_image_tag} first." >&2
+            echo "Promoted image ${image} was not found. Run a successful staging deployment for ${PLATFORM_IMAGE_TAG} first." >&2
             exit 1
           fi
 
@@ -2270,7 +2085,7 @@ jobs:
 
           echo "image=${image}" >> "$GITHUB_OUTPUT"
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
-          echo "TF_VAR_platform_image_digest=${digest}" >> "$GITHUB_ENV"
+          echo "PLATFORM_IMAGE_DIGEST=${digest}" >> "$GITHUB_ENV"
           echo "Promoting ${image}@${digest}"
 
       - name: Terraform init
@@ -2313,8 +2128,6 @@ jobs:
           node ../../../scripts/terraform-plan-inspection.mjs summarize-plan artifacts/terraform-plans/production-tfplan.json --title="Production Terraform plan" >> "$GITHUB_STEP_SUMMARY"
           echo "plan_written=true" >> "$GITHUB_OUTPUT"
           node ../../../scripts/terraform-plan-inspection.mjs assert-no-destructive-changes tfplan --allow-file="../../../${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
-          app_changed="$(node ../../../scripts/terraform-plan-inspection.mjs plan-app-changed tfplan)"
-          echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
 
       - name: Upload production Terraform plan
         if: always() && env.SHOULD_DEPLOY != 'false' && steps.terraform_plan.outputs.plan_written == 'true'
@@ -2653,40 +2466,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Capture production App Platform bootstrap diagnostics
-        if: failure() && env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "No existing App Platform app was found in Terraform state; skipping bootstrap diagnostics."
-            exit 0
-          fi
-
-          mkdir -p artifacts/release-health
-          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" \
-            --component=platform-bootstrap \
-            --log-type=deploy \
-            --log-type=run \
-            --log-type=run_restarted \
-            --tail-lines=300 \
-            --out=artifacts/release-health/production-app-platform-bootstrap-diagnostics.json || true
-
-      - name: Upload production App Platform bootstrap diagnostics
-        if: always() && env.SHOULD_DEPLOY != 'false'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: production-app-platform-bootstrap-diagnostics
-          path: infrastructure/digitalocean/platform/artifacts/release-health/production-app-platform-bootstrap-diagnostics.json
-          if-no-files-found: ignore
-          retention-days: 30
-
       - name: Export production Kubernetes database URLs
         if: env.SHOULD_DEPLOY != 'false'
         env:
@@ -2708,28 +2487,28 @@ jobs:
           set -euo pipefail
           export CATALOG_ASSET_S3_ACCESS_KEY_ID="${TF_VAR_spaces_access_id:-}"
           export CATALOG_ASSET_S3_SECRET_ACCESS_KEY="${TF_VAR_spaces_secret_key:-}"
-          export CHASE_SETS_DISCORD_INVITE_URL="${TF_VAR_discord_invite_url:-}"
-          export EASYPOST_API_KEY="${TF_VAR_easypost_api_key:-}"
-          export VOYAGE_API_KEY="${TF_VAR_voyage_api_key:-}"
-          export EASYPOST_WEBHOOK_SECRET="${TF_VAR_easypost_webhook_secret:-}"
-          export FACEBOOK_SOCIAL_LOGIN_CLIENT_ID="${TF_VAR_facebook_social_login_client_id:-}"
-          export FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET="${TF_VAR_facebook_social_login_client_secret:-}"
-          export GOOGLE_SOCIAL_LOGIN_CLIENT_ID="${TF_VAR_google_social_login_client_id:-}"
-          export GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET="${TF_VAR_google_social_login_client_secret:-}"
+          export CHASE_SETS_DISCORD_INVITE_URL="${DISCORD_INVITE_URL:-}"
+          export EASYPOST_API_KEY="${EASYPOST_API_KEY:-}"
+          export VOYAGE_API_KEY="${VOYAGE_API_KEY:-}"
+          export EASYPOST_WEBHOOK_SECRET="${EASYPOST_WEBHOOK_SECRET:-}"
+          export FACEBOOK_SOCIAL_LOGIN_CLIENT_ID="${FACEBOOK_SOCIAL_LOGIN_CLIENT_ID:-}"
+          export FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET="${FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET:-}"
+          export GOOGLE_SOCIAL_LOGIN_CLIENT_ID="${GOOGLE_SOCIAL_LOGIN_CLIENT_ID:-}"
+          export GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET="${GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET:-}"
           export OTEL_EXPORTER_OTLP_HEADERS="${TF_VAR_observability_otlp_headers:-}"
-          export PLATFORM_ADMIN_EMAIL="${TF_VAR_platform_admin_email:-}"
-          export PLATFORM_ADMIN_PASSWORD="${TF_VAR_platform_admin_password:-}"
-          export PLATFORM_INTERNAL_AUTH_SECRET="${TF_VAR_platform_internal_auth_secret:-}"
-          export SCRYDEX_API_KEY="${TF_VAR_scrydex_api_key:-}"
-          export SCRYDEX_TEAM_ID="${TF_VAR_scrydex_team_id:-}"
+          export PLATFORM_ADMIN_EMAIL="${PLATFORM_ADMIN_EMAIL:-}"
+          export PLATFORM_ADMIN_PASSWORD="${PLATFORM_ADMIN_PASSWORD:-}"
+          export PLATFORM_INTERNAL_AUTH_SECRET="${PLATFORM_INTERNAL_AUTH_SECRET:-}"
+          export SCRYDEX_API_KEY="${SCRYDEX_API_KEY:-}"
+          export SCRYDEX_TEAM_ID="${SCRYDEX_TEAM_ID:-}"
           export SES_AWS_ACCESS_KEY_ID="${TF_VAR_ses_aws_access_key_id:-}"
           export SES_AWS_SECRET_ACCESS_KEY="${TF_VAR_ses_aws_secret_access_key:-}"
           export SES_SOURCE_ARN="${TF_VAR_ses_source_arn:-}"
-          export STRIPE_CONNECT_WEBHOOK_SECRET="${TF_VAR_stripe_connect_webhook_secret:-}"
-          export STRIPE_PUBLISHABLE_KEY="${TF_VAR_stripe_publishable_key:-}"
-          export STRIPE_SECRET_KEY="${TF_VAR_stripe_secret_key:-}"
-          export STRIPE_WEBHOOK_SECRET="${TF_VAR_stripe_webhook_secret:-}"
-          export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
+          export STRIPE_CONNECT_WEBHOOK_SECRET="${STRIPE_CONNECT_WEBHOOK_SECRET:-}"
+          export STRIPE_PUBLISHABLE_KEY="${STRIPE_PUBLISHABLE_KEY:-}"
+          export STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY:-}"
+          export STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET:-}"
+          export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE:-}"
 
           node ./scripts/platform-kubernetes-secret.mjs \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
@@ -2775,11 +2554,9 @@ jobs:
             exit 1
           fi
 
-          # Per-domain base URLs the App Platform path derives from Terraform
-          # locals (public-web CHASE_SETS_PUBLIC_ORIGIN, admin-web
-          # CHASE_SETS_MARKETPLACE_ORIGIN). The DOKS Helm chart bakes these as ""
-          # (see envValueDefaults in render-platform-helm-values.mjs), so they
-          # must be threaded here for the DOKS platform to match App Platform.
+          # Resolve per-domain base URLs from the durable platform root. The
+          # canonical Helm defaults are empty, so production threads the live
+          # origins explicitly.
           landing_domain="$(terraform -chdir=infrastructure/digitalocean/platform output -raw landing_domain)"
           marketplace_domain="$(terraform -chdir=infrastructure/digitalocean/platform output -json marketplace_domains | jq -r 'first(.[]) // empty')"
           if [ -z "$landing_domain" ]; then
@@ -2789,11 +2566,9 @@ jobs:
 
           # Optional provider endpoint/origin overrides are only passed when set:
           # the deploy script fails closed on empty --runtime-env values, and the
-          # Helm chart's env defaults already carry the retired App Platform
-          # posture when a repository variable is unset (mirrors platform-pr.yml).
+          # canonical Helm defaults apply when a repository variable is unset.
           # A landing-only production has no public marketplace domain, so
-          # CHASE_SETS_MARKETPLACE_ORIGIN stays unset exactly like App Platform's
-          # empty local.marketplace_origin.
+          # CHASE_SETS_MARKETPLACE_ORIGIN stays unset.
           optional_runtime_env=()
           add_optional_runtime_env() {
             if [ -n "$2" ]; then
@@ -2804,8 +2579,8 @@ jobs:
           add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"
           add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"
           add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"
-          add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"
-          add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"
+          add_optional_runtime_env "STRIPE_API_BASE_URL" "${STRIPE_API_BASE_URL:-}"
+          add_optional_runtime_env "EASYPOST_API_BASE_URL" "${EASYPOST_API_BASE_URL:-}"
 
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
@@ -2814,11 +2589,11 @@ jobs:
             --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=${TF_VAR_production_runtime_profile:-landing}" \
             --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
-            --runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${TF_VAR_admin_google_workspace_hosted_domains:-}" \
+            --runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS:-}" \
             --runtime-env "CHASE_SETS_PUBLIC_ORIGIN=https://${landing_domain}" \
             --runtime-env "NOTIFICATION_EMAIL_PROVIDER=${TF_VAR_notification_email_provider:-noop}" \
-            --runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${TF_VAR_stripe_connect_accounts_api:-v2}" \
-            --runtime-env "EASYPOST_MODE=${TF_VAR_easypost_mode:-test}" \
+            --runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${STRIPE_CONNECT_ACCOUNTS_API:-v2}" \
+            --runtime-env "EASYPOST_MODE=${EASYPOST_MODE:-test}" \
             --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}" \
             --runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}" \
             --runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}" \
@@ -3395,7 +3170,6 @@ jobs:
             artifacts/release-health/production-rollback.json
             artifacts/release-health/production-rollback-target.json
             artifacts/release-health/production-rollback-readiness.json
-            artifacts/release-health/production-app-platform-bootstrap-diagnostics.json
             artifacts/release-health/production-kubernetes-deploy-diagnostics.json
           if-no-files-found: ignore
           retention-days: 30
@@ -3534,9 +3308,7 @@ jobs:
           - Rollback: ${ROLLBACK_RESULT}
           - Record Staging Release Health: ${RECORD_STAGING_HEALTH_RESULT}
           - Diagnostics artifacts: ${ARTIFACTS_URL}
-            - staging-app-platform-bootstrap-diagnostics
             - staging-kubernetes-deploy-diagnostics
-            - production-app-platform-bootstrap-diagnostics
             - production-kubernetes-deploy-diagnostics
             - production-release-health
 

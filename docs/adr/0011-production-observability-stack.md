@@ -8,7 +8,7 @@ Accepted.
 
 ADR 0001 introduced OpenTelemetry in the platform API and a low-cost LGTM stack for local and self-hosted operations. The checked-in stack is intentionally local: short retention, local-only credentials, and Docker Compose volumes. Milestone #21 requires the same operational signals to run for production with durable storage, protected access, and scoped Prometheus-compatible query access for release automation and dashboards.
 
-The existing DigitalOcean platform root deploys the customer/application runtime through App Platform. App Platform is a good fit for stateless web, API, worker, and bootstrap components, but the current provider schema does not expose a durable volume contract for App Platform services. Prometheus, Loki, Tempo, and Grafana need persistence, predictable retention, and controlled recovery. Keeping those stores inside the main application App Platform app would also mix customer traffic deploy cadence with operational telemetry state.
+At the time of this decision, the DigitalOcean platform root deployed the customer/application runtime through App Platform. Its provider schema did not expose a durable volume contract for application services. Prometheus, Loki, Tempo, and Grafana need persistence, predictable retention, and controlled recovery, so telemetry state required an independent lifecycle.
 
 ## Decision
 
@@ -27,7 +27,7 @@ The production-ready topology is:
 
 Staging and production stay separated by bounded resource labels, especially `deployment.environment`, plus environment-specific DNS aliases (`otel.staging.chasesets.com` and `otel.chasesets.com`) pointing at the same protected collector. The OpenTelemetry Collector preserves application resource attributes and the Prometheus exporter converts them into metric labels for dashboard filtering.
 
-The application deployables continue to run in App Platform and export telemetry with standard OpenTelemetry environment variables. Telemetry export remains best effort: missing or unreachable observability infrastructure is an operations incident, not a customer-facing outage.
+The application deployables run in DOKS and export telemetry with standard OpenTelemetry environment variables. Telemetry export remains best effort: missing or unreachable observability infrastructure is an operations incident, not a customer-facing outage.
 
 Operators have a two-plane model:
 

@@ -1,0 +1,1622 @@
+{
+  "schemaVersion": "platform-runtime-values/v1",
+  "global": {
+    "nameOverride": "",
+    "fullnameOverride": "",
+    "image": {
+      "registry": "registry.digitalocean.com",
+      "registryName": "chase-sets",
+      "repository": "chase-sets-platform",
+      "tag": "latest",
+      "digest": "",
+      "pullPolicy": "IfNotPresent"
+    },
+    "imagePullSecrets": [],
+    "envOverrides": {},
+    "existingSecretName": "chase-sets-platform-runtime",
+    "serviceAccount": {
+      "create": true,
+      "name": ""
+    },
+    "rbac": {
+      "create": true
+    },
+    "podAnnotations": {},
+    "podLabels": {},
+    "nodeSelector": {},
+    "tolerations": [],
+    "affinity": {}
+  },
+  "observability": {
+    "enabled": false,
+    "environment": "",
+    "clusterName": "",
+    "collector": {
+      "image": {
+        "repository": "otel/opentelemetry-collector-contrib",
+        "tag": "0.119.0",
+        "pullPolicy": "IfNotPresent"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "50m",
+          "memory": "128Mi"
+        },
+        "limits": {
+          "cpu": "500m",
+          "memory": "512Mi"
+        }
+      }
+    },
+    "kubeStateMetrics": {
+      "image": {
+        "repository": "registry.k8s.io/kube-state-metrics/kube-state-metrics",
+        "tag": "v2.18.0",
+        "pullPolicy": "IfNotPresent"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "25m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "250m",
+          "memory": "256Mi"
+        }
+      }
+    },
+    "exporter": {
+      "endpoint": "",
+      "secretName": "chase-sets-platform-runtime",
+      "secretKey": "CHASE_SETS_OTLP_TOKEN"
+    }
+  },
+  "doksIngress": {
+    "enabled": false,
+    "className": "nginx",
+    "clusterIssuer": "",
+    "annotations": {},
+    "tls": {
+      "enabled": true,
+      "secretName": "chase-sets-platform-tls"
+    },
+    "hosts": []
+  },
+  "previewPostgres": {
+    "enabled": false,
+    "image": {
+      "repository": "pgvector/pgvector",
+      "tag": "pg16",
+      "pullPolicy": "IfNotPresent"
+    },
+    "service": {
+      "port": 5432
+    },
+    "secretName": "chase-sets-preview-postgres",
+    "superuserSecretKey": "POSTGRES_PASSWORD",
+    "applicationSecretKey": "APP_DATABASE_PASSWORD",
+    "storage": {
+      "emptyDir": {}
+    },
+    "resources": {}
+  },
+  "components": {
+    "public-web": {
+      "enabled": true,
+      "kind": "service",
+      "replicas": 1,
+      "command": "pnpm --filter @chase-sets/app-public-web run start",
+      "env": [
+        {
+          "name": "CHASE_SETS_DISCORD_INVITE_URL",
+          "secret": true,
+          "secretKey": "CHASE_SETS_DISCORD_INVITE_URL"
+        },
+        {
+          "name": "CHASE_SETS_INTERNAL_API_ORIGIN",
+          "value": "http://chase-sets-platform-chase-sets-platform-platform-api:8080"
+        },
+        {
+          "name": "CHASE_SETS_PUBLIC_INDEXING",
+          "value": "false"
+        },
+        {
+          "name": "CHASE_SETS_PUBLIC_ORIGIN",
+          "value": ""
+        },
+        {
+          "name": "CHASE_SETS_TRUST_FORWARDED_HEADERS",
+          "value": "true"
+        },
+        {
+          "name": "DEPLOYMENT_ENVIRONMENT",
+          "value": "preview"
+        },
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "OBSERVABILITY_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "OTEL_EXPORTER_OTLP_ENDPOINT",
+          "value": ""
+        },
+        {
+          "name": "OTEL_EXPORTER_OTLP_HEADERS",
+          "secret": true,
+          "secretKey": "OTEL_EXPORTER_OTLP_HEADERS"
+        },
+        {
+          "name": "OTEL_RESOURCE_ATTRIBUTES",
+          "value": "cloud.provider=digitalocean,cloud.platform=kubernetes,chase_sets.environment_slug=preview"
+        },
+        {
+          "name": "PORT",
+          "value": "8080"
+        }
+      ],
+      "resources": {},
+      "podAnnotations": {},
+      "podLabels": {},
+      "port": 8080,
+      "service": {
+        "type": "ClusterIP",
+        "port": 8080
+      },
+      "healthPath": "/",
+      "livenessPath": "/health/live",
+      "livenessProbe": {
+        "periodSeconds": 10,
+        "timeoutSeconds": 5,
+        "failureThreshold": 6
+      },
+      "rollout": {
+        "enabled": false,
+        "revisionHistoryLimit": 5,
+        "progressDeadlineSeconds": 900,
+        "rollbackWindowRevisions": 3,
+        "analysis": {
+          "enabled": false,
+          "path": "/health/ready",
+          "initialDelay": "30s",
+          "interval": "10s",
+          "count": 5,
+          "failureLimit": 2,
+          "timeoutSeconds": 5
+        },
+        "canary": {
+          "canaryServiceSuffix": "canary",
+          "trafficRouting": {
+            "nginx": {
+              "enabled": false
+            }
+          },
+          "weights": [10, 25, 50, 100],
+          "pauseAfterWeight": 10
+        }
+      }
+    },
+    "marketplace": {
+      "enabled": true,
+      "kind": "service",
+      "replicas": 1,
+      "command": "pnpm --filter @chase-sets/app-marketplace-web run start",
+      "env": [
+        {
+          "name": "CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE",
+          "value": "false"
+        },
+        {
+          "name": "CHASE_SETS_INTERNAL_API_ORIGIN",
+          "value": "http://chase-sets-platform-chase-sets-platform-platform-api:8080"
+        },
+        {
+          "name": "CHASE_SETS_MARKETPLACE_INDEXING",
+          "value": "false"
+        },
+        {
+          "name": "CHASE_SETS_TRUST_FORWARDED_HEADERS",
+          "value": "true"
+        },
+        {
+          "name": "DEPLOYMENT_ENVIRONMENT",
+          "value": "preview"
+        },
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "OBSERVABILITY_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "OTEL_EXPORTER_OTLP_ENDPOINT",
+          "value": ""
+        },
+        {
+          "name": "OTEL_EXPORTER_OTLP_HEADERS",
+          "secret": true,
+          "secretKey": "OTEL_EXPORTER_OTLP_HEADERS"
+        },
+        {
+          "name": "OTEL_RESOURCE_ATTRIBUTES",
+          "value": "cloud.provider=digitalocean,cloud.platform=kubernetes,chase_sets.environment_slug=preview"
+        },
+        {
+          "name": "PLATFORM_CONTROL_DATABASE_URL",
+          "secret": true,
+          "secretKey": "PLATFORM_CONTROL_DATABASE_URL"
+        },
+        {
+          "name": "PORT",
+          "value": "8080"
+        },
+        {
+          "name": "STRIPE_PUBLISHABLE_KEY",
+          "secret": true,
+          "secretKey": "STRIPE_PUBLISHABLE_KEY"
+        }
+      ],
+      "resources": {},
+      "podAnnotations": {},
+      "podLabels": {},
+      "port": 8080,
+      "service": {
+        "type": "ClusterIP",
+        "port": 8080
+      },
+      "healthPath": "/health/ready",
+      "livenessPath": "/health/live",
+      "livenessProbe": {
+        "periodSeconds": 10,
+        "timeoutSeconds": 5,
+        "failureThreshold": 6
+      },
+      "rollout": {
+        "enabled": false,
+        "revisionHistoryLimit": 5,
+        "progressDeadlineSeconds": 900,
+        "rollbackWindowRevisions": 3,
+        "analysis": {
+          "enabled": false,
+          "path": "/health/ready",
+          "initialDelay": "30s",
+          "interval": "10s",
+          "count": 5,
+          "failureLimit": 2,
+          "timeoutSeconds": 5
+        },
+        "canary": {
+          "canaryServiceSuffix": "canary",
+          "trafficRouting": {
+            "nginx": {
+              "enabled": false
+            }
+          },
+          "weights": [10, 25, 50, 100],
+          "pauseAfterWeight": 10
+        }
+      }
+    },
+    "admin-web": {
+      "enabled": true,
+      "kind": "service",
+      "replicas": 1,
+      "command": "pnpm --filter @chase-sets/app-admin-web run start",
+      "env": [
+        {
+          "name": "CHASE_SETS_INTERNAL_API_ORIGIN",
+          "value": "http://chase-sets-platform-chase-sets-platform-platform-api:8080"
+        },
+        {
+          "name": "CHASE_SETS_MARKETPLACE_ORIGIN",
+          "value": ""
+        },
+        {
+          "name": "CHASE_SETS_TRUST_FORWARDED_HEADERS",
+          "value": "true"
+        },
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "PORT",
+          "value": "8080"
+        }
+      ],
+      "resources": {},
+      "podAnnotations": {},
+      "podLabels": {},
+      "port": 8080,
+      "service": {
+        "type": "ClusterIP",
+        "port": 8080
+      },
+      "healthPath": "/health/ready",
+      "livenessPath": "/health/live",
+      "livenessProbe": {
+        "periodSeconds": 10,
+        "timeoutSeconds": 5,
+        "failureThreshold": 6
+      }
+    },
+    "platform-api": {
+      "enabled": true,
+      "kind": "service",
+      "replicas": 1,
+      "command": "pnpm --filter @chase-sets/app-platform-api run start:production",
+      "env": [
+        {
+          "name": "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS",
+          "value": ""
+        },
+        {
+          "name": "ADMIN_REGISTRATION_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "CATALOG_ASSET_PUBLIC_BASE_URL",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_ASSET_S3_ACCESS_KEY_ID",
+          "secret": true,
+          "secretKey": "CATALOG_ASSET_S3_ACCESS_KEY_ID"
+        },
+        {
+          "name": "CATALOG_ASSET_S3_BUCKET",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_ASSET_S3_ENDPOINT",
+          "value": "https://nyc3.digitaloceanspaces.com"
+        },
+        {
+          "name": "CATALOG_ASSET_S3_REGION",
+          "value": "nyc3"
+        },
+        {
+          "name": "CATALOG_ASSET_S3_SECRET_ACCESS_KEY",
+          "secret": true,
+          "secretKey": "CATALOG_ASSET_S3_SECRET_ACCESS_KEY"
+        },
+        {
+          "name": "CATALOG_ASSET_STORAGE_KIND",
+          "value": "s3"
+        },
+        {
+          "name": "CATALOG_INTEGRATION_ACTIVATION_MODE",
+          "value": "open"
+        },
+        {
+          "name": "CATALOG_INTEGRATION_CONTROL_PLANE_MODE",
+          "value": "open"
+        },
+        {
+          "name": "CATALOG_INTEGRATION_IMPORTS_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROMOTION_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES",
+          "value": "open"
+        },
+        {
+          "name": "CATALOG_INTEGRATION_REAPPLY_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CHASE_SETS_INTERNAL_API_ORIGIN",
+          "value": "http://chase-sets-platform-chase-sets-platform-platform-api:8080"
+        },
+        {
+          "name": "CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX",
+          "value": "30"
+        },
+        {
+          "name": "CHASE_SETS_RUNTIME_PROFILE",
+          "value": "public"
+        },
+        {
+          "name": "CHASE_SETS_TRUST_FORWARDED_HEADERS",
+          "value": "true"
+        },
+        {
+          "name": "DATABASE_POOL_CONNECTION_TIMEOUT_MS",
+          "value": "10000"
+        },
+        {
+          "name": "DATABASE_POOL_IDLE_TIMEOUT_MS",
+          "value": "5000"
+        },
+        {
+          "name": "DATABASE_POOL_MAX",
+          "value": "6"
+        },
+        {
+          "name": "DATABASE_URL_AUTH",
+          "secret": true,
+          "secretKey": "DATABASE_URL_AUTH"
+        },
+        {
+          "name": "DATABASE_URL_AUTHENTICITY",
+          "secret": true,
+          "secretKey": "DATABASE_URL_AUTHENTICITY"
+        },
+        {
+          "name": "DATABASE_URL_CATALOG",
+          "secret": true,
+          "secretKey": "DATABASE_URL_CATALOG"
+        },
+        {
+          "name": "DATABASE_URL_CATALOG_WAITER",
+          "secret": true,
+          "secretKey": "DATABASE_URL_CATALOG_WAITER"
+        },
+        {
+          "name": "DATABASE_URL_CHECKOUT",
+          "secret": true,
+          "secretKey": "DATABASE_URL_CHECKOUT"
+        },
+        {
+          "name": "DATABASE_URL_COMMERCIAL_TERMS",
+          "secret": true,
+          "secretKey": "DATABASE_URL_COMMERCIAL_TERMS"
+        },
+        {
+          "name": "DATABASE_URL_DISCOVERY",
+          "secret": true,
+          "secretKey": "DATABASE_URL_DISCOVERY"
+        },
+        {
+          "name": "DATABASE_URL_DISCOVERY_WAITER",
+          "secret": true,
+          "secretKey": "DATABASE_URL_DISCOVERY_WAITER"
+        },
+        {
+          "name": "DATABASE_URL_FULFILLMENT",
+          "secret": true,
+          "secretKey": "DATABASE_URL_FULFILLMENT"
+        },
+        {
+          "name": "DATABASE_URL_IDENTITY",
+          "secret": true,
+          "secretKey": "DATABASE_URL_IDENTITY"
+        },
+        {
+          "name": "DATABASE_URL_INVENTORY",
+          "secret": true,
+          "secretKey": "DATABASE_URL_INVENTORY"
+        },
+        {
+          "name": "DATABASE_URL_INVENTORY_WAITER",
+          "secret": true,
+          "secretKey": "DATABASE_URL_INVENTORY_WAITER"
+        },
+        {
+          "name": "DATABASE_URL_MARKETPLACE",
+          "secret": true,
+          "secretKey": "DATABASE_URL_MARKETPLACE"
+        },
+        {
+          "name": "DATABASE_URL_MARKETPLACE_WAITER",
+          "secret": true,
+          "secretKey": "DATABASE_URL_MARKETPLACE_WAITER"
+        },
+        {
+          "name": "DATABASE_URL_NOTIFICATIONS",
+          "secret": true,
+          "secretKey": "DATABASE_URL_NOTIFICATIONS"
+        },
+        {
+          "name": "DATABASE_URL_ORDERING",
+          "secret": true,
+          "secretKey": "DATABASE_URL_ORDERING"
+        },
+        {
+          "name": "DATABASE_URL_PAYMENTS",
+          "secret": true,
+          "secretKey": "DATABASE_URL_PAYMENTS"
+        },
+        {
+          "name": "DATABASE_URL_PLATFORM_OPERATIONS",
+          "secret": true,
+          "secretKey": "DATABASE_URL_PLATFORM_OPERATIONS"
+        },
+        {
+          "name": "DATABASE_URL_PRICING",
+          "secret": true,
+          "secretKey": "DATABASE_URL_PRICING"
+        },
+        {
+          "name": "DATABASE_URL_PUBLIC_PRESENCE",
+          "secret": true,
+          "secretKey": "DATABASE_URL_PUBLIC_PRESENCE"
+        },
+        {
+          "name": "DATABASE_URL_SETTLEMENT",
+          "secret": true,
+          "secretKey": "DATABASE_URL_SETTLEMENT"
+        },
+        {
+          "name": "DEPLOYMENT_ENVIRONMENT",
+          "value": "preview"
+        },
+        {
+          "name": "DISCOVERY_QUERY_EMBEDDING_CACHE_MAX_ENTRIES",
+          "value": "1000"
+        },
+        {
+          "name": "DISCOVERY_QUERY_EMBEDDING_CACHE_TTL_MS",
+          "value": "900000"
+        },
+        {
+          "name": "DISCOVERY_SEARCH_EMBEDDINGS",
+          "value": "enabled"
+        },
+        {
+          "name": "DISCOVERY_SEARCH_HYBRID",
+          "value": "off"
+        },
+        {
+          "name": "DISCOVERY_SEARCH_RESCUE",
+          "value": "enabled"
+        },
+        {
+          "name": "EASYPOST_API_BASE_URL",
+          "value": "https://api.easypost.com"
+        },
+        {
+          "name": "EASYPOST_API_KEY",
+          "secret": true,
+          "secretKey": "EASYPOST_API_KEY"
+        },
+        {
+          "name": "EASYPOST_MODE",
+          "value": "test"
+        },
+        {
+          "name": "EASYPOST_WEBHOOK_SECRET",
+          "secret": true,
+          "secretKey": "EASYPOST_WEBHOOK_SECRET"
+        },
+        {
+          "name": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
+          "secret": true,
+          "secretKey": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID"
+        },
+        {
+          "name": "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET",
+          "secret": true,
+          "secretKey": "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET"
+        },
+        {
+          "name": "GOOGLE_SOCIAL_LOGIN_CLIENT_ID",
+          "secret": true,
+          "secretKey": "GOOGLE_SOCIAL_LOGIN_CLIENT_ID"
+        },
+        {
+          "name": "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET",
+          "secret": true,
+          "secretKey": "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"
+        },
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "OBSERVABILITY_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "OTEL_EXPORTER_OTLP_ENDPOINT",
+          "value": ""
+        },
+        {
+          "name": "OTEL_EXPORTER_OTLP_HEADERS",
+          "secret": true,
+          "secretKey": "OTEL_EXPORTER_OTLP_HEADERS"
+        },
+        {
+          "name": "OTEL_RESOURCE_ATTRIBUTES",
+          "value": "cloud.provider=digitalocean,cloud.platform=kubernetes,chase_sets.environment_slug=preview"
+        },
+        {
+          "name": "PLATFORM_CONTROL_DATABASE_URL",
+          "secret": true,
+          "secretKey": "PLATFORM_CONTROL_DATABASE_URL"
+        },
+        {
+          "name": "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "PLATFORM_INTERNAL_AUTH_SECRET",
+          "secret": true,
+          "secretKey": "PLATFORM_INTERNAL_AUTH_SECRET"
+        },
+        {
+          "name": "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS",
+          "value": "*"
+        },
+        {
+          "name": "PLATFORM_WORK_SIGNAL_DATABASE_URL",
+          "secret": true,
+          "secretKey": "PLATFORM_WORK_SIGNAL_DATABASE_URL"
+        },
+        {
+          "name": "PORT",
+          "value": "8080"
+        },
+        {
+          "name": "READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "REALTIME_BACKGROUND_MAINTENANCE_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "REALTIME_STREAM_LIMITER",
+          "value": "postgres"
+        },
+        {
+          "name": "REALTIME_WAKE_SIGNAL_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "SCRYDEX_API_KEY",
+          "secret": true,
+          "secretKey": "SCRYDEX_API_KEY"
+        },
+        {
+          "name": "SCRYDEX_TEAM_ID",
+          "secret": true,
+          "secretKey": "SCRYDEX_TEAM_ID"
+        },
+        {
+          "name": "STRIPE_API_BASE_URL",
+          "value": "https://api.stripe.com"
+        },
+        {
+          "name": "STRIPE_CONNECT_ACCOUNTS_API",
+          "value": "v2"
+        },
+        {
+          "name": "STRIPE_CONNECT_WEBHOOK_SECRET",
+          "secret": true,
+          "secretKey": "STRIPE_CONNECT_WEBHOOK_SECRET"
+        },
+        {
+          "name": "STRIPE_PUBLISHABLE_KEY",
+          "secret": true,
+          "secretKey": "STRIPE_PUBLISHABLE_KEY"
+        },
+        {
+          "name": "STRIPE_SECRET_KEY",
+          "secret": true,
+          "secretKey": "STRIPE_SECRET_KEY"
+        },
+        {
+          "name": "STRIPE_WEBHOOK_SECRET",
+          "secret": true,
+          "secretKey": "STRIPE_WEBHOOK_SECRET"
+        },
+        {
+          "name": "TAX_PROVIDER_BACKED_QUOTES_REQUIRED",
+          "value": "false"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS",
+          "value": "2"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_MAX_RETRIES",
+          "value": "3"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS",
+          "value": "30000"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS",
+          "value": "250"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE",
+          "secret": true,
+          "secretKey": "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
+        },
+        {
+          "name": "VOYAGE_API_KEY",
+          "secret": true,
+          "secretKey": "VOYAGE_API_KEY"
+        }
+      ],
+      "resources": {},
+      "podAnnotations": {},
+      "podLabels": {},
+      "port": 8080,
+      "service": {
+        "type": "ClusterIP",
+        "port": 8080
+      },
+      "healthPath": "/health/ready",
+      "startupPath": "/health/live",
+      "livenessPath": "/health/live",
+      "livenessProbe": {
+        "periodSeconds": 10,
+        "timeoutSeconds": 5,
+        "failureThreshold": 6
+      },
+      "readinessProbe": {
+        "timeoutSeconds": 3,
+        "periodSeconds": 10,
+        "failureThreshold": 3
+      },
+      "rollout": {
+        "enabled": false,
+        "revisionHistoryLimit": 5,
+        "progressDeadlineSeconds": 900,
+        "rollbackWindowRevisions": 3,
+        "analysis": {
+          "enabled": false,
+          "path": "/health/ready",
+          "initialDelay": "30s",
+          "interval": "10s",
+          "count": 5,
+          "failureLimit": 2,
+          "timeoutSeconds": 5
+        },
+        "canary": {
+          "canaryServiceSuffix": "canary",
+          "trafficRouting": {
+            "nginx": {
+              "enabled": false
+            }
+          },
+          "weights": [10, 25, 50, 100],
+          "pauseAfterWeight": 10
+        }
+      }
+    },
+    "platform-worker": {
+      "enabled": true,
+      "kind": "worker",
+      "replicas": 1,
+      "command": "pnpm --filter @chase-sets/app-platform-worker run start:production",
+      "env": [
+        {
+          "name": "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_ASSET_PUBLIC_BASE_URL",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_ASSET_S3_ACCESS_KEY_ID",
+          "secret": true,
+          "secretKey": "CATALOG_ASSET_S3_ACCESS_KEY_ID"
+        },
+        {
+          "name": "CATALOG_ASSET_S3_BUCKET",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_ASSET_S3_ENDPOINT",
+          "value": "https://nyc3.digitaloceanspaces.com"
+        },
+        {
+          "name": "CATALOG_ASSET_S3_REGION",
+          "value": "nyc3"
+        },
+        {
+          "name": "CATALOG_ASSET_S3_SECRET_ACCESS_KEY",
+          "secret": true,
+          "secretKey": "CATALOG_ASSET_S3_SECRET_ACCESS_KEY"
+        },
+        {
+          "name": "CATALOG_ASSET_STORAGE_KIND",
+          "value": "s3"
+        },
+        {
+          "name": "CATALOG_AUTHORING_BULK_JOB_LANE_COUNT",
+          "value": "1"
+        },
+        {
+          "name": "CATALOG_AUTHORING_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+          "value": "1"
+        },
+        {
+          "name": "CATALOG_AUTHORING_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+          "value": "1"
+        },
+        {
+          "name": "CATALOG_INTEGRATION_ACTIVATION_MODE",
+          "value": "open"
+        },
+        {
+          "name": "CATALOG_INTEGRATION_CONTROL_PLANE_MODE",
+          "value": "open"
+        },
+        {
+          "name": "CATALOG_INTEGRATION_IMPORTS_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROMOTION_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES",
+          "value": "open"
+        },
+        {
+          "name": "CATALOG_INTEGRATION_REAPPLY_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CHASE_SETS_MARKETPLACE_INDEXING",
+          "value": "false"
+        },
+        {
+          "name": "CHASE_SETS_RUNTIME_PROFILE",
+          "value": "public"
+        },
+        {
+          "name": "DATABASE_POOL_CONNECTION_TIMEOUT_MS",
+          "value": "10000"
+        },
+        {
+          "name": "DATABASE_POOL_IDLE_TIMEOUT_MS",
+          "value": "5000"
+        },
+        {
+          "name": "DATABASE_POOL_MAX",
+          "value": "8"
+        },
+        {
+          "name": "DATABASE_URL_AUTH",
+          "secret": true,
+          "secretKey": "DATABASE_URL_AUTH"
+        },
+        {
+          "name": "DATABASE_URL_AUTHENTICITY",
+          "secret": true,
+          "secretKey": "DATABASE_URL_AUTHENTICITY"
+        },
+        {
+          "name": "DATABASE_URL_CATALOG",
+          "secret": true,
+          "secretKey": "DATABASE_URL_CATALOG"
+        },
+        {
+          "name": "DATABASE_URL_CHECKOUT",
+          "secret": true,
+          "secretKey": "DATABASE_URL_CHECKOUT"
+        },
+        {
+          "name": "DATABASE_URL_COMMERCIAL_TERMS",
+          "secret": true,
+          "secretKey": "DATABASE_URL_COMMERCIAL_TERMS"
+        },
+        {
+          "name": "DATABASE_URL_DISCOVERY",
+          "secret": true,
+          "secretKey": "DATABASE_URL_DISCOVERY"
+        },
+        {
+          "name": "DATABASE_URL_FULFILLMENT",
+          "secret": true,
+          "secretKey": "DATABASE_URL_FULFILLMENT"
+        },
+        {
+          "name": "DATABASE_URL_IDENTITY",
+          "secret": true,
+          "secretKey": "DATABASE_URL_IDENTITY"
+        },
+        {
+          "name": "DATABASE_URL_INVENTORY",
+          "secret": true,
+          "secretKey": "DATABASE_URL_INVENTORY"
+        },
+        {
+          "name": "DATABASE_URL_MARKETPLACE",
+          "secret": true,
+          "secretKey": "DATABASE_URL_MARKETPLACE"
+        },
+        {
+          "name": "DATABASE_URL_NOTIFICATIONS",
+          "secret": true,
+          "secretKey": "DATABASE_URL_NOTIFICATIONS"
+        },
+        {
+          "name": "DATABASE_URL_ORDERING",
+          "secret": true,
+          "secretKey": "DATABASE_URL_ORDERING"
+        },
+        {
+          "name": "DATABASE_URL_PAYMENTS",
+          "secret": true,
+          "secretKey": "DATABASE_URL_PAYMENTS"
+        },
+        {
+          "name": "DATABASE_URL_PLATFORM_OPERATIONS",
+          "secret": true,
+          "secretKey": "DATABASE_URL_PLATFORM_OPERATIONS"
+        },
+        {
+          "name": "DATABASE_URL_PRICING",
+          "secret": true,
+          "secretKey": "DATABASE_URL_PRICING"
+        },
+        {
+          "name": "DATABASE_URL_PUBLIC_PRESENCE",
+          "secret": true,
+          "secretKey": "DATABASE_URL_PUBLIC_PRESENCE"
+        },
+        {
+          "name": "DATABASE_URL_SETTLEMENT",
+          "secret": true,
+          "secretKey": "DATABASE_URL_SETTLEMENT"
+        },
+        {
+          "name": "DEPLOYMENT_ENVIRONMENT",
+          "value": "preview"
+        },
+        {
+          "name": "DISCOVERY_SEARCH_EMBEDDINGS",
+          "value": "enabled"
+        },
+        {
+          "name": "DISCOVERY_SEARCH_HYBRID",
+          "value": "off"
+        },
+        {
+          "name": "DISCOVERY_SEARCH_RESCUE",
+          "value": "enabled"
+        },
+        {
+          "name": "EASYPOST_API_BASE_URL",
+          "value": "https://api.easypost.com"
+        },
+        {
+          "name": "EASYPOST_API_KEY",
+          "secret": true,
+          "secretKey": "EASYPOST_API_KEY"
+        },
+        {
+          "name": "EASYPOST_MODE",
+          "value": "test"
+        },
+        {
+          "name": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
+          "secret": true,
+          "secretKey": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID"
+        },
+        {
+          "name": "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET",
+          "secret": true,
+          "secretKey": "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET"
+        },
+        {
+          "name": "GOOGLE_SOCIAL_LOGIN_CLIENT_ID",
+          "secret": true,
+          "secretKey": "GOOGLE_SOCIAL_LOGIN_CLIENT_ID"
+        },
+        {
+          "name": "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET",
+          "secret": true,
+          "secretKey": "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"
+        },
+        {
+          "name": "INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT",
+          "value": "1"
+        },
+        {
+          "name": "INVENTORY_IMPORT_BATCH_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+          "value": "1"
+        },
+        {
+          "name": "INVENTORY_IMPORT_BATCH_JOB_MAX_CONCURRENT_RUNNERS",
+          "value": "1"
+        },
+        {
+          "name": "INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+          "value": "1"
+        },
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "NOTIFICATION_EMAIL_PROVIDER",
+          "value": "noop"
+        },
+        {
+          "name": "OBSERVABILITY_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "OTEL_EXPORTER_OTLP_ENDPOINT",
+          "value": ""
+        },
+        {
+          "name": "OTEL_EXPORTER_OTLP_HEADERS",
+          "secret": true,
+          "secretKey": "OTEL_EXPORTER_OTLP_HEADERS"
+        },
+        {
+          "name": "OTEL_RESOURCE_ATTRIBUTES",
+          "value": "cloud.provider=digitalocean,cloud.platform=kubernetes,chase_sets.environment_slug=preview"
+        },
+        {
+          "name": "PLATFORM_CONTROL_DATABASE_URL",
+          "secret": true,
+          "secretKey": "PLATFORM_CONTROL_DATABASE_URL"
+        },
+        {
+          "name": "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS",
+          "value": "*"
+        },
+        {
+          "name": "PLATFORM_WORK_SIGNAL_DATABASE_URL",
+          "secret": true,
+          "secretKey": "PLATFORM_WORK_SIGNAL_DATABASE_URL"
+        },
+        {
+          "name": "PORT",
+          "value": "8080"
+        },
+        {
+          "name": "PRICING_RECOMMENDATION_JOB_LANE_COUNT",
+          "value": "1"
+        },
+        {
+          "name": "PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+          "value": "1"
+        },
+        {
+          "name": "PRICING_RECOMMENDATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+          "value": "1"
+        },
+        {
+          "name": "SCRYDEX_API_KEY",
+          "secret": true,
+          "secretKey": "SCRYDEX_API_KEY"
+        },
+        {
+          "name": "SCRYDEX_TEAM_ID",
+          "secret": true,
+          "secretKey": "SCRYDEX_TEAM_ID"
+        },
+        {
+          "name": "SES_AWS_ACCESS_KEY_ID",
+          "secret": true,
+          "secretKey": "SES_AWS_ACCESS_KEY_ID"
+        },
+        {
+          "name": "SES_AWS_REGION",
+          "value": ""
+        },
+        {
+          "name": "SES_AWS_SECRET_ACCESS_KEY",
+          "secret": true,
+          "secretKey": "SES_AWS_SECRET_ACCESS_KEY"
+        },
+        {
+          "name": "SES_CONFIGURATION_SET_NAME",
+          "value": ""
+        },
+        {
+          "name": "SES_FROM_EMAIL",
+          "value": ""
+        },
+        {
+          "name": "SES_SOURCE_ARN",
+          "secret": true,
+          "secretKey": "SES_SOURCE_ARN"
+        },
+        {
+          "name": "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_LANE_COUNT",
+          "value": "1"
+        },
+        {
+          "name": "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+          "value": "1"
+        },
+        {
+          "name": "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+          "value": "1"
+        },
+        {
+          "name": "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT",
+          "value": "1"
+        },
+        {
+          "name": "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+          "value": "1"
+        },
+        {
+          "name": "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+          "value": "1"
+        },
+        {
+          "name": "SOURCE_OBSERVATION_INTEGRATION_JOB_LANE_COUNT",
+          "value": "1"
+        },
+        {
+          "name": "SOURCE_OBSERVATION_INTEGRATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+          "value": "1"
+        },
+        {
+          "name": "SOURCE_OBSERVATION_INTEGRATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+          "value": "1"
+        },
+        {
+          "name": "STRIPE_API_BASE_URL",
+          "value": "https://api.stripe.com"
+        },
+        {
+          "name": "STRIPE_CONNECT_ACCOUNTS_API",
+          "value": "v2"
+        },
+        {
+          "name": "STRIPE_CONNECT_WEBHOOK_SECRET",
+          "secret": true,
+          "secretKey": "STRIPE_CONNECT_WEBHOOK_SECRET"
+        },
+        {
+          "name": "STRIPE_PUBLISHABLE_KEY",
+          "secret": true,
+          "secretKey": "STRIPE_PUBLISHABLE_KEY"
+        },
+        {
+          "name": "STRIPE_SECRET_KEY",
+          "secret": true,
+          "secretKey": "STRIPE_SECRET_KEY"
+        },
+        {
+          "name": "STRIPE_WEBHOOK_SECRET",
+          "secret": true,
+          "secretKey": "STRIPE_WEBHOOK_SECRET"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS",
+          "value": "2"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_MAX_RETRIES",
+          "value": "3"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS",
+          "value": "30000"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS",
+          "value": "250"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE",
+          "secret": true,
+          "secretKey": "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
+        },
+        {
+          "name": "VOYAGE_API_KEY",
+          "secret": true,
+          "secretKey": "VOYAGE_API_KEY"
+        },
+        {
+          "name": "WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS",
+          "value": "1"
+        },
+        {
+          "name": "WORKER_JOB_MAX_CONCURRENT_RUNNERS",
+          "value": "1"
+        },
+        {
+          "name": "WORKER_LISTENER_DATABASE_URL_CHECKOUT",
+          "secret": true,
+          "secretKey": "WORKER_LISTENER_DATABASE_URL_CHECKOUT"
+        },
+        {
+          "name": "WORKER_LISTENER_DATABASE_URL_IDENTITY",
+          "secret": true,
+          "secretKey": "WORKER_LISTENER_DATABASE_URL_IDENTITY"
+        },
+        {
+          "name": "WORKER_LISTENER_DATABASE_URL_INVENTORY",
+          "secret": true,
+          "secretKey": "WORKER_LISTENER_DATABASE_URL_INVENTORY"
+        },
+        {
+          "name": "WORKER_LISTENER_DATABASE_URL_MARKETPLACE",
+          "secret": true,
+          "secretKey": "WORKER_LISTENER_DATABASE_URL_MARKETPLACE"
+        },
+        {
+          "name": "WORKER_LISTENER_DATABASE_URL_ORDERING",
+          "secret": true,
+          "secretKey": "WORKER_LISTENER_DATABASE_URL_ORDERING"
+        },
+        {
+          "name": "WORKER_LISTENER_DATABASE_URL_PAYMENTS",
+          "secret": true,
+          "secretKey": "WORKER_LISTENER_DATABASE_URL_PAYMENTS"
+        },
+        {
+          "name": "WORKER_LISTENER_DATABASE_URL_PUBLIC_PRESENCE",
+          "secret": true,
+          "secretKey": "WORKER_LISTENER_DATABASE_URL_PUBLIC_PRESENCE"
+        },
+        {
+          "name": "WORKER_MAX_CONCURRENT_RUNNERS",
+          "value": "5"
+        },
+        {
+          "name": "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS",
+          "value": "1"
+        },
+        {
+          "name": "WORKER_PROJECTION_OPERATION_RUNNER_COUNT",
+          "value": "1"
+        },
+        {
+          "name": "WORKER_PROJECTION_WAKE_RELAY_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS",
+          "value": "1"
+        },
+        {
+          "name": "WORKER_WAKE_BULK_LANE_RUNNER_COUNT",
+          "value": "1"
+        },
+        {
+          "name": "WORKER_WAKE_HOT_LANE_RUNNER_COUNT",
+          "value": "1"
+        },
+        {
+          "name": "WORKER_WAKE_MAX_CONCURRENT_RUNNERS",
+          "value": "2"
+        },
+        {
+          "name": "WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT",
+          "value": "1"
+        },
+        {
+          "name": "WORKER_WAKE_STATEMENT_TIMEOUT_MS",
+          "value": "30000"
+        }
+      ],
+      "resources": {},
+      "podAnnotations": {},
+      "podLabels": {},
+      "autoscaling": {
+        "enabled": false,
+        "minReplicaCount": 1,
+        "maxReplicaCount": 4,
+        "pollingInterval": 15,
+        "cooldownPeriod": 300,
+        "triggers": [
+          {
+            "type": "postgresql",
+            "metadata": {
+              "connectionFromEnv": "PLATFORM_WORK_SIGNAL_DATABASE_URL",
+              "query": "SELECT COUNT(*)::integer FROM platform_projection_wake_intents WHERE state IN ('queued', 'failed') AND next_eligible_at <= now() AND expires_at > now()",
+              "targetQueryValue": "1",
+              "activationTargetQueryValue": "0"
+            }
+          }
+        ]
+      },
+      "port": 8080,
+      "healthPath": "/health/ready",
+      "startupPath": "/health/live",
+      "livenessPath": "/health/live",
+      "livenessProbe": {
+        "periodSeconds": 10,
+        "timeoutSeconds": 5,
+        "failureThreshold": 6
+      }
+    },
+    "platform-bootstrap": {
+      "enabled": true,
+      "kind": "job",
+      "replicas": 1,
+      "command": "pnpm --filter @chase-sets/app-platform-api run bootstrap:production",
+      "env": [
+        {
+          "name": "CATALOG_ASSET_PUBLIC_BASE_URL",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_ASSET_S3_ACCESS_KEY_ID",
+          "secret": true,
+          "secretKey": "CATALOG_ASSET_S3_ACCESS_KEY_ID"
+        },
+        {
+          "name": "CATALOG_ASSET_S3_BUCKET",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_ASSET_S3_ENDPOINT",
+          "value": "https://nyc3.digitaloceanspaces.com"
+        },
+        {
+          "name": "CATALOG_ASSET_S3_REGION",
+          "value": "nyc3"
+        },
+        {
+          "name": "CATALOG_ASSET_S3_SECRET_ACCESS_KEY",
+          "secret": true,
+          "secretKey": "CATALOG_ASSET_S3_SECRET_ACCESS_KEY"
+        },
+        {
+          "name": "CATALOG_ASSET_STORAGE_KIND",
+          "value": "s3"
+        },
+        {
+          "name": "CATALOG_INTEGRATION_ACTIVATION_MODE",
+          "value": "open"
+        },
+        {
+          "name": "CATALOG_INTEGRATION_CONTROL_PLANE_MODE",
+          "value": "open"
+        },
+        {
+          "name": "CATALOG_INTEGRATION_IMPORTS_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROMOTION_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES",
+          "value": "open"
+        },
+        {
+          "name": "CATALOG_INTEGRATION_REAPPLY_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CHASE_SETS_RUNTIME_PROFILE",
+          "value": "public"
+        },
+        {
+          "name": "DATABASE_POOL_CONNECTION_TIMEOUT_MS",
+          "value": "10000"
+        },
+        {
+          "name": "DATABASE_POOL_IDLE_TIMEOUT_MS",
+          "value": "5000"
+        },
+        {
+          "name": "DATABASE_POOL_MAX",
+          "value": "4"
+        },
+        {
+          "name": "DATABASE_URL_AUTH",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_AUTH"
+        },
+        {
+          "name": "DATABASE_URL_AUTHENTICITY",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_AUTHENTICITY"
+        },
+        {
+          "name": "DATABASE_URL_CATALOG",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_CATALOG"
+        },
+        {
+          "name": "DATABASE_URL_CHECKOUT",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_CHECKOUT"
+        },
+        {
+          "name": "DATABASE_URL_COMMERCIAL_TERMS",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_COMMERCIAL_TERMS"
+        },
+        {
+          "name": "DATABASE_URL_DISCOVERY",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_DISCOVERY"
+        },
+        {
+          "name": "DATABASE_URL_FULFILLMENT",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_FULFILLMENT"
+        },
+        {
+          "name": "DATABASE_URL_IDENTITY",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_IDENTITY"
+        },
+        {
+          "name": "DATABASE_URL_INVENTORY",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_INVENTORY"
+        },
+        {
+          "name": "DATABASE_URL_MARKETPLACE",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_MARKETPLACE"
+        },
+        {
+          "name": "DATABASE_URL_NOTIFICATIONS",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_NOTIFICATIONS"
+        },
+        {
+          "name": "DATABASE_URL_ORDERING",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_ORDERING"
+        },
+        {
+          "name": "DATABASE_URL_PAYMENTS",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_PAYMENTS"
+        },
+        {
+          "name": "DATABASE_URL_PLATFORM_OPERATIONS",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_PLATFORM_OPERATIONS"
+        },
+        {
+          "name": "DATABASE_URL_PRICING",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_PRICING"
+        },
+        {
+          "name": "DATABASE_URL_PUBLIC_PRESENCE",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_PUBLIC_PRESENCE"
+        },
+        {
+          "name": "DATABASE_URL_SETTLEMENT",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
+        },
+        {
+          "name": "DEPLOYMENT_ENVIRONMENT",
+          "value": "preview"
+        },
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "PLATFORM_ADMIN_DISPLAY_NAME",
+          "value": "Platform Admin"
+        },
+        {
+          "name": "PLATFORM_ADMIN_EMAIL",
+          "secret": true,
+          "secretKey": "PLATFORM_ADMIN_EMAIL"
+        },
+        {
+          "name": "PLATFORM_ADMIN_PASSWORD",
+          "secret": true,
+          "secretKey": "PLATFORM_ADMIN_PASSWORD"
+        },
+        {
+          "name": "PLATFORM_CONTROL_DATABASE_URL",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL"
+        },
+        {
+          "name": "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "PLATFORM_INTERNAL_AUTH_SECRET",
+          "secret": true,
+          "secretKey": "PLATFORM_INTERNAL_AUTH_SECRET"
+        },
+        {
+          "name": "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL",
+          "secret": true,
+          "secretKey": "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL"
+        },
+        {
+          "name": "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS",
+          "value": "*"
+        },
+        {
+          "name": "SCRYDEX_API_KEY",
+          "secret": true,
+          "secretKey": "SCRYDEX_API_KEY"
+        },
+        {
+          "name": "SCRYDEX_TEAM_ID",
+          "secret": true,
+          "secretKey": "SCRYDEX_TEAM_ID"
+        },
+        {
+          "name": "TAX_PROVIDER_BACKED_QUOTES_REQUIRED",
+          "value": "false"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS",
+          "value": "2"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_MAX_RETRIES",
+          "value": "3"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS",
+          "value": "30000"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS",
+          "value": "250"
+        },
+        {
+          "name": "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE",
+          "secret": true,
+          "secretKey": "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
+        }
+      ],
+      "resources": {},
+      "podAnnotations": {},
+      "podLabels": {},
+      "job": {
+        "suspend": false,
+        "backoffLimit": 0,
+        "activeDeadlineSeconds": 890,
+        "ttlSecondsAfterFinished": 600,
+        "hook": {
+          "enabled": true,
+          "events": ["pre-install", "pre-upgrade"],
+          "weight": -20,
+          "deletePolicy": ["before-hook-creation", "hook-succeeded"]
+        },
+        "quiesce": {
+          "enabled": true,
+          "targetComponents": ["platform-worker"],
+          "timeoutSeconds": 45,
+          "commandTimeoutSeconds": 780,
+          "pollIntervalMs": 2000,
+          "restoreOnFailure": true,
+          "ignoreMissingDeployments": true
+        }
+      }
+    }
+  }
+}

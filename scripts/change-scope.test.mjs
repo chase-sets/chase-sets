@@ -829,7 +829,7 @@ describe("change-scope", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
-      changedFiles: ["infrastructure/digitalocean/platform/main.tf", "scripts/digitalocean-app-deployment.mjs"],
+      changedFiles: ["infrastructure/digitalocean/platform/main.tf", "scripts/render-platform-helm-values.mjs"],
       workspaces: [workspace(baseDir, "deployables", "public-web", "@test/public-web")],
     });
 

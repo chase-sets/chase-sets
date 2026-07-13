@@ -40,21 +40,10 @@ variable "google_workspace_dkim_txt_value" {
   description = "Optional Google Workspace DKIM TXT value for google._domainkey.<environment>.<root_domain>."
 }
 
-variable "staging_app_serving" {
-  type        = string
-  default     = "app-platform"
-  description = "Which platform serves the live staging hosts. \"app-platform\" (default) leaves App Platform as the DNS owner and is the rollback state. \"doks\" points the released staging hosts at the DOKS ingress load balancer for the cutover flip. Shadow validation hosts do not depend on this switch."
-
-  validation {
-    condition     = contains(["app-platform", "doks"], var.staging_app_serving)
-    error_message = "staging_app_serving must be either \"app-platform\" or \"doks\"."
-  }
-}
-
 variable "doks_ingress_target" {
   type        = string
   default     = ""
-  description = "DOKS ingress load balancer IPv4 address. When set, shadow validation hosts (doks.<zone>, www.doks.<zone>, ...) resolve to the load balancer so DOKS ingress and cert-manager can be proven before cutover. Required before staging_app_serving flips to \"doks\"."
+  description = "DOKS ingress load balancer IPv4 address for the live staging hosts."
 
   validation {
     condition     = trimspace(var.doks_ingress_target) == "" || can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$", trimspace(var.doks_ingress_target)))
@@ -65,7 +54,7 @@ variable "doks_ingress_target" {
 variable "doks_ingress_ttl" {
   type        = number
   default     = 300
-  description = "TTL for opt-in DOKS ingress DNS records during cutover."
+  description = "TTL for DOKS ingress DNS records."
 
   validation {
     condition     = var.doks_ingress_ttl >= 60 && var.doks_ingress_ttl <= 3600

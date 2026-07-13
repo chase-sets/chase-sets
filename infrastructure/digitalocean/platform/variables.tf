@@ -116,12 +116,6 @@ variable "production_checkout_launch_evidence_reference" {
   }
 }
 
-variable "checkout_shopify_simple_kill_switch_active" {
-  type        = bool
-  default     = false
-  description = "Hard runtime kill switch for Shopify-simple checkout entry. When true, marketplace web redirects Buy Cart and Sell List checkout entry back to cart/list recovery without restoring legacy checkout."
-}
-
 variable "production_stripe_money_operations_approved" {
   type        = bool
   default     = false
@@ -254,12 +248,6 @@ variable "production_tax_readiness_reference" {
   }
 }
 
-variable "tax_provider_backed_quotes_required" {
-  type        = bool
-  default     = false
-  description = "Runtime Tax gate. Set true only after Tax nexus tracking shows at least one jurisdiction requires live sales-tax collection and provider-backed quote behavior must fail closed until configured."
-}
-
 variable "preview_identifier" {
   type        = string
   default     = ""
@@ -272,18 +260,6 @@ variable "preview_identifier" {
     )
     error_message = "preview_identifier must be set to a value like pr-123 when environment is preview."
   }
-}
-
-variable "region" {
-  type        = string
-  default     = "nyc3"
-  description = "Deprecated compatibility variable. Use app_region for App Platform and data_region for managed Postgres and Spaces."
-}
-
-variable "app_region" {
-  type        = string
-  default     = "nyc"
-  description = "DigitalOcean App Platform region slug."
 }
 
 variable "data_region" {
@@ -300,7 +276,7 @@ variable "root_domain" {
 variable "observability_enabled" {
   type        = bool
   default     = true
-  description = "Enables OpenTelemetry export for deployed App Platform components when an OTLP endpoint is available."
+  description = "Enables OpenTelemetry export for the deployed DOKS runtime when an OTLP endpoint is available."
 }
 
 variable "observability_otlp_endpoint" {
@@ -326,12 +302,6 @@ variable "database_size" {
   type        = string
   default     = "db-s-2vcpu-4gb"
   description = "Production database cluster size. Keep enough connection and CPU headroom for the deployed component pool budgets."
-}
-
-variable "non_production_database_size" {
-  type        = string
-  default     = "db-s-1vcpu-1gb"
-  description = "Deprecated compatibility variable. PR previews use disposable in-cluster Postgres, and staging uses staging_database_size."
 }
 
 variable "staging_database_size" {
@@ -390,315 +360,6 @@ variable "managed_postgres_alerts_enabled" {
   description = "Create DigitalOcean DBAAS monitor alerts for provider-exposed managed Postgres cluster health metrics when alert_emails is configured."
 }
 
-variable "app_instance_size_slug" {
-  type    = string
-  default = "apps-s-1vcpu-1gb"
-}
-
-variable "worker_instance_size_slug" {
-  type        = string
-  default     = ""
-  description = "Optional worker instance-size override. Empty uses the recorded environment default: staging keeps larger workers for wake-drill, representative-import, and deploy-handoff proof windows; other environments inherit app_instance_size_slug."
-}
-
-variable "worker_instance_count" {
-  type        = number
-  default     = 0
-  description = "Optional worker instance-count override. Zero uses the recorded environment default: staging keeps two workers through DOKS migration proof; preview and production run one until explicitly scaled."
-
-  validation {
-    condition     = var.worker_instance_count >= 0 && var.worker_instance_count <= 10
-    error_message = "worker_instance_count must be between 0 and 10. Use 0 to accept the environment default."
-  }
-}
-
-variable "worker_job_concurrency" {
-  type        = number
-  default     = 0
-  description = "Optional per-worker job runner concurrency override. Zero uses the environment default: staging runs two job runners; preview and production run one until explicitly scaled."
-
-  validation {
-    condition     = var.worker_job_concurrency >= 0 && var.worker_job_concurrency <= 10
-    error_message = "worker_job_concurrency must be between 0 and 10. Use 0 to accept the environment default."
-  }
-}
-
-variable "worker_database_pool_max" {
-  type        = number
-  default     = 0
-  description = "Optional per-worker DATABASE_POOL_MAX override. Zero uses the environment default and any positive override must be kept at or above total configured runner concurrency."
-
-  validation {
-    condition     = var.worker_database_pool_max >= 0 && var.worker_database_pool_max <= 30
-    error_message = "worker_database_pool_max must be between 0 and 30. Use 0 to accept the environment default."
-  }
-}
-
-variable "platform_image_repository" {
-  type        = string
-  default     = "chase-sets-platform"
-  description = "DigitalOcean Container Registry repository that stores the prebuilt platform runtime image."
-}
-
-variable "platform_image_tag" {
-  type        = string
-  description = "Human-readable container image tag associated with the App Platform release artifact."
-}
-
-variable "platform_image_digest" {
-  type        = string
-  default     = ""
-  description = "Verified container image digest to deploy for App Platform components."
-
-  validation {
-    condition     = var.platform_image_digest == "" || can(regex("^sha256:[a-f0-9]{64}$", var.platform_image_digest))
-    error_message = "platform_image_digest must be empty or a sha256 digest in the form sha256:<64 lowercase hex characters>."
-  }
-}
-
-variable "platform_bootstrap_owner" {
-  type        = string
-  default     = "app-platform"
-  description = "Schema-bootstrap owner for the App Platform platform-bootstrap job. Set to \"doks\" when the DOKS estate owns bootstrap and App Platform must skip its pre-deploy bootstrap."
-
-  validation {
-    condition     = contains(["app-platform", "doks"], var.platform_bootstrap_owner)
-    error_message = "platform_bootstrap_owner must be either \"app-platform\" or \"doks\"."
-  }
-}
-
-variable "platform_internal_auth_secret" {
-  type      = string
-  sensitive = true
-}
-
-variable "platform_admin_email" {
-  type      = string
-  sensitive = true
-}
-
-variable "platform_admin_password" {
-  type      = string
-  sensitive = true
-}
-
-variable "platform_admin_display_name" {
-  type    = string
-  default = "Platform Admin"
-}
-
-variable "discord_invite_url" {
-  type      = string
-  sensitive = true
-  default   = ""
-}
-
-variable "stripe_secret_key" {
-  type      = string
-  sensitive = true
-  default   = ""
-
-  validation {
-    condition = var.environment == "production" ? (
-      var.production_runtime_profile == "landing" ||
-      startswith(var.stripe_secret_key, "sk_live")
-    ) : startswith(var.stripe_secret_key, "sk_test")
-    error_message = "stripe_secret_key must be test-mode outside production and live-mode when production platform runtime is proof or public."
-  }
-}
-
-variable "stripe_publishable_key" {
-  type      = string
-  sensitive = true
-  default   = ""
-
-  validation {
-    condition = var.environment == "production" ? (
-      var.production_runtime_profile == "landing" ||
-      startswith(var.stripe_publishable_key, "pk_live")
-    ) : startswith(var.stripe_publishable_key, "pk_test")
-    error_message = "stripe_publishable_key must be test-mode outside production and live-mode when production platform runtime is proof or public."
-  }
-}
-
-variable "stripe_webhook_secret" {
-  type      = string
-  sensitive = true
-  default   = ""
-
-  validation {
-    condition = (
-      (var.environment == "production" && var.production_runtime_profile == "landing") ||
-      trimspace(var.stripe_webhook_secret) != ""
-    )
-    error_message = "stripe_webhook_secret is required outside gated landing-only production and during production proof/public platform runtime."
-  }
-}
-
-variable "stripe_connect_webhook_secret" {
-  type      = string
-  sensitive = true
-  default   = ""
-
-  validation {
-    condition = (
-      (var.environment == "production" && var.production_runtime_profile == "landing") ||
-      trimspace(var.stripe_connect_webhook_secret) != ""
-    )
-    error_message = "stripe_connect_webhook_secret is required outside gated landing-only production and during production proof/public platform runtime."
-  }
-}
-
-variable "stripe_connect_accounts_api" {
-  type        = string
-  default     = "v2"
-  description = "Stripe Connect Accounts API posture for payout account operations. Use v2 for the current implementation; v1 is the explicit launch compatibility target once implemented."
-
-  validation {
-    condition     = contains(["v1", "v2"], var.stripe_connect_accounts_api)
-    error_message = "stripe_connect_accounts_api must be v1 or v2."
-  }
-}
-
-variable "stripe_api_base_url" {
-  type    = string
-  default = ""
-}
-
-variable "easypost_api_key" {
-  type      = string
-  sensitive = true
-  default   = ""
-
-  validation {
-    condition = var.environment == "production" ? (
-      var.production_runtime_profile == "landing" ||
-      trimspace(var.easypost_api_key) != ""
-    ) : startswith(var.easypost_api_key, "EZTK")
-    error_message = "easypost_api_key must be an EasyPost test API key outside production and must be present when production platform runtime is proof or public."
-  }
-}
-
-variable "voyage_api_key" {
-  type        = string
-  sensitive   = true
-  default     = ""
-  description = "Optional Voyage AI key for Discovery Search Index embedding enrichment. Empty disables enrichment cleanly."
-}
-
-variable "easypost_api_base_url" {
-  type    = string
-  default = ""
-}
-
-variable "easypost_webhook_secret" {
-  type      = string
-  sensitive = true
-  default   = ""
-
-  validation {
-    condition = var.environment == "production" ? (
-      var.production_runtime_profile == "landing" ||
-      trimspace(var.easypost_webhook_secret) != ""
-    ) : true
-    error_message = "easypost_webhook_secret is required when production platform runtime is proof or public."
-  }
-}
-
-variable "easypost_mode" {
-  type    = string
-  default = "test"
-
-  validation {
-    condition     = contains(["test", "production"], var.easypost_mode)
-    error_message = "easypost_mode must be test or production."
-  }
-
-  validation {
-    condition     = var.environment == "production" || var.easypost_mode == "test"
-    error_message = "easypost_mode must be test for non-production environments."
-  }
-
-  validation {
-    condition = (
-      var.environment != "production" ||
-      var.production_runtime_profile == "landing" ||
-      var.easypost_mode == "production"
-    )
-    error_message = "easypost_mode must be production when production platform runtime is proof or public."
-  }
-}
-
-variable "tcgplayer_automation_tcg_auth_cookie" {
-  type        = string
-  sensitive   = true
-  default     = ""
-  description = "Approved TCGplayer automation session cookie for Catalog provider option queries and imports. Keep empty until staging or production provider access is approved."
-}
-
-variable "scrydex_api_key" {
-  type        = string
-  sensitive   = true
-  default     = ""
-  description = "Shared approved Scrydex API key for Catalog provider option queries and imports. Configure once per environment for all Scrydex-backed product lines."
-
-  validation {
-    condition     = (trimspace(var.scrydex_api_key) == "") == (trimspace(var.scrydex_team_id) == "")
-    error_message = "scrydex_api_key and scrydex_team_id must be configured together."
-  }
-}
-
-variable "scrydex_team_id" {
-  type        = string
-  sensitive   = true
-  default     = ""
-  description = "Shared approved Scrydex team identifier for Catalog provider option queries and imports. Configure once per environment for all Scrydex-backed product lines."
-}
-
-variable "google_social_login_client_id" {
-  type      = string
-  sensitive = true
-  default   = ""
-}
-
-variable "google_social_login_client_secret" {
-  type      = string
-  sensitive = true
-  default   = ""
-
-  validation {
-    condition     = (trimspace(var.google_social_login_client_id) == "") == (trimspace(var.google_social_login_client_secret) == "")
-    error_message = "google_social_login_client_id and google_social_login_client_secret must be configured together."
-  }
-}
-
-variable "admin_google_workspace_hosted_domains" {
-  type    = string
-  default = ""
-
-  validation {
-    condition     = trimspace(var.admin_google_workspace_hosted_domains) == "" || trimspace(var.google_social_login_client_id) != ""
-    error_message = "admin_google_workspace_hosted_domains requires google_social_login_client_id."
-  }
-}
-
-variable "facebook_social_login_client_id" {
-  type      = string
-  sensitive = true
-  default   = ""
-}
-
-variable "facebook_social_login_client_secret" {
-  type      = string
-  sensitive = true
-  default   = ""
-
-  validation {
-    condition     = (trimspace(var.facebook_social_login_client_id) == "") == (trimspace(var.facebook_social_login_client_secret) == "")
-    error_message = "facebook_social_login_client_id and facebook_social_login_client_secret must be configured together."
-  }
-}
-
 variable "notification_email_provider" {
   type    = string
   default = "noop"
@@ -745,24 +406,13 @@ variable "ses_source_arn" {
 variable "alert_emails" {
   type        = list(string)
   default     = []
-  description = "Email recipients for App Platform deployment alerts and uptime alerts."
+  description = "Email recipients for managed-Postgres and uptime alerts."
 }
 
 variable "uptime_checks_enabled" {
   type        = bool
   default     = true
   description = "Create DigitalOcean uptime checks for public platform endpoints."
-}
-
-variable "staging_app_serving" {
-  type        = string
-  default     = "app-platform"
-  description = "Which platform serves the live staging marketplace/admin/www hosts. \"app-platform\" (default) keeps the App Platform staging_app_alias CNAME records and is the rollback state. \"doks\" releases those CNAMEs so the environment-dns DOKS A records can serve staging during the cutover. Coordinate this switch with staging_app_serving in infrastructure/digitalocean/environment-dns."
-
-  validation {
-    condition     = contains(["app-platform", "doks"], var.staging_app_serving)
-    error_message = "staging_app_serving must be either \"app-platform\" or \"doks\"."
-  }
 }
 
 variable "uptime_check_regions" {
