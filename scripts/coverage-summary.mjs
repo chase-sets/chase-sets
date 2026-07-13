@@ -1,3 +1,8 @@
+// Coverage posture: aggregate coverage is intentionally measured but
+// non-enforcing before launch. The thresholds below are warning signals for
+// trend visibility, while scheduled/manual coverage remains non-blocking until
+// the project has an owned baseline and promotion plan.
+
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
