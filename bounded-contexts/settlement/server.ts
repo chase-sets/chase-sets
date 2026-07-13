@@ -1,5 +1,12 @@
 export { createSettlementRequestApiClient } from "./support/request-support/api-client";
 export type { SettlementPayoutReadinessRow } from "./support/request-support/api-client";
+/**
+ * The wallet route builder, exposed for composition-root and runtime
+ * authorization tests that mount the real operator wallet-mutation routes
+ * behind the platform actor middleware rather than a unit-constructed app.
+ */
+export { createWalletRoutes } from "./features/wallets/api/route";
+export type { WalletServices } from "./features/wallets/api/runtime";
 export { createSettlementBalanceCreditResolver } from "./features/wallets/api/balance-credit-resolver";
 export type {
   SettlementBalanceCreditResolution,

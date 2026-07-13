@@ -56,6 +56,7 @@ export type PermissionKey =
   | "payouts.request"
   | "payouts.setup"
   | "payouts.view"
+  | "wallet-adjustments.operate"
   | "postage-policies.manage"
   | "postage-policies.view"
   | "projection-operations.operate"
