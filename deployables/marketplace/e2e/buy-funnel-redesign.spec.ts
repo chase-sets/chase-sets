@@ -86,15 +86,15 @@ async function authenticateAccount(page: Page, testInfo: TestInfo) {
 }
 
 async function waitForAccountRoute(page: Page, routePath: string) {
-  const deadline = Date.now() + authProjectionTimeoutMs;
-  while (Date.now() < deadline) {
-    await page.goto(routePath, { waitUntil: "domcontentloaded" });
-    if (new URL(page.url()).pathname === routePath) {
-      return;
-    }
-    await page.waitForTimeout(1_000);
-  }
-  expect(new URL(page.url()).pathname, `${routePath} should be reachable as the authenticated account`).toBe(routePath);
+  await expect
+    .poll(
+      async () => {
+        await page.goto(routePath, { waitUntil: "domcontentloaded" });
+        return new URL(page.url()).pathname === routePath;
+      },
+      { intervals: [1_000, 2_000, 5_000], timeout: authProjectionTimeoutMs },
+    )
+    .toBe(true);
 }
 
 async function captureScreenshot(page: Page, name: string) {

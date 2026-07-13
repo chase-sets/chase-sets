@@ -47,39 +47,41 @@ async function signInThroughVisiblePasswordForm(page: Page, signInPath: string, 
     timeout: pageReadyTimeoutMs,
   });
 
-  const deadline = Date.now() + pageReadyTimeoutMs;
-  while (Date.now() < deadline) {
-    if (await isAuthenticatedAdminShellVisible(page)) {
-      return;
-    }
+  await expect
+    .poll(
+      async () => {
+        if (await isAuthenticatedAdminShellVisible(page)) {
+          return true;
+        }
 
-    const passwordInput = page.locator('input[name="password"], input[type="password"]').first();
-    if (await passwordInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
-      await passwordInput.fill(configuredAdminPassword);
-      await page.getByRole("button", { name: /^sign in$/i }).click();
-      await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
-      continue;
-    }
+        const passwordInput = page.locator('input[name="password"], input[type="password"]').first();
+        if (await passwordInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
+          await passwordInput.fill(configuredAdminPassword);
+          await page.getByRole("button", { name: /^sign in$/i }).click();
+          await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
+          return false;
+        }
 
-    const passwordChoice = page.getByRole("radio", { name: /^Password$/ }).first();
-    if (
-      (await passwordChoice.isVisible({ timeout: 1_000 }).catch(() => false)) &&
-      !(await passwordChoice.isChecked().catch(() => false))
-    ) {
-      await passwordChoice.click();
-      continue;
-    }
+        const passwordChoice = page.getByRole("radio", { name: /^Password$/ }).first();
+        if (
+          (await passwordChoice.isVisible({ timeout: 1_000 }).catch(() => false)) &&
+          !(await passwordChoice.isChecked().catch(() => false))
+        ) {
+          await passwordChoice.click();
+          return false;
+        }
 
-    const emailInput = page.getByRole("textbox", { name: /email|phone/i });
-    if (await emailInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
-      await emailInput.fill(configuredAdminEmail);
-      await page.getByRole("button", { name: /^continue$/i }).click();
-    }
+        const emailInput = page.getByRole("textbox", { name: /email|phone/i });
+        if (await emailInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
+          await emailInput.fill(configuredAdminEmail);
+          await page.getByRole("button", { name: /^continue$/i }).click();
+        }
 
-    await page.waitForTimeout(1_000);
-  }
-
-  throw new Error(`Admin password sign-in through ${signInPath} did not reach the authenticated shell.`);
+        return false;
+      },
+      { intervals: [250, 500, 1_000], timeout: pageReadyTimeoutMs },
+    )
+    .toBe(true);
 }
 
 async function expectAuthenticatedAdminShell(page: Page) {

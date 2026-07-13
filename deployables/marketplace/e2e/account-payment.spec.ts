@@ -37,26 +37,32 @@ const authProjectionTimeoutMs = 90_000;
 // drains; poll a real signed-in commerce route until the session stops bouncing to
 // sign-in before exercising the payment confirmation surface.
 async function waitForAuthorizedSession(page: Page, readyPath: string) {
-  const deadline = Date.now() + authProjectionTimeoutMs;
-  while (Date.now() < deadline) {
-    await page.goto(readyPath, { waitUntil: "domcontentloaded" });
-    if (new URL(page.url()).pathname === readyPath) {
-      return;
-    }
-    await page.waitForTimeout(1_000);
-  }
-  expect(new URL(page.url()).pathname, `${readyPath} should be reachable as the authenticated account`).toBe(readyPath);
+  await expect
+    .poll(
+      async () => {
+        await page.goto(readyPath, { waitUntil: "domcontentloaded" });
+        return new URL(page.url()).pathname === readyPath;
+      },
+      { intervals: [1_000, 2_000, 5_000], timeout: authProjectionTimeoutMs },
+    )
+    .toBe(true);
 }
 
 // Navigate to a route expected to resolve to its not-found recovery surface,
 // retrying past transient upstream 5xx (e.g. auth-actor resolution 502 during
 // warmup) so the assertion reflects route composition rather than warmup noise.
 async function gotoExpectingNotFound(page: Page, path: string) {
-  const deadline = Date.now() + authProjectionTimeoutMs;
   let response = await page.goto(path, { waitUntil: "domcontentloaded" });
-  while (response && response.status() >= 500 && Date.now() < deadline) {
-    await page.waitForTimeout(1_000);
-    response = await page.goto(path, { waitUntil: "domcontentloaded" });
+  if (response && response.status() >= 500) {
+    await expect
+      .poll(
+        async () => {
+          response = await page.goto(path, { waitUntil: "domcontentloaded" });
+          return response && response.status() >= 500 ? "retry" : "ready";
+        },
+        { intervals: [1_000, 2_000, 5_000], timeout: authProjectionTimeoutMs },
+      )
+      .toBe("ready");
   }
   expect(response, `${path} did not return a page response`).not.toBeNull();
   return response!;

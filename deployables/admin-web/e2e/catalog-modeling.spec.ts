@@ -122,7 +122,7 @@ const catalogModelingSurfaces = [
   },
 ] as const;
 
-test.describe("catalog admin modeling", () => {
+test.describe.serial("catalog admin modeling", () => {
   test("catalog authoring realtime streams open or fail with controlled JSON responses @catalog-admin-modeling", async ({
     page,
   }) => {
@@ -333,52 +333,72 @@ test.describe("catalog admin modeling", () => {
     const uniqueSuffix = Date.now().toString(36);
     const dimensionKey = `e2e-dimension-${uniqueSuffix}`;
     const dimensionName = `E2E Dimension ${uniqueSuffix}`;
+    let dimensionId: string | null = null;
+    let dimensionActivated = false;
 
     await authenticateAdmin(page, "/catalog/dimensions", "/access/sign-in");
     await expectPageOk(page, "/catalog/dimensions");
     await expectAdminPageReady(page, { heading: "Dimensions" });
 
-    await page.getByRole("button", { name: "New Dimension" }).click();
-    await expect(page.getByRole("heading", { name: "Create Dimension" })).toBeVisible();
-    await page.getByRole("textbox", { name: "Key" }).fill(dimensionKey);
-    await page.getByRole("textbox", { name: "Name" }).fill(dimensionName);
-    await page.getByRole("textbox", { name: "Description" }).fill("Created by admin catalog modeling E2E.");
-    const [createResponse] = await Promise.all([
-      page.waitForResponse(
-        (candidate) =>
-          candidate.request().method() === "POST" &&
-          candidate.url().includes("/api/catalog/dimensions") &&
-          candidate.status() === 201,
-      ),
-      page.getByRole("button", { name: "Create" }).click(),
-    ]);
-    const createBody = (await createResponse.json()) as CatalogCommandResponse;
-    expect(createBody.id).toMatch(/^dim_/);
-    expect(createBody.status).toBe("draft");
-    await expect(page.getByRole("heading", { name: "Create Dimension" })).toHaveCount(0);
+    try {
+      await page.getByRole("button", { name: "New Dimension" }).click();
+      await expect(page.getByRole("heading", { name: "Create Dimension" })).toBeVisible();
+      await page.getByRole("textbox", { name: "Key" }).fill(dimensionKey);
+      await page.getByRole("textbox", { name: "Name" }).fill(dimensionName);
+      await page.getByRole("textbox", { name: "Description" }).fill("Created by admin catalog modeling E2E.");
+      const [createResponse] = await Promise.all([
+        page.waitForResponse(
+          (candidate) =>
+            candidate.request().method() === "POST" &&
+            candidate.url().includes("/api/catalog/dimensions") &&
+            candidate.status() === 201,
+        ),
+        page.getByRole("button", { name: "Create" }).click(),
+      ]);
+      const createBody = (await createResponse.json()) as CatalogCommandResponse;
+      dimensionId = createBody.id;
+      expect(createBody.id).toMatch(/^dim_/);
+      expect(createBody.status).toBe("draft");
+      await expect(page.getByRole("heading", { name: "Create Dimension" })).toHaveCount(0);
 
-    await waitForDimensionAdminProjection(page, createResponse, `create draft dimension ${createBody.id}`);
-    const row = await waitForDimensionRow(page, dimensionKey);
-    await row.getByRole("link", { name: "View" }).click();
-    await expect(page).toHaveURL(/\/catalog\/dimensions\/dim_[^/?]+(?:\?|$)/);
-    await expectAdminWebHydrated(page);
-    await expect(page.getByRole("heading", { name: dimensionName })).toBeVisible();
-    await expectDimensionStatus(page, "draft");
+      await waitForDimensionAdminProjection(page, createResponse, `create draft dimension ${createBody.id}`);
+      const row = await waitForDimensionRow(page, dimensionKey);
+      await row.getByRole("link", { name: "View" }).click();
+      await expect(page).toHaveURL(/\/catalog\/dimensions\/dim_[^/?]+(?:\?|$)/);
+      await expectAdminWebHydrated(page);
+      await expect(page.getByRole("heading", { name: dimensionName })).toBeVisible();
+      await expectDimensionStatus(page, "draft");
 
-    const [activateResponse] = await Promise.all([
-      page.waitForResponse(
-        (candidate) =>
-          candidate.request().method() === "POST" &&
-          candidate.url().includes(`/api/catalog/dimensions/${createBody.id}/activate`) &&
-          candidate.status() === 200,
-      ),
-      page.getByRole("button", { name: "Activate" }).click(),
-    ]);
-    const activateBody = (await activateResponse.json()) as CatalogCommandResponse;
-    expect(activateBody.id).toBe(createBody.id);
-    expect(activateBody.status).toBe("active");
-    await waitForDimensionAdminProjection(page, activateResponse, `activate dimension ${createBody.id}`);
-    await expectDimensionStatus(page, "active");
+      const [activateResponse] = await Promise.all([
+        page.waitForResponse(
+          (candidate) =>
+            candidate.request().method() === "POST" &&
+            candidate.url().includes(`/api/catalog/dimensions/${createBody.id}/activate`) &&
+            candidate.status() === 200,
+        ),
+        page.getByRole("button", { name: "Activate" }).click(),
+      ]);
+      const activateBody = (await activateResponse.json()) as CatalogCommandResponse;
+      expect(activateBody.id).toBe(createBody.id);
+      expect(activateBody.status).toBe("active");
+      dimensionActivated = true;
+      await waitForDimensionAdminProjection(page, activateResponse, `activate dimension ${createBody.id}`);
+      await expectDimensionStatus(page, "active");
+    } finally {
+      if (dimensionId && dimensionActivated) {
+        const deprecateResponse = await page.request.post(
+          `${apiOrigin(page)}/api/catalog/dimensions/${dimensionId}/deprecate`,
+        );
+        expect(deprecateResponse.status(), `deprecate dimension ${dimensionId} should return 200`).toBe(200);
+        await waitForDimensionAdminProjection(page, deprecateResponse, `deprecate dimension ${dimensionId}`);
+
+        const archiveResponse = await page.request.post(
+          `${apiOrigin(page)}/api/catalog/dimensions/${dimensionId}/archive`,
+        );
+        expect(archiveResponse.status(), `archive dimension ${dimensionId} should return 200`).toBe(200);
+        await waitForDimensionAdminProjection(page, archiveResponse, `archive dimension ${dimensionId}`);
+      }
+    }
   });
 
   test("signed-in catalog operator inspects reference data records and types @catalog-admin-modeling", async ({

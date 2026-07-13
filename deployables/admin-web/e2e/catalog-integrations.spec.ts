@@ -112,7 +112,7 @@ async function expectAliasReviewWorkspaceIfPresent(page: Page) {
     .toEqual(expect.arrayContaining([expect.stringMatching(/^(accept|reject|defer|revoke|auto-accept)$/)]));
 }
 
-test.describe("catalog admin integrations", () => {
+test.describe.serial("catalog admin integrations", () => {
   test("catalog job streams open or fail with controlled JSON responses @catalog-admin-integrations", async ({
     page,
   }) => {
@@ -344,6 +344,19 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
     await expect(page.getByRole("textbox", { name: /JSON/i })).toHaveCount(0);
     await expect(page.getByText(/Old integrations surface/i)).toHaveCount(0);
+  });
+
+  test("catalog operator can page review results and reach catalog item handoff @catalog-admin-integrations", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
+    await expectPageOk(page, "/catalog/integrations");
 
     // #1966: the Source Observation review queue paginates past the first 25 rows. The
     // pager is a GET navigation that moves a durable reviewOffset cursor in the URL while
@@ -356,7 +369,6 @@ test.describe("catalog admin integrations", () => {
       page,
       "/catalog/integrations?providerKey=tcgdex&filter.status=changed&selectedObservationIds=obs_001&reviewOffset=25",
     );
-    await page.waitForLoadState("networkidle");
     const reviewPageTwoUrl = new URL(page.url());
     expect(reviewPageTwoUrl.pathname).toBe("/catalog/integrations");
     expect(reviewPageTwoUrl.searchParams.get("reviewOffset")).toBe("25");
@@ -375,7 +387,6 @@ test.describe("catalog admin integrations", () => {
     }
     // Return to the canonical daily route for the remaining assertions.
     await expectPageOk(page, "/catalog/integrations");
-    await page.waitForLoadState("networkidle");
 
     // #1748 acceptance gate (criterion 1): the daily route is the DEFAULT landing, not a
     // detour. The supporting surfaces (providers/governance/health) each carry a single
@@ -406,13 +417,22 @@ test.describe("catalog admin integrations", () => {
     });
     expect(retiredListResponse?.status() ?? 0).toBeGreaterThanOrEqual(400);
     await expect(page.getByRole("heading", { name: "Source Observations" })).toHaveCount(0);
+  });
+
+  test("catalog operator can inspect integration health triage @catalog-admin-integrations", async ({ page }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await authenticateAdmin(page, "/catalog/integrations/health", "/access/sign-in");
 
     // Health triage now lives on the real /catalog/integrations/health surface route.
     await expectPageOk(
       page,
       "/catalog/integrations/health?providerKey=tcgdex&section=triage&filter.status=changed&selectedObservationIds=obs_001",
     );
-    await page.waitForLoadState("networkidle");
     await expect(page).toHaveURL(/\/catalog\/integrations\/health\?.*section=triage/);
     // The health surface is the nested "Integration health" child, so its
     // side-nav link is current and the Import child still links back to the daily route.
@@ -471,6 +491,16 @@ test.describe("catalog admin integrations", () => {
     await expect(auditEvidenceWorkspace.getByText("operator identity expansion")).toBeVisible();
     // Return to the desktop side nav for the remaining surface assertions.
     await page.setViewportSize({ width: 1280, height: 900 });
+  });
+
+  test("catalog operator can inspect provider setup readiness @catalog-admin-integrations", async ({ page }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await authenticateAdmin(page, "/catalog/integrations/providers", "/access/sign-in");
 
     // The provider-setup surface hosts profile authoring and validation readiness as a
     // single coherent setup route, off the daily flow. Carry a full working set in and
@@ -483,7 +513,6 @@ test.describe("catalog admin integrations", () => {
       page,
       "/catalog/integrations/providers?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.04",
     );
-    await page.waitForLoadState("networkidle");
     await expect(page).toHaveURL(/\/catalog\/integrations\/providers\?/);
     // Both provider-setup workspaces render, stacked on the one providers route. Their
     // headings are structural (information-architecture metadata) and render in the
@@ -523,7 +552,6 @@ test.describe("catalog admin integrations", () => {
       page,
       "/catalog/integrations/providers?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.03",
     );
-    await page.waitForLoadState("networkidle");
     await expect(page).toHaveURL(/\/catalog\/integrations\/providers\?/);
     const providerProfileWorkspace = page.locator("[data-catalog-profile-authoring-workspace='true']");
     await expect(providerProfileWorkspace).toBeVisible();
@@ -547,6 +575,18 @@ test.describe("catalog admin integrations", () => {
     await expect(page.locator('form[data-catalog-activate-profile-form="true"]')).toHaveCount(1);
     await expect(page.getByRole("button", { name: "Save migration evidence" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Activate profile" })).toBeVisible();
+  });
+
+  test("catalog operator can inspect governance and lifecycle controls @catalog-admin-integrations", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await authenticateAdmin(page, "/catalog/integrations/governance", "/access/sign-in");
 
     // The governance-and-recovery surface hosts conflict resolution, lifecycle recovery,
     // and governance controls as rare, privileged ops off the daily route. The daily flow's
@@ -559,7 +599,6 @@ test.describe("catalog admin integrations", () => {
       page,
       "/catalog/integrations/governance?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.04&section=controls",
     );
-    await page.waitForLoadState("networkidle");
     await expect(page).toHaveURL(/\/catalog\/integrations\/governance\?/);
     // All three govern-and-recover workspaces render, stacked on the one governance route.
     await expectVisibleText(page, "Conflict resolution");
@@ -590,7 +629,6 @@ test.describe("catalog admin integrations", () => {
       page,
       "/catalog/integrations/governance?providerKey=scryfall&unitKey=scryfall%3Amtg%3Asingle-card%3Areference-data&section=controls",
     );
-    await page.waitForLoadState("networkidle");
     await expect(page).toHaveURL(/\/catalog\/integrations\/governance\?.*providerKey=scryfall/);
     const governanceControls = page.locator("[data-catalog-governance-controls-workspace='true']");
     await expect(governanceControls).toBeVisible();
@@ -624,7 +662,6 @@ test.describe("catalog admin integrations", () => {
       page,
       "/catalog/integrations/governance?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.03&section=lifecycle",
     );
-    await page.waitForLoadState("networkidle");
     await expect(page).toHaveURL(/\/catalog\/integrations\/governance\?.*section=lifecycle/);
     const lifecycleWorkspace = page.locator("[data-catalog-lifecycle-recovery-workspace='true']");
     await expect(lifecycleWorkspace).toBeVisible();
@@ -664,7 +701,6 @@ test.describe("catalog admin integrations", () => {
       page,
       "/catalog/integrations/health?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.04&section=triage",
     );
-    await page.waitForLoadState("networkidle");
     await expect(page).toHaveURL(/\/catalog\/integrations\/health\?.*section=triage/);
     await expect(page.getByRole("heading", { name: "Integration health triage" })).toBeVisible();
   });

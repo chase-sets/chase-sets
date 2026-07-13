@@ -215,29 +215,37 @@ function requestOrigin(page: Page) {
 }
 
 export async function expectPageOk(page: Page, path: string) {
-  const deadline = Date.now() + pageReadyTimeoutMs;
   let lastError: Error | null = null;
 
-  while (Date.now() < deadline) {
-    try {
-      const response = await page.goto(path, { waitUntil: "domcontentloaded", timeout: 15_000 });
-      if (response && response.status() < 400) {
-        return;
-      }
-      lastError = new Error(response ? `${path} returned HTTP ${response.status()}` : `${path} returned no response`);
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-    }
-    await page.waitForTimeout(1_000);
+  try {
+    await expect
+      .poll(
+        async () => {
+          let response: PlaywrightResponse | null = null;
+          try {
+            response = await page.goto(path, { waitUntil: "domcontentloaded", timeout: 15_000 });
+            if (response && response.status() < 400) {
+              return "ready";
+            }
+            lastError = new Error(
+              response ? `${path} returned HTTP ${response.status()}` : `${path} returned no response`,
+            );
+          } catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+          }
+          return "not-ready";
+        },
+        { intervals: [1_000, 2_000, 5_000], timeout: pageReadyTimeoutMs },
+      )
+      .toBe("ready");
+  } catch (error) {
+    throw lastError ?? error;
   }
-
-  throw lastError ?? new Error(`${path} did not become ready`);
 }
 
 export async function authenticateAdmin(page: Page, returnToPath: string, signInPath = "/access/sign-in") {
   await expectPageOk(page, `${signInPath}?returnTo=${encodeURIComponent(returnToPath)}`);
   const origin = new URL(page.url()).origin;
-  const deadline = Date.now() + authApiTimeoutMs;
   let response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
     data: {
       email: adminAccount.email,
@@ -245,14 +253,21 @@ export async function authenticateAdmin(page: Page, returnToPath: string, signIn
     },
   });
 
-  while ([502, 503, 504].includes(response.status()) && Date.now() < deadline) {
-    await page.waitForTimeout(1_000);
-    response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
-      data: {
-        email: adminAccount.email,
-        password: adminAccount.password,
-      },
-    });
+  if ([502, 503, 504].includes(response.status())) {
+    await expect
+      .poll(
+        async () => {
+          response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
+            data: {
+              email: adminAccount.email,
+              password: adminAccount.password,
+            },
+          });
+          return [502, 503, 504].includes(response.status()) ? "retry" : response.status();
+        },
+        { intervals: [1_000, 2_000, 5_000], timeout: authApiTimeoutMs },
+      )
+      .toBe(200);
   }
 
   expect(response.status(), "admin password sign-in should start a session").toBe(200);
@@ -288,7 +303,7 @@ export async function recoverAdminError(page: Page, options: { timeoutMs?: numbe
   const deadline = Date.now() + (options.timeoutMs ?? pageReadyTimeoutMs);
   let recovered = false;
 
-  while (Date.now() < deadline) {
+  for (let attempt = 0; attempt < 3 && Date.now() < deadline; attempt += 1) {
     const retryableAdminErrorVisible =
       (await page
         .getByRole("heading", { name: "Admin Error" })
@@ -310,7 +325,17 @@ export async function recoverAdminError(page: Page, options: { timeoutMs?: numbe
       await page.reload({ waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => undefined);
     }
     await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
-    await page.waitForTimeout(1_000);
+    await expect
+      .poll(
+        async () =>
+          !(await page
+            .getByRole("heading", { name: /Admin Error|Admin page not found/ })
+            .isVisible({ timeout: 500 })
+            .catch(() => false)),
+        { intervals: [100, 250, 500], timeout: Math.max(500, Math.min(5_000, deadline - Date.now())) },
+      )
+      .toBe(true)
+      .catch(() => undefined);
   }
 
   return recovered;
@@ -334,13 +359,10 @@ export async function expectAdminPageReady(
         typeof expected.heading === "string"
           ? page.getByRole("heading", { name: expected.heading, exact: true, level: expected.headingLevel })
           : page.getByRole("heading", { name: expected.heading, level: expected.headingLevel });
-      await expect(heading).toBeVisible({
-        timeout: 5_000,
-      });
+      await expect(heading).toBeVisible({ timeout: 5_000 });
       return;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      await page.waitForTimeout(1_000);
     }
   }
 
