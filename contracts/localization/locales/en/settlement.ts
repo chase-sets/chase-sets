@@ -148,8 +148,17 @@ export const settlementEnglishTranslations = {
   "settlement.features.payoutReadiness.ui.payoutSetupPage.manage.payout.details": "Manage payout details",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.in.progress": "In progress",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.needs.attention": "Needs attention",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.notification.banner.could.not.be.created":
+    "Payout notifications could not be initialized.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.notification.banner.aria.label": "Payout notifications",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.notification.banner.could.not.load":
+    "Payout notifications could not load",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.notification.banner.could.not.load.detail":
+    "The Stripe payout notification banner could not load.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.notification.banner.loading": "Loading payout notifications",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.not.started": "Not started",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.account": "Payout account",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.notifications": "Payout notifications",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.platform.review": "Platform review — contact support",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.setup": "Payout setup",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.setup.is.complete.and.available":

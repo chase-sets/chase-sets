@@ -29,6 +29,7 @@ import {
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
 import { buildMissingRequirementGroups, type MissingRequirementGroup } from "../domain/setup-progress";
 import { PayoutReadinessPanel } from "./payout-readiness-panel";
+import { StripeConnectNotificationBanner } from "./stripe-connect-notification-banner";
 
 export type PayoutSetupMode = "setup" | "management";
 
@@ -394,6 +395,14 @@ export function PayoutSetupPage({
           title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.setup.status.checked")}
           description={setupNotice}
         />
+      ) : null}
+
+      {hasProviderAccount ? (
+        <PageSection title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.payout.notifications")}>
+          <Card>
+            <StripeConnectNotificationBanner publishableKey={stripePublishableKey} />
+          </Card>
+        </PageSection>
       ) : null}
 
       <PageSection title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.current.status")}>

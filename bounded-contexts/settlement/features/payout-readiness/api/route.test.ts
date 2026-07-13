@@ -255,6 +255,31 @@ describe("settlement payout setup routes", () => {
     );
   });
 
+  it("allows payout viewers to create the read-only notification banner session", async () => {
+    const createPayoutNotificationBannerSession = vi.fn(async () => ({
+      providerReference: "acct_test",
+      clientSecret: "provider_banner_secret",
+      expiresAt: "2026-06-01T15:30:00.000Z",
+      components: ["notification-banner"],
+    }));
+    const app = createApp({ createPayoutNotificationBannerSession }, ["payouts.view"]);
+
+    const response = await app.request("/payout-setup/notification-banner-session", {
+      method: "POST",
+      body: "{}",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      providerReference: "acct_test",
+      clientSecret: "provider_banner_secret",
+      expiresAt: "2026-06-01T15:30:00.000Z",
+      components: ["notification-banner"],
+    });
+    expect(createPayoutNotificationBannerSession).toHaveBeenCalledWith({ accountId: "acc_seller" });
+  });
+
   it("refreshes payout setup for sellers that can manage payouts", async () => {
     const refreshProviderReadiness = vi.fn(async () => ({
       account_id: "acc_seller",

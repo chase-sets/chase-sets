@@ -20,6 +20,7 @@ import type { SettlementPayoutRow } from "../read-model/queries";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
 import type { SettlementWalletRow } from "../../wallets/read-model/queries";
 import { PayoutReadinessPanel } from "../../payout-readiness/ui/payout-readiness-panel";
+import { StripeConnectNotificationBanner } from "../../payout-readiness/ui/stripe-connect-notification-banner";
 import { capPayoutAmountToPolicy, payoutAmountPolicy } from "../domain/payout-policy";
 import { payoutUnavailableReasonLabel } from "../domain/reason-codes";
 
@@ -104,6 +105,7 @@ export function SettlementPayoutListPage({
   canRequestPayouts = false,
   canSetupPayouts = false,
   setupNotice = null,
+  stripePublishableKey = null,
 }: {
   wallet: SettlementWalletRow;
   payouts: readonly SettlementPayoutRow[];
@@ -125,6 +127,7 @@ export function SettlementPayoutListPage({
   canRequestPayouts?: boolean;
   canSetupPayouts?: boolean;
   setupNotice?: string | null;
+  stripePublishableKey?: string | null;
 }) {
   const attentionCount = payouts.filter((row) => row.status === "failed").length;
   const setupFresh = Boolean(payoutReadiness?.updated_at);
@@ -172,6 +175,14 @@ export function SettlementPayoutListPage({
             <Text>{setupNotice}</Text>
           </Stack>
         </Card>
+      ) : null}
+
+      {payoutReadiness?.provider_reference ? (
+        <PageSection title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.payout.notifications")}>
+          <Card>
+            <StripeConnectNotificationBanner publishableKey={stripePublishableKey} />
+          </Card>
+        </PageSection>
       ) : null}
 
       <PageSection title={t("settlement.features.payouts.ui.payoutListPage.request.payout")}>

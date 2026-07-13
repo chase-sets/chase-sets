@@ -15,6 +15,12 @@ import {
 } from "../../client";
 import { createSettlementRequestApiClient } from "../../support/request-support/api-client";
 import { PayoutSetupPage, type PayoutSetupMode } from "../../features/payout-readiness/ui/payout-setup-page";
+import {
+  CONNECT_EMBEDDED_COMPONENT_CSP,
+  stripeConnectHeaders,
+} from "../../features/payout-readiness/ui/stripe-connect-csp";
+
+export { CONNECT_EMBEDDED_COMPONENT_CSP } from "../../features/payout-readiness/ui/stripe-connect-csp";
 
 type PayoutSetupActionData = Readonly<{
   error?: string;
@@ -37,27 +43,8 @@ const ACCOUNT_PAYOUT_SETUP_POST_WRITE_TELEMETRY = {
   routeTemplate: "/account/payouts/setup",
 } as const satisfies PlatformPostWriteTelemetry;
 
-export const CONNECT_EMBEDDED_COMPONENT_CSP = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "object-src 'none'",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-  "script-src 'self' 'unsafe-inline' https://connect-js.stripe.com https://js.stripe.com",
-  "connect-src 'self' https://api.stripe.com https://merchant-ui-api.stripe.com",
-  "frame-src https://connect-js.stripe.com https://js.stripe.com",
-  "img-src 'self' data: https://*.stripe.com",
-  "style-src 'self' 'unsafe-inline'",
-  "style-src-elem 'self' 'unsafe-inline'",
-  "style-src-attr 'unsafe-inline'",
-  "font-src 'self' data:",
-].join("; ");
-
 export function headers() {
-  return {
-    "Content-Security-Policy": CONNECT_EMBEDDED_COMPONENT_CSP,
-    "Cross-Origin-Opener-Policy": "unsafe-none",
-  };
+  return stripeConnectHeaders();
 }
 
 function stripePublishableKey(env: NodeJS.ProcessEnv = process.env) {

@@ -435,6 +435,7 @@ describe("money movement adapters", () => {
         expect(body.get("components[account_onboarding][enabled]")).toBe("true");
         expect(body.get("components[account_onboarding][features][external_account_collection]")).toBe("true");
         expect(body.get("components[account_onboarding][features][disable_stripe_user_authentication]")).toBe("true");
+        expect(body.get("components[notification_banner][enabled]")).toBe("true");
         expect([...body.keys()].some((key) => key.startsWith("components[account_management]"))).toBe(false);
 
         return new Response(
@@ -671,6 +672,7 @@ describe("money movement adapters", () => {
       expect(body.get("components[account_onboarding][enabled]")).toBe("true");
       expect(body.get("components[account_onboarding][features][external_account_collection]")).toBe("true");
       expect(body.get("components[account_onboarding][features][disable_stripe_user_authentication]")).toBe("true");
+      expect(body.get("components[notification_banner][enabled]")).toBe("true");
       expect([...body.keys()].some((key) => key.startsWith("components[account_management]"))).toBe(false);
 
       return new Response(
@@ -754,6 +756,7 @@ describe("money movement adapters", () => {
       expect(body.get("components[account_management][enabled]")).toBe("true");
       expect(body.get("components[account_management][features][external_account_collection]")).toBe("true");
       expect(body.get("components[account_management][features][disable_stripe_user_authentication]")).toBe("true");
+      expect(body.get("components[notification_banner][enabled]")).toBe("true");
       expect([...body.keys()].some((key) => key.startsWith("components[account_onboarding]"))).toBe(false);
 
       return new Response(
@@ -885,6 +888,7 @@ describe("money movement adapters", () => {
       const body = new URLSearchParams(String(init?.body));
       expect(body.get("account")).toBe("acct_stripe_collected");
       expect(body.get("components[account_onboarding][features][disable_stripe_user_authentication]")).toBe("false");
+      expect(body.get("components[notification_banner][enabled]")).toBe("true");
 
       return new Response(
         JSON.stringify({
@@ -1295,6 +1299,7 @@ describe("money movement adapters", () => {
       expect(body.get("components[account_management][enabled]")).toBe("true");
       expect(body.get("components[account_management][features][external_account_collection]")).toBe("true");
       expect(body.get("components[account_management][features][disable_stripe_user_authentication]")).toBe("true");
+      expect(body.get("components[notification_banner][enabled]")).toBe("true");
       expect([...body.keys()].some((key) => key.startsWith("components[account_onboarding]"))).toBe(false);
 
       return new Response(

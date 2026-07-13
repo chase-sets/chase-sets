@@ -15,6 +15,11 @@ import {
 import { createSettlementRequestApiClient } from "../../support/request-support/api-client";
 import { SettlementPayoutListPage } from "../../features/payouts/ui/payout-list-page";
 import { resolvePayoutAmountSelection } from "../../features/payouts/api/payout-form";
+import { stripeConnectHeaders } from "../../features/payout-readiness/ui/stripe-connect-csp";
+
+export function headers() {
+  return stripeConnectHeaders();
+}
 
 type PayoutActionData = Readonly<{
   error?: string;
@@ -43,6 +48,10 @@ function currentAccountPath(request: Request) {
   return `${url.pathname}${url.search}`;
 }
 
+function stripePublishableKey(env: NodeJS.ProcessEnv = process.env) {
+  return env.STRIPE_PUBLISHABLE_KEY?.trim() || null;
+}
+
 function accountAccessRequired(returnTo: string) {
   return {
     accountAccessRequired: {
@@ -65,6 +74,7 @@ function accountAccessRequired(returnTo: string) {
     canRequestPayouts: false,
     canSetupPayouts: false,
     setupNotice: null,
+    stripePublishableKey: null,
   };
 }
 
@@ -118,6 +128,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     payoutReadiness,
     canRequestPayouts: actor.permissions.includes("payouts.request"),
     canSetupPayouts: actor.permissions.includes("payouts.setup"),
+    stripePublishableKey: stripePublishableKey(),
     setupNotice:
       requestUrl.searchParams.get("setup") === "updated"
         ? t("settlement.routes.marketplace.accountPayouts.payout.setup.status.was.refreshed")
@@ -243,6 +254,7 @@ export default function MarketplaceAccountPayoutsRoute() {
       canRequestPayouts={data.canRequestPayouts}
       canSetupPayouts={data.canSetupPayouts}
       setupNotice={actionData?.setupNotice ?? data.setupNotice}
+      stripePublishableKey={data.stripePublishableKey}
     />
   );
 }

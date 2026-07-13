@@ -100,6 +100,12 @@ export type PayoutReadinessServices = Readonly<{
     expiresAt: string | null;
     components: readonly ["payout-account-management"];
   }>;
+  createPayoutNotificationBannerSession: (params: Readonly<{ accountId: AccountId }>) => Promise<{
+    clientSecret: string;
+    providerReference: string;
+    expiresAt: string | null;
+    components: readonly ["notification-banner"];
+  }>;
   refreshProviderReadiness: (
     params: Readonly<{ accountId: AccountId; contactEmail?: string | null; providerReference?: string | null }>,
     context: EventStoreContext,
@@ -146,7 +152,8 @@ function readinessStatus(readiness: ProviderPayoutReadiness): PayoutReadinessSta
     readiness.transferCapabilityStatus === "active" &&
     readiness.payoutCapabilityStatus === "active" &&
     readiness.payoutDestinationStatus === "ready" &&
-    blockingRequirements?.length === 0
+    blockingRequirements?.length === 0 &&
+    !normalizeOptionalText(readiness.disabledReason)
   ) {
     return "ready";
   }
@@ -750,6 +757,25 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         }
         throw error;
       }
+    },
+    async createPayoutNotificationBannerSession(params) {
+      const existing = await getPayoutReadiness(deps.db, params.accountId);
+      if (!existing.provider_reference) {
+        throw new SettlementDomainError("Payout setup must be started before showing payout notifications.");
+      }
+
+      const session = await deps.moneyMovementGateway.createPayoutNotificationBannerSession({
+        accountId: params.accountId,
+        providerReference: existing.provider_reference,
+        idempotencyKey: `settlement:payout-account:${params.accountId}:embedded-notification-banner:${createId("banner")}`,
+      });
+
+      return {
+        clientSecret: session.clientSecret,
+        providerReference: session.providerReference,
+        expiresAt: session.expiresAt,
+        components: session.components,
+      };
     },
     async refreshProviderReadiness(params, context) {
       let expectedProviderReference: string | null = null;

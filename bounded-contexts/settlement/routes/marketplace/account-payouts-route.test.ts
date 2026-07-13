@@ -31,7 +31,7 @@ vi.mock("../../support/request-support/api-client", async () => {
   };
 });
 
-import { action as accountPayoutsAction, loader as accountPayoutsLoader } from "./account-payouts";
+import { action as accountPayoutsAction, headers, loader as accountPayoutsLoader } from "./account-payouts";
 
 function settlementActor(permissions: readonly string[]) {
   return {
@@ -51,6 +51,13 @@ function formRequest(form: URLSearchParams) {
 describe("settlement account payouts route action", () => {
   afterEach(() => {
     vi.resetAllMocks();
+  });
+
+  it("sets the Stripe Connect CSP for the notification banner", () => {
+    expect(headers()["Content-Security-Policy"]).toContain(
+      "script-src 'self' 'unsafe-inline' https://connect-js.stripe.com https://js.stripe.com",
+    );
+    expect(headers()["Cross-Origin-Opener-Policy"]).toBe("unsafe-none");
   });
 
   it("returns an account access state instead of throwing 403 for signed-in actors without payout access", async () => {

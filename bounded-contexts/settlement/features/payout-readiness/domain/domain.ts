@@ -90,6 +90,7 @@ export type PayoutReadinessRecordedEvent = DomainEvent<
   "settlement.payout-readiness.recorded",
   Readonly<{
     accountId: AccountId;
+    previousStatus: PayoutReadinessStatus;
     status: PayoutReadinessStatus;
     missingRequirements: string[];
     advisoryRequirements: string[];
@@ -123,7 +124,7 @@ export const decidePayoutReadiness: AggregateDecider<
   PayoutReadinessState,
   PayoutReadinessCommand,
   PayoutReadinessEvent
-> = (_state, command) => {
+> = (state, command) => {
   switch (command.type) {
     case "RecordPayoutReadiness":
       return [
@@ -131,6 +132,7 @@ export const decidePayoutReadiness: AggregateDecider<
           type: "settlement.payout-readiness.recorded",
           data: {
             accountId: command.accountId,
+            previousStatus: state.status,
             status: normalizePayoutReadinessStatus(command.status),
             missingRequirements: normalizeRequirements(command.missingRequirements),
             advisoryRequirements: normalizeRequirements(command.advisoryRequirements),

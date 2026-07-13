@@ -528,7 +528,8 @@ describe("payout readiness runtime", () => {
       .map((payload) => payload.data ?? payload);
 
     expect(recordedPayloads).toHaveLength(2);
-    expect(recordedPayloads[0]).toEqual(recordedPayloads[1]);
+    expect(recordedPayloads[0]).toMatchObject({ previousStatus: "not-started" });
+    expect(recordedPayloads[1]).toMatchObject({ previousStatus: "pending" });
     expect(recordedPayloads[0]).toMatchObject({
       accountId: "acc_seller",
       status: "pending",

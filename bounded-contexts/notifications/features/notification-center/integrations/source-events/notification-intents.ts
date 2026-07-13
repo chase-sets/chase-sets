@@ -60,6 +60,67 @@ export type RestockDecisionPendingNotificationInput = Readonly<{
   correlationId: string;
 }>;
 
+export type PayoutReadinessRegressionNotificationInput = Readonly<{
+  sellerAccountId: AccountId;
+  sellerEmail?: string | null;
+  reason: string;
+  deadline?: string | null;
+  transitionId: string;
+  correlationId: string;
+}>;
+
+export function mapPayoutReadinessRegressionToNotification(
+  input: PayoutReadinessRegressionNotificationInput,
+): NotificationMessage {
+  const actionHref = "/account/payouts/setup";
+  const title = t("notifications.intents.payoutReadinessRegression.title");
+  const body = t("notifications.intents.payoutReadinessRegression.body", {
+    reason: input.reason,
+    deadline: input.deadline ?? t("notifications.intents.payoutReadinessRegression.noDeadline"),
+  });
+  const webChannel: WebNotificationChannel = {
+    channel: "web",
+    recipient: { accountId: input.sellerAccountId },
+    actionHref,
+  };
+  const sellerEmail = input.sellerEmail?.trim();
+  const channels: NotificationMessage["channels"] = sellerEmail
+    ? [
+        {
+          channel: "email",
+          to: [{ email: sellerEmail }],
+          subject: title,
+          templateId: "seller_payout_readiness_regression",
+          templateVersion: 1,
+          templateData: { reason: input.reason, deadline: input.deadline ?? null },
+        } satisfies EmailNotificationChannel,
+        webChannel,
+      ]
+    : [webChannel];
+
+  return {
+    messageType: "settlement.payout-readiness.regressed",
+    criticality: "commerce",
+    category: "order-critical",
+    recipientAccountId: input.sellerAccountId,
+    title,
+    body,
+    actionHref,
+    templateId: "seller_payout_readiness_regression",
+    templateVersion: 1,
+    locale: "en",
+    templateData: {
+      reason: input.reason,
+      deadline: input.deadline ?? null,
+      actionHref,
+    },
+    channels,
+    idempotencyKey: `notifications:settlement:payout_readiness_regression:${input.sellerAccountId}:${input.transitionId}`,
+    correlationId: input.correlationId,
+    actor: { userId: null, accountId: input.sellerAccountId },
+  };
+}
+
 export function mapOrderCreatedToNotification(input: OrderCreatedNotificationInput): NotificationMessage {
   const orderReference = orderReferenceOrRaw(input.orderId);
   const title = `Order ${orderReference} confirmed`;

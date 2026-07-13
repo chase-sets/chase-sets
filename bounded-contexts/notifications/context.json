@@ -33,12 +33,21 @@
       "eventTypes": ["inventory.hold.consumed", "inventory.restock-decision.pending"],
       "order": 40,
       "projectionHandlerSetNames": ["notifications-inventory-facts-projection"]
+    },
+    {
+      "sourceContextName": "settlement",
+      "sourceContextMount": "when-mounted",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["settlement.payout-readiness.recorded"],
+      "order": 50,
+      "projectionHandlerSetNames": ["notifications-settlement-facts-projection"]
     }
   ],
   "projectionGroups": [
     {
       "projectionName": "notifications-source-facts-outbox-projection",
-      "sourceContextNames": ["ordering", "fulfillment", "inventory"],
+      "sourceContextNames": ["ordering", "fulfillment", "inventory", "settlement"],
       "ownedTables": ["notification_outbox"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "append-only-no-reset"
