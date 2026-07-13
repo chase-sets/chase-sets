@@ -5,6 +5,7 @@ import type { PaymentsApiEnv } from "./route";
 import { createAccountPaymentRoutes, createPaymentProcessorWebhookRoutes } from "./route";
 import type { PaymentServices } from "./runtime";
 import { PaymentsDomainError } from "../../../support/runtime-support/common";
+import { ProviderWebhookError } from "@chase-sets/http/provider-errors";
 
 const checkoutFeeQuote = {
   payment_method_category: "card" as const,
@@ -867,12 +868,41 @@ describe("payments routes", () => {
       }),
     );
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
       error: {
-        code: "provider_webhook_processing_failed",
-        message: "simulated payment webhook commit conflict",
+        code: "provider_webhook_handler_failure",
+        message: "Provider webhook handler failed.",
+        failure_class: "handler-failure",
+        retryable: true,
       },
+    });
+  });
+
+  it.each([
+    ["unknown-event", "Unknown event", "evt_unknown", "checkout.session.async_payment_succeeded"],
+    ["schema-mismatch", "Schema mismatch", null, null],
+    ["inbox-conflict", "Inbox conflict", "evt_duplicate", "payment_intent.succeeded"],
+  ] as const)("acknowledges %s without asking Stripe to retry", async (failureClass, message, eventId, eventKind) => {
+    const services = {
+      ...createServices(),
+      processWebhook: vi.fn(async () => {
+        throw new ProviderWebhookError(failureClass, message, eventId, eventKind, false);
+      }),
+    };
+    const app = new Hono().route("/provider", createPaymentProcessorWebhookRoutes(services));
+
+    const response = await app.fetch(
+      new Request("http://payments.test/provider/webhooks", {
+        method: "POST",
+        body: "{}",
+      }),
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      received: true,
+      ignored: true,
+      failure_class: failureClass,
     });
   });
 

@@ -21,6 +21,7 @@ import {
   recordMcpAuditRecord,
   recordPostWriteConsistencyEvent,
   recordProjectionFreshnessWakeEnqueue,
+  recordProviderWebhookIngestion,
   recordProjectionInterestIndexLookup,
   recordProjectionWakeIntentEnqueueOutcome,
   recordProjectionWakeIntentOutcome,
@@ -80,6 +81,50 @@ describe("observability config", () => {
       "x-token": "abc",
       "x-empty": "",
     });
+  });
+});
+
+describe("provider webhook ingestion observability", () => {
+  it("records bounded failure classes without putting provider ids in metric labels", () => {
+    const counterAdds: unknown[] = [];
+    const createCounter = vi.fn((name: string) => ({
+      add: (value: number, attributes?: unknown) => counterAdds.push({ name, value, attributes }),
+    }));
+    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({
+      createCounter,
+      createHistogram: vi.fn(),
+      createUpDownCounter: vi.fn(),
+    } as never);
+
+    try {
+      recordProviderWebhookIngestion({
+        endpoint: "payments",
+        failureClass: "handler-failure",
+        outcome: "failed",
+        statusCode: 400,
+        retryable: true,
+        providerEventId: "evt_private",
+        eventKind: "payment-captured",
+      });
+    } finally {
+      getMeter.mockRestore();
+    }
+
+    expect(counterAdds).toEqual([
+      {
+        name: "chase_sets_stripe_webhook_ingestion_total",
+        value: 1,
+        attributes: {
+          endpoint: "payments",
+          failure_class: "handler-failure",
+          outcome: "failed",
+          status_code: 400,
+          retryable: "true",
+          event_kind: "payment-captured",
+        },
+      },
+    ]);
+    expect(JSON.stringify(counterAdds)).not.toContain("evt_private");
   });
 });
 

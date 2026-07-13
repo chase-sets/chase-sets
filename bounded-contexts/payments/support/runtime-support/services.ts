@@ -13,12 +13,14 @@ import { createRefundRuntime } from "../../features/refunds/api/runtime";
 import type { PaymentProcessorGateway, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
 import type { BalanceCreditResolver } from "../../features/payments/api/balance-credit-resolver";
 import type { CheckoutProcessingFeePolicyResolver } from "../../features/payments/api/checkout-processing-fee-policy-resolver";
+import type { ProviderWebhookTelemetry } from "@chase-sets/http/provider-errors";
 
 export type PaymentsServiceOptions = Readonly<{
   processorGateway?: PaymentProcessorGateway;
   balanceCreditResolver?: BalanceCreditResolver;
   checkoutProcessingFeePolicyResolver?: CheckoutProcessingFeePolicyResolver;
   notificationOutbox?: NotificationOutbox;
+  webhookTelemetry?: ProviderWebhookTelemetry;
 }>;
 
 export type PaymentsServices = Readonly<{
@@ -86,6 +88,7 @@ export function createPaymentsServices(
     balanceCreditResolver: options.balanceCreditResolver,
     checkoutProcessingFeePolicyResolver: options.checkoutProcessingFeePolicyResolver,
     notificationOutbox,
+    webhookTelemetry: options.webhookTelemetry,
   });
 
   return {

@@ -310,6 +310,33 @@ When `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUB
 4. Use reconciliation before manual correction when provider state is already available.
 5. Use wallet operator actions only with a target account, idempotency key, and audit reason.
 
+## Stripe Webhook Ingestion
+
+Both Stripe webhook mounts expose the same support-safe failure classes in the
+response body, structured logs, and
+`chase_sets_stripe_webhook_ingestion_total`:
+
+- `signature-invalid`: signature or secret verification failed. This remains a
+  retryable 400 so a secret rotation or destination configuration correction can
+  recover delivery; sustained failures alert on the Stripe Webhook Alerts group.
+- `unknown-event`: a valid Stripe envelope does not map to an owned event. The
+  endpoint acknowledges it with 200 and does not ask Stripe to retry.
+- `schema-mismatch`: the envelope is not valid Stripe webhook JSON. The
+  endpoint acknowledges it with 200 because retrying the same malformed body
+  cannot repair it.
+- `handler-failure`: enrichment, projection readiness, wallet, or command
+  processing failed after parsing. The endpoint returns 400 so Stripe retries;
+  the log includes the provider event id and event kind when available.
+- `inbox-conflict`: the provider event was already recorded or won an insert
+  race. The endpoint acknowledges it with 200 and no effect is replayed.
+
+Open Grafana's **Platform API Overview** panel, then filter the **Stripe Webhook
+Alerts** rules by `endpoint`. A signature-failure alert usually means a
+destination secret mismatch or an incomplete rotation. A handler-failure spike
+requires checking the provider event id in the correlated log before replaying
+anything. Do not manually insert inbox rows; use Stripe replay or the existing
+reconciliation path after the underlying issue is fixed.
+
 ## Failed Payout
 
 1. Open the payout timeline and confirm whether failure came from transfer submission, connected-account payout submission, or a provider webhook.

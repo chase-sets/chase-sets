@@ -1819,7 +1819,7 @@ describe("settlement payout runtime", () => {
         },
         context,
       ),
-    ).resolves.toEqual({ received: true, ignored: true });
+    ).resolves.toEqual({ received: true, ignored: true, failure_class: "inbox-conflict" });
     expect(
       readAllEvents().filter(
         (event) =>

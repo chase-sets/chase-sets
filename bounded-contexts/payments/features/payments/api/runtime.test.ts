@@ -706,6 +706,7 @@ describe("payment runtime", () => {
     await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
       received: true,
       ignored: true,
+      failure_class: "inbox-conflict",
     });
 
     expect(webhookEvents).toHaveLength(1);
@@ -800,6 +801,7 @@ describe("payment runtime", () => {
     await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
       received: true,
       ignored: true,
+      failure_class: "inbox-conflict",
     });
 
     expect(readAllEvents().map((event) => event.eventType)).toContain("payments.payment-fraud-warning-received");
@@ -900,6 +902,7 @@ describe("payment runtime", () => {
     await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
       received: true,
       ignored: true,
+      failure_class: "inbox-conflict",
     });
 
     const disputeEvents = readAllEvents().filter((event) => event.eventType === "payments.payment-disputed");
@@ -2308,6 +2311,7 @@ describe("payment runtime", () => {
     await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
       received: true,
       ignored: true,
+      failure_class: "inbox-conflict",
     });
 
     expect(readAllEvents().map((event) => event.eventType)).toEqual([

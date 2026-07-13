@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SettlementApiEnv } from "../../../api";
 import { createMoneyMovementWebhookRoutes, createPayoutRoutes } from "./route";
 import type { PayoutServices } from "./runtime";
+import { ProviderWebhookError } from "@chase-sets/http/provider-errors";
 
 const context = {
   tenantId: "tnt_test" as never,
@@ -382,8 +383,10 @@ describe("settlement money movement webhook route", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
       error: {
-        code: "validation_failed",
+        code: "provider_webhook_signature_invalid",
         message: "Stripe webhook signature verification failed.",
+        failure_class: "signature-invalid",
+        retryable: true,
       },
     });
   });
@@ -405,11 +408,13 @@ describe("settlement money movement webhook route", () => {
       headers: { "Stripe-Signature": "t=1,v1=abc" },
     });
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
       error: {
-        code: "provider_webhook_processing_failed",
-        message: "simulated payout webhook commit conflict",
+        code: "provider_webhook_handler_failure",
+        message: "Provider webhook handler failed.",
+        failure_class: "handler-failure",
+        retryable: true,
       },
     });
   });
@@ -436,6 +441,32 @@ describe("settlement money movement webhook route", () => {
     await expect(response.json()).resolves.toEqual({
       received: true,
       ignored: true,
+    });
+  });
+
+  it.each([
+    ["unknown-event", "Unknown event"],
+    ["schema-mismatch", "Schema mismatch"],
+    ["inbox-conflict", "Inbox conflict"],
+  ] as const)("acknowledges %s without retrying the delivery", async (failureClass, message) => {
+    const processMoneyMovementWebhook = vi.fn(async () => {
+      throw new ProviderWebhookError(failureClass, message, "evt_test", "payout.failed", false);
+    });
+    const app = new Hono().route(
+      "/provider",
+      createMoneyMovementWebhookRoutes({ processMoneyMovementWebhook } as unknown as PayoutServices),
+    );
+
+    const response = await app.request("/provider/money-movement/webhooks", {
+      method: "POST",
+      body: "{}",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      received: true,
+      ignored: true,
+      failure_class: failureClass,
     });
   });
 });

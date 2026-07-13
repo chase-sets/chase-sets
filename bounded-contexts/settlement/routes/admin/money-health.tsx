@@ -24,6 +24,7 @@ type MoneyHealthData = Readonly<{
     provider_name: string;
     adapter_mode: string;
     webhook_signature_required: boolean;
+    webhook_failure_classes: readonly string[];
     platform_balance_supported: boolean;
     connected_account_payouts_supported: boolean;
   }>;
