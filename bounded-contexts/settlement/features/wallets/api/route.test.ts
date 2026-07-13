@@ -234,7 +234,6 @@ describe("settlement wallet routes", () => {
 });
 
 const OPERATOR_WALLET_MUTATION_ROUTES = [
-  "/wallet/adjustments",
   "/wallet/refund-debits",
   "/wallet/dispute-holds",
   "/wallet/dispute-releases",
@@ -243,8 +242,10 @@ const OPERATOR_WALLET_MUTATION_ROUTES = [
 describe("settlement wallet operator-mutation authorization", () => {
   it("rejects account-scoped payouts.manage actors on every operator wallet-mutation route", async () => {
     // Owner and manager hold payouts.manage. The arbitrary-account self-credit
-    // exploit is closed by requiring the separate platform wallet-adjustment
-    // authority, which payouts.manage does not grant.
+    // and self-debit exploit is closed by requiring the separate platform
+    // wallet-adjustment authority, which payouts.manage does not grant. The
+    // loop covers the surviving credit route (/wallet/dispute-releases) and the
+    // debit routes (/wallet/refund-debits, /wallet/dispute-holds).
     for (const route of OPERATOR_WALLET_MUTATION_ROUTES) {
       const postEntry = vi.fn();
       const app = createApp({ postEntry }, ["payouts.manage"]);
@@ -253,10 +254,9 @@ describe("settlement wallet operator-mutation authorization", () => {
         method: "POST",
         body: JSON.stringify({
           accountId: "acc_operator",
-          workflow: "dispute-release",
           amount: "1000.00",
           idempotencyKey: `exploit:${route}`,
-          auditReason: "attempted self-credit",
+          auditReason: "attempted self-mutation",
         }),
         headers: { "Content-Type": "application/json" },
       });
@@ -269,19 +269,40 @@ describe("settlement wallet operator-mutation authorization", () => {
     }
   });
 
-  it("cannot mint credit to its own account with workflow=dispute-release", async () => {
+  it("cannot mint credit to its own account through the surviving credit route", async () => {
     const postEntry = vi.fn();
-    // Self-credit: the caller targets its own account with the credit workflow.
+    // Self-credit: the caller targets its own account on the credit route that
+    // replaced the retired workflow=dispute-release path.
     const app = createApp({ postEntry }, ["payouts.manage"]);
 
-    const response = await app.request("/wallet/adjustments", {
+    const response = await app.request("/wallet/dispute-releases", {
       method: "POST",
       body: JSON.stringify({
         accountId: "acc_operator",
-        workflow: "dispute-release",
         amount: "500.00",
         idempotencyKey: "self-credit:acc_operator",
         auditReason: "self credit",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(403);
+    expect(postEntry).not.toHaveBeenCalled();
+  });
+
+  it("cannot debit an arbitrary account through the surviving refund-debit route", async () => {
+    const postEntry = vi.fn();
+    // Self/arbitrary debit: the caller targets an arbitrary account on the
+    // surviving debit route. Authorization is denied before the body is used.
+    const app = createApp({ postEntry }, ["payouts.manage"]);
+
+    const response = await app.request("/wallet/refund-debits", {
+      method: "POST",
+      body: JSON.stringify({
+        accountId: "acc_victim",
+        amount: "750.00",
+        idempotencyKey: "debit:acc_victim",
+        auditReason: "arbitrary debit",
       }),
       headers: { "Content-Type": "application/json" },
     });

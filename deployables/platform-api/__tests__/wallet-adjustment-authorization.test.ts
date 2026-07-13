@@ -18,7 +18,6 @@ const PAYOUT_OPERATOR_PERMISSIONS = [
 ] as const;
 
 const OPERATOR_WALLET_MUTATION_PATHS = [
-  "/api/settlement/wallet/adjustments",
   "/api/settlement/wallet/refund-debits",
   "/api/settlement/wallet/dispute-holds",
   "/api/settlement/wallet/dispute-releases",
@@ -79,10 +78,9 @@ describe("platform api operator wallet-mutation authorization", () => {
         method: "POST",
         body: JSON.stringify({
           accountId: "acc_operator",
-          workflow: "dispute-release",
           amount: "1000.00",
           idempotencyKey: `exploit:${path}`,
-          auditReason: "attempted self-credit",
+          auditReason: "attempted self-mutation",
         }),
         headers: { "Content-Type": "application/json" },
       });
