@@ -158,7 +158,7 @@
       ],
       "visibleDestination": {
         "routeId": "welcome",
-        "description": "The waitlist form redirects from the landing page to the dedicated /welcome success page (#3956). The committed waitlist signup id travels in the redirect's own query string, so the destination route's primary confirmation, referral link, and share affordances render without reading the admin waitlist projection. Only the supplementary referral-progress count is a separate, eventually-consistent client fetch (see the waitlist-referral-summary-read entry)."
+        "description": "The waitlist form redirects from the landing page to the dedicated /welcome success page (#3956). The committed waitlist signup id travels in the redirect's own query string, so the destination route's primary confirmation, referral link, and share affordances render without reading the admin waitlist projection. Only the supplementary referral progress and queue standing (referral count plus the #4070 beta-invite-line position, shown as pending until the projection catches up) is a separate, eventually-consistent client fetch (see the waitlist-referral-summary-read entry)."
       },
       "proof": {
         "authoritativeResponse": "submitWaitlistSignup returns the committed signup id/version, the public API returns that receipt with status=joined, and the home route action redirects to /welcome?signup=<id> carrying that receipt in the URL instead of same-page actionData.",

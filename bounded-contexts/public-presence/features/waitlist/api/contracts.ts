@@ -100,10 +100,20 @@ export type WaitlistMetrics = Readonly<{
   both_count: number;
 }>;
 
-/** Referral progress for the "move up the list" founding-status mechanic. Eventually consistent; safe to show 0 while the projection catches up. */
+/**
+ * Referral progress + queue standing for the "move up the list" mechanic.
+ * Eventually consistent; safe to show 0 counts while the projection catches
+ * up, and `queuePosition` is null (never a fake number) until the signup's
+ * own row is visible to the read model.
+ */
 export type WaitlistReferralSummary = Readonly<{
   referralCount: number;
   referralGoal: number;
+  /** 1-based place in the beta invite line per referral-queue-policy.ts, or null while the projection catches up. */
+  queuePosition: number | null;
+  totalSignups: number;
+  /** Places the signup's own referrals bought it (counterfactual vs zero own referrals); 0 when queuePosition is null. */
+  positionsAdvanced: number;
 }>;
 
 /**

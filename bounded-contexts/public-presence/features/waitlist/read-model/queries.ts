@@ -1,5 +1,6 @@
 import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { WAITLIST_GAMES, WAITLIST_INVENTORY_SIZES, WAITLIST_REFERRAL_GOAL } from "../domain/common";
+import { resolveWaitlistQueueStanding } from "./referral-queue-policy";
 import type {
   CampaignChannelAttributionRow,
   CampaignQualityMetrics,
@@ -120,10 +121,40 @@ export async function getWaitlistReferralSummary(db: PgQueryable, signupId: stri
      WHERE referred_by_signup_id = $1`,
     [signupId],
   );
+  // Queue standing is computed in TypeScript (referral-queue-policy.ts) from
+  // one scan of the whole waitlist rather than duplicated as SQL window math:
+  // prelaunch volume is small (see the schema.ts index note), and the policy
+  // stays a single, unit-tested source of truth. Standing is null until the
+  // projection has caught up with a fresh signup -- the UI shows "pending",
+  // never a fake number.
+  const queueResult = await db.query<{ signup_id: string; submitted_at: string; referral_count: string }>(
+    `SELECT
+       s.signup_id,
+       s.submitted_at::text AS submitted_at,
+       COALESCE(r.referral_count, 0)::int AS referral_count
+     FROM public_presence_waitlist_signups s
+     LEFT JOIN (
+       SELECT referred_by_signup_id, COUNT(*) AS referral_count
+       FROM public_presence_waitlist_signups
+       WHERE referred_by_signup_id IS NOT NULL
+       GROUP BY referred_by_signup_id
+     ) r ON r.referred_by_signup_id = s.signup_id`,
+  );
+  const standing = resolveWaitlistQueueStanding(
+    queueResult.rows.map((row) => ({
+      signupId: row.signup_id,
+      submittedAt: row.submitted_at,
+      referralCount: Number(row.referral_count),
+    })),
+    signupId,
+  );
 
   return {
     referralCount: Number(result.rows[0]?.referral_count ?? 0),
     referralGoal: WAITLIST_REFERRAL_GOAL,
+    queuePosition: standing?.position ?? null,
+    totalSignups: standing?.totalSignups ?? Number(queueResult.rowCount ?? queueResult.rows.length),
+    positionsAdvanced: standing?.positionsAdvanced ?? 0,
   };
 }
 

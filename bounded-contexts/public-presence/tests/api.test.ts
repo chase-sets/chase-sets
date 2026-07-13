@@ -25,7 +25,13 @@ function createServices(overrides: Partial<WaitlistServices> = {}) {
       sell_count: 0,
       both_count: 0,
     })),
-    getWaitlistReferralSummary: vi.fn(async () => ({ referralCount: 0, referralGoal: 3 })),
+    getWaitlistReferralSummary: vi.fn(async () => ({
+      referralCount: 0,
+      referralGoal: 3,
+      queuePosition: null,
+      totalSignups: 0,
+      positionsAdvanced: 0,
+    })),
     getWaitlistCounter: vi.fn(async () => ({ displayCount: null })),
     getCampaignQualityMetrics: vi.fn(async () => ({
       totalSignups: 0,
@@ -385,12 +391,24 @@ describe("public presence API", () => {
   });
 
   it("returns a referral summary for a well-formed signup id and rejects malformed ids", async () => {
-    const getWaitlistReferralSummary = vi.fn(async () => ({ referralCount: 2, referralGoal: 3 }));
+    const getWaitlistReferralSummary = vi.fn(async () => ({
+      referralCount: 2,
+      referralGoal: 3,
+      queuePosition: 41,
+      totalSignups: 120,
+      positionsAdvanced: 12,
+    }));
     const app = publicAppFor(createServices({ getWaitlistReferralSummary }));
 
     const valid = await app.request("/waitlist/wls_public/referral-summary");
     expect(valid.status).toBe(200);
-    await expect(valid.json()).resolves.toEqual({ referralCount: 2, referralGoal: 3 });
+    await expect(valid.json()).resolves.toEqual({
+      referralCount: 2,
+      referralGoal: 3,
+      queuePosition: 41,
+      totalSignups: 120,
+      positionsAdvanced: 12,
+    });
     expect(getWaitlistReferralSummary).toHaveBeenCalledWith("wls_public");
 
     const malformed = await app.request("/waitlist/not-a-signup-id/referral-summary");
