@@ -5,10 +5,15 @@ import {
   Button,
   DataTable,
   EvidenceStringList,
+  HiddenInput,
   KeyValueList,
+  OperationalStatusBanner,
+  RadioGroup,
   SideSheet,
+  Textarea,
   WorkbenchActionRow,
   WorkbenchDataCell,
+  WorkbenchForm,
   WorkbenchStack,
   WorkbenchText,
   WorkflowModule,
@@ -20,10 +25,12 @@ import type {
   CatalogPrimaryWorkbenchMergeCandidateReviewRow,
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
-import { CommandFormButton } from "./command-controls";
+import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
+import { CommandFormButton, CommandHiddenInputs } from "./command-controls";
 import { BlockerList, stateLabel } from "./workbench-formatting";
 
 type MergeCandidateRow = CatalogPrimaryWorkbenchMergeCandidateReviewRow;
+type BlockingConflict = MergeCandidateRow["conflicts"]["blockingConflicts"][number];
 
 export function CatalogIntegrationMergeCandidateReviewModule({
   readModel,
@@ -131,7 +138,7 @@ export function CatalogIntegrationMergeCandidateReviewModule({
         cell: (row) => (
           <WorkbenchStack gap="sm">
             <WorkbenchActionRow>
-              <MergeCandidateDetailSheet row={row} />
+              <MergeCandidateDetailSheet row={row} readModel={readModel} />
               {row.actions.map((actionEntry) => (
                 <MergeCandidateActionButton
                   key={actionEntry.key}
@@ -203,7 +210,10 @@ export function CatalogIntegrationMergeCandidateReviewModule({
   );
 }
 
-function MergeCandidateDetailSheet({ row }: Readonly<{ row: MergeCandidateRow }>) {
+function MergeCandidateDetailSheet({
+  row,
+  readModel,
+}: Readonly<{ row: MergeCandidateRow; readModel: CatalogPrimaryWorkbenchReadModel }>) {
   return (
     <SideSheet
       title={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.title", {
@@ -219,6 +229,9 @@ function MergeCandidateDetailSheet({ row }: Readonly<{ row: MergeCandidateRow }>
       }
     >
       <WorkbenchStack>
+        {row.conflicts.blockingConflicts.length > 0 ? (
+          <MergeCandidateConflictResolutionForm row={row} readModel={readModel} />
+        ) : null}
         <KeyValueList
           items={[
             {
@@ -285,6 +298,127 @@ function MergeCandidateDetailSheet({ row }: Readonly<{ row: MergeCandidateRow }>
         />
       </WorkbenchStack>
     </SideSheet>
+  );
+}
+
+// Conflict resolution dissolved into candidate review: blocking conflicts,
+// candidate values, and the precedence explanation render inline here, where
+// resolution already happens at promote time
+// (requireConflictResolutionsForBlockingConflicts in catalog-merge-candidate.ts
+// rejects promotion unless every blocking conflict code has a resolution). The
+// operator picks the winning value and states a reason per conflict, then submits
+// this form directly — the row-level Promote action stays blocked until then.
+function MergeCandidateConflictResolutionForm({
+  row,
+  readModel,
+}: Readonly<{ row: MergeCandidateRow; readModel: CatalogPrimaryWorkbenchReadModel }>) {
+  const blockingConflicts = row.conflicts.blockingConflicts;
+  const otherBlockers = row.promoteReadiness.blockers.filter((blocker) => blocker !== "promotion-conflict");
+  const blockingConflictsJson = JSON.stringify(
+    blockingConflicts.map((conflict) => ({
+      code: conflict.code,
+      fieldPath: conflict.fieldPath,
+      existingValueJson: conflict.existingValueJson,
+      proposedValueJson: conflict.proposedValueJson,
+      observationIds: conflict.observationIds,
+    })),
+  );
+
+  return (
+    <WorkflowModule
+      title={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.title")}
+      description={t(
+        "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.description",
+      )}
+      status={
+        <Badge tone="danger">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflicts.blocking", {
+            count: blockingConflicts.length,
+          })}
+        </Badge>
+      }
+      density="compact"
+    >
+      <WorkbenchStack>
+        {otherBlockers.length > 0 ? (
+          <>
+            <OperationalStatusBanner
+              tone="warning"
+              title={t(
+                "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.otherBlockers.title",
+              )}
+              description={t(
+                "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.otherBlockers.description",
+              )}
+            />
+            <BlockerList blockers={otherBlockers} />
+          </>
+        ) : (
+          <WorkbenchForm
+            variant="surface"
+            method="post"
+            action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
+            data-catalog-merge-candidate-conflict-resolution-form="true"
+          >
+            <CommandHiddenInputs readModel={readModel} intent="promote-merge-candidate" candidateId={row.candidateId} />
+            <HiddenInput name="blockingConflictsJson" value={blockingConflictsJson} />
+            {blockingConflicts.map((conflict) => (
+              <ConflictResolutionField key={conflict.code} conflict={conflict} />
+            ))}
+            <Textarea
+              name="reason"
+              label={t(
+                "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.promoteReason",
+              )}
+              required
+              rows={2}
+            />
+            <WorkbenchActionRow align="end">
+              <Button type="submit" tone="primary" size="sm">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.submit")}
+              </Button>
+            </WorkbenchActionRow>
+          </WorkbenchForm>
+        )}
+      </WorkbenchStack>
+    </WorkflowModule>
+  );
+}
+
+function ConflictResolutionField({ conflict }: Readonly<{ conflict: BlockingConflict }>) {
+  return (
+    <WorkbenchStack gap="sm" data-catalog-conflict-code={conflict.code}>
+      <WorkbenchText size="sm">{conflict.message}</WorkbenchText>
+      <RadioGroup
+        name={`resolution.${conflict.code}`}
+        label={t(
+          "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.chosenValue",
+        )}
+        defaultValue="existing"
+        items={[
+          {
+            value: "existing",
+            label: t(
+              "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.keepExisting",
+              { value: conflict.existingValueDisplay },
+            ),
+          },
+          {
+            value: "proposed",
+            label: t(
+              "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.useProposed",
+              { value: conflict.proposedValueDisplay },
+            ),
+          },
+        ]}
+      />
+      <Textarea
+        name={`reason.${conflict.code}`}
+        label={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.reason")}
+        required
+        rows={2}
+      />
+    </WorkbenchStack>
   );
 }
 

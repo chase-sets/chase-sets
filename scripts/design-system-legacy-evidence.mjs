@@ -181,11 +181,11 @@ const surfaceChecks = [
     mustNotInclude: catalogControlPlaneForbiddenSignals,
   },
   {
-    id: "catalog-governance-workspace-patterns",
+    id: "catalog-settings-workspace-patterns",
     owner: "Catalog",
-    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance",
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/settings",
     visualEvidence: [
-      "Governance controls use workbench cells, link lists, value lists, and blocker reason patterns instead of raw table-cell markup.",
+      "Settings (governance controls become Settings) uses workbench cells, link lists, value lists, and blocker reason patterns instead of raw table-cell markup.",
     ],
     accessibilityEvidence: [
       "Evidence links use LinkText and blockers use StatusReasonList so link and status semantics stay centralized.",
@@ -194,12 +194,14 @@ const surfaceChecks = [
     mustNotInclude: catalogControlPlaneForbiddenSignals,
   },
   {
-    id: "catalog-conflict-workspace-patterns",
+    id: "catalog-merge-candidate-conflict-resolution-patterns",
     owner: "Catalog",
-    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts",
-    visualEvidence: ["Conflict resolution uses workbench grids, stacks, data cells, and shared blocker reason lists."],
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion",
+    visualEvidence: [
+      "Conflict resolution dissolved into candidate review uses workbench grids, stacks, data cells, and shared blocker reason lists instead of a standalone workspace.",
+    ],
     accessibilityEvidence: [
-      "Conflict evidence, precedence, and override blockers use DataTable row metadata and StatusReasonList.",
+      "Conflict evidence, resolution choices, and reasons use RadioGroup/Textarea form primitives and StatusReasonList blockers.",
     ],
     mustInclude: ["WorkbenchGrid", "WorkbenchDataCell", "WorkbenchText", "StatusReasonList"],
     mustNotInclude: catalogControlPlaneForbiddenSignals,

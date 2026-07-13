@@ -132,6 +132,18 @@ function mergeCandidateReviewRowFor(
         ...candidate.conflicts_json.map((conflict) => conflict.message),
         ...candidate.warnings_json.map((warning) => warning.message),
       ],
+      blockingConflicts: candidate.conflicts_json
+        .filter((conflict) => conflict.severity === "blocking")
+        .map((conflict) => ({
+          code: conflict.code,
+          message: conflict.message,
+          fieldPath: conflict.fieldPath,
+          existingValueDisplay: jsonSummary(conflict.existingValue),
+          proposedValueDisplay: jsonSummary(conflict.proposedValue),
+          existingValueJson: JSON.stringify(conflict.existingValue ?? null),
+          proposedValueJson: JSON.stringify(conflict.proposedValue ?? null),
+          observationIds: conflict.observationIds,
+        })),
     },
     promoteReadiness: {
       state: promoteReadinessStateFor(candidate, blockers),

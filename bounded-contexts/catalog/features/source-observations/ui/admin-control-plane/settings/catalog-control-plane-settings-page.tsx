@@ -7,6 +7,7 @@ import {
   MetricStrip,
   OperationalStatusBanner,
   StatusReasonList,
+  WorkbenchActionRow,
   WorkbenchDataCell,
   WorkbenchLinkList,
   WorkbenchStack,
@@ -22,6 +23,7 @@ import type {
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
 import { getCatalogPrimaryWorkbenchBlockerCopy } from "../../primary-workbench-copy";
+import { CatalogControlPlaneEvidenceDrawer } from "../evidence/catalog-control-plane-evidence-drawer";
 
 type GovernanceControls = CatalogPrimaryWorkbenchReadModel["governanceControls"];
 type GovernanceControl = GovernanceControls["controls"][number];
@@ -30,7 +32,17 @@ type GovernanceSignal = GovernanceControls["observability"]["signals"][number];
 type GovernanceRemovalEvidence = GovernanceControls["legacyRemovalEvidence"]["evidence"][number];
 type BadgeTone = "success" | "warning" | "danger" | "neutral" | "info" | "accent";
 
-export function CatalogIntegrationGovernanceControlsWorkspace({
+// The Catalog integration control-plane Settings page. Governance becomes
+// Settings: RBAC, rollout mode, kill switches, and observability signal
+// ownership are read-mostly configuration an operator visits rarely, so they
+// render here — with an Evidence drawer for audit traceability instead of the
+// old standalone audit-evidence workspace, and the manage-permission gates on
+// mutations unchanged.
+//
+// This surface still hosts the lifecycle-recovery workspace (rollback, retire,
+// deprecate) alongside these controls, pending its move to the provider-detail
+// page in a follow-on slice; the workspaces below are the Settings-owned part.
+export function CatalogControlPlaneSettingsPage({
   readModel,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
@@ -38,7 +50,11 @@ export function CatalogIntegrationGovernanceControlsWorkspace({
   const governance = readModel.governanceControls;
 
   return (
-    <WorkbenchStack element="section" data-catalog-governance-controls-workspace="true">
+    <WorkbenchStack
+      element="section"
+      data-catalog-control-plane-settings-page="true"
+      data-catalog-governance-controls-workspace="true"
+    >
       <WorkflowModule
         title={t("catalog.features.sourceObservations.ui.governanceControls.title")}
         description={t("catalog.features.sourceObservations.ui.governanceControls.description")}
@@ -52,6 +68,12 @@ export function CatalogIntegrationGovernanceControlsWorkspace({
             title={governanceBannerTitle(governance)}
             description={governanceBannerDescription(governance)}
           />
+          <WorkbenchActionRow align="between">
+            <WorkbenchText size="sm">
+              {t("catalog.features.sourceObservations.ui.auditEvidence.description")}
+            </WorkbenchText>
+            <CatalogControlPlaneEvidenceDrawer auditEvidence={readModel.auditEvidence} />
+          </WorkbenchActionRow>
           <MetricStrip
             items={[
               {

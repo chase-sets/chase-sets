@@ -1,7 +1,7 @@
 {
   "schemaVersion": "design-system-legacy-visual-accessibility-evidence/v2",
   "milestone": 12,
-  "checkedAt": "2026-07-12T14:05:27.965Z",
+  "checkedAt": "2026-07-13T09:29:11.636Z",
   "generatedBy": "pnpm run ops design-system:legacy-evidence --write",
   "retainedArtifact": "packages/design-system/DESIGN_SYSTEM_LEGACY_VISUAL_ACCESSIBILITY_EVIDENCE.json",
   "summary": {
@@ -300,6 +300,7 @@
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/command-controls.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-context-bar.tsx",
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/merge-candidate-review-module.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/source-scope-workset-module.tsx"
       ],
       "visualEvidence": [
@@ -328,12 +329,14 @@
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/command-controls.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-context-bar.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/merge-candidate-review-module.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/source-scope-workset-module.tsx"
         ],
         "HiddenInput": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/command-controls.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-context-bar.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/merge-candidate-review-module.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/source-scope-workset-module.tsx"
         ]
       },
@@ -342,12 +345,14 @@
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/command-controls.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-context-bar.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/merge-candidate-review-module.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/source-scope-workset-module.tsx"
         ],
         "HiddenInput": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/command-controls.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-context-bar.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/merge-candidate-review-module.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/source-scope-workset-module.tsx"
         ]
       },
@@ -808,14 +813,14 @@
       "status": "passed"
     },
     {
-      "id": "catalog-governance-workspace-patterns",
+      "id": "catalog-settings-workspace-patterns",
       "owner": "Catalog",
-      "scope": "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance",
+      "scope": "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/settings",
       "discoveredFiles": [
-        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance/governance-controls-workspace.tsx"
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/settings/catalog-control-plane-settings-page.tsx"
       ],
       "visualEvidence": [
-        "Governance controls use workbench cells, link lists, value lists, and blocker reason patterns instead of raw table-cell markup."
+        "Settings (governance controls become Settings) uses workbench cells, link lists, value lists, and blocker reason patterns instead of raw table-cell markup."
       ],
       "accessibilityEvidence": [
         "Evidence links use LinkText and blockers use StatusReasonList so link and status semantics stay centralized."
@@ -839,30 +844,30 @@
       "discoverySignals": ["LinkText", "WorkbenchLinkList", "WorkbenchValueList", "StatusReasonList"],
       "discoverySignalFiles": {
         "LinkText": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance/governance-controls-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/settings/catalog-control-plane-settings-page.tsx"
         ],
         "WorkbenchLinkList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance/governance-controls-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/settings/catalog-control-plane-settings-page.tsx"
         ],
         "WorkbenchValueList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance/governance-controls-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/settings/catalog-control-plane-settings-page.tsx"
         ],
         "StatusReasonList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance/governance-controls-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/settings/catalog-control-plane-settings-page.tsx"
         ]
       },
       "requiredSignalFiles": {
         "LinkText": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance/governance-controls-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/settings/catalog-control-plane-settings-page.tsx"
         ],
         "WorkbenchLinkList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance/governance-controls-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/settings/catalog-control-plane-settings-page.tsx"
         ],
         "WorkbenchValueList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance/governance-controls-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/settings/catalog-control-plane-settings-page.tsx"
         ],
         "StatusReasonList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance/governance-controls-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/settings/catalog-control-plane-settings-page.tsx"
         ]
       },
       "forbiddenSignalFiles": {
@@ -883,17 +888,24 @@
       "status": "passed"
     },
     {
-      "id": "catalog-conflict-workspace-patterns",
+      "id": "catalog-merge-candidate-conflict-resolution-patterns",
       "owner": "Catalog",
-      "scope": "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts",
+      "scope": "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion",
       "discoveredFiles": [
-        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx"
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/command-plan-module.tsx",
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/create-items-stage.tsx",
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-context-bar.tsx",
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-to-promotion-workspace.tsx",
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/merge-candidate-review-module.tsx",
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/source-scope-workset-module.tsx",
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/workbench-formatting.tsx"
       ],
       "visualEvidence": [
-        "Conflict resolution uses workbench grids, stacks, data cells, and shared blocker reason lists."
+        "Conflict resolution dissolved into candidate review uses workbench grids, stacks, data cells, and shared blocker reason lists instead of a standalone workspace."
       ],
       "accessibilityEvidence": [
-        "Conflict evidence, precedence, and override blockers use DataTable row metadata and StatusReasonList."
+        "Conflict evidence, resolution choices, and reasons use RadioGroup/Textarea form primitives and StatusReasonList blockers."
       ],
       "requiredSignals": ["WorkbenchGrid", "WorkbenchDataCell", "WorkbenchText", "StatusReasonList"],
       "forbiddenSignals": [
@@ -914,30 +926,52 @@
       "discoverySignals": ["WorkbenchGrid", "WorkbenchDataCell", "WorkbenchText", "StatusReasonList"],
       "discoverySignalFiles": {
         "WorkbenchGrid": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/command-plan-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/create-items-stage.tsx"
         ],
         "WorkbenchDataCell": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/merge-candidate-review-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/source-scope-workset-module.tsx"
         ],
         "WorkbenchText": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/command-plan-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/create-items-stage.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-context-bar.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-to-promotion-workspace.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/merge-candidate-review-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/source-scope-workset-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/workbench-formatting.tsx"
         ],
         "StatusReasonList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/workbench-formatting.tsx"
         ]
       },
       "requiredSignalFiles": {
         "WorkbenchGrid": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/command-plan-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/create-items-stage.tsx"
         ],
         "WorkbenchDataCell": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/merge-candidate-review-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/source-scope-workset-module.tsx"
         ],
         "WorkbenchText": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/command-plan-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/create-items-stage.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-context-bar.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-to-promotion-workspace.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/merge-candidate-review-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/source-scope-workset-module.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/workbench-formatting.tsx"
         ],
         "StatusReasonList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/workbench-formatting.tsx"
         ]
       },
       "forbiddenSignalFiles": {
@@ -1037,7 +1071,8 @@
       "owner": "Catalog",
       "scope": "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence",
       "discoveredFiles": [
-        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx"
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/catalog-control-plane-evidence-drawer.tsx"
       ],
       "visualEvidence": [
         "Audit evidence uses workbench stacks, data cells, text, and link lists for release proof and redaction tables."
@@ -1064,30 +1099,38 @@
       "discoverySignals": ["LinkText", "WorkbenchLinkList", "WorkbenchDataCell", "WorkbenchStack"],
       "discoverySignalFiles": {
         "LinkText": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/catalog-control-plane-evidence-drawer.tsx"
         ],
         "WorkbenchLinkList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/catalog-control-plane-evidence-drawer.tsx"
         ],
         "WorkbenchDataCell": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/catalog-control-plane-evidence-drawer.tsx"
         ],
         "WorkbenchStack": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/catalog-control-plane-evidence-drawer.tsx"
         ]
       },
       "requiredSignalFiles": {
         "LinkText": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/catalog-control-plane-evidence-drawer.tsx"
         ],
         "WorkbenchLinkList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/catalog-control-plane-evidence-drawer.tsx"
         ],
         "WorkbenchDataCell": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/catalog-control-plane-evidence-drawer.tsx"
         ],
         "WorkbenchStack": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/catalog-control-plane-evidence-drawer.tsx"
         ]
       },
       "forbiddenSignalFiles": {

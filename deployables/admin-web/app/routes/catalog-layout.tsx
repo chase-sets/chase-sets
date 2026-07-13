@@ -13,7 +13,11 @@ const config = {
     // the active child (the base route is the Import child).
     integrations: "integrations-import",
     "integrations/providers": "integrations-providers",
-    "integrations/governance": "integrations-governance",
+    // The Settings nav child is the canonical path; the pre-existing governance
+    // path stays registered (old bookmarks/evidence links) and highlights the
+    // same nav child since it renders the identical surface.
+    "integrations/settings": "integrations-settings",
+    "integrations/governance": "integrations-settings",
     "integrations/health": "integrations-health",
   },
 } as const;

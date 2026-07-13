@@ -1741,6 +1741,19 @@ export type CatalogPrimaryWorkbenchMergeCandidateReviewRow = Readonly<{
     blocking: number;
     warnings: number;
     messages: readonly string[];
+    // Every blocking conflict on this candidate, with enough detail to resolve it
+    // inline in the review drawer: requireConflictResolutionsForBlockingConflicts
+    // rejects promotion unless every entry here has a matching resolution by code.
+    blockingConflicts: readonly Readonly<{
+      code: string;
+      message: string;
+      fieldPath: string | null;
+      existingValueDisplay: string;
+      proposedValueDisplay: string;
+      existingValueJson: string;
+      proposedValueJson: string;
+      observationIds: readonly string[];
+    }>[];
   }>;
   promoteReadiness: Readonly<{
     state: "ready" | "blocked" | "stale" | "deferred" | "terminal";
@@ -3474,6 +3487,11 @@ function assertPrimaryWorkbenchMergeCandidateReview(
     }
     if (row.fieldProvenance.length === 0 || row.sourceComparison.length === 0) {
       throw new Error("Primary workbench merge candidate detail must expose source comparison and field provenance.");
+    }
+    if (row.conflicts.blockingConflicts.length !== row.conflicts.blocking) {
+      throw new Error(
+        "Primary workbench merge candidate blocking conflict count must match its resolvable conflict detail.",
+      );
     }
     const actions = new Set(row.actions.map((actionEntry) => actionEntry.key));
     for (const actionKey of [

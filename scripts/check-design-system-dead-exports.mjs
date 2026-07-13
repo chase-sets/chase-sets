@@ -96,7 +96,6 @@ const canonicalReserveZeroConsumerExports = [
   "ProgressiveDisclosureGroup",
   "ProgressTrack",
   "Quote",
-  "RadioGroup",
   "RecordPage",
   "renderOptionalNode",
   "resolveAlignClass",
