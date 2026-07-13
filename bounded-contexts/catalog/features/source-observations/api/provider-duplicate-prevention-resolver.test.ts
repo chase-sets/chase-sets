@@ -1,3 +1,4 @@
+import { normalizedObservation } from "../../../support/test-support/source-observation-fixtures";
 import { describe, expect, it } from "vitest";
 import type { BlueprintId, CatalogItemId, CategoryId, FieldId } from "../../../ids";
 import type {
@@ -721,10 +722,7 @@ function catalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
 function pokemonCardObservation(
   overrides: Partial<SourceObservationPokemonCardNormalized> = {},
 ): SourceObservationPokemonCardNormalized {
-  return {
-    kind: "pokemon-card",
-    tcg: "pokemon",
-    languageCode: "en",
+  return normalizedObservation({
     name: "Pikachu",
     cardNumber: "001",
     setId: "swsh1",
@@ -740,19 +738,14 @@ function pokemonCardObservation(
     illustrator: "Atsuko Nishida",
     releaseDate: "2020-02-07",
     releaseYear: 2020,
-    category: "Pokemon",
     imageBaseUrl: null,
     imageUrls: [],
-    productAssetSet: null,
-    parallelSet: false,
     cardVariantKey: "holofoil",
     cardVariantLabel: "Standard Set Foil",
     cardVariantSourceKey: "holo",
-    cardVariantIsPrimaryImage: true,
-    imageDisclaimer: null,
     variants: {},
     ...overrides,
-  };
+  });
 }
 
 function providerProductObservation(

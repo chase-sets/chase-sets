@@ -14,6 +14,9 @@ Catalog Integration Control Plane tests should prove the decomposed boundaries d
 | Admin Control Plane workbench read model | Catalog Source Observations UI | `features/source-observations/ui/primary-workbench-core-read-model.test.ts`, `primary-workbench-profile-authoring.test.ts`, `primary-workbench-validation-readiness.test.ts`, `primary-workbench-lifecycle-recovery.test.ts`, `primary-workbench-import-jobs.test.ts`, `primary-workbench-health-triage.test.ts`, `primary-workbench-source-observation-review.test.ts`, `primary-workbench-conflict-resolution.test.ts`, `primary-workbench-governance-controls.test.ts`, `primary-workbench-audit-evidence.test.ts` |
 | Admin Control Plane rendered workflows | Catalog Source Observations UI | `features/source-observations/ui/primary-workbench-page.test.tsx` |
 | Admin Control Plane route context and copy | Catalog Source Observations UI | `features/source-observations/ui/primary-workbench-route-context.test.ts`, `primary-workbench-copy.test.ts` |
+| Admin integrations route loader seams | Catalog Source Observations UI | `tests/admin-integrations-route-loader-core.test.tsx`, `admin-integrations-route-loader-operator.test.tsx`, `admin-integrations-route-loader-provider-units.test.tsx`, `admin-integrations-route-loader-source-options.test.tsx` |
+| Admin integrations route actions and governance | Catalog Source Observations UI | `tests/admin-integrations-route-action.test.tsx`, `admin-integrations-route-governance.test.tsx` |
+| Admin integrations route rendering | Catalog Source Observations UI | `tests/admin-integrations-route-render.test.tsx` |
 | Operator journeys and no-confusion acceptance | Catalog acceptance and deployable E2E | `tests/operator-acceptance-journeys.test.ts`, `features/source-observations/tests/catalog-integration-no-confusion-ux-acceptance.test.ts` |
 
 ## Rules

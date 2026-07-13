@@ -1,3 +1,4 @@
+import { normalizedObservation } from "../../../support/test-support/source-observation-fixtures";
 import { describe, expect, it } from "vitest";
 import type { CatalogItemId, BlueprintId, CategoryId, FieldId, ReferenceRecordId } from "../../../ids";
 import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
@@ -1041,10 +1042,7 @@ function lorcanaSealedCatalogMapping(): CatalogProviderPromotionResolvedCatalogM
 function pokemonCardObservation(
   overrides: Partial<SourceObservationPokemonCardNormalized> = {},
 ): SourceObservationPokemonCardNormalized {
-  return {
-    kind: "pokemon-card",
-    tcg: "pokemon",
-    languageCode: "en",
+  return normalizedObservation({
     name: "Pikachu",
     cardNumber: "001",
     setId: "swsh1",
@@ -1060,15 +1058,11 @@ function pokemonCardObservation(
     illustrator: "Atsuko Nishida",
     releaseDate: "2020-02-07",
     releaseYear: 2020,
-    category: "Pokemon",
     imageBaseUrl: "https://images.example/swsh1-001",
     imageUrls: ["https://images.example/swsh1-001/high.webp"],
-    productAssetSet: null,
-    parallelSet: false,
     cardVariantKey: "holofoil",
     cardVariantLabel: "Standard Set Foil",
     cardVariantSourceKey: "holo",
-    cardVariantIsPrimaryImage: true,
     imageDisclaimer: "Variant artwork uses provider image reference.",
     variants: {},
     externalCatalogItemReferences: [
@@ -1076,7 +1070,7 @@ function pokemonCardObservation(
       { providerKey: "tcgplayer", externalKey: "product:12345" },
     ],
     ...overrides,
-  };
+  });
 }
 
 function providerProductObservation(): SourceObservationProviderProductNormalized {

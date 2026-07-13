@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import type { ListResponse } from "@chase-sets/http/responses";
 import type {
   CatalogIntegrationControlPlaneOverview,
   CatalogMergeCandidateListItem,
@@ -9,6 +10,7 @@ import type {
   SourceObservationListItem,
   SourceObservationIntegrationScope,
 } from "./contracts";
+import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "./primary-workbench-read-model";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
 import {
   scrydexOnePieceCardPrintProviderProfile,
@@ -39,6 +41,73 @@ export function sourceObservationScope(
     latest_source_updated_at: "2026-06-09T00:30:00.000Z",
     ...overrides,
   };
+}
+
+type PrimaryWorkbenchLoaderData = Readonly<{
+  data: ListResponse<SourceObservationIntegrationScope>;
+  query: Readonly<Record<string, unknown>>;
+  profileReviews: ListResponse<CatalogProviderProfileVersionReview>;
+  controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
+  requestUrl: string;
+  readModel: ReturnType<typeof buildCatalogPrimaryWorkbenchReadModelForSurface>;
+  [key: string]: unknown;
+}>;
+
+export function loaderData(overrides: Partial<PrimaryWorkbenchLoaderData> = {}): PrimaryWorkbenchLoaderData {
+  const data = overrides.data ?? { items: [sourceObservationScope()], total: 1, count: 1 };
+  const profileReviews = overrides.profileReviews ?? {
+    items: [profileReview({ active: true, lifecycle: "active" })],
+    total: 1,
+    count: 1,
+  };
+  const controlPlaneOverview = overrides.controlPlaneOverview ?? null;
+  const requestUrl = overrides.requestUrl ?? "https://admin.example/catalog/integrations?providerKey=tcgdex";
+  const readModel =
+    overrides.readModel ??
+    buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl,
+      scopes: data,
+      profileReviews,
+      controlPlaneOverview,
+      canManageCatalog: true,
+    });
+
+  return {
+    data,
+    query: {},
+    profileReviews,
+    controlPlaneOverview,
+    requestUrl,
+    readModel,
+    ...overrides,
+  };
+}
+
+export function tcgplayerSourceOptionKinds(input: { legacyParentMetadata?: boolean } = {}) {
+  const legacy = input.legacyParentMetadata ?? false;
+
+  return [
+    {
+      queryKind: "product-lines",
+      queryKeySynonyms: ["productLineId"],
+      displayName: "Product Line",
+      scope: "product-line/category",
+      parentScope: null,
+      parentRequired: false,
+      parentValueKind: null,
+      parentDiagnosticText: null,
+    },
+    {
+      queryKind: "set-names",
+      queryKeySynonyms: ["setName"],
+      displayName: "Set Name",
+      scope: "set-name",
+      parentScope: legacy ? null : "product-line/category",
+      parentRequired: true,
+      parentValueKind: legacy ? null : "product-line-id",
+      parentDiagnosticText: legacy ? null : "Select Product Line before Set Name.",
+    },
+  ] as const;
 }
 
 export function profileReview(

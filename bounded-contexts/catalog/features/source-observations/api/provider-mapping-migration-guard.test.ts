@@ -1,3 +1,4 @@
+import { normalizedObservation } from "../../../support/test-support/source-observation-fixtures";
 import { describe, expect, it } from "vitest";
 import type { CatalogProviderSourceObservationInput } from "./provider-source-observation-normalizer";
 import { assessCatalogProviderMappingMigration } from "./provider-mapping-migration-guard";
@@ -72,37 +73,5 @@ function observation(
 }
 
 function normalized(): CatalogProviderSourceObservationInput["normalized"] {
-  return {
-    kind: "pokemon-card",
-    tcg: "pokemon",
-    languageCode: "en",
-    name: "Charizard",
-    cardNumber: "4",
-    setId: "base1",
-    setName: "Base Set",
-    expansionId: "base1",
-    expansionName: "Base Set",
-    expansionAbbreviation: "BS",
-    expansionCardCount: 102,
-    expansionParallelSetCardCount: null,
-    seriesId: "base",
-    seriesName: "Base",
-    rarity: "Rare Holo",
-    illustrator: "Mitsuhiro Arita",
-    releaseDate: "1999-01-09",
-    releaseYear: 1999,
-    category: "Pokemon",
-    imageBaseUrl: null,
-    imageUrls: [],
-    productAssetSet: null,
-    parallelSet: false,
-    cardVariantKey: "standard-set",
-    cardVariantLabel: "Standard Set",
-    cardVariantSourceKey: "normal",
-    cardVariantIsPrimaryImage: true,
-    imageDisclaimer: null,
-    variants: { normal: true },
-    externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:123" }],
-    externalProductReferences: [],
-  };
+  return normalizedObservation();
 }

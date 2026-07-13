@@ -22,6 +22,15 @@ const acceptanceGateTestPath = resolve(
   contextRoot,
   "features/source-observations/tests/catalog-integration-no-confusion-ux-acceptance.test.ts",
 );
+const routeTestPaths = [
+  "admin-integrations-route-render.test.tsx",
+  "admin-integrations-route-loader-core.test.tsx",
+  "admin-integrations-route-loader-source-options.test.tsx",
+  "admin-integrations-route-loader-provider-units.test.tsx",
+  "admin-integrations-route-loader-operator.test.tsx",
+  "admin-integrations-route-action.test.tsx",
+  "admin-integrations-route-governance.test.tsx",
+].map((fileName) => resolve(contextRoot, "tests", fileName));
 
 describe("Catalog integration test architecture", () => {
   const doc = readFileSync(architectureDocPath, "utf8");
@@ -52,6 +61,13 @@ describe("Catalog integration test architecture", () => {
       "primary-workbench-page.test.tsx",
       "primary-workbench-route-context.test.ts",
       "primary-workbench-copy.test.ts",
+      "admin-integrations-route-loader-core.test.tsx",
+      "admin-integrations-route-loader-operator.test.tsx",
+      "admin-integrations-route-loader-provider-units.test.tsx",
+      "admin-integrations-route-loader-source-options.test.tsx",
+      "admin-integrations-route-action.test.tsx",
+      "admin-integrations-route-governance.test.tsx",
+      "admin-integrations-route-render.test.tsx",
       "operator-acceptance-journeys.test.ts",
       "catalog-integration-no-confusion-ux-acceptance.test.ts",
     ];
@@ -81,5 +97,11 @@ describe("Catalog integration test architecture", () => {
     expect(doc).not.toContain(["integration", "management", "page.test.tsx"].join("-"));
     expect(doc).not.toContain(["source", "observation", "list", "page.test.tsx"].join("-"));
     expect(doc).not.toContain("deployables/admin-web/e2e/catalog-integrations.spec.ts");
+  });
+
+  it("keeps the integrations route coverage split by behavior", () => {
+    for (const routeTestPath of routeTestPaths) {
+      expect(readFileSync(routeTestPath, "utf8")).toContain('describe("Catalog integrations route"');
+    }
   });
 });
