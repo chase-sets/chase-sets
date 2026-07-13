@@ -83,6 +83,7 @@ export type SourceObservationMergeIdentity = Readonly<{
 
 export type SourceObservationNormalizedKind =
   | "pokemon-card"
+  | "pokemon-sealed-product"
   | "provider-product"
   | "magic-card-print"
   | "magic-set-reference"
@@ -146,6 +147,35 @@ export type SourceObservationPokemonCardNormalized = JsonObject &
     imageDisclaimer: string | null;
     variants: JsonObject;
     externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+  }>;
+
+export type SourceObservationPokemonSealedProductNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "pokemon-sealed-product";
+    tcg: "pokemon";
+    languageCode: string;
+    name: string;
+    setId: string | null;
+    setCode: string | null;
+    setName: string;
+    sealedProductForm:
+      | "booster-pack"
+      | "booster-box"
+      | "elite-trainer-box"
+      | "bundle"
+      | "tin"
+      | "deck"
+      | "sealed-product";
+    packCount: number;
+    releaseDate: string | null;
+    releaseYear: number | null;
+    productLineName: "Pokemon";
+    barcode: string | null;
+    imageUrls: readonly string[];
+    mergeIdentity?: SourceObservationMergeIdentity;
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+    externalProductReferences?: readonly SourceObservationExternalProductReference[];
   }>;
 
 export type SourceObservationProviderProductNormalized = JsonObject &
@@ -432,6 +462,7 @@ export type SourceObservationLorcanaSealedProductNormalized = JsonObject &
 
 export type SourceObservationNormalized =
   | SourceObservationPokemonCardNormalized
+  | SourceObservationPokemonSealedProductNormalized
   | SourceObservationProviderProductNormalized
   | SourceObservationMagicCardPrintNormalized
   | SourceObservationMagicSetReferenceNormalized
@@ -451,6 +482,12 @@ export function isPokemonCardSourceObservationNormalized(
   normalized: SourceObservationNormalized,
 ): normalized is SourceObservationPokemonCardNormalized {
   return normalized.kind === "pokemon-card";
+}
+
+export function isPokemonCatalogItemSourceObservationNormalized(
+  normalized: SourceObservationNormalized,
+): normalized is SourceObservationPokemonCardNormalized | SourceObservationPokemonSealedProductNormalized {
+  return normalized.kind === "pokemon-card" || normalized.kind === "pokemon-sealed-product";
 }
 
 export function isMagicCatalogItemSourceObservationNormalized(

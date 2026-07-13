@@ -63,6 +63,7 @@ import {
   isOnePieceCatalogItemSourceObservationNormalized,
   isOnePieceSetReferenceSourceObservationNormalized,
   isPokemonCardSourceObservationNormalized,
+  isPokemonCatalogItemSourceObservationNormalized,
   type SourceObservationCommand,
   type SourceObservationEvent,
   type SourceObservationLorcanaCardPrintNormalized,
@@ -76,6 +77,7 @@ import {
   type SourceObservationOnePieceSetReferenceNormalized,
   type SourceObservationOnePieceSealedProductNormalized,
   type SourceObservationPokemonCardNormalized,
+  type SourceObservationPokemonSealedProductNormalized,
   type SourceObservationPromotionProfileEvidence,
   type SourceObservationState,
 } from "../domain/domain";
@@ -6819,6 +6821,7 @@ type CatalogItemPromotionResult = SourceObservationPromotionProfileEvidence &
 
 type CatalogItemPromotableSourceObservationNormalized =
   | SourceObservationPokemonCardNormalized
+  | SourceObservationPokemonSealedProductNormalized
   | SourceObservationMagicCardPrintNormalized
   | SourceObservationMagicSealedProductNormalized
   | SourceObservationLorcanaCardPrintNormalized
@@ -6885,7 +6888,10 @@ async function createCatalogDraftFromObservation(input: {
       categoryId: input.catalogMapping.categoryId,
       fieldIds: input.catalogMapping.fieldIds,
     },
-    expansionReferenceId: input.normalized.kind === "pokemon-card" ? targetReferenceRecordId : undefined,
+    expansionReferenceId:
+      input.normalized.kind === "pokemon-card" || input.normalized.kind === "pokemon-sealed-product"
+        ? targetReferenceRecordId
+        : undefined,
     setReferenceId,
     metadata,
     productAssetSet,
@@ -6956,7 +6962,10 @@ async function refreshCatalogItemFromObservation(input: {
       categoryId: input.catalogMapping.categoryId,
       fieldIds: input.catalogMapping.fieldIds,
     },
-    expansionReferenceId: input.normalized.kind === "pokemon-card" ? targetReferenceRecordId : undefined,
+    expansionReferenceId:
+      input.normalized.kind === "pokemon-card" || input.normalized.kind === "pokemon-sealed-product"
+        ? targetReferenceRecordId
+        : undefined,
     setReferenceId,
     metadata,
     productAssetSet,
@@ -7172,7 +7181,7 @@ function requireCatalogItemPromotionObservation(
   providerKey: string,
 ): CatalogItemPromotableSourceObservationNormalized {
   if (
-    !isPokemonCardSourceObservationNormalized(normalized) &&
+    !isPokemonCatalogItemSourceObservationNormalized(normalized) &&
     !isMagicCatalogItemSourceObservationNormalized(normalized) &&
     !isLorcanaCatalogItemSourceObservationNormalized(normalized) &&
     !isOnePieceCatalogItemSourceObservationNormalized(normalized)

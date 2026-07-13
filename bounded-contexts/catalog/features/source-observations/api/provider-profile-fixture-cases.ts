@@ -905,6 +905,115 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
       },
     ),
     ...providerCases(
+      "tcgplayer",
+      {
+        profileKey: "pokemon-sealed-product-sku",
+        ingestionUnitKey: "tcgplayer:pokemon:sealed-product:source-observation-import",
+        profileVersion: "2026.07.13",
+      },
+      {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: [
+            "normalizedObservation.fields.packCount.selector.path",
+            "normalizedObservation.fields.packCount",
+          ],
+          expectedObservation: undefined,
+        },
+        normal: {
+          expectedObservation: {
+            externalKey: "497105",
+            normalizedKind: "pokemon-sealed-product",
+            normalizedFields: {
+              name: "Scarlet & Violet Elite Trainer Box",
+              setCode: "svi",
+              setName: "Scarlet & Violet",
+              sealedProductForm: "elite-trainer-box",
+              packCount: 9,
+              tcg: "pokemon",
+              productLineName: "Pokemon",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:497105" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:15501001",
+                selectedOptions: [{ dimensionKey: "product-form", optionKey: "unopened", providerValue: "Sealed" }],
+              },
+            ],
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+          expectedPromotionCommands: [
+            "CreateCatalogItem",
+            "AssignBlueprintToCatalogItem",
+            "SetCatalogItemFieldValue",
+            "AssignCatalogItemToCategory",
+            "LinkExternalCatalogItemReference",
+          ],
+          expectedPromotionInputPaths: [
+            "CreateCatalogItem.title",
+            "AssignBlueprintToCatalogItem.blueprintKey",
+            "SetCatalogItemFieldValue.fieldKey",
+            "SetCatalogItemFieldValue.value",
+            "AssignCatalogItemToCategory.categoryKey",
+            "LinkExternalCatalogItemReference.references",
+          ],
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        ambiguous: {
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        changed: {
+          expectedPromotionInputPaths: [
+            "CreateCatalogItem.title",
+            "AssignBlueprintToCatalogItem.blueprintKey",
+            "SetCatalogItemFieldValue.value",
+            "LinkExternalCatalogItemReference.references",
+          ],
+        },
+        replay: {
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        "sealed-product": {
+          expectedObservation: {
+            externalKey: "497105-sealed",
+            normalizedKind: "pokemon-sealed-product",
+            normalizedFields: {
+              name: "Scarlet & Violet Elite Trainer Box",
+              sealedProductForm: "elite-trainer-box",
+              packCount: 9,
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:497105" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:15501001",
+                selectedOptions: [{ dimensionKey: "product-form", optionKey: "unopened", providerValue: "Sealed" }],
+              },
+            ],
+          },
+        },
+        "unknown-option": {
+          expectedObservation: {
+            externalKey: "497105-unknown-option",
+            normalizedKind: "pokemon-sealed-product",
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:15501004",
+                selectedOptions: [{ dimensionKey: "language", optionKey: null, providerValue: "Japanese" }],
+              },
+            ],
+          },
+        },
+      },
+    ),
+    ...providerCases(
       "ygoprodeck",
       {
         profileKey: "yugioh-card-print-reference-data",
@@ -1735,6 +1844,46 @@ function catalogItemPromotionCommands(): readonly string[] {
   ];
 }
 
+function defaultExpectedNormalizedKind(providerKey: string, ingestionUnitKey: string | undefined): string {
+  if (providerKey === "tcgdex") {
+    return "pokemon-card";
+  }
+  const byIngestionUnitKey: Record<string, string> = {
+    "scrydex:one-piece:set:reference-data": "one-piece-set-reference",
+    "scrydex:one-piece:sealed-product:source-observation-import": "one-piece-sealed-product",
+    "scrydex:one-piece:single-card:source-observation-import": "one-piece-card-print",
+    "ygoprodeck:yugioh:set:reference-data": "yugioh-set-reference",
+    "ygojson:yugioh:set:reference-data": "yugioh-set-reference",
+    "yaml-yugi:yugioh:set:reference-data": "yugioh-set-reference",
+    "ygojson:yugioh:sealed-product:reference-data": "yugioh-sealed-product",
+    "ygojson:yugioh:pack:reference-data": "yugioh-pack-reference",
+    "mtgjson:mtg:set:reference-data": "magic-set-reference",
+    "scrydex:lorcana:set:reference-data": "lorcana-set-reference",
+    "scrydex:lorcana:sealed-product:source-observation-import": "lorcana-sealed-product",
+    "scrydex:lorcana:single-card:source-observation-import": "lorcana-card-print",
+    "lorcanajson:lorcana:set:reference-data": "lorcana-set-reference",
+    "lorcanajson:lorcana:single-card:reference-data": "lorcana-card-print",
+    "lorcast:lorcana:set:reference-data": "lorcana-set-reference",
+    "lorcast:lorcana:single-card:reference-data": "lorcana-card-print",
+    "tcgplayer:mtg:sealed-product:source-observation-import": "magic-sealed-product",
+    "tcgplayer:pokemon:sealed-product:source-observation-import": "pokemon-sealed-product",
+  };
+  if (ingestionUnitKey && ingestionUnitKey in byIngestionUnitKey) {
+    return byIngestionUnitKey[ingestionUnitKey];
+  }
+  if (
+    ingestionUnitKey?.startsWith("ygoprodeck:yugioh:") ||
+    ingestionUnitKey?.startsWith("ygojson:yugioh:") ||
+    ingestionUnitKey?.startsWith("yaml-yugi:yugioh:")
+  ) {
+    return "yugioh-card-print";
+  }
+  if (providerKey === "mtgjson" || providerKey === "scryfall") {
+    return "magic-card-print";
+  }
+  return "provider-product";
+}
+
 function providerCases(
   providerKey: string,
   identity: Readonly<{
@@ -1753,51 +1902,7 @@ function providerCases(
     payloadFile: `${flow}.json`,
     expectedStatus: "completed",
     expectedObservation: {
-      normalizedKind:
-        providerKey === "tcgdex"
-          ? "pokemon-card"
-          : identity.ingestionUnitKey === "scrydex:one-piece:set:reference-data"
-            ? "one-piece-set-reference"
-            : identity.ingestionUnitKey === "scrydex:one-piece:sealed-product:source-observation-import"
-              ? "one-piece-sealed-product"
-              : identity.ingestionUnitKey === "scrydex:one-piece:single-card:source-observation-import"
-                ? "one-piece-card-print"
-                : identity.ingestionUnitKey === "ygoprodeck:yugioh:set:reference-data" ||
-                    identity.ingestionUnitKey === "ygojson:yugioh:set:reference-data" ||
-                    identity.ingestionUnitKey === "yaml-yugi:yugioh:set:reference-data"
-                  ? "yugioh-set-reference"
-                  : identity.ingestionUnitKey === "ygojson:yugioh:sealed-product:reference-data"
-                    ? "yugioh-sealed-product"
-                    : identity.ingestionUnitKey === "ygojson:yugioh:pack:reference-data"
-                      ? "yugioh-pack-reference"
-                      : identity.ingestionUnitKey?.startsWith("ygoprodeck:yugioh:") ||
-                          identity.ingestionUnitKey?.startsWith("ygojson:yugioh:") ||
-                          identity.ingestionUnitKey?.startsWith("yaml-yugi:yugioh:")
-                        ? "yugioh-card-print"
-                        : identity.ingestionUnitKey === "mtgjson:mtg:set:reference-data"
-                          ? "magic-set-reference"
-                          : identity.ingestionUnitKey === "scrydex:lorcana:set:reference-data"
-                            ? "lorcana-set-reference"
-                            : identity.ingestionUnitKey === "scrydex:lorcana:sealed-product:source-observation-import"
-                              ? "lorcana-sealed-product"
-                              : identity.ingestionUnitKey === "scrydex:lorcana:single-card:source-observation-import"
-                                ? "lorcana-card-print"
-                                : identity.ingestionUnitKey === "lorcanajson:lorcana:set:reference-data"
-                                  ? "lorcana-set-reference"
-                                  : identity.ingestionUnitKey === "lorcanajson:lorcana:single-card:reference-data"
-                                    ? "lorcana-card-print"
-                                    : identity.ingestionUnitKey === "lorcast:lorcana:set:reference-data"
-                                      ? "lorcana-set-reference"
-                                      : identity.ingestionUnitKey === "lorcast:lorcana:single-card:reference-data"
-                                        ? "lorcana-card-print"
-                                        : identity.ingestionUnitKey ===
-                                            "tcgplayer:mtg:sealed-product:source-observation-import"
-                                          ? "magic-sealed-product"
-                                          : providerKey === "mtgjson"
-                                            ? "magic-card-print"
-                                            : providerKey === "scryfall"
-                                              ? "magic-card-print"
-                                              : "provider-product",
+      normalizedKind: defaultExpectedNormalizedKind(providerKey, identity.ingestionUnitKey),
     },
     ...expectations[flow],
   }));

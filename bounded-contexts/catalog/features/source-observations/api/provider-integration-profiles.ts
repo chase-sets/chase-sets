@@ -67,8 +67,10 @@ import {
   TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION,
   TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION,
   TCGPLAYER_POKEMON_SINGLE_CARD_PROFILE_VERSION,
+  TCGPLAYER_POKEMON_SEALED_PRODUCT_PROFILE_VERSION,
   tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract,
   tcgplayerOnePieceSealedProductProviderProductSourceObservationMappingContract,
+  tcgplayerPokemonSealedProductSourceObservationMappingContract,
   tcgplayerProviderProductSourceObservationMappingContract,
   TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION,
   tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract,
@@ -687,7 +689,7 @@ export type CatalogProviderPartialDraftPokemonCardMatchRule = Readonly<{
 export type CatalogProviderSealedProductMatchRule = Readonly<{
   ruleKey: string;
   matchKind: "sealed-product-match";
-  normalizedKind: "provider-product" | "magic-sealed-product" | "yugioh-sealed-product";
+  normalizedKind: "provider-product" | "magic-sealed-product" | "yugioh-sealed-product" | "pokemon-sealed-product";
   productFormPath: "mergeIdentity.productForm";
   sealedValues: readonly string[];
   fieldMatches: readonly CatalogProviderDuplicatePreventionFieldMatch[];
@@ -732,6 +734,7 @@ export type CatalogProviderIntegrationProfile = Readonly<{
   normalizedObservationMapping: Readonly<{
     kind:
       | "pokemon-card"
+      | "pokemon-sealed-product"
       | "provider-product"
       | "magic-card-print"
       | "magic-set-reference"
@@ -1621,6 +1624,82 @@ export const tcgplayerPokemonSingleCardProviderProfile = {
     variantRules: [],
     unknownVariantLabelPrefix: "Unclassified TCGplayer Pokemon Variant",
     duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
+export const tcgplayerPokemonSealedProductProviderProfile = {
+  ...tcgplayerAutomationClientProviderProfile,
+  displayName: "TCGplayer Pokemon Sealed Products",
+  status: "active",
+  capabilities: [
+    "provider-option-query",
+    "source-observation-import",
+    "catalog-item-promotion",
+    "external-reference-extraction",
+  ],
+  normalizedObservationMapping: {
+    kind: "pokemon-sealed-product",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified TCGplayer Pokemon Sealed Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "pokemon-sealed-product",
+    categoryKey: "sealed-products",
+    fieldKeys: {
+      cardNumber: "card-number",
+      cardName: "card-name",
+      expansion: "expansion",
+      rarity: "rarity",
+      cardVariant: "card-variant",
+      cardIllustrator: "card-illustrator",
+      releaseYear: "release-year",
+      packCount: "pack-count",
+    },
+  },
+  referenceHierarchyMapping: tcgplayerAutomationClientProviderProfile.referenceHierarchyMapping,
+  selectedOptionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.selectedOptionMapping,
+    dimensions: [
+      {
+        dimensionKey: "product-form",
+        providerValue: { source: "payload", path: "sealed" },
+        required: true,
+        unknownPolicy: "review-evidence",
+        valueMappings: [{ from: true, value: "unopened" }],
+        valueSynonyms: [{ optionKey: "unopened", providerValues: ["unopened", "sealed", "Sealed"] }],
+      },
+      {
+        dimensionKey: "language",
+        providerValue: { source: "record", path: "language" },
+        required: false,
+        unknownPolicy: "review-evidence",
+        valueSynonyms: [{ optionKey: "english", providerValues: ["English", "EN"] }],
+      },
+    ],
+  },
+  duplicatePreventionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping,
+    rules: tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping.rules.map((rule) => {
+      if (rule.ruleKey === "sealed-product-deterministic-fields") {
+        return {
+          ...rule,
+          normalizedKind: "pokemon-sealed-product",
+          sealedValues: ["sealed"],
+          fieldMatches: [
+            { fieldKey: "cardName", valuePath: "name", valueTransform: "localized-text" },
+            { fieldKey: "packCount", valuePath: "packCount" },
+          ],
+        };
+      }
+      if (rule.ruleKey === "future-provider-bridge-review") {
+        return {
+          ...rule,
+          bridgeReferenceProviderKeys: ["tcgdex", "tcgplayer"],
+        };
+      }
+      return rule;
+    }),
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
@@ -4220,6 +4299,7 @@ export const catalogProviderIntegrationProfiles = [
   tcgplayerOnePieceSealedProductProviderProfile,
   tcgplayerLorcanaSingleCardProviderProfile,
   tcgplayerLorcanaSealedProductProviderProfile,
+  tcgplayerPokemonSealedProductProviderProfile,
   tcgplayerAutomationClientProviderProfile,
 ] as const satisfies readonly CatalogProviderIntegrationProfile[];
 
@@ -4578,6 +4658,19 @@ export const catalogProviderIntegrationProfileVersions = [
     fixtures: tcgplayerProviderProductSourceObservationMappingContract.fixtures,
     retirementPlan: null,
     executableMappingContract: tcgplayerProviderProductSourceObservationMappingContract,
+  },
+  {
+    providerKey: "tcgplayer",
+    profileKey: "pokemon-sealed-product-sku",
+    profileVersion: TCGPLAYER_POKEMON_SEALED_PRODUCT_PROFILE_VERSION,
+    ingestionUnitIdentity: tcgplayerPokemonSealedProductSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: tcgplayerPokemonSealedProductProviderProfile,
+    sourceContract: tcgplayerPokemonSealedProductSourceObservationMappingContract.sourceContract,
+    fixtures: tcgplayerPokemonSealedProductSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: tcgplayerPokemonSealedProductSourceObservationMappingContract,
   },
 ] as const satisfies readonly CatalogProviderIntegrationProfileVersionRecord[];
 

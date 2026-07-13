@@ -15,6 +15,7 @@ export const TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.23";
 export const TCGPLAYER_LORCANA_SINGLE_CARD_PROFILE_VERSION = "2026.06.23";
 export const TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.23";
 export const TCGPLAYER_POKEMON_SINGLE_CARD_PROFILE_VERSION = "2026.06.05";
+export const TCGPLAYER_POKEMON_SEALED_PRODUCT_PROFILE_VERSION = "2026.07.13";
 
 export const tcgplayerPokemonSingleCardIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
   providerKey: "tcgplayer",
@@ -54,6 +55,13 @@ export const tcgplayerLorcanaSingleCardIngestionUnitIdentity = defineCatalogProv
 export const tcgplayerMtgSealedProductIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
   providerKey: "tcgplayer",
   productDomain: "mtg",
+  productForm: "sealed-product",
+  ingestionPurpose: "source-observation-import",
+});
+
+export const tcgplayerPokemonSealedProductIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
+  providerKey: "tcgplayer",
+  productDomain: "pokemon",
   productForm: "sealed-product",
   ingestionPurpose: "source-observation-import",
 });
@@ -193,6 +201,48 @@ const magicSealedProductNormalizedObservation = {
   mergeIdentity: [pathExpression("mergeIdentity", "catalog-merge-evidence", ["merge-identity"])],
 } as const;
 
+const pokemonSealedProductFields = {
+  tcg: constantExpression("pokemon", "catalog-truth", ["normalized-observation", "hash-material"]),
+  name: pathExpression("productName", "catalog-truth", ["normalized-observation", "hash-material"]),
+  setCode: optionalPathExpression("setCode", "catalog-truth", ["normalized-observation", "hash-material"]),
+  setName: pathExpression("setName", "catalog-truth", ["normalized-observation", "hash-material"]),
+  setId: pathExpression("setId", "catalog-merge-evidence", ["normalized-observation", "merge-identity"], {
+    transforms: [{ kind: "coerce", to: "string" }],
+  }),
+  sealedProductForm: pathExpression("sealedProductForm", "catalog-truth", ["normalized-observation", "hash-material"]),
+  packCount: pathExpression("packCount", "catalog-truth", ["normalized-observation", "hash-material"], {
+    transforms: [{ kind: "coerce", to: "number" }],
+  }),
+  releaseDate: optionalPathExpression("customAttributes.releaseDate", "catalog-truth", [
+    "normalized-observation",
+    "hash-material",
+  ]),
+  releaseYear: optionalPathExpression("releaseYear", "catalog-truth", ["normalized-observation", "hash-material"]),
+  productLineName: constantExpression("Pokemon", "catalog-truth", ["normalized-observation", "hash-material"]),
+  barcode: optionalPathExpression("barcode", "catalog-merge-evidence", ["normalized-observation", "merge-identity"]),
+  imageUrls: pathExpression("imageUrls", "catalog-truth", ["normalized-observation"]),
+  mergeIdentity: pathExpression("mergeIdentity", "catalog-merge-evidence", [
+    "normalized-observation",
+    "merge-identity",
+  ]),
+  externalCatalogItemReferences: pathExpression("externalCatalogItemReferences", "external-reference", [
+    "normalized-observation",
+    "external-reference",
+  ]),
+  externalProductReferences: pathExpression("externalProductReferences", "external-reference", [
+    "normalized-observation",
+    "external-reference",
+  ]),
+} as const;
+
+const pokemonSealedProductNormalizedObservation = {
+  outputKind: "pokemon-sealed-product",
+  languageCode: constantExpression("en", "catalog-truth", ["normalized-observation", "hash-material"]),
+  fields: pokemonSealedProductFields,
+  hashMaterial: [pathExpression("catalogHashMaterial", "catalog-truth", ["hash-material"])],
+  mergeIdentity: [pathExpression("mergeIdentity", "catalog-merge-evidence", ["merge-identity"])],
+} as const;
+
 const externalReferences = [
   {
     target: "catalog-item-reference",
@@ -307,6 +357,42 @@ const magicSealedPromotionCommandPlan = {
     {
       commandName: "AssignCatalogItemToCategory",
       inputs: { categoryKey: constantExpression("magic-booster-packs", "catalog-truth", ["promotion-command"]) },
+    },
+    {
+      commandName: "LinkExternalCatalogItemReference",
+      inputs: {
+        references: pathExpression("externalCatalogItemReferences", "external-reference", ["promotion-command"]),
+      },
+    },
+  ],
+} as const;
+
+const pokemonSealedPromotionCommandPlan = {
+  planKind: "catalog-item-promotion",
+  requiresReview: true,
+  commands: [
+    {
+      commandName: "CreateCatalogItem",
+      inputs: { title: pathExpression("productName", "catalog-truth", ["promotion-command"]) },
+    },
+    {
+      commandName: "AssignBlueprintToCatalogItem",
+      inputs: {
+        blueprintKey: constantExpression("pokemon-sealed-product", "catalog-truth", ["promotion-command"]),
+      },
+    },
+    {
+      commandName: "SetCatalogItemFieldValue",
+      inputs: {
+        fieldKey: constantExpression("pack-count", "catalog-truth", ["promotion-command"]),
+        value: pathExpression("packCount", "catalog-truth", ["promotion-command"], {
+          transforms: [{ kind: "coerce", to: "number" }],
+        }),
+      },
+    },
+    {
+      commandName: "AssignCatalogItemToCategory",
+      inputs: { categoryKey: constantExpression("sealed-products", "catalog-truth", ["promotion-command"]) },
     },
     {
       commandName: "LinkExternalCatalogItemReference",
@@ -467,6 +553,44 @@ export const tcgplayerMtgSealedProductSourceObservationMappingContract = {
   },
   normalizedObservation: magicSealedProductNormalizedObservation,
   promotionCommandPlan: magicSealedPromotionCommandPlan,
+  duplicatePrevention: {
+    ...duplicatePrevention,
+    identityRules: duplicatePrevention.identityRules.map((rule) =>
+      rule.ruleKey === "sealed-product-deterministic-fields"
+        ? {
+            ...rule,
+            evidence: [
+              pathExpression("sealedProductForm", "catalog-merge-evidence", ["merge-identity"]),
+              pathExpression("mergeIdentity", "catalog-merge-evidence", ["merge-identity"]),
+            ],
+          }
+        : rule,
+    ),
+  },
+} as const satisfies CatalogProviderExecutableMappingContract;
+
+export const tcgplayerPokemonSealedProductSourceObservationMappingContract = {
+  ...tcgplayerProviderProductSourceObservationMappingContract,
+  profileKey: "pokemon-sealed-product-sku",
+  displayName: "TCGplayer Pokemon Sealed Product and SKU",
+  profileVersion: TCGPLAYER_POKEMON_SEALED_PRODUCT_PROFILE_VERSION,
+  lifecycle: "active",
+  ingestionUnitIdentity: tcgplayerPokemonSealedProductIngestionUnitIdentity,
+  sourceContract: {
+    ...tcgplayerProviderProductSourceObservationMappingContract.sourceContract,
+    owner: "chase-sets/catalog",
+    repository: "chase-sets/chase-sets",
+    commit: null,
+    fixtureSetVersion: "tcgplayer-pokemon-sealed-product-production-v1",
+  },
+  fixtures: {
+    fixtureRoot:
+      "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgplayer-pokemon-sealed-product",
+    coveredFlows: tcgplayerFixtureFlows,
+    liveProviderCallsAllowed: false,
+  },
+  normalizedObservation: pokemonSealedProductNormalizedObservation,
+  promotionCommandPlan: pokemonSealedPromotionCommandPlan,
   duplicatePrevention: {
     ...duplicatePrevention,
     identityRules: duplicatePrevention.identityRules.map((rule) =>

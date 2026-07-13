@@ -1,0 +1,57 @@
+{
+  "observationId": "tcgplayer_pokemon_sealed_product_497106_partial",
+  "externalKey": "497106",
+  "sourceUrl": "https://www.tcgplayer.com/product/497106",
+  "sourceUpdatedAt": null,
+  "productId": 497106,
+  "productName": "Scarlet & Violet Booster Bundle",
+  "setCode": "SVI",
+  "setId": 10001,
+  "setName": "Scarlet & Violet",
+  "productLineId": 3,
+  "productLineName": "Pokemon",
+  "productTypeName": "Sealed Products",
+  "customAttributes": {
+    "number": "BUNDLE",
+    "releaseDate": "2023-03-31"
+  },
+  "releaseYear": 2023,
+  "productForm": "sealed",
+  "sealedProductForm": "bundle",
+  "barcode": null,
+  "imageUrls": [],
+  "skuReferences": [],
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:497106"
+    }
+  ],
+  "externalProductReferences": [],
+  "mergeIdentity": {
+    "tcg": "pokemon",
+    "productLineName": "Pokemon",
+    "setName": "Scarlet & Violet",
+    "printedProductName": "Scarlet & Violet Booster Bundle",
+    "collectorNumber": "BUNDLE",
+    "languageCode": "en",
+    "productForm": "sealed",
+    "barcode": null
+  },
+  "catalogHashMaterial": {
+    "productId": 497106,
+    "productName": "Scarlet & Violet Booster Bundle",
+    "setCode": "SVI",
+    "setName": "Scarlet & Violet",
+    "productLineName": "Pokemon",
+    "productForm": "sealed",
+    "sealedProductForm": "bundle",
+    "packCount": 6,
+    "skuIds": []
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "partial"
+  }
+}
