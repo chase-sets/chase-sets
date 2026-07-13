@@ -99,6 +99,7 @@ jobs:
           init_remote() {
             local state_key="$1"
             ../../../scripts/terraform-init-with-retry.sh \
+              -reconfigure \
               -backend-config=bucket=chase-sets-terraform-state \
               -backend-config="key=${state_key}" \
               -backend-config=region=us-east-1 \
@@ -162,6 +163,7 @@ jobs:
           init_remote() {
             local state_key="$1"
             ../../../scripts/terraform-init-with-retry.sh \
+              -reconfigure \
               -backend-config=bucket=chase-sets-terraform-state \
               -backend-config="key=${state_key}" \
               -backend-config=region=us-east-1 \

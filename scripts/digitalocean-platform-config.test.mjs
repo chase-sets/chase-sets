@@ -53,6 +53,10 @@ const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platf
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
 const platformCoverageWorkflow = readFileSync(resolve(".github/workflows/platform-coverage.yml"), "utf8");
 const platformDoksFoundationWorkflow = readFileSync(resolve(".github/workflows/platform-doks-foundation.yml"), "utf8");
+const platformObservabilityStateMigrationWorkflow = readFileSync(
+  resolve(".github/workflows/platform-observability-state-migration.yml"),
+  "utf8",
+);
 const platformKubernetesDeploymentScript = readFileSync(resolve("scripts/platform-kubernetes-deployment.mjs"), "utf8");
 const renderPlatformHelmValuesScript = readFileSync(resolve("scripts/render-platform-helm-values.mjs"), "utf8");
 const previewPostgresTemplate = readFileSync(
@@ -3231,6 +3235,10 @@ describe("DigitalOcean platform configuration", () => {
     // longer exports canary_prometheus_* outputs. The scoped query-auth token
     // (X-Chase-Sets-Observability-Query, asserted above) stays for dashboards.
     expect(observabilityOutputs).not.toContain("canary_prometheus");
+  });
+
+  it("reconfigures Terraform whenever the observability migration switches state keys", () => {
+    expect(occurrenceCount(platformObservabilityStateMigrationWorkflow, "-reconfigure")).toBe(2);
   });
 
   it("keeps every checked-in observability stack file deployed or explicitly excluded", () => {
