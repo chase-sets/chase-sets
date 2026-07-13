@@ -20,6 +20,7 @@ import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorag
 import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
 import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 import type { PaymentsServices } from "@chase-sets/payments/server";
+import { createIdentityTermsAcceptanceResolver } from "@chase-sets/identity/server";
 import { settlementOperationLogFields, type SettlementServices } from "@chase-sets/settlement/server";
 import {
   createCheckoutProcessingFeePolicyResolver,
@@ -203,7 +204,10 @@ const commercialTermsResolver = pools["commercial-terms"]
       ),
     })
   : undefined;
-const balanceCreditResolver = pools.settlement ? createSettlementBalanceCreditResolver(pools.settlement) : undefined;
+const termsAcceptanceResolver = pools.identity ? createIdentityTermsAcceptanceResolver(pools.identity) : undefined;
+const balanceCreditResolver = pools.settlement
+  ? createSettlementBalanceCreditResolver(pools.settlement, { termsAcceptanceResolver })
+  : undefined;
 const checkoutProcessingFeePolicyResolver = pools["commercial-terms"]
   ? createCheckoutProcessingFeePolicyResolver(pools["commercial-terms"])
   : undefined;

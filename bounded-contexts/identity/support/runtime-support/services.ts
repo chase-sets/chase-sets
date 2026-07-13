@@ -3,6 +3,7 @@ import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-s
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { PostageLabelProvider } from "@chase-sets/postage-labels";
+import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createIdentitySecretAdapters } from "../../features/api-keys/api/secret-adapters";
 import { createAccountRuntime } from "../../features/accounts/api/runtime";
 import { createApiKeyRuntime } from "../../features/api-keys/api/runtime";
@@ -26,6 +27,8 @@ export type IdentityServices = Readonly<{
   preferences: ReturnType<typeof createUserPreferencesRuntime>;
   linkedPlatformAuthorizations: ReturnType<typeof createLinkedPlatformAuthorizationStore>;
   shippingAddresses: ReturnType<typeof createShippingAddressRuntime>;
+  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (Terms of Service active version). */
+  policies: PolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -44,6 +47,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const auth = createIdentitySecretAdapters();
+  const policies = createPolicyRuntime({ eventStore, db });
   const deps = {
     eventStore,
     checkpointStore,
@@ -73,6 +77,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
     preferences,
     linkedPlatformAuthorizations,
     shippingAddresses,
+    policies,
     projectors: [
       ...accounts.projectors,
       ...users.projectors,
@@ -83,6 +88,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
       ...consents.projectors,
       ...preferences.projectors,
       ...shippingAddresses.projectors,
+      ...policies.projectors,
     ],
     pool,
     db,

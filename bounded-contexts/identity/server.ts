@@ -52,6 +52,14 @@ export {
   requireActorFromIdentityApi,
   resolveActorFromIdentityApi,
 } from "./support/route-support/identity-request";
+export {
+  createIdentityTermsAcceptanceResolver,
+  type TermsAcceptanceStatus,
+} from "./features/consents/api/terms-acceptance-resolver";
+export {
+  identityTermsOfServicePolicy,
+  type TermsOfServicePolicyValue,
+} from "./features/consents/domain/terms-of-service-policy";
 
 function isSafeReturnTo(value: string | null) {
   return Boolean(value && value.startsWith("/") && !value.startsWith("//"));

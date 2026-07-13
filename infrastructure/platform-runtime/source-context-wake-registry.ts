@@ -335,6 +335,7 @@ export const sourceContextWakeRegistry = [
       "identity:identity-shipping-address-projection",
       "identity:identity-user-preferences-projection",
       "identity:identity-user-projection",
+      "identity:platform-policy-document-projection",
       "marketplace:marketplace-identity-account-projection",
       "marketplace:marketplace-review-account-source-projection",
       "ordering:ordering-account-projection",

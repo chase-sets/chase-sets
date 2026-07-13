@@ -22,6 +22,9 @@ import { invitationRoutes } from "./features/invitations/api/route";
 import { validateInvitationAcceptanceToken } from "./features/invitations/domain/domain";
 import { apiKeyRoutes } from "./features/api-keys/api/route";
 import { consentRoutes } from "./features/consents/api/route";
+import { termsOfServiceConsentRoutes } from "./features/consents/api/terms-route";
+import { isCanonicalTermsOfServiceConsentPolicyKey } from "./features/consents/domain/terms-of-service";
+import { identityTermsOfServicePolicy } from "./features/consents/domain/terms-of-service-policy";
 import { userPreferencesRoutes } from "./features/preferences/api/route";
 import { shippingAddressRoutes } from "./features/shipping-addresses/api/route";
 import { createIdentityBootstrapContext } from "./support/runtime-support/bootstrap-context";
@@ -218,8 +221,20 @@ async function createPersonalIdentityForAuth(
   });
   snapshots.push(mutationSnapshot("membership", membershipId, membershipResult));
 
+  // The active Terms of Service version is always resolved server-side, not
+  // trusted from the client, so acceptance can never be recorded against a
+  // version the registering client did not actually render.
+  const activeTermsOfServiceVersion = (params.consents ?? []).some((consent) =>
+    isCanonicalTermsOfServiceConsentPolicyKey(consent.policyKey),
+  )
+    ? (await services.policies.resolvePolicy(identityTermsOfServicePolicy)).value.version
+    : null;
+
   for (const consent of params.consents ?? []) {
     const consentId = createId("cns");
+    const policyVersion = isCanonicalTermsOfServiceConsentPolicyKey(consent.policyKey)
+      ? (activeTermsOfServiceVersion ?? consent.policyVersion)
+      : consent.policyVersion;
     const consentResult = await services.consents.commandHandler({
       streamId: `identity.consent-${consentId}`,
       command: {
@@ -229,7 +244,7 @@ async function createPersonalIdentityForAuth(
         userId,
         accountId,
         policyKey: consent.policyKey,
-        policyVersion: consent.policyVersion,
+        policyVersion,
         recordedAt: new Date().toISOString(),
       },
       context: params.context,
@@ -933,6 +948,14 @@ export function buildIdentityApi(services: IdentityServices) {
     apiKeyRoutes({ ...services.apiKeys, db: services.db, auth: services.auth, getUser: services.users.getUser }),
   );
   app.route("/consents", consentRoutes(services.consents));
+  app.route(
+    "/consents/terms-of-service",
+    termsOfServiceConsentRoutes({
+      db: services.db,
+      policies: services.policies,
+      consents: services.consents,
+    }),
+  );
   app.route("/preferences", userPreferencesRoutes(services.preferences));
 
   app.post("/api-keys/resolve", async (c) => {

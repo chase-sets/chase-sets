@@ -1,4 +1,5 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import { identityAccountSchemaSql } from "../../features/accounts/read-model/schema";
 import { identityApiKeySchemaSql } from "../../features/api-keys/read-model/schema";
 import { identityConsentSchemaSql } from "../../features/consents/read-model/schema";
@@ -33,4 +34,8 @@ export const identitySchemaSql = [
   identityLinkedPlatformAuthorizationSchemaSql,
   identityShippingAddressSchemaSql,
   identityApiKeySecretSchemaSql,
+  // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
+  // for the Terms of Service active-version registry -- see
+  // ../../features/consents/domain/terms-of-service-policy.ts.
+  platformPolicySchemaSql,
 ].join("\n\n");

@@ -24,6 +24,7 @@
     "@chase-sets/event-core-postgres": "workspace:*",
     "@chase-sets/http": "workspace:*",
     "@chase-sets/localization": "workspace:*",
+    "@chase-sets/platform-policy": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/postage-labels": "workspace:*",
     "@chase-sets/primitives": "workspace:*",

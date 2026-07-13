@@ -183,8 +183,8 @@ function createServices(
           subjectType: "user",
           userId: actor.userId,
           accountId: actor.accountId,
-          policyKey: "terms",
-          policyVersion: "2026-06-15",
+          policyKey: "terms-of-service",
+          policyVersion: "v1",
           recordedAt: "2026-06-15T00:00:00.000Z",
         },
         newEvents: [],
@@ -192,6 +192,17 @@ function createServices(
       })),
       listConsents: vi.fn(async () => ({ items: [], total: 0 })),
       projectors: [],
+    },
+    policies: {
+      resolvePolicy: vi.fn(async () => ({
+        policyKey: "identity.terms-of-service-active-version",
+        value: { version: "v1" },
+        source: "fallback",
+        documentId: null,
+        effectiveFrom: null,
+        effectiveUntil: null,
+        resolvedAt: "2026-06-15T00:00:00.000Z",
+      })),
     },
     shippingAddresses: {
       commandHandler: vi.fn(async () => commandResult(71, "committed")),
@@ -224,7 +235,8 @@ async function requestJson(app: Hono<IdentityApiEnv>, path: string, init: Reques
 
 describe("Identity API mutation snapshots", () => {
   it("returns command-local snapshots for internal Auth mutation routes", async () => {
-    const app = buildApp(createServices());
+    const services = createServices();
+    const app = buildApp(services);
 
     const guestAccount = await requestJson(app, "/internal/auth/guest-accounts", {
       method: "POST",
@@ -273,7 +285,10 @@ describe("Identity API mutation snapshots", () => {
       body: JSON.stringify({
         email: "new@example.com",
         displayName: "New Person",
-        consents: [{ policyKey: "terms", policyVersion: "2026-06-15" }],
+        // The active version is resolved server-side (see `services.policies`
+        // mock above); the client-supplied version here is intentionally
+        // stale to prove the server ignores it for the canonical key.
+        consents: [{ policyKey: "terms-of-service", policyVersion: "stale-client-supplied-version" }],
       }),
     });
     expect(personalIdentity.response.status).toBe(201);
@@ -284,6 +299,14 @@ describe("Identity API mutation snapshots", () => {
         expect.objectContaining({ aggregate: "consent", version: 61, status: "recorded" }),
         expect.objectContaining({ aggregate: "user", version: 21, status: "active" }),
       ]),
+    );
+    expect(services.consents.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          policyKey: "terms-of-service",
+          policyVersion: "v1",
+        }),
+      }),
     );
 
     for (const path of [

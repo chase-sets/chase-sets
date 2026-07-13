@@ -17,6 +17,7 @@ export const moneyStatusLabels = {
   "amount-exceeds-available-balance": "Enter an amount within the available wallet balance.",
   "support-hold-active": "Resolve open support requests before requesting these funds.",
   "payout-release-hold-active": "Recent sales are held until delivery and risk checks clear.",
+  "wallet-terms-not-accepted": "Accept the current Terms of Service to use wallet balance as payment.",
 } as const;
 
 export type MoneyStatusCode = keyof typeof moneyStatusLabels;

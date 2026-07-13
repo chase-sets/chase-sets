@@ -22,6 +22,44 @@ export type ConsentListParams = ListParams &
     accountId?: string;
   }>;
 
+/**
+ * Returns the most recently recorded consent fact for `policyKey` and the
+ * given subject (user and/or account), or null if none exists. Used by the
+ * Terms of Service acceptance gate to compare against the active required
+ * version -- see `terms-acceptance.ts`.
+ */
+export async function findLatestConsent(
+  db: PgQueryable,
+  params: Readonly<{ userId?: string | null; accountId?: string | null; policyKey: string }>,
+): Promise<ConsentRow | null> {
+  if (!params.userId && !params.accountId) {
+    return null;
+  }
+
+  const conditions = ["policy_key = $1"];
+  const values: unknown[] = [params.policyKey];
+  const subjectConditions: string[] = [];
+  if (params.userId) {
+    values.push(params.userId);
+    subjectConditions.push(`user_id = $${values.length}`);
+  }
+  if (params.accountId) {
+    values.push(params.accountId);
+    subjectConditions.push(`account_id = $${values.length}`);
+  }
+  conditions.push(`(${subjectConditions.join(" OR ")})`);
+
+  const result = await db.query<ConsentRow>(
+    `SELECT consent_id, subject_type, user_id, account_id, policy_key, policy_version, recorded_at, updated_at
+     FROM identity_consents
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY recorded_at DESC, consent_id DESC
+     LIMIT 1`,
+    values,
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function listConsents(db: PgQueryable, params: ConsentListParams = {}) {
   const extraConditions: string[] = [];
   const extraValues: unknown[] = [];
