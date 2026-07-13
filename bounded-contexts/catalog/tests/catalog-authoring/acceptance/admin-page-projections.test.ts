@@ -162,9 +162,6 @@ describe("Admin page projections", () => {
       required: true,
       allowedOptionIds: [optionId],
     });
-    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
-      type: "ActivateComponent",
-    });
 
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "CreateBlueprint",
@@ -405,6 +402,8 @@ describe("Admin page projections", () => {
       label: l10n("Mint"),
       numericValue: null,
     });
+    // Component rules and identity are draft-only mutations, so the component stays
+    // draft through this revision and is activated afterwards.
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
       type: "ConfigureComponentRules",
       key: "base-card-info",
@@ -412,6 +411,9 @@ describe("Admin page projections", () => {
       description: l10n("Core fields"),
       fieldRules: [{ fieldId, required: true }],
       dimensionRules: [{ dimensionId, required: true, allowedOptionIds: [optionId] }],
+    });
+    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
+      type: "ActivateComponent",
     });
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "ReviseBlueprint",
