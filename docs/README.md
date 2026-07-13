@@ -135,6 +135,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Projection Freshness Audit](./runbooks/projection-freshness-audit.md): read-after-write audit record fields, privacy rules, and guest Buy Now root-cause classification.
 - [Guest Buy Now Freshness Probe](./runbooks/guest-buy-now-freshness-probe.md): guest and account Buy Now readiness probe, write-to-checkout-ready release gate, negative invalid-session probe, production proof-mode runs, fixture ownership, redacted evidence, and no-payment/no-order safety.
 - [Staging Representative Commerce State](./runbooks/staging-representative-commerce-state.md): staging-only representative marketplace data refresh policy and verification.
+- [Ephemeral Release Verification](./runbooks/ephemeral-release-verification.md): phase-1 DOKS verification namespaces, guaranteed cleanup, evidence, and the explicit persistent-staging retirement decision.
 - [Remote Dev](./runbooks/remote-dev.md): disposable DigitalOcean preview sessions.
 - [Social Login Operations](./runbooks/social-login-operations.md): Google and Facebook provider setup, callback URLs, smoke tests, and secret rotation.
 - [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): current App Platform staging/production workflow, DNS operations, and production deployment workflow; [ADR 0018](./adr/0018-doks-compute-runtime.md) records the pre-launch DOKS compute migration decision.
