@@ -195,7 +195,8 @@ const e2eSpecSuiteOwnership = [
   { pattern: /^deployables\/marketplace\/e2e\/item-detail\.spec\.ts$/, suites: ["marketplace_browse"] },
   { pattern: /^deployables\/marketplace\/e2e\/critical-flows\.spec\.ts$/, suites: allMarketplaceSuiteIds },
   {
-    pattern: /^deployables\/marketplace\/e2e\/(?:account-payment|buy-funnel-redesign|sell-checkout-session)\.spec\.ts$/,
+    pattern:
+      /^deployables\/marketplace\/e2e\/(?:account-payment|buy-funnel-redesign|buyer-purchase-journey|sell-checkout-session)\.spec\.ts$/,
     suites: ["marketplace_checkout"],
   },
   { pattern: /^deployables\/admin-web\/e2e\/access-/, suites: ["admin_access"] },

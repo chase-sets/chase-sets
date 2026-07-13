@@ -40,12 +40,9 @@ async function expectGoogleShoppingOperations(page: Page) {
   await expect(page.getByText("Search: google-shopping").first()).toBeVisible();
 
   const firstInspectLink = page.getByRole("link", { name: "Inspect" }).first();
-  if (await firstInspectLink.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await firstInspectLink.click();
-    await expect(page.getByRole("button", { name: "Targeted retry gated" })).toBeDisabled();
-  } else {
-    await expect(page.getByText("No Google Shopping rows found")).toBeVisible();
-  }
+  await expect(firstInspectLink, "browser-e2e seed contract requires a failed Google Shopping row").toHaveCount(1);
+  await firstInspectLink.click();
+  await expect(page.getByRole("button", { name: "Targeted retry gated" })).toBeDisabled();
 }
 
 async function expectWaitlistReview(page: Page) {

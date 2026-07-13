@@ -82,14 +82,11 @@ function expectControlledCatalogStreamProbe(path: string, result: CatalogStreamP
   expect(() => JSON.parse(result.textStart || "{}"), `${path} should return JSON`).not.toThrow();
 }
 
-async function expectAliasReviewWorkspaceIfPresent(page: Page) {
+async function expectAliasReviewWorkspace(page: Page) {
   const aliasReviewHeading = page.getByRole("heading", { name: "Alias review" }).first();
-  const aliasReviewRendered = await aliasReviewHeading.isVisible({ timeout: 30_000 }).catch(() => false);
-  if (!aliasReviewRendered) {
-    return;
-  }
-
-  await expect(aliasReviewHeading).toBeVisible();
+  await expect(aliasReviewHeading, "browser-e2e seed contract requires alias review").toBeVisible({
+    timeout: 30_000,
+  });
   await expect(page.getByText("Needs review").first()).toBeVisible();
   await expect(page.getByText("Auto-accept eligible").first()).toBeVisible();
   await expect(page.getByText("Alias coverage").first()).toBeVisible();
@@ -101,11 +98,7 @@ async function expectAliasReviewWorkspaceIfPresent(page: Page) {
     .getByRole("row")
     .filter({ has: page.getByRole("button", { name: "Evidence" }) })
     .first();
-  if (!(await candidateRow.isVisible().catch(() => false))) {
-    await expect(page.getByText("No alias candidates").first()).toBeVisible();
-    return;
-  }
-
+  await expect(candidateRow, "browser-e2e seed contract requires an alias candidate").not.toHaveCount(0);
   await candidateRow.getByRole("button", { name: "Evidence" }).click();
   await expect(page.getByText("Auto-accept").first()).toBeVisible();
   await expect(page.getByText("Warnings").first()).toBeVisible();
@@ -177,18 +170,14 @@ test.describe.serial("catalog admin integrations", () => {
     await expectAdminWebHydrated(page);
     await expectVisibleText(page, "Catalog control plane");
     // #1970: when the selected provider profile declares source-option groups, the
-    // deferred source-options status panel streams in after first paint. The default
-    // provider is seed-dependent, so only assert the panel when this route context
-    // actually renders one.
+    // deferred source-options status panel streams in after first paint. The
+    // browser-e2e seed contract selects a provider with source-option groups.
     const sourceOptionsPanel = page.getByText("Source options").first();
-    if (await sourceOptionsPanel.count()) {
-      await expect(sourceOptionsPanel).toBeVisible({ timeout: 30_000 });
-    }
-    // The supplementary alias-review workspace also streams behind its own boundary,
-    // but its content is data-dependent (it resolves to nothing when there are no
-    // alias candidates for the scope). Assert it only when it actually rendered, so
-    // the test never assumes the seed carries alias candidates.
-    await expectAliasReviewWorkspaceIfPresent(page);
+    await expect(sourceOptionsPanel, "browser-e2e seed contract requires source options").toBeVisible({
+      timeout: 30_000,
+    });
+    // The supplementary alias-review workspace streams behind its own boundary.
+    await expectAliasReviewWorkspace(page);
     // The daily surface does not render a page-local "Import to promotion
     // workbench" label. The workbench identity is carried by the heading
     // (asserted above) and the linear three-stage flow ("Run sync" / "Review
@@ -258,104 +247,98 @@ test.describe.serial("catalog admin integrations", () => {
     // never settle the network; assert the stage button's continued visibility
     // directly.
     const providerSelect = page.getByRole("combobox", { name: "Provider" });
-    if (await providerSelect.count()) {
-      const currentProvider = await providerSelect.first().inputValue();
-      await providerSelect.first().selectOption(currentProvider);
-      await expect(page).toHaveURL(/\/catalog\/integrations(\?|$)/);
-      await expect(catalogSyncCommand.getByRole("button", { name: "Start Catalog sync" })).toBeVisible();
-    }
+    await expect(providerSelect, "browser-e2e seed contract requires a provider context").toHaveCount(1);
+    const currentProvider = await providerSelect.first().inputValue();
+    await providerSelect.first().selectOption(currentProvider);
+    await expect(page).toHaveURL(/\/catalog\/integrations(\?|$)/);
+    await expect(catalogSyncCommand.getByRole("button", { name: "Start Catalog sync" })).toBeVisible();
 
     // #1974: the selected-record command surface is the canonical BulkActionBar /
     // BulkActionPanel (no hand-rolled WorkbenchDetailPanel selection block). Open the
-    // "Review changes" stage and, IF the seed holds a selectable Source Observation,
+    // "Review changes" stage. The browser-e2e seed contract includes a selectable
+    // changed Source Observation,
     // select its row checkbox and prove the bulk bar surfaces the consolidated command
     // taxonomy: primary "Preview promotion", secondary "Defer" / "Clear selection", and
     // the destructive reason-required "Reject" behind a BulkActionPanel trigger that opens
-    // a reason input. This is data-dependent (an empty review queue renders no selectable
-    // rows), so every assertion is guarded on a row actually being selectable — the test
-    // never assumes a non-empty seed.
+    // a reason input.
     await page.getByRole("button", { name: "Review changes" }).first().click();
     const reviewRowCheckbox = page.getByRole("row").getByRole("checkbox");
-    if (await reviewRowCheckbox.count()) {
-      await reviewRowCheckbox.first().check();
-      // The bar replaces the old hand-rolled panel: its primary/secondary commands and
-      // the reject panel trigger are now the only selection-command affordances.
-      await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
-      await expect(page.getByRole("button", { name: "Defer" }).first()).toBeVisible();
-      await expect(page.getByRole("button", { name: "Clear selection" }).first()).toBeVisible();
-      // #1975: selection now has a single, URL-backed source of truth. Checking a row
-      // persists it straight to the URL via a client GET navigation (no full reload,
-      // no hand-rolled "Save context" round-trip), so the selection survives in-place
-      // revalidation and round-trips to the pager / deep links. The write is a replace
-      // navigation, so poll the URL rather than asserting it synchronously; do NOT wait
-      // for networkidle (the revalidation may defer-stream and never settle).
-      await expect.poll(() => new URL(page.url()).searchParams.get("selectedObservationIds")).not.toBeNull();
-      // Reject is reason-required, so it lives behind a panel trigger rather than inline.
-      const rejectPanelTrigger = page.getByRole("button", { name: "Reject…" });
-      await expect(rejectPanelTrigger.first()).toBeVisible();
-      await rejectPanelTrigger.first().click();
-      await expect(page.getByRole("textbox", { name: /Reject reason/i }).first()).toBeVisible();
-      await page.keyboard.press("Escape");
-      // "Clear selection" tears the bar back down, proving it is selection-scoped.
-      await page.getByRole("button", { name: "Clear selection" }).first().click();
-      await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
-      // Clearing flows through the same single URL write: the durable selection is
-      // dropped from the URL too (no orphaned selectedObservationIds left behind).
-      await expect.poll(() => new URL(page.url()).searchParams.get("selectedObservationIds")).toBeNull();
-    }
+    await expect(reviewRowCheckbox, "browser-e2e seed contract requires a changed review row").not.toHaveCount(0);
+    await reviewRowCheckbox.first().check();
+    // The bar replaces the old hand-rolled panel: its primary/secondary commands and
+    // the reject panel trigger are now the only selection-command affordances.
+    await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Defer" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Clear selection" }).first()).toBeVisible();
+    // #1975: selection now has a single, URL-backed source of truth. Checking a row
+    // persists it straight to the URL via a client GET navigation (no full reload,
+    // no hand-rolled "Save context" round-trip), so the selection survives in-place
+    // revalidation and round-trips to the pager / deep links. The write is a replace
+    // navigation, so poll the URL rather than asserting it synchronously; do NOT wait
+    // for networkidle (the revalidation may defer-stream and never settle).
+    await expect.poll(() => new URL(page.url()).searchParams.get("selectedObservationIds")).not.toBeNull();
+    // Reject is reason-required, so it lives behind a panel trigger rather than inline.
+    const rejectPanelTrigger = page.getByRole("button", { name: "Reject…" });
+    await expect(rejectPanelTrigger.first()).toBeVisible();
+    await rejectPanelTrigger.first().click();
+    await expect(page.getByRole("textbox", { name: /Reject reason/i }).first()).toBeVisible();
+    await page.keyboard.press("Escape");
+    // "Clear selection" tears the bar back down, proving it is selection-scoped.
+    await page.getByRole("button", { name: "Clear selection" }).first().click();
+    await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
+    // Clearing flows through the same single URL write: the durable selection is
+    // dropped from the URL too (no orphaned selectedObservationIds left behind).
+    await expect.poll(() => new URL(page.url()).searchParams.get("selectedObservationIds")).toBeNull();
 
-    // #2600: the review stage is candidate-first. Open a merged candidate's evidence
-    // sheet (IF the seed has candidate rows) and prove operators see source comparison,
+    // #2600: the review stage is candidate-first. The browser-e2e seed contract includes
+    // a merged candidate; prove operators see source comparison,
     // field provenance, and proposed reference/Product mapping without any raw JSON
     // entry path. Source Observation evidence remains available as a supporting
     // disclosure below and is asserted separately when rows exist.
     const mergeCandidateReviewHeading = page.getByRole("heading", { name: "Merged candidate review" });
-    if (await mergeCandidateReviewHeading.count()) {
-      await expect(mergeCandidateReviewHeading.first()).toBeVisible({ timeout: 30_000 });
-      const candidateEvidenceTrigger = page
-        .getByRole("table", { name: "Merged candidate review" })
-        .getByRole("button", { name: "Evidence" });
-      if (await candidateEvidenceTrigger.count()) {
-        await candidateEvidenceTrigger.first().click();
-        await expect(page.getByText("Source comparison").first()).toBeVisible({ timeout: 30_000 });
-        await expect(page.getByText("Field provenance").first()).toBeVisible({ timeout: 30_000 });
-        await expect(page.getByText("Proposed references and Product mapping").first()).toBeVisible({
-          timeout: 30_000,
-        });
-        await expect(page.getByText(/raw JSON/i)).toHaveCount(0);
-        await page.keyboard.press("Escape");
-      }
-    }
+    await expect(mergeCandidateReviewHeading, "browser-e2e seed contract requires a merged candidate").toHaveCount(1);
+    await expect(mergeCandidateReviewHeading.first()).toBeVisible({ timeout: 30_000 });
+    const candidateEvidenceTrigger = page
+      .getByRole("table", { name: "Merged candidate review" })
+      .getByRole("button", { name: "Evidence" });
+    await expect(candidateEvidenceTrigger, "merged candidate seed contract requires evidence").not.toHaveCount(0);
+    await candidateEvidenceTrigger.first().click();
+    await expect(page.getByText("Source comparison").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Field provenance").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Proposed references and Product mapping").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/raw JSON/i)).toHaveCount(0);
+    await page.keyboard.press("Escape");
 
     const supportingSourceObservationEvidence = page.getByRole("button", { name: "Source Observation evidence" });
-    if (await supportingSourceObservationEvidence.count()) {
-      const sourceObservationEvidenceTriggerState = await supportingSourceObservationEvidence
-        .first()
-        .getAttribute("aria-expanded");
-      if (sourceObservationEvidenceTriggerState !== "true") {
-        await supportingSourceObservationEvidence.first().click();
-      }
-      await expect(page.getByRole("heading", { name: "Source Observation review" }).first()).toBeVisible({
-        timeout: 30_000,
-      });
-
-      // #1971: Source Observation rows still ship slim rows; a row's deep evidence
-      // is lazy-loaded via the per-observation evidence endpoint only when the
-      // supporting row's sheet opens. This path is data-dependent, so it is guarded
-      // on a Source Observation table row actually rendering.
-      const sourceObservationEvidenceTrigger = page
-        .getByRole("table", { name: "Source Observation review" })
-        .getByRole("button", { name: "Evidence" });
-      if (await sourceObservationEvidenceTrigger.count()) {
-        await sourceObservationEvidenceTrigger.first().click();
-        await expect(page.getByText("Source URL").first()).toBeVisible({ timeout: 30_000 });
-        await expect(page.getByText("Normalized facts").first()).toBeVisible({ timeout: 30_000 });
-        await expect(page.getByText(/raw JSON/i)).toHaveCount(0);
-        await page.keyboard.press("Escape");
-      }
-    } else {
-      await expect(page.getByText(/raw JSON/i)).toHaveCount(0);
+    await expect(
+      supportingSourceObservationEvidence,
+      "browser-e2e seed contract requires source observation evidence",
+    ).not.toHaveCount(0);
+    const sourceObservationEvidenceTriggerState = await supportingSourceObservationEvidence
+      .first()
+      .getAttribute("aria-expanded");
+    if (sourceObservationEvidenceTriggerState !== "true") {
+      await supportingSourceObservationEvidence.first().click();
     }
+    await expect(page.getByRole("heading", { name: "Source Observation review" }).first()).toBeVisible({
+      timeout: 30_000,
+    });
+
+    // #1971: Source Observation rows still ship slim rows; a row's deep evidence
+    // is lazy-loaded via the per-observation evidence endpoint only when the
+    // supporting row's sheet opens.
+    const sourceObservationEvidenceTrigger = page
+      .getByRole("table", { name: "Source Observation review" })
+      .getByRole("button", { name: "Evidence" });
+    await expect(
+      sourceObservationEvidenceTrigger,
+      "source observation seed contract requires evidence",
+    ).not.toHaveCount(0);
+    await sourceObservationEvidenceTrigger.first().click();
+    await expect(page.getByText("Source URL").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Normalized facts").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/raw JSON/i)).toHaveCount(0);
+    await page.keyboard.press("Escape");
 
     await page.getByRole("button", { name: "Create / update items" }).first().click();
     await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
@@ -495,17 +478,12 @@ test.describe.serial("catalog admin integrations", () => {
     expect(reviewPageTwoUrl.searchParams.get("reviewOffset")).toBe("25");
     expect(reviewPageTwoUrl.searchParams.get("providerKey")).toBe("tcgdex");
     expect(reviewPageTwoUrl.searchParams.get("selectedObservationIds")).toBe("obs_001");
-    // The cursor round-trip above already proves the second page is reachable (the loader
-    // reads reviewOffset and re-fetches that window). The pager itself is data-dependent:
-    // when the environment holds more than one page of in-scope observations it renders, and
-    // page 2 exposes a "Previous page" affordance so the queue is bidirectionally navigable;
-    // when the environment holds a single page the pager is correctly absent (no dead-end
-    // disabled controls). Assert the back-affordance only when the pager actually rendered, so
-    // the test does not assume a seed volume greater than one page.
+    // The cursor round-trip above proves the second page is reachable (the loader reads
+    // reviewOffset and re-fetches that window). The seeded review queue also guarantees a
+    // back-affordance, so the queue is bidirectionally navigable.
     const reviewPreviousPageLink = page.getByRole("link", { name: "Previous page" });
-    if (await reviewPreviousPageLink.count()) {
-      await expect(reviewPreviousPageLink.first()).toBeVisible();
-    }
+    await expect(reviewPreviousPageLink, "browser-e2e seed contract requires a review pager").not.toHaveCount(0);
+    await expect(reviewPreviousPageLink.first()).toBeVisible();
     // Return to the canonical daily route for the remaining assertions.
     await expectPageOk(page, "/catalog/integrations");
 
@@ -519,7 +497,7 @@ test.describe.serial("catalog admin integrations", () => {
 
     // The Create / update stage deep-links into the separate Catalog Items area,
     // filtered to the just-created/updated drafts for the provider (?source=). That
-    // target must load gracefully — even for an unknown provider, the filtered list
+    // target must load successfully — even for an unknown provider, the filtered list
     // renders an empty result (HTTP < 400), never a 500. This is the integration ->
     // catalog-items handoff seam from #1746.
     //
@@ -766,17 +744,18 @@ test.describe.serial("catalog admin integrations", () => {
     const magicProductionSignoffRow = governanceControls
       .getByRole("row")
       .filter({ hasText: "magic-production-signoff-required" });
-    if (await magicProductionSignoffRow.count()) {
-      await expect(magicProductionSignoffRow.first()).toBeVisible();
-      await expect(
-        magicProductionSignoffRow
-          .first()
-          .getByRole("cell", {
-            name: /Magic production sync requires recorded provider-data signoff and interface-only staging UAT evidence\./i,
-          })
-          .first(),
-      ).toBeVisible();
-    }
+    await expect(magicProductionSignoffRow, "browser-e2e seed contract requires magic signoff policy").not.toHaveCount(
+      0,
+    );
+    await expect(magicProductionSignoffRow.first()).toBeVisible();
+    await expect(
+      magicProductionSignoffRow
+        .first()
+        .getByRole("cell", {
+          name: /Magic production sync requires recorded provider-data signoff and interface-only staging UAT evidence\./i,
+        })
+        .first(),
+    ).toBeVisible();
 
     // With a resolving profile selected, lifecycle recovery renders the rollback,
     // deprecate, and retire command forms with confirmation and complete-removal evidence.

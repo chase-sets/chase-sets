@@ -19,15 +19,7 @@ test.describe("support admin requests", () => {
 
     const escalateOverdue = page.getByRole("button", { name: "Escalate overdue" });
     await expect(escalateOverdue).toBeVisible();
-    if (
-      await page
-        .getByText("Support operations API unavailable")
-        .isVisible()
-        .catch(() => false)
-    ) {
-      await expect(escalateOverdue).toBeDisabled();
-      return;
-    }
+    await expect(page.getByText("Support operations API unavailable")).toHaveCount(0);
 
     await escalateOverdue.click();
     await expect(page).toHaveURL(/\/support\/requests\?/);
@@ -36,16 +28,13 @@ test.describe("support admin requests", () => {
     expect(searchParams.get("skipped")).toMatch(/^\d+$/);
     await expect(page.getByText(/Escalated \d+ overdue requests; skipped \d+\./)).toBeVisible();
 
-    await expectSupportRequestDetailIfPresent(page);
+    await expectSupportRequestDetail(page);
   });
 });
 
-async function expectSupportRequestDetailIfPresent(page: Page) {
+async function expectSupportRequestDetail(page: Page) {
   const openLink = page.getByRole("link", { name: "Open" }).first();
-  if (!(await openLink.isVisible({ timeout: 5_000 }).catch(() => false))) {
-    await expect(page.getByText("No requests need support review")).toBeVisible();
-    return;
-  }
+  await expect(openLink, "browser-e2e seed contract requires a support request detail").not.toHaveCount(0);
 
   await openLink.click();
   await expect(page).toHaveURL(/\/support\/requests\/sup_/);

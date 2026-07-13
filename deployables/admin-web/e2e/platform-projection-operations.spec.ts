@@ -132,28 +132,25 @@ test.describe("platform admin projection operations", () => {
     await expect(page.getByText("Search: identity")).toBeVisible();
 
     const rebuildContext = page.getByRole("button", { name: "Rebuild context" });
-    if (await rebuildContext.count()) {
-      await rebuildContext.first().click();
-      await expect(page.getByRole("heading", { name: "Rebuild context projections?" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Queue context rebuild" })).toBeVisible();
-      await page.keyboard.press("Escape");
-    }
+    await expect(rebuildContext, "browser-e2e seed contract requires context rebuild controls").not.toHaveCount(0);
+    await rebuildContext.first().click();
+    await expect(page.getByRole("heading", { name: "Rebuild context projections?" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Queue context rebuild" })).toBeVisible();
+    await page.keyboard.press("Escape");
 
     const groupDetails = page.getByRole("link", { name: "Details" });
-    if (await groupDetails.count()) {
-      await groupDetails.first().click();
-      await expect(page).toHaveURL(/\/platform\/projections\?.*selected=/);
-      const rebuildGroup = page.getByRole("button", { name: "Rebuild" });
-      if (await rebuildGroup.count()) {
-        await rebuildGroup.first().click();
-        await expect(page.getByRole("heading", { name: "Rebuild projection group?" })).toBeVisible();
-        await expect(page.getByRole("button", { name: "Queue rebuild" })).toBeVisible();
-        await page.keyboard.press("Escape");
-      }
-      await page.goto("/platform/projections?tab=groups&search=identity");
-      await expectPageOk(page, "/platform/projections");
-      await expectAdminPageReady(page, { heading: "Projection Operations" });
-    }
+    await expect(groupDetails, "browser-e2e seed contract requires projection group details").not.toHaveCount(0);
+    await groupDetails.first().click();
+    await expect(page).toHaveURL(/\/platform\/projections\?.*selected=/);
+    const rebuildGroup = page.getByRole("button", { name: "Rebuild" });
+    await expect(rebuildGroup, "browser-e2e seed contract requires projection group rebuild").not.toHaveCount(0);
+    await rebuildGroup.first().click();
+    await expect(page.getByRole("heading", { name: "Rebuild projection group?" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Queue rebuild" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.goto("/platform/projections?tab=groups&search=identity");
+    await expectPageOk(page, "/platform/projections");
+    await expectAdminPageReady(page, { heading: "Projection Operations" });
 
     await page.getByRole("button", { name: "Refresh" }).click();
     await expect(page).toHaveURL(/\/platform\/projections\?.*search=identity/);
