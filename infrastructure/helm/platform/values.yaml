@@ -128,15 +128,27 @@ components:
       failureThreshold: 6
     rollout:
       enabled: false
+      revisionHistoryLimit: 5
+      progressDeadlineSeconds: 900
+      rollbackWindowRevisions: 3
+      analysis:
+        path: "/health/ready"
+        initialDelay: "5s"
+        interval: "10s"
+        count: 3
+        failureLimit: 0
+        timeoutSeconds: 5
       canary:
         canaryServiceSuffix: "canary"
         trafficRouting:
           nginx:
             enabled: false
-            stableIngress: ""
-        steps:
-          - setWeight: 10
-          - pause: {}
+        weights:
+          - 10
+          - 25
+          - 50
+          - 100
+        pauseAfterWeight: 10
   marketplace:
     enabled: true
     kind: "service"
@@ -190,15 +202,27 @@ components:
       failureThreshold: 6
     rollout:
       enabled: false
+      revisionHistoryLimit: 5
+      progressDeadlineSeconds: 900
+      rollbackWindowRevisions: 3
+      analysis:
+        path: "/health/ready"
+        initialDelay: "5s"
+        interval: "10s"
+        count: 3
+        failureLimit: 0
+        timeoutSeconds: 5
       canary:
         canaryServiceSuffix: "canary"
         trafficRouting:
           nginx:
             enabled: false
-            stableIngress: ""
-        steps:
-          - setWeight: 10
-          - pause: {}
+        weights:
+          - 10
+          - 25
+          - 50
+          - 100
+        pauseAfterWeight: 10
   admin-web:
     enabled: true
     kind: "service"
@@ -477,6 +501,29 @@ components:
       timeoutSeconds: 3
       periodSeconds: 10
       failureThreshold: 3
+    rollout:
+      enabled: false
+      revisionHistoryLimit: 5
+      progressDeadlineSeconds: 900
+      rollbackWindowRevisions: 3
+      analysis:
+        path: "/health/ready"
+        initialDelay: "5s"
+        interval: "10s"
+        count: 3
+        failureLimit: 0
+        timeoutSeconds: 5
+      canary:
+        canaryServiceSuffix: "canary"
+        trafficRouting:
+          nginx:
+            enabled: false
+        weights:
+          - 10
+          - 25
+          - 50
+          - 100
+        pauseAfterWeight: 10
   platform-worker:
     enabled: true
     kind: "worker"

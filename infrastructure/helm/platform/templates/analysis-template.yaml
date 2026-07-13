@@ -1,0 +1,24 @@
+{{- range $name, $component := .Values.components }}
+{{- if and $component.enabled (eq $component.kind "service") $component.rollout $component.rollout.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ include "chase-sets-platform.analysisTemplateName" (dict "root" $ "name" $name) }}
+  labels:
+{{ include "chase-sets-platform.labels" (dict "root" $ "name" $name) | nindent 4 }}
+spec:
+  metrics:
+    - name: canary-readiness
+      initialDelay: {{ $component.rollout.analysis.initialDelay | quote }}
+      interval: {{ $component.rollout.analysis.interval | quote }}
+      count: {{ $component.rollout.analysis.count }}
+      failureLimit: {{ $component.rollout.analysis.failureLimit }}
+      successCondition: result.status == "ok"
+      failureCondition: result.status != "ok"
+      provider:
+        web:
+          url: {{ printf "http://%s.%s.svc.cluster.local:%v%s" (include "chase-sets-platform.canaryServiceName" (dict "root" $ "name" $name)) $.Release.Namespace $component.service.port $component.rollout.analysis.path | quote }}
+          timeoutSeconds: {{ $component.rollout.analysis.timeoutSeconds }}
+{{- end }}
+{{- end }}

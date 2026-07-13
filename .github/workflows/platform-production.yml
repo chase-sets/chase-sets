@@ -348,6 +348,7 @@ jobs:
       CHASE_SETS_HELM_RELEASE: chase-sets-platform
       CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
       CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
+      ARGO_ROLLOUTS_ENABLED: "true"
       APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
       # DOKS is the primary rollout lane and always runs. The App Platform lane
       # is legacy: it exists only to keep App Platform's alias DNS reconciled
@@ -879,6 +880,19 @@ jobs:
           echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
           echo "Configured staging Kubernetes context: ${current_context}"
 
+      - name: Install Argo Rollouts kubectl plugin for staging
+        if: env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          binary="${RUNNER_TEMP}/kubectl-argo-rollouts"
+          curl --fail --location --silent --show-error \
+            https://github.com/argoproj/argo-rollouts/releases/download/v1.9.0/kubectl-argo-rollouts-linux-amd64 \
+            --output "$binary"
+          echo "d1c98f59f6d3716b7a35aa540506764700a358448dd6a10e92381b7aa294d00b  ${binary}" | sha256sum --check
+          chmod +x "$binary"
+          echo "${RUNNER_TEMP}" >> "$GITHUB_PATH"
+          "$binary" version --client
+
       - name: Export staging Kubernetes database URLs
         if: env.SHOULD_DEPLOY != 'false'
         env:
@@ -980,6 +994,7 @@ jobs:
             --runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}" \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
+            --rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
 
       - name: Capture staging Kubernetes deploy diagnostics
@@ -1456,6 +1471,24 @@ jobs:
             PLATFORM_AUTH_BASE_URL="https://${marketplace_domain}" \
             pnpm run stripe:money-smoke -- --edge-check --seller-flow
 
+      - name: Promote staging Argo Rollouts
+        if: env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          pnpm run platform:kubernetes-deployment -- promote \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --rollouts-enabled true \
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+
+      - name: Abort staging Argo Rollouts
+        if: failure() && env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
+        run: |
+          pnpm run platform:kubernetes-deployment -- abort \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --rollouts-enabled true || true
+
       - name: Mark staging applied
         id: staging_applied
         if: env.SHOULD_DEPLOY != 'false'
@@ -1728,6 +1761,7 @@ jobs:
       CHASE_SETS_HELM_RELEASE: chase-sets-platform
       CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
       CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
+      ARGO_ROLLOUTS_ENABLED: ${{ vars.PRODUCTION_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}
       DESTRUCTIVE_CHANGE_ALLOW_FILE: .github/deployment/production-destructive-change-approved.md
       PRODUCTION_RELEASE_LOCKED: ${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}
       PRODUCTION_RELEASE_LOCK_REASON: ${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}
@@ -2277,6 +2311,19 @@ jobs:
           echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
           echo "Configured production Kubernetes context: ${current_context}"
 
+      - name: Install Argo Rollouts kubectl plugin for production
+        if: env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          binary="${RUNNER_TEMP}/kubectl-argo-rollouts"
+          curl --fail --location --silent --show-error \
+            https://github.com/argoproj/argo-rollouts/releases/download/v1.9.0/kubectl-argo-rollouts-linux-amd64 \
+            --output "$binary"
+          echo "d1c98f59f6d3716b7a35aa540506764700a358448dd6a10e92381b7aa294d00b  ${binary}" | sha256sum --check
+          chmod +x "$binary"
+          echo "${RUNNER_TEMP}" >> "$GITHUB_PATH"
+          "$binary" version --client
+
       - name: Capture production rollback target
         if: env.SHOULD_DEPLOY != 'false'
         id: rollback_target
@@ -2530,6 +2577,7 @@ jobs:
             --runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}" \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
+            --rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
 
       - name: Capture production Kubernetes deploy diagnostics
@@ -2773,6 +2821,24 @@ jobs:
           echo "completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
           echo "Stage 1 production canary verified ${#canary_urls[@]} synthetic/operator-safe endpoints."
 
+      - name: Promote production Argo Rollouts
+        if: env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          pnpm run platform:kubernetes-deployment -- promote \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --rollouts-enabled true \
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+
+      - name: Abort production Argo Rollouts
+        if: failure() && env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
+        run: |
+          pnpm run platform:kubernetes-deployment -- abort \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --rollouts-enabled true || true
+
       - name: Capture post-cutover production Kubernetes diagnostics
         if: failure() && env.SHOULD_DEPLOY != 'false'
         run: |
@@ -2799,6 +2865,7 @@ jobs:
           pnpm run platform:kubernetes-deployment -- rollback \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
+            --rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT" \
             --out "$rollback_record" \
             --github-output "$GITHUB_OUTPUT"

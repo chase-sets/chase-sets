@@ -1,5 +1,12 @@
 {{- $ingress := .Values.doksIngress -}}
 {{- if $ingress.enabled }}
+{{- /*
+The certificate-owning ingress keeps routes for ordinary Deployments. Paths
+owned by an Argo Rollout move to a component-specific stable Ingress below;
+Argo clones only that isolated route set for nginx canary weighting. Cloning
+one shared multi-service Ingress would apply canary annotations to unrelated
+paths and make independently progressing components interfere with each other.
+*/ -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -29,10 +36,19 @@ spec:
   {{- end }}
   rules:
     {{- range $ingress.hosts }}
+    {{- $basePaths := list }}
+    {{- range .paths }}
+    {{- $component := index $.Values.components .service }}
+    {{- $rolloutRouted := and $component.rollout $component.rollout.enabled $component.rollout.canary.trafficRouting.nginx.enabled }}
+    {{- if not $rolloutRouted }}
+    {{- $basePaths = append $basePaths . }}
+    {{- end }}
+    {{- end }}
+    {{- if gt (len $basePaths) 0 }}
     - host: {{ .host | quote }}
       http:
         paths:
-          {{- range .paths }}
+          {{- range $basePaths }}
           {{- $component := index $.Values.components .service }}
           - path: {{ .path | quote }}
             pathType: {{ default "Prefix" .pathType | quote }}
@@ -43,4 +59,65 @@ spec:
                   number: {{ default $component.service.port .port }}
           {{- end }}
     {{- end }}
+    {{- end }}
+
+{{- range $name, $component := .Values.components }}
+{{- if and $component.enabled (eq $component.kind "service") $component.rollout $component.rollout.enabled $component.rollout.canary.trafficRouting.nginx.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "chase-sets-platform.rolloutIngressName" (dict "root" $ "name" $name) }}
+  labels:
+{{ include "chase-sets-platform.labels" (dict "root" $ "name" $name) | nindent 4 }}
+    chase-sets.com/traffic-role: stable
+  {{- with $ingress.annotations }}
+  annotations:
+{{ toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if $ingress.className }}
+  ingressClassName: {{ $ingress.className | quote }}
+  {{- end }}
+  {{- if $ingress.tls.enabled }}
+  tls:
+    - hosts:
+        {{- range $ingress.hosts }}
+        {{- $matchingPaths := list }}
+        {{- range .paths }}
+        {{- if eq .service $name }}
+        {{- $matchingPaths = append $matchingPaths . }}
+        {{- end }}
+        {{- end }}
+        {{- if gt (len $matchingPaths) 0 }}
+        - {{ .host | quote }}
+        {{- end }}
+        {{- end }}
+      secretName: {{ $ingress.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    {{- range $ingress.hosts }}
+    {{- $matchingPaths := list }}
+    {{- range .paths }}
+    {{- if eq .service $name }}
+    {{- $matchingPaths = append $matchingPaths . }}
+    {{- end }}
+    {{- end }}
+    {{- if gt (len $matchingPaths) 0 }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range $matchingPaths }}
+          - path: {{ .path | quote }}
+            pathType: {{ default "Prefix" .pathType | quote }}
+            backend:
+              service:
+                name: {{ include "chase-sets-platform.componentName" (dict "root" $ "name" $name) }}
+                port:
+                  number: {{ default $component.service.port .port }}
+          {{- end }}
+    {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
 {{- end }}

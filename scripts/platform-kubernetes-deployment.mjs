@@ -46,6 +46,7 @@ export function platformKubernetesWorkloads(options = {}) {
   const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot });
   const release = options.release ?? defaultRelease;
   const deployments = [];
+  const rollouts = [];
   const jobs = [];
 
   for (const [name, component] of Object.entries(values.components ?? {})) {
@@ -55,13 +56,22 @@ export function platformKubernetesWorkloads(options = {}) {
 
     const workloadName = kubernetesComponentName(release, name);
     if (component.kind === "service" || component.kind === "worker") {
-      deployments.push(workloadName);
+      const rolloutEnabled =
+        component.kind === "service" && component.rollout
+          ? (options.rolloutsEnabled ??
+            (options.envOverrides?.DEPLOYMENT_ENVIRONMENT === "staging" ? true : component.rollout.enabled))
+          : false;
+      if (rolloutEnabled) {
+        rollouts.push(workloadName);
+      } else {
+        deployments.push(workloadName);
+      }
     } else if (component.kind === "job") {
       jobs.push(workloadName);
     }
   }
 
-  return { deployments, jobs };
+  return { deployments, rollouts, jobs };
 }
 
 export function buildHelmUpgradeArgs(options = {}) {
@@ -131,6 +141,20 @@ export function buildHelmUpgradeArgs(options = {}) {
         `observability.exporter.endpoint=https://otel.${deploymentEnvironment === "production" ? "chasesets.com" : "staging.chasesets.com"}`,
       ]
     : [];
+  const rolloutSetArgs =
+    typeof options.rolloutsEnabled === "boolean"
+      ? Object.entries(buildPlatformHelmValues({ repoRoot: options.repoRoot }).components ?? {}).flatMap(
+          ([name, component]) =>
+            component.rollout
+              ? [
+                  "--set",
+                  `components.${name}.rollout.enabled=${options.rolloutsEnabled ? "true" : "false"}`,
+                  "--set",
+                  `components.${name}.rollout.canary.trafficRouting.nginx.enabled=${options.rolloutsEnabled ? "true" : "false"}`,
+                ]
+              : [],
+        )
+      : [];
 
   return [
     "upgrade",
@@ -148,6 +172,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     ...doksIngressSetArgs,
     ...previewPostgresSetArgs,
     ...observabilitySetArgs,
+    ...rolloutSetArgs,
     ...previewSchedulingSetArgs,
     "--set-string",
     `global.image.registry=${image.registry}`,
@@ -336,23 +361,45 @@ export function buildRolloutStatusArgs(deployment, options = {}) {
   return ["rollout", "status", `deployment/${deployment}`, "--namespace", namespace, `--timeout=${timeout}`];
 }
 
+export function buildArgoRolloutGetArgs(rollout, options = {}) {
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  return ["get", `rollout/${rollout}`, "--namespace", namespace, "--output", "json"];
+}
+
+export function buildArgoRolloutPromoteArgs(rollout, options = {}) {
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  return ["argo", "rollouts", "promote", rollout, "--namespace", namespace];
+}
+
+export function buildArgoRolloutAbortArgs(rollout, options = {}) {
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  return ["argo", "rollouts", "abort", rollout, "--namespace", namespace];
+}
+
 export function buildDiagnosticsCommands(options = {}) {
   const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
   const workloads = options.workloads ?? platformKubernetesWorkloads(options);
   const tailLines = String(options.tailLines ?? 300);
-  const componentSelectors = [...workloads.deployments, ...workloads.jobs].map((name) => ({
-    name,
-    selector: `app.kubernetes.io/instance=${options.release ?? defaultRelease},app.kubernetes.io/component=${componentFromWorkloadName(name, options.release ?? defaultRelease)}`,
-  }));
+  const componentSelectors = [...workloads.deployments, ...(workloads.rollouts ?? []), ...workloads.jobs].map(
+    (name) => ({
+      name,
+      selector: `app.kubernetes.io/instance=${options.release ?? defaultRelease},app.kubernetes.io/component=${componentFromWorkloadName(name, options.release ?? defaultRelease)}`,
+    }),
+  );
 
   return [
     ["kubectl", ["get", "pods", "--namespace", namespace, "--sort-by=.metadata.creationTimestamp", "--output", "wide"]],
     ["kubectl", ["get", "jobs", "--namespace", namespace, "--sort-by=.metadata.creationTimestamp"]],
     ["kubectl", ["get", "deployments", "--namespace", namespace, "--sort-by=.metadata.creationTimestamp"]],
+    ["kubectl", ["get", "rollouts,analysisruns", "--namespace", namespace, "--sort-by=.metadata.creationTimestamp"]],
     ["kubectl", ["get", "events", "--namespace", namespace, "--sort-by=.lastTimestamp"]],
     ...workloads.deployments.map((deployment) => [
       "kubectl",
       ["describe", "deployment", deployment, "--namespace", namespace],
+    ]),
+    ...(workloads.rollouts ?? []).map((rollout) => [
+      "kubectl",
+      ["describe", "rollout", rollout, "--namespace", namespace],
     ]),
     ...workloads.jobs.map((job) => ["kubectl", ["describe", "job", job, "--namespace", namespace]]),
     ...componentSelectors.map((component) => [
@@ -448,7 +495,7 @@ export function buildKubernetesRollbackTarget(options = {}) {
     tag,
     digest,
     imageRef: tag || digest ? platformImageReference({ registryName, repository, tag, digest }) : "",
-    componentNames: [...workloads.deployments, ...workloads.jobs].sort(),
+    componentNames: [...workloads.deployments, ...(workloads.rollouts ?? []), ...workloads.jobs].sort(),
     lastKnownGoodCommit: options.lastKnownGoodCommit ?? "",
     releaseTag: options.releaseTag ?? "",
   };
@@ -477,7 +524,7 @@ export async function deployPlatformToKubernetes(options = {}) {
     args: buildHelmUpgradeArgs(options),
     spawn: options.spawn,
   });
-  await waitForPlatformRollouts({ ...options, kubectlPath, workloads });
+  await waitForPlatformWorkloads({ ...options, kubectlPath, workloads, acceptedRolloutPhases: ["Paused", "Healthy"] });
 
   return buildDeploymentEvidence({
     ...options,
@@ -520,7 +567,13 @@ export async function rollbackPlatformOnKubernetes(options = {}) {
       args: buildHelmRollbackArgs(options),
       spawn: options.spawn,
     });
-    await waitForPlatformRollouts({ ...options, kubectlPath, workloads });
+    await waitForPlatformWorkloads({
+      ...options,
+      kubectlPath,
+      workloads,
+      acceptedRolloutPhases: ["Healthy"],
+      detectRollbackKinds: true,
+    });
   } catch (error) {
     return buildDeploymentEvidence({
       ...options,
@@ -654,7 +707,61 @@ export async function capturePlatformKubernetesDiagnostics(options = {}) {
   return { commandCount: commands.length, commands: results };
 }
 
-async function waitForPlatformRollouts(options) {
+export async function promotePlatformRollouts(options = {}) {
+  const kubectlPath = options.kubectlPath ?? "kubectl";
+  const workloads = options.workloads ?? platformKubernetesWorkloads(options);
+  if ((workloads.rollouts ?? []).length === 0) {
+    return buildDeploymentEvidence({
+      ...options,
+      action: "promote",
+      result: "skipped",
+      reason: "rollouts-disabled",
+      workloads,
+    });
+  }
+
+  for (const rollout of workloads.rollouts) {
+    await runProcess({
+      command: kubectlPath,
+      args: buildArgoRolloutPromoteArgs(rollout, options),
+      spawn: options.spawn,
+    });
+  }
+  await waitForPlatformWorkloads({
+    ...options,
+    kubectlPath,
+    workloads: { deployments: [], rollouts: workloads.rollouts, jobs: [] },
+    acceptedRolloutPhases: ["Healthy"],
+  });
+
+  return buildDeploymentEvidence({ ...options, action: "promote", result: "success", workloads });
+}
+
+export async function abortPlatformRollouts(options = {}) {
+  const kubectlPath = options.kubectlPath ?? "kubectl";
+  const workloads = options.workloads ?? platformKubernetesWorkloads(options);
+  if ((workloads.rollouts ?? []).length === 0) {
+    return buildDeploymentEvidence({
+      ...options,
+      action: "abort",
+      result: "skipped",
+      reason: "rollouts-disabled",
+      workloads,
+    });
+  }
+
+  for (const rollout of workloads.rollouts) {
+    await runProcess({
+      command: kubectlPath,
+      args: buildArgoRolloutAbortArgs(rollout, options),
+      spawn: options.spawn,
+    });
+  }
+
+  return buildDeploymentEvidence({ ...options, action: "abort", result: "success", workloads });
+}
+
+async function waitForPlatformWorkloads(options) {
   for (const deployment of options.workloads.deployments) {
     await runProcess({
       command: options.kubectlPath,
@@ -662,6 +769,86 @@ async function waitForPlatformRollouts(options) {
       spawn: options.spawn,
     });
   }
+
+  for (const rollout of options.workloads.rollouts ?? []) {
+    if (options.detectRollbackKinds && !(await argoRolloutExists(rollout, options))) {
+      await runProcess({
+        command: options.kubectlPath,
+        args: buildRolloutStatusArgs(rollout, options),
+        spawn: options.spawn,
+      });
+      continue;
+    }
+    await waitForArgoRolloutPhase(rollout, options);
+  }
+}
+
+async function argoRolloutExists(rollout, options) {
+  try {
+    await runProcess({
+      command: options.kubectlPath,
+      args: buildArgoRolloutGetArgs(rollout, options),
+      spawn: options.spawn,
+      captureOutput: true,
+    });
+    return true;
+  } catch (error) {
+    if (isKubernetesResourceNotFound(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function waitForArgoRolloutPhase(rollout, options) {
+  const acceptedPhases = new Set(options.acceptedRolloutPhases ?? ["Healthy"]);
+  const timeoutMs = durationToMilliseconds(options.timeout ?? defaultTimeout);
+  const startedAt = Date.now();
+  const pollIntervalMs = options.pollIntervalMs ?? 2_000;
+
+  while (true) {
+    const result = await runProcess({
+      command: options.kubectlPath,
+      args: buildArgoRolloutGetArgs(rollout, options),
+      spawn: options.spawn,
+      captureOutput: true,
+    });
+    // Unit-test spawn doubles that do not synthesize stdout represent a
+    // successful command. A real kubectl invocation always returns JSON.
+    if (!result.stdout.trim()) {
+      return "unknown";
+    }
+    const resource = JSON.parse(result.stdout);
+    const phase = resource.status?.phase ?? "Progressing";
+    if (acceptedPhases.has(phase)) {
+      return phase;
+    }
+    if (["Degraded", "Error"].includes(phase)) {
+      throw new Error(`Argo Rollout ${rollout} entered ${phase}: ${rolloutStatusMessage(resource)}`);
+    }
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error(
+        `Timed out after ${options.timeout ?? defaultTimeout} waiting for Argo Rollout ${rollout}; last phase ${phase}.`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+}
+
+function rolloutStatusMessage(resource) {
+  const message = [...(resource.status?.conditions ?? [])].reverse().find((condition) => condition.message)?.message;
+  return String(message ?? "no controller condition message")
+    .replace(/\s+/g, " ")
+    .slice(0, 500);
+}
+
+function durationToMilliseconds(duration) {
+  const match = /^(\d+)(ms|s|m|h)$/.exec(String(duration));
+  if (!match) {
+    throw new Error(`timeout must be a Kubernetes duration using ms, s, m, or h: ${duration}`);
+  }
+  const multipliers = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000 };
+  return Number(match[1]) * multipliers[match[2]];
 }
 
 export function parsePlatformImageRef(imageRef) {
@@ -788,16 +975,23 @@ function isNamespaceNotFound(error) {
   return /\(NotFound\)/i.test(output) || /namespaces?\s+"[^"]+"\s+not found/i.test(output);
 }
 
+function isKubernetesResourceNotFound(error) {
+  const output = `${error?.stdout ?? ""}\n${error?.stderr ?? ""}\n${error instanceof Error ? error.message : String(error)}`;
+  return /\(NotFound\)/i.test(output) || /rollouts?\.argoproj\.io\s+"[^"]+"\s+not found/i.test(output);
+}
+
 // Exported so the deploy-artifact guard can drive the EXACT workflow argv
 // end-to-end (CLI parse -> helm arg construction).
 export function parseArgs(argv, env = process.env) {
   const command = argv.find((arg) => arg !== "--");
   if (
     !command ||
-    !["deploy", "rollback", "diagnostics", "plan", "capture-rollback-target", "teardown"].includes(command)
+    !["deploy", "promote", "abort", "rollback", "diagnostics", "plan", "capture-rollback-target", "teardown"].includes(
+      command,
+    )
   ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollouts-enabled true|false] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -810,6 +1004,7 @@ export function parseArgs(argv, env = process.env) {
     namespace: readOption(rest, "--namespace", env.CHASE_SETS_KUBERNETES_NAMESPACE ?? defaultNamespace),
     release: readOption(rest, "--release", env.CHASE_SETS_HELM_RELEASE ?? defaultRelease),
     timeout: readOption(rest, "--timeout", env.CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT ?? defaultTimeout),
+    rolloutsEnabled: readBooleanOption(rest, "--rollouts-enabled", env.ARGO_ROLLOUTS_ENABLED),
     revision: readOption(rest, "--revision", env.CHASE_SETS_HELM_ROLLBACK_REVISION),
     helmPath: readOption(rest, "--helm", env.HELM_PATH ?? "helm"),
     kubectlPath: readOption(rest, "--kubectl", env.KUBECTL_PATH ?? "kubectl"),
@@ -831,6 +1026,17 @@ function readOption(argv, name, defaultValue = undefined) {
 
   const prefix = `${name}=`;
   return argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length) ?? defaultValue;
+}
+
+function readBooleanOption(argv, name, defaultValue = undefined) {
+  const value = readOption(argv, name, defaultValue);
+  if (value == null || value === "") {
+    return undefined;
+  }
+  if (!["true", "false"].includes(String(value).toLowerCase())) {
+    throw new Error(`${name} must be true or false.`);
+  }
+  return String(value).toLowerCase() === "true";
 }
 
 function readOptions(argv, name) {
@@ -886,6 +1092,16 @@ async function main(argv, env = process.env) {
 
   if (options.command === "deploy") {
     console.log(JSON.stringify(await deployPlatformToKubernetes(options), null, 2));
+    return 0;
+  }
+
+  if (options.command === "promote") {
+    console.log(JSON.stringify(await promotePlatformRollouts(options), null, 2));
+    return 0;
+  }
+
+  if (options.command === "abort") {
+    console.log(JSON.stringify(await abortPlatformRollouts(options), null, 2));
     return 0;
   }
 

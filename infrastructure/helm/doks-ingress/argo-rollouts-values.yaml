@@ -1,0 +1,21 @@
+# Cluster-scoped progressive-delivery controller. The dashboard stays private
+# (disabled); operators use the pinned kubectl plugin from the deploy workflow.
+installCRDs: true
+keepCRDs: true
+clusterInstall: true
+
+controller:
+  replicas: 2
+  logging:
+    level: info
+    format: json
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+dashboard:
+  enabled: false

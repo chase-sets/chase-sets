@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  abortPlatformRollouts,
   buildDeploymentEvidence,
   buildDiagnosticsCommands,
   buildHelmRollbackArgs,
@@ -20,6 +21,7 @@ import {
   parseArgs,
   platformValuesPathForEnvironment,
   platformKubernetesWorkloads,
+  promotePlatformRollouts,
   rollbackPlatformOnKubernetes,
   sanitizeCopiedSecretManifest,
   teardownPlatformKubernetesNamespace,
@@ -27,8 +29,8 @@ import {
 
 const sampleValues = {
   components: {
-    "public-web": { enabled: true, kind: "service" },
-    marketplace: { enabled: true, kind: "service" },
+    "public-web": { enabled: true, kind: "service", rollout: { enabled: false } },
+    marketplace: { enabled: true, kind: "service", rollout: { enabled: false } },
     "platform-worker": { enabled: true, kind: "worker" },
     "platform-bootstrap": { enabled: true, kind: "job" },
     disabled: { enabled: false, kind: "service" },
@@ -243,6 +245,8 @@ describe("platform Kubernetes deployment", () => {
       "chase-sets-platform",
       "--release",
       "chase-sets-platform",
+      "--rollouts-enabled",
+      "true",
       "--timeout",
       "15m",
     ];
@@ -266,6 +270,9 @@ describe("platform Kubernetes deployment", () => {
     // smuggle a conflicting relay value past the overlay.
     expect(helmCall.args.filter((arg) => String(arg).includes("WORKER_PROJECTION_WAKE_RELAY_ENABLED"))).toEqual([]);
     expect(helmCall.args.join(" ")).toContain("global.envOverrides.DEPLOYMENT_ENVIRONMENT=staging");
+    expect(helmCall.args.join(" ")).toContain("components.public-web.rollout.enabled=true");
+    expect(helmCall.args.join(" ")).toContain("components.marketplace.rollout.enabled=true");
+    expect(helmCall.args.join(" ")).toContain("components.platform-api.rollout.enabled=true");
   });
 
   it("guards the deploy-applied staging artifacts so the DOKS worker relay flag can never render false", () => {
@@ -705,6 +712,12 @@ describe("platform Kubernetes deployment", () => {
         "proof-chase-sets-platform-marketplace",
         "proof-chase-sets-platform-platform-worker",
       ],
+      rollouts: [],
+      jobs: ["proof-chase-sets-platform-platform-bootstrap"],
+    });
+    expect(platformKubernetesWorkloads({ values: sampleValues, release: "proof", rolloutsEnabled: true })).toEqual({
+      deployments: ["proof-chase-sets-platform-platform-worker"],
+      rollouts: ["proof-chase-sets-platform-public-web", "proof-chase-sets-platform-marketplace"],
       jobs: ["proof-chase-sets-platform-platform-bootstrap"],
     });
   });
@@ -796,6 +809,60 @@ describe("platform Kubernetes deployment", () => {
     ]);
   });
 
+  it("holds enabled Argo Rollouts after analysis, then promotes or aborts through the official plugin", async () => {
+    const rolloutValues = { ...sampleValues };
+    const deployCalls = [];
+    await deployPlatformToKubernetes({
+      values: rolloutValues,
+      rolloutsEnabled: true,
+      release: "proof",
+      namespace: "staging",
+      timeout: "30s",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      spawn: completedSpawn(deployCalls, [
+        { code: 0 },
+        { code: 0 },
+        { code: 0, stdout: '{"status":{"phase":"Paused"}}' },
+        { code: 0, stdout: '{"status":{"phase":"Paused"}}' },
+      ]),
+    });
+    expect(deployCalls.map((call) => call.args.slice(0, 2))).toEqual([
+      ["upgrade", "--install"],
+      ["rollout", "status"],
+      ["get", "rollout/proof-chase-sets-platform-public-web"],
+      ["get", "rollout/proof-chase-sets-platform-marketplace"],
+    ]);
+
+    const promoteCalls = [];
+    await promotePlatformRollouts({
+      values: rolloutValues,
+      rolloutsEnabled: true,
+      release: "proof",
+      namespace: "staging",
+      timeout: "30s",
+      spawn: completedSpawn(promoteCalls, [
+        { code: 0 },
+        { code: 0 },
+        { code: 0, stdout: '{"status":{"phase":"Healthy"}}' },
+        { code: 0, stdout: '{"status":{"phase":"Healthy"}}' },
+      ]),
+    });
+    expect(promoteCalls.filter((call) => call.args[0] === "argo").map((call) => call.args[2])).toEqual([
+      "promote",
+      "promote",
+    ]);
+
+    const abortCalls = [];
+    await abortPlatformRollouts({
+      values: rolloutValues,
+      rolloutsEnabled: true,
+      release: "proof",
+      namespace: "staging",
+      spawn: successfulSpawn(abortCalls),
+    });
+    expect(abortCalls.map((call) => call.args[2])).toEqual(["abort", "abort"]);
+  });
+
   it("rolls back with Helm and reuses rollout status waits", async () => {
     const calls = [];
     await rollbackPlatformOnKubernetes({
@@ -816,6 +883,32 @@ describe("platform Kubernetes deployment", () => {
       args: ["rollback", "proof", "3", "--namespace", "staging", "--wait", "--timeout", "30s"],
     });
     expect(calls.slice(2).every((call) => call.args[0] === "rollout")).toBe(true);
+  });
+
+  it("waits for Deployments when Helm restores a revision from before Argo activation", async () => {
+    const calls = [];
+    const notFound = (name) =>
+      `Error from server (NotFound): rollouts.argoproj.io "proof-chase-sets-platform-${name}" not found`;
+    const result = await rollbackPlatformOnKubernetes({
+      values: sampleValues,
+      rolloutsEnabled: true,
+      release: "proof",
+      namespace: "staging",
+      timeout: "30s",
+      spawn: completedSpawn(calls, [
+        { code: 0 },
+        { code: 0 },
+        { code: 0 },
+        { code: 1, stderr: notFound("public-web") },
+        { code: 0 },
+        { code: 1, stderr: notFound("marketplace") },
+        { code: 0 },
+      ]),
+    });
+
+    expect(result.result).toBe("success");
+    expect(calls.filter((call) => call.args[0] === "rollout" && call.args[1] === "status")).toHaveLength(3);
+    expect(calls.filter((call) => call.args[0] === "get" && call.args[1]?.startsWith("rollout/"))).toHaveLength(2);
   });
 
   it("records rollback command failures as a separate failure outcome", async () => {
@@ -999,13 +1092,14 @@ describe("platform Kubernetes deployment", () => {
       tailLines: 50,
     });
 
-    expect(commands.slice(0, 4)).toEqual([
+    expect(commands.slice(0, 5)).toEqual([
       [
         "kubectl",
         ["get", "pods", "--namespace", "staging", "--sort-by=.metadata.creationTimestamp", "--output", "wide"],
       ],
       ["kubectl", ["get", "jobs", "--namespace", "staging", "--sort-by=.metadata.creationTimestamp"]],
       ["kubectl", ["get", "deployments", "--namespace", "staging", "--sort-by=.metadata.creationTimestamp"]],
+      ["kubectl", ["get", "rollouts,analysisruns", "--namespace", "staging", "--sort-by=.metadata.creationTimestamp"]],
       ["kubectl", ["get", "events", "--namespace", "staging", "--sort-by=.lastTimestamp"]],
     ]);
     expect(commands).toContainEqual([

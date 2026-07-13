@@ -245,6 +245,35 @@ export const doksStagingWorkerAutoscaling = {
   ],
 };
 
+const rolloutEligibleComponents = new Set(["public-web", "marketplace", "platform-api"]);
+
+function rolloutValues(enabled, nginxEnabled, analysisPath) {
+  return {
+    enabled,
+    revisionHistoryLimit: 5,
+    progressDeadlineSeconds: 900,
+    rollbackWindowRevisions: 3,
+    analysis: {
+      path: analysisPath,
+      initialDelay: "5s",
+      interval: "10s",
+      count: 3,
+      failureLimit: 0,
+      timeoutSeconds: 5,
+    },
+    canary: {
+      canaryServiceSuffix: "canary",
+      trafficRouting: {
+        nginx: {
+          enabled: nginxEnabled,
+        },
+      },
+      weights: [10, 25, 50, 100],
+      pauseAfterWeight: 10,
+    },
+  };
+}
+
 export const doksStagingApiOverrides = {
   // The cutover-evidence battery fans authenticated setup across many
   // clients. Keep one API available while another is briefly busy or rolling,
@@ -268,9 +297,8 @@ export const doksStagingApiOverrides = {
       memory: "1Gi",
     },
   },
+  rollout: rolloutValues(true, true, "/health/ready"),
 };
-
-const rolloutEligibleComponents = new Set(["public-web", "marketplace"]);
 
 export function platformHelmFullname(options = {}) {
   const fullnameOverride = options.fullnameOverride ?? "";
@@ -526,6 +554,12 @@ export function buildPlatformHelmStagingValues(options = {}) {
     generatedBy,
     doksIngress: buildDoksIngressValues({ env: options.env }),
     components: {
+      "public-web": {
+        rollout: rolloutValues(true, true, "/health/ready"),
+      },
+      marketplace: {
+        rollout: rolloutValues(true, true, "/health/ready"),
+      },
       "platform-api": doksStagingApiOverrides,
       "platform-worker": {
         autoscaling: {
@@ -762,19 +796,11 @@ function toHelmComponent(component) {
   }
 
   if (rolloutEligibleComponents.has(component.name)) {
-    result.rollout = {
-      enabled: false,
-      canary: {
-        canaryServiceSuffix: "canary",
-        trafficRouting: {
-          nginx: {
-            enabled: false,
-            stableIngress: "",
-          },
-        },
-        steps: [{ setWeight: 10 }, { pause: {} }],
-      },
-    };
+    result.rollout = rolloutValues(
+      false,
+      false,
+      component.name === "public-web" ? "/health/ready" : component.healthPath,
+    );
   }
 
   if (component.terraformKind === "job") {

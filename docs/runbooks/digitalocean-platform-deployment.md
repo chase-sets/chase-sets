@@ -634,9 +634,9 @@ The workflow:
 
 ### DOKS Rollouts Scaffold
 
-The Helm chart has an opt-in Argo Rollouts scaffold for `public-web` and `marketplace`, but App Platform remains the live deployment path until DOKS cutover. Do not treat the current Stage 1 production canary probes as traffic shifting; they are post-deploy synthetic checks against one released version.
+Staging enables proportional Argo Rollouts for `public-web`, `marketplace`, and `platform-api` through `values.staging.yaml`. nginx receives 10% first; the controller calls each canary Service's existing readiness endpoint three times and auto-aborts on one failure. The release remains paused at 10% while the workflow runs its existing smoke, projection convergence, Buy Now freshness, and money checks. A green verification tail promotes the rollout through analyzed 25%, 50%, and 100% steps; a failed tail explicitly aborts before incident classification continues.
 
-Proportional Rollouts are for beta-wave exposure control after Argo Rollouts, nginx ingress traffic routing, DOKS deployment helpers, and staging cutover proof are all in place. Until then, keep Playwright Buy Now freshness probes, settlement provider-health checks, and release-health records as CI-owned gates rather than Argo AnalysisRuns.
+Production remains disabled by default because #4053 still owns its DOKS ingress/DNS cutover. `PRODUCTION_ARGO_ROLLOUTS_ENABLED=true` is the operator flip, but set it only after the production Argo add-on is installed and production DOKS ingress serves the real hosts; Helm intentionally fails when proportional routing is enabled without DOKS ingress. While the flag is false, the Stage 1 production canary remains post-deploy synthetic smoke against one release, not a traffic split.
 
 ### Terraform Errored State Recovery
 
