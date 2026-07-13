@@ -1334,6 +1334,68 @@ describe("payment runtime", () => {
     expect(readAllEvents().map((event) => event.eventType)).toEqual(["payments.payment-created"]);
   });
 
+  it("surfaces a wallet-terms-not-accepted reason on preview without blocking the overall checkout", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const balanceCreditResolver = {
+      resolveBalanceCredit: vi.fn(async () => ({
+        requestedAmount: "10.00",
+        appliedAmount: "0.00",
+        remainingExternalAmount: "24.99",
+        blockedReason: "wallet-terms-not-accepted",
+      })),
+    };
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb() as never,
+      processorGateway,
+      balanceCreditResolver,
+    });
+
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      requestedBalanceCreditAmount: "10.00",
+      paymentMethodCategory: "card",
+    });
+
+    expect(status.wallet_credit.applied_amount).toBe("0.00");
+    expect(status.can_start_payment).toBe(true);
+    expect(status.unavailable_reasons).toContain("wallet-terms-not-accepted");
+    expect(status.unavailable_reason_details).toContainEqual(
+      expect.objectContaining({ code: "wallet-terms-not-accepted" }),
+    );
+  });
+
+  it("does not surface a wallet-terms reason when the buyer did not request balance credit", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const balanceCreditResolver = {
+      resolveBalanceCredit: vi.fn(async () => ({
+        requestedAmount: "0.00",
+        appliedAmount: "0.00",
+        remainingExternalAmount: "24.99",
+        blockedReason: null,
+      })),
+    };
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb() as never,
+      processorGateway,
+      balanceCreditResolver,
+    });
+
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+
+    expect(status.unavailable_reasons).toEqual([]);
+  });
+
   it("captures a payment immediately when balance credit covers the full amount", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();

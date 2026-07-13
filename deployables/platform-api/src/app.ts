@@ -28,6 +28,7 @@ import {
 import { catalogRealtimeManifest, catalogRealtimeTopicPolicyManifest } from "@chase-sets/catalog/server";
 import { pricingRealtimeManifest } from "@chase-sets/pricing/server";
 import { module as identityModule } from "@chase-sets/identity";
+import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
 import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 import {
   createOrderingUcpHandlers,
@@ -190,6 +191,7 @@ export function createPlatformApiHost(
   let runtime: ApiHostRuntime | null = null;
   const runtimeProfile = options.runtimeProfile ?? "public";
   const commercialTermsPool = getPlatformApiPool(options.pools["commercial-terms"]);
+  const identityPool = getPlatformApiPool(options.pools.identity);
   const settlementPool = getPlatformApiPool(options.pools.settlement);
   const platformOperationsPool = getPlatformApiPool(options.pools["platform-operations"]);
   const marketplacePool = getPlatformApiPool(options.pools.marketplace);
@@ -235,7 +237,10 @@ export function createPlatformApiHost(
           getProtectionReserveSummary: (params) => getProtectionReserveSummary(settlementPool, params),
         }
       : undefined;
-  const balanceCreditResolver = settlementPool ? createSettlementBalanceCreditResolver(settlementPool) : undefined;
+  const termsAcceptanceResolver = identityPool ? createIdentityTermsAcceptanceResolver(identityPool) : undefined;
+  const balanceCreditResolver = settlementPool
+    ? createSettlementBalanceCreditResolver(settlementPool, { termsAcceptanceResolver })
+    : undefined;
   const checkoutProcessingFeePolicyResolver = commercialTermsPool
     ? createCheckoutProcessingFeePolicyResolver(commercialTermsPool)
     : undefined;
@@ -246,6 +251,16 @@ export function createPlatformApiHost(
     ? createRateLimitPolicyResolver(platformOperationsPool)
     : undefined;
   const policyConsoleCrossContextSources: PolicyConsoleCrossContextPort["sources"][number][] = [];
+  if (identityPool) {
+    policyConsoleCrossContextSources.push({
+      contextName: "identity",
+      db: identityPool,
+      definitions: [identityTermsOfServicePolicy] as unknown as readonly PolicyDefinition<JsonValue>[],
+      write: lazyPolicyConsoleWritePort(
+        () => runtime?.services.identity as { policies?: PolicyConsoleWritePort } | undefined,
+      ),
+    });
+  }
   if (settlementPool) {
     policyConsoleCrossContextSources.push({
       contextName: "settlement",

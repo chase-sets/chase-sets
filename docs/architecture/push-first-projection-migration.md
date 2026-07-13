@@ -83,6 +83,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `identity:identity-shipping-address-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-user-preferences-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-user-projection` | Identity | **identity** | push-enabled | 1/1 |
+| `identity:platform-policy-document-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `inventory:inventory-catalog-item-projection` | Inventory | **catalog** | push-enabled | 1/1 |
 | `inventory:inventory-fulfillment-restock-workflow` | Inventory | fulfillment | push-eligible | 0/1 |
 | `inventory:inventory-hold-projection` | Inventory | **inventory** | push-enabled | 1/1 |

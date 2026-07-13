@@ -126,6 +126,13 @@
       "ownedTables": ["identity_shipping_addresses"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [
@@ -1088,6 +1095,22 @@
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.terms-of-service-api-command-snapshot",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": ["api-route:bounded-contexts/identity/features/consents/api/terms-route.ts:POST /accept"],
+      "visibleDestination": {
+        "description": "Terms of Service acceptance writes re-resolve and return the committed acceptance status (policy key, active required version, accepted version, accepted timestamp) directly from the read model immediately after recording, so the caller sees the committed fact and can proceed past the acceptance gate without waiting on projection catch-up."
+      },
+      "proof": {
+        "authoritativeResponse": "termsOfServiceConsentRoutes POST /accept records RecordConsent then returns resolveTermsAcceptanceStatus recomputed against the same read model.",
+        "tests": [
+          "bounded-contexts/identity/features/consents/api/terms-route.test.ts proves accept returns the server-resolved active version, ignores a client-supplied version, and is idempotent when already current."
+        ]
       }
     },
     {

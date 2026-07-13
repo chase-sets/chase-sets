@@ -5,6 +5,8 @@ export type BalanceCreditResolution = Readonly<{
   requestedAmount: string;
   appliedAmount: string;
   remainingExternalAmount: string;
+  /** Set by the resolver when a positive balance would otherwise have applied but was withheld (e.g. Terms not accepted). */
+  blockedReason?: string | null;
 }>;
 
 export interface BalanceCreditResolver {

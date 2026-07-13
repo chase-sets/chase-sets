@@ -187,6 +187,11 @@
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable outbound notification outbox consumed only by event projectors."
+    },
+    {
+      "portName": "termsAcceptanceResolver",
+      "providedBy": "identity",
+      "purpose": "Resolve whether a buyer has accepted the active Terms of Service version so wallet balance credit can be applied at checkout without Settlement querying Identity storage."
     }
   ],
   "apiDeployables": ["platform-api"],

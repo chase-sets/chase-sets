@@ -624,6 +624,20 @@ async function buildCheckoutStatusFromAmount(
     paymentMethodQuotes.find((quote) => quote.payment_method_category === paymentMethodCategory) ??
     paymentMethodQuotes[0]!;
 
+  // A wallet-credit block never blocks payment outright -- the buyer can
+  // still pay the full amount externally. It is only surfaced when the
+  // buyer actually requested balance credit and the resolver withheld it
+  // (e.g. active Terms of Service not yet accepted), so the UI can route
+  // them to policy review without falsely marking checkout unpayable.
+  const walletCreditUnavailableReasons =
+    balanceCredit.blockedReason && compareMoney(requestedBalanceCreditAmount, "0.00") > 0
+      ? [balanceCredit.blockedReason]
+      : [];
+  const unavailableReasons = [
+    ...(compareMoney(amount, "0.00") > 0 ? [] : ["no-payable-order-balance"]),
+    ...walletCreditUnavailableReasons,
+  ];
+
   return {
     order_ids: params.orderIds,
     currency_code: currencyCode,
@@ -636,16 +650,11 @@ async function buildCheckoutStatusFromAmount(
       external_amount: externalAmount,
     },
     can_start_payment: compareMoney(amount, "0.00") > 0,
-    unavailable_reasons: compareMoney(amount, "0.00") > 0 ? [] : ["no-payable-order-balance"],
-    unavailable_reason_details:
-      compareMoney(amount, "0.00") > 0
-        ? []
-        : [
-            {
-              code: "no-payable-order-balance",
-              message: checkoutUnavailableReasonLabel("no-payable-order-balance"),
-            },
-          ],
+    unavailable_reasons: unavailableReasons,
+    unavailable_reason_details: unavailableReasons.map((code) => ({
+      code,
+      message: checkoutUnavailableReasonLabel(code),
+    })),
   };
 }
 
