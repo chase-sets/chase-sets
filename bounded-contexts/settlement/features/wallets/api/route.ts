@@ -156,65 +156,6 @@ export function createWalletRoutes(services: WalletServices) {
     });
   });
 
-  app.post("/wallet/adjustments", async (c) => {
-    const access = requireWalletAccess(c, "payouts.manage");
-    if (access.response) {
-      return access.response;
-    }
-
-    const context = c.get("context");
-    if (!context) {
-      return c.json(
-        {
-          error: {
-            code: "authentication_required",
-            message: t("settlement.features.wallets.api.route.authentication.context.missing"),
-          },
-        },
-        401,
-      );
-    }
-
-    const body = await c.req.json();
-    const workflow = String(body.workflow ?? "");
-    const direction = workflow === "dispute-release" ? "credit" : "debit";
-    const kind = workflow === "seller-refund-debit" ? "refund" : "adjustment";
-    const description = String(
-      body.description ??
-        (workflow === "seller-refund-debit"
-          ? t("settlement.features.wallets.api.route.seller.refund.adjustment")
-          : workflow === "dispute-release"
-            ? t("settlement.features.wallets.api.route.dispute.hold.released")
-            : t("settlement.features.wallets.api.route.dispute.hold")),
-    );
-
-    try {
-      const result = await postOperatorWalletEntry(services, {
-        body,
-        kind,
-        direction,
-        defaultDescription: description,
-        context,
-      });
-
-      return c.json(result, 201);
-    } catch (error) {
-      if (isDuplicateLedgerEntryError(error)) {
-        return duplicateLedgerEntryResponse();
-      }
-      return c.json(
-        {
-          error: {
-            code: "validation_failed",
-            message:
-              error instanceof Error ? error.message : t("settlement.features.wallets.api.route.adjustment.failed"),
-          },
-        },
-        400,
-      );
-    }
-  });
-
   app.post("/wallet/refund-debits", async (c) => {
     const access = requireWalletAccess(c, "payouts.manage");
     if (access.response) {

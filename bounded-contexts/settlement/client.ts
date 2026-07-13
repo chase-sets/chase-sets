@@ -3,6 +3,8 @@ import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse, type MutationResult } from "@chase-sets/http/responses";
 import type { buildSettlementApi } from "./api";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "./features/wallets/read-model/queries";
+import type { SettlementWalletAdjustmentRow } from "./features/wallets/read-model/wallet-adjustment-queries";
+import type { WalletAdjustmentPreview } from "./features/wallets/api/wallet-adjustment-preview";
 import type {
   SettlementPayoutRow,
   SettlementProviderIdempotencyKeyRow,
@@ -73,6 +75,33 @@ export type SettlementPayoutEmbeddedSession = Readonly<{
 }>;
 
 export type SettlementPayoutSetupRefreshResult = MutationResult<SettlementPayoutReadinessRow>;
+
+export type SettlementWalletAdjustment = SettlementWalletAdjustmentRow;
+export type SettlementWalletAdjustmentPreview = WalletAdjustmentPreview;
+
+export type SettlementRequestWalletAdjustmentInput = Readonly<{
+  targetAccountId: string;
+  direction: "credit" | "debit";
+  amount: string;
+  currencyCode?: string;
+  reasonCode: string;
+  explanation?: string | null;
+  evidenceReferences?: readonly string[];
+  expectedBalanceRevision?: string | null;
+}>;
+
+export type SettlementPreviewWalletAdjustmentInput = Readonly<{
+  targetAccountId: string;
+  direction: "credit" | "debit";
+  amount: string;
+  currencyCode?: string;
+  reasonCode: string;
+}>;
+
+export type SettlementReverseWalletAdjustmentResult = Readonly<{
+  original: SettlementWalletAdjustment;
+  reversal: SettlementWalletAdjustment;
+}>;
 
 export class SettlementApiError extends Error {
   public constructor(
@@ -274,10 +303,109 @@ export function createSettlementApiClient({
     async createPayout(body: Record<string, unknown>) {
       return parseJsonResponse(await client.payouts.$post({ json: body, header: headers }));
     },
+    async previewWalletAdjustment(
+      body: SettlementPreviewWalletAdjustmentInput,
+    ): Promise<SettlementWalletAdjustmentPreview> {
+      return parseJsonResponse(await client["wallet-adjustments"].preview.$post({ json: body, header: headers }));
+    },
+    async requestWalletAdjustment(
+      body: SettlementRequestWalletAdjustmentInput,
+      idempotencyKey?: string,
+    ): Promise<SettlementWalletAdjustment> {
+      return parseJsonResponse(
+        await client["wallet-adjustments"].$post({
+          json: body,
+          header: { ...resolveHeaders(headers), ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}) },
+        }),
+      );
+    },
+    async approveWalletAdjustment(
+      adjustmentId: string,
+      body: Record<string, unknown> = {},
+    ): Promise<SettlementWalletAdjustment> {
+      return parseJsonResponse(
+        await client["wallet-adjustments"][":adjustmentId"].approve.$post({
+          param: { adjustmentId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async rejectWalletAdjustment(
+      adjustmentId: string,
+      body: Record<string, unknown> = {},
+    ): Promise<SettlementWalletAdjustment> {
+      return parseJsonResponse(
+        await client["wallet-adjustments"][":adjustmentId"].reject.$post({
+          param: { adjustmentId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async reverseWalletAdjustment(
+      adjustmentId: string,
+      body: Record<string, unknown>,
+    ): Promise<SettlementReverseWalletAdjustmentResult> {
+      return parseJsonResponse(
+        await client["wallet-adjustments"][":adjustmentId"].reverse.$post({
+          param: { adjustmentId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async getWalletAdjustment(adjustmentId: string): Promise<SettlementWalletAdjustment> {
+      return parseJsonResponse(
+        await client["wallet-adjustments"][":adjustmentId"].$get({ param: { adjustmentId }, header: headers }),
+      );
+    },
+    async listWalletAdjustments(query = ""): Promise<ListResponse<SettlementWalletAdjustment>> {
+      return parseJsonResponse(
+        await client["wallet-adjustments"].$get({
+          query: Object.fromEntries(new URLSearchParams(query)),
+          header: headers,
+        }),
+      );
+    },
+    async getWalletAdjustmentAccountSummary(accountId: string): Promise<SettlementWalletRow> {
+      return parseJsonResponse(
+        await client["wallet-adjustments"].accounts[":accountId"].summary.$get({
+          param: { accountId },
+          header: headers,
+        }),
+      );
+    },
+    async listWalletAdjustmentAccountHistory(
+      accountId: string,
+      query = "",
+    ): Promise<ListResponse<SettlementWalletAdjustment>> {
+      return parseJsonResponse(
+        await client["wallet-adjustments"].accounts[":accountId"].adjustments.$get({
+          param: { accountId },
+          query: Object.fromEntries(new URLSearchParams(query)),
+          header: headers,
+        }),
+      );
+    },
+    async listWalletAdjustmentAccountLedger(
+      accountId: string,
+      query = "",
+    ): Promise<ListResponse<SettlementLedgerEntryRow>> {
+      return parseJsonResponse(
+        await client["wallet-adjustments"].accounts[":accountId"].ledger.$get({
+          param: { accountId },
+          query: Object.fromEntries(new URLSearchParams(query)),
+          header: headers,
+        }),
+      );
+    },
   };
 }
 
 export type { SettlementWalletRow, SettlementLedgerEntryRow } from "./features/wallets/read-model/queries";
+export type { SettlementWalletAdjustmentRow } from "./features/wallets/read-model/wallet-adjustment-queries";
+export type { WalletAdjustmentPreview } from "./features/wallets/api/wallet-adjustment-preview";
 export type {
   SettlementPayoutRow,
   SettlementProviderIdempotencyKeyRow,
