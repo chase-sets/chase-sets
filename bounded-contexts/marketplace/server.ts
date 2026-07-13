@@ -32,6 +32,19 @@ export type {
   SellerBehavioralMetricsChips,
   SellerBehavioralMetricsSummary,
 } from "./support/request-support/seller-metrics-api-client";
+export {
+  LISTING_EVIDENCE_LAUNCH_POLICY_VALUE,
+  evaluateListingEvidencePolicy,
+  listingEvidencePolicyHash,
+  marketplaceListingEvidencePolicy,
+} from "./features/listing-evidence-policy/domain/policy";
+export type {
+  ListingEvidenceEvaluationFacts,
+  ListingEvidencePolicyEvaluation,
+  ListingEvidencePolicyRule,
+  ListingEvidencePolicyValue,
+  ResolvedListingEvidenceRequirements,
+} from "./features/listing-evidence-policy/domain/policy";
 /**
  * Policy definition for the platform policy console: Platform Operations
  * imports this (via `policyConsoleCrossContext`, assembled in the

@@ -208,6 +208,17 @@ describe("run e2e suite", () => {
     ).toEqual(["admin_platform"]);
   });
 
+  it("routes Listing Evidence Policy administration to platform admin coverage", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/marketplace/routes/admin/listing-evidence-policy.tsx")).toEqual([
+      "admin_platform",
+    ]);
+    expect(
+      e2eSuiteIdsForChangedFile(
+        "bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx",
+      ),
+    ).toEqual(["admin_platform"]);
+  });
+
   it("routes account admin routes to access admin coverage", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/identity/routes/admin/accounts-detail.tsx")).toEqual([
       "admin_access",

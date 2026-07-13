@@ -27,6 +27,7 @@ If an item uses a `condition` dimension, that condition is part of the selected 
 - Source liquidity lists that let sellers send selected offers to Checkout Sell List
 - Post-transaction reviews, ratings, written feedback, review eligibility, and canonical review summaries (`features/reviews`)
 - Buyer and visitor content reports plus report-driven Listing visibility policy (`features/reports`)
+- Versioned Listing Evidence Policy configuration, validation, impact previews, activation, and audit history (`features/listing-evidence-policy`)
 
 ## Does Not Own
 
@@ -46,6 +47,7 @@ Seller Listing Availability is documented in [Seller Listing Availability](./doc
 Order Capacity is documented in [Seller Order Capacity](./docs/seller-order-capacity.md).
 Standard listing Inventory disclosure is documented in [Standard Listing Inventory Disclosure](./docs/standard-listing-inventory-disclosure.md).
 Offer abuse controls are documented in [Offer Abuse Controls](./docs/offer-abuse-controls.md).
+Listing evidence configuration is documented in [Listing Evidence Policy](./docs/listing-evidence-policy.md).
 
 Offer Matches is a Marketplace source list. It can surface matching demand and post selected offer ids to the Checkout-owned Sell List route, but it must not own durable Sell List review, fee readiness, payout, fulfillment, or seller checkout orchestration.
 
@@ -56,6 +58,7 @@ Offer Matches is a Marketplace source list. It can surface matching demand and p
 - Seller Listing Availability
 - Seller Order Capacity
 - Listing Publication Policy
+- Listing Evidence Policy Document
 - Report
 - Offer Visibility Projection
 

@@ -18,6 +18,7 @@
     "@chase-sets/discovery": "workspace:*",
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/localization": "workspace:*",
+    "@chase-sets/marketplace": "workspace:*",
     "@chase-sets/ordering": "workspace:*",
     "@chase-sets/platform-operations": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",

@@ -75,7 +75,7 @@ export const e2eSuites = Object.freeze([
     id: "admin_platform",
     label: "Admin Platform",
     deployable: "admin-web",
-    journeys: ["projection operations", "API topology"],
+    journeys: ["projection operations", "Listing Evidence Policy", "API topology"],
     grep: "@admin-platform",
     estimatedDurationSeconds: 240,
   },
@@ -267,6 +267,14 @@ const marketplaceRouteSuiteOwnership = [
 ];
 
 const boundedContextRouteSuiteOwnership = [
+  {
+    pattern: /^bounded-contexts\/marketplace\/routes\/admin\/listing-evidence-policy\./,
+    suites: ["admin_platform"],
+  },
+  {
+    pattern: /^bounded-contexts\/marketplace\/features\/listing-evidence-policy\/(?:api|ui)\//,
+    suites: ["admin_platform"],
+  },
   {
     pattern: /^bounded-contexts\/identity\/routes\/admin\/accounts/,
     suites: ["admin_access"],

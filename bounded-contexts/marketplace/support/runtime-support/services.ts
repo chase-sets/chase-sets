@@ -17,6 +17,7 @@ import { createMarketplaceOfferRuntime } from "../../features/offers/api/runtime
 import { createMarketplaceReportRuntime } from "../../features/reports/api/runtime";
 import { createReviewRuntime } from "../../features/reviews/api/runtime";
 import { createSellerMetricsRuntime } from "../../features/seller-metrics/api/runtime";
+import { createListingEvidencePolicyRuntime } from "../../features/listing-evidence-policy/api/runtime";
 
 export type MarketplaceServiceOptions = Readonly<{
   commercialTermsResolver?: CommercialTermsResolver;
@@ -32,6 +33,7 @@ export type MarketplaceServices = Readonly<{
   reports: ReturnType<typeof createMarketplaceReportRuntime>;
   reviews: ReturnType<typeof createReviewRuntime>;
   sellerMetrics: ReturnType<typeof createSellerMetricsRuntime>;
+  listingEvidencePolicies: ReturnType<typeof createListingEvidencePolicyRuntime>;
   /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (listing-gate, seller-behavioral-metrics policies). */
   policies: PolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
@@ -76,6 +78,7 @@ export function createMarketplaceServices(
     notificationOutbox,
   });
   const sellerMetrics = createSellerMetricsRuntime({ db, policies });
+  const listingEvidencePolicies = createListingEvidencePolicyRuntime({ db, policies });
 
   return {
     listings,
@@ -83,6 +86,7 @@ export function createMarketplaceServices(
     reports,
     reviews,
     sellerMetrics,
+    listingEvidencePolicies,
     policies,
     projectors: [...listings.projectors, ...offers.projectors, ...reviews.projectors, ...policies.projectors],
     commercialTermsResolver,
