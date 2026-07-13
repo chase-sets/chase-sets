@@ -33,12 +33,21 @@ export function createDiscoveryListingPatch(
   void supply_total_quantity;
   void active_held_quantity;
 
-  const isPubliclyBuyable =
+  // Structurally real -- the listing itself is live and in stock, independent
+  // of seller availability/capacity. This is the direct single-listing page's
+  // (public-listing route) visibility gate: it renders a "visible but
+  // unbuyable" away/at-capacity state rather than disappearing, unlike the
+  // search/browse and item-detail feeds below which stay availability-gated
+  // (m127 -- away sellers vanish from search/browse via the unchanged
+  // buyerVisibleListingPredicateSql choke point; only the direct URL and its
+  // buy rail get the softer treatment).
+  const isStructurallyReal =
     listing.status === "active" &&
-    listing.seller_listing_availability_status === "available" &&
     typeof product_measure_snapshot === "object" &&
     product_measure_snapshot !== null &&
     Number(listing.visible_quantity ?? 0) > 0;
+
+  const isPubliclyBuyable = isStructurallyReal && listing.seller_listing_availability_status === "available";
 
   return createDiscoveryProjectionPatch(topics, [
     isPubliclyBuyable
@@ -51,6 +60,18 @@ export function createDiscoveryListingPatch(
       : {
           op: "remove",
           entity: "discovery.marketListing",
+          id: listing.listing_id,
+        },
+    isStructurallyReal
+      ? {
+          op: "upsert",
+          entity: "discovery.publicListingDetail",
+          id: listing.listing_id,
+          value: publicListing,
+        }
+      : {
+          op: "remove",
+          entity: "discovery.publicListingDetail",
           id: listing.listing_id,
         },
     {

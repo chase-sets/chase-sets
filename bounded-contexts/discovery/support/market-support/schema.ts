@@ -16,6 +16,17 @@ ALTER TABLE discovery_market_accounts
   ADD COLUMN IF NOT EXISTS seller_listing_availability_reason_category text NULL,
   ADD COLUMN IF NOT EXISTS seller_listing_available_again_on date NULL;
 
+-- Buyer-facing away/capacity messaging (m127): available_again_at is the
+-- authoritative resume instant (marketplace.seller-listing-availability
+-- .disabled/.enabled), distinct from the legacy date-only
+-- seller_listing_available_again_on above. at_capacity_changed_at guards the
+-- boolean against out-of-order ordering.seller-capacity.reached/.cleared
+-- replay -- an older event can never clobber a newer one.
+ALTER TABLE discovery_market_accounts
+  ADD COLUMN IF NOT EXISTS seller_available_again_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS seller_at_capacity boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS seller_at_capacity_changed_at timestamptz NULL;
+
 -- Reputation columns are role-split (m108): as-seller counters reflect
 -- reviews authored by buyers about this account, as-buyer counters reflect
 -- reviews authored by sellers. seller_average_rating output columns must

@@ -16,6 +16,7 @@ type SellerOptionRow = {
   status: string;
   updated_at: string;
   inventory_item_id: string | null;
+  at_capacity: boolean;
 };
 
 /**
@@ -45,6 +46,7 @@ class ProjectionDb implements PgQueryable {
         status: existing?.status ?? "draft",
         updated_at: String(values[8]),
         inventory_item_id: values[9] === null ? null : String(values[9]),
+        at_capacity: existing?.at_capacity ?? false,
       });
       return { rows: [], rowCount: 1 };
     }
@@ -85,6 +87,14 @@ class ProjectionDb implements PgQueryable {
 
     if (sql.includes("SET status = 'active'") && sql.includes("AND status = 'seller-unavailable'")) {
       return this.flipSellerStatus(String(values[0]), "seller-unavailable", "active", String(values[1]));
+    }
+
+    if (sql.includes("SET at_capacity = true")) {
+      return this.flipSellerAtCapacity(String(values[0]), false, true, String(values[1]));
+    }
+
+    if (sql.includes("SET at_capacity = false")) {
+      return this.flipSellerAtCapacity(String(values[0]), true, false, String(values[1]));
     }
 
     if (sql.includes("UPDATE checkout_marketplace_seller_options AS option")) {
@@ -143,6 +153,23 @@ class ProjectionDb implements PgQueryable {
     for (const row of this.options.values()) {
       if (row.seller_account_id === accountId && row.status === fromStatus) {
         row.status = toStatus;
+        row.updated_at = updatedAt;
+        affected += 1;
+      }
+    }
+    return { rows: [], rowCount: affected };
+  }
+
+  private flipSellerAtCapacity<Row>(
+    accountId: string,
+    fromAtCapacity: boolean,
+    toAtCapacity: boolean,
+    updatedAt: string,
+  ): PgQueryResult<Row> {
+    let affected = 0;
+    for (const row of this.options.values()) {
+      if (row.seller_account_id === accountId && row.at_capacity === fromAtCapacity) {
+        row.at_capacity = toAtCapacity;
         row.updated_at = updatedAt;
         affected += 1;
       }
@@ -342,5 +369,37 @@ describe("checkout marketplace seller-options projection", () => {
     expect(db.options.get("lst_2")?.status).toBe("active");
     expect(db.options.get("lst_paused")?.status).toBe("paused");
     expect(db.options.get("lst_other")?.status).toBe("active");
+  });
+
+  it("flags and clears a seller's rows at_capacity independently of the availability status", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
+
+    await handlers["marketplace.listing.created"]!(createdEvent({ listingId: "lst_1" }));
+    await handlers["marketplace.listing.created"]!(createdEvent({ listingId: "lst_other", accountId: "acc_other" }));
+
+    await handlers["ordering.seller-capacity.reached"]!(
+      event("ordering.seller-capacity.reached", "ordering.seller-capacity-acc_seller", { accountId: "acc_seller" }),
+    );
+
+    expect(db.options.get("lst_1")).toMatchObject({ status: "draft", at_capacity: true });
+    expect(db.options.get("lst_other")).toMatchObject({ at_capacity: false });
+
+    // Capacity and availability compose independently: going away on top of
+    // an at-capacity seller does not disturb the capacity flag, and clearing
+    // capacity later does not disturb the (still-away) status.
+    await handlers["marketplace.seller-listing-availability.disabled"]!(
+      event("marketplace.seller-listing-availability.disabled", "marketplace.seller-listing-availability-acc_seller", {
+        accountId: "acc_seller",
+      }),
+    );
+    expect(db.options.get("lst_1")).toMatchObject({ status: "draft", at_capacity: true });
+
+    await handlers["ordering.seller-capacity.cleared"]!(
+      event("ordering.seller-capacity.cleared", "ordering.seller-capacity-acc_seller", { accountId: "acc_seller" }),
+    );
+
+    expect(db.options.get("lst_1")).toMatchObject({ status: "draft", at_capacity: false });
+    expect(db.options.get("lst_other")).toMatchObject({ at_capacity: false });
   });
 });

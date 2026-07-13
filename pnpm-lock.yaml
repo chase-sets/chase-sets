@@ -384,6 +384,9 @@ importers:
       '@chase-sets/identity':
         specifier: workspace:*
         version: link:../identity
+      '@chase-sets/ordering':
+        specifier: workspace:*
+        version: link:../ordering
 
   bounded-contexts/fulfillment:
     dependencies:

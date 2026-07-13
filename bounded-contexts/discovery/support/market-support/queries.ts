@@ -12,6 +12,8 @@ export type DiscoveryPublicListingRow = Readonly<{
   seller_listing_availability_status: "available" | "unavailable";
   seller_listing_availability_reason_category: string | null;
   seller_listing_available_again_on: string | null;
+  seller_available_again_at: string | null;
+  seller_at_capacity: boolean;
   seller_average_rating: string | null;
   seller_review_count: number;
   /** Account badges mirror (m87 badge facts, m108 reputation) -- e.g. "trusted-seller". */
@@ -150,6 +152,8 @@ export async function getDiscoveryPublicListingBySlug(
          account.seller_listing_availability_status,
          account.seller_listing_availability_reason_category,
          account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
+         account.seller_available_again_at::text AS seller_available_again_at,
+         COALESCE(account.seller_at_capacity, false) AS seller_at_capacity,
          account.average_rating_as_seller::text AS seller_average_rating,
          COALESCE(account.review_count_as_seller, 0)::integer AS seller_review_count,
          COALESCE(account.badges, '[]'::jsonb) AS seller_badges,
@@ -175,10 +179,15 @@ export async function getDiscoveryPublicListingBySlug(
           OR listing.listing_id = redirect.entity_id
           OR listing.listing_slug = redirect.target_slug
      )
+     -- Structurally real gates this direct-URL lookup (status/measure-
+     -- snapshot/quantity), deliberately NOT seller_listing_availability_status
+     -- or at-capacity: a direct listing URL renders visible-but-unbuyable
+     -- away/at-capacity messaging instead of a bare "not found" (m127
+     -- #4883). Search/browse stays gated on availability via the unchanged
+     -- buyerVisibleListingPredicateSql choke point elsewhere.
      SELECT *
      FROM candidate_listing
      WHERE status = 'active'
-       AND seller_listing_availability_status = 'available'
        AND product_measure_snapshot IS NOT NULL
        AND visible_quantity > 0
      ORDER BY
@@ -279,6 +288,8 @@ export async function getDiscoveryPublicAccountBySlug(
            account.seller_listing_availability_status,
            account.seller_listing_availability_reason_category,
            account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
+           account.seller_available_again_at::text AS seller_available_again_at,
+           COALESCE(account.seller_at_capacity, false) AS seller_at_capacity,
            account.average_rating_as_seller::text AS seller_average_rating,
            COALESCE(account.review_count_as_seller, 0)::integer AS seller_review_count,
            COALESCE(account.badges, '[]'::jsonb) AS seller_badges,

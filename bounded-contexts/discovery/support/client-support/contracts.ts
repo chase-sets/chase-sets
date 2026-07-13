@@ -283,6 +283,10 @@ export interface DiscoveryMarketListing {
   seller_listing_availability_status?: "available" | "unavailable";
   seller_listing_availability_reason_category?: string | null;
   seller_listing_available_again_on?: string | null;
+  /** Authoritative resume instant (m127); null for indefinite away. */
+  seller_available_again_at?: string | null;
+  /** At-capacity buyer signal (m127); listing stays visible but unbuyable. */
+  seller_at_capacity?: boolean;
   seller_display_name: string | null;
   seller_average_rating?: string | null;
   seller_review_count?: number;

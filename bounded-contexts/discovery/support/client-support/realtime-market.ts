@@ -80,7 +80,12 @@ export function applyDiscoveryPublicListingPatch(
 ): DiscoveryPublicListing | null {
   let next = listing;
   for (const change of patch.changes) {
-    if (change.entity !== "discovery.marketListing") {
+    // The direct listing page tracks "discovery.publicListingDetail", not
+    // "discovery.marketListing" -- the latter is gated on seller
+    // availability (removed when a seller goes away) so search/browse stay
+    // excluded, but this page renders a visible-but-unbuyable away/at-
+    // capacity state instead of disappearing (m127).
+    if (change.entity !== "discovery.publicListingDetail") {
       continue;
     }
 

@@ -30,6 +30,7 @@ type SellerOption = Readonly<{
   product_summary: string | null;
   product_measure_snapshot: Readonly<Record<string, unknown>> | null;
   status: string;
+  at_capacity: boolean;
   seller_slug: string | null;
   seller_display_name: string | null;
   seller_average_rating: string | null;
@@ -54,7 +55,9 @@ function holdsAccurateAvailableQuantity(option: SellerOption): number {
 /**
  * In-memory fake `PgQueryable` that interprets the `listCartLines` SQL: it
  * joins cart line pages against the seller-options table applying the
- * `status = 'active'` filter, computes the holds-accurate
+ * `status = 'active' AND at_capacity = false` filter (m127 #4883 -- an
+ * at-capacity seller's listing drops the same way an inactive one does),
+ * computes the holds-accurate
  * `available_quantity = LEAST(listing_quantity_cap, GREATEST(COALESCE(supply, cap) - holds, 0))`,
  * LEFT JOINs the identity/reputation-maintained `checkout_seller_accounts`
  * table by `seller_account_id` to resolve `seller_display_name` / `seller_slug`
@@ -95,6 +98,7 @@ class CartReadModelDb implements PgQueryable {
             (option) =>
               option.product_id === line.product_id &&
               option.status === "active" &&
+              !option.at_capacity &&
               holdsAccurateAvailableQuantity(option) > 0,
           )
           .sort(
@@ -178,6 +182,7 @@ function option(overrides: Partial<SellerOption> = {}): SellerOption {
     product_summary: "Raw",
     product_measure_snapshot: productMeasureSnapshot(),
     status: "active",
+    at_capacity: false,
     seller_slug: null,
     seller_display_name: null,
     seller_average_rating: null,
@@ -313,6 +318,25 @@ describe("listCartLines seller_options join", () => {
     const [row] = await listCartLines(db, "acc_buyer");
 
     expect(row?.seller_options.map((sellerOption) => sellerOption.listing_id)).toEqual(["lst_active"]);
+  });
+
+  it("excludes at-capacity listings from candidates, including the locked listing (m127 #4883)", async () => {
+    const db = new CartReadModelDb(
+      [line({ locked_listing_id: "lst_at_capacity" })],
+      [
+        option({ listing_id: "lst_at_capacity", at_capacity: true }),
+        option({ listing_id: "lst_open", price_amount: "30.00", at_capacity: false }),
+      ],
+    );
+
+    const [row] = await listCartLines(db, "acc_buyer");
+
+    // The locked listing is absent from `seller_options` entirely -- the
+    // same shape a withdrawn/gone listing produces, which
+    // `selectedCartReadinessListing` (readiness.ts) already interprets as
+    // "locked listing gone" and flags the line unavailable before order
+    // creation, with zero changes needed to readiness itself.
+    expect(row?.seller_options.map((sellerOption) => sellerOption.listing_id)).toEqual(["lst_open"]);
   });
 
   it("yields empty options when a product has no active listings", async () => {

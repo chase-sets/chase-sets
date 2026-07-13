@@ -722,6 +722,27 @@ describe("item detail commerce panel rendering and mobile sections", () => {
     ).toBeTruthy();
   });
 
+  it("disables purchase and surfaces at-capacity copy for an at-capacity selected listing (m127 #4883)", () => {
+    const atCapacityListing = { ...baseListing, seller_at_capacity: true };
+
+    renderWithDataRouter(
+      <CheckoutPurchaseIntentSection
+        catalogItemId="cat_charizard"
+        productId="cat_charizard::"
+        selectedListing={atCapacityListing}
+        selectedListingSource="explicit"
+        itemTitle="Charizard"
+        selectedOptions={[]}
+        productSummary="Raw / Near Mint"
+        visibleListingCount={1}
+      />,
+    );
+
+    // The listing stays visible (not hidden), but the buyer cannot purchase.
+    expect(screen.getAllByText("Temporarily at capacity").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Temporarily at capacity" })).toHaveProperty("disabled", true);
+  });
+
   it("keeps buy actions in one compact accordion section list", () => {
     const { container } = render(
       <BuyActionCard

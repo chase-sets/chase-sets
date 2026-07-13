@@ -73,6 +73,8 @@ export type DiscoveryItemDetailRow = Readonly<{
     /** Account badges mirror (m87 badge facts, m108 reputation). */
     seller_badges: readonly string[];
     seller_founder_number?: number | null;
+    /** At-capacity buyer signal (m127); listing stays visible but unbuyable. */
+    seller_at_capacity: boolean;
     visible_quantity: number;
     created_at: string;
     updated_at: string;
@@ -381,6 +383,7 @@ export async function getDiscoveryItemDetail(
          COALESCE(account.review_count_as_seller, 0)::integer AS seller_review_count,
          COALESCE(account.badges, '[]'::jsonb) AS seller_badges,
          account.founder_number AS seller_founder_number,
+         COALESCE(account.seller_at_capacity, false) AS seller_at_capacity,
          ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity,
          listing.created_at::text AS created_at,
          listing.updated_at::text AS updated_at
@@ -417,6 +420,7 @@ export async function getDiscoveryItemDetail(
        seller_average_rating,
        seller_review_count,
        seller_badges,
+       seller_at_capacity,
        visible_quantity,
        created_at,
        updated_at

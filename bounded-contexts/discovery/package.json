@@ -45,6 +45,7 @@
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/catalog": "workspace:*",
     "@chase-sets/commercial-terms": "workspace:*",
-    "@chase-sets/identity": "workspace:*"
+    "@chase-sets/identity": "workspace:*",
+    "@chase-sets/ordering": "workspace:*"
   }
 }

@@ -1,9 +1,10 @@
-import { formatBpsPercent, t } from "@chase-sets/localization";
+import { formatBpsPercent, formatDate, t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
   AccountReputationSummary,
   Badge,
+  Banner,
   Button,
   Container,
   Form,
@@ -77,6 +78,45 @@ function availableQuantityLabel(visibleQuantity: number | null, quantityCap: num
   return t("discovery.routes.publicListing.available.quantity", {
     quantity: Number.isFinite(quantity) ? quantity.toLocaleString() : quantityCap,
   });
+}
+
+/**
+ * Buyer-facing "visible but unbuyable" messaging (m127): a seller can
+ * be away (date disclosed, reason never) or at capacity (no date -- it
+ * clears on its own once an open order slot frees up). Away takes display
+ * priority when both apply, since it is the more definite state. Returns
+ * `null` when the listing is fully purchasable.
+ */
+export function sellerUnbuyableMessage(
+  listing: Pick<
+    DiscoveryPublicListing,
+    "seller_listing_availability_status" | "seller_available_again_at" | "seller_at_capacity"
+  >,
+): { title: string; description: string } | null {
+  const isAway = (listing.seller_listing_availability_status ?? "available") === "unavailable";
+
+  if (isAway) {
+    return listing.seller_available_again_at
+      ? {
+          title: t("discovery.routes.publicListing.seller.away"),
+          description: t("discovery.routes.publicListing.seller.away.until", {
+            date: formatDate(listing.seller_available_again_at, { preset: "long" }),
+          }),
+        }
+      : {
+          title: t("discovery.routes.publicListing.seller.away"),
+          description: t("discovery.routes.publicListing.seller.listings.unavailable"),
+        };
+  }
+
+  if (listing.seller_at_capacity) {
+    return {
+      title: t("discovery.routes.publicListing.at.capacity"),
+      description: t("discovery.routes.publicListing.at.capacity.description"),
+    };
+  }
+
+  return null;
 }
 
 function purchaseLimitLabel(
@@ -308,6 +348,12 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
   const accountHref = listing.seller_slug ? `/accounts/${listing.seller_slug}` : null;
   const availability = availableQuantityLabel(listing.visible_quantity, listing.quantity_cap);
   const sellerListingsAvailable = (listing.seller_listing_availability_status ?? "available") === "available";
+  // Visible-but-unbuyable (m127): the listing itself renders normally
+  // (it is not treated as "not found"), but purchase actions disable while
+  // the seller is away or at capacity.
+  const unbuyableMessage = sellerUnbuyableMessage(listing);
+  const canPurchase = sellerListingsAvailable && !listing.seller_at_capacity;
+  const availabilityCopy = canPurchase ? availability : (unbuyableMessage?.description ?? availability);
   const limitLabel = purchaseLimitLabel(listing);
   const fulfillment = buyerFulfillmentLabel(listing.ship_from_code);
   const sellerRating = parseRating(listing.seller_average_rating);
@@ -330,8 +376,8 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
       ) : null}
       <Stack gap={6}>
         <Stack gap={3}>
-          <Badge tone={listing.status === "active" && sellerListingsAvailable ? "success" : "neutral"}>
-            {sellerListingsAvailable ? listing.status : t("discovery.routes.publicListing.unavailable")}
+          <Badge tone={listing.status === "active" && canPurchase ? "success" : "neutral"}>
+            {canPurchase ? listing.status : t("discovery.routes.publicListing.unavailable")}
           </Badge>
           <Heading level={1}>{titleForListing(listing)}</Heading>
           <Text size="lg" tone="secondary">
@@ -346,6 +392,9 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
             {formatMoney(listing.price_amount)} from{" "}
             {listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
           </Text>
+          {unbuyableMessage ? (
+            <Banner tone="warning" title={unbuyableMessage.title} description={unbuyableMessage.description} />
+          ) : null}
         </Stack>
 
         <Grid columns={{ base: 1, lg: 2 }} gap={4}>
@@ -355,7 +404,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               price={formatMoney(listing.price_amount)}
               seller={listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
               trust={
-                listing.status === "active" && sellerListingsAvailable
+                listing.status === "active" && canPurchase
                   ? t("discovery.routes.publicListing.verified.seller")
                   : t("discovery.routes.publicListing.seller.details.visible")
               }
@@ -368,22 +417,20 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                     reviewCount={listing.seller_review_count ?? 0}
                     align="end"
                   />
-                  <Badge tone={listing.status === "active" && sellerListingsAvailable ? "success" : "neutral"}>
-                    {listing.status === "active" && sellerListingsAvailable
+                  <Badge tone={listing.status === "active" && canPurchase ? "success" : "neutral"}>
+                    {listing.status === "active" && canPurchase
                       ? t("discovery.routes.publicListing.verified.seller")
                       : t("discovery.routes.publicListing.seller.details.visible")}
                   </Badge>
                 </Stack>
               }
-              availability={
-                sellerListingsAvailable ? availability : t("discovery.routes.publicListing.seller.listings.unavailable")
-              }
+              availability={availabilityCopy}
               fulfillment={fulfillment}
               policy={t("discovery.routes.publicListing.returns.reviewed.before.payment")}
               protection={t("discovery.routes.publicListing.buyer.protected")}
               reassurance={t("discovery.routes.publicListing.secure.checkout.reassurance")}
               primaryAction={
-                sellerListingsAvailable ? (
+                canPurchase ? (
                   <LinkButton href={checkoutHref} size="lg" leadingIcon="lock">
                     {t("discovery.routes.publicListing.buy.this.listing")}
                   </LinkButton>
@@ -401,7 +448,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
           <Stack gap={4}>
             <AccountTrustCard
               name={listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
-              verified={listing.status === "active" && sellerListingsAvailable}
+              verified={listing.status === "active" && canPurchase}
               rating={sellerRating}
               reviewCount={listing.seller_review_count ?? 0}
               completedSales={t("discovery.routes.publicListing.active.listing")}
@@ -409,11 +456,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               policies={[
                 {
                   label: t("discovery.routes.publicListing.availability"),
-                  value: sellerListingsAvailable
-                    ? limitLabel
-                      ? `${availability} | ${limitLabel}`
-                      : availability
-                    : t("discovery.routes.publicListing.seller.listings.unavailable"),
+                  value: canPurchase && limitLabel ? `${availability} | ${limitLabel}` : availabilityCopy,
                 },
                 {
                   label: t("discovery.routes.publicListing.shipping.credit"),

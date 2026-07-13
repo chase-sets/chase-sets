@@ -459,6 +459,9 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.selected.price": "Selected price",
   "discovery.routes.itemDetail.selected.product": "Selected product",
   "discovery.routes.itemDetail.secure.checkout": "Secure checkout",
+  "discovery.routes.itemDetail.seller.at.capacity": "Temporarily at capacity",
+  "discovery.routes.itemDetail.seller.at.capacity.description":
+    "This seller is temporarily at capacity. Check back soon.",
   "discovery.routes.itemDetail.seller.payout": "Seller payout",
   "discovery.routes.itemDetail.seller.payout.after.fee": "{payout} after {fee} fee",
   "discovery.routes.itemDetail.seller.specific.terms": "Seller-specific terms",
@@ -507,6 +510,9 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.your.selection": "Selected product",
   "discovery.routes.itemDetail.your.active.supply.covers": "; your active supply covers",
   "discovery.routes.publicListing.a.marketplace.seller": "a marketplace account",
+  "discovery.routes.publicListing.at.capacity": "Temporarily at capacity",
+  "discovery.routes.publicListing.at.capacity.description":
+    "This seller is temporarily at capacity. Check back soon — this does not affect other sellers.",
   "discovery.routes.publicListing.available": "Available",
   "discovery.routes.publicListing.available.quantity": "{quantity} available",
   "discovery.routes.publicListing.availability": "Availability",
@@ -540,6 +546,8 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.publicListing.seller.context": "Account context",
   "discovery.routes.publicListing.seller.context.description":
     "Account identity, status, and fulfillment signals are kept next to the buying decision.",
+  "discovery.routes.publicListing.seller.away": "Seller is away",
+  "discovery.routes.publicListing.seller.away.until": "This seller is away. Listings return {date}.",
   "discovery.routes.publicListing.seller.fulfillment.center": "Account fulfillment center",
   "discovery.routes.publicListing.seller.listings.unavailable": "Account listings are temporarily unavailable.",
   "discovery.routes.publicListing.seller.location": "Account location",

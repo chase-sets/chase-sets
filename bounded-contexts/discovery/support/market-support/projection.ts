@@ -41,6 +41,7 @@ const MARKET_ACCOUNT_AVAILABILITY_COLUMNS = [
   "seller_listing_availability_status",
   "seller_listing_availability_reason_category",
   "seller_listing_available_again_on",
+  "seller_available_again_at",
   "updated_at",
 ] as const;
 const MARKET_LISTING_CREATED_COLUMNS = [
@@ -203,6 +204,8 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     seller_listing_availability_status: "available" | "unavailable";
     seller_listing_availability_reason_category: string | null;
     seller_listing_available_again_on: string | null;
+    seller_available_again_at: string | null;
+    seller_at_capacity: boolean;
     seller_average_rating: string | null;
     seller_review_count: number;
     inventory_item_id: string;
@@ -235,6 +238,8 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
        account.seller_listing_availability_status,
        account.seller_listing_availability_reason_category,
        account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
+       account.seller_available_again_at::text AS seller_available_again_at,
+       COALESCE(account.seller_at_capacity, false) AS seller_at_capacity,
        account.average_rating_as_seller::text AS seller_average_rating,
        account.review_count_as_seller AS seller_review_count,
        LEAST(
@@ -407,6 +412,20 @@ async function refreshGoogleShoppingSellerListings(
     where: [{ column: "account_id", value: accountId }],
     refresh: (listingId) => refreshGoogleShoppingListing(db, event, listingId, reason),
   });
+}
+
+async function upsertSellerAtCapacity(db: PgQueryable, accountId: string, atCapacity: boolean, recordedAt: string) {
+  await db.query(
+    `INSERT INTO ${MARKET_ACCOUNTS_TABLE} (account_id, seller_at_capacity, seller_at_capacity_changed_at, updated_at)
+     VALUES ($1, $2, $3, $3)
+     ON CONFLICT (account_id) DO UPDATE
+     SET seller_at_capacity = $2,
+         seller_at_capacity_changed_at = $3,
+         updated_at = $3
+     WHERE ${MARKET_ACCOUNTS_TABLE}.seller_at_capacity_changed_at IS NULL
+        OR ${MARKET_ACCOUNTS_TABLE}.seller_at_capacity_changed_at <= $3::timestamptz`,
+    [accountId, atCapacity, recordedAt],
+  );
 }
 
 async function emitSellerListingPatches(
@@ -1200,6 +1219,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         accountId: string;
         reasonCategory: string | null;
         availableAgainOn: string | null;
+        availableAgainAt?: string | null;
       };
 
       await upsertRow(db, {
@@ -1211,6 +1231,11 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           seller_listing_availability_status: "unavailable",
           seller_listing_availability_reason_category: data.reasonCategory,
           seller_listing_available_again_on: data.availableAgainOn,
+          // Legacy `.disabled` events carry no `availableAgainAt` payload key
+          // at all (m127 pre-migration), so the buyer-facing "back on
+          // {date}" copy correctly falls back to the bare "unavailable" state
+          // instead of a fabricated date.
+          seller_available_again_at: data.availableAgainAt ?? null,
           updated_at: event.timing.recordedAt,
         },
       });
@@ -1229,10 +1254,29 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           seller_listing_availability_status: "available",
           seller_listing_availability_reason_category: null,
           seller_listing_available_again_on: null,
+          seller_available_again_at: null,
           updated_at: event.timing.recordedAt,
         },
       });
       await refreshGoogleShoppingSellerListings(db, event, data.accountId, "seller-availability");
+      await emitSellerListingPatches(db, event, data.accountId);
+    },
+    // At-capacity buyer signal (m127, producer: ordering's open-order
+    // enforcement slice -- registered ahead of that slice landing, the
+    // standard parallel-lane pattern this projection already uses elsewhere).
+    // Guarded by `seller_at_capacity_changed_at` rather than the account's
+    // shared `updated_at` (which many unrelated fields also bump) so a
+    // late-arriving, out-of-order `reached`/`cleared` can never clobber a
+    // newer crossing -- last-writer-by-event-time wins, replay-safe, and
+    // idempotent under duplicate delivery of the same event.
+    "ordering.seller-capacity.reached": async (event) => {
+      const data = event.data as { accountId: string };
+      await upsertSellerAtCapacity(db, data.accountId, true, event.timing.recordedAt);
+      await emitSellerListingPatches(db, event, data.accountId);
+    },
+    "ordering.seller-capacity.cleared": async (event) => {
+      const data = event.data as { accountId: string };
+      await upsertSellerAtCapacity(db, data.accountId, false, event.timing.recordedAt);
       await emitSellerListingPatches(db, event, data.accountId);
     },
     "marketplace.offer.submitted": async (event) => {
