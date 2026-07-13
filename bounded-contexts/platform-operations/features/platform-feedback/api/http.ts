@@ -11,7 +11,7 @@ import type { RiskAlertServices } from "../../risk-alerts/api/runtime";
 export type ExperienceApiEnv = AuthenticatedApiEnv;
 
 /**
- * Customer feedback authorization capabilities (#5145). Operator queue/detail/
+ * Customer feedback authorization capabilities. Operator queue/detail/
  * metrics reads require `view`; triage/notes/review/archive/bulk/follow-up/
  * redaction commands require `manage`; the sensitive free-text comment export
  * is a *separate* grant so a view-only staff assignment cannot download the

@@ -130,7 +130,7 @@ export function PlatformFeedbackAdminListPage({
   metrics,
   filters,
   exportHref,
-  // Nav/action controls reflect capability state (#5145); server-side authz on
+  // Nav/action controls reflect capability state; server-side authz on
   // the platform API remains the authoritative gate. Default to true so
   // isolated component tests render the full surface.
   canExport = true,
@@ -288,7 +288,7 @@ export function PlatformFeedbackAdminListPage({
 export function PlatformFeedbackAdminDetailPage({
   feedback,
   marketplaceOrigin,
-  // Reflects platform-feedback.manage (#5145); server-side authz stays
+  // Reflects platform-feedback.manage; server-side authz stays
   // authoritative. Defaults true for isolated component tests.
   canManage = true,
 }: {

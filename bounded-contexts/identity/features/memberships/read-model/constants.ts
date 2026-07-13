@@ -29,7 +29,7 @@ export const ROLE_PERMISSIONS = {
     "memberships.view",
     "postage-policies.manage",
     "postage-policies.view",
-    // Customer feedback operator capabilities (#5145): platform-staff only.
+    // Customer feedback operator capabilities: platform-staff only.
     // Export is a distinct grant from view/manage so the sensitive free-text
     // comment download can be withheld independently.
     "platform-feedback.export",
@@ -77,7 +77,7 @@ export const ROLE_PERMISSIONS = {
     "postage-policies.manage",
     "postage-policies.view",
     ...PERMISSION_PRESETS.payoutsOperator,
-    // Customer feedback operator capabilities are platform-staff only (#5145);
+    // Customer feedback operator capabilities are platform-staff only;
     // an account owner does not enumerate/export/mutate platform feedback.
     "platform-policy.view",
     "public-presence.manage",
@@ -113,7 +113,7 @@ export const ROLE_PERMISSIONS = {
     "postage-policies.manage",
     "postage-policies.view",
     ...PERMISSION_PRESETS.payoutsOperator,
-    // Customer feedback operator capabilities are platform-staff only (#5145).
+    // Customer feedback operator capabilities are platform-staff only.
     "platform-policy.view",
     "public-presence.manage",
     "public-presence.view",
@@ -131,7 +131,7 @@ export const ROLE_PERMISSIONS = {
     "listings.view",
     "offers.view",
     "orders.view",
-    // No platform-feedback.* -- operator feedback is platform-staff only (#5145).
+    // No platform-feedback.* -- operator feedback is platform-staff only.
     "public-presence.view",
     "reputation.view",
     "support.manage",
@@ -146,7 +146,7 @@ export const ROLE_PERMISSIONS = {
     "offers.view",
     "orders.view",
     ...PERMISSION_PRESETS.payoutsViewer,
-    // No platform-feedback.* -- operator feedback is platform-staff only (#5145).
+    // No platform-feedback.* -- operator feedback is platform-staff only.
     "public-presence.view",
     "reputation.view",
     "support.view",

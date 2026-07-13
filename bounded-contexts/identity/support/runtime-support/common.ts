@@ -66,7 +66,7 @@ export type PermissionKey =
   | "projection-operations.operate"
   | "projection-operations.rebuild"
   | "projection-operations.view"
-  // Customer feedback operator capabilities (#5145). Staff-only: platform-admin
+  // Customer feedback operator capabilities. Staff-only: platform-admin
   // is the sole role granted these. `view` reads the operator queue/detail/
   // metrics; `manage` performs triage/notes/review/archive/bulk/follow-up/
   // redaction; `export` is a separate grant so a viewer cannot download the
