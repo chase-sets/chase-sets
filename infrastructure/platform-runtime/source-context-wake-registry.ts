@@ -615,6 +615,7 @@ export const sourceContextWakeRegistry = [
     affectedProjectionNames: [
       "checkout:checkout.sell-list-projection",
       "marketplace:marketplace-settlement-negative-balance-projection",
+      "notifications:notifications-source-facts-outbox-projection",
       "settlement:platform-policy-document-projection",
       "settlement:settlement-payout-projection",
       "settlement:settlement-payout-readiness-projection",

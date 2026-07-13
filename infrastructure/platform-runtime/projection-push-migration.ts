@@ -15,7 +15,7 @@ import type { WorkSignalPriorityLane } from "./work-signal-store";
  * from the source-context wake registry must classify as `push-enabled`, with
  * zero `disabled` and zero `opted-out` groups. Wave 2 `fulfillment` and the
  * remaining wave 3 contexts (`discovery`, `public-presence`) still have
- * registry `eligible` rows with relay fan-out disabled, leaving 15 projection
+ * registry `eligible` rows with relay fan-out disabled, leaving 16 projection
  * groups `push-eligible`.
  *
  * Derives a push-first disposition for every projection group and every
