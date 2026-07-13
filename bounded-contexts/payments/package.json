@@ -6,6 +6,8 @@
   "scripts": {
     "typecheck": "tsc -p ./tests/tsconfig.json --noEmit",
     "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/payments/read-model/order-lookup-plan.db.test.ts",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs features/payments/read-model/order-lookup-plan.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "exports": {
@@ -41,5 +43,8 @@
   },
   "devDependencies": {
     "vitest": "^4.1.4"
+  },
+  "chaseSets": {
+    "testProfile": "db"
   }
 }

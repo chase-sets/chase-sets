@@ -12,6 +12,7 @@
   "types": "./index.ts",
   "scripts": {
     "test": "vitest run --config ./vitest.config.ts",
+    "test:unit": "vitest run --config ./vitest.config.ts --exclude projection-operations.db.test.ts --exclude cascade-resume.db.test.ts",
     "test:db": "vitest run --config ./vitest.config.ts projection-operations.db.test.ts cascade-resume.db.test.ts",
     "test:watch": "vitest --config ./vitest.config.ts"
   },
@@ -26,5 +27,8 @@
   "devDependencies": {
     "@opentelemetry/api": "^1.9.0",
     "vitest": "^4.1.4"
+  },
+  "chaseSets": {
+    "testProfile": "db"
   }
 }
