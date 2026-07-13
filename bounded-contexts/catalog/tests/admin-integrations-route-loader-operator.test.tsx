@@ -312,7 +312,7 @@ describe("Catalog integrations route", () => {
     expect(previewLocation.pathname).toBe("/catalog/integrations");
     expect(previewLocation.searchParams.get("commandResult")).toBe("preview-ready");
     expect(promotionPreviewId).toBe(
-      "preview-tcgdex_tcgdex_pokemon_single-card_source-observation-import_ja_SV_SV8_2026.06.04_ja_sv8_all_none_filtered-130-130",
+      "preview-tcgdex_tcgdex_pokemon_single-card_source-observation-import_ja_SV_SV8_2026.06.04_ja_sv8_all_none_filtered-130-130-no-fingerprint",
     );
 
     const bulkPromoteSourceObservationsByScope = vi.fn().mockResolvedValue({ jobId: "job_promote_ja_sv8" });

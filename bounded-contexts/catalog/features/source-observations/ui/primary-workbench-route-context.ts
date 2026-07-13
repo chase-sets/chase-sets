@@ -19,6 +19,7 @@ const canonicalKeys = new Set([
   ...catalogPrimaryWorkbenchScopeQueryKeys,
   "profileVersion",
   "selectedObservationIds",
+  "selectedObservationCount",
   "reviewOffset",
   "reviewLimit",
   "jobId",
@@ -27,6 +28,14 @@ const canonicalKeys = new Set([
 ]);
 
 const filterPrefix = "filter.";
+// Selection is durable page state (sessionStorage-backed, see
+// `primary-workbench-selection-store.ts`), not a URL detour. A small selection
+// still round-trips through the URL for shareable links and the post-command
+// redirect; above this bound the URL carries only the count, never the row ids,
+// so a bulk (e.g. 500-row) selection never inflates the address bar or any
+// server-side query-string/header limit. The durable store and the POST body
+// hidden inputs a command actually submits are unaffected by this cap.
+const MAX_URL_SELECTED_OBSERVATION_IDS = 50;
 // The daily surface is the base integrations route; the other three audience
 // surfaces are real nested routes. The route path is the screen router; ?section=
 // only names the precise workspace within a multi-workspace surface (active-nav +
@@ -198,8 +207,16 @@ export function serializeCatalogPrimaryWorkbenchRouteContext(
   setNullable(searchParams, "expansionId", context.scope?.expansionId ?? null);
   setNullable(searchParams, "expansionName", context.scope?.expansionName ?? null);
   setNullable(searchParams, "profileVersion", context.profileVersion);
-  if (context.selectedObservationIds.length > 0) {
+  if (
+    context.selectedObservationIds.length > 0 &&
+    context.selectedObservationIds.length <= MAX_URL_SELECTED_OBSERVATION_IDS
+  ) {
     searchParams.set("selectedObservationIds", context.selectedObservationIds.join(","));
+  } else if (context.selectedObservationIds.length > MAX_URL_SELECTED_OBSERVATION_IDS) {
+    // Bulk selection: carry only the count so the URL stays bounded. The durable
+    // working set (sessionStorage) and the command's own POST body are the
+    // source of truth for which observations are actually selected.
+    searchParams.set("selectedObservationCount", String(context.selectedObservationIds.length));
   }
   // The first page is the canonical default, so only a positive offset is emitted;
   // reviewLimit only when an explicit non-default page size is in play.

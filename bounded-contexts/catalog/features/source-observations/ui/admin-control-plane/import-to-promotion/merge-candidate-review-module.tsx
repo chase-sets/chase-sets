@@ -3,6 +3,7 @@ import {
   Badge,
   BadgeCluster,
   Button,
+  CopyButton,
   DataTable,
   EvidenceStringList,
   HiddenInput,
@@ -296,6 +297,7 @@ function MergeCandidateDetailSheet({
             "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayloads.empty",
           )}
         />
+        <RawCommandPayloadDisclosure row={row} />
       </WorkbenchStack>
     </SideSheet>
   );
@@ -420,6 +422,39 @@ function ConflictResolutionField({ conflict }: Readonly<{ conflict: BlockingConf
       />
     </WorkbenchStack>
   );
+}
+
+// The typed field-level view above (identity, provenance, references, proposed
+// facts, human-readable command summaries) is what an operator reads. The raw
+// command payload is never rendered as JSON text in the panel; it stays
+// available for support cases behind a copy-to-clipboard control only, so a
+// support engineer can paste the exact generated body without the panel ever
+// displaying a raw-JSON blob.
+function RawCommandPayloadDisclosure({ row }: Readonly<{ row: MergeCandidateRow }>) {
+  const rawPayload = rawCommandPayloadFor(row);
+  if (!rawPayload) {
+    return null;
+  }
+
+  return (
+    <CopyButton
+      value={rawPayload}
+      label={t(
+        "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayloads.copyLabel",
+      )}
+      copiedLabel={t(
+        "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayloads.copiedLabel",
+      )}
+    />
+  );
+}
+
+function rawCommandPayloadFor(row: MergeCandidateRow): string | null {
+  const payloads = row.actions.flatMap((actionEntry) =>
+    actionEntry.commandPreview ? [{ action: actionEntry.key, body: actionEntry.commandPreview.body }] : [],
+  );
+
+  return payloads.length > 0 ? JSON.stringify(payloads) : null;
 }
 
 function visibleActionBlockersFor(

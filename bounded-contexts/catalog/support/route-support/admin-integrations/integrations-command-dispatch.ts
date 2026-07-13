@@ -18,12 +18,22 @@ import { handleAttentionQueueCommand, isAttentionQueueCommandIntent } from "./at
 import { handleDailyCommand, isDailyCommandIntent } from "./daily-command-handler";
 import { handleGovernanceCommand, isGovernanceCommandIntent } from "./governance-command-handler";
 import { handleProviderSetupCommand, isProviderSetupCommandIntent } from "./provider-setup-command-handler";
+import {
+  catalogControlPlaneActionByLegacyIntent,
+  CATALOG_CONTROL_PLANE_ACTIONS,
+  type CatalogControlPlaneAction,
+} from "../../../features/source-observations/ui/admin-control-plane/information-architecture-v2";
 
-// The integrations command dispatcher. It routes a submitted intent to the surface
-// that owns it (daily / provider-setup / governance), records command telemetry,
-// and returns the structured command result as data. It does NOT navigate: the
-// surface entry point decides its own post-command UX from the result. No single
-// mega-switch owns all 17 intents — each surface handler owns its cohesive group.
+// The integrations command dispatcher. It is the single result-routing point for
+// every Catalog control-plane command: it resolves the submitted legacy intent to
+// its Catalog Control Plane v2 action — the reduced, per-entity `${entity}.${verb}`
+// vocabulary in `information-architecture-v2.ts` — and rejects anything that is not
+// part of that vocabulary before any surface handler ever sees it. A recognized
+// action is then routed to the surface that owns it (daily / alias-review /
+// provider-setup / governance), telemetry is recorded keyed by the v2 action id
+// (not the legacy wire string), and the structured command result is returned as
+// data. It does NOT navigate: the surface entry point decides its own post-command
+// UX from the result.
 export async function dispatchIntegrationsCommand({
   request,
 }: ActionFunctionArgs): Promise<CatalogIntegrationsCommandResult> {
@@ -32,11 +42,41 @@ export async function dispatchIntegrationsCommand({
   const intent = String(formData.get("_intent") ?? "") as CatalogPrimaryWorkbenchFormIntent;
   const context = commandContextFromFormData(request.url, formData);
   const selectedObservationIds = observationIdsFromFormData(formData, context.selectedObservationIds);
+  const controlPlaneAction = catalogControlPlaneActionForIntent(intent);
 
-  const result = await runIntegrationsCommand({ api, intent, context, formData, selectedObservationIds });
+  const result = controlPlaneAction
+    ? await runIntegrationsCommand({ api, intent, context, formData, selectedObservationIds })
+    : invalidIntentResult(intent, context, selectedObservationIds);
   await recordCommandTelemetry(api, result);
 
   return result;
+}
+
+// Resolve the Catalog Control Plane v2 action for a submitted intent, or
+// `undefined` when the intent is outside the reduced blueprint vocabulary. An
+// intent matches either as an already-migrated v2 action id submitted directly
+// (this slice's alias-review and dispatcher-owned surfaces already submit
+// `alias.accept` etc. on the wire) or as one of a legacy intent's
+// `replacesIntents` entries (surfaces not yet migrated onto the v2 dispatcher).
+// Exposed so callers (route tests, audit trails) can assert dispatcher behavior
+// in terms of the v2 action id rather than the legacy wire string.
+export function catalogControlPlaneActionForIntent(intent: string): CatalogControlPlaneAction | undefined {
+  return (
+    CATALOG_CONTROL_PLANE_ACTIONS.find((action) => action.id === intent) ??
+    catalogControlPlaneActionByLegacyIntent(intent)
+  );
+}
+
+function invalidIntentResult(
+  intent: CatalogPrimaryWorkbenchFormIntent,
+  context: ReturnType<typeof commandContextFromFormData>,
+  selectedObservationIds: readonly string[],
+): CatalogIntegrationsCommandResult {
+  return {
+    feedback: { status: "error", intent, result: "invalid-intent" },
+    context: { ...context, selectedObservationIds },
+    section: context.section,
+  };
 }
 
 async function runIntegrationsCommand(input: {

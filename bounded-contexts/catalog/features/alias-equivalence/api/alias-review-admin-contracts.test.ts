@@ -144,7 +144,10 @@ describe("mapCatalogAliasReviewCandidate", () => {
     );
     expect(curated.autoAccept.governedReviewState).toBe("auto-accepted");
     expect(curated.autoAccept.eligible).toBe(true);
-    expect(curated.availableActions).toContain("auto-accept");
+    // accept + auto-accept collapsed into one `alias.accept` action (Catalog
+    // Control Plane v2); eligibility still governs the bulk "accept eligible"
+    // affordance, it no longer changes the offered action set.
+    expect(curated.availableActions).toContain("alias.accept");
 
     // Same governance, but already accepted: not eligible for the bulk action.
     const accepted = mapCatalogAliasReviewCandidate(
@@ -155,7 +158,7 @@ describe("mapCatalogAliasReviewCandidate", () => {
       }),
     );
     expect(accepted.autoAccept.eligible).toBe(false);
-    expect(accepted.availableActions).toEqual(["revoke"]);
+    expect(accepted.availableActions).toEqual(["alias.revoke"]);
   });
 
   it("flags generated translations and low-confidence evidence as warnings", () => {
@@ -180,10 +183,10 @@ describe("mapCatalogAliasReviewCandidate", () => {
 
   it("offers accept again for a previously rejected or revoked alias", () => {
     expect(mapCatalogAliasReviewCandidate(candidateRow({ review_status: "rejected" })).availableActions).toEqual([
-      "accept",
+      "alias.accept",
     ]);
     expect(mapCatalogAliasReviewCandidate(candidateRow({ review_status: "revoked" })).availableActions).toEqual([
-      "accept",
+      "alias.accept",
     ]);
   });
 });

@@ -301,7 +301,7 @@ function AliasBulkActionPanel({
         </WorkbenchText>
         <WorkbenchActionRow>
           <BulkAliasActionForm
-            action="accept"
+            action="alias.accept"
             aliasHashes={aliasHashes}
             actionHref={actionHref}
             tone="primary"
@@ -309,19 +309,21 @@ function AliasBulkActionPanel({
           >
             {t("catalog.features.sourceObservations.ui.aliasReview.action.accept")}
           </BulkAliasActionForm>
+          {selectedAutoAcceptEligible > 0 ? (
+            <BulkAliasActionForm
+              action="alias.accept"
+              aliasHashes={aliasHashes}
+              actionHref={actionHref}
+              tone="secondary"
+              disabled={!canManageAliases}
+            >
+              {t("catalog.features.sourceObservations.ui.aliasReview.bulk.acceptEligible", {
+                count: selectedAutoAcceptEligible,
+              })}
+            </BulkAliasActionForm>
+          ) : null}
           <BulkAliasActionForm
-            action="auto-accept"
-            aliasHashes={aliasHashes}
-            actionHref={actionHref}
-            tone="secondary"
-            disabled={!canManageAliases || selectedAutoAcceptEligible === 0}
-          >
-            {t("catalog.features.sourceObservations.ui.aliasReview.bulk.acceptEligible", {
-              count: selectedAutoAcceptEligible,
-            })}
-          </BulkAliasActionForm>
-          <BulkAliasActionForm
-            action="defer"
+            action="alias.defer"
             aliasHashes={aliasHashes}
             actionHref={actionHref}
             tone="secondary"
@@ -335,8 +337,8 @@ function AliasBulkActionPanel({
         </WorkbenchActionRow>
       </WorkbenchActionRow>
 
-      <WorkbenchForm variant="inline" method="post" action={actionHref} data-alias-review-command="reject">
-        <HiddenInput name="_intent" value="reject" />
+      <WorkbenchForm variant="inline" method="post" action={actionHref} data-alias-review-command="alias.reject">
+        <HiddenInput name="_intent" value="alias.reject" />
         <HiddenInput name="aliasHashes" value={aliasHashes.join(",")} />
         <TextInput
           label={t("catalog.features.sourceObservations.ui.aliasReview.bulk.reason")}
@@ -360,7 +362,7 @@ function BulkAliasActionForm({
   disabled,
   children,
 }: {
-  action: Extract<CatalogAliasReviewActionKey, "accept" | "auto-accept" | "defer">;
+  action: Extract<CatalogAliasReviewActionKey, "alias.accept" | "alias.defer">;
   aliasHashes: readonly string[];
   actionHref: string;
   tone: "primary" | "secondary";
@@ -395,7 +397,7 @@ function AliasReviewActionButton({
   });
   // Reject and revoke require a reason; render them inline so the operator can
   // supply one without a separate page.
-  const requiresReason = action === "reject" || action === "revoke";
+  const requiresReason = action === "alias.reject" || action === "alias.revoke";
 
   return (
     <WorkbenchForm variant="button" method="post" action={actionHref} data-alias-review-command={action}>
@@ -405,7 +407,7 @@ function AliasReviewActionButton({
       <Button
         type="submit"
         size="sm"
-        tone={action === "accept" || action === "auto-accept" ? "primary" : "secondary"}
+        tone={action === "alias.accept" ? "primary" : "secondary"}
         disabled={disabled}
         aria-label={ariaLabel}
       >
@@ -481,16 +483,14 @@ function activeFilterCount(readModel: CatalogAliasReviewReadModel): number {
 
 function aliasActionLabel(action: CatalogAliasReviewActionKey): string {
   switch (action) {
-    case "accept":
+    case "alias.accept":
       return t("catalog.features.sourceObservations.ui.aliasReview.action.accept");
-    case "reject":
+    case "alias.reject":
       return t("catalog.features.sourceObservations.ui.aliasReview.action.reject");
-    case "defer":
+    case "alias.defer":
       return t("catalog.features.sourceObservations.ui.aliasReview.action.defer");
-    case "revoke":
+    case "alias.revoke":
       return t("catalog.features.sourceObservations.ui.aliasReview.action.revoke");
-    case "auto-accept":
-      return t("catalog.features.sourceObservations.ui.aliasReview.action.autoAccept");
   }
 }
 

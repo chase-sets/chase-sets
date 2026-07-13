@@ -106,7 +106,7 @@ describe("Catalog integrations route", () => {
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({ dispatchCatalogAliasReviewCommand });
 
-    const result = await runDailyAction({ _intent: "accept", aliasHashes: "hash_a" });
+    const result = await runDailyAction({ _intent: "alias.accept", aliasHashes: "hash_a" });
 
     expect(dispatchCatalogAliasReviewCommand).toHaveBeenCalledWith({ intent: "accept", aliasHashes: ["hash_a"] });
     expect(result.section).toBe("import-to-promotion");
@@ -122,7 +122,7 @@ describe("Catalog integrations route", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({ dispatchCatalogAliasReviewCommand });
 
     const result = await runDailyAction({
-      _intent: "reject",
+      _intent: "alias.reject",
       aliasHashes: "hash_a",
       reason: "Generated, not official",
     });
@@ -139,7 +139,7 @@ describe("Catalog integrations route", () => {
     const dispatchCatalogAliasReviewCommand = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({ dispatchCatalogAliasReviewCommand });
 
-    const result = await runDailyAction({ _intent: "reject", aliasHashes: "hash_a" });
+    const result = await runDailyAction({ _intent: "alias.reject", aliasHashes: "hash_a" });
 
     expect(dispatchCatalogAliasReviewCommand).not.toHaveBeenCalled();
     expect(result.feedback.status).toBe("error");

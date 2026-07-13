@@ -139,9 +139,9 @@ describe("CatalogIntegrationAliasReviewWorkspace", () => {
     const commands = [...container.querySelectorAll("[data-alias-review-command]")].map((node) =>
       node.getAttribute("data-alias-review-command"),
     );
-    expect(commands).toContain("accept");
-    expect(commands).toContain("reject");
-    expect(commands).toContain("defer");
+    expect(commands).toContain("alias.accept");
+    expect(commands).toContain("alias.reject");
+    expect(commands).toContain("alias.defer");
   });
 
   it("only offers revoke for an accepted alias candidate", () => {
@@ -151,8 +151,8 @@ describe("CatalogIntegrationAliasReviewWorkspace", () => {
     const rowCommands = [...container.querySelectorAll("[data-alias-review-command]")].map((node) =>
       node.getAttribute("data-alias-review-command"),
     );
-    expect(rowCommands).toContain("revoke");
-    expect(rowCommands).not.toContain("accept");
+    expect(rowCommands).toContain("alias.revoke");
+    expect(rowCommands).not.toContain("alias.accept");
   });
 
   it("posts bulk accept and reject forms to the supplied action href once candidates are selected", () => {
@@ -167,9 +167,9 @@ describe("CatalogIntegrationAliasReviewWorkspace", () => {
     const panel = within(bulkPanel as HTMLElement);
     expect(panel.getByText("1 candidates selected")).toBeTruthy();
 
-    const acceptForm = (bulkPanel as HTMLElement).querySelector('[data-alias-review-command="accept"]');
+    const acceptForm = (bulkPanel as HTMLElement).querySelector('[data-alias-review-command="alias.accept"]');
     expect(acceptForm?.getAttribute("action")).toBe(ACTION_HREF);
-    const rejectForm = (bulkPanel as HTMLElement).querySelector('[data-alias-review-command="reject"]');
+    const rejectForm = (bulkPanel as HTMLElement).querySelector('[data-alias-review-command="alias.reject"]');
     expect(rejectForm?.getAttribute("action")).toBe(ACTION_HREF);
     expect((rejectForm?.querySelector('input[name="aliasHashes"]') as HTMLInputElement)?.value).toBe("hash_official");
   });
@@ -187,7 +187,7 @@ describe("CatalogIntegrationAliasReviewWorkspace", () => {
 
   it("disables review actions for a view-only operator", () => {
     const { container } = renderWorkspace({ candidateRows: [candidateRow()] }, false);
-    const acceptButton = container.querySelector('[data-alias-review-command="accept"]')?.querySelector("button");
+    const acceptButton = container.querySelector('[data-alias-review-command="alias.accept"]')?.querySelector("button");
     expect(acceptButton?.hasAttribute("disabled")).toBe(true);
   });
 });

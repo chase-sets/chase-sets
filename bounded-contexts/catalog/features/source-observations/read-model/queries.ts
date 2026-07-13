@@ -109,6 +109,13 @@ export type SourceObservationPromotionPreview = Readonly<{
   eligible: number;
   terminal: number;
   scope: Required<SourceObservationFilterScope>;
+  // A content fingerprint over the exact eligible observations this preview
+  // computed from: MD5 of their sorted `observation_id:source_record_hash`
+  // pairs. Any change to which observations are eligible, or to any eligible
+  // observation's own content, changes this value — so a preview checkpoint
+  // built from it self-invalidates instead of relying on aggregate counts that
+  // can coincidentally still match after a change.
+  fingerprint: string;
 }>;
 
 export type SourceObservationReapplyPreview = Readonly<{
@@ -347,15 +354,18 @@ export async function previewSourceObservationPromotionScope(
 ): Promise<SourceObservationPromotionPreview> {
   const scope = normalizeSourceObservationFilterScope(params);
   const eligibleStatuses = reviewableStatusesForScope(scope);
-  const eligibleCount =
-    eligibleStatuses.length === 0 ? Promise.resolve(0) : countSourceObservations(db, scope, eligibleStatuses);
-  const [matched, eligible] = await Promise.all([countSourceObservations(db, scope), eligibleCount]);
+  const eligiblePromise =
+    eligibleStatuses.length === 0
+      ? Promise.resolve({ count: 0, fingerprint: "" })
+      : countAndFingerprintSourceObservations(db, scope, eligibleStatuses);
+  const [matched, eligible] = await Promise.all([countSourceObservations(db, scope), eligiblePromise]);
 
   return {
     matched,
-    eligible,
-    terminal: Math.max(0, matched - eligible),
+    eligible: eligible.count,
+    terminal: Math.max(0, matched - eligible.count),
     scope,
+    fingerprint: eligible.fingerprint,
   };
 }
 
@@ -371,13 +381,18 @@ export async function previewSourceObservationPromotionIds(
       eligible: 0,
       terminal: 0,
       scope,
+      fingerprint: "",
     };
   }
 
-  const result = await db.query<{ matched: string | number; eligible: string | number }>(
+  const result = await db.query<{ matched: string | number; eligible: string | number; fingerprint: string | null }>(
     `SELECT
        COUNT(*)::integer AS matched,
-       (COUNT(*) FILTER (WHERE status IN ('observed', 'changed')))::integer AS eligible
+       (COUNT(*) FILTER (WHERE status IN ('observed', 'changed')))::integer AS eligible,
+       MD5(COALESCE(STRING_AGG(
+         CASE WHEN status IN ('observed', 'changed') THEN observation_id || ':' || source_record_hash END,
+         ',' ORDER BY observation_id
+       ), '')) AS fingerprint
      FROM catalog_source_observations
      WHERE observation_id = ANY($1)`,
     [uniqueIds],
@@ -390,6 +405,33 @@ export async function previewSourceObservationPromotionIds(
     eligible,
     terminal: Math.max(0, matched - eligible),
     scope,
+    fingerprint: result.rows[0]?.fingerprint ?? "",
+  };
+}
+
+// Count the observations matching `params` (narrowed further by `statuses` when
+// given) together with a content fingerprint over that same set, in one query.
+async function countAndFingerprintSourceObservations(
+  db: PgQueryable,
+  params: SourceObservationFilterScope,
+  statuses?: readonly string[],
+): Promise<Readonly<{ count: number; fingerprint: string }>> {
+  const filter = buildSourceObservationFilter(params, {
+    includeListFilters: true,
+    statuses,
+  });
+  const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
+  const result = await db.query<{ count: string | number; fingerprint: string | null }>(
+    `SELECT
+       COUNT(*)::integer AS count,
+       MD5(COALESCE(STRING_AGG(observation_id || ':' || source_record_hash, ',' ORDER BY observation_id), '')) AS fingerprint
+     FROM catalog_source_observations ${where}`,
+    filter.values,
+  );
+
+  return {
+    count: Number(result.rows[0]?.count ?? 0),
+    fingerprint: result.rows[0]?.fingerprint ?? "",
   };
 }
 

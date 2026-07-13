@@ -672,6 +672,13 @@ export interface SourceObservationPromotionPreview {
   eligible: number;
   terminal: number;
   scope: Required<SourceObservationPromotionScope>;
+  /**
+   * Content fingerprint over the eligible observations this preview was
+   * computed from. Any change to the eligible set, or to any eligible
+   * observation's own content, changes this value. A checkpoint built from it
+   * self-invalidates instead of relying on aggregate counts alone.
+   */
+  fingerprint: string;
 }
 
 export interface SourceObservationReapplyPreview {

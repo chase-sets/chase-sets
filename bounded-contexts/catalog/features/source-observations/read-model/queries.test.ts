@@ -226,6 +226,38 @@ describe("source observation read-model queries", () => {
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("observation_id = ANY($1)"), [["obs_1", "obs_2"]]);
   });
 
+  it("carries a content fingerprint computed from the eligible observations for explicit IDs", async () => {
+    const db = queryable([{ matched: "2", eligible: "2", fingerprint: "abc123" }]);
+
+    const preview = await previewSourceObservationPromotionIds(db, ["obs_1", "obs_2"]);
+
+    expect(preview.fingerprint).toBe("abc123");
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("STRING_AGG"), [["obs_1", "obs_2"]]);
+  });
+
+  it("returns an empty fingerprint (not null/undefined) when the explicit selection is empty", async () => {
+    const db = queryable([]);
+
+    const preview = await previewSourceObservationPromotionIds(db, []);
+
+    expect(preview).toEqual({
+      matched: 0,
+      eligible: 0,
+      terminal: 0,
+      scope: expect.objectContaining({}),
+      fingerprint: "",
+    });
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it("carries a content fingerprint for the scope-wide preview, distinct from a null-safe default", async () => {
+    const db = queryableSequence([[{ count: "5", fingerprint: "scope-fp-1" }], [{ count: "5" }]]);
+
+    const preview = await previewSourceObservationPromotionScope(db, { status: "observed", language: "en" });
+
+    expect(preview.fingerprint).toBe("scope-fp-1");
+  });
+
   it("does not query IDs when the current status filter is terminal", async () => {
     const db = queryable([]);
 
