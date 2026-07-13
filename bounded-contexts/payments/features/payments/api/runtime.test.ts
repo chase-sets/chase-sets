@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type {
@@ -20,55 +21,6 @@ function createDeferred<T = void>() {
   });
 
   return { promise, resolve, reject };
-}
-
-function createInMemoryEventStore() {
-  let globalPosition = 0;
-  const streams = new Map<string, StoredEvent[]>();
-  const allEvents: StoredEvent[] = [];
-
-  const eventStore: EventStore = {
-    appendToStream: vi.fn(async (input: AppendToStreamInput) => {
-      const existing = streams.get(input.streamId) ?? [];
-      const stored = input.events.map((event, index) => {
-        globalPosition += 1;
-        return {
-          eventId: `evt_${globalPosition}` as never,
-          streamId: input.streamId,
-          streamVersion: existing.length + index + 1,
-          globalPosition: String(globalPosition) as GlobalPosition,
-          tenantId: input.context.tenantId,
-          eventType: event.eventType,
-          payload: event.payload,
-          metadata: event.metadata ?? {},
-          occurredAt: new Date().toISOString() as never,
-          recordedAt: new Date().toISOString() as never,
-          performedByUserId: input.context.audit.performedByUserId,
-          forAccountId: input.context.audit.forAccountId,
-          traceId: input.context.trace?.traceId,
-          spanId: input.context.trace?.spanId,
-          parentSpanId: input.context.trace?.parentSpanId,
-          traceState: input.context.trace?.traceState,
-        } satisfies StoredEvent;
-      });
-
-      streams.set(input.streamId, [...existing, ...stored]);
-      allEvents.push(...stored);
-      return stored;
-    }),
-    readStream: vi.fn(async (input: ReadStreamInput) =>
-      [...(streams.get(input.streamId) ?? [])].slice(input.fromVersion ?? 0),
-    ),
-    readAll: vi.fn(async (input?: ReadAllInput) => {
-      const after = Number(input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION);
-      return allEvents.filter((event) => Number(event.globalPosition) > after);
-    }),
-  };
-
-  return {
-    eventStore,
-    readAllEvents: () => allEvents,
-  };
 }
 
 function createUnusedEventStore(): EventStore {
@@ -610,6 +562,22 @@ const context = {
 };
 
 describe("payment runtime", () => {
+  it("turns a duplicate command with a stale expected version into a typed conflict", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const input = {
+      streamId: "payments.payment-conflict",
+      expectedVersion: "no_stream" as const,
+      context,
+      events: [{ eventType: "payments.payment-created", payload: {} }],
+    };
+
+    await eventStore.appendToStream(input);
+    await expect(eventStore.appendToStream(input)).rejects.toMatchObject({
+      code: "concurrency_conflict",
+      details: { currentVersion: 1 },
+    });
+  });
+
   it("returns account order overlays from Payments order inputs", async () => {
     const services = createPaymentRuntime({
       eventStore: createUnusedEventStore(),

@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./index.ts",
-    "./test-support": "./test-support.ts"
+    "./test-support": "./test-support.ts",
+    "./gateway-contract": "./gateway-contract.test-support.ts"
   },
   "scripts": {
     "typecheck": "tsc -p ./tsconfig.json --noEmit",

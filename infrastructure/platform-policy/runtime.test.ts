@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type {
   AppendToStreamInput,
@@ -20,47 +21,6 @@ const context = {
     forAccountId: "acc_admin" as never,
   },
 };
-
-function createInMemoryEventStore() {
-  let globalPosition = 0;
-  const streams = new Map<string, StoredEvent[]>();
-  const allEvents: StoredEvent[] = [];
-
-  const eventStore: EventStore = {
-    appendToStream: async (input: AppendToStreamInput) => {
-      const existing = streams.get(input.streamId) ?? [];
-      const stored = input.events.map((event, index) => {
-        globalPosition += 1;
-        return {
-          eventId: `evt_${globalPosition}` as never,
-          streamId: input.streamId,
-          streamVersion: existing.length + index + 1,
-          globalPosition: String(globalPosition) as GlobalPosition,
-          tenantId: input.context.tenantId,
-          eventType: event.eventType,
-          payload: event.payload,
-          metadata: event.metadata ?? {},
-          occurredAt: new Date().toISOString() as never,
-          recordedAt: new Date().toISOString() as never,
-          performedByUserId: input.context.audit.performedByUserId,
-          forAccountId: input.context.audit.forAccountId,
-        } satisfies StoredEvent;
-      });
-
-      streams.set(input.streamId, [...existing, ...stored]);
-      allEvents.push(...stored);
-      return stored;
-    },
-    readStream: async (input: ReadStreamInput) =>
-      [...(streams.get(input.streamId) ?? [])].slice(input.fromVersion ?? 0),
-    readAll: async (input?: ReadAllInput) => {
-      const after = Number(input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION);
-      return allEvents.filter((event) => Number(event.globalPosition) > after);
-    },
-  };
-
-  return { allEvents, eventStore };
-}
 
 /**
  * A minimal in-memory stand-in for the platform_policy_documents /

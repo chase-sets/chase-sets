@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type {
@@ -13,54 +14,6 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { UserId } from "@chase-sets/primitives/typed-ids";
 import { defaultUserPresentationPreferences } from "../domain/domain";
 import { createUserPreferencesRuntime } from "./runtime";
-
-function createInMemoryEventStore() {
-  let globalPosition = 0;
-  const streams = new Map<string, StoredEvent[]>();
-  const allEvents: StoredEvent[] = [];
-
-  const eventStore: EventStore = {
-    appendToStream: async (input: AppendToStreamInput) => {
-      const existing = streams.get(input.streamId) ?? [];
-      const stored = input.events.map((event, index) => {
-        globalPosition += 1;
-        return {
-          eventId: `evt_${globalPosition}` as never,
-          streamId: input.streamId,
-          streamVersion: existing.length + index + 1,
-          globalPosition: String(globalPosition) as GlobalPosition,
-          tenantId: input.context.tenantId,
-          eventType: event.eventType,
-          payload: event.payload,
-          metadata: event.metadata ?? {},
-          occurredAt: new Date().toISOString() as never,
-          recordedAt: new Date().toISOString() as never,
-          performedByUserId: input.context.audit.performedByUserId,
-          forAccountId: input.context.audit.forAccountId,
-          traceId: input.context.trace?.traceId,
-          spanId: input.context.trace?.spanId,
-          parentSpanId: input.context.trace?.parentSpanId,
-          traceState: input.context.trace?.traceState,
-        } satisfies StoredEvent;
-      });
-
-      streams.set(input.streamId, [...existing, ...stored]);
-      allEvents.push(...stored);
-      return stored;
-    },
-    readStream: async (input: ReadStreamInput) => {
-      const events = streams.get(input.streamId) ?? [];
-      const fromVersion = input.fromVersion ?? 1;
-      return events.filter((event) => event.streamVersion >= fromVersion).slice(0, input.limit);
-    },
-    readAll: async (input?: ReadAllInput) => {
-      const after = Number(input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION);
-      return allEvents.filter((event) => Number(event.globalPosition) > after);
-    },
-  };
-
-  return eventStore;
-}
 
 function createEmptyPreferencesDb(): PgQueryable {
   return {
@@ -92,7 +45,7 @@ const context = {
 describe("user preferences runtime", () => {
   it("serves committed preference aggregate state while the projection is still empty", async () => {
     const runtime = createUserPreferencesRuntime({
-      eventStore: createInMemoryEventStore(),
+      eventStore: createInMemoryEventStore().eventStore,
       checkpointStore: createCheckpointStore(),
       db: createEmptyPreferencesDb(),
     });
@@ -120,7 +73,7 @@ describe("user preferences runtime", () => {
 
   it("keeps defaults for users without committed preferences", async () => {
     const runtime = createUserPreferencesRuntime({
-      eventStore: createInMemoryEventStore(),
+      eventStore: createInMemoryEventStore().eventStore,
       checkpointStore: createCheckpointStore(),
       db: createEmptyPreferencesDb(),
     });

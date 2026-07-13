@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createStripePaymentProcessorGateway } from ".";
 import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
+import { testPaymentProcessorGatewayContract } from "@chase-sets/payment-processing/gateway-contract";
 
 function signature(rawBody: string, secret: string, timestamp: number) {
   const digest = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
@@ -11,6 +12,64 @@ function signature(rawBody: string, secret: string, timestamp: number) {
 function formSnapshot(body: BodyInit | null | undefined) {
   return Object.fromEntries(new URLSearchParams(String(body)).entries());
 }
+
+const contractWebhookSecret = "whsec_gateway_contract";
+let contractFetchMock = vi.fn();
+
+testPaymentProcessorGatewayContract(
+  () =>
+    createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: contractWebhookSecret,
+      apiBaseUrl: "https://stripe.contract.test",
+    }),
+  {
+    prepare: () => {
+      contractFetchMock = vi.fn(async (url: string) => {
+        if (url.includes("/v1/payment_intents/")) {
+          return Response.json({ id: "pi_gateway_contract", status: "requires_payment_method", payment_method: null });
+        }
+        return Response.json({
+          id: "cs_gateway_contract",
+          status: "open",
+          payment_status: "unpaid",
+          url: "https://checkout.contract.test/session",
+        });
+      });
+      vi.stubGlobal("fetch", contractFetchMock);
+    },
+    cleanup: () => vi.unstubAllGlobals(),
+    assertIdempotency: () => {
+      expect(contractFetchMock).toHaveBeenCalledTimes(2);
+      for (const [, init] of contractFetchMock.mock.calls as unknown as [string, RequestInit][]) {
+        expect((init.headers as Headers).get("Idempotency-Key")).toBe("payments:contract:payment");
+      }
+    },
+    createWebhookInput: (kind) => {
+      const timestamp = Math.floor(Date.now() / 1000);
+      const rawBody = JSON.stringify({
+        id: `evt_${kind}`,
+        type: kind === "payment-captured" ? "payment_intent.succeeded" : "payment_intent.payment_failed",
+        created: timestamp,
+        data: {
+          object: {
+            id: `pi_${kind}`,
+            status: kind === "payment-captured" ? "succeeded" : "requires_payment_method",
+            metadata: { payment_id: "pay_gateway_contract" },
+            ...(kind === "payment-failed"
+              ? { last_payment_error: { code: "card_declined", message: "Declined" } }
+              : {}),
+          },
+        },
+      });
+      return {
+        rawBody,
+        signatureHeader: signature(rawBody, contractWebhookSecret, timestamp),
+      };
+    },
+  },
+);
 
 describe("Stripe payment processor gateway", () => {
   it("rejects statement descriptor suffixes outside Stripe's constraints", () => {
