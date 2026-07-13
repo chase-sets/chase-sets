@@ -4,7 +4,7 @@
  * This codebase has no event-envelope schema-version field or upcaster registry;
  * event versioning is done at the codec `decode` seam and with additive-optional
  * payload fields. This module is the shared classifier that the downstream
- * invitation aggregate (#5147) and recording aggregate (#5148) wrap into their
+ * invitation aggregate and recording aggregate wrap into their
  * codecs so that, on replay:
  *
  *   - native `customer-feedback.*` events are recognized and carry an explicit

@@ -11,11 +11,11 @@ import {
 } from "./support/runtime-support/services";
 
 /**
- * Customer Feedback bounded-context module (start gate, #5146).
+ * Customer Feedback bounded-context module (start gate,).
  *
  * The context is established as an event-sourced source context that owns the
  * versioned CSAT contract. It mounts no API and owns no projection yet — the
- * invitation aggregate + API (#5147) and the presentation/CSAT projection (#5148)
+ * invitation aggregate + API and the presentation/CSAT projection
  * activate those surfaces on this foundation.
  */
 export const module = defineBoundedContextModule<

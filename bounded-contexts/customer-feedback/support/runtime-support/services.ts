@@ -5,7 +5,7 @@ import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-po
  *
  * At the start gate the context exposes contracts and its event-store base only;
  * the invitation aggregate, its event store wake wiring, and projections are added
- * by #5147/#5148. Services here therefore hold just the pool/query handles those
+ * by/. Services here therefore hold just the pool/query handles those
  * leaves extend.
  */
 export type CustomerFeedbackServices = Readonly<{

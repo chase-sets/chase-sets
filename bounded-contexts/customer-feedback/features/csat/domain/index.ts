@@ -1,6 +1,6 @@
 /**
  * The versioned CSAT contract surface consumed by the sibling leaves
- * (#5147–#5155) via the context's `./server` barrel.
+ * (–) via the context's `./server` barrel.
  */
 export * from "./survey";
 export * from "./workflow-outcomes";

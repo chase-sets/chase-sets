@@ -8,8 +8,8 @@
  *
  * This module defines the shape (`CsatInvitation`) and the VERSIONED lifecycle
  * event contracts. The aggregate that emits them is implemented downstream:
- *   - #5147 issues invitations (eligibility, sampling, expiry, provenance);
- *   - #5148 records presentation / dismissal / submission and projects CSAT.
+ *   - issues invitations (eligibility, sampling, expiry, provenance);
+ *   - records presentation / dismissal / submission and projects CSAT.
  * They build their decider/evolver against these contracts so event shapes are
  * fixed at the gate and stay replay-stable.
  *
@@ -45,7 +45,7 @@ export type CsatInvitationProvenance = Readonly<{
 
 export type CsatInvitationLifecycleState = "issued" | "presented" | "submitted" | "dismissed" | "expired";
 
-/** The projected invitation read-model shape (#5148 owns the projection). */
+/** The projected invitation read-model shape ( owns the projection). */
 export type CsatInvitation = Readonly<{
   invitationId: CsatInvitationId;
   surveyVersion: SurveyVersionId;
@@ -63,7 +63,7 @@ export type CsatInvitation = Readonly<{
 
 type Versioned<TData> = TData & Readonly<{ eventSchemaVersion: CustomerFeedbackEventSchemaVersion }>;
 
-// --- Versioned invitation lifecycle event contracts (emitted by #5147 / #5148) ---
+// --- Versioned invitation lifecycle event contracts (emitted by /) ---
 
 export type CsatInvitationIssuedEvent = DomainEvent<
   "customer-feedback.invitation.issued",

@@ -1,31 +1,31 @@
 /**
  * Stable workflow / outcome-code registry.
  *
- * This is the allow-list that #5147 validates a server-issued invitation against
+ * This is the allow-list that validates a server-issued invitation against
  * so clients can never claim an arbitrary workflow. Every survey is anchored to
  * exactly one of these stable codes, and each code is owned (published) by a
  * single source context. The codes are intentionally named after the customer
  * OUTCOME (not the owning context) so they remain stable even if ownership moves.
  *
  * Coverage maps to the journey leaves that will publish outcome facts:
- *   - #5150: checkout, checkout recovery, delivery, returns, support resolution, reputation
- *   - #5151: listing, offers, inventory, payout
- *   - #5152: sampled discovery, registration, authentication, onboarding
+ *   -: checkout, checkout recovery, delivery, returns, support resolution, reputation
+ *   -: listing, offers, inventory, payout
+ *   -: sampled discovery, registration, authentication, onboarding
  */
 export const csatWorkflowOutcomeCodes = [
-  // #5150 — commerce completion, failure/recovery, delivery, returns, support, reputation
+  // — commerce completion, failure/recovery, delivery, returns, support, reputation
   "checkout.completed",
   "checkout.recovered",
   "order.delivered",
   "return.resolved",
   "support.request-resolved",
   "reputation.review-received",
-  // #5151 — selling outcomes
+  // — selling outcomes
   "listing.published",
   "offer.accepted",
   "inventory.item-adjusted",
   "payout.completed",
-  // #5152 — sampled discovery / account-onboarding outcomes
+  // — sampled discovery / account-onboarding outcomes
   "discovery.search-completed",
   "registration.completed",
   "authentication.completed",
@@ -66,7 +66,7 @@ export function sourceContextForOutcomeCode(code: CsatWorkflowOutcomeCode): stri
 }
 
 /**
- * Validate a claimed (code, sourceContext) pair against the registry. #5147 uses
+ * Validate a claimed (code, sourceContext) pair against the registry. uses
  * this when redeeming a server-issued outcome fact into an invitation so a fact
  * cannot assert a code it does not own.
  */

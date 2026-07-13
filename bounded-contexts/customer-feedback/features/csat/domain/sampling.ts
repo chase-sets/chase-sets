@@ -3,11 +3,11 @@
  *
  * A survey is not sent for every eligible outcome. A sampling policy decides who
  * is included and records WHY (the cohort key), so operators can always explain
- * an invitation and the presentation denominator is trustworthy. #5147 applies
- * these policies when issuing invitations; #5153 surfaces cohort metadata.
+ * an invitation and the presentation denominator is trustworthy. applies
+ * these policies when issuing invitations; surfaces cohort metadata.
  *
  * Launch sampling must not depend on the post-launch beta-cohort / feature-flag
- * machinery (#4340/#4346) — encoded here as `dependsOnBetaCohorts: false`.
+ * machinery (/) — encoded here as `dependsOnBetaCohorts: false`.
  */
 import type { CsatWorkflowOutcomeCode } from "./workflow-outcomes";
 import type { SurveyVersionId } from "./survey";
