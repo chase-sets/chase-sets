@@ -5,8 +5,8 @@ import { catalogEnglishTranslations } from "./locales/en/catalog";
 // Tripwire for unintended catalog locale key changes. Rebaseline this fingerprint
 // in the same PR whenever you intentionally add/remove/rename catalog keys.
 const englishCatalogKeySet = {
-  count: 2685,
-  sha256: "10e0dba953dc207b068c793b8918cdf839c2a12398d8af1de76e2f61d227ebdc",
+  count: 2689,
+  sha256: "b7f9e8b1481a56d4fb38e77e1392ab3e6efcdf741145cd6f9f8f4e5011e11aa1",
 } as const;
 
 describe("catalog locale key set", () => {
