@@ -386,6 +386,65 @@ describe("UCP OAuth routes", () => {
     expect(oldRefresh.status).toBe(400);
   });
 
+  it("rejects a token exchange with the wrong PKCE code_verifier without burning the code", async () => {
+    const options = createOAuthOptions();
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+    const registration = await app.request("/ucp/oauth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        client_name: "Agent Platform",
+        client_uri: "https://agent.example/.well-known/ucp",
+        redirect_uris: ["https://agent.example/callback"],
+        scope: "order:read",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const registrationBody = (await registration.json()) as { client_id: string };
+    const verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
+    const wrongVerifier = "zyxwvutsrqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA9876543210-._~";
+    const challenge = pkceChallenge(verifier);
+
+    const authorize = await app.request(
+      authorizeUrl({
+        clientId: registrationBody.client_id,
+        redirectUri: "https://agent.example/callback",
+        scope: "order:read",
+        challenge,
+      }),
+    );
+    const redirect = new URL(authorize.headers.get("location") ?? "");
+    const code = redirect.searchParams.get("code") ?? "";
+
+    const wrongVerifierExchange = await app.request("/ucp/oauth/token", {
+      method: "POST",
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: "https://agent.example/callback",
+        code_verifier: wrongVerifier,
+      }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+
+    expect(wrongVerifierExchange.status).toBe(400);
+    await expect(wrongVerifierExchange.json()).resolves.toMatchObject({ error: "invalid_grant" });
+
+    const correctVerifierExchange = await app.request("/ucp/oauth/token", {
+      method: "POST",
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: "https://agent.example/callback",
+        code_verifier: verifier,
+      }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+
+    expect(correctVerifierExchange.status).toBe(200);
+    const tokenBody = (await correctVerifierExchange.json()) as { access_token: string };
+    expect(tokenBody.access_token).toMatch(/^ucp_at_/);
+  });
+
   it("supports HTTPS Client ID Metadata Documents for public agent clients", async () => {
     const options = createOAuthOptions({
       fetchClientIdMetadata: async (url) => {

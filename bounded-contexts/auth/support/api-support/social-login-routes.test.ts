@@ -7,6 +7,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createAuthServicesFake } from "../auth-support/test-support";
 import type { AuthServices } from "../runtime-support/services";
 import { registerSocialLoginRoutes } from "./social-login-routes";
 import type { AuthApiEnv } from "./support";
@@ -91,21 +92,15 @@ function createServices(
       return { rows: [] };
     }),
   };
-  const session = {
-    session_id: "ses_social",
-    user_id: "usr_existing",
-    account_id: "acc_existing",
-    available_account_ids: ["acc_existing"],
-    authentication_method: "google",
-    status: "active",
-    expires_at: new Date(Date.now() + 60_000).toISOString(),
-  };
 
-  return {
+  return createAuthServicesFake({
     db,
-    auth: {
-      issueOpaqueToken: vi.fn((prefix: string) => `${prefix}_token`),
-      hashSecret: vi.fn((value: string) => `hashed:${value}`),
+    session: {
+      session_id: "ses_social",
+      user_id: "usr_existing",
+      account_id: "acc_existing",
+      available_account_ids: ["acc_existing"],
+      authentication_method: "google",
     },
     identity: {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
@@ -128,25 +123,6 @@ function createServices(
             },
           ],
       ),
-    },
-    sessions: {
-      commandHandler: vi.fn(async (input) => ({
-        version: 1,
-        state: {
-          id: input.command.sessionId,
-          userId: input.command.userId,
-          accountId: input.command.accountId,
-          availableAccountIds: input.command.availableAccountIds,
-          authenticationMethod: input.command.authenticationMethod,
-          status: "active",
-          expiresAt: input.command.expiresAt,
-        },
-        storedEvents: [{ recordedAt: new Date().toISOString() }],
-      })),
-      getSession: vi.fn(async () => session),
-    },
-    eventStore: {
-      appendToStream: vi.fn(),
     },
     socialLoginProviders: [
       {
@@ -171,13 +147,7 @@ function createServices(
     adminGoogleWorkspaceSso: {
       allowedHostedDomains: ["chasesets.com"],
     },
-    registrationAdmission: {
-      mode: "open",
-      disposableEmailMode: "enforce",
-      disposableEmailDomains: ["mailinator.com"],
-    },
-    projectors: [],
-  } as unknown as AuthServices;
+  });
 }
 
 useMockReset(
@@ -781,5 +751,23 @@ describe("social login routes", () => {
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/access/sign-in?socialLoginError=");
     expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects a second callback that replays an already-consumed social login state", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start?returnTo=/account");
+    const first = await app.request("/social/google/callback?state=social_token&code=provider-code");
+    const replay = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(first.status).toBe(302);
+    expect(first.headers.get("Location")).toBe("/account");
+    expect(replay.status).toBe(302);
+    expect(replay.headers.get("Location")).toContain("/sign-in?socialLoginError=");
+    expect(services.sessions.commandHandler).toHaveBeenCalledTimes(1);
   });
 });
