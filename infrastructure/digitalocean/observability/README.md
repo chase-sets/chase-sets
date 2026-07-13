@@ -21,7 +21,7 @@ Cost and recovery posture:
 
 - `droplet_backups_enabled` defaults to `false` and is validated to stay false because the host is reproducible from Terraform and cloud-init.
 - The attached volume is the durable observability data surface. The default posture accepts up to 24 hours of telemetry loss and requires a manual volume snapshot before destructive maintenance or risky host replacement.
-- The shared pre-launch volume defaults to 50 GiB and must stay between 50 and 100 GiB unless the launch revisit criteria move the stack back to isolated environment hosts.
+- The shared pre-launch volume defaults to 100 GiB, matching the irreversibly expanded live volume, and must stay between 50 and 100 GiB unless the launch revisit criteria move the stack back to isolated environment hosts.
 - Increasing `prometheus_retention` should reference the operational evidence that needs the longer recovery window.
 
 The accepted config-drift and telemetry recovery trade-offs are documented in the [DigitalOcean Platform Deployment Runbook](../../../docs/runbooks/digitalocean-platform-deployment.md#observability-config-drift).
