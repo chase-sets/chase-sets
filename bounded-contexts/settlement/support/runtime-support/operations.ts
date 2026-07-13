@@ -31,7 +31,17 @@ export type SettlementOperationEvent = Readonly<{
     | "payout-request-blocked-by-setup"
     | "payout-request-blocked-by-destination-friction"
     | "payout-destination-changed"
-    | "provider-health-checked";
+    | "provider-health-checked"
+    | "wallet-adjustment-requested"
+    | "wallet-adjustment-approved"
+    | "wallet-adjustment-rejected"
+    | "wallet-adjustment-posted"
+    | "wallet-adjustment-reversed"
+    | "wallet-adjustment-concurrency-conflict"
+    | "wallet-adjustment-idempotent-retry"
+    | "wallet-adjustment-negative-balance-effect"
+    | "wallet-adjustment-halted"
+    | "wallet-adjustment-limit-exceeded";
   accountId?: AccountId | string;
   payoutId?: PayoutId | string;
   amount?: string;
@@ -62,7 +72,11 @@ export type SettlementOperationEvent = Readonly<{
     | "setup_incomplete"
     | "setup_stale"
     | "requirements_open"
-    | "step_up_required";
+    | "step_up_required"
+    // Bounded Wallet Adjustment categories: a reason code (closed 10-value
+    // taxonomy), a limit-violation code (closed 5-value taxonomy), a gated
+    // action name, or "unknown" -- never an id or free text.
+    | (string & Record<never, never>);
   reason?: string | null;
   occurredAt: string;
 }>;

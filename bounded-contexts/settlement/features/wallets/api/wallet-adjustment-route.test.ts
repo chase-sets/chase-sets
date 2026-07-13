@@ -2,7 +2,12 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { SettlementApiEnv } from "../../../api";
 import { createWalletAdjustmentRoutes } from "./wallet-adjustment-route";
-import { StaleWalletBalanceError, type WalletAdjustmentServices } from "./wallet-adjustment-runtime";
+import {
+  StaleWalletBalanceError,
+  WalletAdjustmentHaltedError,
+  WalletAdjustmentLimitExceededError,
+  type WalletAdjustmentServices,
+} from "./wallet-adjustment-runtime";
 import type { WalletServices } from "./runtime";
 
 const OPERATOR_PERMISSIONS = [
@@ -37,10 +42,21 @@ const DEFAULT_CONTROLS = {
   recentAuthMaxAgeMinutes: 15,
 };
 
+const DEFAULT_LIMITS = {
+  haltNewActions: false,
+  perAdjustmentMaxAmount: "1000000.00",
+  perAccountWindowMaxAmount: "2000.00",
+  perAccountWindowMaxCount: 5,
+  perOperatorWindowMaxAmount: "10000.00",
+  perOperatorWindowMaxCount: 20,
+  windowHours: 24,
+};
+
 function createServices(overrides: Partial<WalletAdjustmentServices> = {}): WalletAdjustmentServices {
   return {
     deriveAdjustmentId: vi.fn(),
     resolveControls: vi.fn(async () => DEFAULT_CONTROLS as never),
+    resolveLimits: vi.fn(async () => DEFAULT_LIMITS as never),
     preview: vi.fn(async () => ({ balance_revision: "wbr_abc", direction: "credit", amount: "10.00" }) as never),
     getAccountSummary: vi.fn(
       async () => ({ account_id: "acc_target", updated_at: "2026-07-13T00:00:00.000Z" }) as never,
@@ -57,6 +73,7 @@ function createServices(overrides: Partial<WalletAdjustmentServices> = {}): Wall
     getAdjustment: vi.fn(async () => snapshot({ status: "posted" }) as never),
     listAdjustments: vi.fn(async () => ({ items: [snapshot()], total: 1 }) as never),
     listIncompleteAdjustments: vi.fn(async () => [] as never),
+    runReconciliation: vi.fn(async () => ({ findings: [], scanned: 0, hasMore: false }) as never),
     ...overrides,
   };
 }
@@ -420,5 +437,114 @@ describe("wallet adjustment routes: admin queries", () => {
     const services = createServices({ getAdjustment: vi.fn(async () => null) });
     const response = await createApp(services, OPERATOR_PERMISSIONS).request("/wallet-adjustments/wad_missing");
     expect(response.status).toBe(404);
+  });
+});
+
+describe("wallet adjustment routes: reconciliation", () => {
+  it("returns the bounded reconciliation report for an authorized viewer", async () => {
+    const services = createServices({
+      runReconciliation: vi.fn(
+        async () =>
+          ({
+            findings: [
+              {
+                code: "approved-not-posted",
+                severity: "high",
+                adjustmentId: "wad_1",
+                targetAccountId: "acc_target",
+                message: "Approved but not posted.",
+                remediation: "Resume posting.",
+              },
+            ],
+            scanned: 1,
+            hasMore: false,
+          }) as never,
+      ),
+    });
+    const response = await createApp(services, OPERATOR_PERMISSIONS).request(
+      "/wallet-adjustments/reconciliation?limit=50&offset=0",
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { findings: { code: string }[]; scanned: number };
+    expect(body.findings[0]?.code).toBe("approved-not-posted");
+    expect(body.scanned).toBe(1);
+    expect(services.runReconciliation).toHaveBeenCalledWith(expect.objectContaining({ limit: 50, offset: 0 }));
+  });
+
+  it("is not shadowed by the /:adjustmentId route -- the static reconciliation path wins", async () => {
+    const services = createServices();
+    const response = await createApp(services, OPERATOR_PERMISSIONS).request("/wallet-adjustments/reconciliation");
+    expect(response.status).toBe(200);
+    expect(services.getAdjustment).not.toHaveBeenCalled();
+    expect(services.runReconciliation).toHaveBeenCalledOnce();
+  });
+
+  it("forbids a caller without the view permission", async () => {
+    const response = await createApp(createServices(), ["payouts.manage"]).request(
+      "/wallet-adjustments/reconciliation",
+    );
+    expect(response.status).toBe(403);
+  });
+});
+
+describe("wallet adjustment routes: money-operations kill switch", () => {
+  it("maps WalletAdjustmentHaltedError to a 503 on request", async () => {
+    const services = createServices({
+      request: vi.fn(async () => {
+        throw new WalletAdjustmentHaltedError();
+      }),
+    });
+    const response = await post(createApp(services, OPERATOR_PERMISSIONS), "/wallet-adjustments", {
+      targetAccountId: "acc_target",
+      direction: "credit",
+      amount: "10.00",
+      reasonCode: "goodwill-cash-credit",
+    });
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("wallet_adjustments_halted");
+  });
+
+  it("maps WalletAdjustmentHaltedError to a 503 on approve", async () => {
+    const services = createServices({
+      approveAndPost: vi.fn(async () => {
+        throw new WalletAdjustmentHaltedError();
+      }),
+    });
+    const response = await post(createApp(services, OPERATOR_PERMISSIONS), "/wallet-adjustments/wad_1/approve", {});
+    expect(response.status).toBe(503);
+  });
+
+  it("still allows reject while a WalletAdjustmentHaltedError would apply to other actions", async () => {
+    const services = createServices();
+    const response = await post(createApp(services, OPERATOR_PERMISSIONS), "/wallet-adjustments/wad_1/reject", {});
+    expect(response.status).toBe(200);
+    expect(services.reject).toHaveBeenCalledOnce();
+  });
+});
+
+describe("wallet adjustment routes: limits", () => {
+  it("maps WalletAdjustmentLimitExceededError to a 429 with every violated limit", async () => {
+    const services = createServices({
+      request: vi.fn(async () => {
+        throw new WalletAdjustmentLimitExceededError([
+          { code: "per-adjustment-max-amount", message: "Amount exceeds the per-adjustment maximum." },
+          { code: "per-account-window-max-count", message: "Target account would exceed the window count." },
+        ]);
+      }),
+    });
+    const response = await post(createApp(services, OPERATOR_PERMISSIONS), "/wallet-adjustments", {
+      targetAccountId: "acc_target",
+      direction: "credit",
+      amount: "10.00",
+      reasonCode: "goodwill-cash-credit",
+    });
+    expect(response.status).toBe(429);
+    const body = (await response.json()) as { error: { code: string; details?: { code: string }[] } };
+    expect(body.error.code).toBe("wallet_adjustment_limit_exceeded");
+    expect(body.error.details?.map((d) => d.code)).toEqual([
+      "per-adjustment-max-amount",
+      "per-account-window-max-count",
+    ]);
   });
 });

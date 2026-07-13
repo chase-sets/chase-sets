@@ -21,6 +21,12 @@ import {
 } from "../domain/wallet-adjustment";
 import { walletAdjustmentControlsPolicy } from "../domain/wallet-adjustment-controls-policy";
 import {
+  evaluateWalletAdjustmentLimits,
+  walletAdjustmentLimitsPolicy,
+  type WalletAdjustmentLimitsPolicyValue,
+  type WalletAdjustmentLimitViolation,
+} from "../domain/wallet-adjustment-limits-policy";
+import {
   buildWalletAdjustmentPreview,
   computeWalletBalanceRevision,
   type WalletAdjustmentPreview,
@@ -29,8 +35,15 @@ import {
   getWalletAdjustment,
   listIncompleteWalletAdjustments,
   listWalletAdjustments,
+  sumWalletAdjustmentOperatorActivity,
+  sumWalletAdjustmentTargetAccountActivity,
   type SettlementWalletAdjustmentRow,
 } from "../read-model/wallet-adjustment-queries";
+import {
+  runWalletAdjustmentReconciliation,
+  type WalletAdjustmentReconciliationReport,
+  type WalletAdjustmentReconciliationThresholds,
+} from "../read-model/wallet-adjustment-reconciliation";
 import {
   compareMoney,
   normalizeCurrencyCode,
@@ -41,6 +54,10 @@ import {
   type CurrencyCode,
   type LedgerEntryDirection,
 } from "../../../support/runtime-support/common";
+import {
+  createNoopSettlementOperationsRecorder,
+  type SettlementOperationsRecorder,
+} from "../../../support/runtime-support/operations";
 
 const MAX_CONCURRENCY_RETRIES = 5;
 
@@ -58,6 +75,35 @@ export class StaleWalletBalanceError extends Error {
   ) {
     super("Wallet balance changed since preview; re-preview before confirming this adjustment.");
     this.name = "StaleWalletBalanceError";
+  }
+}
+
+/**
+ * Raised when the `settlement.wallet-adjustment-limits` money-operations kill
+ * switch is engaged (`haltNewActions: true`) and an operator attempts a new
+ * request or approval decision. Reads, the reconciliation report, and
+ * resuming an already-approved posting stay available -- see
+ * `wallet-adjustment-route.ts` for exactly which actions are gated.
+ */
+export class WalletAdjustmentHaltedError extends Error {
+  public readonly code = "wallet_adjustments_halted" as const;
+  public constructor() {
+    super("Wallet Adjustments are temporarily halted by the money-operations kill switch.");
+    this.name = "WalletAdjustmentHaltedError";
+  }
+}
+
+/**
+ * Raised when a proposed Wallet Adjustment would exceed a per-adjustment,
+ * per-account-window, or per-operator-window limit from the
+ * `settlement.wallet-adjustment-limits` policy. Carries every violated limit
+ * (not just the first) so the operator sees the full picture in one round trip.
+ */
+export class WalletAdjustmentLimitExceededError extends Error {
+  public readonly code = "wallet_adjustment_limit_exceeded" as const;
+  public constructor(public readonly violations: readonly WalletAdjustmentLimitViolation[]) {
+    super("Wallet Adjustment exceeds a configured limit.");
+    this.name = "WalletAdjustmentLimitExceededError";
   }
 }
 
@@ -169,6 +215,13 @@ export type WalletAdjustmentServices = Readonly<{
    * second, possibly-drifted copy.
    */
   resolveControls: () => Promise<WalletAdjustmentControls>;
+  /**
+   * The currently-resolved `settlement.wallet-adjustment-limits` policy: the
+   * money-operations kill switch and the per-adjustment/per-account/per-operator
+   * volume ceilings. Exposed for the same reason as `resolveControls` -- the API
+   * layer's kill-switch gate checks the live policy, not a second copy.
+   */
+  resolveLimits: () => Promise<WalletAdjustmentLimitsPolicyValue>;
   /** The target account's authoritative wallet summary for the operator adjustment surface. */
   getAccountSummary: (accountId: string) => Promise<SettlementWalletRow>;
   request: (input: RequestWalletAdjustmentInput, context: EventStoreContext) => Promise<WalletAdjustmentSnapshot>;
@@ -194,6 +247,10 @@ export type WalletAdjustmentServices = Readonly<{
     }>,
   ) => Promise<{ items: SettlementWalletAdjustmentRow[]; total: number }>;
   listIncompleteAdjustments: (params?: Readonly<{ limit?: number }>) => Promise<SettlementWalletAdjustmentRow[]>;
+  /** Bounded, paginated, idempotent reconciliation scan -- see `wallet-adjustment-reconciliation.ts`. */
+  runReconciliation: (
+    params?: Readonly<{ limit?: number; offset?: number; thresholds?: WalletAdjustmentReconciliationThresholds }>,
+  ) => Promise<WalletAdjustmentReconciliationReport>;
 }>;
 
 type WalletAdjustmentRuntimeDeps = Readonly<{
@@ -201,6 +258,7 @@ type WalletAdjustmentRuntimeDeps = Readonly<{
   db: PgQueryable;
   wallets: WalletServices;
   policies: Pick<PolicyRuntime, "resolvePolicy">;
+  operationsRecorder?: Pick<SettlementOperationsRecorder, "record">;
 }>;
 
 /** Command-owned snapshot so immediate UI does not depend on projection convergence. */
@@ -246,6 +304,7 @@ function snapshotFromState(state: WalletAdjustmentState): WalletAdjustmentSnapsh
 }
 
 export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps): WalletAdjustmentServices {
+  const operationsRecorder = deps.operationsRecorder ?? createNoopSettlementOperationsRecorder();
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<WalletAdjustmentEvent>(),
@@ -272,6 +331,49 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
     return resolved.value;
   }
 
+  /**
+   * Resolves the live `settlement.wallet-adjustment-limits` policy: the
+   * money-operations kill switch and the volume ceilings. Same resolution
+   * pattern as `resolveControls` -- callers never keep a second, possibly
+   * stale copy of the thresholds.
+   */
+  async function resolveLimits(): Promise<WalletAdjustmentLimitsPolicyValue> {
+    const resolved = await deps.policies.resolvePolicy(walletAdjustmentLimitsPolicy);
+    return resolved.value;
+  }
+
+  function windowStartIso(windowHours: number, nowIso = new Date().toISOString()): string {
+    return new Date(Date.parse(nowIso) - windowHours * 60 * 60 * 1000).toISOString();
+  }
+
+  /** Structured metric/log signal for one Wallet Adjustment lifecycle transition -- see `operations.ts`. */
+  function recordSignal(
+    kind:
+      | "wallet-adjustment-requested"
+      | "wallet-adjustment-approved"
+      | "wallet-adjustment-rejected"
+      | "wallet-adjustment-posted"
+      | "wallet-adjustment-reversed"
+      | "wallet-adjustment-concurrency-conflict"
+      | "wallet-adjustment-idempotent-retry"
+      | "wallet-adjustment-negative-balance-effect"
+      | "wallet-adjustment-halted"
+      | "wallet-adjustment-limit-exceeded",
+    fields: Readonly<{
+      accountId?: string;
+      reason?: string | null;
+      safeCategory?: string | null;
+    }> = {},
+  ): void {
+    void operationsRecorder.record({
+      kind,
+      accountId: fields.accountId,
+      safeCategory: fields.safeCategory ?? undefined,
+      reason: fields.reason ?? null,
+      occurredAt: new Date().toISOString(),
+    });
+  }
+
   async function runCommand(
     adjustmentId: WalletAdjustmentId,
     command: Parameters<typeof decideWalletAdjustment>[1],
@@ -289,6 +391,7 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
         if (!isConcurrencyConflict(error)) {
           throw error;
         }
+        recordSignal("wallet-adjustment-concurrency-conflict", { safeCategory: command.type });
       }
     }
     throw new SettlementDomainError(
@@ -301,18 +404,46 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
     context: EventStoreContext,
   ): Promise<WalletAdjustmentSnapshot> {
     const adjustmentId = deriveWalletAdjustmentId(input.idempotencyKey, input.targetAccountId);
-    // Confirm the operator is acting on the balance they previewed. A duplicate
-    // retry of an already-recorded adjustment is exempt: the request is an
-    // idempotent no-op, so an intervening balance move must not turn a
-    // successful retry into a spurious conflict.
-    if (input.expectedBalanceRevision) {
-      const existing = await loadState(adjustmentId);
-      if (existing.status === null) {
-        const wallet = await deps.wallets.loadWalletState(input.targetAccountId);
-        const currentRevision = computeWalletBalanceRevision(wallet);
-        if (currentRevision !== input.expectedBalanceRevision) {
-          throw new StaleWalletBalanceError(input.expectedBalanceRevision, currentRevision);
-        }
+    const existing = await loadState(adjustmentId);
+    // A duplicate retry of an already-recorded adjustment is exempt from the
+    // kill switch, limits, and balance-revision checks below: the request is
+    // an idempotent no-op that never creates new exposure, so it stays
+    // available as safe recovery even while new requests are halted or a
+    // window limit has since been reached by other activity.
+    const isNewRequest = existing.status === null;
+
+    if (isNewRequest) {
+      const limits = await resolveLimits();
+      if (limits.haltNewActions) {
+        recordSignal("wallet-adjustment-halted", { accountId: input.targetAccountId, safeCategory: "request" });
+        throw new WalletAdjustmentHaltedError();
+      }
+
+      const sinceIso = windowStartIso(limits.windowHours);
+      const [targetAccountActivity, operatorActivity] = await Promise.all([
+        sumWalletAdjustmentTargetAccountActivity(deps.db, input.targetAccountId, sinceIso),
+        sumWalletAdjustmentOperatorActivity(deps.db, input.requestedBy, sinceIso),
+      ]);
+      const violations = evaluateWalletAdjustmentLimits(limits, {
+        amount: input.amount,
+        targetAccountActivity,
+        operatorActivity,
+      });
+      if (violations.length > 0) {
+        recordSignal("wallet-adjustment-limit-exceeded", {
+          accountId: input.targetAccountId,
+          safeCategory: violations[0]?.code ?? "unknown",
+        });
+        throw new WalletAdjustmentLimitExceededError(violations);
+      }
+    }
+
+    // Confirm the operator is acting on the balance they previewed.
+    if (input.expectedBalanceRevision && isNewRequest) {
+      const wallet = await deps.wallets.loadWalletState(input.targetAccountId);
+      const currentRevision = computeWalletBalanceRevision(wallet);
+      if (currentRevision !== input.expectedBalanceRevision) {
+        throw new StaleWalletBalanceError(input.expectedBalanceRevision, currentRevision);
       }
     }
     const state = await runCommand(
@@ -334,6 +465,10 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
       },
       context,
     );
+    recordSignal(isNewRequest ? "wallet-adjustment-requested" : "wallet-adjustment-idempotent-retry", {
+      accountId: input.targetAccountId,
+      safeCategory: input.reasonCode,
+    });
     return snapshotFromState(state);
   }
 
@@ -362,6 +497,21 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
     if (current.status === null) {
       throw new SettlementDomainError("Wallet Adjustment does not exist.");
     }
+    // Only a genuinely new approval decision (status still 'requested') is
+    // gated by the kill switch. Replaying an already-approved/posted
+    // adjustment is idempotent safe recovery -- see `decideWalletAdjustment` --
+    // and stays available so an in-flight approval can always finish posting.
+    const isNewApproval = current.status === "requested";
+    if (isNewApproval) {
+      const limits = await resolveLimits();
+      if (limits.haltNewActions) {
+        recordSignal("wallet-adjustment-halted", {
+          accountId: current.targetAccountId ?? undefined,
+          safeCategory: "approve",
+        });
+        throw new WalletAdjustmentHaltedError();
+      }
+    }
     const createsOrIncreasesNegativeBalance = await projectsNegativeBalance(
       current.targetAccountId as AccountId,
       current.direction as LedgerEntryDirection,
@@ -381,6 +531,12 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
       },
       context,
     );
+    recordSignal(isNewApproval ? "wallet-adjustment-approved" : "wallet-adjustment-idempotent-retry", {
+      accountId: current.targetAccountId ?? undefined,
+    });
+    if (isNewApproval && createsOrIncreasesNegativeBalance) {
+      recordSignal("wallet-adjustment-negative-balance-effect", { accountId: current.targetAccountId ?? undefined });
+    }
     return snapshotFromState(state);
   }
 
@@ -388,6 +544,10 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
     input: RejectWalletAdjustmentInput,
     context: EventStoreContext,
   ): Promise<WalletAdjustmentSnapshot> {
+    // Rejection is never gated by the kill switch: it is safe recovery (it
+    // halts a bad request rather than moving money) and must stay available
+    // exactly when the kill switch is most likely to be engaged.
+    const current = await loadState(input.adjustmentId);
     const state = await runCommand(
       input.adjustmentId,
       {
@@ -398,6 +558,7 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
       },
       context,
     );
+    recordSignal("wallet-adjustment-rejected", { accountId: current.targetAccountId ?? undefined });
     return snapshotFromState(state);
   }
 
@@ -412,6 +573,7 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
   async function post(input: PostWalletAdjustmentInput, context: EventStoreContext): Promise<WalletAdjustmentSnapshot> {
     const current = await loadState(input.adjustmentId);
     if (current.status === "posted" || current.status === "reversed") {
+      recordSignal("wallet-adjustment-idempotent-retry", { accountId: current.targetAccountId ?? undefined });
       return snapshotFromState(current);
     }
     if (current.status !== "approved") {
@@ -462,6 +624,7 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
       },
       context,
     );
+    recordSignal("wallet-adjustment-posted", { accountId: targetAccountId });
     return snapshotFromState(state);
   }
 
@@ -481,6 +644,7 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
     if (original.status !== "posted" && original.status !== "reversed") {
       throw new SettlementDomainError("Only a posted Wallet Adjustment can be reversed.");
     }
+    const isNewReversal = original.status === "posted";
 
     const targetAccountId = original.targetAccountId as AccountId;
     const reversalIdempotencyKey = `${input.adjustmentId}:reversal`;
@@ -534,6 +698,9 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
       context,
     );
 
+    recordSignal(isNewReversal ? "wallet-adjustment-reversed" : "wallet-adjustment-idempotent-retry", {
+      accountId: targetAccountId,
+    });
     return { original: snapshotFromState(originalState), reversal: reversalSnapshot };
   }
 
@@ -557,6 +724,7 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
     deriveAdjustmentId: deriveWalletAdjustmentId,
     preview,
     resolveControls,
+    resolveLimits,
     getAccountSummary: (accountId) => deps.wallets.getWallet(accountId),
     request,
     approve,
@@ -567,5 +735,6 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
     getAdjustment: (adjustmentId) => getWalletAdjustment(deps.db, adjustmentId),
     listAdjustments: (params = {}) => listWalletAdjustments(deps.db, params),
     listIncompleteAdjustments: (params = {}) => listIncompleteWalletAdjustments(deps.db, params),
+    runReconciliation: (params = {}) => runWalletAdjustmentReconciliation(deps.db, params),
   };
 }

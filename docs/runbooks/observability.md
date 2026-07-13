@@ -215,3 +215,22 @@ Catalog Integration Control Plane signals add:
 These metrics use bounded provider/query/job/status labels only. Do not add job ids, Source Observation ids, cache keys, credential names, raw provider values, payload paths, source URLs, account ids, or user ids as metric labels.
 
 Catalog-specific dashboards, alert starter conditions, redaction rules, and incident workflows live in the Grafana `Catalog Integration Control Plane` dashboard, [Catalog Integration Observability](../../bounded-contexts/catalog/docs/catalog-integration-observability.md), and [Catalog Integration Operations](./catalog-integration-operations.md).
+
+## Settlement Wallet Adjustment Signals
+
+The Wallet Adjustment lifecycle (ADR 0020; [Money Operations](./money-operations.md#wallet-adjustment-operations)) reuses the existing `chase_sets_settlement_operations_total` counter and its structured `settlement.operation` log line -- the same signal payouts and payout readiness already emit through `SettlementOperationsRecorder` -- rather than introducing a second metric family. Every lifecycle transition, retry, conflict, halt, and limit rejection records one `kind`:
+
+- `wallet-adjustment-requested` / `wallet-adjustment-approved` / `wallet-adjustment-rejected` / `wallet-adjustment-posted` / `wallet-adjustment-reversed`: one genuinely new lifecycle decision each.
+- `wallet-adjustment-idempotent-retry`: a replay of an already-recorded request, approval, posting, or reversal -- distinguishes safe no-op retries from new decisions in the same counter.
+- `wallet-adjustment-concurrency-conflict`: the aggregate command handler caught a `concurrency_conflict` and is retrying.
+- `wallet-adjustment-negative-balance-effect`: a newly-approved adjustment creates or increases a Negative Balance.
+- `wallet-adjustment-halted`: the `settlement.wallet-adjustment-limits` kill switch (`haltNewActions`) blocked a new request or approval decision.
+- `wallet-adjustment-limit-exceeded`: a proposed adjustment would exceed a per-adjustment, per-account-window, or per-operator-window ceiling from the same policy.
+
+Every event also carries `safeCategory` (bounded: a closed reason code, a closed limit-violation code, or a gated action name -- never an id or free text) for log-level filtering; only `kind`, `providerName`, `setupSurface`, `safeCategory`, and `readinessStatus` become Prometheus metric labels (see `deployables/platform-api/src/main.ts`'s `settlementOperationsRecorder`), so cardinality stays bounded the same way every other settlement operation signal already does.
+
+Auth failures (401) and step-up failures (401, `step_up_required`) at the Wallet Adjustment API boundary are not double-recorded through this counter -- they are already covered by the generic `chase_sets_http_server_requests_total` / `chase_sets_http_server_request_duration_ms` request metrics and `http.request.completed` structured logs that `createHonoObservabilityMiddleware` emits for every route, keyed by `route` and `status_class`. Alert on elevated `status_class="4xx"` for the `/api/settlement/wallet-adjustments*` route templates rather than adding a parallel bespoke signal.
+
+Reconciliation findings (`GET /api/settlement/wallet-adjustments/reconciliation`) are not separately metriced per-finding today; the report itself is the observability surface -- poll it on a schedule and alert on any `critical`-severity finding or a nonzero finding count sustained across two consecutive polls. The finding taxonomy, severities, and remediations are documented in [Money Operations](./money-operations.md#reconciliation).
+
+Starter alert additions for this surface: a sustained `wallet-adjustment-halted` rate (the kill switch is engaged -- confirm this was intentional), any `wallet-adjustment-concurrency-conflict` rate spike (contention on a hot adjustment stream), and any nonzero `posted-without-ledger-entry` or `duplicate-ledger-linkage` reconciliation finding (both `critical`).

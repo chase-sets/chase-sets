@@ -15,7 +15,12 @@ import type { AccountId, UserId, WalletAdjustmentId } from "@chase-sets/primitiv
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { SettlementApiEnv } from "../../../api";
 import type { WalletServices } from "./runtime";
-import { StaleWalletBalanceError, type WalletAdjustmentServices } from "./wallet-adjustment-runtime";
+import {
+  StaleWalletBalanceError,
+  WalletAdjustmentHaltedError,
+  WalletAdjustmentLimitExceededError,
+  type WalletAdjustmentServices,
+} from "./wallet-adjustment-runtime";
 import { normalizeWalletAdjustmentReasonCode, type WalletAdjustmentReasonCode } from "../domain/wallet-adjustment";
 import {
   compareMoney,
@@ -393,6 +398,21 @@ function handleWriteError(c: { json: (body: unknown, status: number) => Response
   if (error instanceof StaleWalletBalanceError) {
     return c.json(apiErrorResponse("conflict", error.message, [{ code: error.code, message: error.message }]), 409);
   }
+  if (error instanceof WalletAdjustmentHaltedError) {
+    return c.json({ error: { code: error.code, message: error.message } }, 503);
+  }
+  if (error instanceof WalletAdjustmentLimitExceededError) {
+    return c.json(
+      {
+        error: {
+          code: error.code,
+          message: error.message,
+          details: error.violations.map((violation) => ({ code: violation.code, message: violation.message })),
+        },
+      },
+      429,
+    );
+  }
   if (error instanceof SettlementDomainError) {
     return c.json(conflictResponse(error.message), 409);
   }
@@ -467,6 +487,26 @@ export function createWalletAdjustmentRoutes(
       const offset = parseBoundedOffset(c.req.query("offset"));
       const result = await wallets.listWalletEntries({ accountId, limit, offset });
       return c.json({ items: result.items, total: result.total, count: result.items.length });
+    } catch (error) {
+      return handleWriteError(c, error);
+    }
+  });
+
+  // Registered before the `:adjustmentId` route below (and re-checked by
+  // `parseAdjustmentId`'s "wad_"-prefix format even if router precedence
+  // ever changed) so this static segment is never shadowed by the dynamic
+  // one. Bounded/paginated reconciliation report -- always available under
+  // the money-operations kill switch, alongside every other read.
+  app.get("/wallet-adjustments/reconciliation", async (c) => {
+    const access = requireAccess(c, WALLET_ADJUSTMENT_PERMISSIONS.view);
+    if (access.response) {
+      return access.response;
+    }
+    try {
+      const limit = parseBoundedLimit(c.req.query("limit"));
+      const offset = parseBoundedOffset(c.req.query("offset"));
+      const report = await services.runReconciliation({ limit, offset });
+      return c.json(report);
     } catch (error) {
       return handleWriteError(c, error);
     }
