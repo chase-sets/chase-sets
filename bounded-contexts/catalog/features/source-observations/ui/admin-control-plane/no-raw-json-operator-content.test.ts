@@ -13,9 +13,12 @@ const adminControlPlaneDir = dirname(fileURLToPath(import.meta.url));
 // proposed facts, human-readable command summaries) is what an operator reads
 // now; `JSON.stringify` survives only as plumbing for values that are never
 // rendered as visible text — a hidden form input transporting a generated
-// command body, and a copy-to-clipboard `value` prop for the raw-payload
-// support-case disclosure (`RawCommandPayloadDisclosure`) — neither of which an
-// operator reads as on-screen content.
+// command body, a copy-to-clipboard `value` prop for the raw-payload
+// support-case disclosure (`RawCommandPayloadDisclosure`), and a hidden
+// `blockingConflictsJson` form input the inline conflict-resolution form
+// submits (#3833 dissolves the standalone conflict-resolution workspace into
+// this candidate-review form) — none of which an operator reads as on-screen
+// content.
 //
 // Every occurrence has been reviewed and is transport-only; this allowlist is
 // closed by file, not by count, so any NEW file introducing JSON.stringify
@@ -76,12 +79,15 @@ describe("Catalog control plane — no JSON.stringify rendered as operator-facin
     const occurrences = source.split("\n").filter((line) => line.includes("JSON.stringify("));
     expect(occurrences.length).toBeGreaterThan(0);
     for (const line of occurrences) {
-      // Both known-good uses feed a value, never JSX text content: the hidden
-      // input's ternary value, or the CopyButton's `value` prop (built from
+      // Every known-good use feeds a value, never JSX text content: the hidden
+      // input's ternary value, the CopyButton's `value` prop (built from
       // `rawCommandPayloadFor`, itself a plain function return — never JSX
-      // children).
+      // children), or the blocking-conflicts hidden input value assigned before
+      // the JSX it feeds.
       expect(
-        /JSON\.stringify\(actionEntry\.commandPreview\.body\)|JSON\.stringify\(payloads\)/.test(line),
+        /JSON\.stringify\(actionEntry\.commandPreview\.body\)|JSON\.stringify\(payloads\)|const blockingConflictsJson = JSON\.stringify\(/.test(
+          line,
+        ),
         `Unexpected JSON.stringify shape, review before allowing: ${line.trim()}`,
       ).toBe(true);
     }

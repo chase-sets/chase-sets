@@ -39,7 +39,7 @@ function candidate(overrides: Partial<CatalogAliasReviewCandidateSummary> = {}):
       reasons: ["Provider same-id localized endpoint requires operator review before becoming official."],
     },
     reviewable: true,
-    availableActions: ["accept", "reject", "defer"],
+    availableActions: ["alias.accept", "alias.reject", "alias.defer"],
     firstObservedAt: "2026-06-16T00:00:00.000Z",
     updatedAt: "2026-06-16T00:00:00.000Z",
     ...overrides,
@@ -145,7 +145,7 @@ describe("buildCatalogScopeLanguageEditionReviewReadModel", () => {
   it("keeps a rejected pair out of pending review (fingerprint idempotency: rejected pairs do not resurrect)", () => {
     const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
       scope: paldeanFatesScope,
-      aliasReview: aliasReview([candidate({ reviewStatus: "rejected", availableActions: ["accept"] })]),
+      aliasReview: aliasReview([candidate({ reviewStatus: "rejected", availableActions: ["alias.accept"] })]),
     });
 
     const japaneseEdition = readModel.editions[1];

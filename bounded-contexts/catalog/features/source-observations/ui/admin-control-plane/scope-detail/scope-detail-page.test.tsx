@@ -61,7 +61,7 @@ function candidate(overrides: Partial<CatalogAliasReviewCandidateSummary> = {}):
       reasons: ["Provider same-id localized endpoint requires operator review before becoming official."],
     },
     reviewable: true,
-    availableActions: ["accept", "reject", "defer"],
+    availableActions: ["alias.accept", "alias.reject", "alias.defer"],
     firstObservedAt: "2026-06-16T00:00:00.000Z",
     updatedAt: "2026-06-16T00:00:00.000Z",
     ...overrides,

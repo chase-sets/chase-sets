@@ -32,28 +32,31 @@ describe("Catalog scope-detail route action", () => {
     vi.clearAllMocks();
   });
 
-  it("dispatches accept against the alias-equivalence command endpoint", async () => {
+  it("dispatches alias.accept against the alias-equivalence command endpoint", async () => {
     const dispatchCatalogAliasReviewCommand = vi.fn().mockResolvedValue({ applied: [], count: 1 });
     mockCreateCatalogRequestApiClient.mockReturnValue({ dispatchCatalogAliasReviewCommand });
 
-    const result = await runAction({ _intent: "accept", aliasHashes: "hash_ja_set_equivalent" });
+    const result = await runAction({ _intent: "alias.accept", aliasHashes: "hash_ja_set_equivalent" });
 
-    expect(result).toEqual({ status: "success", intent: "accept", result: "job-queued" });
+    expect(result).toEqual({ status: "success", intent: "alias.accept", result: "job-queued" });
+    // The alias-equivalence HTTP command endpoint's own aggregate-command
+    // vocabulary predates the v2 action ids, so the dispatch translates back
+    // to the aggregate's "accept".
     expect(dispatchCatalogAliasReviewCommand).toHaveBeenCalledWith({
       intent: "accept",
       aliasHashes: ["hash_ja_set_equivalent"],
     });
   });
 
-  it("requires a reason for reject and revoke", async () => {
+  it("requires a reason for alias.reject and alias.revoke", async () => {
     const dispatchCatalogAliasReviewCommand = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({ dispatchCatalogAliasReviewCommand });
 
-    const rejectResult = await runAction({ _intent: "reject", aliasHashes: "hash_1" });
-    const revokeResult = await runAction({ _intent: "revoke", aliasHashes: "hash_1" });
+    const rejectResult = await runAction({ _intent: "alias.reject", aliasHashes: "hash_1" });
+    const revokeResult = await runAction({ _intent: "alias.revoke", aliasHashes: "hash_1" });
 
-    expect(rejectResult).toEqual({ status: "error", intent: "reject", result: "reason-required" });
-    expect(revokeResult).toEqual({ status: "error", intent: "revoke", result: "reason-required" });
+    expect(rejectResult).toEqual({ status: "error", intent: "alias.reject", result: "reason-required" });
+    expect(revokeResult).toEqual({ status: "error", intent: "alias.revoke", result: "reason-required" });
     expect(dispatchCatalogAliasReviewCommand).not.toHaveBeenCalled();
   });
 
@@ -61,7 +64,7 @@ describe("Catalog scope-detail route action", () => {
     const dispatchCatalogAliasReviewCommand = vi.fn().mockResolvedValue({ applied: [], count: 1 });
     mockCreateCatalogRequestApiClient.mockReturnValue({ dispatchCatalogAliasReviewCommand });
 
-    await runAction({ _intent: "reject", aliasHashes: "hash_1", reason: "Wrong set" });
+    await runAction({ _intent: "alias.reject", aliasHashes: "hash_1", reason: "Wrong set" });
 
     expect(dispatchCatalogAliasReviewCommand).toHaveBeenCalledWith({
       intent: "reject",
@@ -70,13 +73,13 @@ describe("Catalog scope-detail route action", () => {
     });
   });
 
-  it("acknowledges defer without dispatching a command (no aggregate transition)", async () => {
+  it("acknowledges alias.defer without dispatching a command (no aggregate transition)", async () => {
     const dispatchCatalogAliasReviewCommand = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({ dispatchCatalogAliasReviewCommand });
 
-    const result = await runAction({ _intent: "defer", aliasHashes: "hash_1" });
+    const result = await runAction({ _intent: "alias.defer", aliasHashes: "hash_1" });
 
-    expect(result).toEqual({ status: "success", intent: "defer", result: "job-queued" });
+    expect(result).toEqual({ status: "success", intent: "alias.defer", result: "job-queued" });
     expect(dispatchCatalogAliasReviewCommand).not.toHaveBeenCalled();
   });
 
@@ -94,9 +97,9 @@ describe("Catalog scope-detail route action", () => {
     const dispatchCatalogAliasReviewCommand = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({ dispatchCatalogAliasReviewCommand });
 
-    const result = await runAction({ _intent: "accept", aliasHashes: "" });
+    const result = await runAction({ _intent: "alias.accept", aliasHashes: "" });
 
-    expect(result).toEqual({ status: "error", intent: "accept", result: "no-candidates" });
+    expect(result).toEqual({ status: "error", intent: "alias.accept", result: "no-candidates" });
     expect(dispatchCatalogAliasReviewCommand).not.toHaveBeenCalled();
   });
 });

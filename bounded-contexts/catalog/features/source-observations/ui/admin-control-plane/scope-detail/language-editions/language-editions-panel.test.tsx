@@ -41,7 +41,7 @@ function candidate(overrides: Partial<CatalogAliasReviewCandidateSummary> = {}):
       reasons: ["Provider same-id localized endpoint requires operator review before becoming official."],
     },
     reviewable: true,
-    availableActions: ["accept", "reject", "defer"],
+    availableActions: ["alias.accept", "alias.reject", "alias.defer"],
     firstObservedAt: "2026-06-16T00:00:00.000Z",
     updatedAt: "2026-06-16T00:00:00.000Z",
     ...overrides,
@@ -117,11 +117,11 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
 
     render(<CatalogIntegrationLanguageEditionsPanel readModel={readModel} actionHref={ACTION_HREF} />);
 
-    const acceptForm = document.querySelector('form[data-language-edition-command="accept"]');
+    const acceptForm = document.querySelector('form[data-language-edition-command="alias.accept"]');
     expect(acceptForm).not.toBeNull();
     expect(acceptForm?.getAttribute("action")).toBe(ACTION_HREF);
     const hiddenIntent = acceptForm?.querySelector('input[name="_intent"]');
-    expect(hiddenIntent?.getAttribute("value")).toBe("accept");
+    expect(hiddenIntent?.getAttribute("value")).toBe("alias.accept");
     const hiddenHashes = acceptForm?.querySelector('input[name="aliasHashes"]');
     expect(hiddenHashes?.getAttribute("value")).toBe("hash_ja_set_equivalent");
   });
@@ -134,7 +134,7 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
 
     render(<CatalogIntegrationLanguageEditionsPanel readModel={readModel} actionHref={ACTION_HREF} />);
 
-    const rejectForm = document.querySelector('form[data-language-edition-command="reject"]');
+    const rejectForm = document.querySelector('form[data-language-edition-command="alias.reject"]');
     const reasonInput = rejectForm?.querySelector('input[name="reason"]');
     expect(reasonInput?.hasAttribute("required")).toBe(true);
   });
@@ -142,12 +142,12 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
   it("offers revoke for an already-linked (accepted) edition candidate", () => {
     const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
       scope,
-      aliasReview: aliasReview([candidate({ reviewStatus: "accepted", availableActions: ["revoke"] })]),
+      aliasReview: aliasReview([candidate({ reviewStatus: "accepted", availableActions: ["alias.revoke"] })]),
     });
 
     render(<CatalogIntegrationLanguageEditionsPanel readModel={readModel} actionHref={ACTION_HREF} />);
 
-    expect(document.querySelector('form[data-language-edition-command="revoke"]')).not.toBeNull();
+    expect(document.querySelector('form[data-language-edition-command="alias.revoke"]')).not.toBeNull();
   });
 
   it("disables actions when the operator cannot manage aliases", () => {
@@ -165,7 +165,7 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
     );
 
     const acceptButton = within(
-      document.querySelector('form[data-language-edition-command="accept"]') as HTMLElement,
+      document.querySelector('form[data-language-edition-command="alias.accept"]') as HTMLElement,
     ).getByRole("button") as HTMLButtonElement;
     expect(acceptButton.disabled).toBe(true);
   });
