@@ -349,14 +349,7 @@ async function withSeedSubstepTimeout<T>(
       action(),
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
-          reject(
-            new Error(
-              `[seed-api-host] substep '${label}' exceeded ${timeoutMs}ms without completing. ` +
-                "This usually means a schema migration or seed is blocked on a database lock " +
-                "(for example ACCESS EXCLUSIVE contention from live read traffic during a rolling deploy) " +
-                "or is awaiting a projection no running worker can apply. Inspect active database sessions.",
-            ),
-          );
+          reject(new SeedApiHostSubstepTimeoutError(label, timeoutMs));
         }, timeoutMs);
       }),
     ]);
@@ -364,6 +357,21 @@ async function withSeedSubstepTimeout<T>(
     if (timer) {
       clearTimeout(timer);
     }
+  }
+}
+
+class SeedApiHostSubstepTimeoutError extends Error {
+  readonly code = "BOOTSTRAP_SEED_SUBSTEP_TIMEOUT";
+  readonly failureClass = "bootstrap-seed-substep-timeout";
+
+  constructor(label: string, timeoutMs: number) {
+    super(
+      `[seed-api-host] failure_class=bootstrap-seed-substep-timeout; substep '${label}' exceeded ${timeoutMs}ms without completing. ` +
+        "This usually means a schema migration or seed is blocked on a database lock " +
+        "(for example ACCESS EXCLUSIVE contention from live read traffic during a rolling deploy) " +
+        "or is awaiting a projection no running worker can apply. Inspect active database sessions.",
+    );
+    this.name = "SeedApiHostSubstepTimeoutError";
   }
 }
 

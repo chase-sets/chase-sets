@@ -282,6 +282,7 @@ jobs:
     outputs:
       deployed: ${{ steps.staging_applied.outputs.deployed || 'false' }}
       applied: ${{ steps.staging_applied.outputs.applied || 'false' }}
+      failure_classification: ${{ steps.staging_failure_classification.outputs.failure_classification || 'staging-deploy-failure' }}
       platform_image_digest: ${{ steps.image.outputs.digest }}
       started_at: ${{ steps.staging_started.outputs.started_at }}
       completed_at: ${{ steps.staging_completed.outputs.completed_at }}
@@ -1006,6 +1007,21 @@ jobs:
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
             --out artifacts/release-health/staging-kubernetes-deploy-diagnostics.json || true
+
+      - name: Classify staging deployment failure
+        if: failure() && env.SHOULD_DEPLOY != 'false'
+        id: staging_failure_classification
+        run: |
+          set -euo pipefail
+          diagnostics_path="artifacts/release-health/staging-kubernetes-deploy-diagnostics.json"
+          classification="staging-deploy-failure"
+          if [ -f "$diagnostics_path" ] && grep -Eiq 'Schema bootstrap hit PostgreSQL lock_timeout|Schema bootstrap lock was not acquired' "$diagnostics_path"; then
+            classification="staging-bootstrap-schema-lock-timeout"
+          elif [ -f "$diagnostics_path" ] && grep -Eiq 'Bootstrap command timed out|Bootstrap failed with exit code 124|seed-api-host.*exceeded [0-9]+ms' "$diagnostics_path"; then
+            classification="staging-bootstrap-timeout"
+          fi
+          echo "failure_classification=${classification}" >> "$GITHUB_OUTPUT"
+          echo "Staging deployment failure classification: ${classification}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload staging Kubernetes deploy diagnostics
         if: always() && env.SHOULD_DEPLOY != 'false'
@@ -3188,6 +3204,7 @@ jobs:
           DEPLOY_PRODUCTION_RESULT: ${{ needs.deploy-production.result }}
           RECORD_STAGING_HEALTH_RESULT: ${{ needs.record-staging-release-health.result }}
           RESOLVE_RELEASE_RESULT: ${{ needs.resolve-release.result }}
+          STAGING_FAILURE_CLASSIFICATION: ${{ needs.deploy-staging.outputs.failure_classification || 'staging-deploy-failure' }}
           STAGING_APPLIED: ${{ needs.deploy-staging.outputs.applied || '' }}
           STAGING_DEPLOYED: ${{ needs.deploy-staging.outputs.deployed || '' }}
           PRODUCTION_SUPERSEDED: ${{ needs.deploy-production.outputs.superseded || '' }}
@@ -3272,6 +3289,7 @@ jobs:
           - Resolve Release: ${RESOLVE_RELEASE_RESULT}
           - Build Release Image: ${BUILD_IMAGE_RESULT}
           - Deploy Staging: ${DEPLOY_STAGING_RESULT}
+          - Staging failure classification: ${STAGING_FAILURE_CLASSIFICATION}
           - Deploy Production: ${DEPLOY_PRODUCTION_RESULT}
           - Rollback: ${ROLLBACK_RESULT}
           - Record Staging Release Health: ${RECORD_STAGING_HEALTH_RESULT}
