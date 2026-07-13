@@ -2,7 +2,11 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { MarketplaceApiEnv } from "../../../api";
-import { marketplaceListingGatePolicy, type MarketplaceListingGatePolicyValue } from "../domain/listing-gate-policy";
+import {
+  marketplaceListingGatePolicy,
+  MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE,
+  type MarketplaceListingGatePolicyValue,
+} from "../domain/listing-gate-policy";
 
 /**
  * Admin-managed create/revise/history routes for the marketplace
@@ -63,6 +67,16 @@ function policyValueFromBody(body: Record<string, unknown>): MarketplaceListingG
     maxActiveAnonymousListingDrafts: Number(body.maxActiveAnonymousListingDrafts ?? 0),
     anonymousListingDraftTtlDays: Number(body.anonymousListingDraftTtlDays ?? 0),
     maxListingPhotoUploadBytes: Number(body.maxListingPhotoUploadBytes ?? 0),
+    maxListingPhotoCount: Number(
+      body.maxListingPhotoCount ?? MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE.maxListingPhotoCount,
+    ),
+    maxListingPhotoTotalBytes: Number(
+      body.maxListingPhotoTotalBytes ?? MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE.maxListingPhotoTotalBytes,
+    ),
+    evidenceGarbageCollectionSafeDelayHours: Number(
+      body.evidenceGarbageCollectionSafeDelayHours ??
+        MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE.evidenceGarbageCollectionSafeDelayHours,
+    ),
   };
 }
 

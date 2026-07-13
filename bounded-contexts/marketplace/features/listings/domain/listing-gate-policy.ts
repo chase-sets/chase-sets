@@ -55,6 +55,12 @@ export type MarketplaceListingGatePolicyValue = Readonly<{
   anonymousListingDraftTtlDays: number;
   /** Maximum listing-photo upload size, in bytes. */
   maxListingPhotoUploadBytes: number;
+  /** Maximum number of active listing evidence images per listing. */
+  maxListingPhotoCount: number;
+  /** Maximum total stored bytes (source + variants) across a listing's active evidence. */
+  maxListingPhotoTotalBytes: number;
+  /** Delay before a replaced/removed, unreferenced evidence asset becomes a garbage-collection candidate. */
+  evidenceGarbageCollectionSafeDelayHours: number;
 }>;
 
 /** The launch values -- the migration's byte-identical seed and compiled fallback. */
@@ -64,6 +70,9 @@ export const MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE: MarketplaceListingGat
   maxActiveAnonymousListingDrafts: 20,
   anonymousListingDraftTtlDays: 30,
   maxListingPhotoUploadBytes: 10 * 1024 * 1024,
+  maxListingPhotoCount: 24,
+  maxListingPhotoTotalBytes: 60 * 1024 * 1024,
+  evidenceGarbageCollectionSafeDelayHours: 24 * 7,
 };
 
 export class MarketplaceListingGatePolicyError extends Error {
@@ -125,6 +134,22 @@ export function decodeMarketplaceListingGatePolicyValue(raw: JsonValue): Marketp
       "Maximum listing photo upload size in bytes",
       { max: 100 * 1024 * 1024 },
     ),
+    maxListingPhotoCount: normalizePositiveInteger(
+      record.maxListingPhotoCount ?? MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE.maxListingPhotoCount,
+      "Maximum listing photo count",
+      { max: 200 },
+    ),
+    maxListingPhotoTotalBytes: normalizePositiveInteger(
+      record.maxListingPhotoTotalBytes ?? MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE.maxListingPhotoTotalBytes,
+      "Maximum listing photo total bytes",
+      { max: 1024 * 1024 * 1024 },
+    ),
+    evidenceGarbageCollectionSafeDelayHours: normalizePositiveInteger(
+      record.evidenceGarbageCollectionSafeDelayHours ??
+        MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE.evidenceGarbageCollectionSafeDelayHours,
+      "Evidence garbage-collection safe delay hours",
+      { max: 8760 },
+    ),
   };
 }
 
@@ -132,7 +157,7 @@ export const marketplaceListingGatePolicy: PolicyDefinition<MarketplaceListingGa
   policyKey: "marketplace.listing-gate",
   contextName: "marketplace",
   schemaSummary:
-    "{ highDollarListingAmount: decimal string >= 0, minTrustedReputationReviews: integer >= 0, maxActiveAnonymousListingDrafts: integer 1-1000, anonymousListingDraftTtlDays: integer 1-365, maxListingPhotoUploadBytes: integer 1-104857600 }",
+    "{ highDollarListingAmount: decimal string >= 0, minTrustedReputationReviews: integer >= 0, maxActiveAnonymousListingDrafts: integer 1-1000, anonymousListingDraftTtlDays: integer 1-365, maxListingPhotoUploadBytes: integer 1-104857600, maxListingPhotoCount: integer 1-200, maxListingPhotoTotalBytes: integer 1-1073741824, evidenceGarbageCollectionSafeDelayHours: integer 1-8760 }",
   defaultValue: MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE,
   decodeValue: decodeMarketplaceListingGatePolicyValue,
 });

@@ -13,6 +13,8 @@ export type ListingPhotoStorage = Readonly<{
       cacheControl?: string;
     }>,
   ): Promise<Readonly<{ key: string; publicUrl: string }>>;
+  /** Idempotent bulk delete for evidence garbage collection (#4985); optional so non-storage wiring still constructs. */
+  deleteObjects?: (keys: readonly string[]) => Promise<void>;
 }>;
 
 export type MarketplaceRuntimeDeps = Readonly<{

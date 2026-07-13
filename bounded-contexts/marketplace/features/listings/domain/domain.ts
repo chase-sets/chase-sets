@@ -124,14 +124,85 @@ export type MarketplaceListingPhotoAssetSet = Readonly<{
   variants: readonly MarketplaceListingPhotoAssetVariant[];
 }>;
 
+/**
+ * Lifecycle status of a single Listing Evidence entry.
+ *
+ * - `active`: current evidence; the only status counted by coverage and the
+ *   only status projected into the public gallery.
+ * - `replaced`: superseded by a newer entry via `ReplaceListingPhoto`. Kept in
+ *   the aggregate for auditable history and remains resolvable for any
+ *   commitment snapshot that referenced its revision; never shown as current.
+ * - `removed`: withdrawn by the seller via `RemoveListingPhoto`. Same
+ *   audit/retention posture as `replaced`.
+ */
+export type MarketplaceListingPhotoStatus = "active" | "replaced" | "removed";
+
+/**
+ * A typed Listing Evidence entry (issue #4985). The `listingPhotos` container
+ * name is retained deliberately; #4984 owns the generic-terminology rename of
+ * the container, DB column, and event keys. This slice enriches each entry
+ * into typed evidence (configured slot/view kind, lifecycle status, immutable
+ * asset revision, capture time) and adds the add-classify/replace/remove/
+ * reorder lifecycle, coverage validation, and asset governance around it.
+ */
 export type MarketplaceListingPhoto = Readonly<{
+  /** Stable evidence id (an `lpho_...` id); survives replace/remove. */
   photoId: string;
   originalFilename: string | null;
+  /** Seller-provided accessible description (buyer-safe). */
   altText: string | null;
+  /** Configured evidence slot this entry is classified into; null = unclassified. */
+  slotId: string | null;
+  /** Configured view kind (e.g. front/back/slab); null = unclassified. */
+  viewKind: string | null;
+  /** Lifecycle status. Only `active` entries are current. */
+  status: MarketplaceListingPhotoStatus;
   sortOrder: number;
+  /** When the source image was captured, if the seller provided it; drives max-age coverage. */
+  capturedAt: string | null;
   uploadedAt: string;
+  /**
+   * Immutable revision key for the normalized asset set. Derived from the
+   * source hash so the same bytes always yield the same revision, letting a
+   * commitment snapshot reference an exact, retained asset revision.
+   */
+  assetRevision: string;
+  /** For replacement lineage: the prior entry this one supersedes. */
+  replacesPhotoId: string | null;
   assetSet: MarketplaceListingPhotoAssetSet;
 }>;
+
+/**
+ * Loose input shape accepted by aggregate commands and normalization. The
+ * typed-evidence fields are optional so callers (and legacy untyped uploads)
+ * can omit them; `normalizeListingPhotos` fills the explicit defaults. This is
+ * the migration/reclassification behavior for existing untyped photos: they
+ * become `active`, unclassified evidence with a hash-derived asset revision.
+ */
+export type MarketplaceListingPhotoDraft = Readonly<{
+  photoId: string;
+  originalFilename?: string | null;
+  altText?: string | null;
+  slotId?: string | null;
+  viewKind?: string | null;
+  status?: MarketplaceListingPhotoStatus;
+  sortOrder: number;
+  capturedAt?: string | null;
+  uploadedAt: string;
+  assetRevision?: string | null;
+  replacesPhotoId?: string | null;
+  assetSet: MarketplaceListingPhotoAssetSet;
+}>;
+
+/** Derives the immutable asset revision key for a normalized asset set. */
+export function listingPhotoAssetRevision(sourceHash: string): string {
+  return `rev-${sourceHash.trim().slice(0, 16)}`;
+}
+
+/** Returns only the current (active) evidence entries. */
+export function activeListingPhotos(photos: readonly MarketplaceListingPhoto[]): readonly MarketplaceListingPhoto[] {
+  return photos.filter((photo) => photo.status === "active");
+}
 
 export type MarketplaceGradedCardDetails = Readonly<{
   gradingCompany: string;
@@ -303,7 +374,7 @@ export type CreateListingCommand = Readonly<{
   feeLock: MarketplaceListingFeeLock;
   quantityCap: number;
   purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-  listingPhotos?: readonly MarketplaceListingPhoto[] | null;
+  listingPhotos?: readonly MarketplaceListingPhotoDraft[] | null;
 }>;
 
 export type UpdateListingPriceCommand = Readonly<{
@@ -326,7 +397,36 @@ export type UpdateListingPurchaseLimitsCommand = Readonly<{
 
 export type AddListingPhotosCommand = Readonly<{
   type: "AddListingPhotos";
-  photos: readonly MarketplaceListingPhoto[];
+  photos: readonly MarketplaceListingPhotoDraft[];
+}>;
+
+/** Classify an existing active evidence entry into a configured slot/view kind. */
+export type ClassifyListingPhotoCommand = Readonly<{
+  type: "ClassifyListingPhoto";
+  photoId: string;
+  slotId: string | null;
+  viewKind: string | null;
+  altText?: string | null;
+  capturedAt?: string | null;
+}>;
+
+/** Replace an active evidence entry with a freshly normalized asset; the prior entry is retained as `replaced`. */
+export type ReplaceListingPhotoCommand = Readonly<{
+  type: "ReplaceListingPhoto";
+  replacedPhotoId: string;
+  photo: MarketplaceListingPhotoDraft;
+}>;
+
+/** Remove an active evidence entry; retained as `removed` for commitment resolution. */
+export type RemoveListingPhotoCommand = Readonly<{
+  type: "RemoveListingPhoto";
+  photoId: string;
+}>;
+
+/** Reorder the active evidence entries; `orderedPhotoIds` must be exactly the current active ids. */
+export type ReorderListingPhotosCommand = Readonly<{
+  type: "ReorderListingPhotos";
+  orderedPhotoIds: readonly string[];
 }>;
 
 export type PublishListingCommand = Readonly<{ type: "PublishListing" }>;
@@ -346,6 +446,10 @@ export type MarketplaceListingCommand =
   | UpdateListingQuantityCapCommand
   | UpdateListingPurchaseLimitsCommand
   | AddListingPhotosCommand
+  | ClassifyListingPhotoCommand
+  | ReplaceListingPhotoCommand
+  | RemoveListingPhotoCommand
+  | ReorderListingPhotosCommand
   | PublishListingCommand
   | PauseListingCommand
   | AutoUnlistListingCommand
@@ -424,6 +528,35 @@ export type ListingPhotosAddedEvent = DomainEvent<
     listingPhotos: MarketplaceListingPhoto[];
   }>
 >;
+export type ListingPhotoClassifiedEvent = DomainEvent<
+  "marketplace.listing.photo-classified",
+  Readonly<{
+    photoId: string;
+    slotId: string | null;
+    viewKind: string | null;
+    altText: string | null;
+    capturedAt: string | null;
+  }>
+>;
+export type ListingPhotoReplacedEvent = DomainEvent<
+  "marketplace.listing.photo-replaced",
+  Readonly<{
+    replacedPhotoId: string;
+    photo: MarketplaceListingPhoto;
+  }>
+>;
+export type ListingPhotoRemovedEvent = DomainEvent<
+  "marketplace.listing.photo-removed",
+  Readonly<{
+    photoId: string;
+  }>
+>;
+export type ListingPhotosReorderedEvent = DomainEvent<
+  "marketplace.listing.photos-reordered",
+  Readonly<{
+    orderedPhotoIds: string[];
+  }>
+>;
 export type ListingPublishedEvent = DomainEvent<"marketplace.listing.published", Readonly<Record<string, never>>>;
 export type ListingPausedEvent = DomainEvent<"marketplace.listing.paused", Readonly<Record<string, never>>>;
 export type ListingAutoUnlistedEvent = DomainEvent<
@@ -443,6 +576,10 @@ export type MarketplaceListingEvent =
   | ListingQuantityCapUpdatedEvent
   | ListingPurchaseLimitsUpdatedEvent
   | ListingPhotosAddedEvent
+  | ListingPhotoClassifiedEvent
+  | ListingPhotoReplacedEvent
+  | ListingPhotoRemovedEvent
+  | ListingPhotosReorderedEvent
   | ListingPublishedEvent
   | ListingPausedEvent
   | ListingAutoUnlistedEvent
@@ -556,13 +693,87 @@ export const decideMarketplaceListing: AggregateDecider<
           },
         },
       ];
+    case "ClassifyListingPhoto": {
+      assert(state.listingId !== null, "Listing must be created first.");
+      assert(state.status === "draft", "Listing evidence can only be reclassified while the listing is a draft.");
+      const target = state.listingPhotos.find(
+        (photo) => photo.photoId === command.photoId && photo.status === "active",
+      );
+      assert(target, "Listing evidence entry was not found.");
+      const slotId = normalizeSlotToken(command.slotId, "Listing evidence slot");
+      const viewKind = normalizeSlotToken(command.viewKind, "Listing evidence view kind");
+      return [
+        {
+          type: "marketplace.listing.photo-classified",
+          data: {
+            photoId: target.photoId,
+            slotId,
+            viewKind,
+            altText: command.altText === undefined ? target.altText : normalizeOptionalText(command.altText),
+            capturedAt:
+              command.capturedAt === undefined ? target.capturedAt : normalizeOptionalText(command.capturedAt),
+          },
+        },
+      ];
+    }
+    case "ReplaceListingPhoto": {
+      assert(state.listingId !== null, "Listing must be created first.");
+      assert(state.status === "draft", "Listing evidence can only be replaced while the listing is a draft.");
+      const target = state.listingPhotos.find(
+        (photo) => photo.photoId === command.replacedPhotoId && photo.status === "active",
+      );
+      assert(target, "Listing evidence entry was not found.");
+      const [replacement] = normalizeListingPhotos([
+        {
+          ...command.photo,
+          status: "active",
+          replacesPhotoId: target.photoId,
+          slotId: command.photo.slotId ?? target.slotId,
+          viewKind: command.photo.viewKind ?? target.viewKind,
+          sortOrder: command.photo.sortOrder ?? target.sortOrder,
+        },
+      ]);
+      assert(replacement, "Replacement listing evidence entry is required.");
+      assert(replacement.photoId !== target.photoId, "Replacement listing evidence must use a new evidence id.");
+      assert(
+        !state.listingPhotos.some((photo) => photo.photoId === replacement.photoId),
+        "Replacement listing evidence id is already in use.",
+      );
+      return [
+        {
+          type: "marketplace.listing.photo-replaced",
+          data: { replacedPhotoId: target.photoId, photo: replacement },
+        },
+      ];
+    }
+    case "RemoveListingPhoto": {
+      assert(state.listingId !== null, "Listing must be created first.");
+      assert(state.status === "draft", "Listing evidence can only be removed while the listing is a draft.");
+      const target = state.listingPhotos.find(
+        (photo) => photo.photoId === command.photoId && photo.status === "active",
+      );
+      assert(target, "Listing evidence entry was not found.");
+      return [{ type: "marketplace.listing.photo-removed", data: { photoId: target.photoId } }];
+    }
+    case "ReorderListingPhotos": {
+      assert(state.listingId !== null, "Listing must be created first.");
+      assert(state.status === "draft", "Listing evidence can only be reordered while the listing is a draft.");
+      const activeIds = activeListingPhotos(state.listingPhotos).map((photo) => photo.photoId);
+      const requested = command.orderedPhotoIds.map((id) => normalizeRequiredText(id, "Evidence id is required."));
+      assert(requested.length === new Set(requested).size, "Reorder must not repeat an evidence id.");
+      assert(
+        requested.length === activeIds.length && activeIds.every((id) => requested.includes(id)),
+        "Reorder must list exactly the current active evidence ids.",
+      );
+      return [{ type: "marketplace.listing.photos-reordered", data: { orderedPhotoIds: requested } }];
+    }
     case "PublishListing":
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be published.");
       assert(state.status !== "active", "Listing is already active.");
       assert(state.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
       assert(
-        !requiresListingPhotoEvidence(state) || state.listingPhotos.length > 0,
+        !requiresListingPhotoEvidence(state) || activeListingPhotos(state.listingPhotos).length > 0,
         "Pristine, Mint, and graded-card listings require at least one listing photo before publication; graded-card listings must include a slab photo.",
       );
       return [
@@ -639,7 +850,7 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         feeLocks: event.data.feeLocks,
         quantityCap: event.data.quantityCap,
         purchaseLimits: event.data.purchaseLimits ?? initialMarketplaceListingState.purchaseLimits,
-        listingPhotos: event.data.listingPhotos ?? [],
+        listingPhotos: hydrateStoredListingPhotos(event.data.listingPhotos),
         status: "draft",
       };
     case "marketplace.listing.price-updated":
@@ -663,8 +874,49 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
     case "marketplace.listing.photos-added":
       return {
         ...state,
-        listingPhotos: event.data.listingPhotos,
+        listingPhotos: hydrateStoredListingPhotos(event.data.listingPhotos),
       };
+    case "marketplace.listing.photo-classified":
+      return {
+        ...state,
+        listingPhotos: state.listingPhotos.map((photo) =>
+          photo.photoId === event.data.photoId
+            ? {
+                ...photo,
+                slotId: event.data.slotId,
+                viewKind: event.data.viewKind,
+                altText: event.data.altText,
+                capturedAt: event.data.capturedAt,
+              }
+            : photo,
+        ),
+      };
+    case "marketplace.listing.photo-replaced":
+      return {
+        ...state,
+        listingPhotos: [
+          ...state.listingPhotos.map((photo) =>
+            photo.photoId === event.data.replacedPhotoId ? { ...photo, status: "replaced" as const } : photo,
+          ),
+          hydrateStoredListingPhoto(event.data.photo),
+        ],
+      };
+    case "marketplace.listing.photo-removed":
+      return {
+        ...state,
+        listingPhotos: state.listingPhotos.map((photo) =>
+          photo.photoId === event.data.photoId ? { ...photo, status: "removed" as const } : photo,
+        ),
+      };
+    case "marketplace.listing.photos-reordered": {
+      const orderIndex = new Map(event.data.orderedPhotoIds.map((id, index) => [id, index]));
+      return {
+        ...state,
+        listingPhotos: state.listingPhotos.map((photo) =>
+          orderIndex.has(photo.photoId) ? { ...photo, sortOrder: orderIndex.get(photo.photoId)! } : photo,
+        ),
+      };
+    }
     case "marketplace.listing.quantity-cap-updated":
       return {
         ...state,
@@ -777,7 +1029,32 @@ function normalizePurchaseLimits(
   return normalized;
 }
 
-function normalizeListingPhotos(photos: readonly MarketplaceListingPhoto[]): MarketplaceListingPhoto[] {
+const LISTING_PHOTO_SLOT_TOKEN_PATTERN = /^[a-z][a-z0-9-]{1,63}$/;
+
+/**
+ * Validates a configured evidence slot/view-kind token. Slots are opaque
+ * configured identifiers (issue #4985): the Listing aggregate never interprets
+ * their business meaning, it only enforces that classified entries carry a
+ * well-formed token so coverage can match them to policy-resolved slots.
+ */
+function normalizeSlotToken(value: string | null | undefined, fieldName: string): string | null {
+  const normalized = value?.trim() ?? "";
+  if (normalized.length === 0) {
+    return null;
+  }
+  assert(LISTING_PHOTO_SLOT_TOKEN_PATTERN.test(normalized), `${fieldName} has an invalid format.`);
+  return normalized;
+}
+
+function normalizeListingPhotoStatus(value: MarketplaceListingPhotoStatus | undefined): MarketplaceListingPhotoStatus {
+  if (value === undefined) {
+    return "active";
+  }
+  assert(value === "active" || value === "replaced" || value === "removed", "Listing evidence status is invalid.");
+  return value;
+}
+
+function normalizeListingPhotos(photos: readonly MarketplaceListingPhotoDraft[]): MarketplaceListingPhoto[] {
   return photos.map((photo, index) => {
     const photoId = normalizeRequiredText(photo.photoId, "Listing photo id is required.");
     const uploadedAt = normalizeRequiredText(photo.uploadedAt, "Listing photo upload timestamp is required.");
@@ -785,16 +1062,54 @@ function normalizeListingPhotos(photos: readonly MarketplaceListingPhoto[]): Mar
       Number.isInteger(photo.sortOrder) && photo.sortOrder >= 0,
       "Listing photo sort order must be zero or greater.",
     );
+    const assetSet = normalizeListingPhotoAssetSet(photo.assetSet);
 
     return {
       photoId,
       originalFilename: normalizeOptionalText(photo.originalFilename),
       altText: normalizeOptionalText(photo.altText),
+      slotId: normalizeSlotToken(photo.slotId, "Listing evidence slot"),
+      viewKind: normalizeSlotToken(photo.viewKind, "Listing evidence view kind"),
+      status: normalizeListingPhotoStatus(photo.status),
       sortOrder: photo.sortOrder ?? index,
+      capturedAt: normalizeOptionalText(photo.capturedAt),
       uploadedAt,
-      assetSet: normalizeListingPhotoAssetSet(photo.assetSet),
+      assetRevision: normalizeOptionalText(photo.assetRevision) ?? listingPhotoAssetRevision(assetSet.sourceHash),
+      replacesPhotoId: normalizeOptionalText(photo.replacesPhotoId),
+      assetSet,
     };
   });
+}
+
+/**
+ * Replay-safe defaulting for a single stored/legacy evidence entry. Legacy
+ * untyped photos (recorded before #4985) lack the typed fields; this is the
+ * explicit migration/reclassification behavior — they become `active`,
+ * unclassified evidence with a hash-derived asset revision. Unlike
+ * `normalizeListingPhotos` this never throws, so historical events always
+ * replay.
+ */
+export function hydrateStoredListingPhoto(photo: MarketplaceListingPhotoDraft): MarketplaceListingPhoto {
+  return {
+    photoId: photo.photoId,
+    originalFilename: photo.originalFilename ?? null,
+    altText: photo.altText ?? null,
+    slotId: photo.slotId ?? null,
+    viewKind: photo.viewKind ?? null,
+    status: photo.status ?? "active",
+    sortOrder: photo.sortOrder,
+    capturedAt: photo.capturedAt ?? null,
+    uploadedAt: photo.uploadedAt,
+    assetRevision: photo.assetRevision ?? listingPhotoAssetRevision(photo.assetSet.sourceHash),
+    replacesPhotoId: photo.replacesPhotoId ?? null,
+    assetSet: photo.assetSet,
+  };
+}
+
+function hydrateStoredListingPhotos(
+  photos: readonly MarketplaceListingPhotoDraft[] | null | undefined,
+): MarketplaceListingPhoto[] {
+  return (photos ?? []).map(hydrateStoredListingPhoto);
 }
 
 function mergeListingPhotos(

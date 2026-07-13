@@ -21,6 +21,9 @@ describe("marketplace listing-gate policy", () => {
       maxActiveAnonymousListingDrafts: 10,
       anonymousListingDraftTtlDays: 14,
       maxListingPhotoUploadBytes: 5 * 1024 * 1024,
+      maxListingPhotoCount: 24,
+      maxListingPhotoTotalBytes: 60 * 1024 * 1024,
+      evidenceGarbageCollectionSafeDelayHours: 24 * 7,
     });
   });
 
@@ -32,6 +35,9 @@ describe("marketplace listing-gate policy", () => {
       maxActiveAnonymousListingDrafts: 20,
       anonymousListingDraftTtlDays: 30,
       maxListingPhotoUploadBytes: 10 * 1024 * 1024,
+      maxListingPhotoCount: 24,
+      maxListingPhotoTotalBytes: 60 * 1024 * 1024,
+      evidenceGarbageCollectionSafeDelayHours: 24 * 7,
     });
   });
 

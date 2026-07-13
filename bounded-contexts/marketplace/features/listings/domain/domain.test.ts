@@ -520,6 +520,124 @@ describe("marketplace listing photos", () => {
   });
 });
 
+describe("marketplace listing evidence lifecycle", () => {
+  function draftWithPhotos(photos: Array<Record<string, unknown>>) {
+    return decideMarketplaceListing(initialMarketplaceListingState, {
+      ...createListingCommand,
+      listingPhotos: photos as never,
+    }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
+  }
+
+  const secondPhoto = {
+    ...listingPhoto,
+    photoId: "lpho_2",
+    assetSet: { ...listingPhoto.assetSet, sourceHash: "hash_2" },
+  };
+
+  it("migrates legacy untyped photos into active, unclassified evidence with a derived revision", () => {
+    const state = draftWithPhotos([listingPhoto]);
+    expect(state.listingPhotos[0]).toMatchObject({
+      photoId: "lpho_1",
+      status: "active",
+      slotId: null,
+      viewKind: null,
+      assetRevision: "rev-hash_1",
+    });
+  });
+
+  it("classifies an active evidence entry into a configured slot/view kind", () => {
+    const state = draftWithPhotos([listingPhoto]);
+    const next = decideMarketplaceListing(state, {
+      type: "ClassifyListingPhoto",
+      photoId: "lpho_1",
+      slotId: "front",
+      viewKind: "front",
+      altText: "Front of the card",
+    }).reduce(evolveMarketplaceListing, state);
+    expect(next.listingPhotos[0]).toMatchObject({ slotId: "front", viewKind: "front", altText: "Front of the card" });
+  });
+
+  it("replaces an active entry, retaining the prior entry as replaced", () => {
+    const state = draftWithPhotos([listingPhoto]);
+    const events = decideMarketplaceListing(state, {
+      type: "ReplaceListingPhoto",
+      replacedPhotoId: "lpho_1",
+      photo: secondPhoto as never,
+    });
+    const next = events.reduce(evolveMarketplaceListing, state);
+    expect(next.listingPhotos.find((photo) => photo.photoId === "lpho_1")?.status).toBe("replaced");
+    const replacement = next.listingPhotos.find((photo) => photo.photoId === "lpho_2");
+    expect(replacement?.status).toBe("active");
+    expect(replacement?.replacesPhotoId).toBe("lpho_1");
+  });
+
+  it("removes an active entry, keeping it resolvable as removed", () => {
+    const state = draftWithPhotos([listingPhoto]);
+    const next = decideMarketplaceListing(state, { type: "RemoveListingPhoto", photoId: "lpho_1" }).reduce(
+      evolveMarketplaceListing,
+      state,
+    );
+    expect(next.listingPhotos[0]?.status).toBe("removed");
+  });
+
+  it("reorders active evidence and rejects an incomplete id set", () => {
+    const state = draftWithPhotos([listingPhoto, secondPhoto]);
+    const next = decideMarketplaceListing(state, {
+      type: "ReorderListingPhotos",
+      orderedPhotoIds: ["lpho_2", "lpho_1"],
+    }).reduce(evolveMarketplaceListing, state);
+    expect(next.listingPhotos.find((photo) => photo.photoId === "lpho_2")?.sortOrder).toBe(0);
+    expect(next.listingPhotos.find((photo) => photo.photoId === "lpho_1")?.sortOrder).toBe(1);
+
+    expect(() =>
+      decideMarketplaceListing(state, { type: "ReorderListingPhotos", orderedPhotoIds: ["lpho_1"] }),
+    ).toThrow("Reorder must list exactly the current active evidence ids.");
+  });
+
+  it("blocks evidence mutations once the listing is active", () => {
+    const draft = decideMarketplaceListing(initialMarketplaceListingState, {
+      ...createListingCommand,
+      listingPhotos: [listingPhoto] as never,
+    }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
+    const active = decideMarketplaceListing(draft, { type: "PublishListing" }).reduce(evolveMarketplaceListing, draft);
+    expect(() => decideMarketplaceListing(active, { type: "RemoveListingPhoto", photoId: "lpho_1" })).toThrow(
+      "Listing evidence can only be removed while the listing is a draft.",
+    );
+  });
+
+  it("replays the full lifecycle deterministically from events", () => {
+    const state = draftWithPhotos([listingPhoto]);
+    const events = [
+      ...decideMarketplaceListing(state, {
+        type: "ClassifyListingPhoto",
+        photoId: "lpho_1",
+        slotId: "front",
+        viewKind: "front",
+      }),
+    ];
+    const afterClassify = events.reduce(evolveMarketplaceListing, state);
+    const replaceEvents = decideMarketplaceListing(afterClassify, {
+      type: "ReplaceListingPhoto",
+      replacedPhotoId: "lpho_1",
+      photo: secondPhoto as never,
+    });
+    const afterReplace = replaceEvents.reduce(evolveMarketplaceListing, afterClassify);
+
+    // Fold the same event sequence from scratch and expect identical state.
+    const allEvents = [
+      ...decideMarketplaceListing(initialMarketplaceListingState, {
+        ...createListingCommand,
+        listingPhotos: [listingPhoto] as never,
+      }),
+    ];
+    const rebuiltBase = allEvents.reduce(evolveMarketplaceListing, initialMarketplaceListingState);
+    const rebuilt = [...events, ...replaceEvents].reduce(evolveMarketplaceListing, rebuiltBase);
+    expect(rebuilt.listingPhotos).toEqual(afterReplace.listingPhotos);
+    // The replacement inherits the classified slot when not overridden.
+    expect(rebuilt.listingPhotos.find((photo) => photo.photoId === "lpho_2")?.slotId).toBe("front");
+  });
+});
+
 describe("marketplace graded-card validation", () => {
   it.each([
     ["PSA", "12345678", "10.0", "10"],

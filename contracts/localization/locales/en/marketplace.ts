@@ -109,6 +109,17 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingDetailPage.listing.photos": "Listing photos",
   "marketplace.features.listings.ui.listingDetailPage.listing.photos.description":
     "Uploads are normalized into WebP variants for listing evidence and buyer review.",
+  "marketplace.features.listings.evidenceCoverage.min-photo-count-unmet":
+    "Add more photos to meet the required number of evidence images.",
+  "marketplace.features.listings.evidenceCoverage.slot-missing": "Add the required photo for this view.",
+  "marketplace.features.listings.evidenceCoverage.slot-view-mismatch":
+    "This photo is classified as a different view than the one required.",
+  "marketplace.features.listings.evidenceCoverage.slot-dimensions-too-small":
+    "This photo is smaller than the required minimum dimensions.",
+  "marketplace.features.listings.evidenceCoverage.slot-expired":
+    "This photo is older than the maximum allowed age. Add a more recent photo.",
+  "marketplace.features.listings.evidenceCoverage.duplicate-source":
+    "The same image cannot prove two different required views. Add a distinct photo.",
   "marketplace.features.listings.ui.listingDetailPage.listing.overview": "Listing Overview",
   "marketplace.features.listings.ui.listingDetailPage.manage.seller.listing.pricing.quantity.caps":
     "Manage seller listing pricing, quantity caps, and publication state.",
