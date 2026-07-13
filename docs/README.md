@@ -30,6 +30,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [30-Day Campaign Content Calendar](./campaigns/30-day-content-calendar.md): the 2026-07-20 through 2026-08-18 channel/owner/claim-reference plan, with invite-wave moments and week-one copy.
 - [Campaign Market-Data Series](./campaigns/market-data-series.md): deterministic Pricing rollup snippet generation, fixture/staging rehearsal, and production-only publication gate.
 - [Open-Offer Demo Walkthrough](./campaigns/offer-flow-demo.md): the truth-gated 30-second staging capture script and honest TODD creative handoff.
+- [Seller Migration Campaign Assets](./campaigns/seller-migration-assets.md): the #4085 guide, proof walkthrough, #4073 demo-clip handoff, and #4083 admission-mail link.
 
 ### Contributing
 

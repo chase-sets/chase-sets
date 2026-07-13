@@ -1311,6 +1311,878 @@ export const helpArticles = [
     ],
   },
   {
+    slug: "seller-migration-tcgplayer-ebay",
+    locale: "en",
+    title: "Seller migration from TCGplayer or eBay: a bulk-listing on-ramp",
+    description:
+      "Move an existing TCGplayer or eBay CSV into Chase Sets, review the result, create draft listings, and reprice them in bulk without overstating what beta supports.",
+    audience: "seller",
+    category: "selling",
+    reviewedAt: "2026-07-12",
+    citedPolicies: [
+      "commercial-terms.marketplace-sales-fee-schedule",
+      "settlement.clearance-window",
+      "settlement.payout-bounds",
+    ],
+    relatedFlows: ["listing-confirmation", "payout-setup"],
+    claimCategories: ["fees", "payouts"],
+    promiseTable: [
+      {
+        claim:
+          "The TCGplayer importer recognizes TCGplayer SKU first and Product ID as a fallback, infers condition when it can, and keeps unresolved rows in review.",
+        issues: ["#4085"],
+        tests: [
+          "bounded-contexts/inventory/features/import-batches/domain/import-source-adapters.test.ts",
+          "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts",
+        ],
+      },
+      {
+        claim:
+          "The eBay importer accepts listing and variation identifiers, custom labels, catalog identifiers, quantities, and prices as mapping candidates without silently publishing rows.",
+        issues: ["#4085"],
+        tests: [
+          "bounded-contexts/inventory/features/import-batches/domain/import-source-adapters.test.ts",
+          "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts",
+        ],
+      },
+      {
+        claim:
+          "Inventory import review can commit accepted rows into inventory and draft listings while preserving rejected rows for review; publication remains a separate listing action.",
+        issues: ["#4085"],
+        tests: [
+          "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts",
+          "bounded-contexts/inventory/features/import-batches/ui/import-batch-page.test.tsx",
+        ],
+      },
+      {
+        claim:
+          "Bulk repricing accepts seller SKU or listing ID rows, suppresses unchanged prices before Marketplace, records applied, unchanged, and failed outcomes, and exports a results CSV.",
+        issues: ["#4085", "#4328"],
+        tests: [
+          "bounded-contexts/pricing/features/bulk-reprice-ingestion/tests/bulk-reprice-ingestion.db.test.ts",
+          "bounded-contexts/pricing/features/bulk-reprice-ingestion/domain/csv.test.ts",
+        ],
+      },
+      {
+        claim:
+          "Bulk repricing enforces one active job per account, supports cancellation, and applies the live upload-row ceiling rather than an unbounded batch.",
+        issues: ["#4328"],
+        tests: [
+          "bounded-contexts/pricing/features/bulk-reprice-ingestion/tests/bulk-reprice-ingestion.db.test.ts",
+          "bounded-contexts/pricing/features/bulk-reprice-ingestion/domain/policy.test.ts",
+        ],
+      },
+      {
+        claim:
+          "Payout requests stay blocked until payout setup and its destination are ready, and available sale proceeds still follow delivery and clearance rules.",
+        issues: ["#4085", "#4287"],
+        tests: [
+          "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.test.tsx",
+          "bounded-contexts/settlement/features/payouts/api/runtime.test.ts",
+          "bounded-contexts/settlement/features/wallets/read-model/queries.db.test.ts",
+        ],
+      },
+    ],
+    href: "/help/selling/seller-migration-tcgplayer-ebay",
+    headings: [
+      {
+        level: 2,
+        id: "the-short-version",
+        text: "The short version",
+      },
+      {
+        level: 2,
+        id: "before-you-upload",
+        text: "Before you upload",
+      },
+      {
+        level: 2,
+        id: "move-tcgplayer-inventory",
+        text: "Move TCGplayer inventory",
+      },
+      {
+        level: 2,
+        id: "move-ebay-inventory",
+        text: "Move eBay inventory",
+      },
+      {
+        level: 2,
+        id: "reprice-listings-in-bulk",
+        text: "Reprice listings in bulk",
+      },
+      {
+        level: 2,
+        id: "compare-fees-and-check-current-terms",
+        text: "Compare fees and check current terms",
+      },
+      {
+        level: 2,
+        id: "set-up-payouts-before-your-first-sale",
+        text: "Set up payouts before your first sale",
+      },
+      {
+        level: 2,
+        id: "migration-checklist",
+        text: "Migration checklist",
+      },
+    ],
+    blocks: [
+      {
+        type: "heading",
+        level: 2,
+        id: "the-short-version",
+        text: "The short version",
+        content: [
+          {
+            type: "text",
+            value: "The short version",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Chase Sets has two separate bulk tools for a seller moving an existing catalog. Use the review-first inventory import to bring over stock and create draft listings. Use the bulk reprice on-ramp afterward when you want to change prices on listings that already exist. The reprice tool does not create listings.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "This is a beta on-ramp, not a promise of a one-click marketplace migration or a provider sync. The current importer accepts CSV files; it does not store your TCGplayer or eBay credentials or schedule later provider syncs.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "before-you-upload",
+        text: "Before you upload",
+        content: [
+          {
+            type: "text",
+            value: "Before you upload",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Keep a copy of the source export. Decide which active Chase Sets storage location should receive the rows. For an export that represents the exact current stock, choose ",
+          },
+          {
+            type: "strong",
+            value: "replace",
+          },
+          {
+            type: "text",
+            value: " quantity mode; use ",
+          },
+          {
+            type: "strong",
+            value: "add",
+          },
+          {
+            type: "text",
+            value: " only when the file contains intentional stock adjustments.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "The seller-facing flow is ",
+          },
+          {
+            type: "link",
+            label: "Inventory imports",
+            href: "/account/inventory/imports",
+          },
+          {
+            type: "text",
+            value:
+              ". You can upload from that page, choose the matching source profile, review accepted and rejected rows, fix rows that need a catalog or option choice, and commit the accepted rows.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "move-tcgplayer-inventory",
+        text: "Move TCGplayer inventory",
+        content: [
+          {
+            type: "text",
+            value: "Move TCGplayer inventory",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: true,
+        items: [
+          [
+            {
+              type: "text",
+              value: "Export your TCGplayer inventory as CSV and keep the provider's ",
+            },
+            {
+              type: "code",
+              value: "TCGplayer SKU",
+            },
+            {
+              type: "text",
+              value: " or ",
+            },
+            {
+              type: "code",
+              value: "Product ID",
+            },
+            {
+              type: "text",
+              value: " columns in the file. Include ",
+            },
+            {
+              type: "code",
+              value: "Condition",
+            },
+            {
+              type: "text",
+              value: ", ",
+            },
+            {
+              type: "code",
+              value: "Quantity",
+            },
+            {
+              type: "text",
+              value: ", and ",
+            },
+            {
+              type: "code",
+              value: "TCG Marketplace Price",
+            },
+            {
+              type: "text",
+              value: " when you want stock, condition, and a starting listing price carried into review.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Open ",
+            },
+            {
+              type: "link",
+              label: "Inventory imports",
+              href: "/account/inventory/imports",
+            },
+            {
+              type: "text",
+              value: ", choose ",
+            },
+            {
+              type: "strong",
+              value: "TCGplayer CSV",
+            },
+            {
+              type: "text",
+              value: ", choose ",
+            },
+            {
+              type: "strong",
+              value: "replace",
+            },
+            {
+              type: "text",
+              value: " for an exact inventory export, select a storage location, and upload the file.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Review the batch. Chase Sets tries ",
+            },
+            {
+              type: "code",
+              value: "TCGplayer SKU",
+            },
+            {
+              type: "text",
+              value: " first and falls back to ",
+            },
+            {
+              type: "code",
+              value: "Product ID",
+            },
+            {
+              type: "text",
+              value: ". A ",
+            },
+            {
+              type: "code",
+              value: "Product ID",
+            },
+            {
+              type: "text",
+              value:
+                " row still needs an inferable condition or another option choice before it can be accepted. An unmapped reference stays rejected for review instead of being guessed.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value:
+                "Commit the accepted rows. If a row includes a listing price and quantity cap, the commit can create a ",
+            },
+            {
+              type: "strong",
+              value: "draft",
+            },
+            {
+              type: "text",
+              value: " listing alongside the inventory item. Publishing is a separate action in ",
+            },
+            {
+              type: "link",
+              label: "your listings",
+              href: "/account/listings",
+            },
+            {
+              type: "text",
+              value: ", so inspect the draft before it goes live.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "The importer also carries a ",
+          },
+          {
+            type: "code",
+            value: "Seller SKU",
+          },
+          {
+            type: "text",
+            value:
+              " when present. When it is absent in a TCGplayer row, the source SKU is used as the account SKU candidate; keep your own SKU scheme stable if you plan to reprice by SKU later.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "move-ebay-inventory",
+        text: "Move eBay inventory",
+        content: [
+          {
+            type: "text",
+            value: "Move eBay inventory",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: true,
+        items: [
+          [
+            {
+              type: "text",
+              value:
+                "Export the eBay inventory or active-listing rows you want to migrate as CSV. Keep any identifiers your export provides: ",
+            },
+            {
+              type: "code",
+              value: "Item ID",
+            },
+            {
+              type: "text",
+              value: ", ",
+            },
+            {
+              type: "code",
+              value: "Variation ID",
+            },
+            {
+              type: "text",
+              value: ", ",
+            },
+            {
+              type: "code",
+              value: "Custom label",
+            },
+            {
+              type: "text",
+              value: ", ",
+            },
+            {
+              type: "code",
+              value: "ePID",
+            },
+            {
+              type: "text",
+              value: ", ",
+            },
+            {
+              type: "code",
+              value: "GTIN",
+            },
+            {
+              type: "text",
+              value: ", ",
+            },
+            {
+              type: "code",
+              value: "Quantity",
+            },
+            {
+              type: "text",
+              value: ", ",
+            },
+            {
+              type: "code",
+              value: "Current price",
+            },
+            {
+              type: "text",
+              value: ", and ",
+            },
+            {
+              type: "code",
+              value: "Condition",
+            },
+            {
+              type: "text",
+              value: ".",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "In ",
+            },
+            {
+              type: "link",
+              label: "Inventory imports",
+              href: "/account/inventory/imports",
+            },
+            {
+              type: "text",
+              value: ", choose ",
+            },
+            {
+              type: "strong",
+              value: "eBay CSV",
+            },
+            {
+              type: "text",
+              value: ", choose ",
+            },
+            {
+              type: "strong",
+              value: "replace",
+            },
+            {
+              type: "text",
+              value: " for an exact snapshot, choose a storage location, and upload the file.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value:
+                "Review the batch. The eBay profile tries listing and variation references, then seller SKU, catalog identifiers, and GTIN candidates. Condition is used for selected-option inference when available. Rows that do not resolve remain visible as rejected rows for correction.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Commit accepted rows, then review any resulting drafts in ",
+            },
+            {
+              type: "link",
+              label: "your listings",
+              href: "/account/listings",
+            },
+            {
+              type: "text",
+              value: ". The import does not silently publish an eBay row as a Chase Sets listing.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "reprice-listings-in-bulk",
+        text: "Reprice listings in bulk",
+        content: [
+          {
+            type: "text",
+            value: "Reprice listings in bulk",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Once listings exist, open ",
+          },
+          {
+            type: "link",
+            label: "Bulk reprice",
+            href: "/account/bulk-reprice",
+          },
+          {
+            type: "text",
+            value: ". Download its template or use a CSV with these headers: ",
+          },
+          {
+            type: "code",
+            value: "sellerSku",
+          },
+          {
+            type: "text",
+            value: ", ",
+          },
+          {
+            type: "code",
+            value: "listingId",
+          },
+          {
+            type: "text",
+            value: ", and ",
+          },
+          {
+            type: "code",
+            value: "newPrice",
+          },
+          {
+            type: "text",
+            value: ". Each row needs either ",
+          },
+          {
+            type: "code",
+            value: "sellerSku",
+          },
+          {
+            type: "text",
+            value: " or ",
+          },
+          {
+            type: "code",
+            value: "listingId",
+          },
+          {
+            type: "text",
+            value: ", plus a positive price.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "The job resolves rows against your current listings first. A price that is already current becomes ",
+          },
+          {
+            type: "code",
+            value: "unchanged",
+          },
+          {
+            type: "text",
+            value: " and is not sent to Marketplace. Other rows are applied in the durable job, with ",
+          },
+          {
+            type: "code",
+            value: "applied",
+          },
+          {
+            type: "text",
+            value: ", ",
+          },
+          {
+            type: "code",
+            value: "unchanged",
+          },
+          {
+            type: "text",
+            value: ", or ",
+          },
+          {
+            type: "code",
+            value: "failed",
+          },
+          {
+            type: "text",
+            value:
+              " outcomes and a downloadable results CSV. Only one active bulk-reprice job is allowed for an account, and you can cancel a queued or running job from the status page.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "The launch policy's default upload ceiling is 250,000 rows. That is a validation ceiling, not a throughput promise. No wall-time, rows-per-second, or interactive-latency number is published here until an operator records a staging run; see the ",
+          },
+          {
+            type: "link",
+            label: "bulk-listing proof walkthrough",
+            href: "https://github.com/chase-sets/chase-sets/blob/main/bounded-contexts/public-presence/docs/seller-migration-bulk-listing-proof.md",
+          },
+          {
+            type: "text",
+            value: " for the pending evidence and the exact shipped commands.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "compare-fees-and-check-current-terms",
+        text: "Compare fees and check current terms",
+        content: [
+          {
+            type: "text",
+            value: "Compare fees and check current terms",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Use the ",
+          },
+          {
+            type: "link",
+            label: "TCGplayer comparison page",
+            href: "/compare/tcgplayer",
+          },
+          {
+            type: "text",
+            value: " and ",
+          },
+          {
+            type: "link",
+            label: "eBay comparison page",
+            href: "/compare/ebay",
+          },
+          {
+            type: "text",
+            value: " for dated side-by-side context. The ",
+          },
+          {
+            type: "link",
+            label: "comparison calculator",
+            href: "/compare#calculator",
+          },
+          {
+            type: "text",
+            value:
+              " lets you enter the same item price before comparing. Chase Sets' live fee schedule remains the canonical source for the fee you lock when you confirm a listing: ",
+          },
+          {
+            type: "link",
+            label: "Marketplace sales and checkout fees",
+            href: "/sales-fees",
+          },
+          {
+            type: "text",
+            value: ".",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "If you receive beta access, read the ",
+          },
+          {
+            type: "link",
+            label: "Founders offer terms",
+            href: "/founders",
+          },
+          {
+            type: "text",
+            value:
+              " and confirm that your account's current admission status makes the offer available before pricing your first listings. This migration guide does not reproduce offer values or eligibility rules; the terms page and current account state are authoritative. The ",
+          },
+          {
+            type: "link",
+            label: "campaign claims record",
+            href: "https://github.com/chase-sets/chase-sets/blob/main/docs/campaigns/offer-economics-claims-substantiation.md",
+          },
+          {
+            type: "text",
+            value: " is the public-copy truth gate while the offer is pre-launch.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "set-up-payouts-before-your-first-sale",
+        text: "Set up payouts before your first sale",
+        content: [
+          {
+            type: "text",
+            value: "Set up payouts before your first sale",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Open ",
+          },
+          {
+            type: "link",
+            label: "payout setup",
+            href: "/account/payouts/setup",
+          },
+          {
+            type: "text",
+            value:
+              " and complete the account and payout-destination details in the Chase Sets setup page. Check the readiness state before you expect a payout. Once setup is ready, ",
+          },
+          {
+            type: "link",
+            label: "Payouts",
+            href: "/account/payouts",
+          },
+          {
+            type: "text",
+            value: " shows what is available and lets you request a payout within the published bounds.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Sale proceeds do not become immediately available just because a buyer paid. Delivery must be recorded and the applicable clearance window must pass; support, fraud, chargeback, negative-balance, or stale-setup conditions can hold a request. ",
+          },
+          {
+            type: "link",
+            label: "Getting paid",
+            href: "/help/selling/getting-paid",
+          },
+          {
+            type: "text",
+            value: " is the detailed payout reference.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "migration-checklist",
+        text: "Migration checklist",
+        content: [
+          {
+            type: "text",
+            value: "Migration checklist",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value: "Preserve your source CSV and choose the correct source profile.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Use ",
+            },
+            {
+              type: "strong",
+              value: "replace",
+            },
+            {
+              type: "text",
+              value: " for an exact inventory snapshot and ",
+            },
+            {
+              type: "strong",
+              value: "add",
+            },
+            {
+              type: "text",
+              value: " only for deliberate adjustments.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Review rejected rows and selected condition or other options before committing.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Treat imported listings as drafts until you inspect and publish them.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Use bulk reprice only for existing listings, and keep its results CSV.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Compare the same item price on the comparison pages and calculator.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Complete payout setup before relying on sale proceeds.",
+            },
+          ],
+        ],
+      },
+    ],
+    policyValueKeys: [],
+  },
+  {
     slug: "shipping-requirements",
     locale: "en",
     title: "Shipping requirements",

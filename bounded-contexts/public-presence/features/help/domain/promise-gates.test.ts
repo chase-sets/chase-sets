@@ -10,6 +10,7 @@ const launchCriticalArticles = [
   "order-protection",
   "refunds-and-returns",
   "sales-fees",
+  "seller-migration-tcgplayer-ebay",
   "shipping-requirements",
 ] as const;
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..");
