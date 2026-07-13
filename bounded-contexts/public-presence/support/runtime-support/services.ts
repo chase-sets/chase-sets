@@ -9,6 +9,7 @@ import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
+import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createPromoBarRuntime } from "../../features/promo-bar/api/runtime";
 import { noopWaitlistAnalyticsRecorder, type WaitlistAnalyticsRecorder } from "../../features/waitlist/api/analytics";
 import { createWaitlistRuntime } from "../../features/waitlist/api/runtime";
@@ -28,6 +29,7 @@ export type PublicPresenceServices = Readonly<{
   notificationOutbox: NotificationOutbox;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
   publicPolicyValues: ReturnType<typeof createPublicPolicyValuesRuntime>;
+  policies: PolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -44,6 +46,7 @@ export function createPublicPresenceServices(
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
+  const policies = createPolicyRuntime({ eventStore, db });
   const waitlistAnalyticsRecorder = ports.waitlistAnalyticsRecorder ?? noopWaitlistAnalyticsRecorder;
   const promoBar = createPromoBarRuntime(db);
   const waitlist = createWaitlistRuntime({
@@ -51,6 +54,7 @@ export function createPublicPresenceServices(
     checkpointStore,
     db,
     notificationOutbox,
+    policies,
   });
   const publicPolicyValues = createPublicPolicyValuesRuntime(ports.publicPolicySources ?? []);
 
@@ -61,7 +65,8 @@ export function createPublicPresenceServices(
     notificationOutbox,
     rateLimitPolicyResolver: ports.rateLimitPolicyResolver,
     publicPolicyValues,
-    projectors: [...waitlist.projectors],
+    policies,
+    projectors: [...waitlist.projectors, ...policies.projectors],
     pool,
     db,
   };

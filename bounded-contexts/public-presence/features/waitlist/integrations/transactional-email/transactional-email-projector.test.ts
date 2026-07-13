@@ -108,6 +108,31 @@ describe("waitlist transactional email projector", () => {
     );
     expect(outbox.enqueueNotification).not.toHaveBeenCalled();
   });
+
+  it("issues one idempotent beta invitation from the admission event", async () => {
+    let enqueued: EnqueueNotificationInput | null = null;
+    const outbox = { enqueueNotification: vi.fn(async (input: EnqueueNotificationInput) => void (enqueued = input)) };
+    const db = { query: vi.fn() };
+    await projectWaitlistEventToTransactionalEmail(
+      db as never,
+      outbox,
+      transportEvent({
+        id: "evt_admitted",
+        type: "public-presence.waitlist-signup.admitted",
+        globalPosition: "3",
+        trace: { traceId: "req_admitted" },
+        timing: { occurredAt: "2026-07-31T00:00:00.000Z", recordedAt: "2026-07-31T00:00:01.000Z" },
+        data: { signupId: "wls_test", email: "collector@example.com", waveNumber: 1, invitationId: "wvi_1_test" },
+      }) as never,
+    );
+    expect(db.query).not.toHaveBeenCalled();
+    expect(enqueued).toEqual(
+      expect.objectContaining({
+        message: expect.objectContaining({ idempotencyKey: "public-presence:beta-invitation:wls_test" }),
+        source: expect.objectContaining({ sourceEventId: "evt_admitted" }),
+      }),
+    );
+  });
 });
 
 function transportEvent(overrides: Record<string, unknown>) {

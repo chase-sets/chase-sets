@@ -37,6 +37,15 @@ ALTER TABLE public_presence_waitlist_signups
 ALTER TABLE public_presence_waitlist_signups
   ADD COLUMN IF NOT EXISTS inventory_size text NULL;
 
+ALTER TABLE public_presence_waitlist_signups
+  ADD COLUMN IF NOT EXISTS admitted_wave integer NULL CHECK (admitted_wave BETWEEN 1 AND 3);
+
+ALTER TABLE public_presence_waitlist_signups
+  ADD COLUMN IF NOT EXISTS beta_invitation_id text NULL;
+
+ALTER TABLE public_presence_waitlist_signups
+  ADD COLUMN IF NOT EXISTS admitted_at timestamptz NULL;
+
 CREATE INDEX IF NOT EXISTS public_presence_waitlist_signups_role_idx
   ON public_presence_waitlist_signups (role, updated_at DESC);
 

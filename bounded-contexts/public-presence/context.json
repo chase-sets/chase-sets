@@ -17,7 +17,8 @@
       "eventTypes": [
         "public-presence.waitlist-signup.recorded",
         "public-presence.waitlist-signup.updated",
-        "public-presence.waitlist-signup.cohort-quality-provided"
+        "public-presence.waitlist-signup.cohort-quality-provided",
+        "public-presence.waitlist-signup.admitted"
       ],
       "streamPrefixes": ["public-presence.waitlist-signup-"],
       "order": 10,
@@ -27,7 +28,7 @@
       "sourceContextName": "public-presence",
       "projectionName": "public-presence-waitlist-transactional-email-projection",
       "subscriptionVersion": 1,
-      "eventTypes": ["public-presence.waitlist-signup.recorded"],
+      "eventTypes": ["public-presence.waitlist-signup.recorded", "public-presence.waitlist-signup.admitted"],
       "streamPrefixes": ["public-presence.waitlist-signup-"],
       "order": 20,
       "projectionHandlerSetNames": ["public-presence-waitlist-transactional-email-projection"]
@@ -56,6 +57,13 @@
       "ownedTables": ["notification_outbox"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "append-only-no-reset"
+    },
+    {
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextNames": ["public-presence"],
+      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [
@@ -194,6 +202,23 @@
         "tests": [
           "bounded-contexts/public-presence/tests/api.test.ts proves POST /waitlist/:signupId/cohort-quality forwards only the fields present on the request and returns the saved receipt, and rejects malformed signup ids.",
           "bounded-contexts/public-presence/features/waitlist/ui/success-page.test.tsx proves each wave-placement field saves individually and surfaces the saved indicator from the response."
+        ]
+      }
+    },
+    {
+      "id": "public-presence.beta-wave-admission-snapshot",
+      "owner": "public-presence",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": ["api-route:bounded-contexts/public-presence/api.ts:POST /waitlist/waves/:waveNumber/admit"],
+      "visibleDestination": {
+        "description": "The operator receives the resolved policy document, configured invite count, admitted count, and proportional rollout exposure directly from the completed admission command."
+      },
+      "proof": {
+        "authoritativeResponse": "admitWave records each selected signup's admission aggregate event and returns the command-local wave summary without reading the eventually consistent admission projection.",
+        "tests": [
+          "bounded-contexts/public-presence/tests/api.test.ts proves the wave admission route returns the command snapshot.",
+          "bounded-contexts/public-presence/features/waitlist/domain/domain.test.ts proves identical invite retries are no-ops and cross-wave retries fail."
         ]
       }
     },

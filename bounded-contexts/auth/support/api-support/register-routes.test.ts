@@ -169,6 +169,46 @@ describe("registration auth routes", () => {
     expect(services.identity.findPendingInvitationByEmail).toHaveBeenCalledWith("new.user@chasesets.test");
   });
 
+  it("allows a Public Presence beta admission before checking team invitations", async () => {
+    const services = createServices();
+    services.registrationAdmission = {
+      mode: "invitation",
+      disposableEmailMode: "enforce",
+      disposableEmailDomains: ["mailinator.com"],
+      findAdmittedWaitlistSignupByEmail: vi.fn(async () => ({
+        signup_id: "wls_wave",
+        beta_invitation_id: "wvi_1_wave",
+        admitted_wave: 1,
+      })),
+    };
+    const createPersonalIdentity = vi.fn(async () => ({
+      userId: "usr_wave",
+      accountId: "acc_wave",
+      membershipId: "mbr_wave",
+    }));
+    mockCreateIdentityAuthRequestClient.mockReturnValue({ createPersonalIdentity, enablePasswordCredential: vi.fn() });
+    mockStartInteractiveAuth.mockResolvedValue({
+      type: "session-started",
+      userId: "usr_wave",
+      sessionId: "ses_wave",
+      sessionToken: "session_token",
+      session: { session_id: "ses_wave", expires_at: new Date(Date.now() + 60_000).toISOString() },
+      memberships: [],
+    });
+
+    const response = await buildApp(services).request("/register", {
+      method: "POST",
+      headers: registrationRequestHeaders("203.0.113.12"),
+      body: JSON.stringify({ email: "wave@chasesets.test", displayName: "Wave User" }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(services.identity.findPendingInvitationByEmail).not.toHaveBeenCalled();
+    expect(createPersonalIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "wave@chasesets.test", foundersBetaAccessStartedAt: expect.any(String) }),
+    );
+  });
+
   it("lets dev and test profiles use explicit open registration mode", async () => {
     const services = createServices();
     mockCreateIdentityAuthRequestClient.mockReturnValue({

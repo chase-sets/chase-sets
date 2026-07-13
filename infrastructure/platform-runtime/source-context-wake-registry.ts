@@ -601,6 +601,7 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "low",
     wakeStoreLoadEstimate: "low",
     affectedProjectionNames: [
+      "public-presence:platform-policy-document-projection",
       "public-presence:public-presence-waitlist-projection",
       "public-presence:public-presence-waitlist-transactional-email-projection",
     ],

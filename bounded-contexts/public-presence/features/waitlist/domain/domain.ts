@@ -87,6 +87,7 @@ export type WaitlistSignupState = Readonly<{
   cohortQuality: WaitlistCohortQuality;
   submittedAt: string | null;
   updatedAt: string | null;
+  admission: Readonly<{ waveNumber: 1 | 2 | 3; invitationId: string; admittedAt: string }> | null;
 }>;
 
 export const initialWaitlistSignupState: WaitlistSignupState = {
@@ -101,6 +102,7 @@ export const initialWaitlistSignupState: WaitlistSignupState = {
   cohortQuality: emptyCohortQuality,
   submittedAt: null,
   updatedAt: null,
+  admission: null,
 };
 
 export type RecordWaitlistSignupCommand = Readonly<{
@@ -137,7 +139,17 @@ export type ProvideWaitlistCohortQualityCommand = Readonly<{
   providedAt: string;
 }>;
 
-export type WaitlistSignupCommand = RecordWaitlistSignupCommand | ProvideWaitlistCohortQualityCommand;
+export type AdmitWaitlistSignupCommand = Readonly<{
+  type: "AdmitWaitlistSignup";
+  waveNumber: 1 | 2 | 3;
+  invitationId: string;
+  admittedAt: string;
+}>;
+
+export type WaitlistSignupCommand =
+  | RecordWaitlistSignupCommand
+  | ProvideWaitlistCohortQualityCommand
+  | AdmitWaitlistSignupCommand;
 
 export type WaitlistSignupRecordedEvent = DomainEvent<
   "public-presence.waitlist-signup.recorded",
@@ -181,10 +193,22 @@ export type WaitlistCohortQualityProvidedEvent = DomainEvent<
   }>
 >;
 
+export type WaitlistSignupAdmittedEvent = DomainEvent<
+  "public-presence.waitlist-signup.admitted",
+  Readonly<{
+    signupId: string;
+    email: string;
+    waveNumber: 1 | 2 | 3;
+    invitationId: string;
+    admittedAt: string;
+  }>
+>;
+
 export type WaitlistSignupEvent =
   | WaitlistSignupRecordedEvent
   | WaitlistSignupUpdatedEvent
-  | WaitlistCohortQualityProvidedEvent;
+  | WaitlistCohortQualityProvidedEvent
+  | WaitlistSignupAdmittedEvent;
 
 export const decideWaitlistSignup: AggregateDecider<WaitlistSignupState, WaitlistSignupCommand, WaitlistSignupEvent> = (
   state,
@@ -290,6 +314,31 @@ export const decideWaitlistSignup: AggregateDecider<WaitlistSignupState, Waitlis
         },
       ];
     }
+    case "AdmitWaitlistSignup": {
+      assert(state.signupId !== null && state.email !== null, "Join the waitlist before beta admission.");
+      const admittedAt = ensureIsoTimestamp(command.admittedAt, "Beta admission must record a timestamp.");
+      assert([1, 2, 3].includes(command.waveNumber), "Beta admission wave must be 1, 2, or 3.");
+      assert(command.invitationId.trim().length > 0, "Beta invitation id is required.");
+      if (state.admission) {
+        assert(
+          state.admission.waveNumber === command.waveNumber && state.admission.invitationId === command.invitationId,
+          "Waitlist signup has already been admitted by another wave.",
+        );
+        return [];
+      }
+      return [
+        {
+          type: "public-presence.waitlist-signup.admitted",
+          data: {
+            signupId: state.signupId,
+            email: state.email,
+            waveNumber: command.waveNumber,
+            invitationId: command.invitationId.trim(),
+            admittedAt,
+          },
+        },
+      ];
+    }
     default:
       throw new PublicPresenceDomainError(`Unsupported waitlist command: ${JSON.stringify(command)}`);
   }
@@ -310,6 +359,7 @@ export const evolveWaitlistSignup: AggregateEvolver<WaitlistSignupState, Waitlis
         cohortQuality: event.data.cohortQuality ?? emptyCohortQuality,
         submittedAt: event.data.recordedAt,
         updatedAt: event.data.recordedAt,
+        admission: null,
       };
     case "public-presence.waitlist-signup.updated":
       return {
@@ -328,6 +378,16 @@ export const evolveWaitlistSignup: AggregateEvolver<WaitlistSignupState, Waitlis
         ...state,
         cohortQuality: event.data.cohortQuality,
         updatedAt: event.data.providedAt,
+      };
+    case "public-presence.waitlist-signup.admitted":
+      return {
+        ...state,
+        admission: {
+          waveNumber: event.data.waveNumber,
+          invitationId: event.data.invitationId,
+          admittedAt: event.data.admittedAt,
+        },
+        updatedAt: event.data.admittedAt,
       };
     default:
       return assertNever(event);

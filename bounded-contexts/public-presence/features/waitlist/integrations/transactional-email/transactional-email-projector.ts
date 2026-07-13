@@ -7,6 +7,7 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { stableWaitlistSignupId } from "../../domain/common";
 import {
   mapFoundersWindowOpenedToAdmissionEmail,
+  mapWaitlistAdmissionToTransactionalEmail,
   mapWaitlistSignupRecordedToNurtureEmails,
 } from "./transactional-email-intents";
 
@@ -33,6 +34,18 @@ type FoundersWindowOpenedEmailEvent = Readonly<
       betaAccessStartedAt: string;
       foundersWindowEndsAt: string;
       recipientEmail?: string;
+    }>;
+  }
+>;
+
+type WaitlistSignupAdmittedEmailEvent = Readonly<
+  TransportEvent & {
+    type: "public-presence.waitlist-signup.admitted";
+    data: Readonly<{
+      signupId: string;
+      email: string;
+      waveNumber: number;
+      invitationId: string;
     }>;
   }
 >;
@@ -67,6 +80,21 @@ export async function projectWaitlistEventToTransactionalEmail(
     for (const delivery of sequence) {
       await outbox.enqueueNotification({ message: delivery.message, source, availableAt: delivery.availableAt });
     }
+    return;
+  }
+
+  if (event.type === "public-presence.waitlist-signup.admitted") {
+    const data = event.data as WaitlistSignupAdmittedEmailEvent["data"];
+    await outbox.enqueueNotification({
+      message: mapWaitlistAdmissionToTransactionalEmail({
+        email: data.email,
+        signupId: data.signupId,
+        waveNumber: Number(data.waveNumber),
+        correlationId: correlationIdFromEvent(event),
+      }),
+      source: sourceFromEvent(event, projectionName),
+      availableAt: event.timing.occurredAt,
+    });
     return;
   }
 
@@ -120,6 +148,7 @@ export function buildWaitlistTransactionalEmailProjectionHandlers(
     projectWaitlistEventToTransactionalEmail(db, outbox, event, projectionName);
   return {
     "public-presence.waitlist-signup.recorded": project,
+    "public-presence.waitlist-signup.admitted": project,
     "identity.account.founders-window-opened": project,
   };
 }

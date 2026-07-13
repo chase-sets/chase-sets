@@ -1,6 +1,7 @@
 import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { WAITLIST_GAMES, WAITLIST_INVENTORY_SIZES, WAITLIST_REFERRAL_GOAL } from "../domain/common";
-import { resolveWaitlistQueueStanding } from "./referral-queue-policy";
+import { computeWaitlistQueuePlacements, resolveWaitlistQueueStanding } from "./referral-queue-policy";
+import type { WaveCandidate } from "./wave-cohort-policy";
 import type {
   CampaignChannelAttributionRow,
   CampaignQualityMetrics,
@@ -156,6 +157,72 @@ export async function getWaitlistReferralSummary(db: PgQueryable, signupId: stri
     totalSignups: standing?.totalSignups ?? Number(queueResult.rowCount ?? queueResult.rows.length),
     positionsAdvanced: standing?.positionsAdvanced ?? 0,
   };
+}
+
+export type WaveAdmissionCandidate = WaveCandidate & Readonly<{ email: string }>;
+
+export async function listWaveAdmissionCandidates(
+  db: PgQueryable,
+  waveNumber: 1 | 2 | 3,
+): Promise<readonly WaveAdmissionCandidate[]> {
+  const result = await db.query<{
+    signup_id: string;
+    email: string;
+    role: WaveAdmissionCandidate["role"];
+    games: WaveAdmissionCandidate["games"];
+    inventory_size: WaveAdmissionCandidate["inventorySize"];
+    has_store_link: boolean;
+    submitted_at: string;
+    referral_count: string;
+  }>(
+    `SELECT s.signup_id,
+            s.email,
+            s.role,
+            s.games,
+            s.inventory_size,
+            s.has_store_link,
+            s.submitted_at::text AS submitted_at,
+            COALESCE(r.referral_count, 0)::int AS referral_count
+     FROM public_presence_waitlist_signups s
+     LEFT JOIN (
+       SELECT referred_by_signup_id, COUNT(*) AS referral_count
+       FROM public_presence_waitlist_signups
+       WHERE referred_by_signup_id IS NOT NULL
+       GROUP BY referred_by_signup_id
+     ) r ON r.referred_by_signup_id = s.signup_id
+     WHERE s.admitted_wave IS NULL OR s.admitted_wave = $1`,
+    [waveNumber],
+  );
+  const placements = computeWaitlistQueuePlacements(
+    result.rows.map((row) => ({
+      signupId: row.signup_id,
+      submittedAt: row.submitted_at,
+      referralCount: Number(row.referral_count),
+    })),
+  );
+  return result.rows.map((row) => ({
+    signupId: row.signup_id,
+    email: row.email,
+    role: row.role,
+    games: row.games,
+    inventorySize: row.inventory_size,
+    hasStoreLink: row.has_store_link,
+    queuePosition: placements.get(row.signup_id)?.position ?? Number.MAX_SAFE_INTEGER,
+    submittedAt: row.submitted_at,
+  }));
+}
+
+export async function findAdmittedWaitlistSignupByEmail(db: PgQueryable, email: string) {
+  const result = await db.query<{ signup_id: string; beta_invitation_id: string; admitted_wave: number }>(
+    `SELECT signup_id, beta_invitation_id, admitted_wave
+     FROM public_presence_waitlist_signups
+     WHERE LOWER(email) = LOWER($1)
+       AND admitted_wave IS NOT NULL
+       AND beta_invitation_id IS NOT NULL
+     LIMIT 1`,
+    [email],
+  );
+  return result.rows[0] ?? null;
 }
 
 /**

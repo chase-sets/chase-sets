@@ -9,6 +9,7 @@ import {
   buildHelmStatusArgs,
   buildHelmUninstallArgs,
   buildHelmUpgradeArgs,
+  buildWaveExposureHelmSetArgs,
   buildKubernetesRollbackTarget,
   buildNamespaceDeleteArgs,
   buildNamespaceGetArgs,
@@ -666,6 +667,23 @@ describe("platform Kubernetes deployment", () => {
         "--set-string",
         "global.envOverrides.PLATFORM_DATA_PROFILES=critical-bootstrap\\,catalog-integration-bootstrap",
       ]),
+    );
+  });
+
+  it("wires a beta wave size to its analyzed proportional rollout hold", () => {
+    const args = buildWaveExposureHelmSetArgs({ betaWaveSize: "250", betaWaveRolloutExposure: "25" });
+    expect(args).toEqual(
+      expect.arrayContaining([
+        "global.betaWave.inviteCount=250",
+        "global.betaWave.rolloutExposurePercent=25",
+        "components.public-web.rollout.canary.pauseAfterWeight=25",
+        "components.marketplace.rollout.canary.pauseAfterWeight=25",
+        "components.platform-api.rollout.canary.pauseAfterWeight=25",
+      ]),
+    );
+    expect(() => buildWaveExposureHelmSetArgs({ betaWaveSize: "250" })).toThrow("supplied together");
+    expect(() => buildWaveExposureHelmSetArgs({ betaWaveSize: "250", betaWaveRolloutExposure: "15" })).toThrow(
+      "analyzed Argo weight",
     );
   });
 

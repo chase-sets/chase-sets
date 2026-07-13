@@ -658,10 +658,19 @@ export type WaitlistCohortQualityProvidedPayload = Readonly<{
   providedAt: string;
 }>;
 
+export type WaitlistSignupAdmittedPayload = Readonly<{
+  signupId: string;
+  email: string;
+  waveNumber: 1 | 2 | 3;
+  invitationId: string;
+  admittedAt: string;
+}>;
+
 export type PublicPresenceEventPayloads = Readonly<{
   "public-presence.waitlist-signup.recorded": WaitlistSignupRecordedPayload;
   "public-presence.waitlist-signup.updated": WaitlistSignupUpdatedPayload;
   "public-presence.waitlist-signup.cohort-quality-provided": WaitlistCohortQualityProvidedPayload;
+  "public-presence.waitlist-signup.admitted": WaitlistSignupAdmittedPayload;
 }>;
 
 export type PlatformFeedbackSubmittedPayload = Readonly<{

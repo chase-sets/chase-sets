@@ -102,3 +102,11 @@ Notes:
 - Signup age schedules the welcome, fee-lock, open-offers, and wave-approaching touches; no wall-clock polling re-derives eligibility.
 - The founders-window-opened fact triggers the wave-admission touch and starts the stated 60-day window.
 - Every touch carries the signup's tracked referral link. Stable per-touch idempotency keys and the durable notification outbox make projection replay safe.
+
+## Beta Wave Policy
+
+The **Beta Wave Policy** is the revisable `public-presence.beta-waves` policy document that owns wave dates, per-wave invite counts, admission/operations gates, and the proportional Argo exposure paired with each wave.
+
+## Beta Admission
+
+A **Beta Admission** is the one-time, event-sourced placement of a Waitlist Signup into a numbered beta wave. It grants registration admission for that email and issues one idempotent beta invitation; it is not a Founder Number or an Identity team membership.

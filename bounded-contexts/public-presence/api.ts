@@ -55,11 +55,21 @@ function publicEventStoreContext(): EventStoreContext {
   };
 }
 
+function actorEventStoreContext(actor: NonNullable<PublicPresenceApiEnv["Variables"]["actor"]>): EventStoreContext {
+  return {
+    tenantId: actor.tenantId as TenantId,
+    audit: {
+      performedByUserId: actor.userId as UserId,
+      forAccountId: actor.accountId as AccountId,
+    },
+  };
+}
+
 function requireActor(
   c: {
     get(key: "actor"): PublicPresenceApiEnv["Variables"]["actor"];
   },
-  permission: "public-presence.view",
+  permission: "public-presence.view" | "public-presence.manage",
 ) {
   const actor = c.get("actor");
   if (!actor) {
@@ -282,6 +292,31 @@ export function createAdminWaitlistRoutes(services: WaitlistServices) {
     ]);
 
     return c.json({ quality, channelAttribution, admissionBar });
+  });
+
+  app.post("/waitlist/waves/:waveNumber/admit", async (c) => {
+    const access = requireActor(c, "public-presence.manage");
+    if (access.response) return access.response;
+    const waveNumber = Number(c.req.param("waveNumber"));
+    if (![1, 2, 3].includes(waveNumber)) {
+      return c.json({ error: { code: "validation_failed", message: "Wave number must be 1, 2, or 3." } }, 400);
+    }
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    try {
+      const result = await services.admitWave(
+        {
+          waveNumber: waveNumber as 1 | 2 | 3,
+          checkoutFailureRatePercent:
+            body.checkoutFailureRatePercent === undefined ? undefined : Number(body.checkoutFailureRatePercent),
+          projectionsNearRealTime: body.projectionsNearRealTime === true,
+          supportWithinSoloOperatorCapacity: body.supportWithinSoloOperatorCapacity === true,
+        },
+        actorEventStoreContext(access.actor!),
+      );
+      return c.json(result, 201);
+    } catch (error) {
+      return c.json({ error: { code: "wave_admission_blocked", message: errorMessage(error) } }, 409);
+    }
   });
 
   app.get("/waitlist/export", async (c) => {
