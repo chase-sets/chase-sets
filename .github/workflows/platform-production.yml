@@ -1020,6 +1020,36 @@ jobs:
             exit 1
           fi
 
+          # Per-domain base URLs the App Platform path derives from Terraform
+          # locals (public-web CHASE_SETS_PUBLIC_ORIGIN, admin-web
+          # CHASE_SETS_MARKETPLACE_ORIGIN). The DOKS Helm chart bakes these as ""
+          # (see envValueDefaults in render-platform-helm-values.mjs), so without
+          # threading them the DOKS public-web falls back to the hardcoded
+          # production canonical origin (https://chasesets.com) on staging.
+          landing_domain="$(terraform -chdir=infrastructure/digitalocean/platform output -raw landing_domain)"
+          marketplace_domain="$(terraform -chdir=infrastructure/digitalocean/platform output -json marketplace_domains | jq -r 'first(.[]) // empty')"
+          if [ -z "$landing_domain" ]; then
+            echo "Staging landing domain output is required before Kubernetes deploy." >&2
+            exit 1
+          fi
+
+          # Optional provider endpoint/origin overrides are only passed when set:
+          # the deploy script fails closed on empty --runtime-env values, and the
+          # Helm chart's env defaults already carry the retired App Platform
+          # posture when a repository variable is unset (mirrors platform-pr.yml).
+          optional_runtime_env=()
+          add_optional_runtime_env() {
+            if [ -n "$2" ]; then
+              optional_runtime_env+=(--runtime-env "$1=$2")
+            fi
+          }
+          add_optional_runtime_env "CHASE_SETS_MARKETPLACE_ORIGIN" "${marketplace_domain:+https://${marketplace_domain}}"
+          add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"
+          add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"
+          add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"
+          add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"
+          add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"
+
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
             --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
@@ -1028,10 +1058,15 @@ jobs:
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
             --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
             --runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${TF_VAR_admin_google_workspace_hosted_domains:-}" \
+            --runtime-env "CHASE_SETS_PUBLIC_ORIGIN=https://${landing_domain}" \
+            --runtime-env "NOTIFICATION_EMAIL_PROVIDER=${TF_VAR_notification_email_provider:-noop}" \
+            --runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${TF_VAR_stripe_connect_accounts_api:-v2}" \
+            --runtime-env "EASYPOST_MODE=${TF_VAR_easypost_mode:-test}" \
             --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}" \
             --runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}" \
             --runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}" \
             --runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}" \
+            "${optional_runtime_env[@]}" \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
             --rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
@@ -2740,6 +2775,38 @@ jobs:
             exit 1
           fi
 
+          # Per-domain base URLs the App Platform path derives from Terraform
+          # locals (public-web CHASE_SETS_PUBLIC_ORIGIN, admin-web
+          # CHASE_SETS_MARKETPLACE_ORIGIN). The DOKS Helm chart bakes these as ""
+          # (see envValueDefaults in render-platform-helm-values.mjs), so they
+          # must be threaded here for the DOKS platform to match App Platform.
+          landing_domain="$(terraform -chdir=infrastructure/digitalocean/platform output -raw landing_domain)"
+          marketplace_domain="$(terraform -chdir=infrastructure/digitalocean/platform output -json marketplace_domains | jq -r 'first(.[]) // empty')"
+          if [ -z "$landing_domain" ]; then
+            echo "Production landing domain output is required before Kubernetes deploy." >&2
+            exit 1
+          fi
+
+          # Optional provider endpoint/origin overrides are only passed when set:
+          # the deploy script fails closed on empty --runtime-env values, and the
+          # Helm chart's env defaults already carry the retired App Platform
+          # posture when a repository variable is unset (mirrors platform-pr.yml).
+          # A landing-only production has no public marketplace domain, so
+          # CHASE_SETS_MARKETPLACE_ORIGIN stays unset exactly like App Platform's
+          # empty local.marketplace_origin.
+          optional_runtime_env=()
+          add_optional_runtime_env() {
+            if [ -n "$2" ]; then
+              optional_runtime_env+=(--runtime-env "$1=$2")
+            fi
+          }
+          add_optional_runtime_env "CHASE_SETS_MARKETPLACE_ORIGIN" "${marketplace_domain:+https://${marketplace_domain}}"
+          add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"
+          add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"
+          add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"
+          add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"
+          add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"
+
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
             --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
@@ -2748,10 +2815,15 @@ jobs:
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=${TF_VAR_production_runtime_profile:-landing}" \
             --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
             --runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${TF_VAR_admin_google_workspace_hosted_domains:-}" \
+            --runtime-env "CHASE_SETS_PUBLIC_ORIGIN=https://${landing_domain}" \
+            --runtime-env "NOTIFICATION_EMAIL_PROVIDER=${TF_VAR_notification_email_provider:-noop}" \
+            --runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${TF_VAR_stripe_connect_accounts_api:-v2}" \
+            --runtime-env "EASYPOST_MODE=${TF_VAR_easypost_mode:-test}" \
             --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}" \
             --runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}" \
             --runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}" \
             --runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}" \
+            "${optional_runtime_env[@]}" \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
             --rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
