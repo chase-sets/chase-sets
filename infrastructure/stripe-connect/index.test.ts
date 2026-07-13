@@ -1629,13 +1629,21 @@ describe("money movement adapters", () => {
         signatureHeader: `t=${timestamp},v1=${"0".repeat(64)},v1=${previousDigest}`,
       }),
     ).resolves.toMatchObject({ providerEventId: "evt_rotated", providerPayoutReference: "po_rotated" });
+  });
 
-    const withoutPrevious = createStripeConnectMoneyMovementGateway({
+  it("rejects webhook signatures with a digest created from a different secret", async () => {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const rawBody = JSON.stringify({ id: "evt_bad_digest", type: "payout.paid", data: {} });
+    const adapter = createStripeConnectMoneyMovementGateway({
       secretKey: "sk_test",
       webhookSecret: "whsec_current",
     });
+
     await expect(
-      withoutPrevious.parseMoneyMovementWebhook({ rawBody, signatureHeader: `t=${timestamp},v1=${previousDigest}` }),
+      adapter.parseMoneyMovementWebhook({
+        rawBody,
+        signatureHeader: stripeSignature(rawBody, "whsec_different", timestamp),
+      }),
     ).rejects.toThrow("Stripe webhook signature verification failed.");
   });
 

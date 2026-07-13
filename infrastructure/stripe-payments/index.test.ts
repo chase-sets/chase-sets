@@ -1502,15 +1502,51 @@ describe("Stripe payment processor gateway", () => {
         signatureHeader: `t=${now},v1=${"0".repeat(64)},v1=${previousDigest},v1=${currentDigest}`,
       }),
     ).resolves.toMatchObject({ eventId: "evt_rotated" });
+  });
 
-    const withoutPrevious = createStripePaymentProcessorGateway({
+  it("rejects webhook signatures created with a different secret", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const rawBody = JSON.stringify({ id: "evt_wrong_secret", type: "payment_intent.succeeded", data: {} });
+    const gateway = createStripePaymentProcessorGateway({
       secretKey: "sk_test",
       publishableKey: "pk_test",
       webhookSecret: "whsec_current",
     });
+
     await expect(
-      withoutPrevious.parseWebhook({ rawBody, signatureHeader: `t=${now},v1=${previousDigest}` }),
+      gateway.parseWebhook({ rawBody, signatureHeader: signature(rawBody, "whsec_different", now) }),
     ).rejects.toThrow("Stripe webhook signature verification failed.");
+  });
+
+  it("rejects malformed webhook signature headers", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const rawBody = JSON.stringify({ id: "evt_malformed_signature", type: "payment_intent.succeeded", data: {} });
+    const validSignature = signature(rawBody, "whsec_test", now);
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+    });
+
+    await expect(
+      gateway.parseWebhook({ rawBody, signatureHeader: validSignature.replace(/^t=[^,]+,/, "") }),
+    ).rejects.toThrow("Stripe webhook signature is malformed.");
+  });
+
+  it("rejects webhook signatures outside the configured timestamp tolerance", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const staleTimestamp = now - 301;
+    const rawBody = JSON.stringify({ id: "evt_stale_signature", type: "payment_intent.succeeded", data: {} });
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      webhookToleranceSeconds: 300,
+    });
+
+    await expect(
+      gateway.parseWebhook({ rawBody, signatureHeader: signature(rawBody, "whsec_test", staleTimestamp) }),
+    ).rejects.toThrow("Stripe webhook signature timestamp is outside tolerance.");
   });
 
   it("maps direct PaymentIntent cancellations and supports outbound PaymentIntent cancellation", async () => {
