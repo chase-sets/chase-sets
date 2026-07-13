@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { redirect, useLoaderData, useMatches } from "react-router";
 import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { IdentityApiError, type Account } from "../../support/request-support/api-client";
@@ -118,7 +118,17 @@ export const meta: MetaFunction = () => [
   { title: t("identity.routes.admin.accountsDetail.account.detail.identity.admin") },
 ];
 
+function useAdminActorPermissions(): readonly string[] {
+  for (const match of useMatches()) {
+    if (match.data && typeof match.data === "object" && "actor" in match.data) {
+      const actor = (match.data as { actor?: { permissions?: readonly string[] } }).actor;
+      return actor?.permissions ?? [];
+    }
+  }
+  return [];
+}
+
 export default function AccountDetailRoute() {
   const data = useLoaderData<typeof loader>();
-  return <AccountDetailPage data={data.data} />;
+  return <AccountDetailPage data={data.data} actorPermissions={useAdminActorPermissions()} />;
 }
