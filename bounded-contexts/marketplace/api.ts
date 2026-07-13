@@ -11,6 +11,7 @@ import { createPublicListingRoutes, createAccountListingRoutes } from "./feature
 import { createListingGatePolicyRoutes } from "./features/listings/api/listing-gate-policy-route";
 import { createAccountOfferMatchRoutes, createAccountSubmittedOfferRoutes } from "./features/offers/api/route";
 import { createMarketplaceReportRoutes } from "./features/reports/api/route";
+import { createListingEvidencePolicyRoutes } from "./features/listing-evidence-policy/api/route";
 
 export type MarketplaceApiEnv = AuthenticatedApiEnv;
 
@@ -30,6 +31,7 @@ export function buildMarketplaceApi(services: MarketplaceServices) {
   app.route("/", createPublicListingRoutes(services.listings, services.rateLimitPolicyResolver));
   app.route("/", createMarketplaceReportRoutes(services.reports));
   app.route("/listing-gate-policy", createListingGatePolicyRoutes(services.policies));
+  app.route("/listing-evidence-policy", createListingEvidencePolicyRoutes(services.listingEvidencePolicies));
 
   return app;
 }

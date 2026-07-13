@@ -122,6 +122,36 @@ describe("marketplace catalog projection", () => {
 
     expect(handlers["catalog.catalog-item.metadata-revised"]).toBeUndefined();
   });
+
+  it("mirrors stable category identities and item assignments for policy selectors", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
+    const handlers = buildMarketplaceCatalogProjectionHandlers(db as never);
+
+    await handlers["catalog.category.created"]!(
+      event(
+        "catalog.category.created",
+        {
+          categoryId: "category_cards",
+          name: { defaultLocale: "en", values: { en: "Trading cards" } },
+        },
+        "catalog.category-category_cards",
+      ),
+    );
+    await handlers["catalog.catalog-item.category-assigned"]!(
+      event("catalog.catalog-item.category-assigned", { categoryId: "category_cards" }, "catalog.catalog-item-cat_1"),
+    );
+
+    expect(db.query).toHaveBeenNthCalledWith(1, expect.stringContaining("marketplace_catalog_categories"), [
+      "category_cards",
+      "Trading cards",
+      "2026-05-09T00:00:00.000Z",
+    ]);
+    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining("SET category_ids"), [
+      "cat_1",
+      "category_cards",
+      "2026-05-09T00:00:00.000Z",
+    ]);
+  });
 });
 
 describe("marketplace account projection", () => {

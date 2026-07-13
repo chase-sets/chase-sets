@@ -92,4 +92,19 @@ describe("auth role permissions", () => {
       ]),
     );
   });
+
+  it("mirrors Listing Evidence Policy authority into live actors", () => {
+    expect(AUTH_ROLE_PERMISSIONS["platform-admin"]).toEqual(
+      expect.arrayContaining([
+        "listing-evidence-policy.view",
+        "listing-evidence-policy.draft",
+        "listing-evidence-policy.validate",
+        "listing-evidence-policy.activate",
+      ]),
+    );
+    expect(AUTH_ROLE_PERMISSIONS.owner).toContain("listing-evidence-policy.view");
+    expect(AUTH_ROLE_PERMISSIONS.manager).toContain("listing-evidence-policy.view");
+    expect(AUTH_ROLE_PERMISSIONS.owner).not.toContain("listing-evidence-policy.activate");
+    expect(AUTH_ROLE_PERMISSIONS.manager).not.toContain("listing-evidence-policy.validate");
+  });
 });

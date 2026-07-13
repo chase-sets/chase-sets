@@ -3,6 +3,7 @@
   "packageName": "@chase-sets/marketplace",
   "ownedNouns": [
     "listing",
+    "listing-evidence-policy",
     "offer",
     "seller-listing-availability",
     "seller-order-capacity",
@@ -13,7 +14,7 @@
   ],
   "streamPrefix": "marketplace.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["listings", "offers", "reports", "reviews", "seller-metrics"],
+  "slices": ["listing-evidence-policy", "listings", "offers", "reports", "reviews", "seller-metrics"],
   "allowedSupportDirectories": [
     "request-support",
     "realtime-support",
@@ -33,7 +34,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "marketplace-catalog-item-projection",
-      "subscriptionVersion": 3,
+      "subscriptionVersion": 4,
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.blueprint-assigned",
@@ -42,6 +43,8 @@
         "catalog.catalog-item.retired",
         "catalog.catalog-item.archived",
         "catalog.catalog-item.product-measures-resolved",
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed",
         "catalog.blueprint.created",
         "catalog.blueprint.revised",
         "catalog.blueprint.dimensions-set",
@@ -50,7 +53,12 @@
         "catalog.dimension.created",
         "catalog.dimension.revised",
         "catalog.dimension.option-added",
-        "catalog.dimension.option-revised"
+        "catalog.dimension.option-revised",
+        "catalog.category.created",
+        "catalog.category.revised",
+        "catalog.category.published",
+        "catalog.category.deprecated",
+        "catalog.category.archived"
       ],
       "order": 10,
       "projectionHandlerSetNames": ["marketplace-catalog-item-projection"]
@@ -243,6 +251,7 @@
       "sourceContextNames": ["catalog"],
       "ownedTables": [
         "marketplace_catalog_items",
+        "marketplace_catalog_categories",
         "marketplace_catalog_blueprints",
         "marketplace_catalog_dimensions",
         "marketplace_catalog_dimension_options"
@@ -1054,6 +1063,37 @@
       }
     },
     {
+      "id": "marketplace.listing-evidence-policy-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/listing-evidence-policy/api/route.ts:POST /drafts",
+        "api-route:bounded-contexts/marketplace/features/listing-evidence-policy/api/route.ts:POST /drafts/:id/validate",
+        "api-route:bounded-contexts/marketplace/features/listing-evidence-policy/api/route.ts:POST /drafts/:id/reject",
+        "api-route:bounded-contexts/marketplace/features/listing-evidence-policy/api/route.ts:POST /drafts/:id/activate",
+        "api-route:bounded-contexts/marketplace/features/listing-evidence-policy/api/route.ts:POST /documents/:id/rollback-draft",
+        "api-route:bounded-contexts/marketplace/features/listing-evidence-policy/api/route.ts:POST /evaluation",
+        "api-client:bounded-contexts/marketplace/features/listing-evidence-policy/api/client.ts:POST Hd8d108712ea1#1",
+        "post-form:bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx:H1abed2c1c746#1",
+        "post-form:bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx:H1abed2c1c746#2",
+        "post-form:bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx:H1abed2c1c746#3",
+        "post-form:bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx:H1abed2c1c746#4",
+        "post-form:bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx:H1abed2c1c746#5",
+        "route-action:bounded-contexts/marketplace/routes/admin/listing-evidence-policy.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Policy draft, validation, rejection, activation, and rollback commands return the committed platform-policy document version or validation snapshot. The admin route redirects to a direct same-database policy read after mutating actions; validation stays on the command response so the exact diff and impact preview hash are available for activation confirmation."
+      },
+      "proof": {
+        "authoritativeResponse": "Listing Evidence Policy commands return document id/version and validation/activation hashes from the shared platform-policy command result without waiting for a subscription.",
+        "tests": [
+          "bounded-contexts/marketplace/features/listing-evidence-policy/api/route.test.ts",
+          "bounded-contexts/marketplace/features/listing-evidence-policy/api/runtime.test.ts"
+        ]
+      }
+    },
+    {
       "id": "marketplace.offer-api-command-snapshots",
       "owner": "marketplace",
       "risk": "important",
@@ -1369,6 +1409,19 @@
   ],
   "deployableContributions": [
     {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "listing-evidence-policy",
+          "routePath": "listing-evidence-policy",
+          "fileExport": "./routes/admin/listing-evidence-policy",
+          "routeType": "route",
+          "sourceContext": "marketplace",
+          "section": "platform"
+        }
+      ]
+    },
+    {
       "deployable": "marketplace-web",
       "routes": [
         {
@@ -1467,6 +1520,18 @@
   ],
   "shellContributions": [
     {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "listing-evidence-policy",
+      "label": "Listing Evidence Policy",
+      "icon": "settings",
+      "href": "/listing-evidence-policy",
+      "section": "platform",
+      "order": 245,
+      "visibility": "signed-in",
+      "requiredPermissions": ["listing-evidence-policy.view"]
+    },
+    {
       "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "reviews",
@@ -1526,6 +1591,11 @@
     }
   ],
   "directoryIntent": {
+    "listing-evidence-policy": {
+      "classification": "slice",
+      "purpose": "Own the versioned Marketplace Listing Evidence Policy domain model, shared platform-policy runtime integration, guided administration, and audit history.",
+      "expectedConsumers": ["Marketplace runtime", "Platform administrators"]
+    },
     "listings": {
       "classification": "slice",
       "purpose": "Own listings feature behavior, read models, and UI contracts for the marketplace context.",

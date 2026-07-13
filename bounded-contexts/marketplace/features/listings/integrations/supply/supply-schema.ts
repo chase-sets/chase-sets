@@ -73,9 +73,20 @@ CREATE TABLE IF NOT EXISTS marketplace_catalog_items (
   title text NOT NULL,
   subtitle text NULL,
   blueprint_id text NULL,
+  category_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   status text NOT NULL,
   product_measure_snapshots jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_schema jsonb NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE marketplace_catalog_items
+  ADD COLUMN IF NOT EXISTS category_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+CREATE TABLE IF NOT EXISTS marketplace_catalog_categories (
+  category_id text PRIMARY KEY,
+  name text NOT NULL,
+  status text NOT NULL DEFAULT 'draft',
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -161,6 +172,9 @@ CREATE INDEX IF NOT EXISTS marketplace_catalog_items_language_idx
 
 CREATE INDEX IF NOT EXISTS marketplace_catalog_items_status_idx
   ON marketplace_catalog_items (status);
+
+CREATE INDEX IF NOT EXISTS marketplace_catalog_items_category_ids_idx
+  ON marketplace_catalog_items USING gin (category_ids);
 
 CREATE INDEX IF NOT EXISTS marketplace_catalog_dimension_options_dimension_idx
   ON marketplace_catalog_dimension_options (dimension_id);

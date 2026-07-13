@@ -3,11 +3,22 @@ import { describe, expect, it } from "vitest";
 
 describe("display identity consumer subscription contract", () => {
   it("keeps display-only downstream projections subscribed to resolved identity facts instead of metadata revisions", () => {
-    expect(catalogEventTypes("../../marketplace/context.json", "marketplace-catalog-item-projection")).toEqual(
+    expect(catalogEventTypes("../../marketplace/context.json", "marketplace-catalog-item-projection", 4)).toEqual(
       expect.arrayContaining(["catalog.catalog-item.display-identity-resolved"]),
     );
-    expect(catalogEventTypes("../../marketplace/context.json", "marketplace-catalog-item-projection")).not.toContain(
+    expect(catalogEventTypes("../../marketplace/context.json", "marketplace-catalog-item-projection", 4)).not.toContain(
       "catalog.catalog-item.metadata-revised",
+    );
+    expect(catalogEventTypes("../../marketplace/context.json", "marketplace-catalog-item-projection", 4)).toEqual(
+      expect.arrayContaining([
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed",
+        "catalog.category.created",
+        "catalog.category.revised",
+        "catalog.category.published",
+        "catalog.category.deprecated",
+        "catalog.category.archived",
+      ]),
     );
 
     expect(catalogEventTypes("../../inventory/context.json", "inventory-catalog-item-projection", 4)).toEqual(
@@ -35,6 +46,14 @@ describe("display identity consumer subscription contract", () => {
     expect(catalogEventTypes("../../discovery/context.json", "discovery-item-detail-projection", 3)).toEqual(
       expect.arrayContaining(["catalog.catalog-item.display-identity-resolved"]),
     );
+  });
+
+  it("gates the Marketplace Catalog projection on Catalog seed mounting", () => {
+    const manifest = JSON.parse(readFileSync(new URL("../../marketplace/context.json", import.meta.url), "utf8")) as {
+      seedRequirements: string[];
+    };
+
+    expect(manifest.seedRequirements).toContain("catalog");
   });
 });
 

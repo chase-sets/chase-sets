@@ -1212,6 +1212,9 @@ importers:
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
+      '@chase-sets/marketplace':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/marketplace
       '@chase-sets/ordering':
         specifier: workspace:*
         version: link:../../bounded-contexts/ordering

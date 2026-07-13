@@ -307,6 +307,19 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
 }
 
 export function buildMarketplaceCatalogProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  function categoryName(value: unknown): string {
+    if (typeof value === "string") return value;
+    if (value && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      const values =
+        record.values && typeof record.values === "object" ? (record.values as Record<string, unknown>) : null;
+      const defaultLocale = typeof record.defaultLocale === "string" ? record.defaultLocale : "en";
+      const localized = values?.[defaultLocale] ?? values?.en;
+      if (typeof localized === "string") return localized;
+    }
+    return "Unnamed category";
+  }
+
   return {
     ...buildCatalogMirrorProjectionHandlers(db, {
       tablePrefix: "marketplace_catalog",
@@ -329,6 +342,75 @@ export function buildMarketplaceCatalogProjectionHandlers(db: PgQueryable): Proj
           JSON.stringify(Array.isArray(data.products) ? data.products : []),
           event.timing.recordedAt,
         ],
+      );
+    },
+    "catalog.catalog-item.category-assigned": async (event) => {
+      const itemId = event.streamId.slice("catalog.catalog-item-".length);
+      const { categoryId } = event.data as { categoryId: string };
+      await db.query(
+        `UPDATE marketplace_catalog_items
+            SET category_ids = (
+                  SELECT COALESCE(jsonb_agg(category_id ORDER BY category_id), '[]'::jsonb)
+                    FROM (
+                      SELECT DISTINCT category_id
+                        FROM jsonb_array_elements_text(category_ids || jsonb_build_array($2::text)) category(category_id)
+                    ) categories
+                ),
+                updated_at = $3
+          WHERE catalog_item_id = $1`,
+        [itemId, categoryId, event.timing.recordedAt],
+      );
+    },
+    "catalog.catalog-item.category-removed": async (event) => {
+      const itemId = event.streamId.slice("catalog.catalog-item-".length);
+      const { categoryId } = event.data as { categoryId: string };
+      await db.query(
+        `UPDATE marketplace_catalog_items
+            SET category_ids = COALESCE(
+                  (SELECT jsonb_agg(value ORDER BY value)
+                     FROM jsonb_array_elements_text(category_ids) category(value)
+                    WHERE value <> $2),
+                  '[]'::jsonb
+                ),
+                updated_at = $3
+          WHERE catalog_item_id = $1`,
+        [itemId, categoryId, event.timing.recordedAt],
+      );
+    },
+    "catalog.category.created": async (event) => {
+      const { categoryId, name } = event.data as { categoryId: string; name: unknown };
+      await db.query(
+        `INSERT INTO marketplace_catalog_categories (category_id, name, status, updated_at)
+         VALUES ($1, $2, 'draft', $3)
+         ON CONFLICT (category_id) DO UPDATE SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at`,
+        [categoryId, categoryName(name), event.timing.recordedAt],
+      );
+    },
+    "catalog.category.revised": async (event) => {
+      const categoryId = event.streamId.slice("catalog.category-".length);
+      const { name } = event.data as { name: unknown };
+      await db.query(`UPDATE marketplace_catalog_categories SET name = $2, updated_at = $3 WHERE category_id = $1`, [
+        categoryId,
+        categoryName(name),
+        event.timing.recordedAt,
+      ]);
+    },
+    "catalog.category.published": async (event) => {
+      await db.query(
+        `UPDATE marketplace_catalog_categories SET status = 'active', updated_at = $2 WHERE category_id = $1`,
+        [event.streamId.slice("catalog.category-".length), event.timing.recordedAt],
+      );
+    },
+    "catalog.category.deprecated": async (event) => {
+      await db.query(
+        `UPDATE marketplace_catalog_categories SET status = 'deprecated', updated_at = $2 WHERE category_id = $1`,
+        [event.streamId.slice("catalog.category-".length), event.timing.recordedAt],
+      );
+    },
+    "catalog.category.archived": async (event) => {
+      await db.query(
+        `UPDATE marketplace_catalog_categories SET status = 'archived', updated_at = $2 WHERE category_id = $1`,
+        [event.streamId.slice("catalog.category-".length), event.timing.recordedAt],
       );
     },
   };

@@ -25,6 +25,7 @@ import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/
 import { quoteMarketplaceTerms } from "./fee-quotes";
 import { createMarketplaceServices, type MarketplaceServices } from "./services";
 import sharp from "sharp";
+import { seedListingEvidencePolicy } from "../../features/listing-evidence-policy/integrations/seed";
 
 type ListingSeed = Readonly<{
   listingId: ListingId;
@@ -959,6 +960,7 @@ export async function seedMarketplaceContextDatabase(
   pool: PgTransactionalPool,
   services: MarketplaceServices = createMarketplaceServices(pool),
 ) {
+  await seedListingEvidencePolicy(services);
   await seedMarketplaceDatabase(pool, services);
   await seedReputationData(pool, services);
 }

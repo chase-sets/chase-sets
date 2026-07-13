@@ -111,6 +111,24 @@ describe("identity role permissions", () => {
     expect(ROLE_PERMISSIONS.manager).toContain("payouts.manage");
   });
 
+  it("separates Listing Evidence Policy review from drafting, validation, and activation", () => {
+    const elevated = [
+      "listing-evidence-policy.draft",
+      "listing-evidence-policy.validate",
+      "listing-evidence-policy.activate",
+    ] as const;
+
+    expect(ROLE_PERMISSIONS["platform-admin"]).toEqual(
+      expect.arrayContaining(["listing-evidence-policy.view", ...elevated]),
+    );
+    expect(ROLE_PERMISSIONS.owner).toContain("listing-evidence-policy.view");
+    expect(ROLE_PERMISSIONS.manager).toContain("listing-evidence-policy.view");
+    for (const permission of elevated) {
+      expect(ROLE_PERMISSIONS.owner).not.toContain(permission);
+      expect(ROLE_PERMISSIONS.manager).not.toContain(permission);
+    }
+  });
+
   it("keeps payout scheduling as an authority permission instead of an account capability", () => {
     expect(ROLE_PERMISSIONS.owner).toContain("payouts.manage");
     expect(ROLE_PERMISSIONS.owner).toContain("payouts.reconcile");

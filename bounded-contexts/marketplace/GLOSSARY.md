@@ -27,6 +27,32 @@ Notes:
 - Listing photo metadata is recorded on Marketplace Listing events; raw image bytes are stored in the environment asset bucket.
 - Pristine and Mint Listings require at least one Listing Photo before publication.
 
+## Listing Evidence Policy
+
+A **Listing Evidence Policy** is the versioned Marketplace policy document that resolves stable Catalog identities and Marketplace facts into additive Listing Evidence Requirements.
+
+Notes:
+
+- A Policy Version has an immutable policy hash, effective interval, and audit history.
+- Matching Policy Rules combine additively in stable priority and rule-id order; later rules do not silently replace earlier requirements.
+- Activation requires validation, a semantic diff, a Policy Impact Preview, an explicit effective time, and impact acknowledgment.
+
+## Policy Rule
+
+A **Policy Rule** is one named selector-and-outcome clause in a Listing Evidence Policy. Selectors use stable Catalog item, Product, Blueprint, Category, Dimension and Option identities or typed Marketplace facts such as graded-item presence, price band, and seller trust or risk.
+
+## Listing Evidence Requirement
+
+A **Listing Evidence Requirement** is the resolved minimum photo count, named Evidence Slots, image constraints, seller-trust conditions, and buyer-acknowledgment posture produced by matching Policy Rules.
+
+## Evidence Slot
+
+An **Evidence Slot** is a policy-defined named view such as condition, slab, front, or back, with optional minimum pixel dimensions and maximum evidence age.
+
+## Policy Impact Preview
+
+A **Policy Impact Preview** is the deterministic count and bounded sample of existing Listings whose resolved Listing Evidence Requirements would change under a validated draft. Its hash is acknowledged at activation so stale validation cannot be activated.
+
 ## Offer
 
 An **Offer** is an account-submitted purchase proposal for a specific product, price, and quantity submitted as marketplace-wide demand.
