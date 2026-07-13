@@ -22,6 +22,31 @@ describe("provider webhook inbox", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("returns false when the provider event unique constraint rejects a duplicate", async () => {
+    const insertedEventIds = new Set<string>();
+    const db = {
+      query: async (sql: string, values?: readonly unknown[]) => {
+        expect(sql).toContain("ON CONFLICT (provider_event_id) DO NOTHING");
+        const providerEventId = String(values?.[0]);
+        if (insertedEventIds.has(providerEventId)) {
+          return { rows: [], rowCount: 0 };
+        }
+        insertedEventIds.add(providerEventId);
+        return { rows: [{ provider_event_id: providerEventId }], rowCount: 1 };
+      },
+    };
+    const entry = {
+      tableName: "payments_provider_webhook_events",
+      providerEventId: "evt_duplicate",
+      providerName: "stripe",
+      eventKind: "payment-failed",
+    } as const;
+
+    await expect(recordProviderWebhookEvent(db as never, entry)).resolves.toBe(true);
+    await expect(recordProviderWebhookEvent(db as never, entry)).resolves.toBe(false);
+    expect(insertedEventIds).toEqual(new Set(["evt_duplicate"]));
+  });
+
   it("rejects unsafe table names", async () => {
     await expect(
       recordProviderWebhookEvent({ query: async () => ({ rows: [] }) } as never, {
