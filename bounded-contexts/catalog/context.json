@@ -20,6 +20,7 @@
   "apiBasePath": "/api/catalog",
   "slices": [
     "alias-equivalence",
+    "attention-queue",
     "blueprints",
     "catalog-items",
     "categories",
@@ -114,6 +115,13 @@
       "projectionName": "catalog-provider-scope-mapping-projection",
       "sourceContextNames": ["catalog"],
       "ownedTables": ["catalog_provider_scope_mappings"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "catalog-attention-dismissal-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["catalog_attention_dismissals"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     }
@@ -470,6 +478,11 @@
       "purpose": "Own Catalog Alias persistence: typed alias candidates from Source Observations and accepted aliases for Catalog Items and Reference Records, with review-state lifecycle and revocation.",
       "expectedConsumers": ["source-observations", "Internal catalog module composition"]
     },
+    "attention-queue": {
+      "classification": "slice",
+      "purpose": "Own the unified needs-you attention queue for the catalog control plane: a composite read model over unmapped provider-scope-mapping records, source-observations merge candidates and import jobs, provider health, pending alias-equivalence candidates, and stale scope-record syncs, plus the dismiss/defer aggregate that parks and ages items back in.",
+      "expectedConsumers": ["source-observations", "Internal catalog module composition"]
+    },
     "blueprints": {
       "classification": "slice",
       "purpose": "Own blueprints feature behavior, read models, and UI contracts for the catalog context.",
@@ -549,6 +562,7 @@
       "purpose": "Provide reusable authoring-support assets shared by catalog-owned features and composition seams.",
       "expectedConsumers": [
         "alias-equivalence",
+        "attention-queue",
         "blueprints",
         "catalog-items",
         "categories",
@@ -616,6 +630,7 @@
       "purpose": "Provide reusable runtime-support assets shared by catalog-owned features and composition seams.",
       "expectedConsumers": [
         "alias-equivalence",
+        "attention-queue",
         "blueprints",
         "catalog-items",
         "categories",
@@ -998,6 +1013,27 @@
         "tests": [
           "bounded-contexts/catalog/features/alias-equivalence/api/route.test.ts",
           "bounded-contexts/catalog/tests/admin-integrations-route.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "catalog.attention-queue-command-snapshots",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/attention-queue/api/route.ts:POST /commands",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H739d2b8d9de5#1"
+      ],
+      "visibleDestination": {
+        "routeId": "integrations",
+        "description": "The #3820 attention-queue dismiss/defer/restore actions stay on the daily integrations surface and return the committed attention-dismissal aggregate snapshot (disposition + version per item key); the next loader re-reads the attention-queue read model so a parked item never re-appears (and a restored/aged-back item re-appears) without a stale row."
+      },
+      "proof": {
+        "authoritativeResponse": "The attention-queue POST /commands route dispatches the DismissAttentionItem/DeferAttentionItem/RestoreAttentionItem aggregate commands keyed by the item key with the operator as actor, and responds from the command handler's evolved aggregate state (disposition + version). The client dispatchCatalogAttentionQueueCommand returns that committed snapshot directly, and the daily route action result stays on the import-to-promotion surface so the next loader re-reads the attention-queue read model.",
+        "tests": [
+          "bounded-contexts/catalog/features/attention-queue/api/route.test.ts",
+          "bounded-contexts/catalog/support/route-support/admin-integrations/attention-queue-command-handler.test.ts"
         ]
       }
     }

@@ -27,6 +27,9 @@ export interface CatalogWorkbenchShellProps {
   // one "Back to import workbench" link; the daily surface is the primary job and
   // renders none.
   surface: CatalogControlPlaneRouteSurfaceKey;
+  // The unified attention queue rendered in the top-of-page slot on the
+  // daily home surface, above the metric strip. Absent on the other surfaces.
+  attentionQueue?: ReactNode;
   // Streamed source-options slice. When the daily loader defers the
   // option fan-out it passes the promise here and the status panel renders behind
   // a Suspense boundary; when absent (the other surfaces, or a test that supplies
@@ -46,6 +49,7 @@ export function CatalogWorkbenchShell({
   readModel,
   commandFeedback = null,
   surface,
+  attentionQueue = null,
   deferredSourceOptions = null,
   children,
 }: CatalogWorkbenchShellProps) {
@@ -70,6 +74,12 @@ export function CatalogWorkbenchShell({
       />
 
       {commandFeedback ? <CommandFeedbackBanner feedback={commandFeedback} /> : null}
+
+      {/* Top-of-page slot: the unified attention queue — the needs-you
+          inbox — renders above the import context bar and metric strip on the
+          daily home surface so operators see everything that needs them first. */}
+      {surface === "daily" ? attentionQueue : null}
+
       {/* Step 0 — Choose import scope. "Choosing what to import" (provider / unit /
           guided scope / profile + the synced source-options status) is a distinct
           concern from the import -> promote flow that follows, so it lives in one

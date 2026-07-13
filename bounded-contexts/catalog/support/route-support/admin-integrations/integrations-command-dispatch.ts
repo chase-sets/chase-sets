@@ -14,6 +14,7 @@ import { CatalogApiError } from "../../../client";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 import { handleAliasReviewCommand, isAliasReviewCommandIntent } from "./alias-review-command-handler";
+import { handleAttentionQueueCommand, isAttentionQueueCommandIntent } from "./attention-queue-command-handler";
 import { handleDailyCommand, isDailyCommandIntent } from "./daily-command-handler";
 import { handleGovernanceCommand, isGovernanceCommandIntent } from "./governance-command-handler";
 import { handleProviderSetupCommand, isProviderSetupCommandIntent } from "./provider-setup-command-handler";
@@ -50,6 +51,9 @@ async function runIntegrationsCommand(input: {
   try {
     if (isAliasReviewCommandIntent(intent)) {
       return await handleAliasReviewCommand({ api, intent, context, formData });
+    }
+    if (isAttentionQueueCommandIntent(intent)) {
+      return await handleAttentionQueueCommand({ api, intent, context, formData });
     }
     if (isDailyCommandIntent(intent)) {
       return await handleDailyCommand({ api, intent, context, formData, selectedObservationIds });

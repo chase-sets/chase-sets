@@ -73,6 +73,27 @@ export async function listCatalogScopeRecords(
   );
 }
 
+// Attention queue: active scope records whose projection has not been
+// refreshed since `before` — the freshness proxy for a stale provider sync until
+// the dedicated scope-sync-state read model lands.
+export async function listStaleActiveCatalogScopeRecords(
+  db: PgQueryable,
+  options: Readonly<{ before: string; limit?: number }>,
+): Promise<readonly CatalogScopeRecordRow[]> {
+  const limit = Math.min(1000, Math.max(1, Math.trunc(options.limit ?? 200)));
+  const result = await db.query<CatalogScopeRecordRow>(
+    `SELECT *
+     FROM catalog_scope_records
+     WHERE lifecycle_status = 'active'
+       AND updated_at < $1
+     ORDER BY updated_at ASC, scope_record_id ASC
+     LIMIT ${limit}`,
+    [options.before],
+  );
+
+  return result.rows;
+}
+
 export async function getCatalogScopeRecord(
   db: PgQueryable,
   scopeRecordId: string,

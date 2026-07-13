@@ -172,6 +172,7 @@ export const sourceContextWakeRegistry = [
     wakeStoreLoadEstimate: "high",
     affectedProjectionNames: [
       "catalog:catalog-admin-catalog-item-projection",
+      "catalog:catalog-attention-dismissal-projection",
       "catalog:catalog-product-contents-projection",
       "catalog:catalog-provider-scope-mapping-projection",
       "catalog:catalog-scope-registry-projection",

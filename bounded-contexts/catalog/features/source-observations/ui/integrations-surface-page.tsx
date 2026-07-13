@@ -21,6 +21,9 @@ export interface CatalogIntegrationsSurfacePageProps {
   // root for the daily surface so operators see proposed alias equivalents while
   // reviewing Source Observations before promotion.
   aliasVisibility?: ReactElement | null;
+  // The attention-queue panel rendered in the shell's top-of-page slot on the
+  // daily home surface. Supplied by the composition root; absent elsewhere.
+  attentionQueue?: ReactElement | null;
   // Streamed source-options slice. The daily surface defers the option
   // fan-out, so the shell renders the status panel behind a Suspense boundary
   // around this promise; the other surfaces leave it absent and render no panel.
@@ -40,6 +43,7 @@ export function CatalogIntegrationsSurfacePage({
   readModel,
   commandFeedback = null,
   aliasVisibility = null,
+  attentionQueue = null,
   deferredSourceOptions = null,
   deferredImportPreview = null,
   deferredCatalogSyncRun = null,
@@ -52,6 +56,7 @@ export function CatalogIntegrationsSurfacePage({
       readModel={readModel}
       commandFeedback={commandFeedback}
       surface={surface}
+      attentionQueue={attentionQueue}
       deferredSourceOptions={deferredSourceOptions}
     >
       {renderCatalogWorkbenchSurfaceWorkspaces(readModel, surfaceDefinition.workspaces, {

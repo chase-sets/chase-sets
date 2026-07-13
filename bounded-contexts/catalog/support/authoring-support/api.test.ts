@@ -107,6 +107,7 @@ function createServices(overrides: Partial<CatalogAuthoringBulkJobServices> = {}
     providerIntegrationProfiles: {} as never,
     sourceObservations: {} as never,
     catalogAliases: {} as never,
+    attentionQueue: {} as never,
     authoringBulkJobs: createBulkJobServices(overrides),
     projectors: [],
     pool: {} as never,

@@ -14,6 +14,7 @@ import { createDisplayTemplateRuntime } from "../../features/display-templates/a
 import { createFieldRuntime } from "../../features/fields/api/runtime";
 import { createProductContentRuntime } from "../../features/product-contents/api/runtime";
 import { createProductMeasureRuntime } from "../../features/product-measures/api/runtime";
+import { createCatalogAttentionQueueRuntime } from "../../features/attention-queue/api/runtime";
 import { createProviderScopeMappingRuntime } from "../../features/provider-scope-mapping/api/runtime";
 import { createReferenceDataRuntime } from "../../features/reference-data/api/runtime";
 import { createCatalogScopeRegistryRuntime } from "../../features/scope-registry/api/runtime";
@@ -46,6 +47,7 @@ export type CatalogServices = Readonly<{
   providerIntegrationProfiles: ReturnType<typeof createCatalogProviderIntegrationProfileVersionStore>;
   sourceObservations: ReturnType<typeof createSourceObservationRuntime>;
   catalogAliases: ReturnType<typeof createCatalogAliasRuntime>;
+  attentionQueue: ReturnType<typeof createCatalogAttentionQueueRuntime>;
   authoringBulkJobs: ReturnType<typeof createCatalogAuthoringBulkJobServices>;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
@@ -100,6 +102,10 @@ export function createCatalogServices(
     { catalogAliasCommandHandler: catalogAliases.catalogAliasCommandHandler },
     productContents,
   );
+  const attentionQueue = createCatalogAttentionQueueRuntime(deps, {
+    getReadiness: sourceObservations.getCatalogIntegrationControlPlaneReadiness,
+    listActiveJobs: sourceObservations.listActiveIntegrationJobs,
+  });
   const authoringBulkJobs = createCatalogAuthoringBulkJobServices(db);
 
   return {
@@ -118,6 +124,7 @@ export function createCatalogServices(
     providerIntegrationProfiles,
     sourceObservations,
     catalogAliases,
+    attentionQueue,
     authoringBulkJobs,
     projectors: [
       ...dimensions.projectors,
@@ -134,6 +141,7 @@ export function createCatalogServices(
       ...providerScopeMappings.projectors,
       ...sourceObservations.projectors,
       ...catalogAliases.projectors,
+      ...attentionQueue.projectors,
     ],
     pool,
     db,

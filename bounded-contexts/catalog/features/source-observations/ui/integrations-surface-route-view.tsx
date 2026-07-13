@@ -9,6 +9,8 @@ import type {
   SourceObservationIntegrationImportPreview,
 } from "./contracts";
 import type { CatalogAliasReviewReadModel } from "../../alias-equivalence/api/alias-review-admin-contracts";
+import type { CatalogAttentionQueueReadModel } from "../../attention-queue/api/contracts";
+import { CatalogAttentionQueuePanel } from "../../attention-queue/ui/attention-queue-panel";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
 import { CatalogIntegrationAliasReviewWorkspace } from "./admin-control-plane/alias-review/alias-review-workspace";
@@ -35,6 +37,9 @@ export type CatalogIntegrationsRouteData = Readonly<{
   deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
   deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
   deferredAliasReview?: Promise<CatalogAliasReviewReadModel | null> | null;
+  // The unified attention queue. Streamed like the alias review; the
+  // daily surface renders it in the top-of-page slot. Absent on the other surfaces.
+  deferredAttentionQueue?: Promise<CatalogAttentionQueueReadModel | null> | null;
 }>;
 
 // Shared thin view for the four integrations surface routes. The route loaders
@@ -63,12 +68,20 @@ export function CatalogIntegrationsSurfaceRouteView({
     <DeferredAliasReviewSlot deferredAliasReview={routeData.deferredAliasReview} readModel={routeData.readModel} />
   ) : null;
 
+  const attentionQueue = routeData.deferredAttentionQueue ? (
+    <DeferredAttentionQueueSlot
+      deferredAttentionQueue={routeData.deferredAttentionQueue}
+      readModel={routeData.readModel}
+    />
+  ) : null;
+
   return (
     <CatalogIntegrationsSurfacePage
       surface={surface}
       readModel={routeData.readModel}
       commandFeedback={commandFeedback ?? routeData.commandFeedback}
       aliasVisibility={aliasVisibility}
+      attentionQueue={attentionQueue}
       deferredSourceOptions={routeData.deferredSourceOptions ?? null}
       deferredImportPreview={routeData.deferredImportPreview ?? null}
       deferredCatalogSyncRun={routeData.deferredCatalogSyncRun ?? null}
@@ -104,6 +117,40 @@ function DeferredAliasReviewSlot({
               readModel={aliasReview}
               actionHref={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
               canManageAliases={readModel.readiness.rbacAllowed}
+            />
+          ) : null
+        }
+      </Await>
+    </Suspense>
+  );
+}
+
+// Stream the attention queue behind a fail-soft Suspense/Await boundary so the
+// top-of-page inbox paints once the (supplementary) queue read model resolves,
+// and renders nothing on absence/error rather than breaking the daily surface.
+function DeferredAttentionQueueSlot({
+  deferredAttentionQueue,
+  readModel,
+}: Readonly<{
+  deferredAttentionQueue: Promise<CatalogAttentionQueueReadModel | null>;
+  readModel: CatalogPrimaryWorkbenchReadModel;
+}>): ReactElement {
+  return (
+    <Suspense
+      fallback={
+        <DeferredSupplementaryPanel
+          title={t("catalog.features.attentionQueue.title")}
+          label={t("catalog.features.attentionQueue.loading")}
+        />
+      }
+    >
+      <Await resolve={deferredAttentionQueue}>
+        {(attentionQueue) =>
+          attentionQueue ? (
+            <CatalogAttentionQueuePanel
+              readModel={attentionQueue}
+              actionHref={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
+              canManage={readModel.readiness.rbacAllowed}
             />
           ) : null
         }
