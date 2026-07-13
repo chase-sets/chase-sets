@@ -190,4 +190,12 @@ For pre-launch data reset/drop runs, also record:
 - successful staging rehearsal reference for production/prelaunch resets;
 - staging or production smoke verification reference.
 
+For the Catalog Scope Registry / Merge Candidate v2 destructive reset (`catalog-scope-merge-candidate-reset.ts`, #3807, required before #3794/#3799 deploy), also record:
+
+- dry-run and before/after counts from `collectCatalogScopeMergeCandidateVerificationReport`, covering Merge Candidates, Merge Candidate observations, `catalog.merge-candidate-*` event streams/events, and unreviewed Provider Scope Mapping proposals;
+- non-empty exact targets from `catalogScopeMergeCandidateResetTargetTables`;
+- confirmation that preserved surfaces (`catalog_scope_records`, reviewed Provider Scope Mappings, `catalog_source_observations`, promoted Catalog Items) are row-count identical before and after — `resetCatalogMergeCandidateDerivedState` throws instead of committing if not;
+- `evaluateCatalogScopeMergeCandidateResetEvidence` result;
+- rebuild evidence (`observationsConsidered`, `candidatesCreated`) from `generateCatalogMergeCandidates` for staging/production resets, per `catalogScopeMergeCandidateRebuildChecklist`.
+
 When a legacy or compatibility path is retired, remove the code, patterns, and documentation completely. Do not leave fallback branches, compatibility shims, dual-path docs, or operator instructions for the retired path.
