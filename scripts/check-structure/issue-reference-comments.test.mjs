@@ -97,6 +97,32 @@ describe("findIssueReferenceCommentViolations", () => {
 
     expect(findIssueReferenceCommentViolations(source)).toEqual([]);
   });
+
+  // #4869: a SQL query template literal with `${...}` interpolation (not just
+  // a static DDL string) is the shape that desynced the raw ts.createScanner
+  // loop — the scanner cannot re-scan the template middle/tail after a
+  // substitution without the parser's reScanTemplateToken, so it mis-pairs
+  // backticks and swallows the remainder of the file, comments included, into
+  // one bogus template token. Under that old raw-scanner approach this test
+  // is red: the trailing #4901 comment goes invisible. The parse-based walk
+  // fixes it because ts.createSourceFile performs real re-scanning.
+  it("flags a #NNNN comment that follows a SQL query template literal with ${} interpolation", () => {
+    const source = [
+      "export function findWidgetsByOwner(ownerId, status) {",
+      "  return sql`",
+      "    SELECT id, name, status",
+      "    FROM widgets",
+      "    WHERE owner_id = ${ownerId}",
+      "      AND status = ${status}",
+      "  `;",
+      "}",
+      "",
+      `// shipped in ${example("4901")} for the widget-owner query`,
+      "export const x = 1;",
+    ].join("\n");
+
+    expect(findIssueReferenceCommentViolations(source)).toEqual([{ line: 10, match: example("4901") }]);
+  });
 });
 
 describe("isIssueReferenceCommentGuardedFile", () => {
