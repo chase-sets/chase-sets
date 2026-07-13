@@ -78,6 +78,93 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.appRoot.pageNotFound.description": "This public page does not exist or is no longer available.",
   "publicPresence.appRoot.unknownError": "Unknown error",
   "publicPresence.brand": "Chase Sets",
+  "publicPresence.compare.chaseSets.availability":
+    "Prelaunch. Beta invite waves begin {betaWavesWindow}; signup opens to everyone on {publicLaunchDate}.",
+  "publicPresence.compare.chaseSets.coverage":
+    "Five games at launch — Magic: The Gathering, Pokemon (English and Japanese), Yu-Gi-Oh!, Disney Lorcana, and One Piece — with curated catalogs covering raw and graded cards.",
+  "publicPresence.compare.chaseSets.feeLock":
+    "Every listing locks its fee the moment you create it. Later schedule changes never raise the fee on an existing listing.",
+  "publicPresence.compare.chaseSets.payouts":
+    "Sale proceeds stay pending until delivery, risk, support, and aging rules clear, then become Chase Sets balance you can spend on cards or pay out.",
+  "publicPresence.compare.chaseSets.processing":
+    "No separate seller payment-processing fee. Card processing is buyer-side at checkout and $0 when buyers pay with Chase Sets balance.",
+  "publicPresence.compare.chaseSets.protection":
+    "Order Protection is included on every order and never itemized as a separate buyer fee.",
+  "publicPresence.compare.chaseSets.sellerFees.fallback":
+    "One published standard schedule with a per-item cap, locked at listing time. Current numbers are on the marketplace sales fees page.",
+  "publicPresence.compare.chaseSets.sellerFees.live":
+    "{rate} of the item price plus {fixed}, never more than {cap} per item — locked when you list. Loaded live from the published schedule.",
+  "publicPresence.compare.cta.text":
+    "Chase Sets is prelaunch — join the waitlist for a beta invite wave, start your founders window, and help shape what ships first.",
+  "publicPresence.compare.ebay.availability": "Live today, with a global buyer base.",
+  "publicPresence.compare.ebay.coverage":
+    "Sells nearly every category. Trading cards are one category among many, in front of the largest general buyer audience.",
+  "publicPresence.compare.ebay.description":
+    "A dated, sourced seller comparison: fees, payment processing, protection, payout timing, and catalog coverage side by side, plus a calculator that runs your own sale across both fee schedules. Chase Sets is prelaunch, and this page says so plainly.",
+  "publicPresence.compare.ebay.faq.competitorFees.answer":
+    "As of {asOf}, eBay's published trading-cards fees for sellers without a store are a {finalValueFeeRate} final value fee on the portion of a sale up to {tierThreshold} and {aboveTierRate} above it, with payment processing included, plus a {smallOrderFee} per-order fee ({standardOrderFee} on orders over {smallOrderThreshold}). Store subscriptions, optional listing upgrades, and promoted listings can change what a seller pays.",
+  "publicPresence.compare.ebay.faq.competitorFees.question": "How much does eBay charge to sell trading cards?",
+  "publicPresence.compare.ebay.feeLock":
+    "Final value fees are charged at sale time at the rate then in effect. eBay does not publish a listing-time fee lock.",
+  "publicPresence.compare.ebay.honesty.body":
+    "eBay is live today with the largest general buyer audience, auction formats, and categories far beyond trading cards. Chase Sets is prelaunch and focused on five games — until invite waves begin, listing on Chase Sets is a bet on the economics on this page, not on existing traffic.",
+  "publicPresence.compare.ebay.payouts":
+    "Seller payouts follow eBay's published payments schedule after an order is confirmed.",
+  "publicPresence.compare.ebay.processing":
+    "Payment processing is included in the final value fee; the per-order fee still applies to every order.",
+  "publicPresence.compare.ebay.protection":
+    "eBay Money Back Guarantee covers eligible orders under its published policy.",
+  "publicPresence.compare.ebay.sellerFees":
+    "{finalValueFeeRate} trading-cards final value fee on the portion of a sale up to {tierThreshold} and {aboveTierRate} above it, plus a {smallOrderFee} per-order fee ({standardOrderFee} on orders over {smallOrderThreshold}), non-store rate, per eBay's published fee schedule as of {asOf}.",
+  "publicPresence.compare.ebay.title": "Chase Sets vs eBay for selling trading cards",
+  "publicPresence.compare.eyebrow": "Honest comparison",
+  "publicPresence.compare.faq.chaseSetsFees.answer":
+    "Chase Sets publishes one standard seller fee schedule: a percentage of the item price with a per-item cap, and no separate seller payment-processing fee. Every listing locks its fee the moment it is created. The calculator on this page loads the current numbers live from the published schedule.",
+  "publicPresence.compare.faq.chaseSetsFees.question": "What does Chase Sets charge sellers?",
+  "publicPresence.compare.faq.keepMore.answer":
+    "It depends on the sale price and order size, so run your own numbers: the calculator on this page applies each marketplace's published schedule to the same order, rounding competitor fees down in the competitor's favor. Listings created during a founder's 60-day window lock 0% seller fees until they sell.",
+  "publicPresence.compare.faq.keepMore.question": "Will I keep more of the sale on Chase Sets than on {competitor}?",
+  "publicPresence.compare.faq.title": "Questions sellers ask",
+  "publicPresence.compare.honesty.title": "Where {competitor} is ahead today",
+  "publicPresence.compare.link.ebay": "Compare Chase Sets vs eBay",
+  "publicPresence.compare.link.tcgplayer": "Compare Chase Sets vs TCGplayer",
+  "publicPresence.compare.row.availability": "Availability",
+  "publicPresence.compare.row.coverage": "Catalog coverage",
+  "publicPresence.compare.row.feeLock": "Fee lock",
+  "publicPresence.compare.row.payouts": "Payout timing",
+  "publicPresence.compare.row.processing": "Payment processing",
+  "publicPresence.compare.row.protection": "Order protection",
+  "publicPresence.compare.row.sellerFees": "Seller fees",
+  "publicPresence.compare.sourcesNote":
+    "Protection, payout, and catalog descriptions for {competitor} summarize {competitor}'s own published policies as of {asOf}. Fee figures and the competitor-favor rounding posture are described under the calculator above. Chase Sets statements describe the published policies on this site.",
+  "publicPresence.compare.table.caption": "Chase Sets and {competitor} side by side, from a seller's point of view.",
+  "publicPresence.compare.table.column.dimension": "What to compare",
+  "publicPresence.compare.table.description":
+    "Competitor numbers come from {competitor}'s published fee schedule as of {asOf}, with every ambiguous rounding decision resolved in {competitor}'s favor. Chase Sets numbers load live from the published fee schedule.",
+  "publicPresence.compare.table.title": "At a glance",
+  "publicPresence.compare.tcgplayer.availability": "Live today, with a large existing trading-card buyer base.",
+  "publicPresence.compare.tcgplayer.coverage":
+    "A long-established marketplace focused on trading card games, covering more game lines than Chase Sets offers at launch.",
+  "publicPresence.compare.tcgplayer.description":
+    "A dated, sourced seller comparison: fees, payment processing, protection, payout timing, and catalog coverage side by side, plus a calculator that runs your own sale across both fee schedules. Chase Sets is prelaunch, and this page says so plainly.",
+  "publicPresence.compare.tcgplayer.faq.competitorFees.answer":
+    "As of {asOf}, TCGplayer's published fees for standard marketplace sellers are a {commissionRate} marketplace commission, capped at {commissionCap} per item, plus {processingRate} + {processingFixed} payment processing per order. Shipping, tax, store subscriptions, and promotions can add to what a seller pays.",
+  "publicPresence.compare.tcgplayer.faq.competitorFees.question":
+    "How much does TCGplayer charge to sell trading cards?",
+  "publicPresence.compare.tcgplayer.feeLock":
+    "Fees are charged at sale time at the rate then in effect. TCGplayer does not publish a listing-time fee lock.",
+  "publicPresence.compare.tcgplayer.honesty.body":
+    "TCGplayer is live today with a large active trading-card buyer base, more supported game lines, and years of seller tooling. Chase Sets is prelaunch — until invite waves begin, listing on Chase Sets is a bet on the economics on this page, not on existing traffic.",
+  "publicPresence.compare.tcgplayer.payouts": "Seller payouts follow TCGplayer's published payment schedule.",
+  "publicPresence.compare.tcgplayer.processing":
+    "Sellers pay {processingRate} + {processingFixed} payment processing per order on top of the commission.",
+  "publicPresence.compare.tcgplayer.protection": "TCGplayer's published Buyer Safeguard policy covers eligible orders.",
+  "publicPresence.compare.tcgplayer.sellerFees":
+    "{commissionRate} marketplace commission, capped at {commissionCap} per item, for standard marketplace sellers, per TCGplayer's published fee schedule as of {asOf}.",
+  "publicPresence.compare.tcgplayer.title": "Chase Sets vs TCGplayer for selling trading cards",
+  "publicPresence.compare.why.body":
+    "The fee lock is a platform primitive: every listing keeps the fee captured when it was created. There is no separate seller payment-processing line, Order Protection is included on every order, and listings created during a founder's 60-day window lock 0% seller fees until they sell.",
+  "publicPresence.compare.why.title": "Why sellers join Chase Sets anyway",
   "publicPresence.faq.all": "Read every FAQ",
   "publicPresence.faq.description":
     "Short answers about marketplace availability, founding seller fees, order processing, shipping, and order protection.",
@@ -609,6 +696,12 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.routes.admin.promoBar.meta.title": "Promo Bar | Experience Admin",
   "publicPresence.routes.admin.campaignAnalytics.meta.title": "Campaign Analytics | Experience Admin",
   "publicPresence.routes.admin.waitlist.meta.title": "Waitlist | Experience Admin",
+  "publicPresence.routes.compareEbay.meta.description":
+    "Compare eBay trading-card final value fees, per-order fees, protection, payouts, and coverage with Chase Sets — with a live fee calculator and dated, sourced numbers.",
+  "publicPresence.routes.compareEbay.meta.title": "eBay Trading Card Seller Fees vs Chase Sets | 2026 Comparison",
+  "publicPresence.routes.compareTcgplayer.meta.description":
+    "Compare TCGplayer marketplace commission, payment processing, protection, payouts, and game coverage with Chase Sets — with a live fee calculator and dated, sourced numbers.",
+  "publicPresence.routes.compareTcgplayer.meta.title": "TCGplayer Seller Fees vs Chase Sets | 2026 Comparison",
   "publicPresence.routes.contact.meta.description": "Contact Chase Sets at support@chasesets.com.",
   "publicPresence.routes.contact.meta.title": "Contact | Chase Sets",
   "publicPresence.routes.founders.meta.description":

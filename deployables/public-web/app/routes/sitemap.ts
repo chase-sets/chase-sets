@@ -13,6 +13,8 @@ const STABLE_PUBLIC_PATHS = [
   "/refunds-and-returns",
   "/order-protection",
   "/founders",
+  "/compare/tcgplayer",
+  "/compare/ebay",
   "/help",
   ...publicHelpCategoryPaths,
   ...publicHelpArticlePaths,

@@ -309,7 +309,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Surface` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Surface. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `surfaceSemanticToneClasses` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: surface Semantic Tone Classes. | `No production consumer yet.` |
 | `Switch` | `packages/design-system/src/components/forms/switch.tsx` | Purpose not documented; symbol name suggests: Switch. | `bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx` |
-| `Table` | `packages/design-system/src/components/data-display/table.tsx` | Purpose not documented; symbol name suggests: Table. | `bounded-contexts/public-presence/features/waitlist/ui/fee-comparison-calculator.tsx` |
+| `Table` | `packages/design-system/src/components/data-display/table.tsx` | Purpose not documented; symbol name suggests: Table. | `bounded-contexts/public-presence/features/waitlist/ui/compare-page.tsx` |
 | `Tabs` | `packages/design-system/src/components/actions/tabs.tsx` | Purpose not documented; symbol name suggests: Tabs. | `bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx` |
 | `Tag` | `packages/design-system/src/components/feedback/badge.tsx` | Purpose not documented; symbol name only: Tag. | `No production consumer yet.` |
 | `TagInput` | `packages/design-system/src/components/forms/tag-input.tsx` | Purpose not documented; symbol name suggests: Tag Input. | `No production consumer yet.` |

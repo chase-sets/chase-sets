@@ -106,6 +106,40 @@ export const FEE_CALCULATOR_MIN_PRICE_CENTS = 1n;
 export const FEE_CALCULATOR_MAX_PRICE_CENTS = 999_999n;
 export const FEE_CALCULATOR_MAX_CARD_COUNT = 100;
 
+/** When the competitor fee schedules above were retrieved from each marketplace's published documentation. */
+export const COMPETITOR_FEES_AS_OF = "July 12, 2026";
+
+/**
+ * Preformatted competitor fee facts for comparison copy (the /compare pages'
+ * tables and FAQ answers). Derived from the exact constants the calculator
+ * computes with, so cited numbers can never drift from the formulas.
+ */
+export const tcgplayerFeeFacts = {
+  commissionRate: formatBpsPercent(Number(TCGPLAYER_COMMISSION_BPS)),
+  commissionCap: formatMoney(centsToMoneyAmount(TCGPLAYER_COMMISSION_CAP_CENTS), "USD"),
+  processingRate: formatBpsPercent(Number(TCGPLAYER_PROCESSING_BPS)),
+  processingFixed: formatMoney(centsToMoneyAmount(TCGPLAYER_PER_ORDER_FEE_CENTS), "USD"),
+  asOf: COMPETITOR_FEES_AS_OF,
+} as const;
+
+export const ebayFeeFacts = {
+  finalValueFeeRate: formatBpsPercent(Number(EBAY_TRADING_CARDS_FVF_BPS)),
+  tierThreshold: formatMoney(centsToMoneyAmount(EBAY_FVF_TIER_THRESHOLD_CENTS), "USD"),
+  aboveTierRate: formatBpsPercent(Number(EBAY_FVF_ABOVE_TIER_BPS)),
+  smallOrderThreshold: formatMoney(centsToMoneyAmount(EBAY_SMALL_ORDER_THRESHOLD_CENTS), "USD"),
+  smallOrderFee: formatMoney(centsToMoneyAmount(EBAY_SMALL_ORDER_FEE_CENTS), "USD"),
+  standardOrderFee: formatMoney(centsToMoneyAmount(EBAY_STANDARD_ORDER_FEE_CENTS), "USD"),
+  asOf: COMPETITOR_FEES_AS_OF,
+} as const;
+
+/** The evergreen comparison pages the calculator links out to. */
+export type FeeComparisonCompetitor = "tcgplayer" | "ebay";
+
+const compareLinkLabelKeys = {
+  tcgplayer: "publicPresence.compare.link.tcgplayer",
+  ebay: "publicPresence.compare.link.ebay",
+} as const satisfies Record<FeeComparisonCompetitor, string>;
+
 export type MarketplaceFeeOutcome = Readonly<{
   /** The marketplace's own selling fee (commission / final value fee) in cents. */
   marketplaceFeeCents: bigint;
@@ -225,14 +259,27 @@ function buildShareLink(priceCents: bigint, cardCount: number): string {
  * per-item cap visible), and sees the seller-side fees and kept amount on
  * Chase Sets, TCGplayer, and eBay. Renders nothing without a live schedule.
  */
-export function FeeCalculatorSection({ schedule }: { schedule?: PublicMarketplaceFeeSchedule | null }) {
+export function FeeCalculatorSection({
+  schedule,
+  compareLinks = ["tcgplayer", "ebay"],
+}: {
+  schedule?: PublicMarketplaceFeeSchedule | null;
+  /** Which /compare pages to link; a compare page passes only the other competitor. */
+  compareLinks?: readonly FeeComparisonCompetitor[];
+}) {
   if (!schedule) {
     return null;
   }
-  return <FeeCalculatorWorkbench schedule={schedule} />;
+  return <FeeCalculatorWorkbench schedule={schedule} compareLinks={compareLinks} />;
 }
 
-function FeeCalculatorWorkbench({ schedule }: { schedule: PublicMarketplaceFeeSchedule }) {
+function FeeCalculatorWorkbench({
+  schedule,
+  compareLinks,
+}: {
+  schedule: PublicMarketplaceFeeSchedule;
+  compareLinks: readonly FeeComparisonCompetitor[];
+}) {
   const [priceInput, setPriceInput] = useState("50.00");
   const [cardCountInput, setCardCountInput] = useState("1");
   const [copied, setCopied] = useState(false);
@@ -404,6 +451,23 @@ function FeeCalculatorWorkbench({ schedule }: { schedule: PublicMarketplaceFeeSc
         <Text size="sm" tone="tertiary">
           {t("publicPresence.home.feeCalculator.sourceNote")}
         </Text>
+        {compareLinks.length > 0 ? (
+          <Inline gap={2}>
+            {compareLinks.map((competitor) => (
+              <LinkButton
+                key={competitor}
+                href={`/compare/${competitor}`}
+                tone="secondary"
+                size="sm"
+                onClick={() =>
+                  trackWaitlistEvent("cta_clicked", { section: "fee_calculator", target: `compare_${competitor}` })
+                }
+              >
+                {t(compareLinkLabelKeys[competitor])}
+              </LinkButton>
+            ))}
+          </Inline>
+        ) : null}
       </Stack>
     </PageSection>
   );
