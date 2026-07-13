@@ -238,7 +238,15 @@ export const decideSellerListingAvailability: AggregateDecider<
       // against the CURRENT aggregate means the seller acted between the
       // sweep's read and this command -- no-op rather than clobber that
       // action. Undefined skips the check entirely (unconditional enable).
-      if (command.dueBy !== undefined && command.dueBy !== state.availableAgainAt) {
+      //
+      // `dueBy` crosses a serialization boundary -- the sweep reads it from
+      // the read model as a Postgres timestamptz rendered to text
+      // ("2026-07-16 18:53:59.008+00"), while `state.availableAgainAt` is the
+      // canonical ISO instant the disable normalized. Compare by instant, not
+      // by byte-identical string, so the same moment expressed in either form
+      // matches; otherwise every scheduled restore would false-negative as a
+      // lost race.
+      if (command.dueBy !== undefined && normalizeAvailableAgainAt(command.dueBy) !== state.availableAgainAt) {
         return [];
       }
 

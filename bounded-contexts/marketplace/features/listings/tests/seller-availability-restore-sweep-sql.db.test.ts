@@ -62,15 +62,25 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
   async function readAvailabilityRow(pool: PgTransactionalPool, accountId: string) {
     const result = await pool.query<{
       status: string;
-      available_again_at: string | null;
+      available_again_at: Date | null;
       disabled_reason_category: string | null;
     }>(
-      `SELECT status, available_again_at::text AS available_again_at, disabled_reason_category
+      `SELECT status, available_again_at, disabled_reason_category
        FROM marketplace_seller_listing_availability_pages
        WHERE account_id = $1`,
       [accountId],
     );
-    return result.rows[0] ?? null;
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+    // Render the timestamptz as the canonical ISO instant (matching the
+    // domain's normalized `availableAgainAt`) rather than Postgres text
+    // ("2026-07-16 18:53:59.008+00"), so assertions compare instant-to-instant.
+    return {
+      ...row,
+      available_again_at: row.available_again_at ? new Date(row.available_again_at).toISOString() : null,
+    };
   }
 
   // The seller-listing-availability read model is populated by an async
