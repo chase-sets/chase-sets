@@ -1303,6 +1303,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingDeployStep).toContain(
       '--runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap"',
     );
+    // Regression guard for the admin.doks.staging shadow host 404ing before
+    // reaching Google OAuth: the Helm chart's static ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS
+    // default is "" (see envValueDefaults in render-platform-helm-values.mjs),
+    // and the DOKS deploy is a separate platform-api process from the App
+    // Platform one that reads it from Terraform directly — without this
+    // runtime-env override the DOKS platform-api always treats admin Google
+    // Workspace SSO as unconfigured and 404s `/api/auth/social/google/start`.
+    expect(stagingDeployStep).toContain(
+      '--runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${TF_VAR_admin_google_workspace_hosted_domains:-}"',
+    );
     expect(stagingDeployStep).toContain(
       '--runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}"',
     );
@@ -1358,6 +1368,9 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(deployStep).toContain(
       '--runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap"',
+    );
+    expect(deployStep).toContain(
+      '--runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${TF_VAR_admin_google_workspace_hosted_domains:-}"',
     );
     expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}"');
     expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}"');

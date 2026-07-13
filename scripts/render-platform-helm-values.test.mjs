@@ -443,6 +443,16 @@ describe("render platform Helm values", () => {
     });
   });
 
+  // Regression guard for the admin.doks.staging.chasesets.com 404: this
+  // assertion (host -> admin-web on "/") was already true before that
+  // incident, which ruled out "admin-web's ingress path is missing/rollout-
+  // routed away" as the cause. Ingress routing was correct all along; the
+  // 404 came from the DOKS platform-api process never receiving
+  // ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS at deploy time (fixed in
+  // .github/workflows/platform-production.yml, guarded in
+  // scripts/digitalocean-platform-config.test.mjs), so admin Google
+  // Workspace SSO looked "not configured" even though the request reached
+  // platform-api fine.
   it("renders DOKS shadow ingress hosts while App Platform serves live staging traffic", () => {
     const doksIngress = buildDoksIngressValues({
       env: {
