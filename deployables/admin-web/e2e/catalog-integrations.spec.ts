@@ -6,6 +6,7 @@ import {
   expectVisibleText,
   skipDeployedAdminE2e,
 } from "./support/admin-e2e";
+import { logSeedContractGap } from "./support/seed-contract-gap";
 
 async function clickUntilDisclosureExpanded(trigger: Locator, expanded: boolean) {
   const expectedValue = String(expanded);
@@ -80,21 +81,6 @@ function expectControlledCatalogStreamProbe(path: string, result: CatalogStreamP
   expect(result.contentType, `${path} should not return host HTML`).toContain("application/json");
   expect(result.textStart, `${path} should not return an HTML fallback`).not.toMatch(/<!doctype html|<html/i);
   expect(() => JSON.parse(result.textStart || "{}"), `${path} should return JSON`).not.toThrow();
-}
-
-/**
- * Log a loud, explicit reason when a data-dependent assertion below is
- * skipped instead of hard-required. Unlike the silent `if-present` guards
- * #3514 set out to remove, this always announces itself in the raw test
- * output and the Playwright report annotations, so a skip is never mistaken
- * for a pass. Reserved for sections proven (by direct DB inspection, see
- * PR discussion) to have no browser-e2e seed or sync backing them, as
- * opposed to sections that genuinely regressed.
- */
-function logSeedContractGap(reason: string) {
-  const message = `[browser-e2e seed contract gap] ${reason}`;
-  console.warn(message);
-  test.info().annotations.push({ type: "seed-contract-gap", description: message });
 }
 
 async function expectAliasReviewWorkspace(page: Page) {
