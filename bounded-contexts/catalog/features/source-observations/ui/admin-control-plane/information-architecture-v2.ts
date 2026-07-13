@@ -1,3 +1,5 @@
+import { t } from "@chase-sets/localization";
+
 // Catalog Control Plane information architecture — v2 blueprint (m90).
 //
 // This is the design-first contract the m90 implementation slices build against.
@@ -217,7 +219,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "scope.sync",
     entity: "scope",
-    label: "Sync scope",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.scope.sync.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: false,
@@ -229,7 +231,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "scope.import",
     entity: "scope",
-    label: "Import provider data",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.scope.import.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: false,
@@ -242,7 +244,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "job.retry",
     entity: "job",
-    label: "Retry job",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.job.retry.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: false,
@@ -254,7 +256,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "job.resume",
     entity: "job",
-    label: "Resume job",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.job.resume.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: false,
@@ -266,7 +268,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "job.cancel",
     entity: "job",
-    label: "Cancel job",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.job.cancel.label"),
     permission: "catalog.manage",
     destructive: true,
     requiresReason: false,
@@ -279,7 +281,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "observation.promote",
     entity: "observation",
-    label: "Promote observations",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.observation.promote.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: false,
@@ -294,7 +296,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "observation.reject",
     entity: "observation",
-    label: "Reject observations",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.observation.reject.label"),
     permission: "catalog.manage",
     destructive: true,
     requiresReason: true,
@@ -306,7 +308,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "observation.defer",
     entity: "observation",
-    label: "Defer observations",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.observation.defer.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: false,
@@ -318,7 +320,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "observation.reapply",
     entity: "observation",
-    label: "Reapply observations",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.observation.reapply.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: false,
@@ -330,7 +332,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "observation.replay",
     entity: "observation",
-    label: "Replay observations",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.observation.replay.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: false,
@@ -343,7 +345,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "candidate.promote",
     entity: "candidate",
-    label: "Promote candidate",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.candidate.promote.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: true,
@@ -355,7 +357,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "candidate.edit",
     entity: "candidate",
-    label: "Edit candidate",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.candidate.edit.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: false,
@@ -369,7 +371,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "candidate.split",
     entity: "candidate",
-    label: "Split candidate",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.candidate.split.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: false,
@@ -381,7 +383,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "candidate.ignore",
     entity: "candidate",
-    label: "Ignore candidate",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.candidate.ignore.label"),
     permission: "catalog.manage",
     destructive: true,
     requiresReason: true,
@@ -393,7 +395,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "candidate.defer",
     entity: "candidate",
-    label: "Defer candidate",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.candidate.defer.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: true,
@@ -406,7 +408,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "alias.accept",
     entity: "alias",
-    label: "Accept alias",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.alias.accept.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: false,
@@ -418,7 +420,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "alias.reject",
     entity: "alias",
-    label: "Reject alias",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.alias.reject.label"),
     permission: "catalog.manage",
     destructive: true,
     requiresReason: true,
@@ -430,7 +432,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "alias.revoke",
     entity: "alias",
-    label: "Revoke alias",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.alias.revoke.label"),
     permission: "catalog.manage",
     destructive: true,
     requiresReason: true,
@@ -442,7 +444,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "alias.defer",
     entity: "alias",
-    label: "Defer alias",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.alias.defer.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: false,
@@ -455,7 +457,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "provider-profile.clone",
     entity: "provider-profile",
-    label: "Clone profile draft",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.provider-profile.clone.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: false,
@@ -467,7 +469,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "provider-profile.edit-section",
     entity: "provider-profile",
-    label: "Edit profile section",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.provider-profile.edit-section.label"),
     permission: "catalog.manage",
     destructive: false,
     requiresReason: false,
@@ -479,7 +481,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "provider-profile.activate",
     entity: "provider-profile",
-    label: "Activate profile",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.provider-profile.activate.label"),
     permission: "catalog.manage",
     destructive: true,
     requiresReason: false,
@@ -491,7 +493,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "provider-profile.rollback",
     entity: "provider-profile",
-    label: "Roll back profile",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.provider-profile.rollback.label"),
     permission: "catalog.manage",
     destructive: true,
     requiresReason: false,
@@ -503,7 +505,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "provider-profile.deprecate",
     entity: "provider-profile",
-    label: "Deprecate profile",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.provider-profile.deprecate.label"),
     permission: "catalog.manage",
     destructive: true,
     requiresReason: false,
@@ -515,7 +517,7 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
   {
     id: "provider-profile.retire",
     entity: "provider-profile",
-    label: "Retire profile",
+    label: t("catalog.features.sourceObservations.ui.controlPlaneV2.actions.provider-profile.retire.label"),
     permission: "catalog.manage",
     destructive: true,
     requiresReason: false,
