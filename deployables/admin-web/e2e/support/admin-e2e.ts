@@ -15,6 +15,10 @@ const adminAccount = {
   email: configuredAdminEmail || "demo@chasesets.test",
   password: configuredAdminPassword || "demo1234",
 };
+const platformAdminAccount = {
+  email: configuredAdminEmail || "browser-e2e-platform-admin@chasesets.test",
+  password: configuredAdminPassword || "browser-e2e-platform-admin-password",
+};
 const authApiTimeoutMs = 90_000;
 const pageReadyTimeoutMs = 90_000;
 
@@ -244,12 +248,25 @@ export async function expectPageOk(page: Page, path: string) {
 }
 
 export async function authenticateAdmin(page: Page, returnToPath: string, signInPath = "/access/sign-in") {
+  await authenticateAdminAccount(page, returnToPath, signInPath, adminAccount);
+}
+
+export async function authenticatePlatformAdmin(page: Page, returnToPath: string, signInPath = "/access/sign-in") {
+  await authenticateAdminAccount(page, returnToPath, signInPath, platformAdminAccount);
+}
+
+async function authenticateAdminAccount(
+  page: Page,
+  returnToPath: string,
+  signInPath: string,
+  account: Readonly<{ email: string; password: string }>,
+) {
   await expectPageOk(page, `${signInPath}?returnTo=${encodeURIComponent(returnToPath)}`);
   const origin = new URL(page.url()).origin;
   let response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
     data: {
-      email: adminAccount.email,
-      password: adminAccount.password,
+      email: account.email,
+      password: account.password,
     },
   });
 
@@ -259,8 +276,8 @@ export async function authenticateAdmin(page: Page, returnToPath: string, signIn
         async () => {
           response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
             data: {
-              email: adminAccount.email,
-              password: adminAccount.password,
+              email: account.email,
+              password: account.password,
             },
           });
           return [502, 503, 504].includes(response.status()) ? "retry" : response.status();

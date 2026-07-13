@@ -114,10 +114,12 @@ export async function runAdminQaActorFixtures(): Promise<void> {
       requiredActorMatrixSize: ADMIN_QA_ACTOR_FIXTURES.length,
       provisionedActorMatrixSize: fixtures.length,
       partialPermissionActorRowsNote:
-        "The 5 single-permission actor matrix rows (security.manage, memberships.view, postage-policies.view, " +
-        "public-presence.view, platform-feedback.view) are not provisioned as separate staging identities: Identity " +
-        "grants whole roles, not scoped single-permission memberships. Those rows stay local-only regression " +
-        "guardrails per docs/runbooks/admin-shell-smoke-matrix.md until a scoped permission grant primitive exists.",
+        "The 4 single-permission actor matrix rows (security.manage, memberships.view, postage-policies.view, " +
+        "public-presence.view) are not provisioned as separate staging identities: Identity grants whole roles, " +
+        "not scoped single-permission memberships. Those rows stay local-only regression guardrails per " +
+        "docs/runbooks/admin-shell-smoke-matrix.md until a scoped permission grant primitive exists. Customer " +
+        "feedback submission is session-subject capability customer-submit; staff feedback view/manage/export is " +
+        "available only to the platform-admin fixture.",
     };
 
     console.log(JSON.stringify(evidence));

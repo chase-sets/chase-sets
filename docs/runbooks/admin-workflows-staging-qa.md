@@ -10,27 +10,34 @@ Use the deployed staging admin interface only. Do not use direct database reads,
 
 Record only the actor alias in GitHub evidence. Keep emails, passwords, user ids, account ids, session cookies, provider references, and one-time codes private.
 
-| Alias | Intended permission shape | Sign-in host | Primary QA purpose | Account-select expectation |
-| --- | --- | --- | --- | --- |
-| `admin-qa-platform-admin` | `platform-admin` role | `/access/sign-in` | Full Access, Commerce, Growth, Support, and Platform workflows. | If multiple accounts are visible, select the operator-owned QA account and record only the account alias. |
-| `admin-qa-owner` | `owner` account role | `/access/sign-in` | Account-scoped Access and membership visibility. | Lands on or selects the owned representative account alias. |
-| `admin-qa-manager` | `manager` account role | `/access/sign-in` | Manager-level account operations and restricted security behavior. | Lands on or selects the managed representative account alias. |
-| `admin-qa-fulfillment` | `fulfillment` account role | `/access/sign-in` | Fulfillment-limited Access and commerce/support visibility. | Lands on or selects the fulfillment representative account alias. |
-| `admin-qa-viewer` | `viewer` account role | `/access/sign-in` | Read-only account-scoped navigation and denied writes. | Lands on or selects the viewer representative account alias. |
-| `admin-qa-security-manage` | `security.manage` only | `/access/sign-in` | Access and Platform section entry without unrelated section shortcuts. | No account selector unless the permission grant is intentionally account-scoped. |
-| `admin-qa-memberships-view` | `memberships.view` only | `/access/sign-in` | Access membership route visibility and denied writes. | Selects the memberships fixture account alias when prompted. |
-| `admin-qa-postage-policies-view` | `postage-policies.view` only | `/access/sign-in` | Commerce postage-policy read-only route visibility. | No account selector unless the permission grant is intentionally account-scoped. |
-| `admin-qa-public-presence-view` | `public-presence.view` only | `/access/sign-in` | Growth waitlist and promo-bar read-only route visibility. | No account selector unless the permission grant is intentionally account-scoped. |
-| `admin-qa-platform-feedback-view` | `platform-feedback.view` only | `/access/sign-in` | Support platform-feedback read-only route visibility. | No account selector unless the permission grant is intentionally account-scoped. |
-| `admin-qa-catalog-admin` | Catalog admin permission set | `/catalog/sign-in` | Catalog modeling and integrations workbench QA. | Catalog routes must not require the Access sign-in host. |
+| Alias | Role | Capability matrix | Sign-in host | Primary QA purpose | Account-select expectation |
+| --- | --- | --- | --- | --- | --- |
+| `admin-qa-platform-admin` | `platform-admin` | `customer-submit`; staff `view/manage/export` | `/access/sign-in` | Full Access, Commerce, Growth, Support, and Platform workflows, including staff feedback review. | If multiple accounts are visible, select the operator-owned QA account and record only the account alias. |
+| `admin-qa-owner` | `owner` | `customer-submit`; no staff feedback capability | `/access/sign-in` | Account-scoped Access and membership visibility plus customer feedback submission. | Lands on or selects the owned representative account alias. |
+| `admin-qa-manager` | `manager` | `customer-submit`; no staff feedback capability | `/access/sign-in` | Manager-level account operations, restricted security behavior, and customer feedback submission. | Lands on or selects the managed representative account alias. |
+| `admin-qa-fulfillment` | `fulfillment` | `customer-submit`; no staff feedback capability | `/access/sign-in` | Fulfillment-limited Access and commerce/support visibility plus customer feedback submission. | Lands on or selects the fulfillment representative account alias. |
+| `admin-qa-viewer` | `viewer` | `customer-submit`; no staff feedback capability | `/access/sign-in` | Read-only account-scoped navigation, denied writes, and customer feedback submission. | Lands on or selects the viewer representative account alias. |
+| `admin-qa-security-manage` | `security.manage` only | Local-only partial actor | `/access/sign-in` | Access and Platform section entry without unrelated section shortcuts. | No account selector unless the permission grant is intentionally account-scoped. |
+| `admin-qa-memberships-view` | `memberships.view` only | Local-only partial actor | `/access/sign-in` | Access membership route visibility and denied writes. | Selects the memberships fixture account alias when prompted. |
+| `admin-qa-postage-policies-view` | `postage-policies.view` only | Local-only partial actor | `/access/sign-in` | Commerce postage-policy read-only route visibility. | No account selector unless the permission grant is intentionally account-scoped. |
+| `admin-qa-public-presence-view` | `public-presence.view` only | Local-only partial actor | `/access/sign-in` | Growth waitlist and promo-bar read-only route visibility. | No account selector unless the permission grant is intentionally account-scoped. |
+| `admin-qa-catalog-admin` | `manager` role | `customer-submit`; no staff feedback capability | `/catalog/sign-in` | Catalog modeling and integrations workbench QA. | Catalog routes must not require the Access sign-in host. |
 
 The partial-actor rows mirror the local evidence rows in [Admin Shell Smoke Matrix](./admin-shell-smoke-matrix.md). Those local tests are regression guardrails only; #65 still needs deployed browser confirmation for the staging actor aliases above.
 
-The five single-permission rows (`admin-qa-security-manage`, `admin-qa-memberships-view`, `admin-qa-postage-policies-view`, `admin-qa-public-presence-view`, `admin-qa-platform-feedback-view`) stay local-only: Identity grants whole roles (`platform-admin`, `owner`, `manager`, `fulfillment`, `viewer`), not scoped single-permission memberships, so there is no way to provision a real staging identity that holds exactly one permission. They remain proven by [Admin Shell Smoke Matrix](./admin-shell-smoke-matrix.md) partial-actor rows until a scoped permission grant primitive exists in Identity. Do not fabricate deployed evidence for these five rows; record them as `controlled-unavailable` with a reference to this limitation.
+The four single-permission rows (`admin-qa-security-manage`, `admin-qa-memberships-view`, `admin-qa-postage-policies-view`, `admin-qa-public-presence-view`) stay local-only: Identity grants whole roles (`platform-admin`, `owner`, `manager`, `fulfillment`, `viewer`), not scoped single-permission memberships, so there is no way to provision a real staging identity that holds exactly one permission. They remain proven by [Admin Shell Smoke Matrix](./admin-shell-smoke-matrix.md) partial-actor rows until a scoped permission grant primitive exists in Identity. Do not fabricate deployed evidence for these four rows; record them as `controlled-unavailable` with a reference to this limitation.
+
+Feedback capability rules are intentionally separate from the role names:
+
+- `customer-submit` is an authenticated-subject capability. The account and user come from the session, so each role fixture can submit only its own customer feedback; it does not grant access to the operator queue.
+- Staff `view`, `manage`, and `export` are separate operator capabilities and belong only to `admin-qa-platform-admin` in this fixture model. `export` must remain independently gated because it exposes the free-text comment corpus.
+- There is no `admin-qa-platform-feedback-view` fixture. Ordinary account roles must not regain operator feedback permissions merely to satisfy the older matrix shape; use the platform-admin fixture for staff feedback e2e and the role fixtures for customer-submit coverage.
+
+The deployed platform-feedback e2e uses the separately configured platform-admin operator credentials for queue/detail/manage coverage. Its feedback creation request is still the customer-submit surface, so the matrix must not treat that request as evidence that an ordinary role can read or manage the operator queue.
 
 ## Fixture Provisioning
 
-The six remaining actor matrix rows (every row except the five single-permission rows above) map to real, grantable roles and are provisioned by an idempotent, staging-only operator action, following the same explicit-action pattern as [Staging Representative Commerce State](./staging-representative-commerce-state.md):
+The six grantable actor matrix rows map to real roles and are provisioned by an idempotent, staging-only operator action, following the same explicit-action pattern as [Staging Representative Commerce State](./staging-representative-commerce-state.md):
 
 ```bash
 ADMIN_QA_ACTOR_FIXTURES_CONFIRM="provision admin qa fixtures" \
@@ -369,7 +376,7 @@ Before section QA starts, confirm state exists for these visible workflows:
 | Catalog | Catalog modeling data plus a safe provider/import workbench fixture. | File a catalog setup issue; do not use direct provider URLs as substitute evidence. |
 | Commerce | Fee schedules, agreements, and postage policies available for read/write and read-only actor checks. | File a commerce setup issue, or refresh staging data if the row is controlled-empty. |
 | Growth | Google Shopping, waitlist, and promo-bar state available without production provider side effects. | File a growth setup issue; production Merchant Center actions remain gated by launch approval. |
-| Support | Support requests and platform feedback records available for review/archive flows. | File a support setup issue or create feedback through the public product UI when the workflow requires fresh state. |
+| Support | Support requests plus platform feedback records available for staff review/archive by the platform-admin actor. Customer-submit coverage uses an authenticated role fixture's own session. | File a support setup issue or create feedback through the public product UI when the workflow requires fresh state. |
 | Platform | Projection operations and durable job streams visible without destructive production impact. | File a platform setup issue and keep destructive operations controlled-unavailable until approved. |
 
 For commerce marketplace data, prefer the [Staging Representative Commerce State](./staging-representative-commerce-state.md) workflow and copy only its support-safe selector fields into evidence.
@@ -382,5 +389,5 @@ For commerce marketplace data, prefer the [Staging Representative Commerce State
 4. Capture the landing route, section navigation, account-select behavior, and denied-write behavior where applicable.
 5. Run each section checklist issue with the least-privilege actor that proves the behavior.
 6. File a narrower bug under milestone #65 for any unexpected route error, permission leak, stale state, or missing fixture.
-7. Close #3016 only after all six provisionable actor aliases have deployed staging evidence, the five single-permission rows are recorded `controlled-unavailable` per the note above, and representative state gaps are either resolved or tracked in narrower milestone issues.
+7. Close #3016 only after all six provisionable actor aliases have deployed staging evidence, the four single-permission rows are recorded `controlled-unavailable` per the note above, and representative state gaps are either resolved or tracked in narrower milestone issues.
 8. Close #3019 only after the role-fixture and single-permission actor RBAC rows pass locally (`admin-role-matrix.test.ts` plus the Admin Shell Smoke Matrix's Partial-Actor Local Evidence Rows), the auth shell RBAC evidence gate passes, and deployed staging evidence covers every sign-in method on both hosts, account-select, sign-out, root-hub states, and desktop/mobile shell parity.

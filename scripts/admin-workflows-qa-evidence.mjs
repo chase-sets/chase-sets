@@ -61,9 +61,10 @@ export const ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX = Object.freeze([
   { actorAlias: "admin-qa-memberships-view", signInHost: "/access/sign-in" },
   { actorAlias: "admin-qa-postage-policies-view", signInHost: "/access/sign-in" },
   { actorAlias: "admin-qa-public-presence-view", signInHost: "/access/sign-in" },
-  { actorAlias: "admin-qa-platform-feedback-view", signInHost: "/access/sign-in" },
   { actorAlias: "admin-qa-catalog-admin", signInHost: "/catalog/sign-in" },
 ]);
+
+export const ADMIN_WORKFLOWS_QA_REMOVED_ACTOR_ALIASES = Object.freeze(["admin-qa-platform-feedback-view"]);
 
 export const ADMIN_WORKFLOWS_QA_CATALOG_MODELING_REQUIRED_COVERAGE = Object.freeze([
   { key: "primitive:dimensions", description: "Dimension primitive lifecycle coverage" },
@@ -880,6 +881,9 @@ function buildActorMatrixCompleteness(input) {
   const missingActors = [];
   const hostMismatches = [];
   const coveredActors = [];
+  const removedActors = evidenceRecords
+    .filter(({ actorAlias }) => ADMIN_WORKFLOWS_QA_REMOVED_ACTOR_ALIASES.includes(actorAlias))
+    .map(({ actorAlias }) => ({ actorAlias, severity: "blocker" }));
 
   if (required) {
     for (const requiredActor of ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX) {
@@ -903,11 +907,12 @@ function buildActorMatrixCompleteness(input) {
 
   return {
     mode: required ? "actor-matrix-coverage" : "not-required",
-    status: missingActors.length === 0 && hostMismatches.length === 0 ? "pass" : "fail",
+    status: missingActors.length === 0 && hostMismatches.length === 0 && removedActors.length === 0 ? "pass" : "fail",
     requiredActors: required ? ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX : [],
     coveredActors,
     missingActors: missingActors.map((actor) => ({ ...actor, severity: "blocker" })),
     hostMismatches,
+    removedActors,
   };
 }
 
