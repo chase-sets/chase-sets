@@ -40,6 +40,7 @@ Bulk publish policy for draft Catalog Items is documented in [Bulk Catalog Item 
 Alias source governance and acceptance-disposition policy are documented in [Catalog Alias Source Governance](./docs/catalog-alias-source-governance.md).
 Catalog Item image and fallback-image facts are documented in [Catalog Item Imagery](./docs/catalog-item-imagery.md).
 Physical shipping measurement facts are documented in [Product Measures](./docs/product-measures.md).
+The v2 integration control-plane IA — three pages, two utilities, and the per-entity action vocabulary — is documented in [Catalog Control Plane Blueprint (v2)](./docs/catalog-control-plane-blueprint-v2.md).
 
 ## Owns
 

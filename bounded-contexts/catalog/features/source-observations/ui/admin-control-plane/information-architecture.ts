@@ -1,3 +1,10 @@
+// @deprecated m90 blueprint slice — superseded by the v2 blueprint in
+// `information-architecture-v2.ts` (three pages + two utilities, per-entity action
+// vocabulary, no workspace router, no returnPath). This workspace-router IA and its
+// live consumers are owned for deletion by the m90 implementation slices
+// (catalog-home, scope-detail, provider-detail, settings + evidence drawer, typed
+// promotion preview). It stays in place only until those slices land; do not extend
+// it. See bounded-contexts/catalog/docs/catalog-control-plane-blueprint-v2.md.
 export type CatalogControlPlaneContextKey =
   | "section"
   | "providerKey"
