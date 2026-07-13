@@ -12,6 +12,8 @@ Live numbers for the "Lower fees" and "Better protections" claims are read from 
 | "Founders lock 0% for 60 days" | **Dropped (pre-launch)** | No admission flow exists yet to grant a founder a 0% agreement; the mechanism is real (Commercial Terms agreements) but unused. |
 | "Better protections" | **Substantiated** | Every covered order records a replay-safe 1% protection-reserve contribution with its allowance/overage funding split; buyers never see a separate protection fee line. |
 | "Supports graded cards" | **Softened** | Cert-numbered slab data is enforced end-to-end via the API/import path; there is no listing-create UI form for it yet, and no per-grade pricing exists anywhere. |
+| "Open offers" | **Substantiated** | The shipped offer aggregate is catalog/product-backed, any eligible non-self seller with matching active supply can accept, and acceptance publishes the handoff consumed by Checkout and Ordering. |
+| Market-data numbers | **Dropped outside production** | The generator is repeatable and stat-hygiene-gated, but fixture and staging rows are representative data, not public marketplace activity. |
 
 ---
 
@@ -61,10 +63,25 @@ The monitor reports net contribution, allowance-funded share, overage-funded sha
 1. A listing-create UI form gains grading fields → promote the "list your graded cards" call-to-action to Substantiated.
 2. Pricing gains a per-grade dimension on market-rollups/trades → a new, separate claim ("PSA 10 pricing data") becomes reviewable; this document does not pre-approve wording for it.
 
+## Claim 4 — "Open offers"
+
+**Current reality (verified against code and merged PR #4945, 2026-07-12):** a submitted offer records a catalog item, resolved product, price, quantity, and shipping-destination snapshot. It is marketplace-wide rather than addressed to a named seller. Acceptance rejects the buyer's own account, unavailable seller accounts, and sellers without matching active supply; it snapshots the seller's fee terms and emits `marketplace.offer.accepted`. Checkout consumes that event into its accepted-offer page and Ordering consumes it into its offer-acceptance input. Acceptance is therefore the start of the real checkout/order handoff, not a claim that payment has already completed.
+
+**Ruling: Substantiated.** Approved wording: **"Post an open offer for a catalog item at the price you'll pay. Any eligible seller with matching active supply can accept it; acceptance starts the checkout and order handoff with fee terms recorded."** The shorter approved CTA is **"Post an open offer for the card you want — any matching seller can accept it."**
+
+Do not claim a seller-match count, time-to-fill, expiry behavior, completed payment at acceptance, or live offer activity unless a separate production evidence source substantiates it.
+
+## Claim 5 — market-data numbers
+
+**Current reality:** Pricing's Trades Tape contains completed, non-excluded marketplace trades. Its Daily Product Rollup and Market-State Snapshot query API exposes product-level weekly medians, counts, active asks, open offers, and spreads. The query API suppresses medians below the live Stat-Hygiene Policy's minimum sample. It does **not** expose a game/category-wide rollup or a per-grade dimension.
+
+**Ruling: Dropped outside production.** Fixture and staging output may be used to rehearse layout and cadence only. It must retain the generator's `DO NOT PUBLISH` banner. Production output from `pnpm run campaign:market-data` may use only the generated wording after operator review; do not hand-edit numbers, remove the source note, describe a product as the whole game's market, or claim grade-specific pricing. Approved attribution: **"Data from the Chase Sets catalog. Product-level marketplace activity; not a game-wide price index or per-grade price guide."**
+
 ---
 
 ## Revision log
 
+- **2026-07-12** — Added the open-offer mechanics ruling and the production-only market-data gate for #4073; exact wording follows the shipped offer flow and Pricing's m111 query boundary.
 - **2026-07-12** — Initial review (this document). All three named claims plus the implicit founders-lock claim reviewed against shipped code; none promoted to full Substantiated. Offer-economics monitor (#4075) shipped alongside this review as the live-data source for Claims 1 and 1a going forward.
 
 ## Process

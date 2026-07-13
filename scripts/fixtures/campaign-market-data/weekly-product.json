@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "subject": {
+    "catalogItemId": "fixture_catalog_item",
+    "productId": "fixture_product",
+    "title": "Fixture Card",
+    "game": "Fixture Game",
+    "community": "r/fixture"
+  },
+  "range": {
+    "from": "2026-07-13",
+    "to": "2026-07-26",
+    "asOf": "2026-07-26"
+  },
+  "series": {
+    "items": [
+      {
+        "day": "2026-07-13",
+        "firstPriceAmount": "10.00",
+        "lastPriceAmount": "12.00",
+        "minPriceAmount": "9.00",
+        "maxPriceAmount": "13.00",
+        "medianPriceAmount": "11.00",
+        "unitVolume": 4,
+        "tradeCount": 4,
+        "verifiedTradeCount": 3
+      },
+      {
+        "day": "2026-07-20",
+        "firstPriceAmount": "12.00",
+        "lastPriceAmount": "13.00",
+        "minPriceAmount": "11.00",
+        "maxPriceAmount": "14.00",
+        "medianPriceAmount": "12.50",
+        "unitVolume": 5,
+        "tradeCount": 5,
+        "verifiedTradeCount": 4
+      }
+    ]
+  },
+  "stats": {
+    "aggregate": {
+      "lastSoldAt": "2026-07-26T20:00:00.000Z",
+      "lastSoldPriceAmount": "13.00",
+      "medianPrice30d": "12.00",
+      "volume30d": 9,
+      "tradeCount30d": 9,
+      "medianPrice90d": "11.50",
+      "volume90d": 18,
+      "tradeCount90d": 18,
+      "sellThroughRate": "0.4500"
+    },
+    "marketState": {
+      "day": "2026-07-26",
+      "activeListingCount": 3,
+      "minAskAmount": "14.00",
+      "openOfferCount": 2,
+      "maxBidAmount": "12.00",
+      "spreadAmount": "2.00"
+    },
+    "statHygiene": {
+      "minimumTradeSample": 3
+    },
+    "displayPolicy": {
+      "showVerifiedMarkers": true
+    }
+  }
+}
