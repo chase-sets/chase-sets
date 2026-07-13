@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -11,6 +12,7 @@ import {
 import { module as marketplaceModule } from "../../../index";
 import { createMarketplaceServices } from "../../../support/runtime-support/services";
 import { listDueSellerAvailabilityRestores } from "../read-model/queries";
+import { buildMarketplaceListingProjectionHandlers } from "../read-model/projection";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = databaseBaseUrl ? describe : describe.skip;
@@ -66,6 +68,29 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
     return result.rows[0] ?? null;
   }
 
+  // The seller-listing-availability read model is populated by an async
+  // subscription (marketplace.self-listing-projection), not synchronously by
+  // the command handler. This harness has no subscription runner draining
+  // that queue, so tests that assert against the read model must replay the
+  // account's own event stream through the real projection handlers -- an
+  // idempotent no-op catch-up, mirroring how
+  // review-eligibility-sql.db.test.ts drives its projections directly.
+  async function catchUpAvailabilityProjection(pool: PgTransactionalPool, accountId: string): Promise<void> {
+    const eventStore = createPostgresEventStore({ pool });
+    const events = await eventStore.readStream({
+      streamId: `marketplace.seller-listing-availability-${accountId}`,
+    });
+    const handlers = buildMarketplaceListingProjectionHandlers(pool);
+
+    for (const storedEvent of events) {
+      const transportEvent = toTransportEvent(storedEvent);
+      const handler = handlers[transportEvent.type];
+      if (handler) {
+        await handler(transportEvent);
+      }
+    }
+  }
+
   it("restores a due account, is idempotent on re-sweep, and never surfaces a legacy availableAgainOn-only row", async () => {
     const pool = pools.marketplace;
     const services = buildServices(pool);
@@ -80,6 +105,7 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
       },
       context("acc_away_due"),
     );
+    await catchUpAvailabilityProjection(pool, "acc_away_due");
 
     // Not due: an authoritative resume instant in the future.
     await services.listings.disableSellerListingAvailability(
@@ -91,6 +117,7 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
       },
       context("acc_away_not_yet"),
     );
+    await catchUpAvailabilityProjection(pool, "acc_away_not_yet");
 
     // Legacy shape: unavailable with only a display-only availableAgainOn
     // date, no availableAgainAt at all. This never participates in
@@ -107,6 +134,7 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
 
     const firstSweep = await services.listings.sweepDueSellerAvailabilityRestores({ now }, context("system"));
     expect(firstSweep).toEqual({ checked: 1, restored: 1, skipped: 0 });
+    await catchUpAvailabilityProjection(pool, "acc_away_due");
 
     const restoredRow = await readAvailabilityRow(pool, "acc_away_due");
     expect(restoredRow).toMatchObject({ status: "available", available_again_at: null });
@@ -135,6 +163,7 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
       },
       context("acc_away_earliest"),
     );
+    await catchUpAvailabilityProjection(pool, "acc_away_earliest");
     await services.listings.disableSellerListingAvailability(
       {
         accountId: "acc_away_middle",
@@ -144,6 +173,7 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
       },
       context("acc_away_middle"),
     );
+    await catchUpAvailabilityProjection(pool, "acc_away_middle");
     await services.listings.disableSellerListingAvailability(
       {
         accountId: "acc_away_latest",
@@ -153,10 +183,12 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
       },
       context("acc_away_latest"),
     );
+    await catchUpAvailabilityProjection(pool, "acc_away_latest");
 
     const now = "2026-07-13T12:00:00.000Z";
     const sweep = await services.listings.sweepDueSellerAvailabilityRestores({ now, limit: 1 }, context("system"));
     expect(sweep).toEqual({ checked: 1, restored: 1, skipped: 0 });
+    await catchUpAvailabilityProjection(pool, "acc_away_earliest");
 
     // Only the longest-overdue account was restored this pass.
     expect(await readAvailabilityRow(pool, "acc_away_earliest")).toMatchObject({ status: "available" });
@@ -170,6 +202,7 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
       context("system"),
     );
     expect(secondSweep).toEqual({ checked: 1, restored: 1, skipped: 0 });
+    await catchUpAvailabilityProjection(pool, "acc_away_middle");
     expect(await readAvailabilityRow(pool, "acc_away_middle")).toMatchObject({ status: "available" });
   });
 
@@ -187,6 +220,7 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
       },
       context(accountId),
     );
+    await catchUpAvailabilityProjection(pool, accountId);
 
     const now = "2026-07-13T12:00:00.000Z";
     // The sweep's due-query observes the account as due and captures its
@@ -206,6 +240,7 @@ describeDb("marketplace seller-availability auto-resume sweep SQL persistence bo
       },
       context(accountId),
     );
+    await catchUpAvailabilityProjection(pool, accountId);
 
     // The sweep now issues its enable using the stale `dueBy` it captured
     // above -- this must no-op, not clobber the seller's extension.
