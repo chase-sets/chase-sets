@@ -22,11 +22,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function stubFetch(referralCount: number, referralGoal = 3) {
+function stubFetch(
+  referralCount: number,
+  referralGoal = 3,
+  standing: { queuePosition: number | null; totalSignups: number; positionsAdvanced: number } = {
+    queuePosition: null,
+    totalSignups: 0,
+    positionsAdvanced: 0,
+  },
+) {
   return vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
     if (url.includes("/referral-summary")) {
-      return new Response(JSON.stringify({ referralCount, referralGoal }), {
+      return new Response(JSON.stringify({ referralCount, referralGoal, ...standing }), {
         headers: { "Content-Type": "application/json" },
       });
     }
@@ -53,11 +61,44 @@ describe("waitlist success page", () => {
     render(<WaitlistSuccessPage signupId="wls_public" publicOrigin="https://chasesets.com" discordInviteUrl={null} />);
 
     expect(screen.getByRole("heading", { name: "You are on the list" })).toBeTruthy();
-    expect(screen.getByDisplayValue("https://chasesets.com/?ref=wls_public")).toBeTruthy();
+    // The share link carries a referral UTM channel so referred signups land
+    // as a distinct row in campaign channel attribution (#4070).
+    expect(
+      screen.getByDisplayValue("https://chasesets.com/?ref=wls_public&utm_source=referral&utm_medium=waitlist_share"),
+    ).toBeTruthy();
 
     await waitFor(() => {
       expect(screen.getByText("1 of 3")).toBeTruthy();
     });
+  });
+
+  it("shows the real queue position and referral advancement from the read model (#4070)", async () => {
+    vi.stubGlobal("fetch", stubFetch(2, 3, { queuePosition: 41, totalSignups: 120, positionsAdvanced: 12 }));
+    window.dataLayer = [];
+
+    render(<WaitlistSuccessPage signupId="wls_public" publicOrigin="https://chasesets.com" discordInviteUrl={null} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("You're #41 of 120 in the beta invite line.")).toBeTruthy();
+    });
+    expect(screen.getByText("Up 12 in line thanks to your referrals.")).toBeTruthy();
+    expect(screen.queryByText("Your place in line is updating. Check back in a moment.")).toBeNull();
+  });
+
+  it("shows a pending place in line instead of a fake number while the projection catches up", async () => {
+    vi.stubGlobal("fetch", stubFetch(0));
+    window.dataLayer = [];
+
+    render(<WaitlistSuccessPage signupId="wls_public" publicOrigin="https://chasesets.com" discordInviteUrl={null} />);
+
+    expect(screen.getByText("Your place in line is updating. Check back in a moment.")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByText("0 of 3")).toBeTruthy();
+    });
+    expect(screen.queryByText(/You're #\d+ of/)).toBeNull();
+
+    // No advancement note either: a signup with no referrals has moved 0.
+    expect(screen.queryByText(/thanks to your referrals/)).toBeNull();
   });
 
   it("fires succeeded and attributed analytics once per fresh landing", async () => {

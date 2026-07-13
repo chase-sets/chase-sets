@@ -56,18 +56,35 @@ describe("waitlist read-model queries", () => {
     );
   });
 
-  it("counts only signups referred by the given signup id", async () => {
+  it("counts only signups referred by the given signup id and reports its queue standing", async () => {
+    // Three-signup queue: abc123 signed up last but referred both others, so
+    // the policy (10 places per counted referral) moves it to the front.
+    const queueRows = [
+      { signup_id: "wls_first", submitted_at: "2026-07-01T00:00:00.000Z", referral_count: "0" },
+      { signup_id: "wls_second", submitted_at: "2026-07-01T00:01:00.000Z", referral_count: "0" },
+      { signup_id: "wls_abc123", submitted_at: "2026-07-01T00:02:00.000Z", referral_count: "2" },
+    ];
     const db: PgQueryable = {
-      query: vi.fn(async () => ({ rows: [{ referral_count: "2" }], rowCount: 1 })),
+      query: vi.fn(async (sql: string) =>
+        sql.includes("WHERE referred_by_signup_id = $1")
+          ? { rows: [{ referral_count: "2" }], rowCount: 1 }
+          : { rows: queueRows, rowCount: queueRows.length },
+      ),
     };
 
     const summary = await getWaitlistReferralSummary(db, "wls_abc123");
 
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("WHERE referred_by_signup_id = $1"), ["wls_abc123"]);
-    expect(summary).toEqual({ referralCount: 2, referralGoal: 3 });
+    expect(summary).toEqual({
+      referralCount: 2,
+      referralGoal: 3,
+      queuePosition: 1,
+      totalSignups: 3,
+      positionsAdvanced: 2,
+    });
   });
 
-  it("returns a zero referral count when no signups reference the referral code", async () => {
+  it("returns a zero count and a pending (null) queue position when the signup is not visible yet", async () => {
     const db: PgQueryable = {
       query: vi.fn(async () => ({ rows: [], rowCount: 0 })),
     };
@@ -75,6 +92,8 @@ describe("waitlist read-model queries", () => {
     const summary = await getWaitlistReferralSummary(db, "wls_unknown");
 
     expect(summary.referralCount).toBe(0);
+    expect(summary.queuePosition).toBeNull();
+    expect(summary.positionsAdvanced).toBe(0);
   });
 
   it("counts every waitlist signup with a single query", async () => {

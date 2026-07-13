@@ -26,8 +26,17 @@ import { gameItems, inventorySizeItems, PublicPresencePageShell } from "./public
 
 const landingExperimentVariant = "seller_first_v1";
 
+type ReferralSummary = Readonly<{
+  referralCount: number;
+  referralGoal: number;
+  /** 1-based place in the beta invite line, or null while the read model catches up -- render "pending", never a fake number. */
+  queuePosition: number | null;
+  totalSignups: number;
+  positionsAdvanced: number;
+}>;
+
 function useWaitlistReferralSummary(signupId: string) {
-  const [summary, setSummary] = useState<{ referralCount: number; referralGoal: number } | null>(null);
+  const [summary, setSummary] = useState<ReferralSummary | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,16 +45,30 @@ function useWaitlistReferralSummary(signupId: string) {
       credentials: "same-origin",
     })
       .then((response) => (response.ok ? response.json() : null))
-      .then((body: { referralCount?: number; referralGoal?: number } | null) => {
-        if (cancelled || !body) {
-          return;
-        }
+      .then(
+        (
+          body: {
+            referralCount?: number;
+            referralGoal?: number;
+            queuePosition?: number | null;
+            totalSignups?: number;
+            positionsAdvanced?: number;
+          } | null,
+        ) => {
+          if (cancelled || !body) {
+            return;
+          }
 
-        setSummary({
-          referralCount: Number(body.referralCount ?? 0),
-          referralGoal: Number(body.referralGoal ?? 3),
-        });
-      })
+          const queuePosition = Number(body.queuePosition ?? Number.NaN);
+          setSummary({
+            referralCount: Number(body.referralCount ?? 0),
+            referralGoal: Number(body.referralGoal ?? 3),
+            queuePosition: Number.isFinite(queuePosition) && queuePosition > 0 ? queuePosition : null,
+            totalSignups: Number(body.totalSignups ?? 0),
+            positionsAdvanced: Math.max(0, Number(body.positionsAdvanced ?? 0)),
+          });
+        },
+      )
       .catch(() => undefined);
 
     return () => {
@@ -214,7 +237,10 @@ export function WaitlistSuccessPage({
   /** Games already recorded at signup, prefilled into the wave-placement chips. */
   initialGames?: readonly string[];
 }) {
-  const referralLink = `${publicOrigin.replace(/\/+$/, "")}/?ref=${encodeURIComponent(signupId)}`;
+  // The share link carries its own UTM channel so referral traffic shows up
+  // as a distinct row in campaign channel attribution (utm_source=referral),
+  // alongside the per-signup `?ref=` attribution the queue mechanic uses.
+  const referralLink = `${publicOrigin.replace(/\/+$/, "")}/?ref=${encodeURIComponent(signupId)}&utm_source=referral&utm_medium=waitlist_share`;
   const summary = useWaitlistReferralSummary(signupId);
   const referralGoal = summary?.referralGoal ?? 3;
   const referralCount = summary?.referralCount ?? 0;
@@ -289,6 +315,27 @@ export function WaitlistSuccessPage({
           <Grid columns={{ base: 1, lg: 2 }} gap={4}>
             <Surface tone="subtle" elevated>
               <Stack gap={3}>
+                {summary?.queuePosition != null ? (
+                  <Stack gap={1}>
+                    <Text size="lg" weight="semibold">
+                      {t("publicPresence.welcome.referral.position.value", {
+                        position: summary.queuePosition,
+                        total: summary.totalSignups,
+                      })}
+                    </Text>
+                    {summary.positionsAdvanced > 0 ? (
+                      <Text size="sm" tone="secondary">
+                        {t("publicPresence.welcome.referral.position.advanced", {
+                          count: summary.positionsAdvanced,
+                        })}
+                      </Text>
+                    ) : null}
+                  </Stack>
+                ) : (
+                  <Text size="sm" tone="secondary">
+                    {t("publicPresence.welcome.referral.position.pending")}
+                  </Text>
+                )}
                 <Text weight="semibold">{t("publicPresence.welcome.referral.linkLabel")}</Text>
                 <Cluster gap={2}>
                   <TextInput

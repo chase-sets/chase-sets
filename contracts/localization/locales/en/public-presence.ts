@@ -715,9 +715,12 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.welcome.referral.description":
     "Invite {goal} sellers or buyers with your personal link to move up the beta invite line.",
   "publicPresence.welcome.referral.linkLabel": "Your referral link",
+  "publicPresence.welcome.referral.position.advanced": "Up {count} in line thanks to your referrals.",
+  "publicPresence.welcome.referral.position.pending": "Your place in line is updating. Check back in a moment.",
+  "publicPresence.welcome.referral.position.value": "You're #{position} of {total} in the beta invite line.",
   "publicPresence.welcome.referral.progress.complete": "Referral goal reached. Thank you for spreading the word.",
   "publicPresence.welcome.referral.progress.description":
-    "Referring {goal} sellers or buyers through your link moves you up the beta invite line.",
+    "Every seller or buyer who joins through your link moves you up the beta invite line.",
   "publicPresence.welcome.referral.progress.label": "Sellers and buyers invited",
   "publicPresence.welcome.referral.progress.value": "{count} of {goal}",
   "publicPresence.welcome.referral.share.discord": "Share on Discord",

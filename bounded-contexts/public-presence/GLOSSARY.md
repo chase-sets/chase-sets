@@ -80,3 +80,15 @@ Notes:
 
 - Read from the durable Waitlist Signup read model (transactional truth), distinct from the directional funnel-event telemetry Grafana/Loki visualizes (see `bounded-contexts/public-presence/docs/landing-page-analytics.md`).
 - Surfaced on the Campaign Analytics admin page alongside the Wave-1 Admission Bar.
+
+## Referral Queue Position
+
+A **Referral Queue Position** is a Waitlist Signup's 1-based place in the beta invite line: base signup order improved by attributed referrals under the referral queue policy (each counted referral is worth a fixed number of places, with a hard cap on counted referrals).
+
+Notes:
+
+- Defined in `bounded-contexts/public-presence/features/waitlist/read-model/referral-queue-policy.ts`; the per-referral worth and the counted-referral cap live there, not scattered across call sites.
+- Deterministic: a pure function of signup order and attributed referral counts, both replayable from recorded waitlist events. No randomness, no wall-clock reads.
+- Anti-gaming: self-referrals never record, duplicate emails collapse into one signup, and the cap keeps a late signup from leapfrogging genuine early signups entirely.
+- An invite-prioritization input, not guaranteed admission and not founder status -- wave placement still weighs Cohort Quality Signals and the Wave-1 Admission Bar.
+- Surfaced truthfully on the welcome page: the real position from the read model, or "updating" while the projection catches up, never a fake number.
