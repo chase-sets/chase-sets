@@ -901,6 +901,7 @@ export type PaymentServices = Readonly<{
       accountId: AccountId;
       returnUrlBase?: string | null;
       returnUrlPath?: string | null;
+      uiMode?: "hosted" | "embedded";
       agentGrantId?: string | null;
     }>,
   ) => Promise<SavedCheckoutSetupSessionRow>;
@@ -1453,6 +1454,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         providerCustomerReference: customer.provider_customer_reference,
         currencyCode: "usd",
         returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrl}` : null,
+        uiMode: params.uiMode ?? "hosted",
         consentId,
         consentText: SAVE_PAYMENT_CONSENT_TEXT,
         idempotencyKey: `payments:account:${accountId}:setup:${setupReferenceId}`,

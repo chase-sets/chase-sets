@@ -50,6 +50,7 @@ export type PaymentsSavedCheckoutSetupSession = Readonly<{
   processor_client_secret: string | null;
   processor_redirect_url: string | null;
   processor_status: string;
+  processor_publishable_key?: string | null;
 }>;
 
 export type PaymentsPaymentMethodReconciliationResult = Readonly<{

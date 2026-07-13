@@ -80,7 +80,7 @@ export type CreateProcessorCustomerInput = Readonly<{
 
 export type CreatedProcessorSetupSession = Readonly<{
   processorName: PaymentProcessorName;
-  processorSetupKind: "checkout-setup-session";
+  processorSetupKind: "checkout-setup-session" | "setup-intent";
   processorSetupReference: string;
   processorClientSecret: string | null;
   processorRedirectUrl: string | null;
@@ -92,6 +92,7 @@ export type CreateProcessorSetupSessionInput = Readonly<{
   providerCustomerReference: string;
   currencyCode: PaymentCurrencyCode;
   returnUrl?: string | null;
+  uiMode?: "hosted" | "embedded";
   consentId: string;
   consentText: string;
   idempotencyKey?: string | null;

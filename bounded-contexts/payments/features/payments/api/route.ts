@@ -11,6 +11,7 @@ import { resolveClientAddress, resolvePublicRequestOrigin } from "@chase-sets/pl
 import { PaymentsRateLimitExceededError, type PaymentServices } from "./runtime";
 import { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request";
 import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import type { PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
 
 export type PaymentsApiEnv = AuthenticatedApiEnv;
 
@@ -177,13 +178,17 @@ type SavedCheckoutInstrumentForApi = Awaited<ReturnType<PaymentServices["listSav
 type SavedCheckoutSetupSessionForApi = Awaited<ReturnType<PaymentServices["createSavedCheckoutSetupSession"]>>;
 type AccountOrderInputForApi = Awaited<ReturnType<PaymentServices["listAccountOrderInputs"]>>[number];
 
-function savedCheckoutSetupSessionSnapshot(setup: SavedCheckoutSetupSessionForApi) {
+function savedCheckoutSetupSessionSnapshot(
+  setup: SavedCheckoutSetupSessionForApi,
+  publicConfig?: PaymentProcessorPublicConfig,
+) {
   return {
     setup_reference_id: setup.setup_reference_id,
     processor_setup_reference: setup.processor_setup_reference,
     processor_client_secret: setup.processor_client_secret,
     processor_redirect_url: setup.processor_redirect_url,
     processor_status: setup.processor_status,
+    ...(publicConfig?.publishableKey ? { processor_publishable_key: publicConfig.publishableKey } : {}),
   };
 }
 
@@ -240,7 +245,7 @@ function savedCheckoutInstrumentSnapshot(
   };
 }
 
-export function createAccountPaymentRoutes(services: PaymentServices) {
+export function createAccountPaymentRoutes(services: PaymentServices, publicConfig?: PaymentProcessorPublicConfig) {
   const app = new Hono<PaymentsApiEnv>();
 
   app.post("/payments", async (c) => {
@@ -457,8 +462,12 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
           body.returnUrlPath === null || body.returnUrlPath === undefined
             ? "/account/payment-methods"
             : String(body.returnUrlPath),
+        // The authenticated account page always uses the embedded SetupIntent
+        // surface. Hosted setup remains available through the agent URL-
+        // elicitation MCP tool, which calls the runtime directly.
+        uiMode: "embedded",
       });
-      return c.json(savedCheckoutSetupSessionSnapshot(setup), 201);
+      return c.json(savedCheckoutSetupSessionSnapshot(setup, publicConfig), 201);
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

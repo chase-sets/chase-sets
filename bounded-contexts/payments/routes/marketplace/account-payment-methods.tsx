@@ -1,6 +1,7 @@
 import { formatDateTime, t } from "@chase-sets/localization";
+import { useEffect, useState } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import { useActionData, useLoaderData } from "react-router";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -22,12 +23,14 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { createPaymentsRequestApiClient, PaymentsApiError } from "../../support/request-support/api-client";
+import { StripeSetupCard } from "../../features/payments/ui/account-payment/stripe-setup-card";
 
 type PaymentsRequestApiClient = ReturnType<typeof createPaymentsRequestApiClient>;
 type PaymentMethodSnapshot = Awaited<ReturnType<PaymentsRequestApiClient["listPaymentMethods"]>>["items"][number];
 type PaymentMethodsActionData = Readonly<{
   error?: string;
   paymentMethods?: readonly PaymentMethodSnapshot[];
+  setup?: Awaited<ReturnType<PaymentsRequestApiClient["createSavedPaymentSetupSession"]>>;
 }>;
 
 function paymentMethodCategoryLabel(value: string) {
@@ -83,10 +86,7 @@ export async function action({ request }: ActionFunctionArgs): Promise<PaymentMe
       const setup = await paymentsApi.createSavedPaymentSetupSession({
         returnUrlPath: "/account/payment-methods",
       });
-      if (setup.processor_redirect_url) {
-        throw redirect(setup.processor_redirect_url);
-      }
-      return { error: t("payments.routes.marketplace.accountPaymentMethods.processor.setup.link.missing") };
+      return { setup, paymentMethods: await loadPaymentMethodSnapshot(paymentsApi) };
     }
     if (intent === "default") {
       await paymentsApi.setDefaultPaymentMethod(String(formData.get("instrumentId") ?? ""));
@@ -121,8 +121,17 @@ export const meta: MetaFunction = () =>
 export default function AccountPaymentMethodsRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const paymentMethods =
-    actionData && "paymentMethods" in actionData && actionData.paymentMethods
+  const [setup, setSetup] = useState<PaymentMethodsActionData["setup"] | null>(actionData?.setup ?? null);
+  const [setupSaved, setSetupSaved] = useState(false);
+  useEffect(() => {
+    if (actionData?.setup) {
+      setSetup(actionData.setup);
+      setSetupSaved(false);
+    }
+  }, [actionData?.setup]);
+  const paymentMethods = setupSaved
+    ? data.paymentMethods
+    : actionData && "paymentMethods" in actionData && actionData.paymentMethods
       ? actionData.paymentMethods
       : data.paymentMethods;
   const activeMethods = paymentMethods.filter((method) => method.readiness !== "removed");
@@ -162,6 +171,24 @@ export default function AccountPaymentMethodsRoute() {
             title={t("payments.routes.marketplace.accountPaymentMethods.payment.method.saved")}
             description={t("payments.routes.marketplace.accountPaymentMethods.payment.method.saved.description")}
           />
+        ) : null}
+        {setupSaved ? (
+          <Banner
+            tone="success"
+            title={t("payments.routes.marketplace.accountPaymentMethods.payment.method.saved")}
+            description={t("payments.routes.marketplace.accountPaymentMethods.payment.method.saved.description")}
+          />
+        ) : null}
+        {setup ? (
+          <PageSection title={t("payments.routes.marketplace.accountPaymentMethods.add.payment.method")}>
+            <StripeSetupCard
+              setup={setup}
+              onSaved={() => {
+                setSetup(null);
+                setSetupSaved(true);
+              }}
+            />
+          </PageSection>
         ) : null}
         {data.setupResult === "pending" ? (
           <Banner

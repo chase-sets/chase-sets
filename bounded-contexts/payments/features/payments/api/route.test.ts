@@ -607,6 +607,9 @@ describe("payments routes", () => {
       processor_redirect_url: "https://checkout.stripe.test/setup/cs_setup_1",
       processor_status: "open",
     });
+    expect(services.createSavedCheckoutSetupSession).toHaveBeenCalledWith(
+      expect.objectContaining({ uiMode: "embedded" }),
+    );
     expect(JSON.stringify(body)).not.toContain("provider_customer_reference");
     expect(JSON.stringify(body)).not.toContain("consent_text");
   });

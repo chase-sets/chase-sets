@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import type { ComponentProps } from "react";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
-const { mockRequireActorFromAuthApi, mockUseActionData, mockUseLoaderData } = vi.hoisted(() => ({
+const { mockRequireActorFromAuthApi, mockUseActionData, mockUseLoaderData, mockUseRevalidator } = vi.hoisted(() => ({
   mockRequireActorFromAuthApi: vi.fn(),
   mockUseActionData: vi.fn(),
   mockUseLoaderData: vi.fn(),
+  mockUseRevalidator: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -19,6 +20,7 @@ vi.mock("react-router", async () => {
     Form: (props: ComponentProps<"form">) => <form {...props} />,
     useActionData: mockUseActionData,
     useLoaderData: mockUseLoaderData,
+    useRevalidator: mockUseRevalidator,
   };
 });
 
@@ -67,6 +69,15 @@ const bankMethod = {
   updated_at: "2026-04-01T00:00:00.000Z",
 };
 
+const embeddedSetup = {
+  setup_reference_id: "scs_embedded",
+  processor_setup_reference: "seti_embedded",
+  processor_client_secret: "seti_embedded_secret",
+  processor_redirect_url: null,
+  processor_status: "requires_payment_method",
+  processor_publishable_key: "pk_test_123",
+};
+
 function requestMethod(input: string | URL | Request, init?: RequestInit) {
   return (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
 }
@@ -79,6 +90,7 @@ describe("account payment methods route", () => {
       permissions: ["orders.view", "orders.manage"],
     });
     mockUseActionData.mockReturnValue(undefined);
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
   });
 
   afterEach(() => {
@@ -185,6 +197,141 @@ describe("account payment methods route", () => {
 
     expect(screen.getByText("Bank ending in 6789")).toBeTruthy();
     expect(screen.queryByText("Visa ending in 4242")).toBeNull();
+  });
+
+  it("starts the embedded SetupIntent flow without redirecting", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = requestUrl(input);
+        const method = requestMethod(input, init);
+        calls.push(`${method} ${url}`);
+
+        if (url.endsWith("/account/payment-methods/setup-sessions") && method === "POST") {
+          return Promise.resolve(jsonResponse(embeddedSetup, 201));
+        }
+        if (url.endsWith("/account/payment-methods") && method === "GET") {
+          return Promise.resolve(jsonResponse({ items: [cardMethod] }));
+        }
+        return Promise.reject(new Error(`Unexpected fetch request: ${method} ${url}`));
+      }),
+    );
+
+    const form = new URLSearchParams();
+    form.set("intent", "add");
+    const result = await action({
+      request: new Request("http://localhost/account/payment-methods", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({ setup: embeddedSetup, paymentMethods: [cardMethod] });
+    expect(calls).toEqual([
+      "POST http://localhost/api/marketplace/account/payment-methods/setup-sessions",
+      "GET http://localhost/api/marketplace/account/payment-methods",
+    ]);
+  });
+
+  it("preserves the mounted setup element when the theme changes", async () => {
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
+    const update = vi.fn();
+    const elements = { create: vi.fn(() => paymentElement), update };
+    (window as unknown as { Stripe?: unknown }).Stripe = vi.fn(() => ({
+      elements: vi.fn(() => elements),
+      confirmSetup: vi.fn(),
+    }));
+    mockUseLoaderData.mockReturnValue({ accountId: "acc_buyer", setupResult: null, paymentMethods: [cardMethod] });
+    mockUseActionData.mockReturnValue({ setup: embeddedSetup, paymentMethods: [cardMethod] });
+
+    const { rerender } = render(
+      <ChaseRoot theme={{ colors: { foreground: "#111111" } }}>
+        <AccountPaymentMethodsRoute />
+      </ChaseRoot>,
+    );
+
+    await waitFor(() => expect(paymentElement.mount).toHaveBeenCalled());
+    rerender(
+      <ChaseRoot theme={{ colors: { foreground: "#eeeeee" } }}>
+        <AccountPaymentMethodsRoute />
+      </ChaseRoot>,
+    );
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({ appearance: expect.objectContaining({ variables: expect.any(Object) }) }),
+      ),
+    );
+    expect(paymentElement.destroy).not.toHaveBeenCalled();
+  });
+
+  it("guards setup confirmation against double-submit and wires a saved instrument", async () => {
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
+    const confirmSetup = vi.fn().mockResolvedValue({});
+    const revalidate = vi.fn();
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    (window as unknown as { Stripe?: unknown }).Stripe = vi.fn(() => ({
+      elements: vi.fn(() => ({ create: vi.fn(() => paymentElement), update: vi.fn() })),
+      confirmSetup,
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = requestUrl(input);
+        const method = requestMethod(input, init);
+        if (url.includes("/setup-sessions/scs_embedded/reconcile") && method === "POST") {
+          return Promise.resolve(jsonResponse({ instrument: bankMethod }));
+        }
+        return Promise.reject(new Error(`Unexpected fetch request: ${method} ${url}`));
+      }),
+    );
+    mockUseLoaderData.mockReturnValue({ accountId: "acc_buyer", setupResult: null, paymentMethods: [cardMethod] });
+    mockUseActionData.mockReturnValue({ setup: embeddedSetup, paymentMethods: [cardMethod] });
+
+    render(
+      <ChaseRoot>
+        <AccountPaymentMethodsRoute />
+      </ChaseRoot>,
+    );
+
+    await waitFor(() => expect(paymentElement.mount).toHaveBeenCalled());
+    const button = await screen.findByRole("button", { name: "Save payment method" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    await waitFor(() => expect(confirmSetup).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText("Payment method saved")).toBeTruthy());
+    expect(revalidate).toHaveBeenCalled();
+  });
+
+  it("renders SetupIntent errors in the design-system danger banner and re-enables retry", async () => {
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
+    const confirmSetup = vi.fn().mockResolvedValue({ error: { message: "Your card was declined." } });
+    (window as unknown as { Stripe?: unknown }).Stripe = vi.fn(() => ({
+      elements: vi.fn(() => ({ create: vi.fn(() => paymentElement), update: vi.fn() })),
+      confirmSetup,
+    }));
+    mockUseLoaderData.mockReturnValue({ accountId: "acc_buyer", setupResult: null, paymentMethods: [cardMethod] });
+    mockUseActionData.mockReturnValue({ setup: embeddedSetup, paymentMethods: [cardMethod] });
+
+    render(
+      <ChaseRoot>
+        <AccountPaymentMethodsRoute />
+      </ChaseRoot>,
+    );
+
+    await waitFor(() => expect(paymentElement.mount).toHaveBeenCalled());
+    const button = await screen.findByRole("button", { name: "Save payment method" });
+    fireEvent.click(button);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Payment issue");
+    expect(alert.textContent).toContain("Your card was declined.");
+    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
   });
 
   it("renders the reconciliation snapshot returned by the Payments API", async () => {

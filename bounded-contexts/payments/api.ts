@@ -7,7 +7,10 @@ export function buildPaymentsApi(services: PaymentServices | PaymentsServices) {
   const app = new Hono<PaymentsApiEnv>();
   const paymentServices = "payments" in services ? services.payments : services;
 
-  app.route("/account", createAccountPaymentRoutes(paymentServices));
+  app.route(
+    "/account",
+    createAccountPaymentRoutes(paymentServices, "publicConfig" in services ? services.publicConfig : undefined),
+  );
 
   return app;
 }

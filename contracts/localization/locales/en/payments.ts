@@ -230,11 +230,10 @@ export const paymentsEnglishTranslations = {
   "payments.routes.marketplace.accountPaymentMethods.payment.method.update.failed": "Payment method update failed",
   "payments.routes.marketplace.accountPaymentMethods.payments": "Payments",
   "payments.routes.marketplace.accountPaymentMethods.platform.credit": "Platform credit",
-  "payments.routes.marketplace.accountPaymentMethods.processor.setup.link.missing":
-    "The payment processor did not return a setup link.",
   "payments.routes.marketplace.accountPaymentMethods.refresh": "Refresh",
   "payments.routes.marketplace.accountPaymentMethods.remove": "Remove",
   "payments.routes.marketplace.accountPaymentMethods.saved.payment.methods": "Saved payment methods",
+  "payments.routes.marketplace.accountPaymentMethods.save": "Save payment method",
   "payments.routes.marketplace.accountPaymentMethods.set.default": "Set default",
   "payments.routes.marketplace.accountPaymentMethods.setup.pending": "Setup pending",
   "payments.routes.marketplace.accountPaymentMethods.setup.pending.description":
