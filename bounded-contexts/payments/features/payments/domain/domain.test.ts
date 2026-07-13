@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decidePayment, evolvePayment, initialPaymentState } from "./domain";
+import { decidePayment, evolvePayment, initialPaymentState, type PaymentCommand, type PaymentState } from "./domain";
 
 const commercialAmounts = {
   marketplaceSalesFeeAmount: "2.00",
@@ -7,8 +7,12 @@ const commercialAmounts = {
   sellerNetAmount: "39.50",
 } as const;
 
-function capturedPaymentState(amount = "10.00") {
-  const createdState = decidePayment(initialPaymentState, {
+function evolve(state: PaymentState, command: PaymentCommand) {
+  return decidePayment(state, command).reduce(evolvePayment, state);
+}
+
+function createdPaymentState(amount = "10.00") {
+  return evolve(initialPaymentState, {
     type: "CreatePayment",
     paymentId: "pay_1" as never,
     buyerAccountId: "acc_buyer" as never,
@@ -24,6 +28,9 @@ function capturedPaymentState(amount = "10.00") {
         sellerItemNetAmount: "8.00",
         shippingAllowanceAmount: "0.50",
         sellerShippingPayoutAmount: "0.50",
+        protectionAmount: "0.10",
+        protectionAllowanceAmount: "0.10",
+        protectionOverageAmount: "0.00",
         sellerPayoutAmount: "8.50",
       },
     ],
@@ -34,16 +41,160 @@ function capturedPaymentState(amount = "10.00") {
     processorClientSecret: "pi_123_secret_456",
     processorStatus: "requires_payment_method",
     createdAt: "2026-04-01T00:00:00.000Z",
-  }).reduce(evolvePayment, initialPaymentState);
+  });
+}
 
-  return decidePayment(createdState, {
+function capturedPaymentState(amount = "10.00") {
+  return evolve(createdPaymentState(amount), {
     type: "RecordPaymentCapture",
     processorStatus: "succeeded",
     capturedAt: "2026-04-01T00:01:00.000Z",
-  }).reduce(evolvePayment, createdState);
+  });
+}
+
+function failedPaymentState() {
+  return evolve(createdPaymentState(), {
+    type: "RecordPaymentFailure",
+    processorStatus: "requires_payment_method",
+    failureCode: "card_declined",
+    failureMessage: "Card was declined.",
+    failedAt: "2026-04-01T00:01:00.000Z",
+  });
+}
+
+function partiallyRefundedPaymentState() {
+  return evolve(capturedPaymentState(), {
+    type: "RecordPaymentRefund",
+    refundId: "rfd_existing" as never,
+    orderIds: ["ord_1" as never],
+    processorStatus: "succeeded",
+    processorRefundReference: "re_existing",
+    amount: "4.00",
+    refundedAmount: "4.00",
+    refundedAt: "2026-04-01T00:02:00.000Z",
+  });
+}
+
+function disputePayment(state: PaymentState) {
+  return evolve(state, {
+    type: "RecordPaymentDispute",
+    providerEventId: "evt_dispute_matrix",
+    providerDisputeId: "dp_matrix",
+    providerChargeReference: "ch_matrix",
+    processorStatus: "needs_response",
+    disputeStatus: "charge.dispute.created",
+    disputeMessage: "needs_response",
+    disputeLifecycleState: "created",
+    disputeReason: "fraudulent",
+    disputeEvidenceDueAt: "2026-08-04T00:00:00.000Z",
+    amount: "10.00",
+    disputedAt: "2026-04-01T00:02:30.000Z",
+  });
 }
 
 describe("payments payment domain", () => {
+  it("records payment authorization with the normalized provider payload", () => {
+    expect(
+      decidePayment(createdPaymentState(), {
+        type: "RecordPaymentAuthorization",
+        processorStatus: " requires_capture ",
+        authorizedAt: "2026-04-01T00:00:30.000Z",
+      }),
+    ).toEqual([
+      {
+        type: "payments.payment-authorized",
+        data: {
+          paymentId: "pay_1",
+          processorStatus: "requires_capture",
+          authorizedAt: "2026-04-01T00:00:30.000Z",
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    ["captured", () => capturedPaymentState()],
+    [
+      "cancelled",
+      () =>
+        evolve(createdPaymentState(), {
+          type: "CancelPayment",
+          cancelledAt: "2026-04-01T00:00:30.000Z",
+        }),
+    ],
+  ] as const)("ignores an out-of-order authorization after the payment is %s", (_status, state) => {
+    expect(
+      decidePayment(state(), {
+        type: "RecordPaymentAuthorization",
+        processorStatus: "requires_capture",
+        authorizedAt: "2026-04-01T00:02:00.000Z",
+      }),
+    ).toEqual([]);
+  });
+
+  it.each([
+    ["pending confirmation", () => createdPaymentState()],
+    ["failed", () => failedPaymentState()],
+  ] as const)("cancels a %s payment with the exact public event payload", (_status, state) => {
+    expect(
+      decidePayment(state(), {
+        type: "CancelPayment",
+        cancelledAt: "2026-04-01T00:03:00.000Z",
+      }),
+    ).toEqual([
+      {
+        type: "payments.payment-cancelled",
+        data: {
+          paymentId: "pay_1",
+          cancelledAt: "2026-04-01T00:03:00.000Z",
+        },
+      },
+    ]);
+  });
+
+  it("treats duplicate cancellation as idempotent", () => {
+    const cancelledState = evolve(createdPaymentState(), {
+      type: "CancelPayment",
+      cancelledAt: "2026-04-01T00:03:00.000Z",
+    });
+
+    expect(
+      decidePayment(cancelledState, {
+        type: "CancelPayment",
+        cancelledAt: "2026-04-01T00:04:00.000Z",
+      }),
+    ).toEqual([]);
+  });
+
+  it("rejects cancellation after capture", () => {
+    expect(() =>
+      decidePayment(capturedPaymentState(), {
+        type: "CancelPayment",
+        cancelledAt: "2026-04-01T00:03:00.000Z",
+      }),
+    ).toThrow("Captured payments cannot be cancelled.");
+  });
+
+  it.each([
+    [
+      "RecordPaymentAuthorization",
+      {
+        type: "RecordPaymentAuthorization",
+        processorStatus: "requires_capture",
+        authorizedAt: "2026-04-01T00:00:30.000Z",
+      },
+    ],
+    [
+      "CancelPayment",
+      {
+        type: "CancelPayment",
+        cancelledAt: "2026-04-01T00:00:30.000Z",
+      },
+    ],
+  ] as const)("rejects %s before payment creation", (_type, command) => {
+    expect(() => decidePayment(initialPaymentState, command)).toThrow("Payment must be created first.");
+  });
+
   it("creates and captures a payment", () => {
     const created = decidePayment(initialPaymentState, {
       type: "CreatePayment",
@@ -193,6 +344,115 @@ describe("payments payment domain", () => {
       }),
     ).toEqual([]);
   });
+
+  const refundSources = [
+    {
+      source: "requested refund",
+      refundId: "rfd_matrix" as never,
+      processorRefundReference: "re_matrix",
+    },
+    {
+      source: "provider-originated refund",
+      refundId: null,
+      processorRefundReference: "re_provider_matrix",
+    },
+  ] as const;
+  const refundStatuses = [
+    { status: "captured", initiallyRefundedAmount: "0.00", disputed: false },
+    { status: "partially-refunded", initiallyRefundedAmount: "4.00", disputed: false },
+    { status: "disputed", initiallyRefundedAmount: "0.00", disputed: true },
+  ] as const;
+  const refundExtents = ["partial", "full"] as const;
+  const refundMatrix = refundSources.flatMap((source) =>
+    refundStatuses.flatMap((status) =>
+      refundExtents.map((extent) => ({
+        ...source,
+        ...status,
+        extent,
+      })),
+    ),
+  );
+
+  it.each(refundMatrix)(
+    "records an exact $extent settlement fact for a $source from $status state",
+    ({ refundId, processorRefundReference, initiallyRefundedAmount, disputed, extent }) => {
+      let state = initiallyRefundedAmount === "0.00" ? capturedPaymentState() : partiallyRefundedPaymentState();
+      const amount = extent === "full" ? (initiallyRefundedAmount === "0.00" ? "10.00" : "6.00") : "2.00";
+      const refundedAmount = extent === "full" ? "10.00" : initiallyRefundedAmount === "0.00" ? "2.00" : "6.00";
+
+      if (refundId) {
+        state = evolve(state, {
+          type: "RequestPaymentRefund",
+          refundId,
+          orderIds: ["ord_1" as never],
+          amount,
+          requestedAt: "2026-04-01T00:03:00.000Z",
+        });
+      }
+      if (disputed) {
+        state = disputePayment(state);
+      }
+
+      const command = {
+        type: "RecordPaymentRefund",
+        refundId,
+        orderIds: ["ord_1" as never],
+        processorStatus: "succeeded",
+        processorRefundReference,
+        amount,
+        refundedAmount,
+        refundedAt: "2026-04-01T00:04:00.000Z",
+      } as const;
+      const events = decidePayment(state, command);
+
+      expect(events).toEqual([
+        {
+          type: "payments.payment-refunded",
+          data: {
+            paymentId: "pay_1",
+            refundId,
+            orderIds: ["ord_1"],
+            buyerAccountId: "acc_buyer",
+            amount,
+            refundedAmount,
+            orderRefundAmounts: [{ orderId: "ord_1", amount }],
+            refundedOrderAmounts: [{ orderId: "ord_1", amount: refundedAmount }],
+            orderRefundCaps: [{ orderId: "ord_1", amount: "10.00" }],
+            currencyCode: "usd",
+            processorName: "stripe",
+            processorPaymentReference: "pi_123",
+            sellerPayouts: [
+              {
+                orderId: "ord_1",
+                sellerAccountId: "acc_seller",
+                marketplaceSalesFeeAmount: "0.00",
+                marketplaceSalesFeeLines: [],
+                sellerItemNetAmount: "8.00",
+                shippingAllowanceAmount: "0.50",
+                sellerShippingPayoutAmount: "0.50",
+                protectionAmount: "0.10",
+                protectionAllowanceAmount: "0.10",
+                protectionOverageAmount: "0.00",
+                sellerPayoutAmount: "8.50",
+              },
+            ],
+            processorRefundReference,
+            processorStatus: "succeeded",
+            refundedAt: "2026-04-01T00:04:00.000Z",
+          },
+        },
+      ]);
+
+      const refundedState = events.reduce(evolvePayment, state);
+      expect(refundedState).toMatchObject({
+        status: extent === "full" ? "refunded" : "partially-refunded",
+        refundedAmount,
+        refundedOrderAmounts: [{ orderId: "ord_1", amount: refundedAmount }],
+      });
+      expect(refundedState.refundRequests).toEqual([]);
+      expect(decidePayment(refundedState, command)).toEqual([]);
+    },
+  );
 
   it("rejects missing, backwards, and over-cap refund provider amounts", () => {
     const capturedState = capturedPaymentState();
