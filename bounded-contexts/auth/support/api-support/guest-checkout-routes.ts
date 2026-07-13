@@ -162,6 +162,7 @@ async function claimGuestAccountAndStartSession(
     accountId: params.accountId,
     authenticationMethod: params.authenticationMethod,
     context: params.context,
+    publishAuthenticationOutcome: true,
     membershipsOverride: [
       {
         membershipId: membership.membershipId,

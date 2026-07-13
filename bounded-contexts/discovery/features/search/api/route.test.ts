@@ -22,6 +22,7 @@ function createServices(): DiscoveryItemSearchServices {
       skippedItems: [],
     })),
     rebuildSearchIndex: vi.fn(async () => undefined),
+    publishSearchOutcome: vi.fn(async () => undefined),
     projectors: [],
   };
 }

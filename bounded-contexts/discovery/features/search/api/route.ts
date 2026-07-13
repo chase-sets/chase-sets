@@ -1,9 +1,10 @@
 import { Hono } from "hono";
+import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { DiscoveryItemSearchServices } from "./runtime";
 import type { DiscoveryMarketActivityFilter } from "../read-model/queries";
 
 export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices) {
-  const app = new Hono();
+  const app = new Hono<AuthenticatedApiEnv>();
 
   app.get("/bulk-cart-preview", async (c) => {
     const params = searchParamsFromRequest(c.req.url, c.req.query.bind(c.req));
@@ -16,6 +17,16 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
     const params = searchParamsFromRequest(c.req.url, c.req.query.bind(c.req));
 
     const result = await services.searchItems(params);
+
+    const actor = c.var.actor;
+    const context = c.var.context;
+    if (actor && !actor.agentGrant && context) {
+      await services.publishSearchOutcome?.({
+        accountId: actor.accountId,
+        sessionId: actor.sessionId,
+        context,
+      });
+    }
 
     return c.json({
       items: result.items,

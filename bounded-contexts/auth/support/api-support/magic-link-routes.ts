@@ -175,6 +175,7 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
             rolePermissions: AUTH_ROLE_PERMISSIONS.owner,
           },
         ],
+        publishAuthenticationOutcome: true,
       });
 
       return jsonWithMutationReceipts(c, authResult, 200, [identity, verifiedEmail]);
@@ -190,6 +191,7 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
       accountId: typeof body.accountId === "string" ? body.accountId : undefined,
       authenticationMethod: "magic-link",
       context: getBootstrapContext(c),
+      publishAuthenticationOutcome: true,
     });
 
     return jsonWithMutationReceipts(c, authResult, 200, [verifiedEmail]);

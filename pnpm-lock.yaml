@@ -93,6 +93,9 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
+      '@chase-sets/customer-feedback':
+        specifier: workspace:*
+        version: link:../customer-feedback
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
@@ -356,6 +359,9 @@ importers:
       '@chase-sets/checkout':
         specifier: workspace:*
         version: link:../checkout
+      '@chase-sets/customer-feedback':
+        specifier: workspace:*
+        version: link:../customer-feedback
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -472,6 +478,9 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
+      '@chase-sets/customer-feedback':
+        specifier: workspace:*
+        version: link:../customer-feedback
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
