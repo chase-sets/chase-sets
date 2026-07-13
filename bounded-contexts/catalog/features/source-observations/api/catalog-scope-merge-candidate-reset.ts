@@ -334,78 +334,95 @@ export function evaluateCatalogScopeMergeCandidateResetEvidence(
     findings.push({
       code: "missing-operator",
       severity: "p1",
-      message: "Catalog Merge Candidate reset evidence must name the operator.",
+      message: resetEvidenceFindingMessage("Catalog Merge Candidate reset evidence must name the operator."),
     });
   }
   if (!packet.generatedAt.trim()) {
     findings.push({
       code: "missing-generated-at",
       severity: "p1",
-      message: "Catalog Merge Candidate reset evidence must include the generation timestamp.",
+      message: resetEvidenceFindingMessage(
+        "Catalog Merge Candidate reset evidence must include the generation timestamp.",
+      ),
     });
   }
   if (plan?.requiresApprovalReference && !packet.approvalReference?.trim()) {
     findings.push({
       code: "missing-approval-reference",
       severity: "p0",
-      message: `${packet.environment} reset evidence requires an approval reference.`,
+      message: resetEvidenceFindingMessage(`${packet.environment} reset evidence requires an approval reference.`),
     });
   }
   if (plan?.requiresBackupDecision && !packet.backupDecision) {
     findings.push({
       code: "missing-backup-decision",
       severity: "p0",
-      message: `${packet.environment} reset evidence requires a backup/snapshot/export decision.`,
+      message: resetEvidenceFindingMessage(
+        `${packet.environment} reset evidence requires a backup/snapshot/export decision.`,
+      ),
     });
   }
   if (packet.backupDecision && !isCompleteBackupDecision(packet.backupDecision)) {
     findings.push({
       code: "incomplete-backup-decision",
       severity: "p0",
-      message: "Backup/snapshot/export decision is missing owner, approval, restore, rationale, or expiry evidence.",
+      message: resetEvidenceFindingMessage(
+        "Backup/snapshot/export decision is missing owner, approval, restore, rationale, or expiry evidence.",
+      ),
     });
   }
   if (packet.backupDecision?.kind === "retain-data-reset-unsafe") {
     findings.push({
       code: "reset-unsafe-data-retained",
       severity: "p0",
-      message:
+      message: resetEvidenceFindingMessage(
         "Reset evidence records retained data because destructive cleanup is unsafe; do not treat this as clean reset completion.",
+      ),
     });
   }
   if (packet.environment === "production-prelaunch" && !packet.stagingRehearsalReference?.trim()) {
     findings.push({
       code: "missing-staging-rehearsal-reference",
       severity: "p0",
-      message: "Production/prelaunch reset evidence requires the successful staging rehearsal reference.",
+      message: resetEvidenceFindingMessage(
+        "Production/prelaunch reset evidence requires the successful staging rehearsal reference.",
+      ),
     });
   }
   if (packet.environment !== "local-dev-test" && !packet.smokeVerificationReference?.trim()) {
     findings.push({
       code: "missing-smoke-verification-reference",
       severity: "p0",
-      message: `${packet.environment} reset evidence requires the post-reset smoke verification reference.`,
+      message: resetEvidenceFindingMessage(
+        `${packet.environment} reset evidence requires the post-reset smoke verification reference.`,
+      ),
     });
   }
   if (plan?.requiresDryRunCounts && packet.dryRun === null) {
     findings.push({
       code: "missing-dry-run",
       severity: "p0",
-      message: `${packet.environment} reset evidence requires dry-run counts before destructive execution.`,
+      message: resetEvidenceFindingMessage(
+        `${packet.environment} reset evidence requires dry-run counts before destructive execution.`,
+      ),
     });
   }
   if (plan?.requiresBeforeAfterVerification && packet.before === null) {
     findings.push({
       code: "missing-before-verification",
       severity: "p0",
-      message: `${packet.environment} reset evidence requires a before-reset verification report.`,
+      message: resetEvidenceFindingMessage(
+        `${packet.environment} reset evidence requires a before-reset verification report.`,
+      ),
     });
   }
   if (plan?.requiresBeforeAfterVerification && packet.after === null) {
     findings.push({
       code: "missing-after-verification",
       severity: "p0",
-      message: `${packet.environment} reset evidence requires an after-reset verification report.`,
+      message: resetEvidenceFindingMessage(
+        `${packet.environment} reset evidence requires an after-reset verification report.`,
+      ),
     });
   }
 
@@ -413,7 +430,9 @@ export function evaluateCatalogScopeMergeCandidateResetEvidence(
     findings.push({
       code: "missing-target-tables",
       severity: "p0",
-      message: "Reset evidence must name the Catalog-owned targets selected for destructive cleanup.",
+      message: resetEvidenceFindingMessage(
+        "Reset evidence must name the Catalog-owned targets selected for destructive cleanup.",
+      ),
     });
   }
   for (const target of packet.targetTables) {
@@ -421,7 +440,9 @@ export function evaluateCatalogScopeMergeCandidateResetEvidence(
       findings.push({
         code: "unsafe-target-table",
         severity: "p0",
-        message: `Target '${target}' is not owned by the Catalog Scope Registry / Merge Candidate v2 reset plan.`,
+        message: resetEvidenceFindingMessage(
+          `Target '${target}' is not owned by the Catalog Scope Registry / Merge Candidate v2 reset plan.`,
+        ),
       });
     }
   }
@@ -431,24 +452,27 @@ export function evaluateCatalogScopeMergeCandidateResetEvidence(
       findings.push({
         code: "preserved-scope-records-changed",
         severity: "p0",
-        message:
+        message: resetEvidenceFindingMessage(
           "Post-reset verification shows catalog_scope_records row count changed; the Scope Registry must be preserved.",
+        ),
       });
     }
     if (packet.after.preservedReviewedProviderScopeMappings !== packet.before.preservedReviewedProviderScopeMappings) {
       findings.push({
         code: "preserved-provider-scope-mappings-changed",
         severity: "p0",
-        message:
+        message: resetEvidenceFindingMessage(
           "Post-reset verification shows reviewed catalog_provider_scope_mappings row count changed; only proposed rows may be reset.",
+        ),
       });
     }
     if (packet.after.preservedSourceObservations !== packet.before.preservedSourceObservations) {
       findings.push({
         code: "preserved-source-observations-changed",
         severity: "p0",
-        message:
+        message: resetEvidenceFindingMessage(
           "Post-reset verification shows catalog_source_observations row count changed; Source Observations must be preserved.",
+        ),
       });
     }
   }
@@ -462,14 +486,17 @@ export function evaluateCatalogScopeMergeCandidateResetEvidence(
       findings.push({
         code: "missing-rebuild-evidence",
         severity: "p0",
-        message: `${packet.environment} reset evidence requires a rebuild verification report from generateCatalogMergeCandidates before the reset is considered complete.`,
+        message: resetEvidenceFindingMessage(
+          `${packet.environment} reset evidence requires a rebuild verification report from generateCatalogMergeCandidates before the reset is considered complete.`,
+        ),
       });
     } else if (packet.before && packet.rebuild.observationsConsidered !== packet.before.preservedSourceObservations) {
       findings.push({
         code: "rebuild-observation-coverage-incomplete",
         severity: "p1",
-        message:
+        message: resetEvidenceFindingMessage(
           "Rebuild considered fewer or more Source Observations than the preserved before-reset count; confirm the rebuild scope covers every preserved observation.",
+        ),
       });
     }
   }
@@ -485,31 +512,41 @@ function catalogScopeMergeCandidateResetPostconditionFindings(
     findings.push({
       code: "post-reset-merge-candidates-remain",
       severity: "p0",
-      message: "Post-reset verification still has Catalog Merge Candidates.",
+      message: resetEvidenceFindingMessage("Post-reset verification still has Catalog Merge Candidates."),
     });
   }
   if (after.mergeCandidateObservations > 0) {
     findings.push({
       code: "post-reset-merge-candidate-observations-remain",
       severity: "p0",
-      message: "Post-reset verification still has Catalog Merge Candidate observation members.",
+      message: resetEvidenceFindingMessage(
+        "Post-reset verification still has Catalog Merge Candidate observation members.",
+      ),
     });
   }
   if (after.providerScopeMappingProposals > 0) {
     findings.push({
       code: "post-reset-provider-scope-mapping-proposals-remain",
       severity: "p0",
-      message: "Post-reset verification still has unreviewed Provider Scope Mapping proposals.",
+      message: resetEvidenceFindingMessage(
+        "Post-reset verification still has unreviewed Provider Scope Mapping proposals.",
+      ),
     });
   }
   if (after.mergeCandidateEventStreams > 0 || after.mergeCandidateEvents > 0) {
     findings.push({
       code: "post-reset-event-streams-remain",
       severity: "p0",
-      message: "Post-reset verification still has Catalog Merge Candidate event streams or events.",
+      message: resetEvidenceFindingMessage(
+        "Post-reset verification still has Catalog Merge Candidate event streams or events.",
+      ),
     });
   }
   return findings;
+}
+
+function resetEvidenceFindingMessage(message: string): string {
+  return message;
 }
 
 function isCompleteBackupDecision(decision: CatalogIntegrationDataBackupDecision): boolean {
