@@ -114,10 +114,24 @@ export async function listOrderingSupplyCandidates(
        GROUP BY item_id
      ) AS active_holds
        ON active_holds.item_id = item.item_id
+     LEFT JOIN ordering_seller_order_capacity_inputs AS capacity
+       ON capacity.seller_account_id = listing.seller_account_id
+     LEFT JOIN (
+       SELECT seller_account_id, count(*)::integer AS open_count
+       FROM ordering_seller_open_order_claims
+       WHERE status = 'claimed'
+       GROUP BY seller_account_id
+     ) AS open_claims
+       ON open_claims.seller_account_id = listing.seller_account_id
      WHERE listing.status = 'active'
        AND listing.seller_listing_availability_status = 'available'
        AND listing.terms_resolved_at IS NOT NULL
        AND listing.product_id = $1
+       -- Order Capacity enforcement (m127): an at-capacity seller's
+       -- supply drops out of candidates the same way an away seller's
+       -- does, so stale carts and checkout sessions fail closed before
+       -- payment rather than create-then-cancel.
+       AND (capacity.max_open_orders IS NULL OR COALESCE(open_claims.open_count, 0) < capacity.max_open_orders)
        ${sellerClause}
      ORDER BY
        listing.price_amount ASC,
@@ -224,10 +238,24 @@ export async function getOrderingSupplyCandidateByListingId(
        GROUP BY item_id
      ) AS active_holds
        ON active_holds.item_id = item.item_id
+     LEFT JOIN ordering_seller_order_capacity_inputs AS capacity
+       ON capacity.seller_account_id = listing.seller_account_id
+     LEFT JOIN (
+       SELECT seller_account_id, count(*)::integer AS open_count
+       FROM ordering_seller_open_order_claims
+       WHERE status = 'claimed'
+       GROUP BY seller_account_id
+     ) AS open_claims
+       ON open_claims.seller_account_id = listing.seller_account_id
      WHERE listing.status = 'active'
        AND listing.seller_listing_availability_status = 'available'
        AND listing.terms_resolved_at IS NOT NULL
-       AND listing.listing_id = $1`,
+       AND listing.listing_id = $1
+       -- Order Capacity enforcement (m127): see
+       -- listOrderingSupplyCandidates above -- the locked-listing lookup
+       -- must fail closed the same way so a stale locked listing whose
+       -- seller has since hit capacity re-checks as unavailable.
+       AND (capacity.max_open_orders IS NULL OR COALESCE(open_claims.open_count, 0) < capacity.max_open_orders)`,
     [listingId],
   );
 

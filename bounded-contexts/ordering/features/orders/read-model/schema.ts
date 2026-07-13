@@ -168,6 +168,38 @@ CREATE TABLE IF NOT EXISTS ordering_listing_purchase_limit_usage (
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (buyer_account_id, listing_id)
 );
+
+-- Seller Order Capacity enforcement (m127). Mirrors the
+-- availability-inputs pattern: a projected fact table fed by marketplace's
+-- setting events, and a truthful command-side claims ledger (like
+-- ordering_listing_purchase_limit_claims above) that is the single row lock
+-- target serializing concurrent plan-stage claims/releases for a seller.
+-- max_open_orders NULL means unlimited (no row, or a cleared row) -- the
+-- claim path takes zero locks in that case.
+CREATE TABLE IF NOT EXISTS ordering_seller_order_capacity_inputs (
+  seller_account_id text PRIMARY KEY,
+  max_open_orders integer NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- One row per Open Order (the Open Order glossary term, m127):
+-- inserted transactionally at plan-claim time before CreateOrder, released
+-- on ordering.order.cancelled (every reason) and on
+-- fulfillment.shipment.dispatched. Never sourced from event replay -- like
+-- the purchase-limit claims table, this is command-side derived state, not
+-- a projection-owned read model, so it is intentionally absent from any
+-- projectionGroup's ownedTables.
+CREATE TABLE IF NOT EXISTS ordering_seller_open_order_claims (
+  order_id text PRIMARY KEY,
+  seller_account_id text NOT NULL,
+  status text NOT NULL DEFAULT 'claimed',
+  claimed_at timestamptz NOT NULL DEFAULT now(),
+  released_at timestamptz NULL
+);
+
+CREATE INDEX IF NOT EXISTS ordering_seller_open_order_claims_open_idx
+  ON ordering_seller_open_order_claims (seller_account_id)
+  WHERE status = 'claimed';
 `;
 
 export const orderingOrderSchemaMigrations: readonly BcSchemaMigration[] = [

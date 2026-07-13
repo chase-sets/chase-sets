@@ -1,9 +1,27 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { OrderId } from "@chase-sets/primitives/typed-ids";
 import { withOrderDisplayReference } from "./display-reference";
+import { releaseSellerOrderCapacityClaim } from "../api/order-capacity";
 
-export function buildOrderingOrderProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildOrderingOrderProjectionHandlers(
+  db: PgQueryable,
+  options: Readonly<{
+    /**
+     * Order Capacity enforcement (m127): ordering.order.cancelled is
+     * the single event every cancellation reason funnels through (buyer
+     * cancel, seller cancel, payment-deadline sweep, inventory-unavailable
+     * reservation rejection) so releasing here -- keyed only by order id,
+     * not by reason -- covers every terminal path without needing a call
+     * site at each cancellation trigger. Called after the claim row is
+     * actually released, so the At Capacity signal can reconcile.
+     */
+    onOrderCapacityReleased?: (
+      params: Readonly<{ sellerAccountId: string; context: EventStoreContext }>,
+    ) => Promise<void>;
+  }> = {},
+): ProjectorHandlerMap {
   return {
     "ordering.order.created": async (event) => {
       const data = event.data as {
@@ -361,6 +379,14 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
          WHERE order_id = $1`,
         [data.orderId, data.cancelledAt, data.reason],
       );
+
+      const sellerAccountId = await releaseSellerOrderCapacityClaim(db, data.orderId, data.cancelledAt);
+      if (sellerAccountId) {
+        await options.onOrderCapacityReleased?.({
+          sellerAccountId,
+          context: { tenantId: event.tenantId, audit: event.audit, trace: event.trace } as EventStoreContext,
+        });
+      }
     },
     "ordering.order.reservation-released": async (event) => {
       const data = event.data as {

@@ -93,7 +93,10 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
   buildMcpHandlers: (services) => createOrderingOrderMcpHandlers(services.orders),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const marketplaceSupplyHandlers = buildOrderingMarketplaceSupplyProjectionHandlers(services.db);
+    const marketplaceSupplyHandlers = buildOrderingMarketplaceSupplyProjectionHandlers(services.db, {
+      onSellerOrderCapacityChanged: ({ sellerAccountId, context }) =>
+        services.orders.reconcileSellerOrderCapacitySignal(sellerAccountId, context),
+    });
     const reputationHandlers = buildOrderingReputationProjectionHandlers(services.db);
 
     return [
@@ -116,7 +119,10 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
           "inventory.ordering-inventory-supply-input-projection": () =>
             buildOrderingInventorySupplyProjectionHandlers(services.db),
           "fulfillment.ordering-fulfillment-cancellation-inputs": () =>
-            buildOrderingFulfillmentCancellationProjectionHandlers(services.db),
+            buildOrderingFulfillmentCancellationProjectionHandlers(services.db, {
+              onOrderCapacityReleased: ({ sellerAccountId, context }) =>
+                services.orders.reconcileSellerOrderCapacitySignal(sellerAccountId, context),
+            }),
           "ordering.ordering-order-review-opportunity-projection": {
             filterToEventTypes: true,
             buildHandlers: () => reputationHandlers,

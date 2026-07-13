@@ -1,7 +1,23 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { releaseSellerOrderCapacityClaim } from "../../api/order-capacity";
 
-export function buildOrderingFulfillmentCancellationProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildOrderingFulfillmentCancellationProjectionHandlers(
+  db: PgQueryable,
+  options: Readonly<{
+    /**
+     * Order Capacity enforcement (m127): dispatch is the other
+     * terminal path (besides ordering.order.cancelled) that frees a
+     * seller's Open Order slot. Called after the claim row for the
+     * dispatched shipment's order is actually released, so the At
+     * Capacity signal can reconcile.
+     */
+    onOrderCapacityReleased?: (
+      params: Readonly<{ sellerAccountId: string; context: EventStoreContext }>,
+    ) => Promise<void>;
+  }> = {},
+): ProjectorHandlerMap {
   return {
     "fulfillment.shipment.created": async (event) => {
       const data = event.data as {
@@ -86,14 +102,26 @@ export function buildOrderingFulfillmentCancellationProjectionHandlers(db: PgQue
         dispatchedAt: string;
       };
 
-      await db.query(
+      const updated = await db.query<{ order_id: string }>(
         `UPDATE ordering_fulfillment_cancellation_inputs
          SET shipment_status = 'dispatched',
              package_status = 'packed',
              updated_at = $2
-         WHERE shipment_id = $1`,
+         WHERE shipment_id = $1
+         RETURNING order_id`,
         [data.shipmentId, data.dispatchedAt],
       );
+
+      const orderId = updated.rows[0]?.order_id;
+      if (orderId) {
+        const sellerAccountId = await releaseSellerOrderCapacityClaim(db, orderId, data.dispatchedAt);
+        if (sellerAccountId) {
+          await options.onOrderCapacityReleased?.({
+            sellerAccountId,
+            context: { tenantId: event.tenantId, audit: event.audit, trace: event.trace } as EventStoreContext,
+          });
+        }
+      }
     },
     "fulfillment.shipment.cancelled": async (event) => {
       const data = event.data as {

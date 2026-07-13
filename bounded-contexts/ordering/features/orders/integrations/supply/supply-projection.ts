@@ -37,6 +37,15 @@ type CatalogProductMeasuresResolvedProjectionPayload = Readonly<{
   products?: JsonValue;
 }>;
 
+type SellerOrderCapacitySetProjectionPayload = Readonly<{
+  accountId: string;
+  maxOpenOrders: number;
+}>;
+
+type SellerOrderCapacityClearedProjectionPayload = Readonly<{
+  accountId: string;
+}>;
+
 type OrderingMarketplaceSupplyProjectionEventPayloads = Pick<
   ChaseSetsEventPayloads,
   | "marketplace.listing.created"
@@ -52,12 +61,29 @@ type OrderingMarketplaceSupplyProjectionEventPayloads = Pick<
 > &
   Readonly<{
     "catalog.catalog-item.product-measures-resolved": CatalogProductMeasuresResolvedProjectionPayload;
+    // Not yet declared on the shared ChaseSetsEventPayloads contract (the
+    // marketplace Order Capacity decider ships the events without
+    // registering them there), so these are declared locally -- same
+    // technique already used for the catalog product-measures-resolved
+    // payload above.
+    "marketplace.seller-order-capacity.set": SellerOrderCapacitySetProjectionPayload;
+    "marketplace.seller-order-capacity.cleared": SellerOrderCapacityClearedProjectionPayload;
   }>;
 
 export function buildOrderingMarketplaceSupplyProjectionHandlers(
   db: PgQueryable,
   options: Readonly<{
     onOfferAccepted?: (params: AcceptedOfferParams) => Promise<void>;
+    /**
+     * Order Capacity enforcement (m127): fired after the capacity
+     * input row is upserted for `.set` or `.cleared`, so the At Capacity
+     * signal can reconcile immediately -- a seller who lowers their cap
+     * below their current Open Order count should show at-capacity right
+     * away, not wait for their next claim/release.
+     */
+    onSellerOrderCapacityChanged?: (
+      params: Readonly<{ sellerAccountId: string; context: EventStoreContext }>,
+    ) => Promise<void>;
   }> = {},
 ): ProjectorHandlerMap {
   return defineProjectorHandlers<OrderingMarketplaceSupplyProjectionEventPayloads>({
@@ -495,6 +521,38 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           audit: event.audit,
           trace: event.trace,
         } as EventStoreContext,
+      });
+    },
+    "marketplace.seller-order-capacity.set": async (event) => {
+      const data = event.data;
+
+      await db.query(
+        `INSERT INTO ordering_seller_order_capacity_inputs (seller_account_id, max_open_orders, updated_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (seller_account_id) DO UPDATE
+         SET max_open_orders = EXCLUDED.max_open_orders,
+             updated_at = EXCLUDED.updated_at`,
+        [data.accountId, data.maxOpenOrders, event.timing.recordedAt],
+      );
+      await options.onSellerOrderCapacityChanged?.({
+        sellerAccountId: data.accountId,
+        context: { tenantId: event.tenantId, audit: event.audit, trace: event.trace } as EventStoreContext,
+      });
+    },
+    "marketplace.seller-order-capacity.cleared": async (event) => {
+      const data = event.data;
+
+      await db.query(
+        `INSERT INTO ordering_seller_order_capacity_inputs (seller_account_id, max_open_orders, updated_at)
+         VALUES ($1, NULL, $2)
+         ON CONFLICT (seller_account_id) DO UPDATE
+         SET max_open_orders = NULL,
+             updated_at = EXCLUDED.updated_at`,
+        [data.accountId, event.timing.recordedAt],
+      );
+      await options.onSellerOrderCapacityChanged?.({
+        sellerAccountId: data.accountId,
+        context: { tenantId: event.tenantId, audit: event.audit, trace: event.trace } as EventStoreContext,
       });
     },
   });

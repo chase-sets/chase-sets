@@ -87,6 +87,20 @@ import {
 import { createFulfillmentDeliveryPromise } from "../domain/fulfillment-delivery-promise";
 import { quoteAuthenticityCheckFee, type AuthenticityCheckFeeQuote } from "../domain/authenticity-check-fee";
 import type { AuthenticityFeePolicyResolver } from "./authenticity-fee-policy-resolver";
+import {
+  decideSellerCapacitySignal,
+  evolveSellerCapacitySignal,
+  initialSellerCapacitySignalState,
+  type SellerCapacitySignalEvent,
+} from "../domain/seller-capacity-signal";
+import {
+  backfillSellerOpenOrderClaims as backfillSellerOpenOrderClaimsLedger,
+  claimSellerOrderCapacity,
+  reconcileSellerOrderCapacity,
+  type SellerOrderCapacityGroup,
+} from "./order-capacity";
+
+export const sellerOrderCapacityReachedReason = "Seller has reached their Order Capacity limit.";
 
 export type TaxDestinationAddress = AddressSnapshot;
 
@@ -384,6 +398,12 @@ type OrderingCommitMetadata = Readonly<{
 
 export type OrderingOrderCreationResult = Readonly<{
   orderIds: readonly OrderId[];
+  /**
+   * Seller accounts whose order group was dropped from this plan because
+   * they were at Order Capacity (m127) when the plan-stage claim
+   * ran. Empty in the common case (no cap set, or capacity available).
+   */
+  rejectedSellerAccountIds: readonly string[];
 }> &
   OrderingCommitMetadata;
 
@@ -522,6 +542,23 @@ export type OrderingOrderServices = Readonly<{
     orderId: string,
     authorAccountId: string,
   ) => ReturnType<typeof getOrderingOrderReviewOpportunity>;
+  /**
+   * Order Capacity enforcement (m127): recomputes and, if changed,
+   * signals a seller's at-capacity state. Exposed so cross-context
+   * reactions (marketplace's capacity-setting changes, fulfillment's
+   * dispatch-triggered release) can reconcile through the same path
+   * claim/release use internally.
+   */
+  reconcileSellerOrderCapacitySignal: (sellerAccountId: string, context: EventStoreContext) => Promise<void>;
+  /**
+   * Deploy backfill (m127 item 6): idempotently seeds Open Order
+   * claims from existing non-terminal, non-dispatched orders, then
+   * reconciles (and signals, where already over capacity) every seller
+   * touched.
+   */
+  backfillSellerOpenOrderClaims: (
+    context: EventStoreContext,
+  ) => Promise<Readonly<{ sellerAccountIds: readonly string[] }>>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -1363,6 +1400,32 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     evolve: evolveOrderingOrder,
     decide: decideOrderingOrder,
   });
+  const { commandHandler: sellerCapacitySignalCommandHandler } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<SellerCapacitySignalEvent>(),
+    initialState: () => initialSellerCapacitySignalState,
+    evolve: evolveSellerCapacitySignal,
+    decide: decideSellerCapacitySignal,
+  });
+
+  /**
+   * Order Capacity enforcement (m127): recomputes the seller's
+   * current at-capacity truth under their capacity-row lock, then reports
+   * it to the idempotent signal decider. Every claim, release, and
+   * capacity-setting change funnels through this one function, so "exactly
+   * one event per crossing" falls out of decider idempotency rather than
+   * needing each call site to detect the crossing itself.
+   */
+  const reconcileAndSignalSellerCapacity = async (sellerAccountId: string, context: EventStoreContext) => {
+    const { atCapacity } = await reconcileSellerOrderCapacity(deps.db, sellerAccountId);
+    await sellerCapacitySignalCommandHandler({
+      streamId: `ordering.seller-capacity-${sellerAccountId}`,
+      command: atCapacity
+        ? { type: "MarkSellerAtCapacity", accountId: sellerAccountId }
+        : { type: "ClearSellerAtCapacity", accountId: sellerAccountId },
+      context,
+    });
+  };
 
   const createOrdersFromPlan = async (
     buyerAccountId: AccountId,
@@ -1379,10 +1442,40 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       throw new OrderingDomainError("Authenticity check requires a single-seller order.");
     }
 
+    // Order Capacity enforcement (m127): order ids are generated up
+    // front (instead of inline per draft below) so the plan-stage claim can
+    // insert one row per Open Order -- keyed by the same id CreateOrder
+    // will use -- before any CreateOrder command is dispatched. Claiming is
+    // grouped per seller so a multi-origin same-seller plan claims (or
+    // rejects) all of that seller's drafts atomically together.
+    const generatedOrderIds = plan.orderDrafts.map(
+      (_, index) => orderIdsOverride?.[index] ?? (createId("ord") as OrderId),
+    );
+    const capacityGroups = new Map<string, string[]>();
+    plan.orderDrafts.forEach((draft, index) => {
+      const group = capacityGroups.get(draft.sellerAccountId) ?? [];
+      group.push(generatedOrderIds[index]!);
+      capacityGroups.set(draft.sellerAccountId, group);
+    });
+    const capacityClaimResult = await claimSellerOrderCapacity(
+      deps.db,
+      [...capacityGroups.entries()].map(
+        ([sellerAccountId, orderIdsForSeller]): SellerOrderCapacityGroup => ({
+          sellerAccountId,
+          orderIds: orderIdsForSeller,
+        }),
+      ),
+      (sellerAccountId) => reconcileAndSignalSellerCapacity(sellerAccountId, context),
+    );
+    const rejectedSellerAccountIds = capacityClaimResult.rejectedSellerAccountIds;
+
     const orderIds: OrderId[] = [];
     const storedEvents: StoredEvent[] = [];
 
     for (const [draftIndex, draft] of plan.orderDrafts.entries()) {
+      if (rejectedSellerAccountIds.includes(draft.sellerAccountId)) {
+        continue;
+      }
       const marketplaceSalesFeeAmount = sumMoneyAmounts(draft.lines.map((line) => line.marketplaceSalesFeeTotalAmount));
       const sellerNetAmount = sumMoneyAmounts(draft.lines.map((line) => line.sellerNetTotalAmount));
       const sellerPayoutAmount = subtractNonNegativeMoneyAmounts(
@@ -1396,7 +1489,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       const termsResolvedAt = firstLine
         ? (planTermsForLines(draft.lines, "termsResolvedAt") ?? new Date().toISOString())
         : new Date().toISOString();
-      const orderId = orderIdsOverride?.[draftIndex] ?? (createId("ord") as OrderId);
+      const orderId = generatedOrderIds[draftIndex]!;
       // The authenticity fee is a buyer-charged addition to the order total
       // (like tax), applied to the sole seller order draft when the buyer
       // opted in -- v1 is single-seller only (asserted above).
@@ -1493,6 +1586,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
 
     return {
       orderIds,
+      rejectedSellerAccountIds,
       ...orderingCommitMetadataFromStoredEvents(storedEvents),
     };
   };
@@ -1616,6 +1710,13 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       context,
       params.orderIdsOverride,
     );
+    if (result.rejectedSellerAccountIds.length > 0) {
+      // Offer acceptance flows through this same seam, so an at-capacity
+      // seller's accept fails with the capacity error (m127) rather
+      // than a generic one -- unlike cart checkout, there is no "other
+      // sellers' groups proceed" fallback for a single-seller accept.
+      throw new OrderingDomainError(sellerOrderCapacityReachedReason);
+    }
     return result;
   };
 
@@ -1742,6 +1843,9 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         group.shippingDestinationSnapshot,
         context,
       );
+      if (buyerOrderResult.rejectedSellerAccountIds.length > 0) {
+        throw new OrderingDomainError(sellerOrderCapacityReachedReason);
+      }
       orderIds.push(...buyerOrderResult.orderIds);
     }
 
@@ -1936,7 +2040,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     createOrdersFromCheckout: async (params, context) => {
       const existingOrderIds = await listOrderIdsForSource(deps.db, params.sourceType, params.checkoutSessionId);
       if (existingOrderIds.length > 0) {
-        return { orderIds: existingOrderIds as OrderId[] };
+        return { orderIds: existingOrderIds as OrderId[], rejectedSellerAccountIds: [] };
       }
 
       if (params.lines.length === 0) {
@@ -2006,6 +2110,16 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         params.orderIdsOverride,
         authenticityPlan,
       );
+
+      // Order Capacity enforcement (m127): per-group failure only --
+      // an at-capacity seller in a multi-seller cart drops out (mirroring
+      // how unavailable lines already get silently excluded above) while
+      // the other sellers' groups still create orders. Only when every
+      // group is at capacity does the buyer see a failure, the same shape
+      // as "no active supply can fulfill this product."
+      if (result.orderIds.length === 0 && result.rejectedSellerAccountIds.length > 0) {
+        throw new OrderingDomainError("No checkout lines are currently fulfillable.");
+      }
 
       return result;
     },
@@ -2205,10 +2319,22 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     getSaleListSummary: (sellerAccountId) => getSaleListSummary(deps.db, sellerAccountId),
     getOrderReviewOpportunity: (orderId, authorAccountId) =>
       getOrderingOrderReviewOpportunity(deps.db, { orderId, authorAccountId }),
+    reconcileSellerOrderCapacitySignal: (sellerAccountId, context) =>
+      reconcileAndSignalSellerCapacity(sellerAccountId, context),
+    backfillSellerOpenOrderClaims: async (context) => {
+      const sellerAccountIds = await backfillSellerOpenOrderClaimsLedger(deps.db);
+      for (const sellerAccountId of sellerAccountIds) {
+        await reconcileAndSignalSellerCapacity(sellerAccountId, context);
+      }
+      return { sellerAccountIds };
+    },
     projectors: [
       createProjectionHandlerSet({
         projectionName: "ordering-order-projection",
-        handlers: buildOrderingOrderProjectionHandlers(deps.db),
+        handlers: buildOrderingOrderProjectionHandlers(deps.db, {
+          onOrderCapacityReleased: ({ sellerAccountId, context }) =>
+            reconcileAndSignalSellerCapacity(sellerAccountId, context),
+        }),
       }),
       createProjectionHandlerSet({
         projectionName: "ordering-order-review-opportunity-projection",

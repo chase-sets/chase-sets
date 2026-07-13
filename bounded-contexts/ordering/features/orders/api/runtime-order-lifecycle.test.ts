@@ -78,7 +78,11 @@ describe("ordering order runtime: order creation and cancellation", () => {
       context,
     );
 
-    expect(db.query).toHaveBeenCalledTimes(1);
+    // 1 supply-candidate lookup + 1 Order Capacity cap pre-check (m127,
+    // non-locking fast path since the seller never set a cap) + 1
+    // unconditional Open Order claim insert (untracked would under-count
+    // if the seller sets a cap later while this order is still open).
+    expect(db.query).toHaveBeenCalledTimes(3);
     const createdEvent = readAllEvents().find((event) => event.eventType === "ordering.order.created");
     expect(createdEvent?.payload).toMatchObject({
       sourceType: "offer-acceptance",
