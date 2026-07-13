@@ -87,6 +87,71 @@ describe("platform runtime Postgres concurrency guards", () => {
     expect(job?.claimOwnerId).toBe(claims.find(Boolean)?.claimOwnerId);
   });
 
+  it("keeps a cancelled durable-job parent terminal when its claimed work unit finishes", async () => {
+    const jobStore = createPostgresDurableJobStore<JobPayload, JobProgress, JobResult>(
+      pools.platform,
+      durableJobTables,
+    );
+    const unitStore = createPostgresDurableJobWorkUnitStore<
+      JobPayload,
+      JobProgress,
+      JobResult,
+      UnitPayload,
+      UnitResult
+    >(pools.platform, durableWorkUnitTables, { workflowName: "catalog-import" });
+
+    await jobStore.enqueue({
+      jobId: "job_cancelled_during_unit",
+      jobKind: "import",
+      payload: { task: "sync" },
+      progress: { completed: 0 },
+    });
+    await unitStore.enqueue({
+      jobId: "job_cancelled_during_unit",
+      units: [{ unitId: "unit_1", payload: { item: "card_1" } }],
+    });
+
+    const { claim } = await unitStore.claimNext({
+      claimOwnerId: "worker_a",
+      claimTtlMs: 30_000,
+      workflowMaxActiveClaims: 1,
+      jobMaxActiveClaims: 1,
+    });
+    expect(claim?.unit.unitId).toBe("unit_1");
+
+    await expect(
+      jobStore.cancel({
+        jobId: "job_cancelled_during_unit",
+        progress: { completed: 0 },
+        errorMessage: "Operator cancelled job.",
+      }),
+    ).resolves.toMatchObject({ status: "failed", errorMessage: "Operator cancelled job." });
+
+    await expect(
+      unitStore.recordTerminal({
+        jobId: "job_cancelled_during_unit",
+        unitId: "unit_1",
+        claimOwnerId: claim!.claimOwnerId,
+        claimToken: claim!.claimToken,
+        state: "completed",
+        unitResult: { ok: true },
+        parentProgress: { completed: 1 },
+        parentResult: { ok: true },
+        completeJob: true,
+      }),
+    ).resolves.toBe("parent-already-terminal");
+
+    await expect(jobStore.get("job_cancelled_during_unit")).resolves.toMatchObject({
+      status: "failed",
+      progress: { completed: 0 },
+      result: null,
+      errorMessage: "Operator cancelled job.",
+    });
+    await expect(unitStore.listForJob("job_cancelled_during_unit")).resolves.toMatchObject([
+      { unitId: "unit_1", state: "completed", result: { ok: true } },
+    ]);
+  });
+
   it("rejects stale durable terminals and allows an expired claim to be reclaimed", async () => {
     const store = createPostgresDurableJobStore<JobPayload, JobProgress, JobResult>(pools.platform, durableJobTables);
     await store.enqueue({
@@ -691,7 +756,101 @@ describe("platform runtime Postgres concurrency guards", () => {
     expect(reclaimedGhost?.claimedUntil).not.toBeNull();
   });
 
-  it("lets only one concurrent wake claimer process an eligible hot-lane intent", async () => {
+  it("coalesces concurrent wake enqueues at the greatest required position", async () => {
+    await pools.platform.query(platformWorkSignalStoreSchemaSql);
+    const store = createPostgresWorkSignalStore(pools.platform);
+    const commonIntent = {
+      sourceContextName: "catalog",
+      targetContextName: "checkout",
+      projectionName: "checkout-session-projection",
+      checkpointKey: "checkout.session-projection:catalog:v1",
+      priorityLane: "hot" as const,
+      origin: "relay" as const,
+    };
+
+    await Promise.all([
+      store.enqueueProjectionWakeIntent({
+        ...commonIntent,
+        requiredPosition: 41n,
+        requiredCursor: "catalog:41",
+      }),
+      store.enqueueProjectionWakeIntent({
+        ...commonIntent,
+        requiredPosition: 73n,
+        requiredCursor: "catalog:73",
+      }),
+    ]);
+
+    const persisted = await pools.platform.query(
+      `SELECT count(*)::integer AS row_count,
+              min(required_position)::text AS required_position,
+              min(required_cursor) AS required_cursor
+       FROM platform_projection_wake_intents`,
+    );
+    expect(persisted.rows[0]).toMatchObject({
+      row_count: 1,
+      required_position: "73",
+      required_cursor: "catalog:73",
+    });
+  });
+
+  it("satisfies checkpoint waiters exactly at the ready-position boundary", async () => {
+    await pools.platform.query(platformWorkSignalStoreSchemaSql);
+    const store = createPostgresWorkSignalStore(pools.platform);
+    const commonWaiter = {
+      checkpointKey: "checkout.session-projection:catalog:v1",
+      sourceContextName: "catalog",
+      targetContextName: "checkout",
+      projectionName: "checkout-session-projection",
+      origin: "api-wait" as const,
+    };
+
+    await store.addCheckpointWaiter({
+      ...commonWaiter,
+      waiterId: "waiter_at_boundary_before_ready",
+      requiredPosition: 42n,
+    });
+    await store.addCheckpointWaiter({
+      ...commonWaiter,
+      waiterId: "waiter_above_boundary_before_ready",
+      requiredPosition: 43n,
+    });
+    await store.recordCheckpointReady({
+      checkpointKey: commonWaiter.checkpointKey,
+      sourceContextName: commonWaiter.sourceContextName,
+      targetContextName: commonWaiter.targetContextName,
+      projectionName: commonWaiter.projectionName,
+      readyPosition: 42n,
+      readyCursor: "catalog:42",
+    });
+
+    const atBoundaryAfterReady = await store.addCheckpointWaiter({
+      ...commonWaiter,
+      waiterId: "waiter_at_boundary_after_ready",
+      requiredPosition: 42n,
+    });
+    const aboveBoundaryAfterReady = await store.addCheckpointWaiter({
+      ...commonWaiter,
+      waiterId: "waiter_above_boundary_after_ready",
+      requiredPosition: 43n,
+    });
+    const persisted = await pools.platform.query(
+      `SELECT waiter_id, satisfied_at IS NOT NULL AS satisfied
+       FROM platform_projection_checkpoint_waiters
+       ORDER BY waiter_id`,
+    );
+
+    expect(atBoundaryAfterReady.satisfiedAt).not.toBeNull();
+    expect(aboveBoundaryAfterReady.satisfiedAt).toBeNull();
+    expect(persisted.rows).toEqual([
+      { waiter_id: "waiter_above_boundary_after_ready", satisfied: false },
+      { waiter_id: "waiter_above_boundary_before_ready", satisfied: false },
+      { waiter_id: "waiter_at_boundary_after_ready", satisfied: true },
+      { waiter_id: "waiter_at_boundary_before_ready", satisfied: true },
+    ]);
+  });
+
+  it("lets only one concurrent wake claimer win a fencing token for an eligible hot-lane intent", async () => {
     await pools.platform.query(platformWorkSignalStoreSchemaSql);
     const store = createPostgresWorkSignalStore(pools.platform);
     const intent = await store.enqueueProjectionWakeIntent({
@@ -731,6 +890,7 @@ describe("platform runtime Postgres concurrency guards", () => {
       expect(claims.filter((candidate) => candidate !== null)).toHaveLength(1);
       expect(claim?.wakeIntentId).toBe(intent.wakeIntentId);
       expect(claim?.attemptCount).toBe(1);
+      expect(claim?.claimFencingToken).toBe(1n);
 
       await expect(
         store.completeProjectionWakeIntent({
@@ -754,10 +914,10 @@ describe("platform runtime Postgres concurrency guards", () => {
     ).resolves.toBeNull();
 
     const persisted = await pools.platform.query(
-      "SELECT state, attempt_count FROM platform_projection_wake_intents WHERE wake_intent_id = $1",
+      "SELECT state, attempt_count, claim_fencing_token::text FROM platform_projection_wake_intents WHERE wake_intent_id = $1",
       [intent.wakeIntentId],
     );
-    expect(persisted.rows[0]).toMatchObject({ state: "completed", attempt_count: 1 });
+    expect(persisted.rows[0]).toMatchObject({ state: "completed", attempt_count: 1, claim_fencing_token: "1" });
   });
 
   it("reclaims an expired wake-intent row pinned by an orphaned transaction", async () => {

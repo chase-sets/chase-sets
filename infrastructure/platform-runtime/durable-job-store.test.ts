@@ -21,22 +21,6 @@ describe("durable job store", () => {
     vi.useRealTimers();
   });
 
-  it("defines context-owned job and event tables", () => {
-    const sql = durableJobSchemaSql({
-      jobsTable: "inventory_import_batch_jobs",
-      eventsTable: "inventory_import_batch_job_events",
-    });
-
-    expect(sql).toContain("CREATE TABLE IF NOT EXISTS inventory_import_batch_jobs");
-    expect(sql).toContain("CREATE TABLE IF NOT EXISTS inventory_import_batch_job_events");
-    expect(sql).toContain("ON inventory_import_batch_jobs USING GIN (event_context)");
-    expect(sql).toContain("ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0");
-    expect(sql).toContain("ADD COLUMN IF NOT EXISTS next_eligible_at timestamptz NULL");
-    expect(sql).toContain("inventory_import_batch_jobs_claim_eligibility_idx");
-    expect(sql).toContain("(event_context->>'tenantId')");
-    expect(sql).toContain("PRIMARY KEY (job_id, sequence)");
-  });
-
   it("can move next-eligible-at backfills out of boot schema SQL", () => {
     const sql = durableJobSchemaSql({
       jobsTable: "catalog_source_observation_jobs",
@@ -126,10 +110,6 @@ describe("durable job store", () => {
 
     expect(calls[0].sql).toContain("INSERT INTO inventory_import_batch_jobs");
     expect(calls[1].sql).toContain("INSERT INTO inventory_import_batch_job_events");
-    expect(calls.some((call) => call.sql.includes("FOR UPDATE SKIP LOCKED"))).toBe(true);
-    expect(calls.some((call) => call.sql.includes("attempt_count = job.attempt_count + 1"))).toBe(true);
-    expect(calls.some((call) => call.sql.includes("next_eligible_at"))).toBe(true);
-    expect(calls.some((call) => call.sql.includes("coalesce(max(sequence), 0) + 1"))).toBe(true);
     expect(String(calls[1].values[1])).not.toContain("batchId");
     expect(String(calls[1].values[1])).toContain("queued");
 

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   createPostgresWorkSignalStore,
-  platformWorkSignalStoreSchemaSql,
   type WorkSignalPriorityLane,
   type WorkSignalWakeOrigin,
 } from "./work-signal-store";
@@ -16,30 +15,7 @@ const WAKE_REQUEST = {
 };
 
 describe("work signal store", () => {
-  it("defines durable wake, readiness, and waiter tables in the control database", () => {
-    expect(platformWorkSignalStoreSchemaSql).toContain("CREATE TABLE IF NOT EXISTS platform_projection_wake_intents");
-    expect(platformWorkSignalStoreSchemaSql).toContain("coalescing_key text NOT NULL UNIQUE");
-    expect(platformWorkSignalStoreSchemaSql).toContain("source_context_name text NOT NULL");
-    expect(platformWorkSignalStoreSchemaSql).toContain("target_context_name text NOT NULL");
-    expect(platformWorkSignalStoreSchemaSql).toContain("claim_fencing_token bigint");
-    expect(platformWorkSignalStoreSchemaSql).toContain("claimed_required_position bigint");
-    expect(platformWorkSignalStoreSchemaSql).toContain(
-      "CHECK (origin IN ('relay', 'api-wait', 'reconciliation', 'operator'))",
-    );
-    expect(platformWorkSignalStoreSchemaSql).toContain("idx_platform_projection_wake_intents_claim_due");
-    expect(platformWorkSignalStoreSchemaSql).not.toContain("event_payload");
-
-    expect(platformWorkSignalStoreSchemaSql).toContain(
-      "CREATE TABLE IF NOT EXISTS platform_projection_checkpoint_readiness",
-    );
-    expect(platformWorkSignalStoreSchemaSql).toContain("PRIMARY KEY (checkpoint_key, source_context_name)");
-    expect(platformWorkSignalStoreSchemaSql).toContain(
-      "CREATE TABLE IF NOT EXISTS platform_projection_checkpoint_waiters",
-    );
-    expect(platformWorkSignalStoreSchemaSql).toContain("idx_platform_projection_checkpoint_waiters_ready");
-  });
-
-  it("enqueues projection wake intents with hot-path coalescing semantics", async () => {
+  it("maps projection wake inputs and emits structural enqueue signals", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const enqueuedEvents: unknown[] = [];
     const store = createPostgresWorkSignalStore(
@@ -89,26 +65,6 @@ describe("work signal store", () => {
       origin: "api-wait",
     });
 
-    expect(calls[0].sql).toContain("WITH existing AS MATERIALIZED");
-    expect(calls[0].sql).toContain("FOR UPDATE");
-    expect(calls[0].sql).toContain("ON CONFLICT (coalescing_key)");
-    expect(calls[0].sql).toContain("required_position = GREATEST");
-    expect(calls[0].sql).toContain("next_eligible_at = LEAST");
-    expect(calls[0].sql).toContain("metadata = platform_projection_wake_intents.metadata || EXCLUDED.metadata");
-    expect(calls[0].sql).toContain(
-      "WHEN platform_projection_wake_intents.state IN ('completed', 'expired') THEN 'queued'",
-    );
-    expect(calls[0].sql).toContain("platform_projection_wake_intents.state = 'failed'");
-    expect(calls[0].sql).toContain(
-      "AND EXCLUDED.required_position > platform_projection_wake_intents.required_position THEN 'queued'",
-    );
-    expect(calls[0].sql).toContain("attempt_count = CASE");
-    expect(calls[0].sql).toContain("THEN 0");
-    expect(calls[0].sql).toContain("last_error = CASE");
-    expect(calls[0].sql).toContain("THEN NULL");
-    expect(calls[0].sql).toContain("xmax = 0");
-    expect(calls[0].sql).toContain("requeued_completed");
-    expect(calls[0].sql).toContain("requeued_expired");
     expect(String(calls[0].values[1])).toBe(
       "projection-wake:catalog:checkout:checkout-session-projection:checkout.checkout-session-projection:catalog:hot",
     );
@@ -821,10 +777,6 @@ describe("work signal store", () => {
       }),
     ).resolves.toMatchObject({ waiterId: "waiter_1", satisfiedAt: new Date("2026-06-10T12:00:01.000Z") });
 
-    expect(calls[0].sql).toContain("ON CONFLICT (checkpoint_key, source_context_name)");
-    expect(calls[0].sql).toContain("ready_position = GREATEST");
-    expect(calls[1].sql).toContain("UPDATE platform_projection_checkpoint_waiters");
-    expect(calls[1].sql).toContain("required_position <= $3::bigint");
     expect(calls[2].sql).toContain("SELECT pg_notify($1, $2)");
     expect(calls[2].values[0]).toBe("platform_projection_checkpoint_readiness");
     expect(JSON.parse(String(calls[2].values[1]))).toMatchObject({
@@ -838,9 +790,6 @@ describe("work signal store", () => {
         readyCursor: "catalog:42",
       },
     });
-    expect(calls[3].sql).toContain("INSERT INTO platform_projection_checkpoint_waiters");
-    expect(calls[4].sql).toContain("FROM platform_projection_checkpoint_readiness readiness");
-    expect(calls[4].sql).toContain("readiness.ready_position >= waiters.required_position");
   });
 
   it("never late-satisfies expired waiters and never satisfies new waiters from expired readiness", async () => {
