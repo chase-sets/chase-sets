@@ -10,6 +10,7 @@ type PaymentSummaryRow = {
   order_ids: string[];
   amount: string;
   currency_code: string;
+  processor_client_secret: string | null;
   status: string;
   updated_at: string;
   last_stream_version: number;
@@ -24,7 +25,7 @@ class PaymentSummaryProjectionDb implements PgQueryable {
   ): Promise<PgQueryResult<Row>> {
     if (sql.includes("INSERT INTO checkout_payment_summary_pages")) {
       const paymentId = String(values[0]);
-      const streamVersion = Number(values[6]);
+      const streamVersion = Number(values[7]);
       const existing = this.summaries.get(paymentId);
       if (!existing || existing.last_stream_version < streamVersion) {
         this.summaries.set(paymentId, {
@@ -33,8 +34,9 @@ class PaymentSummaryProjectionDb implements PgQueryable {
           order_ids: JSON.parse(String(values[2])) as string[],
           amount: String(values[3]),
           currency_code: String(values[4]),
+          processor_client_secret: values[5] === null ? null : String(values[5]),
           status: "pending-confirmation",
-          updated_at: String(values[5]),
+          updated_at: String(values[6]),
           last_stream_version: streamVersion,
         });
         return { rows: [], rowCount: 1 };
@@ -91,6 +93,7 @@ describe("checkout payment summary projection", () => {
         orderIds: ["ord_1"],
         amount: "27.29",
         currencyCode: "usd",
+        processorClientSecret: "pi_1_secret_checkout",
         createdAt: "2026-06-29T00:00:00.000Z",
       }),
     );
@@ -107,6 +110,7 @@ describe("checkout payment summary projection", () => {
         orderIds: ["ord_1"],
         amount: "27.29",
         currencyCode: "usd",
+        processorClientSecret: "pi_1_secret_checkout",
         createdAt: "2026-06-29T00:00:00.000Z",
       }),
     );
@@ -117,6 +121,7 @@ describe("checkout payment summary projection", () => {
       order_ids: ["ord_1"],
       amount: "27.29",
       currency_code: "usd",
+      processor_client_secret: "pi_1_secret_checkout",
       status: "captured",
       updated_at: "2026-06-29T00:01:00.000Z",
       last_stream_version: 2,
@@ -148,6 +153,7 @@ describe("checkout payment summary projection", () => {
         orderIds: ["ord_1"],
         amount: "27.29",
         currencyCode: "usd",
+        processorClientSecret: null,
         createdAt: "2026-06-29T00:00:00.000Z",
       }),
     );

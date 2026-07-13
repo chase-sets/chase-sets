@@ -18,8 +18,15 @@ import {
   stripeAppearanceSnapshot,
 } from "@chase-sets/design-system";
 import { createPaymentsApiClient } from "../../../../client";
-import type { PaymentsPaymentDetail } from "../../api/contracts";
 import type { PaymentElementDefaultValues } from "./account-payment-contracts";
+
+type StripeConfirmablePayment = Readonly<{
+  payment_id: string;
+  amount: string;
+  status: string;
+  processor_client_secret: string | null;
+  processor_publishable_key: string | null;
+}>;
 
 type StripeElementsAppearance = ReturnType<typeof createStripeElementsAppearance>;
 
@@ -158,7 +165,7 @@ export function StripeConfirmationCard({
   payment,
   defaultValues,
 }: {
-  payment: PaymentsPaymentDetail;
+  payment: StripeConfirmablePayment;
   defaultValues: PaymentElementDefaultValues | null;
 }) {
   const revalidator = useRevalidator();

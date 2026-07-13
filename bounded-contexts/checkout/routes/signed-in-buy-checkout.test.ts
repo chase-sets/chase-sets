@@ -15,7 +15,7 @@ import {
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
   mockCreateSettlementRequestApiClient,
-  mockGetAccountPayment,
+  mockGetCheckoutPaymentConfirmation,
   mockGetCheckoutPaymentSummary,
   mockGetCheckoutSession,
   mockGetCheckoutStatus,
@@ -546,7 +546,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
         unavailable_reasons: [],
         unavailable_reason_details: [],
       });
-    mockGetAccountPayment.mockResolvedValue({
+    mockGetCheckoutPaymentConfirmation.mockResolvedValue({
       payment_id: "pay_signed_in_1",
       amount: "27.25",
       status: "pending-confirmation",
@@ -565,11 +565,11 @@ describe("checkout web routes: signed-in buy checkout", () => {
       listSavedCheckoutInstruments: mockListSavedCheckoutInstruments,
       getCheckoutStatus: mockGetCheckoutStatus,
       previewCheckoutStatus: mockPreviewCheckoutStatus,
-      getAccountPayment: mockGetAccountPayment,
     });
     mockGetCheckoutSession.mockResolvedValue(committedSession);
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
+      getCheckoutPaymentConfirmation: mockGetCheckoutPaymentConfirmation,
       listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
 
@@ -639,6 +639,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
     mockGetCheckoutSession.mockResolvedValue(signedInBuyNowCommittedOrderSession("pay_signed_in_1"));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
+      getCheckoutPaymentConfirmation: mockGetCheckoutPaymentConfirmation,
       listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
 
@@ -651,6 +652,6 @@ describe("checkout web routes: signed-in buy checkout", () => {
     expect(inlinePayment.preparedPayment).toEqual(
       expect.objectContaining({ payment_id: "pay_signed_in_1", status: "pending-confirmation" }),
     );
-    expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_signed_in_1");
+    expect(mockGetCheckoutPaymentConfirmation).toHaveBeenCalledWith("chk_signed_in");
   });
 });

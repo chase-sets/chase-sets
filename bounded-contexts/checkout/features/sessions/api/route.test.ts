@@ -254,6 +254,7 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     cancelSession: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     getSession: vi.fn(async () => createSession()),
     getPaymentSummary: vi.fn(async () => null),
+    getPaymentConfirmation: vi.fn(async () => null),
     listSavedPaymentInstruments: vi.fn(async () => []),
     projectors: [],
     ...overrides,
@@ -284,6 +285,31 @@ describe("checkout session routes", () => {
     mockCreateCheckoutInventoryReservations.mockResolvedValue({ reservations: [], unavailableLines: [] });
     mockPreviewBuyNowCheckoutSupplyThroughOrdering.mockResolvedValue(readyBuyNowSupplyPreview());
     mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(readyBuyNowSupplyPreview());
+  });
+
+  it("loads inline payment confirmation through the buyer-owned checkout composite", async () => {
+    const getPaymentConfirmation = vi.fn(async () => ({
+      payment_id: "pay_1",
+      amount: "27.29",
+      currency_code: "usd",
+      status: "pending-confirmation",
+      processor_client_secret: "pi_1_secret_checkout",
+      processor_publishable_key: "pk_test_checkout",
+    }));
+    const services = createServices({ getPaymentConfirmation });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/payment-confirmation"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(getPaymentConfirmation).toHaveBeenCalledWith("chk_1", "acc_buyer");
+    await expect(response.json()).resolves.toMatchObject({
+      payment_id: "pay_1",
+      processor_client_secret: "pi_1_secret_checkout",
+      processor_publishable_key: "pk_test_checkout",
+    });
   });
 
   it("returns cart session validation errors from checkout", async () => {

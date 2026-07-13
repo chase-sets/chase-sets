@@ -36,6 +36,7 @@ export const mockCreateSellListReadiness = vi.fn();
 export const mockCreateGuestSellListReadiness = vi.fn();
 export const mockGetCheckoutSession = vi.fn();
 export const mockGetCheckoutPaymentSummary = vi.fn();
+export const mockGetCheckoutPaymentConfirmation = vi.fn();
 export const mockPreviewCheckoutFulfillment = vi.fn();
 export const mockGetCheckoutStatus = vi.fn();
 export const mockPreviewCheckoutStatus = vi.fn();

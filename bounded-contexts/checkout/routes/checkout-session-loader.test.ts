@@ -13,8 +13,8 @@ import {
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
   mockCreateSettlementRequestApiClient,
+  mockGetCheckoutPaymentConfirmation,
   mockGetCheckoutStatus,
-  mockGetAccountPayment,
   mockGetCheckoutSession,
   mockGetGuestCheckoutClaimContext,
   mockListSellListShipFromAddresses,
@@ -1582,8 +1582,7 @@ describe("checkout web routes: checkout session loader", () => {
 
   it("loads a prepared payment inline for signed-in checkout", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({});
-    mockGetAccountPayment.mockResolvedValue({ payment_id: "pay_1", status: "pending-confirmation" });
-    mockCreatePaymentsRequestApiClient.mockReturnValue({ getAccountPayment: mockGetAccountPayment });
+    mockGetCheckoutPaymentConfirmation.mockResolvedValue({ payment_id: "pay_1", status: "pending-confirmation" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: vi.fn(async () => ({
         session_id: "chk_1",
@@ -1606,6 +1605,7 @@ describe("checkout web routes: checkout session loader", () => {
         created_at: "2026-04-01T00:00:00.000Z",
         updated_at: "2026-04-01T00:00:00.000Z",
       })),
+      getCheckoutPaymentConfirmation: mockGetCheckoutPaymentConfirmation,
     });
 
     const result = await checkoutSessionLoader({
@@ -1671,8 +1671,7 @@ describe("checkout web routes: checkout session loader", () => {
 
   it("loads a prepared payment inline for guest checkout", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
-    mockGetAccountPayment.mockResolvedValue({ payment_id: "pay_1", status: "pending-confirmation" });
-    mockCreatePaymentsRequestApiClient.mockReturnValue({ getAccountPayment: mockGetAccountPayment });
+    mockGetCheckoutPaymentConfirmation.mockResolvedValue({ payment_id: "pay_1", status: "pending-confirmation" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: vi.fn(async () => ({
         session_id: "chk_1",
@@ -1685,6 +1684,7 @@ describe("checkout web routes: checkout session loader", () => {
         created_at: "2026-04-01T00:00:00.000Z",
         updated_at: "2026-04-01T00:00:00.000Z",
       })),
+      getCheckoutPaymentConfirmation: mockGetCheckoutPaymentConfirmation,
     });
 
     const result = await checkoutSessionLoader({

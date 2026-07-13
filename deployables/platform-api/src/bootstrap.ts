@@ -29,6 +29,7 @@ async function bootstrap() {
 
   try {
     await runBootstrapPhase("platform-control-plane", () => bootstrapPlatformControlPlane(pools.control));
+    const paymentProcessorGateway = createFakePaymentProcessorGateway();
     const taxQuoteResolver = shouldBlockProductionTaxQuotes(
       config.deploymentEnvironment,
       Boolean(config.taxProviderBackedQuotesRequired),
@@ -40,7 +41,8 @@ async function bootstrap() {
         pools,
         runtimeProfile: config.runtimeProfile,
         hostPorts: {
-          processorGateway: createFakePaymentProcessorGateway(),
+          processorGateway: paymentProcessorGateway,
+          paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
           moneyMovementGateway: createFakeMoneyMovementGateway(),
           listingPhotoStorage:
             config.listingPhotoStorage.kind === "s3"

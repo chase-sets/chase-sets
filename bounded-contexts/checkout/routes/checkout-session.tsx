@@ -46,12 +46,7 @@ import {
   isCheckoutRecovery,
 } from "../features/sessions/api/checkout-recovery";
 import { createIdentityRequestApiClient } from "@chase-sets/identity/server";
-import {
-  createPaymentsRequestApiClient,
-  type PaymentElementDefaultValues,
-  type PaymentsPaymentDetail,
-  type PaymentsSavedCheckoutInstrument,
-} from "@chase-sets/payments/server";
+import { type PaymentElementDefaultValues, type PaymentsSavedCheckoutInstrument } from "@chase-sets/payments/server";
 import { StripeConfirmationCard } from "@chase-sets/payments/web";
 import { checkoutSessionSourceCreatesOrders } from "@chase-sets/checkout-order-source";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
@@ -707,9 +702,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const savedShippingAddresses = await loadSavedShippingAddresses(ancillaryRequest, actor);
   const savedCheckoutInstruments = await loadSavedCheckoutInstruments(ancillaryRequest, actor);
   const guestCheckoutContact = await loadGuestCheckoutContact(ancillaryRequest, actor);
-  const preparedPayment: PaymentsPaymentDetail | null = session.payment_id
-    ? await createPaymentsRequestApiClient(resolvedRequest).getAccountPayment(session.payment_id)
-    : null;
+  const preparedPayment = session.payment_id ? await api.getCheckoutPaymentConfirmation(session.session_id) : null;
   const paymentElementDefaultValues: PaymentElementDefaultValues | null = session.shipping_address?.email?.trim()
     ? {
         billingDetails: {

@@ -274,6 +274,11 @@
       "purpose": "Verifies buyer-entered shipping addresses through the configured postage provider before checkout commits address snapshots."
     },
     {
+      "portName": "paymentProcessorPublicConfiguration",
+      "providedBy": "platform-api",
+      "purpose": "Supplies public processor configuration for Checkout-owned inline payment confirmation views."
+    },
+    {
       "portName": "rateLimitPolicyResolver",
       "providedBy": "platform-operations",
       "purpose": "Resolve the runtime-configurable rate-limit policy for anonymous cart/sell-list capture without Checkout querying Platform Operations storage."
