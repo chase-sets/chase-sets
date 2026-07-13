@@ -75,6 +75,19 @@ function partiallyRefundedPaymentState() {
   });
 }
 
+function refundedPaymentState() {
+  return evolve(capturedPaymentState(), {
+    type: "RecordPaymentRefund",
+    refundId: "rfd_full" as never,
+    orderIds: ["ord_1" as never],
+    processorStatus: "succeeded",
+    processorRefundReference: "re_full",
+    amount: "10.00",
+    refundedAmount: "10.00",
+    refundedAt: "2026-04-01T00:02:00.000Z",
+  });
+}
+
 function disputePayment(state: PaymentState) {
   return evolve(state, {
     type: "RecordPaymentDispute",
@@ -97,7 +110,7 @@ describe("payments payment domain", () => {
     expect(
       decidePayment(createdPaymentState(), {
         type: "RecordPaymentAuthorization",
-        processorStatus: " requires_capture ",
+        processorStatus: " requires_payment_method ",
         authorizedAt: "2026-04-01T00:00:30.000Z",
       }),
     ).toEqual([
@@ -105,15 +118,34 @@ describe("payments payment domain", () => {
         type: "payments.payment-authorized",
         data: {
           paymentId: "pay_1",
-          processorStatus: "requires_capture",
+          processorStatus: "requires_payment_method",
           authorizedAt: "2026-04-01T00:00:30.000Z",
         },
       },
     ]);
   });
 
+  it("treats duplicate payment authorization as idempotent", () => {
+    const authorizedState = evolve(createdPaymentState(), {
+      type: "RecordPaymentAuthorization",
+      processorStatus: "requires_capture",
+      authorizedAt: "2026-04-01T00:00:30.000Z",
+    });
+
+    expect(
+      decidePayment(authorizedState, {
+        type: "RecordPaymentAuthorization",
+        processorStatus: " requires_capture ",
+        authorizedAt: "2026-04-01T00:00:40.000Z",
+      }),
+    ).toEqual([]);
+  });
+
   it.each([
     ["captured", () => capturedPaymentState()],
+    ["partially refunded", () => partiallyRefundedPaymentState()],
+    ["refunded", () => refundedPaymentState()],
+    ["disputed", () => disputePayment(capturedPaymentState())],
     [
       "cancelled",
       () =>
@@ -166,9 +198,14 @@ describe("payments payment domain", () => {
     ).toEqual([]);
   });
 
-  it("rejects cancellation after capture", () => {
+  it.each([
+    ["captured", () => capturedPaymentState()],
+    ["partially refunded", () => partiallyRefundedPaymentState()],
+    ["refunded", () => refundedPaymentState()],
+    ["disputed", () => disputePayment(capturedPaymentState())],
+  ] as const)("rejects cancellation after the payment is %s", (_status, state) => {
     expect(() =>
-      decidePayment(capturedPaymentState(), {
+      decidePayment(state(), {
         type: "CancelPayment",
         cancelledAt: "2026-04-01T00:03:00.000Z",
       }),
