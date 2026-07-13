@@ -19,6 +19,14 @@ export type CheckoutDeliverySectionProps = Readonly<{
   onFieldChange: () => void;
 }>;
 
+// Checkout delivery serviceability is currently limited to the United States.
+const shippingCountryItems = [
+  {
+    value: "US",
+    label: t("checkout.features.sessions.ui.checkoutPage.country.united.states"),
+  },
+];
+
 /** The Delivery step: the shipping-address form (with an optional saved
  * address picker and address-book preferences) while active, or a hidden
  * mirror of the collected address once it collapses. */
@@ -85,6 +93,7 @@ export function CheckoutDeliverySection({
             name="shippingName"
             placeholder={t("checkout.features.sessions.ui.checkoutPage.recipient.placeholder")}
             defaultValue={addressDefaults.name}
+            autoComplete="shipping name"
             onChange={onFieldChange}
             required
           />
@@ -95,12 +104,13 @@ export function CheckoutDeliverySection({
             autoComplete="shipping organization"
             onChange={onFieldChange}
           />
-          <TextInput
+          <NativeSelect
             label={t("checkout.features.sessions.ui.checkoutPage.country")}
             name="shippingCountry"
             defaultValue={addressDefaults.country}
             autoComplete="shipping country"
             onChange={onFieldChange}
+            items={shippingCountryItems}
           />
           <TextInput
             label={t("checkout.features.sessions.ui.checkoutPage.address.line1")}
@@ -138,6 +148,7 @@ export function CheckoutDeliverySection({
             name="shippingPostalCode"
             defaultValue={addressDefaults.postalCode}
             autoComplete="shipping postal-code"
+            inputMode="numeric"
             onChange={onFieldChange}
             required
           />
@@ -145,7 +156,10 @@ export function CheckoutDeliverySection({
             label={t("checkout.features.sessions.ui.checkoutPage.phone")}
             name="shippingPhone"
             defaultValue={addressDefaults.phone}
+            type="tel"
             autoComplete="shipping tel"
+            inputMode="tel"
+            onChange={onFieldChange}
           />
         </Grid>
         {canManageAddressBookInCheckout ? (

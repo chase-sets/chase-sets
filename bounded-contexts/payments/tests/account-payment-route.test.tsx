@@ -603,6 +603,10 @@ describe("marketplace account payment route", () => {
       </ChaseRoot>,
     );
 
+    expect(screen.getByRole("region", { name: "Payment actions" })).toBeTruthy();
+    expect(screen.getByTestId("payment-element-container").className).toContain("min-h-[36rem]");
+    expect(screen.getByTestId("payment-element-skeleton")).toBeTruthy();
+
     const button = await findEnabledButton("Confirm payment");
     fireEvent.click(button);
 

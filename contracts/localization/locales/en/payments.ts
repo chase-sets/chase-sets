@@ -68,6 +68,8 @@ export const paymentsEnglishTranslations = {
   "payments.routes.marketplace.accountPayment.payment.status": "Payment Status",
   "payments.routes.marketplace.accountPayment.payment.summary": "Payment Summary",
   "payments.routes.marketplace.accountPayment.payment.method": "Payment method",
+  "payments.routes.marketplace.accountPayment.payment.actions": "Payment actions",
+  "payments.routes.marketplace.accountPayment.payment.confirmation.sticky.label": "{value} (sticky)",
   "payments.routes.marketplace.accountPayment.processing.payment": "Processing payment...",
   "payments.routes.marketplace.accountPayment.processor": "Processor",
   "payments.routes.marketplace.accountPayment.processor.reference": "Processor reference: ",
