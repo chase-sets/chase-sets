@@ -32,4 +32,10 @@ export type {
   CatalogProviderProfileDryRunResult,
   CatalogProviderProfileVersionReview,
   SourceObservationListItem,
+  ProviderScopeMappingCandidateSummary,
+  ScopeCoverageMatrix,
+  ScopeCoverageProviderRow,
+  ScopeCoverageState,
+  UnmappedScopeInboxGroup,
+  UnmappedScopeInboxReadModel,
 } from "./support/client-support/contracts";

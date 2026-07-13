@@ -26,4 +26,6 @@ export const catalogRoutesEnglishTranslations = {
   "catalog.routes.admin.referenceRecordsDetail.reference.record.catalog.admin": "Reference Record | Catalog Admin",
   "catalog.routes.admin.referenceTypes.reference.types.catalog.admin": "Reference Types | Catalog Admin",
   "catalog.routes.admin.referenceTypesDetail.reference.type.catalog.admin": "Reference Type | Catalog Admin",
+  "catalog.routes.admin.scopeCoverage.unmapped.scope.inbox.catalog.admin": "Unmapped Scope Inbox | Catalog Admin",
+  "catalog.routes.admin.scopeCoverageDetail.scope.coverage.catalog.admin": "Scope Coverage | Catalog Admin",
 } as const;

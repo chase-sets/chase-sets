@@ -321,6 +321,22 @@
           "routeType": "route",
           "sourceContext": "catalog",
           "section": "catalog"
+        },
+        {
+          "routeId": "scope-coverage",
+          "routePath": "scope-coverage",
+          "fileExport": "./routes/admin/scope-coverage",
+          "routeType": "route",
+          "sourceContext": "catalog",
+          "section": "catalog"
+        },
+        {
+          "routeId": "scope-coverage-detail",
+          "routePath": "scope-coverage/:id",
+          "fileExport": "./routes/admin/scope-coverage-detail",
+          "routeType": "route",
+          "sourceContext": "catalog",
+          "section": "catalog"
         }
       ]
     }
@@ -418,6 +434,18 @@
       "icon": "book",
       "href": "/reference-records",
       "order": 65,
+      "visibility": "signed-in",
+      "requiredPermissions": ["catalog.view"],
+      "section": "catalog"
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "scope-coverage",
+      "label": "Scope Coverage",
+      "icon": "checkCircle",
+      "href": "/scope-coverage",
+      "order": 68,
       "visibility": "signed-in",
       "requiredPermissions": ["catalog.view"],
       "section": "catalog"
@@ -656,6 +684,7 @@
         "dimensions",
         "display-templates",
         "fields",
+        "provider-scope-mapping",
         "reference-data",
         "source-observations"
       ]
@@ -1035,6 +1064,26 @@
           "bounded-contexts/catalog/features/attention-queue/api/route.test.ts",
           "bounded-contexts/catalog/support/route-support/admin-integrations/attention-queue-command-handler.test.ts"
         ]
+      }
+    },
+    {
+      "id": "catalog.provider-scope-mapping-review-command-snapshots",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/provider-scope-mapping/api/route.ts:POST /commands",
+        "api-route:bounded-contexts/catalog/features/provider-scope-mapping/api/route.ts:POST /propose",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hdcd26315160c#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H1a6779d74627#1"
+      ],
+      "visibleDestination": {
+        "routeId": "scope-coverage-detail",
+        "description": "#3797 unmapped-scope inbox and coverage matrix accept/reject/revoke/propose actions stay on the scope coverage detail surface and return the committed Provider Scope Mapping aggregate snapshot (reviewStatus + version); the page calls refresh() to re-read the coverage matrix / inbox read model after every write, so the operator never sees a stale row."
+      },
+      "proof": {
+        "authoritativeResponse": "POST /commands dispatches AcceptProviderScopeMapping/RejectProviderScopeMapping/RevokeProviderScopeMapping keyed by mapping id with the operator as actor and responds from the command handler's evolved aggregate state; POST /propose dispatches ProposeProviderScopeMapping and optionally an immediate AcceptProviderScopeMapping, returning the final committed snapshot. Both client wrappers (dispatchProviderScopeMappingReviewCommand, proposeProviderScopeMapping) return that snapshot directly, and the inbox/coverage-detail pages call refresh() afterward to re-read the read model.",
+        "tests": ["bounded-contexts/catalog/features/provider-scope-mapping/api/route.test.ts"]
       }
     }
   ],

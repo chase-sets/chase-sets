@@ -11,6 +11,14 @@ export type { Component, ComponentDetail } from "../../features/components/ui/co
 export type { Dimension, DimensionDetail } from "../../features/dimensions/ui/contracts";
 export type { DisplayTemplate, DisplayTemplateDetail } from "../../features/display-templates/ui/contracts";
 export type { Field } from "../../features/fields/ui/contracts";
+export type {
+  ProviderScopeMappingCandidateSummary,
+  ScopeCoverageMatrix,
+  ScopeCoverageProviderRow,
+  ScopeCoverageState,
+  UnmappedScopeInboxGroup,
+  UnmappedScopeInboxReadModel,
+} from "../../features/provider-scope-mapping/ui/contracts";
 export type { ReferenceRecord, ReferenceType } from "../../features/reference-data/ui/contracts";
 export type {
   BulkSourceObservationPromotionOutcome,

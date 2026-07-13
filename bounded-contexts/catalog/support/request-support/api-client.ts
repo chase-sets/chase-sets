@@ -25,6 +25,12 @@ export type {
   SourceObservationIntegrationScope,
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
+  ProviderScopeMappingCandidateSummary,
+  ScopeCoverageMatrix,
+  ScopeCoverageProviderRow,
+  ScopeCoverageState,
+  UnmappedScopeInboxGroup,
+  UnmappedScopeInboxReadModel,
 } from "../../client";
 import { createCatalogApiClient } from "../../client";
 
