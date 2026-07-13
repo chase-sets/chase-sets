@@ -160,7 +160,7 @@ describe("checkout web routes: checkout session action", () => {
     vi.unstubAllEnvs();
   });
 
-  it("confirms signed-in checkout and redirects to confirmation handoff", async () => {
+  it("prepares signed-in payment and returns to checkout for inline confirmation", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
@@ -220,7 +220,7 @@ describe("checkout web routes: checkout session action", () => {
       },
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1");
   });
 
   it("forwards visible fulfillment preview acknowledgement to checkout confirmation", async () => {
@@ -316,7 +316,7 @@ describe("checkout web routes: checkout session action", () => {
 
     const location = response.headers.get("Location");
     expect(response.status).toBe(302);
-    expectCompactPostWriteLocation(location, "/checkout/buy/session/chk_1/confirmation?postWriteToken=");
+    expectCompactPostWriteLocation(location, "/checkout/buy/session/chk_1?postWriteToken=");
     expect((await readResolvedFreshWriteToken(location))?.sources).toEqual([
       {
         sourceContextName: "payments",
@@ -454,7 +454,7 @@ describe("checkout web routes: checkout session action", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1");
   });
 
   it("starts payment when a trusted-step saved instrument is selected", async () => {
@@ -500,7 +500,7 @@ describe("checkout web routes: checkout session action", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1");
   });
 
   it("rejects guest saved checkout instruments before checkout mutations", async () => {
@@ -1188,7 +1188,7 @@ describe("checkout web routes: checkout session action", () => {
       },
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1");
   });
 
   it("retries payment start when the checkout review compact post-write token expired", async () => {
@@ -1241,7 +1241,7 @@ describe("checkout web routes: checkout session action", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1");
   });
 
   it("resumes payment start instead of refreshing quote once checkout orders are committed", async () => {
@@ -1337,7 +1337,7 @@ describe("checkout web routes: checkout session action", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1");
   });
 
   it("starts payment from a reviewed checkout even when the payment-start retry has no fresh-write token", async () => {
@@ -1412,7 +1412,7 @@ describe("checkout web routes: checkout session action", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1");
   });
 
   it("refreshes checkout totals by saving the current shipping address without confirming", async () => {
@@ -1781,7 +1781,7 @@ describe("checkout web routes: checkout session action", () => {
     ]);
   });
 
-  it("keeps guest checkout confirmation on the checkout confirmation handoff route", async () => {
+  it("keeps guest payment entry inline on checkout", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"] });
@@ -1813,7 +1813,7 @@ describe("checkout web routes: checkout session action", () => {
     } as never)) as Response;
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1");
     expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_1", expect.objectContaining({}));
   });
 

@@ -21,6 +21,7 @@ export type CheckoutHostPorts = Readonly<{
   commercialTermsResolver?: CheckoutCommercialTermsResolver;
   addressVerificationProvider?: PostageLabelProvider | null;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
+  paymentProcessorPublicConfiguration?: Readonly<{ publishableKey: string | null }>;
 }>;
 
 export type CheckoutServices = Readonly<{
@@ -51,6 +52,7 @@ export function createCheckoutServices(pool: PgTransactionalPool, ports: Checkou
     db,
     cart,
     addressVerificationProvider: ports.addressVerificationProvider,
+    paymentProcessorPublicConfiguration: ports.paymentProcessorPublicConfiguration,
   });
   const supportLookup = createCheckoutSupportLookupRuntime({ db });
 

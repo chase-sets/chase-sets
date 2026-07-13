@@ -20,6 +20,7 @@ export type {
   CreateCheckoutSessionRequest,
   CheckoutSessionRow,
   CheckoutFulfillmentPreview,
+  CheckoutPaymentConfirmation,
 } from "../../client";
 import { createCheckoutApiClient } from "../../client";
 

@@ -1,11 +1,13 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { MarketplaceSalesFeeLineSnapshotPayload } from "@chase-sets/event-core";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 
 export type PaymentOrderInputRow = Readonly<{
   order_id: string;
   buyer_account_id: string;
   buyer_email: string | null;
+  shipping_destination_snapshot: AddressSnapshot | null;
   seller_account_id: string;
   sales_tax_amount: string;
   total_amount: string;
@@ -46,6 +48,7 @@ export async function listPaymentOrderInputs(
        order_id,
        buyer_account_id,
        buyer_email,
+       shipping_destination_snapshot,
        seller_account_id,
        sales_tax_amount::text AS sales_tax_amount,
        total_amount::text AS total_amount,

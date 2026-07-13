@@ -41,6 +41,7 @@ export function useCheckoutSessionModel({
   isSignedInBuyer = false,
   initialEditSection = null,
   autoResumePaymentStart = false,
+  preparedPaymentEntry = null,
 }: CheckoutSessionPageProps) {
   const lines = session.lines;
   const lineCount = lines.reduce((sum, line) => sum + line.quantity, 0);
@@ -251,10 +252,12 @@ export function useCheckoutSessionModel({
     autoResumePaymentStart &&
     !hasPayment &&
     !isOfferIntent &&
-    session.order_ids.length > 0 &&
+    addressIsComplete(addressDefaults) &&
+    contactReady &&
     payment?.marketplace_checkout_fee.quote_fingerprint &&
     payment.can_start_payment !== false &&
-    !needsReviewRefresh,
+    !needsReviewRefresh &&
+    !canUseAcceleratedSavedPayment,
   );
 
   useEffect(() => {
@@ -364,5 +367,6 @@ export function useCheckoutSessionModel({
     commitIcon,
     reReserveIntent,
     noticeCandidates,
+    preparedPaymentEntry,
   };
 }

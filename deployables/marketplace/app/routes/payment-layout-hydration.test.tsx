@@ -133,7 +133,9 @@ describe("marketplace payment layout hydration", () => {
       isGuestCheckoutPayment: false,
       guestClaimContext: null,
       showSupportDetails: false,
-      buyerEmail: "buyer@example.com",
+      paymentElementDefaultValues: {
+        billingDetails: { email: "buyer@example.com" },
+      },
     });
     mockUseLocation.mockReturnValue({
       pathname: "/account/payments/pay_01KW21Q91VFWDXNMKNA0HRK0CQ",

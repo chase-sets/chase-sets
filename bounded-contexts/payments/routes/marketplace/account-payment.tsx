@@ -40,6 +40,7 @@ import type {
   AccountPaymentOrderView,
   GuestCheckoutClaimContext,
   GuestClaimActionData,
+  PaymentElementDefaultValues,
 } from "../../features/payments/ui/account-payment/account-payment-contracts";
 import { isClaimablePayment } from "../../features/payments/ui/account-payment/account-payment-display";
 import { AccountPaymentErrorBoundary } from "../../features/payments/ui/account-payment/account-payment-error-boundary";
@@ -92,18 +93,40 @@ function orderView(order: PaymentsAccountOrderInput): AccountPaymentOrderView {
   };
 }
 
-function resolveBuyerEmail(orders: readonly PaymentsAccountOrderInput[]) {
+function resolvePaymentElementDefaultValues(
+  orders: readonly PaymentsAccountOrderInput[],
+): PaymentElementDefaultValues | null {
   for (const order of orders) {
-    const email = order.buyer_email?.trim();
+    const destination = order.shipping_destination_snapshot;
+    const email = order.buyer_email?.trim() || destination?.email?.trim();
     if (email) {
-      return email;
+      return {
+        billingDetails: {
+          email,
+          ...(destination?.name?.trim() ? { name: destination.name.trim() } : {}),
+          ...(destination
+            ? {
+                address: {
+                  line1: destination.line1,
+                  ...(destination.line2 ? { line2: destination.line2 } : {}),
+                  city: destination.city,
+                  state: destination.state,
+                  postal_code: destination.postalCode,
+                  country: destination.country,
+                },
+              }
+            : {}),
+        },
+      };
     }
   }
 
   return null;
 }
 
-function needsProcessorBuyerEmail(payment: Readonly<{ status: string; processor_payment_kind?: string | null }>) {
+function needsPaymentElementDefaultValues(
+  payment: Readonly<{ status: string; processor_payment_kind?: string | null }>,
+) {
   return payment.status === "pending-confirmation";
 }
 
@@ -182,7 +205,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       isGuestCheckoutPayment,
       guestClaimContext,
       showSupportDetails: isInternalPaymentSupportActor(actor),
-      buyerEmail: needsProcessorBuyerEmail(payment) ? resolveBuyerEmail(orders) : null,
+      paymentElementDefaultValues: needsPaymentElementDefaultValues(payment)
+        ? resolvePaymentElementDefaultValues(orders)
+        : null,
     };
   } catch (error) {
     if (
@@ -516,14 +541,13 @@ export default function MarketplaceAccountPaymentRoute() {
     data.isGuestCheckoutPayment && data.guestClaimContext ? (
       <GuestClaimPrompt actionData={actionData ?? undefined} claimContext={data.guestClaimContext} />
     ) : null;
-
   return (
     <AccountPaymentPage
       payment={data.payment}
       orders={data.orders}
       isGuestCheckoutPayment={data.isGuestCheckoutPayment}
       showSupportDetails={data.showSupportDetails}
-      buyerEmail={data.buyerEmail}
+      paymentElementDefaultValues={data.paymentElementDefaultValues}
       retryActionError={retryActionError}
       feedbackPrompt={feedbackPrompt}
       guestClaimSection={guestClaimSection}

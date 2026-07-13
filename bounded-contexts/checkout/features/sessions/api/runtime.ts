@@ -52,6 +52,11 @@ import {
   getCheckoutPaymentSummary,
   type CheckoutPaymentSummaryRow,
 } from "../integrations/payments/payment-summary-queries";
+import {
+  exposeCheckoutPaymentConfirmation,
+  getCheckoutPaymentConfirmationProjection,
+  type CheckoutPaymentConfirmation,
+} from "../integrations/payments/payment-confirmation-queries";
 import { assertCheckoutLinesHaveAssignedFulfillment, unresolvedFulfillmentError } from "./checkout-fulfillment-runtime";
 import type { CheckoutSourceCommitPosition } from "../domain/domain";
 import {
@@ -89,6 +94,7 @@ export type CheckoutSessionRuntimeDeps = Readonly<{
   db: PgQueryable;
   cart: CheckoutCartServices;
   addressVerificationProvider?: PostageLabelProvider | null;
+  paymentProcessorPublicConfiguration?: Readonly<{ publishableKey: string | null }>;
 }>;
 
 export type CheckoutSessionServices = Readonly<{
@@ -240,6 +246,7 @@ export type CheckoutSessionServices = Readonly<{
   ) => Promise<CheckoutSessionMutationResult>;
   getSession: (sessionId: string, accountId: string) => ReturnType<typeof getCheckoutSession>;
   getPaymentSummary: (paymentId: string) => Promise<CheckoutPaymentSummaryRow | null>;
+  getPaymentConfirmation: (sessionId: string, accountId: string) => Promise<CheckoutPaymentConfirmation | null>;
   listSavedPaymentInstruments: (accountId: AccountId) => Promise<CheckoutSavedPaymentInstrumentRow[]>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
@@ -1073,6 +1080,14 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       return session;
     },
     getPaymentSummary: (paymentId) => getCheckoutPaymentSummary(deps.db, paymentId),
+    getPaymentConfirmation: async (sessionId, accountId) => {
+      const payment = await getCheckoutPaymentConfirmationProjection(deps.db, sessionId, accountId);
+      if (!payment) {
+        return null;
+      }
+
+      return exposeCheckoutPaymentConfirmation(payment, deps.paymentProcessorPublicConfiguration);
+    },
     listSavedPaymentInstruments: (accountId) => listCheckoutSavedPaymentInstruments(deps.db, accountId),
     projectors: [sessionProjector],
   };

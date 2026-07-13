@@ -104,6 +104,7 @@ function createSessions(overrides: Partial<CheckoutSessionServices> = {}): Check
     })),
     getSession: vi.fn(async () => session()),
     getPaymentSummary: vi.fn(async () => null),
+    getPaymentConfirmation: vi.fn(async () => null),
     listSavedPaymentInstruments: vi.fn(async () => []),
     projectors: [],
     ...overrides,

@@ -46,7 +46,8 @@ import {
   isCheckoutRecovery,
 } from "../features/sessions/api/checkout-recovery";
 import { createIdentityRequestApiClient } from "@chase-sets/identity/server";
-import { type PaymentsSavedCheckoutInstrument } from "@chase-sets/payments/server";
+import { type PaymentElementDefaultValues, type PaymentsSavedCheckoutInstrument } from "@chase-sets/payments/server";
+import { StripeConfirmationCard } from "@chase-sets/payments/web";
 import { checkoutSessionSourceCreatesOrders } from "@chase-sets/checkout-order-source";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
 import { CheckoutSessionPage, type CheckoutEditSection } from "../features/sessions/ui/checkout-page";
@@ -296,12 +297,6 @@ async function resolveCheckoutShippingAddress(
     ...formAddress,
     shippingAddressId: selectedSavedAddress?.shipping_address_id ?? null,
   };
-}
-
-function paymentPathForActor(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>, paymentId: string) {
-  return actor && actor.roleKey !== "guest-buyer"
-    ? `/account/payments/${paymentId}`
-    : `/checkout/payments/${paymentId}`;
 }
 
 function confirmationPathForSession(sessionId: string) {
@@ -610,13 +605,6 @@ function requestWithPaymentStartFreshness(
   );
 }
 
-function hasPaymentStartFreshnessSource(
-  request: Request,
-  session: Pick<CheckoutSessionForReviewedPreview, "order_write_commit_positions">,
-) {
-  return readFreshWriteToken(request) !== null || session.order_write_commit_positions.length > 0;
-}
-
 async function loadSavedCheckoutInstruments(
   request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
@@ -705,9 +693,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     throw error;
   });
-  if (session.payment_id) {
-    throw redirect(paymentPathForActor(actor, session.payment_id));
-  }
   if (session.submitted_offer_id) {
     throw redirect(`/account/offers/submitted/${session.submitted_offer_id}?feedbackWorkflow=offer-submit`);
   }
@@ -717,6 +702,25 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const savedShippingAddresses = await loadSavedShippingAddresses(ancillaryRequest, actor);
   const savedCheckoutInstruments = await loadSavedCheckoutInstruments(ancillaryRequest, actor);
   const guestCheckoutContact = await loadGuestCheckoutContact(ancillaryRequest, actor);
+  const preparedPayment = session.payment_id ? await api.getCheckoutPaymentConfirmation(session.session_id) : null;
+  const paymentElementDefaultValues: PaymentElementDefaultValues | null = session.shipping_address?.email?.trim()
+    ? {
+        billingDetails: {
+          email: session.shipping_address.email.trim(),
+          name: session.shipping_address.name,
+          address: {
+            line1: session.shipping_address.line1,
+            ...(session.shipping_address.line2 ? { line2: session.shipping_address.line2 } : {}),
+            city: session.shipping_address.city,
+            state: session.shipping_address.state,
+            postal_code: session.shipping_address.postalCode,
+            country: session.shipping_address.country,
+          },
+        },
+      }
+    : guestCheckoutContact?.contactEmail
+      ? { billingDetails: { email: guestCheckoutContact.contactEmail } }
+      : null;
   const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(session);
   const searchParams = new URL(resolvedRequest.url).searchParams;
   const defaultSavedPaymentMethodCategory =
@@ -725,7 +729,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     savedCheckoutInstruments.find((instrument) => instrument.readiness === "ready")?.payment_method_category;
   const selectedPaymentMethodCategory =
     searchParams.get("paymentMethodCategory") ?? defaultSavedPaymentMethodCategory ?? "card";
-  const isPaymentStartResume = searchParams.get("resumePaymentStart") === "1";
   const paymentPreview = loadPaymentPreview(
     actor,
     fulfillmentPreview,
@@ -761,13 +764,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     previewError,
     reviewRefreshed: searchParams.get("review") === "updated",
     paymentQuoteRequired: searchParams.get("quote") === "required",
-    autoResumePaymentStart:
-      isPaymentStartResume &&
-      hasPaymentStartFreshnessSource(resolvedRequest, session) &&
-      !session.payment_id &&
-      session.order_ids.length > 0 &&
-      paymentPreview !== null,
+    autoResumePaymentStart: !session.payment_id && paymentPreview !== null,
     initialEditSection: parseCheckoutEditSection(searchParams.get("edit")),
+    preparedPayment,
+    paymentElementDefaultValues,
   };
 }
 
@@ -958,9 +958,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
       if (!result.payment_id) {
         throw new Error("Checkout confirmation did not return payment or purchases.");
       }
-      return redirect(
-        await navigateAfterWriteWithPlatformPostWriteToken(result, confirmationPathForSession(params.sessionId)),
-      );
+      const acceleratedSavedPayment = String(formData.get("acceleratedSavedPayment") ?? "") === "true";
+      const destination = acceleratedSavedPayment
+        ? confirmationPathForSession(params.sessionId)
+        : `/checkout/buy/session/${params.sessionId}`;
+      return redirect(await navigateAfterWriteWithPlatformPostWriteToken(result, destination));
     }
 
     return null;
@@ -1023,6 +1025,11 @@ export default function CheckoutSessionRoute() {
       reviewRefreshed={data.reviewRefreshed}
       paymentQuoteRequired={data.paymentQuoteRequired}
       autoResumePaymentStart={!actionData?.error && data.autoResumePaymentStart}
+      preparedPaymentEntry={
+        data.preparedPayment?.status === "pending-confirmation" ? (
+          <StripeConfirmationCard payment={data.preparedPayment} defaultValues={data.paymentElementDefaultValues} />
+        ) : null
+      }
       initialEditSection={actionEditSection ?? data.initialEditSection}
       isSubmitting={navigation.state === "submitting"}
     />

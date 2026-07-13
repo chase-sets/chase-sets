@@ -12,7 +12,10 @@ import {
 import { checkoutCartSchemaSql } from "../../features/cart/read-model/schema";
 import { checkoutSellListSchemaSql } from "../../features/sell-list/read-model/schema";
 import { checkoutPaymentAffordanceSchemaSql } from "../../features/sessions/integrations/payments/payment-affordance-schema";
-import { checkoutPaymentSummarySchemaSql } from "../../features/sessions/integrations/payments/payment-summary-schema";
+import {
+  checkoutPaymentSummarySchemaMigrations,
+  checkoutPaymentSummarySchemaSql,
+} from "../../features/sessions/integrations/payments/payment-summary-schema";
 import { checkoutSessionSchemaMigrations, checkoutSessionSchemaSql } from "../../features/sessions/read-model/schema";
 
 export const checkoutSchemaSql = [
@@ -32,4 +35,5 @@ export const checkoutSchemaMigrations = [
   ...checkoutMarketplaceSellerOptionsSchemaMigrations,
   ...checkoutSessionSchemaMigrations,
   ...checkoutSellerAccountReviewsSchemaMigrations,
+  ...checkoutPaymentSummarySchemaMigrations,
 ] as const;

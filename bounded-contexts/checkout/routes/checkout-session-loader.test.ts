@@ -13,6 +13,7 @@ import {
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
   mockCreateSettlementRequestApiClient,
+  mockGetCheckoutPaymentConfirmation,
   mockGetCheckoutStatus,
   mockGetCheckoutSession,
   mockGetGuestCheckoutClaimContext,
@@ -908,7 +909,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
-    expect(result.autoResumePaymentStart).toBe(false);
+    expect(result.autoResumePaymentStart).toBe(true);
   });
 
   it("keeps post-order payment-start recovery safe when the compact post-write token expires", async () => {
@@ -1579,8 +1580,9 @@ describe("checkout web routes: checkout session loader", () => {
     );
   });
 
-  it("redirects completed checkout sessions to payment detail", async () => {
+  it("loads a prepared payment inline for signed-in checkout", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({});
+    mockGetCheckoutPaymentConfirmation.mockResolvedValue({ payment_id: "pay_1", status: "pending-confirmation" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: vi.fn(async () => ({
         session_id: "chk_1",
@@ -1590,24 +1592,47 @@ describe("checkout web routes: checkout session loader", () => {
         lines: [],
         order_ids: ["ord_1"],
         payment_id: "pay_1",
+        shipping_address: {
+          name: "Jane Smith",
+          line1: "100 Market Street",
+          line2: "Suite 2",
+          city: "Chicago",
+          state: "IL",
+          postalCode: "60601",
+          country: "US",
+          email: "jane@example.com",
+        },
         created_at: "2026-04-01T00:00:00.000Z",
         updated_at: "2026-04-01T00:00:00.000Z",
       })),
+      getCheckoutPaymentConfirmation: mockGetCheckoutPaymentConfirmation,
     });
 
-    let redirectResponse: Response | null = null;
-    try {
-      await checkoutSessionLoader({
-        request: new Request("http://localhost/checkout/buy/session/chk_1"),
-        params: { sessionId: "chk_1" },
-        context: undefined,
-      } as never);
-    } catch (error) {
-      redirectResponse = error as Response;
-    }
+    const result = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_1"),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
 
-    expect(redirectResponse?.status).toBe(302);
-    expect(redirectResponse?.headers.get("Location")).toBe("/account/payments/pay_1");
+    expect(result).toEqual(
+      expect.objectContaining({
+        preparedPayment: { payment_id: "pay_1", status: "pending-confirmation" },
+        paymentElementDefaultValues: {
+          billingDetails: {
+            email: "jane@example.com",
+            name: "Jane Smith",
+            address: {
+              line1: "100 Market Street",
+              line2: "Suite 2",
+              city: "Chicago",
+              state: "IL",
+              postal_code: "60601",
+              country: "US",
+            },
+          },
+        },
+      }),
+    );
   });
 
   it("redirects submitted purchase-intent sessions to the submitted offer", async () => {
@@ -1644,8 +1669,9 @@ describe("checkout web routes: checkout session loader", () => {
     );
   });
 
-  it("keeps completed guest checkout sessions on the guest payment route", async () => {
+  it("loads a prepared payment inline for guest checkout", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockGetCheckoutPaymentConfirmation.mockResolvedValue({ payment_id: "pay_1", status: "pending-confirmation" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: vi.fn(async () => ({
         session_id: "chk_1",
@@ -1658,20 +1684,17 @@ describe("checkout web routes: checkout session loader", () => {
         created_at: "2026-04-01T00:00:00.000Z",
         updated_at: "2026-04-01T00:00:00.000Z",
       })),
+      getCheckoutPaymentConfirmation: mockGetCheckoutPaymentConfirmation,
     });
 
-    let redirectResponse: Response | null = null;
-    try {
-      await checkoutSessionLoader({
-        request: new Request("http://localhost/checkout/buy/session/chk_1"),
-        params: { sessionId: "chk_1" },
-        context: undefined,
-      } as never);
-    } catch (error) {
-      redirectResponse = error as Response;
-    }
+    const result = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_1"),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
 
-    expect(redirectResponse?.status).toBe(302);
-    expect(redirectResponse?.headers.get("Location")).toBe("/checkout/payments/pay_1");
+    expect(result).toEqual(
+      expect.objectContaining({ preparedPayment: { payment_id: "pay_1", status: "pending-confirmation" } }),
+    );
   });
 });

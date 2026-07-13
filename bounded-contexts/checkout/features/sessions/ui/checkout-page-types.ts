@@ -1,4 +1,5 @@
 import type { CheckoutFulfillmentPreview, CheckoutSessionRow } from "../../../support/request-support/api-client";
+import type { ReactNode } from "react";
 
 export type CheckoutPaymentPreview = Readonly<{
   currency_code: string;
@@ -100,4 +101,5 @@ export type CheckoutSessionPageProps = {
   isSignedInBuyer?: boolean;
   initialEditSection?: CheckoutEditSection | null;
   autoResumePaymentStart?: boolean;
+  preparedPaymentEntry?: ReactNode;
 };

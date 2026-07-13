@@ -5,6 +5,7 @@ import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CheckoutFulfillmentPreview } from "../../../support/request-support/api-client";
 import type { CheckoutSessionRow } from "../../../support/request-support/api-client";
+
 import { CheckoutSessionPage } from "./checkout-page";
 
 afterEach(() => {
@@ -1085,7 +1086,7 @@ describe("checkout session page", () => {
     expect(inFormPrimary?.closest(".hidden.md\\:block")).not.toBeNull();
   });
 
-  it("auto-resumes payment start once post-order recovery reloads with a fresh Payments quote", async () => {
+  it("prepares payment automatically once checkout reaches a complete quoted payment step", async () => {
     const submitListener = vi.fn((event: SubmitEvent) => event.preventDefault());
     document.addEventListener("submit", submitListener);
 
@@ -1094,7 +1095,7 @@ describe("checkout session page", () => {
         <CheckoutSessionPage
           session={{
             ...readySession,
-            order_ids: ["ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9"],
+            order_ids: [],
             shipping_address_id: "adr_manual",
             shipping_address: {
               shippingAddressId: "adr_manual",
@@ -1127,6 +1128,20 @@ describe("checkout session page", () => {
     } finally {
       document.removeEventListener("submit", submitListener);
     }
+  });
+
+  it("renders the prepared Payment Element inline instead of a payment-page hop", () => {
+    render(
+      <CheckoutSessionPage
+        session={{ ...readySession, payment_id: "pay_inline_1", order_ids: ["ord_1"] }}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        preparedPaymentEntry={<div data-testid="inline-payment-element">pay_inline_1</div>}
+      />,
+    );
+
+    expect(screen.getByTestId("inline-payment-element").textContent).toBe("pay_inline_1");
+    expect(screen.queryByRole("link", { name: /continue to payment/i })).toBeNull();
   });
 
   it("states the deferral once as the summary total caption", () => {

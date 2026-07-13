@@ -219,20 +219,22 @@ export async function runRepresentativeCommerceState(): Promise<void> {
   const pools = createPlatformApiPools(config);
   try {
     await bootstrapPlatformControlPlane(pools.control);
+    const paymentProcessorGateway =
+      config.paymentProcessor.kind === "stripe"
+        ? createStripePaymentProcessorGateway({
+            secretKey: config.paymentProcessor.secretKey,
+            publishableKey: config.paymentProcessor.publishableKey,
+            webhookSecret: config.paymentProcessor.webhookSecret,
+            previousWebhookSecrets: config.paymentProcessor.previousWebhookSecrets,
+            apiBaseUrl: config.paymentProcessor.apiBaseUrl,
+          })
+        : createFakePaymentProcessorGateway();
     const runtime = createPlatformApiHost({
       pools,
       runtimeProfile: config.runtimeProfile,
       hostPorts: {
-        processorGateway:
-          config.paymentProcessor.kind === "stripe"
-            ? createStripePaymentProcessorGateway({
-                secretKey: config.paymentProcessor.secretKey,
-                publishableKey: config.paymentProcessor.publishableKey,
-                webhookSecret: config.paymentProcessor.webhookSecret,
-                previousWebhookSecrets: config.paymentProcessor.previousWebhookSecrets,
-                apiBaseUrl: config.paymentProcessor.apiBaseUrl,
-              })
-            : createFakePaymentProcessorGateway(),
+        processorGateway: paymentProcessorGateway,
+        paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
         moneyMovementGateway:
           config.moneyMovement.kind === "stripe"
             ? createStripeConnectMoneyMovementGateway({

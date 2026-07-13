@@ -23,6 +23,7 @@ import type {
 import type { CheckoutSessionRow } from "./features/sessions/read-model/queries";
 import type { CheckoutSavedPaymentInstrumentRow } from "./features/sessions/integrations/payments/payment-affordance-queries";
 import type { CheckoutPaymentSummaryRow } from "./features/sessions/integrations/payments/payment-summary-queries";
+import type { CheckoutPaymentConfirmation } from "./features/sessions/integrations/payments/payment-confirmation-queries";
 import type { CheckoutFulfillmentPreview } from "./features/sessions/domain/fulfillment-preview";
 
 type CheckoutApiApp = ReturnType<typeof buildCheckoutApi>;
@@ -666,6 +667,14 @@ export function createCheckoutApiClient({
         }),
       );
     },
+    async getCheckoutPaymentConfirmation(sessionId: string): Promise<CheckoutPaymentConfirmation> {
+      return parseJsonResponse(
+        await client.account["checkout-sessions"][":sessionId"]["payment-confirmation"].$get({
+          param: { sessionId },
+          header: headers,
+        }),
+      );
+    },
     async listCheckoutSavedPaymentInstruments(): Promise<{ items: CheckoutSavedPaymentInstrumentRow[] }> {
       return parseJsonResponse(
         await client.account["checkout-payment-affordances"].$get({
@@ -775,6 +784,7 @@ export type {
   CheckoutShipFromAddressRow,
   CheckoutSessionRow,
   CheckoutPaymentSummaryRow,
+  CheckoutPaymentConfirmation,
   CheckoutFulfillmentPreview,
 };
 export const checkoutApi = createCheckoutApiClient();

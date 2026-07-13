@@ -306,7 +306,7 @@ describe("checkout web routes: guest checkout handoff", () => {
     } as never)) as Response;
 
     expect(confirmationResponse.status).toBe(302);
-    expect(confirmationResponse.headers.get("Location")).toBe("/checkout/buy/session/chk_guest/confirmation");
+    expect(confirmationResponse.headers.get("Location")).toBe("/checkout/buy/session/chk_guest");
     expect(confirmationResponse.headers.get("Location")).not.toContain("/account/payments");
     expect(mockSelectShippingOption).toHaveBeenCalledWith("chk_guest", {
       shippingOption: "standard",

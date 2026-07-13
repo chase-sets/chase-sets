@@ -92,6 +92,16 @@ export interface PaymentsAccountOrderInput {
   order_id: string;
   buyer_account_id: string;
   buyer_email: string | null;
+  shipping_destination_snapshot: {
+    name: string;
+    line1: string;
+    line2?: string | null;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+    email?: string | null;
+  } | null;
   seller_account_id: string;
   sales_tax_amount: string;
   total_amount: string;

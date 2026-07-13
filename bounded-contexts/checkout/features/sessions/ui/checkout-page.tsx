@@ -90,7 +90,9 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
 
       <CheckoutNoticeStack candidates={model.noticeCandidates} />
 
-      {model.session.payment_id ? (
+      {model.preparedPaymentEntry ? (
+        model.preparedPaymentEntry
+      ) : model.session.payment_id ? (
         <CheckoutConfirmationSection
           paymentId={model.session.payment_id}
           orderReferenceValue={model.orderReferenceValue}
@@ -185,7 +187,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
     </Stack>
   );
 
-  const stickyAction = (
+  const stickyAction = model.preparedPaymentEntry ? null : (
     <CheckoutStickyAction
       totalsTotalLabel={model.totalsTotalLabel}
       hasPayment={model.hasPayment}

@@ -18,7 +18,15 @@ import {
   stripeAppearanceSnapshot,
 } from "@chase-sets/design-system";
 import { createPaymentsApiClient } from "../../../../client";
-import type { PaymentsPaymentDetail } from "../../api/contracts";
+import type { PaymentElementDefaultValues } from "./account-payment-contracts";
+
+type StripeConfirmablePayment = Readonly<{
+  payment_id: string;
+  amount: string;
+  status: string;
+  processor_client_secret: string | null;
+  processor_publishable_key: string | null;
+}>;
 
 type StripeElementsAppearance = ReturnType<typeof createStripeElementsAppearance>;
 
@@ -32,11 +40,7 @@ type StripePaymentElementOptions = {
     applePay: "auto";
     googlePay: "auto";
   };
-  defaultValues?: {
-    billingDetails: {
-      email: string;
-    };
-  };
+  defaultValues?: PaymentElementDefaultValues;
 };
 
 type StripeCheckoutController = {
@@ -159,10 +163,10 @@ type ConfirmPhase = "idle" | "confirming" | "processing";
 
 export function StripeConfirmationCard({
   payment,
-  buyerEmail,
+  defaultValues,
 }: {
-  payment: PaymentsPaymentDetail;
-  buyerEmail: string | null;
+  payment: StripeConfirmablePayment;
+  defaultValues: PaymentElementDefaultValues | null;
 }) {
   const revalidator = useRevalidator();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -175,6 +179,9 @@ export function StripeConfirmationCard({
   const [appearanceVersion, setAppearanceVersion] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [confirmPhase, setConfirmPhase] = useState<ConfirmPhase>("idle");
+  const buyerEmail = defaultValues?.billingDetails.email.trim() || null;
+  const defaultValuesKey = JSON.stringify(defaultValues);
+  const missingBuyerEmail = payment.status === "pending-confirmation" && !buyerEmail;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -201,6 +208,7 @@ export function StripeConfirmationCard({
       payment.status !== "pending-confirmation" ||
       !payment.processor_client_secret ||
       !payment.processor_publishable_key ||
+      missingBuyerEmail ||
       !container
     ) {
       return;
@@ -245,15 +253,7 @@ export function StripeConfirmationCard({
             applePay: "auto",
             googlePay: "auto",
           },
-          ...(buyerEmail
-            ? {
-                defaultValues: {
-                  billingDetails: {
-                    email: buyerEmail,
-                  },
-                },
-              }
-            : {}),
+          defaultValues: JSON.parse(defaultValuesKey) as PaymentElementDefaultValues,
         };
         const paymentElement = checkout
           ? checkout.createPaymentElement(paymentElementOptions)
@@ -307,7 +307,8 @@ export function StripeConfirmationCard({
       setIsReady(false);
     };
   }, [
-    buyerEmail,
+    defaultValuesKey,
+    missingBuyerEmail,
     payment.payment_id,
     payment.processor_client_secret,
     payment.processor_publishable_key,
@@ -407,11 +408,6 @@ export function StripeConfirmationCard({
       return;
     }
 
-    if (checkoutRef.current && !buyerEmail) {
-      setErrorMessage(t("payments.routes.marketplace.accountPayment.stripe.buyer.email.is.required"));
-      return;
-    }
-
     setConfirmPhase("confirming");
     setErrorMessage(null);
     try {
@@ -493,11 +489,15 @@ export function StripeConfirmationCard({
             {!isReady ? <Skeleton height="lg" data-testid="payment-element-skeleton" /> : null}
             <MountPoint ref={containerRef} purpose="provider" />
           </EmbeddedProviderSurface>
-          {errorMessage ? (
+          {missingBuyerEmail || errorMessage ? (
             <Banner
               tone="danger"
               title={t("payments.routes.marketplace.accountPayment.payment.issue")}
-              description={errorMessage}
+              description={
+                missingBuyerEmail
+                  ? t("payments.routes.marketplace.accountPayment.stripe.buyer.email.is.required")
+                  : errorMessage!
+              }
             />
           ) : null}
           {confirmPhase === "processing" ? (

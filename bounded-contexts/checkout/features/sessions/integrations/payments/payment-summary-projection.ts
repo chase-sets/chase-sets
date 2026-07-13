@@ -7,6 +7,7 @@ type PaymentCreatedPayload = Readonly<{
   orderIds: readonly string[];
   amount: string;
   currencyCode: string;
+  processorClientSecret: string | null;
   createdAt: string;
 }>;
 
@@ -76,16 +77,18 @@ export function buildCheckoutPaymentSummaryProjectionHandlers(db: PgQueryable): 
            order_ids,
            amount,
            currency_code,
+           processor_client_secret,
            status,
            created_at,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, $3, $4, $5, 'pending-confirmation', $6, $6, $7)
+         ) VALUES ($1, $2, $3, $4, $5, $6, 'pending-confirmation', $7, $7, $8)
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              order_ids = EXCLUDED.order_ids,
              amount = EXCLUDED.amount,
              currency_code = EXCLUDED.currency_code,
+             processor_client_secret = EXCLUDED.processor_client_secret,
              status = EXCLUDED.status,
              created_at = EXCLUDED.created_at,
              updated_at = EXCLUDED.updated_at,
@@ -97,6 +100,7 @@ export function buildCheckoutPaymentSummaryProjectionHandlers(db: PgQueryable): 
           JSON.stringify(data.orderIds),
           data.amount,
           data.currencyCode,
+          data.processorClientSecret,
           data.createdAt,
           event.streamVersion,
         ],

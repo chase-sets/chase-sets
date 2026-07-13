@@ -898,6 +898,23 @@ export function createAccountCheckoutSessionRoutes(
     return c.json(paymentSummary);
   });
 
+  app.get("/checkout-sessions/:sessionId/payment-confirmation", async (c) => {
+    const access = requireCheckoutAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const paymentConfirmation = await services.getPaymentConfirmation(c.req.param("sessionId"), access.actor.accountId);
+    if (!paymentConfirmation) {
+      return c.json(
+        { error: { code: "not_found", message: t("checkout.features.sessions.api.route.payment.summary.not.found") } },
+        404,
+      );
+    }
+
+    return c.json(paymentConfirmation);
+  });
+
   app.get("/checkout-payment-affordances", async (c) => {
     const access = requireCheckoutAccess(c);
     if (access.response) {
