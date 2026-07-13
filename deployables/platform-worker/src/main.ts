@@ -1283,6 +1283,7 @@ function createScheduledJobRunners(
     | "payoutReconciliationIntervalMs"
     | "marketRollupsCloserIntervalMs"
     | "gmvReconciliationIntervalMs"
+    | "catalogProviderScopeRefreshIntervalMs"
     | "googleMerchant"
     | "googleShoppingMaintenanceIntervalMs"
     | "googleShoppingMaintenanceBatchSize"
@@ -1568,6 +1569,54 @@ function createScheduledJobRunners(
             status: run.status,
           });
           return 1;
+        },
+      ),
+    );
+  }
+
+  const catalogProviderScopeDiscovery = (
+    services.catalog as
+      | {
+          providerScopeDiscovery?: {
+            processScheduledRefresh: (input: { context: typeof SYSTEM_CONTEXT; triggeredBy?: string }) => Promise<{
+              scanId: string;
+              providersDue: number;
+              observationsRecorded: number;
+              mappingsProposed: number;
+              failures: number;
+              providers: readonly { providerKey: string; status: string; errorMessage: string | null }[];
+            }>;
+          };
+        }
+      | undefined
+  )?.providerScopeDiscovery;
+  if (catalogProviderScopeDiscovery && input.catalogProviderScopeRefreshIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        "catalog.provider-scope-refresh",
+        input.catalogProviderScopeRefreshIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await catalogProviderScopeDiscovery.processScheduledRefresh({
+            context: SYSTEM_CONTEXT,
+            triggeredBy: "schedule",
+          });
+          logger.info("Catalog provider scope refresh sweep completed.", {
+            type: "catalog.provider-scope-refresh",
+            result,
+          });
+          // m72 lesson: scheduled failures must never pass silently. Every
+          // provider outcome is recorded on the schedule row first (the
+          // scheduled-alerting watch reads those rows), then a failed provider
+          // fails the runner so the worker logs an error for this sweep too.
+          if (result.failures > 0) {
+            const failed = result.providers
+              .filter((provider) => provider.status === "failed")
+              .map((provider) => `${provider.providerKey}: ${provider.errorMessage ?? "unknown error"}`)
+              .join("; ");
+            throw new Error(`Catalog provider scope refresh failed for ${result.failures} provider(s): ${failed}`);
+          }
+          return result.observationsRecorded + result.mappingsProposed;
         },
       ),
     );

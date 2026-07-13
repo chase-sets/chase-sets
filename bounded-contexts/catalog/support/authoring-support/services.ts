@@ -15,6 +15,7 @@ import { createFieldRuntime } from "../../features/fields/api/runtime";
 import { createProductContentRuntime } from "../../features/product-contents/api/runtime";
 import { createProductMeasureRuntime } from "../../features/product-measures/api/runtime";
 import { createCatalogAttentionQueueRuntime } from "../../features/attention-queue/api/runtime";
+import { createProviderScopeDiscoveryRuntime } from "../../features/provider-scope-discovery/api/runtime";
 import { createProviderScopeMappingRuntime } from "../../features/provider-scope-mapping/api/runtime";
 import { createReferenceDataRuntime } from "../../features/reference-data/api/runtime";
 import { createCatalogScopeRegistryRuntime } from "../../features/scope-registry/api/runtime";
@@ -44,6 +45,7 @@ export type CatalogServices = Readonly<{
   productMeasures: ReturnType<typeof createProductMeasureRuntime>;
   scopeRegistry: ReturnType<typeof createCatalogScopeRegistryRuntime>;
   providerScopeMappings: ReturnType<typeof createProviderScopeMappingRuntime>;
+  providerScopeDiscovery: ReturnType<typeof createProviderScopeDiscoveryRuntime>;
   providerIntegrationProfiles: ReturnType<typeof createCatalogProviderIntegrationProfileVersionStore>;
   sourceObservations: ReturnType<typeof createSourceObservationRuntime>;
   catalogAliases: ReturnType<typeof createCatalogAliasRuntime>;
@@ -107,6 +109,11 @@ export function createCatalogServices(
     listActiveJobs: sourceObservations.listActiveIntegrationJobs,
   });
   const authoringBulkJobs = createCatalogAuthoringBulkJobServices(db);
+  const providerScopeDiscovery = createProviderScopeDiscoveryRuntime(deps, {
+    listProfileVersions: () => providerIntegrationProfiles.listProfileVersions(),
+    queryIntegrationOptions: (input) => sourceObservations.queryIntegrationOptions(input),
+    providerScopeMappingCommandHandler: providerScopeMappings.commandHandler,
+  });
 
   return {
     dimensions,
@@ -121,6 +128,7 @@ export function createCatalogServices(
     productMeasures,
     scopeRegistry,
     providerScopeMappings,
+    providerScopeDiscovery,
     providerIntegrationProfiles,
     sourceObservations,
     catalogAliases,

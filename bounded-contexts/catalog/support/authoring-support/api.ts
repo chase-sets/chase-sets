@@ -14,6 +14,7 @@ import { displayTemplateRoutes } from "../../features/display-templates/api/rout
 import { fieldRoutes } from "../../features/fields/api/route";
 import { productContentRoutes } from "../../features/product-contents/api/route";
 import { providerScopeMappingRoutes } from "../../features/provider-scope-mapping/api/route";
+import { providerScopeDiscoveryRoutes } from "../../features/provider-scope-discovery/api/route";
 import { referenceDataRoutes } from "../../features/reference-data/api/route";
 import { catalogScopeRegistryRoutes } from "../../features/scope-registry/api/route";
 import { sourceObservationRoutes } from "../../features/source-observations/api/route";
@@ -99,6 +100,7 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
   app.route("/attention-queue", catalogAttentionQueueRoutes(services.attentionQueue));
   app.route("/provider-scope-mappings", providerScopeMappingRoutes(services.providerScopeMappings));
   app.route("/scope-records", catalogScopeRegistryRoutes(services.scopeRegistry));
+  app.route("/provider-scope-discovery", providerScopeDiscoveryRoutes(services.providerScopeDiscovery));
 
   return app;
 }

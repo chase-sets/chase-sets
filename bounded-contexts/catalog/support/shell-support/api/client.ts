@@ -2070,6 +2070,16 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    async listCatalogProviderRefreshSchedules<T>(): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/provider-scope-discovery/refresh-schedule`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async dispatchProviderScopeMappingReviewCommand<T>(input: {
       intent: "accept" | "reject" | "revoke";
       mappingIds: readonly string[];
@@ -2111,6 +2121,39 @@ export function createCatalogApiClient({
         },
         body: JSON.stringify(input),
       });
+      return parseJsonResponse<T>(response);
+    },
+    async setCatalogProviderRefreshPaused<T>(input: {
+      providerKey: string;
+      paused: boolean;
+      reason?: string | null;
+    }): Promise<T> {
+      const command = input.paused ? "pause" : "resume";
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/provider-scope-discovery/refresh-schedule/${encodeURIComponent(
+          input.providerKey,
+        )}/${command}`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify(input.reason ? { reason: input.reason } : {}),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async runCatalogProviderRefreshNow<T>(providerKey: string): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/provider-scope-discovery/refresh-schedule/${encodeURIComponent(
+          providerKey,
+        )}/run`,
+        {
+          method: "POST",
+          headers: headersToRecord(headers),
+        },
+      );
       return parseJsonResponse<T>(response);
     },
   };

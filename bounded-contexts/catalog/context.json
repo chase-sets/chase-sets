@@ -30,6 +30,7 @@
     "fields",
     "product-contents",
     "product-measures",
+    "provider-scope-discovery",
     "provider-scope-mapping",
     "reference-data",
     "scope-registry",
@@ -591,6 +592,15 @@
       "purpose": "Own durable per-(Catalog sync scope, provider unit) sync state that survives across sync runs, so a scope page can show who settled/failed/never-synced and a failed provider can be retried without re-running the whole scope.",
       "expectedConsumers": ["source-observations", "Internal catalog module composition"]
     },
+    "provider-scope-discovery": {
+      "classification": "slice",
+      "purpose": "Own the scheduled provider source-option refresh: cadence policy, pausable per-provider schedule state, provider scope observations, and conservative matching of new options onto scope-record identities that feeds provider-scope-mapping proposals.",
+      "expectedConsumers": [
+        "provider-scope-mapping",
+        "Internal catalog module composition",
+        "Platform worker scheduled runners"
+      ]
+    },
     "source-observations": {
       "classification": "slice",
       "purpose": "Own provider source observations, review workflow, and promotion of candidate provider facts into canonical Catalog Items.",
@@ -616,6 +626,7 @@
         "fields",
         "product-contents",
         "product-measures",
+        "provider-scope-discovery",
         "provider-scope-mapping",
         "reference-data",
         "scope-registry",
@@ -735,6 +746,26 @@
     }
   },
   "mutationConsistencyInventory": [
+    {
+      "id": "catalog.provider-scope-discovery-refresh-schedule-commands",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/provider-scope-discovery/api/route.ts:POST /refresh-schedule/:providerKey/pause",
+        "api-route:bounded-contexts/catalog/features/provider-scope-discovery/api/route.ts:POST /refresh-schedule/:providerKey/resume",
+        "api-route:bounded-contexts/catalog/features/provider-scope-discovery/api/route.ts:POST /refresh-schedule/:providerKey/run",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H830d297a76b5#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hc9bd09455201#1"
+      ],
+      "visibleDestination": {
+        "description": "Provider refresh schedule pause/resume return the updated schedule row and run-now returns the per-provider run result; the providers surface then reloads the schedule read directly from the same catalog_provider_refresh_schedule table the command mutated, so no projection lag exists on the visible destination."
+      },
+      "proof": {
+        "authoritativeResponse": "Pause and resume respond with the UPDATE ... RETURNING schedule row and run-now responds with the synchronous refresh result; the schedule list read is a direct read of the mutated table, never a projection. bounded-contexts/catalog/features/provider-scope-discovery/api/runtime.db.test.ts proves a pause is visible on the immediately following schedule list read and that run outcomes land on the schedule row before the command returns.",
+        "tests": ["bounded-contexts/catalog/features/provider-scope-discovery/api/runtime.db.test.ts"]
+      }
+    },
     {
       "id": "catalog.admin-model-api-command-snapshots",
       "owner": "catalog",

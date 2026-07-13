@@ -16,6 +16,10 @@ import { catalogDisplayTemplateSchemaSql } from "../../features/display-template
 import { catalogFieldSchemaSql } from "../../features/fields/read-model/schema";
 import { catalogProductContentsSchemaSql } from "../../features/product-contents/read-model/schema";
 import { catalogProductMeasureSchemaSql } from "../../features/product-measures/read-model/schema";
+import {
+  catalogProviderScopeDiscoverySchemaMigrations,
+  catalogProviderScopeDiscoverySchemaSql,
+} from "../../features/provider-scope-discovery/read-model/schema";
 import { catalogProviderScopeMappingSchemaSql } from "../../features/provider-scope-mapping/read-model/schema";
 import { catalogReferenceDataSchemaSql } from "../../features/reference-data/read-model/schema";
 import { catalogScopeRegistrySchemaSql } from "../../features/scope-registry/read-model/schema";
@@ -37,6 +41,7 @@ export const catalogAuthoringSchemaSql = [
   catalogScopeRegistrySchemaSql,
   catalogProviderScopeMappingSchemaSql,
   catalogScopeSyncStateSchemaSql,
+  catalogProviderScopeDiscoverySchemaSql,
   catalogCatalogItemSchemaSql,
   catalogProductContentsSchemaSql,
   catalogProductMeasureSchemaSql,
@@ -61,4 +66,5 @@ export const catalogAuthoringSchemaMigrations = [
   }),
   ...catalogSourceObservationSchemaMigrations,
   ...catalogCatalogItemSchemaMigrations,
+  ...catalogProviderScopeDiscoverySchemaMigrations,
 ] as const;

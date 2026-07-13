@@ -1,0 +1,168 @@
+name: Catalog Provider Refresh Watch
+
+# Scheduled-alerting bridge for the in-worker Catalog provider scope refresh
+# (#3796). The refresh itself runs inside the platform worker; this watch reads
+# the per-provider schedule bookkeeping and raises/clears the shared
+# scheduled-workflow ops alert when a scheduled provider fails or goes stale,
+# so worker-side failures can never pass silently (m72 posture).
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to inspect.
+        required: false
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions: {}
+
+concurrency:
+  group: catalog-provider-refresh-watch-${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+jobs:
+  provider-refresh-watch:
+    name: Check Catalog Provider Refresh Health
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+    permissions:
+      contents: read
+      issues: write
+    env:
+      TARGET_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - name: Terraform init platform state
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config="key=landing/${TARGET_ENVIRONMENT}.tfstate" \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Export catalog database URL
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          state_path="${RUNNER_TEMP}/platform-${TARGET_ENVIRONMENT}.tfstate.json"
+          terraform state pull > "$state_path"
+          node ../../../scripts/terraform-state-database-urls.mjs \
+            --state "$state_path" \
+            --environment "$TARGET_ENVIRONMENT" \
+            --contexts catalog \
+            --connection-mode pooled \
+            --github-env "$GITHUB_ENV"
+
+      - name: Check catalog provider refresh health
+        id: refresh-status
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-health
+          set +e
+          pnpm run ops catalog:provider-refresh-status -- \
+            --environment "$TARGET_ENVIRONMENT" \
+            --out artifacts/release-health/catalog-provider-refresh-status.json
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "result=success" >> "$GITHUB_OUTPUT"
+          elif [ "$status" -eq 2 ]; then
+            echo "result=warning" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=failure" >> "$GITHUB_OUTPUT"
+            exit "$status"
+          fi
+
+      - name: Summarize catalog provider refresh health
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          record="artifacts/release-health/catalog-provider-refresh-status.json"
+          if [ ! -f "$record" ]; then
+            echo "No catalog provider refresh status record was written." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node - "$record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          const summary = record.summary ?? {};
+          console.log("## Catalog Provider Refresh Health");
+          console.log("");
+          console.log(`- Result: ${record.result}`);
+          console.log(`- Environment: ${record.environment}`);
+          console.log(`- Providers: ${summary.providerCount ?? 0}`);
+          console.log(`- Scheduled active: ${summary.scheduledActiveCount ?? 0}`);
+          console.log(`- Paused: ${summary.pausedCount ?? 0}`);
+          console.log(`- Failed: ${summary.failedCount ?? 0}`);
+          console.log(`- Stale: ${summary.staleCount ?? 0}`);
+          NODE
+
+      - name: Upload catalog provider refresh status artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-provider-refresh-status-${{ env.TARGET_ENVIRONMENT }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-health/catalog-provider-refresh-status.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Report catalog provider refresh warning
+        if: ${{ !failure() && steps.refresh-status.outputs.result == 'warning' }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Catalog Provider Refresh Watch
+          alert-status: warning
+          alert-summary: Scheduled catalog provider scope refresh has failed or stale providers.
+          alert-details: See the support-safe catalog provider refresh status artifact for per-provider state.
+
+      - name: Report catalog provider refresh failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Catalog Provider Refresh Watch
+          alert-status: failure
+          alert-summary: Catalog provider refresh health check failed before producing a clean result.
+
+      - name: Report catalog provider refresh recovery
+        if: ${{ success() && steps.refresh-status.outputs.result == 'success' }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Catalog Provider Refresh Watch
+          alert-status: success
+          alert-summary: Scheduled catalog provider scope refresh is healthy.

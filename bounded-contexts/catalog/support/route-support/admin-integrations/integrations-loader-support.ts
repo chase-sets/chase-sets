@@ -792,13 +792,17 @@ export async function loadProvidersSurface({ request }: LoaderFunctionArgs) {
   const { api, baseline, routeContext } = await loadIntegrationsBaseline(request);
   const profileAuthoringModel = await selectedProviderProfileAuthoringModel(api, routeContext);
 
-  return finalizeSurfaceLoad({
+  const surfaceLoad = await finalizeSurfaceLoad({
     api,
     request,
     surface: "providers",
     baseline,
     profileAuthoringModel,
   });
+
+  // The providers surface renders the scheduled source-option refresh panel
+  //, whose pause/resume/run controls are gated on catalog.manage.
+  return { ...surfaceLoad, canManageCatalog: baseline.canManageCatalog };
 }
 
 // Govern-and-recover surface (/admin/integrations/governance). Loads the baseline
