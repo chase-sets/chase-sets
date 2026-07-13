@@ -833,6 +833,36 @@ describe("checkout session page", () => {
     expect(markup).not.toContain("100 Market Street, Chicago, IL 60601, US");
   });
 
+  it("renders autofill metadata for every editable shipping field", () => {
+    render(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+        initialEditSection="delivery"
+      />,
+    );
+
+    const expectAttribute = (role: "textbox" | "combobox", name: string, attribute: string, value: string) => {
+      expect(screen.getByRole(role, { name }).getAttribute(attribute)).toBe(value);
+    };
+
+    expectAttribute("textbox", "Recipient name", "autocomplete", "shipping name");
+    expectAttribute("textbox", "Company", "autocomplete", "shipping organization");
+    expectAttribute("combobox", "Country", "autocomplete", "shipping country");
+    expect((screen.getByRole("combobox", { name: "Country" }) as HTMLSelectElement).value).toBe("US");
+    expectAttribute("textbox", "Address line 1", "autocomplete", "shipping address-line1");
+    expectAttribute("textbox", "Address line 2", "autocomplete", "shipping address-line2");
+    expectAttribute("textbox", "City", "autocomplete", "shipping address-level2");
+    expectAttribute("textbox", "State", "autocomplete", "shipping address-level1");
+    expectAttribute("textbox", "Postal code", "autocomplete", "shipping postal-code");
+    expectAttribute("textbox", "Postal code", "inputmode", "numeric");
+    expectAttribute("textbox", "Phone", "autocomplete", "shipping tel");
+    expectAttribute("textbox", "Phone", "inputmode", "tel");
+    expectAttribute("textbox", "Phone", "type", "tel");
+  });
+
   it("keeps signed-in saved payment customer-safe when payment totals must be refreshed", () => {
     const markup = renderToString(
       <CheckoutSessionPage

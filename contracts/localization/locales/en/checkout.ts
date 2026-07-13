@@ -157,6 +157,7 @@ export const checkoutEnglishTranslations = {
     "This checkout total includes item subtotal, shipping, estimated tax, marketplace checkout fee, and wallet credit before payment starts.",
   "checkout.features.sessions.ui.checkoutPage.city": "City",
   "checkout.features.sessions.ui.checkoutPage.country": "Country",
+  "checkout.features.sessions.ui.checkoutPage.country.united.states": "United States",
   "checkout.features.sessions.ui.checkoutPage.destination.required.for.purchase.intent":
     "Delivery address is required so sellers know where the offer would ship if accepted.",
   "checkout.features.sessions.ui.checkoutPage.destination.required.for.sales.tax":
