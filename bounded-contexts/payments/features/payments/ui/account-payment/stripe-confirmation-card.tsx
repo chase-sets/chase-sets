@@ -1,11 +1,15 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import { useEffect, useRef, useState } from "react";
 import { useRevalidator } from "react-router";
 import {
   Badge,
   Banner,
   Button,
+  CheckoutStickyActionBar,
+  EmbeddedProviderSurface,
   MountPoint,
+  SecurePaymentIndicator,
+  Skeleton,
   Stack,
   Surface,
   Text,
@@ -405,40 +409,72 @@ export function StripeConfirmationCard({
     }
   }
 
+  const confirmButtonLabel =
+    confirmPhase === "processing"
+      ? t("payments.routes.marketplace.accountPayment.processing.payment")
+      : confirmPhase === "confirming"
+        ? t("payments.routes.marketplace.accountPayment.confirming.payment")
+        : t("payments.routes.marketplace.accountPayment.confirm.payment");
+
+  const confirmButton = (sticky: boolean) => (
+    <Button
+      type="button"
+      onClick={handleConfirm}
+      disabled={!isReady || confirmPhase !== "idle"}
+      size="lg"
+      leadingIcon="lock"
+      block={sticky}
+      aria-label={
+        sticky
+          ? t("payments.routes.marketplace.accountPayment.payment.confirmation.sticky.label", {
+              value: confirmButtonLabel,
+            })
+          : undefined
+      }
+    >
+      {confirmButtonLabel}
+    </Button>
+  );
+
   return (
-    <Surface elevated glow>
-      <Stack gap={3}>
-        <Badge tone="accent">{t("payments.routes.marketplace.accountPayment.secure.payment")}</Badge>
-        <Text>{t("payments.routes.marketplace.accountPayment.payment.is.ready.enter.your.payment")}</Text>
-        <MountPoint ref={containerRef} purpose="provider" />
-        {errorMessage ? (
-          <Banner
-            tone="danger"
-            title={t("payments.routes.marketplace.accountPayment.payment.issue")}
-            description={errorMessage}
-          />
-        ) : null}
-        {confirmPhase === "processing" ? (
-          <Banner
-            tone="info"
-            title={t("payments.routes.marketplace.accountPayment.payment.in.progress")}
-            description={t("payments.routes.marketplace.accountPayment.the.payment.is.being.updated.by")}
-          />
-        ) : null}
-        <Button
-          type="button"
-          onClick={handleConfirm}
-          disabled={!isReady || confirmPhase !== "idle"}
-          size="lg"
-          leadingIcon="lock"
-        >
-          {confirmPhase === "processing"
-            ? t("payments.routes.marketplace.accountPayment.processing.payment")
-            : confirmPhase === "confirming"
-              ? t("payments.routes.marketplace.accountPayment.confirming.payment")
-              : t("payments.routes.marketplace.accountPayment.confirm.payment")}
-        </Button>
-      </Stack>
-    </Surface>
+    <>
+      <CheckoutStickyActionBar
+        label={t("payments.routes.marketplace.accountPayment.payment.actions")}
+        totalLabel={t("payments.routes.marketplace.accountPayment.total")}
+        total={formatMoney(payment.amount, "USD")}
+        context={t("payments.routes.marketplace.accountPayment.secure.payment")}
+        reassurance={<SecurePaymentIndicator label={t("payments.routes.marketplace.accountPayment.secure.payment")} />}
+        primaryAction={confirmButton(true)}
+      />
+      <Surface elevated glow>
+        <Stack gap={3}>
+          <Badge tone="accent">{t("payments.routes.marketplace.accountPayment.secure.payment")}</Badge>
+          <Text>{t("payments.routes.marketplace.accountPayment.payment.is.ready.enter.your.payment")}</Text>
+          <EmbeddedProviderSurface
+            minHeight="md"
+            aria-busy={!isReady || undefined}
+            data-testid="payment-element-container"
+          >
+            {!isReady ? <Skeleton height="lg" data-testid="payment-element-skeleton" /> : null}
+            <MountPoint ref={containerRef} purpose="provider" />
+          </EmbeddedProviderSurface>
+          {errorMessage ? (
+            <Banner
+              tone="danger"
+              title={t("payments.routes.marketplace.accountPayment.payment.issue")}
+              description={errorMessage}
+            />
+          ) : null}
+          {confirmPhase === "processing" ? (
+            <Banner
+              tone="info"
+              title={t("payments.routes.marketplace.accountPayment.payment.in.progress")}
+              description={t("payments.routes.marketplace.accountPayment.the.payment.is.being.updated.by")}
+            />
+          ) : null}
+          {confirmButton(false)}
+        </Stack>
+      </Surface>
+    </>
   );
 }
