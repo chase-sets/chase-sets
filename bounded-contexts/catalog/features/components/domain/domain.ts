@@ -191,8 +191,7 @@ export const decideComponent: AggregateDecider<ComponentState, ComponentCommand,
         },
       ];
     case "AddFieldRuleToComponent":
-      requireCreatedComponent(state);
-      assert(state.status !== "archived", "Archived components cannot be changed.");
+      requireMutableComponent(state);
       assert(
         !state.fieldRules.some((rule) => rule.fieldId === command.fieldId),
         "Component already contains that field rule.",
@@ -208,8 +207,7 @@ export const decideComponent: AggregateDecider<ComponentState, ComponentCommand,
         },
       ];
     case "RemoveFieldRuleFromComponent":
-      requireCreatedComponent(state);
-      assert(state.status !== "archived", "Archived components cannot be changed.");
+      requireMutableComponent(state);
       assert(
         state.fieldRules.some((rule) => rule.fieldId === command.fieldId),
         "Component does not contain that field rule.",
@@ -224,8 +222,7 @@ export const decideComponent: AggregateDecider<ComponentState, ComponentCommand,
         },
       ];
     case "AddDimensionRuleToComponent":
-      requireCreatedComponent(state);
-      assert(state.status !== "archived", "Archived components cannot be changed.");
+      requireMutableComponent(state);
       assert(
         !state.dimensionRules.some((rule) => rule.dimensionId === command.dimensionId),
         "Component already contains that dimension rule.",
@@ -243,8 +240,7 @@ export const decideComponent: AggregateDecider<ComponentState, ComponentCommand,
         },
       ];
     case "RemoveDimensionRuleFromComponent":
-      requireCreatedComponent(state);
-      assert(state.status !== "archived", "Archived components cannot be changed.");
+      requireMutableComponent(state);
       assert(
         state.dimensionRules.some((rule) => rule.dimensionId === command.dimensionId),
         "Component does not contain that dimension rule.",
@@ -259,8 +255,7 @@ export const decideComponent: AggregateDecider<ComponentState, ComponentCommand,
         },
       ];
     case "ConfigureComponentRules":
-      requireCreatedComponent(state);
-      assert(state.status !== "archived", "Archived components cannot be changed.");
+      requireMutableComponent(state);
 
       return [
         {
@@ -371,6 +366,11 @@ export const evolveComponent: AggregateEvolver<ComponentState, ComponentEvent> =
 
 function requireCreatedComponent(state: ComponentState): void {
   assert(state.id !== null, "Component must be created first.");
+}
+
+function requireMutableComponent(state: ComponentState): void {
+  requireCreatedComponent(state);
+  assert(state.status === "draft", "Only draft components can change field or dimension rules.");
 }
 
 function normalizeFieldRule(rule: ComponentFieldRule): ComponentFieldRule {

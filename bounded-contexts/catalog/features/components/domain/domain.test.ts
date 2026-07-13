@@ -177,7 +177,57 @@ describe("Component aggregate", () => {
             fieldId: fieldB,
             required: false,
           }),
-        "Archived components cannot be changed.",
+        "Only draft components can change field or dimension rules.",
+      );
+    });
+
+    it("rejects field rule changes on active components (structure locks after publish)", () => {
+      expectDomainError(
+        () =>
+          decide(decideComponent, activeState(), {
+            type: "AddFieldRuleToComponent" as const,
+            fieldId: fieldA,
+            required: true,
+          }),
+        "Only draft components can change field or dimension rules.",
+      );
+
+      const withRule = givenEvents(createdState(), evolveComponent, [
+        { type: "catalog.component.field-rule-added", data: { fieldId: fieldA, required: true } },
+        { type: "catalog.component.activated", data: {} },
+      ] as ComponentEvent[]);
+
+      expectDomainError(
+        () => decide(decideComponent, withRule, { type: "RemoveFieldRuleFromComponent" as const, fieldId: fieldA }),
+        "Only draft components can change field or dimension rules.",
+      );
+    });
+
+    it("rejects dimension rule changes on active components (structure locks after publish)", () => {
+      expectDomainError(
+        () =>
+          decide(decideComponent, activeState(), {
+            type: "AddDimensionRuleToComponent" as const,
+            dimensionId: dimA,
+            required: true,
+          }),
+        "Only draft components can change field or dimension rules.",
+      );
+    });
+
+    it("rejects rule changes on deprecated components", () => {
+      const deprecatedState = givenEvents(activeState(), evolveComponent, [
+        { type: "catalog.component.deprecated", data: {} },
+      ] as ComponentEvent[]);
+
+      expectDomainError(
+        () =>
+          decide(decideComponent, deprecatedState, {
+            type: "AddDimensionRuleToComponent" as const,
+            dimensionId: dimA,
+            required: true,
+          }),
+        "Only draft components can change field or dimension rules.",
       );
     });
   });

@@ -272,7 +272,7 @@ export function ComponentDetailPage({
       key: "actions",
       header: "",
       cell: (row) =>
-        data?.status !== "archived" ? (
+        data?.status === "draft" ? (
           <Button size="sm" tone="danger" onClick={() => handleRemoveFieldRule(row.fieldId)}>
             {t("catalog.features.components.ui.componentDetailPage.remove")}
           </Button>
@@ -311,7 +311,7 @@ export function ComponentDetailPage({
       key: "actions",
       header: "",
       cell: (row) =>
-        data?.status !== "archived" ? (
+        data?.status === "draft" ? (
           <Button size="sm" tone="danger" onClick={() => handleRemoveDimensionRule(row.dimensionId)}>
             {t("catalog.features.components.ui.componentDetailPage.remove.2")}
           </Button>
@@ -335,7 +335,7 @@ export function ComponentDetailPage({
                 transitions={getTransitions(data.status)}
                 onAction={handleLifecycleAction}
               />
-              {data.status !== "archived" && (
+              {data.status === "draft" && (
                 <Button tone="secondary" size="sm" onClick={startEditing}>
                   {t("catalog.features.components.ui.componentDetailPage.edit")}
                 </Button>
@@ -364,7 +364,7 @@ export function ComponentDetailPage({
 
             <PageSection title={t("catalog.features.components.ui.componentDetailPage.field.rules")}>
               <Stack gap={3}>
-                {data.status !== "archived" && (
+                {data.status === "draft" && (
                   <Inline>
                     <Button size="sm" onClick={() => setShowAddField(true)}>
                       {t("catalog.features.components.ui.componentDetailPage.add.field.rule")}
@@ -382,7 +382,7 @@ export function ComponentDetailPage({
 
             <PageSection title={t("catalog.features.components.ui.componentDetailPage.dimension.rules")}>
               <Stack gap={3}>
-                {data.status !== "archived" && (
+                {data.status === "draft" && (
                   <Inline>
                     <Button size="sm" onClick={() => setShowAddDimension(true)}>
                       {t("catalog.features.components.ui.componentDetailPage.add.dimension.rule")}

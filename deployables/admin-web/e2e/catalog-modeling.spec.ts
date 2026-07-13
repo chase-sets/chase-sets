@@ -384,6 +384,58 @@ test.describe.serial("catalog admin modeling", () => {
       await expect(page.getByRole("heading", { name: dimensionName })).toBeVisible();
       await expectDimensionStatus(page, "draft");
 
+      // Dimension options: add, revise, reorder, deprecate, reactivate.
+      await page.getByRole("button", { name: "Add Option" }).click();
+      await expect(page.getByRole("heading", { name: "Add Option" })).toBeVisible();
+      await page.getByRole("textbox", { name: "Code", exact: true }).fill("red");
+      await page.getByRole("textbox", { name: "Locale" }).fill("en");
+      await page.getByRole("textbox", { name: "Label" }).fill("Red");
+      await page.getByRole("button", { name: "Add", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Add Option" })).toHaveCount(0);
+      const redRow = page.getByRole("row").filter({ hasText: "red" }).first();
+      await expect(redRow).toBeVisible({ timeout: 30_000 });
+
+      await page.getByRole("button", { name: "Add Option" }).click();
+      await page.getByRole("textbox", { name: "Code", exact: true }).fill("blue");
+      await page.getByRole("textbox", { name: "Locale" }).fill("en");
+      await page.getByRole("textbox", { name: "Label" }).fill("Blue");
+      await page.getByRole("button", { name: "Add", exact: true }).click();
+      const blueRow = page.getByRole("row").filter({ hasText: "blue" }).first();
+      await expect(blueRow).toBeVisible({ timeout: 30_000 });
+
+      // Revise the "red" option's code.
+      await redRow.getByRole("button", { name: "Edit", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Edit Option" })).toBeVisible();
+      const editOptionCode = page.getByRole("textbox", { name: "Code", exact: true });
+      await editOptionCode.fill("");
+      await editOptionCode.fill("crimson");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Edit Option" })).toHaveCount(0);
+      const crimsonRow = page.getByRole("row").filter({ hasText: "crimson" }).first();
+      await expect(crimsonRow).toBeVisible({ timeout: 30_000 });
+
+      // Reorder options (round-trips through the comma-separated option-id form).
+      await page.getByRole("button", { name: "Reorder" }).click();
+      await expect(page.getByRole("heading", { name: "Reorder Options" })).toBeVisible();
+      const reorderInput = page.getByRole("textbox", { name: "Option IDs" });
+      const currentOrder = (await reorderInput.inputValue())
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      await reorderInput.fill([...currentOrder].reverse().join(", "));
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Reorder Options" })).toHaveCount(0);
+
+      // Deprecate then reactivate the "crimson" option.
+      await crimsonRow.getByRole("button", { name: "Deprecate", exact: true }).click();
+      await expect(crimsonRow.getByRole("button", { name: "Reactivate", exact: true })).toBeVisible({
+        timeout: 30_000,
+      });
+      await crimsonRow.getByRole("button", { name: "Reactivate", exact: true }).click();
+      await expect(crimsonRow.getByRole("button", { name: "Deprecate", exact: true })).toBeVisible({
+        timeout: 30_000,
+      });
+
       const [activateResponse] = await Promise.all([
         page.waitForResponse(
           (candidate) =>
@@ -412,6 +464,23 @@ test.describe.serial("catalog admin modeling", () => {
         );
         expect(archiveResponse.status(), `archive dimension ${dimensionId} should return 200`).toBe(200);
         await waitForDimensionAdminProjection(page, archiveResponse, `archive dimension ${dimensionId}`);
+
+        // Archive is terminal: no further lifecycle transition is accepted.
+        const rearchiveResponse = await page.request.post(
+          `${apiOrigin(page)}/api/catalog/dimensions/${dimensionId}/archive`,
+        );
+        expect(
+          rearchiveResponse.status(),
+          "archiving an already-archived dimension should be rejected as a controlled 400",
+        ).toBe(400);
+
+        const redeprecateResponse = await page.request.post(
+          `${apiOrigin(page)}/api/catalog/dimensions/${dimensionId}/deprecate`,
+        );
+        expect(
+          redeprecateResponse.status(),
+          "deprecating an archived dimension should be rejected as a controlled 400",
+        ).toBe(400);
       }
     }
   });
@@ -428,6 +497,176 @@ test.describe.serial("catalog admin modeling", () => {
     await authenticateAdmin(page, "/catalog/reference-records", "/access/sign-in");
     await expectReferenceRecordListAndDetail(page);
     await expectReferenceTypeListAndDetail(page);
+  });
+
+  test("signed-in catalog operator creates and publishes a draft category through the full lifecycle @catalog-admin-modeling", async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    const uniqueSuffix = Date.now().toString(36);
+    const categoryKey = `e2e-category-${uniqueSuffix}`;
+    const categoryName = `E2E Category ${uniqueSuffix}`;
+    let categoryId: string | null = null;
+    let categoryPublished = false;
+
+    await authenticateAdmin(page, "/catalog/categories", "/access/sign-in");
+    await expectPageOk(page, "/catalog/categories");
+    await expectAdminPageReady(page, { heading: "Categories" });
+
+    try {
+      await page.getByRole("button", { name: "New Category" }).click();
+      await expect(page.getByRole("heading", { name: "Create Category" })).toBeVisible();
+      await page.getByRole("textbox", { name: "Key", exact: true }).fill(categoryKey);
+      await page.getByRole("textbox", { name: "Name", exact: true }).fill(categoryName);
+      await page
+        .getByRole("textbox", { name: "Description", exact: true })
+        .fill("Created by admin catalog modeling E2E.");
+      const [createResponse] = await Promise.all([
+        page.waitForResponse(
+          (candidate) =>
+            candidate.request().method() === "POST" &&
+            candidate.url().includes("/api/catalog/categories") &&
+            candidate.status() === 201,
+        ),
+        page.getByRole("button", { name: "Create" }).click(),
+      ]);
+      const createBody = (await createResponse.json()) as CatalogCommandResponse;
+      categoryId = createBody.id;
+      expect(createBody.id).toMatch(/^ctg_/);
+      expect(createBody.status).toBe("draft");
+      await expect(page.getByRole("heading", { name: "Create Category" })).toHaveCount(0);
+
+      await page.goto(`/catalog/categories/${categoryId}`, { waitUntil: "domcontentloaded" });
+      await expectAdminWebHydrated(page);
+      await expect(page.getByRole("heading", { name: categoryName })).toBeVisible();
+      await expectDimensionStatus(page, "draft");
+
+      // Edit structure while draft.
+      await page.getByRole("button", { name: "Edit" }).click();
+      await expect(page.getByRole("heading", { name: "Edit Category" })).toBeVisible();
+      const editDisplayOrder = page.getByRole("textbox", { name: "Display Order", exact: true });
+      await editDisplayOrder.fill("");
+      await editDisplayOrder.fill("3");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Edit Category" })).toHaveCount(0);
+
+      const [publishResponse] = await Promise.all([
+        page.waitForResponse(
+          (candidate) =>
+            candidate.request().method() === "POST" &&
+            candidate.url().includes(`/api/catalog/categories/${categoryId}/publish`) &&
+            candidate.status() === 200,
+        ),
+        page.getByRole("button", { name: "Publish" }).click(),
+      ]);
+      const publishBody = (await publishResponse.json()) as CatalogCommandResponse;
+      expect(publishBody.id).toBe(categoryId);
+      expect(publishBody.status).toBe("active");
+      categoryPublished = true;
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expectAdminWebHydrated(page);
+      await expectDimensionStatus(page, "active");
+    } finally {
+      if (categoryId && categoryPublished) {
+        const deprecateResponse = await page.request.post(
+          `${apiOrigin(page)}/api/catalog/categories/${categoryId}/deprecate`,
+        );
+        expect(deprecateResponse.status(), `deprecate category ${categoryId} should return 200`).toBe(200);
+
+        const archiveResponse = await page.request.post(
+          `${apiOrigin(page)}/api/catalog/categories/${categoryId}/archive`,
+        );
+        expect(archiveResponse.status(), `archive category ${categoryId} should return 200`).toBe(200);
+
+        // Archive is terminal for categories as well.
+        const rearchiveResponse = await page.request.post(
+          `${apiOrigin(page)}/api/catalog/categories/${categoryId}/archive`,
+        );
+        expect(
+          rearchiveResponse.status(),
+          "archiving an already-archived category should be rejected as a controlled 400",
+        ).toBe(400);
+      }
+    }
+  });
+
+  test("signed-in catalog operator submits a draft-only component field rule and confirms structure locks after activation @catalog-admin-modeling", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await expectComponentDraftOnlyRuleEditing(page);
+  });
+
+  test("signed-in catalog operator previews and confirms a bulk dimension lifecycle action @catalog-admin-modeling", async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    const uniqueSuffix = Date.now().toString(36);
+    const dimensionIds: string[] = [];
+
+    await authenticateAdmin(page, "/catalog/dimensions", "/access/sign-in");
+
+    try {
+      for (const label of ["one", "two"]) {
+        const createResponse = await page.request.post(`${apiOrigin(page)}/api/catalog/dimensions`, {
+          data: {
+            dimensionId: `dim_${uniqueSuffix}-${label}`,
+            key: `e2e-bulk-dimension-${label}-${uniqueSuffix}`,
+            name: { defaultLocale: "en", values: { en: `E2E Bulk Dimension ${label} ${uniqueSuffix}` } },
+            description: { defaultLocale: "en", values: { en: "Created by admin catalog modeling bulk E2E." } },
+          },
+        });
+        expect(createResponse.status(), "create draft dimension for bulk lifecycle should return 201").toBe(201);
+        const body = (await createResponse.json()) as CatalogCommandResponse;
+        dimensionIds.push(body.id);
+      }
+
+      await page.goto(`/catalog/dimensions?search=${encodeURIComponent(uniqueSuffix)}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await expectAdminPageReady(page, { heading: "Dimensions" });
+      await expect(page.getByRole("textbox", { name: "Search" })).toHaveValue(uniqueSuffix);
+
+      for (const dimensionId of dimensionIds) {
+        const checkbox = page.getByRole("checkbox", { name: `Select row ${dimensionId}` });
+        await expect(checkbox).toBeVisible({ timeout: 30_000 });
+        await checkbox.check();
+      }
+
+      await page.getByRole("combobox", { name: "Action" }).selectOption({ label: "Activate" });
+      await page.getByRole("button", { name: "Preview", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Bulk Activate Preview" })).toBeVisible();
+      await expect(page.getByText(`${dimensionIds.length} ready`)).toBeVisible();
+
+      await page.getByRole("button", { name: "Confirm", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Bulk Activate Result" })).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByText(`${dimensionIds.length} succeeded`)).toBeVisible();
+      await page.getByRole("button", { name: "Close", exact: true }).click();
+    } finally {
+      for (const dimensionId of dimensionIds) {
+        await page.request
+          .post(`${apiOrigin(page)}/api/catalog/dimensions/${dimensionId}/deprecate`)
+          .catch(() => undefined);
+        await page.request
+          .post(`${apiOrigin(page)}/api/catalog/dimensions/${dimensionId}/archive`)
+          .catch(() => undefined);
+      }
+    }
   });
 });
 
@@ -488,23 +727,105 @@ async function expectComponentDetail(page: Page) {
   await expect(page.getByText("Dimension Rules", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Status").first()).toBeVisible();
 
-  await page.getByRole("button", { name: "Edit" }).click();
-  await expect(page.getByRole("heading", { name: "Edit Component" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Key", exact: true })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("heading", { name: "Edit Component" })).toHaveCount(0);
+  // Seeded components are activated, so structure-editing affordances are locked (draft-only).
+  await expect(page.getByText("active", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add Field Rule" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add Dimension Rule" })).toHaveCount(0);
+}
 
-  await page.getByRole("button", { name: "Add Field Rule" }).click();
-  await expect(page.getByRole("heading", { name: "Add Field Rule" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Field ID" })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("heading", { name: "Add Field Rule" })).toHaveCount(0);
+async function expectComponentDraftOnlyRuleEditing(page: Page) {
+  const uniqueSuffix = Date.now().toString(36);
+  const componentKey = `e2e-component-${uniqueSuffix}`;
+  let componentId: string | null = null;
 
-  await page.getByRole("button", { name: "Add Dimension Rule" }).click();
-  await expect(page.getByRole("heading", { name: "Add Dimension Rule" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Dimension ID" })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("heading", { name: "Add Dimension Rule" })).toHaveCount(0);
+  await authenticateAdmin(page, "/catalog/components", "/access/sign-in");
+
+  try {
+    const createResponse = await page.request.post(`${apiOrigin(page)}/api/catalog/components`, {
+      data: {
+        componentId: `cmp_${uniqueSuffix}`,
+        key: componentKey,
+        name: { defaultLocale: "en", values: { en: `E2E Component ${uniqueSuffix}` } },
+        description: { defaultLocale: "en", values: { en: "Created by admin catalog modeling E2E." } },
+      },
+    });
+    expect(createResponse.status(), "create draft component should return 201").toBe(201);
+    const createBody = (await createResponse.json()) as CatalogCommandResponse;
+    componentId = createBody.id;
+    expect(componentId).toMatch(/^cmp_/);
+    expect(createBody.status).toBe("draft");
+
+    const fieldsResponse = await page.request.get(`${apiOrigin(page)}/api/catalog/fields?status=active&limit=1`);
+    expect(fieldsResponse.status(), "listing active fields for the field-rule fixture should return 200").toBe(200);
+    const fieldsBody = (await fieldsResponse.json()) as { items: readonly { field_id: string }[] };
+    const fieldId = fieldsBody.items[0]?.field_id;
+    expect(fieldId, "at least one seeded active field is required for this fixture").toBeTruthy();
+
+    await page.goto(`/catalog/components/${componentId}`, { waitUntil: "domcontentloaded" });
+    await expectAdminWebHydrated(page);
+    await expectDimensionStatus(page, "draft");
+
+    // Draft-only editing affordances are present while the component is still a draft: submit a real field rule.
+    await expect(page.getByRole("button", { name: "Edit" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add Field Rule" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add Dimension Rule" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Add Field Rule" }).click();
+    await expect(page.getByRole("heading", { name: "Add Field Rule" })).toBeVisible();
+    await page.getByRole("textbox", { name: "Field ID" }).fill(fieldId as string);
+    const [fieldRuleResponse] = await Promise.all([
+      page.waitForResponse(
+        (candidate) =>
+          candidate.request().method() === "POST" &&
+          candidate.url().includes(`/api/catalog/components/${componentId}/field-rules`) &&
+          candidate.status() === 201,
+      ),
+      page.getByRole("button", { name: "Add", exact: true }).click(),
+    ]);
+    expect(fieldRuleResponse.status()).toBe(201);
+    await expect(page.getByRole("heading", { name: "Add Field Rule" })).toHaveCount(0);
+
+    const componentAfterFieldRule = await page.request.get(`${apiOrigin(page)}/api/catalog/components/${componentId}`);
+    const componentAfterFieldRuleBody = (await componentAfterFieldRule.json()) as {
+      field_rules: readonly { fieldId: string }[];
+    };
+    expect(componentAfterFieldRuleBody.field_rules.some((rule) => rule.fieldId === fieldId)).toBe(true);
+
+    const activateResponse = await page.request.post(
+      `${apiOrigin(page)}/api/catalog/components/${componentId}/activate`,
+    );
+    expect(activateResponse.status(), `activate component ${componentId} should return 200`).toBe(200);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expectAdminWebHydrated(page);
+    await expectDimensionStatus(page, "active");
+
+    // Structure locks after publish: editing affordances disappear and the API rejects the change.
+    await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Add Field Rule" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Add Dimension Rule" })).toHaveCount(0);
+
+    const blockedFieldRuleResponse = await page.request.post(
+      `${apiOrigin(page)}/api/catalog/components/${componentId}/field-rules`,
+      { data: { fieldId: "fld_e2e_missing", required: false } },
+    );
+    expect(
+      blockedFieldRuleResponse.status(),
+      "adding a field rule to an active component should be rejected as a controlled 400",
+    ).toBe(400);
+    const blockedBody = (await blockedFieldRuleResponse.json()) as { error?: { message?: string } };
+    expect(blockedBody.error?.message ?? "").toMatch(/draft/i);
+  } finally {
+    if (componentId) {
+      await page.request
+        .post(`${apiOrigin(page)}/api/catalog/components/${componentId}/deprecate`)
+        .catch(() => undefined);
+      await page.request
+        .post(`${apiOrigin(page)}/api/catalog/components/${componentId}/archive`)
+        .catch(() => undefined);
+    }
+  }
 }
 
 async function expectBlueprintDetail(page: Page) {
@@ -520,6 +841,13 @@ async function expectBlueprintDetail(page: Page) {
   }
   await expect(page.getByText("Status").first()).toBeVisible();
 
+  // The draft-only structure lock is a Component rule (see component-detail-page.tsx /
+  // components domain): a Component's field/dimension rules freeze once it activates.
+  // Blueprints are a distinct primitive and do NOT lock on activation — the blueprint
+  // detail page keeps its "Edit" affordance for any non-archived blueprint
+  // (blueprint-detail-page.tsx renders it when status !== "archived"). Seeded blueprints
+  // are active, so confirm the status renders and the Edit dialog is still reachable.
+  await expect(page.getByText("active", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "Edit" }).click();
   await expect(page.getByRole("heading", { name: "Edit Blueprint" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Key", exact: true })).toBeVisible();
