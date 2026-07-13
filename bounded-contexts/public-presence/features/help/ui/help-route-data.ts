@@ -1,5 +1,6 @@
 export {
   findHelpArticle,
+  findPublicHelpArticleByPath,
   isHelpCategory,
   listHelpArticlesByCategory,
   listRelatedHelpArticles,

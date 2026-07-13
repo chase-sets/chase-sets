@@ -4,6 +4,7 @@
     "types": ["node", "vitest/globals"]
   },
   "include": [
+    "bounded-contexts/**/*.d.ts",
     "bounded-contexts/**/*.test.ts",
     "bounded-contexts/**/*.test.tsx",
     "bounded-contexts/**/*.spec.ts",

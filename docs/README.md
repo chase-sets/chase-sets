@@ -32,6 +32,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Campaign Market-Data Series](./campaigns/market-data-series.md): deterministic Pricing rollup snippet generation, fixture/staging rehearsal, and production-only publication gate.
 - [Open-Offer Demo Walkthrough](./campaigns/offer-flow-demo.md): the truth-gated 30-second staging capture script and honest TODD creative handoff.
 - [Seller Migration Campaign Assets](./campaigns/seller-migration-assets.md): the #4085 guide, proof walkthrough, #4073 demo-clip handoff, and #4083 admission-mail link.
+- [Brand & Distribution Kit](./campaigns/brand-distribution-kit.md): repo-owned OG/social cards, per-game share links, the /press creator & press fact sheet, claims-gated post templates for the weekly per-game series, and the operator follow-up list for creative assets (#4086).
 
 ### Contributing
 

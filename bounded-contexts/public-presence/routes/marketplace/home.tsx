@@ -5,8 +5,14 @@ import {
   createPublicPresenceRequestApiClient,
   type SubmitWaitlistSignupRequest,
 } from "../../support/request-support/api-client";
-import { PublicPresenceHomePage } from "../../features/waitlist/ui/public-pages";
-import heroImageUrl from "../../features/waitlist/ui/assets/chase-sets-prelaunch-hero.webp?url";
+import { gameItems, normalizeSelectedGame, PublicPresenceHomePage } from "../../features/waitlist/ui/public-pages";
+import {
+  buildAbsolutePublicUrl,
+  buildPublicSocialMeta,
+  normalizePublicOrigin,
+  publicOpenGraphImages,
+  resolveGameOpenGraphImage,
+} from "../../features/waitlist/ui/social-meta";
 import {
   checkoutFeeTranslationValues,
   fallbackCheckoutFeePreview,
@@ -140,32 +146,34 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 }
 
-function normalizeOrigin(origin: string) {
-  return origin.replace(/\/+$/, "");
-}
-
-function publicUrl(origin: string, path: string) {
-  return new URL(path, `${normalizeOrigin(origin)}/`).toString();
-}
+const normalizeOrigin = normalizePublicOrigin;
+const publicUrl = buildAbsolutePublicUrl;
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => {
   const publicOrigin = normalizeOrigin(data?.publicOrigin ?? fallbackPublicOrigin);
-  const homeUrl = publicUrl(publicOrigin, "/");
-  const imageUrl = publicUrl(publicOrigin, heroImageUrl);
+  // A per-game campaign link (`/?game=<slug>`, from the roster tiles and
+  // per-game share links) publishes that game's title, description, and OG
+  // card so reposts render a game-specific preview; anything else gets the
+  // default landing card.
+  const selectedGame = normalizeSelectedGame(data?.selectedGame ?? null);
+  const gameLabel = selectedGame ? (gameItems.find((item) => item.value === selectedGame)?.label ?? null) : null;
+  const title = gameLabel
+    ? t("publicPresence.routes.home.meta.gameTitle", { game: gameLabel })
+    : t("publicPresence.routes.home.meta.title");
+  const description = gameLabel
+    ? t("publicPresence.routes.home.meta.gameDescription", { game: gameLabel })
+    : t("publicPresence.routes.home.meta.description");
 
   return [
-    { title: t("publicPresence.routes.home.meta.title") },
-    { name: "description", content: t("publicPresence.routes.home.meta.description") },
-    { property: "og:site_name", content: t("publicPresence.brand") },
-    { property: "og:title", content: t("publicPresence.routes.home.meta.title") },
-    { property: "og:description", content: t("publicPresence.routes.home.meta.description") },
-    { property: "og:type", content: "website" },
-    { property: "og:url", content: homeUrl },
-    { property: "og:image", content: imageUrl },
-    { name: "twitter:card", content: "summary_large_image" },
-    { name: "twitter:title", content: t("publicPresence.routes.home.meta.title") },
-    { name: "twitter:description", content: t("publicPresence.routes.home.meta.description") },
-    { name: "twitter:image", content: imageUrl },
+    { title },
+    { name: "description", content: description },
+    ...buildPublicSocialMeta({
+      publicOrigin,
+      path: selectedGame ? `/?game=${selectedGame}` : "/",
+      title,
+      description,
+      imagePath: resolveGameOpenGraphImage(selectedGame) ?? publicOpenGraphImages.default,
+    }),
   ];
 };
 

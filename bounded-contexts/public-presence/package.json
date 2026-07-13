@@ -10,7 +10,8 @@
     "typecheck": "tsc -p ./tests/tsconfig.json --noEmit",
     "test": "vitest run --config ./tests/vitest.config.mjs",
     "test:watch": "vitest --config ./tests/vitest.config.mjs",
-    "generate:landing-image-variants": "node ./features/waitlist/ui/assets/generate-image-variants.mjs"
+    "generate:landing-image-variants": "node ./features/waitlist/ui/assets/generate-image-variants.mjs",
+    "generate:og-images": "node ./features/waitlist/ui/assets/generate-og-images.mjs"
   },
   "exports": {
     ".": "./index.ts",

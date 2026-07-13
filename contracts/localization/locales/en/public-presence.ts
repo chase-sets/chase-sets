@@ -750,6 +750,9 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.routes.founders.meta.title": "Founders Offer Terms | Chase Sets",
   "publicPresence.routes.home.meta.description":
     "Request Chase Sets early access for 0% beta seller fee locks, no separate seller payment-processing fee, a numbered founders badge, and buyer-visible delivered totals.",
+  "publicPresence.routes.home.meta.gameDescription":
+    "Request Chase Sets early access for {game}: a full curated catalog, raw and graded singles, 0% beta seller fee locks, and buyer-visible delivered totals.",
+  "publicPresence.routes.home.meta.gameTitle": "{game} Singles | Chase Sets Early Access",
   "publicPresence.routes.home.meta.title": "Chase Sets Early Access | Trading Card Marketplace",
   "publicPresence.routes.home.waitlist.failed":
     "We could not request early access. Please check the form and try again.",

@@ -364,6 +364,14 @@
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
+        },
+        {
+          "routeId": "press",
+          "routePath": "press",
+          "fileExport": "./routes/marketplace/press",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
         }
       ]
     },

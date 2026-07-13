@@ -43,6 +43,13 @@ export const publicHelpArticlePolicyCitations = [
     ],
   },
   {
+    slug: "creators-and-press",
+    locale: "en",
+    title: "Creator and press fact sheet",
+    href: "/press",
+    citedPolicies: ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
+  },
+  {
     slug: "sales-fees",
     locale: "en",
     title: "Marketplace sales and checkout fees",

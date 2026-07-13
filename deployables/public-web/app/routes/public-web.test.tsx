@@ -37,6 +37,7 @@ describe("public web deployable", () => {
       "founders",
       "compare/tcgplayer",
       "compare/ebay",
+      "press",
     ]);
     expect(routePaths).not.toContain("search");
     expect(routePaths).not.toContain("items/:id");
