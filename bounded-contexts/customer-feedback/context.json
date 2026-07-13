@@ -1,0 +1,50 @@
+{
+  "contextName": "customer-feedback",
+  "packageName": "@chase-sets/customer-feedback",
+  "ownedNouns": [
+    "customer-satisfaction",
+    "csat-survey",
+    "survey-version",
+    "csat-invitation",
+    "csat-response",
+    "workflow-outcome-code",
+    "outcome-fact",
+    "sampling-policy",
+    "response-rate",
+    "legacy-experience-rating"
+  ],
+  "streamPrefix": "customer-feedback.",
+  "apiBasePath": "/api/customer-feedback",
+  "slices": ["csat"],
+  "allowedSupportDirectories": ["runtime-support"],
+  "publicExports": [".", "./context", "./server"],
+  "allowedContextDependencies": [],
+  "seedRequirements": [],
+  "hostPorts": [],
+  "apiDeployables": [],
+  "apiRuntimeProfiles": [],
+  "apiMounts": [],
+  "workerRuntimeProfiles": [],
+  "deployableContributions": [],
+  "shellContributions": [],
+  "directoryIntent": {
+    "csat": {
+      "classification": "slice",
+      "purpose": "Own the versioned transactional-CSAT contract for Customer Feedback: survey kind and version identity, the stable workflow/outcome-code allow-list, the source-context outcome-fact schema, sampling-policy metadata, the invitation shape with its versioned lifecycle event contracts, the CSAT and response-rate calculation, and the legacy-experience-rating classification.",
+      "expectedConsumers": [
+        "Internal customer-feedback module composition",
+        "Customer Feedback invitation, recording, and analytics leaves"
+      ]
+    },
+    "runtime-support": {
+      "classification": "support",
+      "purpose": "Provide the Customer Feedback event-store base schema and runtime service composition seam for the invitation aggregate and CSAT projection leaves.",
+      "expectedConsumers": ["Root customer-feedback module composition"]
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Reserve Customer Feedback route metadata for the future csat invitation, survey, and operator page route contributions.",
+      "expectedConsumers": ["Future generated deployable route adapters"]
+    }
+  }
+}

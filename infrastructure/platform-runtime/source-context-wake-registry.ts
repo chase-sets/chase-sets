@@ -254,6 +254,18 @@ export const sourceContextWakeRegistry = [
     ],
   }),
   registryEntry({
+    sourceContextName: "customer-feedback",
+    owner: "Customer Feedback",
+    rolloutState: "not-eligible",
+    phase: "phase-3-expansion",
+    rolloutWave: "wave-4-deferred-or-not-eligible",
+    priorityLane: "bulk",
+    expectedEventVolume: "low",
+    wakeStoreLoadEstimate: "none",
+    affectedProjectionNames: [],
+    routeDependencyIds: [],
+  }),
+  registryEntry({
     sourceContextName: "discovery",
     owner: "Discovery",
     rolloutState: "eligible",

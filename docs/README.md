@@ -193,6 +193,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0018: DOKS Compute Runtime](./adr/0018-doks-compute-runtime.md)
 - [ADR 0019: Feature Flags And Rollout Boundaries](./adr/0019-feature-flags-rollout-boundaries.md)
 - [ADR 0020: Wallet Adjustment Authority And Balance Types](./adr/0020-wallet-adjustment-authority-and-balance-types.md)
+- [ADR 0021: Customer Feedback Bounded Context And Versioned CSAT Contract](./adr/0021-customer-feedback-bounded-context-and-csat-contract.md)
 
 ## Generated Markdown
 
