@@ -27,6 +27,8 @@ export type AuthEventPayloads = Readonly<{
 export type IdentityFoundersWindowOpenedPayload = Readonly<{
   betaAccessStartedAt: string;
   foundersWindowEndsAt: string;
+  /** Additive grant-time recipient for downstream access notifications. */
+  recipientEmail?: string;
 }>;
 
 export type IdentityFounderNumberClaimedPayload = Readonly<{

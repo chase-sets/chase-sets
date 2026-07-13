@@ -341,6 +341,7 @@ export const sourceContextWakeRegistry = [
       "payments:payments-account-risk-source-projection",
       "platform-operations:risk-alert-queue-projection",
       "pricing:pricing-market-trades-projection",
+      "public-presence:public-presence-waitlist-transactional-email-projection",
       "settlement:settlement-account-risk-source-projection",
     ],
     routeDependencyIds: [

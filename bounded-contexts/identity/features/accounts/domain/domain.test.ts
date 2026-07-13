@@ -31,6 +31,34 @@ describe("account domain", () => {
     expect(createdState.accountType).toBe("enterprise");
   });
 
+  it("publishes the normalized grant-time recipient when the founders window opens", () => {
+    const createdState = decideAccount(initialAccountState, {
+      type: "CreateAccount",
+      accountId: "acc_founder" as never,
+      name: "Founding Store LLC",
+      accountType: "business",
+      displayName: "Founding Store",
+    }).reduce(evolveAccount, initialAccountState);
+
+    const opened = decideAccount(createdState, {
+      type: "OpenFoundersWindow",
+      betaAccessStartedAt: "2026-07-31T12:00:00.000Z",
+      foundersWindowEndsAt: "2026-09-29T12:00:00.000Z",
+      recipientEmail: " Founder@Example.COM ",
+    });
+
+    expect(opened).toEqual([
+      {
+        type: "identity.account.founders-window-opened",
+        data: {
+          betaAccessStartedAt: "2026-07-31T12:00:00.000Z",
+          foundersWindowEndsAt: "2026-09-29T12:00:00.000Z",
+          recipientEmail: "founder@example.com",
+        },
+      },
+    ]);
+  });
+
   it("assigns founding account badges idempotently", () => {
     const created = decideAccount(initialAccountState, {
       type: "CreateAccount",

@@ -54,6 +54,10 @@ function renderBrandedHtmlEmail(subject: string, bodyLines: readonly string[]) {
 }
 
 function renderPlatformEmailBodyLines(message: TransactionalEmailMessage): readonly string[] {
+  if (message.templateId.startsWith("waitlist_nurture_")) {
+    return renderWaitlistNurtureBodyLines(message);
+  }
+
   if (message.templateId === "auth_magic_link") {
     return [
       "Use this secure link to sign in to Chase Sets:",
@@ -154,6 +158,36 @@ function renderPlatformEmailBodyLines(message: TransactionalEmailMessage): reado
 
   const dataLines = Object.entries(message.templateData).map(([key, value]) => `${key}: ${String(value ?? "")}`);
   return ["A Chase Sets account update is available.", ...dataLines, "", "Chase Sets"];
+}
+
+function renderWaitlistNurtureBodyLines(message: TransactionalEmailMessage): readonly string[] {
+  const data = message.templateData;
+  const content = [
+    String(data.headline ?? "Your Chase Sets early access update is ready."),
+    String(data.intro ?? ""),
+    String(data.founders ?? ""),
+    String(data.checklist ?? ""),
+    String(data.missingAsk ?? ""),
+  ].filter((line) => line.trim().length > 0);
+  const detailsLink = String(data.detailsLink ?? data.welcomeLink ?? "");
+  const foundersTermsLink = String(data.foundersTermsLink ?? "");
+  const discordInviteLink = String(data.discordInviteLink ?? "");
+  const preferencesLink = String(data.preferencesLink ?? "");
+  const referralLink = String(data.referralLink ?? "");
+
+  return [
+    ...content,
+    ...(detailsLink ? ["Open the next step:", detailsLink] : []),
+    ...(foundersTermsLink ? ["Read the founders offer terms:", foundersTermsLink] : []),
+    ...(discordInviteLink ? ["Open your founders circle Discord invite:", discordInviteLink] : []),
+    ...(referralLink ? ["Your referral link:", referralLink] : []),
+    "",
+    ...(preferencesLink
+      ? ["Manage early-access email preferences:", preferencesLink]
+      : ["You received this early-access email because you joined the Chase Sets waitlist."]),
+    "",
+    "Chase Sets",
+  ];
 }
 
 function escapeHtml(value: string) {

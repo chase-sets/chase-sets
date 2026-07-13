@@ -171,6 +171,7 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
       createProjectionHandlerSet({
         projectionName: PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
         handlers: buildWaitlistTransactionalEmailProjectionHandlers(
+          deps.db,
           notificationOutbox,
           PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
         ),

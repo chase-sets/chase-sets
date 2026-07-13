@@ -8,7 +8,7 @@
   "allowedSupportDirectories": ["request-support", "runtime-support", "shell-support", "ui-support"],
   "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [],
-  "seedRequirements": [],
+  "seedRequirements": ["identity"],
   "eventSubscriptions": [
     {
       "sourceContextName": "public-presence",
@@ -31,6 +31,15 @@
       "streamPrefixes": ["public-presence.waitlist-signup-"],
       "order": 20,
       "projectionHandlerSetNames": ["public-presence-waitlist-transactional-email-projection"]
+    },
+    {
+      "sourceContextName": "identity",
+      "projectionName": "public-presence-waitlist-transactional-email-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["identity.account.founders-window-opened"],
+      "streamPrefixes": ["identity.account-"],
+      "order": 21,
+      "projectionHandlerSetNames": ["public-presence-waitlist-transactional-email-projection"]
     }
   ],
   "projectionGroups": [
@@ -43,7 +52,7 @@
     },
     {
       "projectionName": "public-presence-waitlist-transactional-email-projection",
-      "sourceContextNames": ["public-presence"],
+      "sourceContextNames": ["public-presence", "identity"],
       "ownedTables": ["notification_outbox"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "append-only-no-reset"
