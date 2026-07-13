@@ -13,6 +13,7 @@ Bounded-context behavior lives with each context under `bounded-contexts/<contex
 
 Catalog Product Contents is documented with the Catalog context in [Product Contents Contract](../bounded-contexts/catalog/docs/product-contents-contract.md).
 Catalog Scope Records are documented with the Catalog context in [Catalog Scope Registry](../bounded-contexts/catalog/docs/scope-registry.md).
+The Catalog integration control-plane v2 IA (three pages, per-entity action vocabulary, disclosure rules) is documented with the Catalog context in [Catalog Control Plane Blueprint (v2)](../bounded-contexts/catalog/docs/catalog-control-plane-blueprint-v2.md).
 Product Contents rollout QA is tracked in [Product Contents QA/UAT](./runbooks/product-contents-qa-uat.md).
 
 Completed milestone evidence, signoff checklists, and audits live in the closing GitHub issue/PR and git history, not in this folder.
