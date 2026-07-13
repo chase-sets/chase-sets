@@ -96,6 +96,21 @@ Notes:
 - Active chargeback holds keep pending sale proceeds and shipping allowances from becoming available while the processor dispute remains open or lost.
 - A won chargeback releases the active hold with a matching Wallet credit; payout-reversal mechanics remain owned by Payout.
 
+## Wallet Adjustment
+
+A **Wallet Adjustment** is a Settlement-owned, cash-equivalent correction to an account's Wallet balance, requested by one authorized platform operator, approved by a different authorized platform operator, and posted as exactly one immutable `adjustment`-kind Wallet Ledger Entry. It is a governed path onto the existing available/pending balance, not a second balance type.
+
+Notes:
+
+- An available adjustment credit is ordinary available balance: spendable against a `platform-purchase` debit and payoutable under the same payout-readiness and clearance rules as any other available balance. There is no adjustment-specific clearance window.
+- A Wallet Adjustment is always cash-equivalent. It is distinct from the future, not-yet-built **Marketplace Credit** (owned by #4891): promotional or prepaid, non-withdrawable, usage-scoped value that must never share the Wallet Adjustment command, lifecycle, reason-code taxonomy, or available-balance total.
+- A Wallet Adjustment is distinct from a Payments-owned **Refund** (Payments `GLOSSARY.md`): a Refund is the external processor-rail reversal of captured buyer funds; a Wallet Adjustment coded `refund-correction` is the internal wallet-side correction that supplements or corrects a Refund's wallet consequence, never the external transaction itself.
+- A Wallet Adjustment is distinct from a **Rebate** (Commercial Terms-derived shipping allowance credit) and a **Chargeback Clawback** (automated processor-dispute recovery): both remain their own ledger-entry kinds and their own automated posting paths. A Wallet Adjustment is the operator-directed, approval-gated correction path used when neither automated path applies.
+- Posted Wallet Adjustments are never edited or deleted; a correction uses a new, linked, opposite-direction Wallet Adjustment, the same pattern the existing `payout-reversal` ledger kind already uses.
+- Reason codes are a closed taxonomy: `transaction-correction`, `refund-correction`, `fee-correction`, `dispute-resolution`, `fraud-recovery`, `support-resolution`, `legal-obligation`, `goodwill-cash-credit`, `operational-error`, and `other-with-required-detail` (the only code requiring mandatory free-text explanation).
+- Creating or increasing a Negative Balance, a high-value credit or debit, a reversal after the original entry's funds were already spent or paid out, and any self-benefiting target all require elevated, separation-of-duties approval; a self-benefiting target is blocked outright rather than merely elevated.
+- The full lifecycle, approval matrix, policy schema, and legacy `workflow`-string retirement decision are recorded in [ADR 0020: Wallet Adjustment Authority And Balance Types](../../docs/adr/0020-wallet-adjustment-authority-and-balance-types.md). The lifecycle, permissions, and typed API are implemented by #4998, #4999, and #5000; this term records the ratified vocabulary ahead of that implementation.
+
 ## Negative Balance
 
 A **Negative Balance** is a Wallet state where chargeback, refund, or payout recovery obligations exceed the account's available balance.

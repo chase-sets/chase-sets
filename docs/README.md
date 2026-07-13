@@ -189,6 +189,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0017: Database Provisioning Is Separate From Runtime Activation](./adr/0017-database-provisioning-runtime-activation.md)
 - [ADR 0018: DOKS Compute Runtime](./adr/0018-doks-compute-runtime.md)
 - [ADR 0019: Feature Flags And Rollout Boundaries](./adr/0019-feature-flags-rollout-boundaries.md)
+- [ADR 0020: Wallet Adjustment Authority And Balance Types](./adr/0020-wallet-adjustment-authority-and-balance-types.md)
 
 ## Generated Markdown
 
