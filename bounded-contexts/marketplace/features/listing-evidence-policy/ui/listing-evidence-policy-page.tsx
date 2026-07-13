@@ -2,7 +2,6 @@ import { useState } from "react";
 import {
   Badge,
   Button,
-  Card,
   Checkbox,
   CurrencyInput,
   DetailPanel,
@@ -10,6 +9,7 @@ import {
   Form,
   Grid,
   HiddenInput,
+  Inset,
   KeyValueList,
   NativeSelect,
   NumberField,
@@ -227,60 +227,58 @@ export function ListingEvidencePolicyPage({
         <DetailPanel title={t("marketplace.features.listingEvidencePolicy.ui.lifecycle.title")}>
           <Stack gap={2}>
             {overview.documents.map((document) => (
-              <Card key={document.policyId}>
-                <Card.Body>
-                  <Stack gap={2}>
-                    <Stack direction="row" gap={2} align="center">
-                      <Badge
-                        tone={
-                          document.lifecycle === "active"
-                            ? "success"
-                            : document.lifecycle === "rejected"
-                              ? "danger"
-                              : "info"
-                        }
-                      >
-                        {lifecycleLabel(document.lifecycle)}
-                      </Badge>
-                      <Text size="sm">
-                        {document.policyId} · v{document.version}
-                      </Text>
-                    </Stack>
-                    <Text size="sm" tone="secondary">
-                      {document.hash}
+              <Inset key={document.policyId}>
+                <Stack gap={2}>
+                  <Stack direction="row" gap={2} align="center">
+                    <Badge
+                      tone={
+                        document.lifecycle === "active"
+                          ? "success"
+                          : document.lifecycle === "rejected"
+                            ? "danger"
+                            : "info"
+                      }
+                    >
+                      {lifecycleLabel(document.lifecycle)}
+                    </Badge>
+                    <Text size="sm">
+                      {document.policyId} · v{document.version}
                     </Text>
-                    <Stack direction="row" gap={2}>
-                      {canValidate && document.lifecycle === "draft" ? (
-                        <Form method="post">
-                          <HiddenInput name="intent" value="validate" readOnly />
-                          <HiddenInput name="policyId" value={document.policyId} readOnly />
-                          <Button type="submit" tone="secondary">
-                            {t("marketplace.features.listingEvidencePolicy.ui.validate")}
-                          </Button>
-                        </Form>
-                      ) : null}
-                      {canDraft && ["draft", "validated"].includes(document.lifecycle) ? (
-                        <Form method="post">
-                          <HiddenInput name="intent" value="reject" readOnly />
-                          <HiddenInput name="policyId" value={document.policyId} readOnly />
-                          <Button type="submit" tone="danger">
-                            {t("marketplace.features.listingEvidencePolicy.ui.reject")}
-                          </Button>
-                        </Form>
-                      ) : null}
-                      {canDraft && document.lifecycle === "active" ? (
-                        <Form method="post">
-                          <HiddenInput name="intent" value="rollback" readOnly />
-                          <HiddenInput name="policyId" value={document.policyId} readOnly />
-                          <Button type="submit" tone="secondary">
-                            {t("marketplace.features.listingEvidencePolicy.ui.rollback")}
-                          </Button>
-                        </Form>
-                      ) : null}
-                    </Stack>
                   </Stack>
-                </Card.Body>
-              </Card>
+                  <Text size="sm" tone="secondary">
+                    {document.hash}
+                  </Text>
+                  <Stack direction="row" gap={2}>
+                    {canValidate && document.lifecycle === "draft" ? (
+                      <Form method="post">
+                        <HiddenInput name="intent" value="validate" readOnly />
+                        <HiddenInput name="policyId" value={document.policyId} readOnly />
+                        <Button type="submit" tone="secondary">
+                          {t("marketplace.features.listingEvidencePolicy.ui.validate")}
+                        </Button>
+                      </Form>
+                    ) : null}
+                    {canDraft && ["draft", "validated"].includes(document.lifecycle) ? (
+                      <Form method="post">
+                        <HiddenInput name="intent" value="reject" readOnly />
+                        <HiddenInput name="policyId" value={document.policyId} readOnly />
+                        <Button type="submit" tone="danger">
+                          {t("marketplace.features.listingEvidencePolicy.ui.reject")}
+                        </Button>
+                      </Form>
+                    ) : null}
+                    {canDraft && document.lifecycle === "active" ? (
+                      <Form method="post">
+                        <HiddenInput name="intent" value="rollback" readOnly />
+                        <HiddenInput name="policyId" value={document.policyId} readOnly />
+                        <Button type="submit" tone="secondary">
+                          {t("marketplace.features.listingEvidencePolicy.ui.rollback")}
+                        </Button>
+                      </Form>
+                    ) : null}
+                  </Stack>
+                </Stack>
+              </Inset>
             ))}
           </Stack>
         </DetailPanel>
@@ -353,201 +351,197 @@ export function ListingEvidencePolicyPage({
               {rules.map((rule, index) => {
                 const selectorOptions = optionsForSelector(selectorCatalog, rule.selectorKind);
                 return (
-                  <Card key={rule.key}>
-                    <Card.Header>
-                      <Card.Title>
+                  <Inset key={rule.key}>
+                    <Stack gap={4}>
+                      <Text weight="semibold">
                         {t("marketplace.features.listingEvidencePolicy.ui.rule.title", { number: index + 1 })}
-                      </Card.Title>
-                    </Card.Header>
-                    <Card.Body>
-                      <Stack gap={4}>
-                        <Grid columns={3} gap={3}>
-                          <TextInput
-                            label={t("marketplace.features.listingEvidencePolicy.ui.rule.id")}
-                            value={rule.ruleId}
-                            onChange={(event) => updateRule(rule.key, { ruleId: event.target.value })}
-                            required
+                      </Text>
+                      <Grid columns={3} gap={3}>
+                        <TextInput
+                          label={t("marketplace.features.listingEvidencePolicy.ui.rule.id")}
+                          value={rule.ruleId}
+                          onChange={(event) => updateRule(rule.key, { ruleId: event.target.value })}
+                          required
+                        />
+                        <TextInput
+                          label={t("marketplace.features.listingEvidencePolicy.ui.explanation.code")}
+                          value={rule.explanationCode}
+                          onChange={(event) => updateRule(rule.key, { explanationCode: event.target.value })}
+                          required
+                        />
+                        <NumberField
+                          label={t("marketplace.features.listingEvidencePolicy.ui.priority")}
+                          value={rule.priority}
+                          onValueChange={(value) => updateRule(rule.key, { priority: value ?? 0 })}
+                          min={0}
+                        />
+                      </Grid>
+                      <Fieldset
+                        legend={t("marketplace.features.listingEvidencePolicy.ui.selector.title")}
+                        description={t("marketplace.features.listingEvidencePolicy.ui.selector.description")}
+                      >
+                        <Grid columns={2} gap={3}>
+                          <NativeSelect
+                            label={t("marketplace.features.listingEvidencePolicy.ui.selector.kind")}
+                            value={rule.selectorKind}
+                            onChange={(event) =>
+                              updateRule(rule.key, { selectorKind: event.target.value, selectorValue: "" })
+                            }
+                            items={[
+                              {
+                                value: "all",
+                                label: t("marketplace.features.listingEvidencePolicy.ui.selector.all"),
+                              },
+                              {
+                                value: "catalog-item",
+                                label: t("marketplace.features.listingEvidencePolicy.ui.selector.catalog.item"),
+                              },
+                              {
+                                value: "product",
+                                label: t("marketplace.features.listingEvidencePolicy.ui.selector.product"),
+                              },
+                              {
+                                value: "blueprint",
+                                label: t("marketplace.features.listingEvidencePolicy.ui.selector.blueprint"),
+                              },
+                              {
+                                value: "category",
+                                label: t("marketplace.features.listingEvidencePolicy.ui.selector.category"),
+                              },
+                              {
+                                value: "option",
+                                label: t("marketplace.features.listingEvidencePolicy.ui.selector.option"),
+                              },
+                              {
+                                value: "graded-item",
+                                label: t("marketplace.features.listingEvidencePolicy.ui.selector.graded"),
+                              },
+                              {
+                                value: "price",
+                                label: t("marketplace.features.listingEvidencePolicy.ui.selector.price"),
+                              },
+                              {
+                                value: "seller-reviews",
+                                label: t("marketplace.features.listingEvidencePolicy.ui.selector.seller.reviews"),
+                              },
+                              {
+                                value: "seller-badge",
+                                label: t("marketplace.features.listingEvidencePolicy.ui.selector.seller.badge"),
+                              },
+                              {
+                                value: "seller-risk",
+                                label: t("marketplace.features.listingEvidencePolicy.ui.selector.seller.risk"),
+                              },
+                            ]}
                           />
-                          <TextInput
-                            label={t("marketplace.features.listingEvidencePolicy.ui.explanation.code")}
-                            value={rule.explanationCode}
-                            onChange={(event) => updateRule(rule.key, { explanationCode: event.target.value })}
-                            required
+                          {rule.selectorKind === "price" ? (
+                            <Stack gap={2}>
+                              <CurrencyInput
+                                currencyCode="USD"
+                                label={t("marketplace.features.listingEvidencePolicy.ui.minimum.price")}
+                                value={rule.minimumPrice}
+                                onValueChange={(value) => updateRule(rule.key, { minimumPrice: value ?? "" })}
+                              />
+                              <CurrencyInput
+                                currencyCode="USD"
+                                label={t("marketplace.features.listingEvidencePolicy.ui.maximum.price")}
+                                value={rule.maximumPrice}
+                                onValueChange={(value) => updateRule(rule.key, { maximumPrice: value ?? "" })}
+                              />
+                            </Stack>
+                          ) : selectorOptions.length > 0 ? (
+                            <NativeSelect
+                              label={t("marketplace.features.listingEvidencePolicy.ui.selector.value")}
+                              value={rule.selectorValue}
+                              onChange={(event) => updateRule(rule.key, { selectorValue: event.target.value })}
+                              items={selectorOptions}
+                              placeholder={t("marketplace.features.listingEvidencePolicy.ui.selector.choose")}
+                            />
+                          ) : ["seller-reviews", "seller-badge"].includes(rule.selectorKind) ? (
+                            <TextInput
+                              label={t("marketplace.features.listingEvidencePolicy.ui.selector.value")}
+                              value={rule.selectorValue}
+                              onChange={(event) => updateRule(rule.key, { selectorValue: event.target.value })}
+                            />
+                          ) : null}
+                        </Grid>
+                      </Fieldset>
+                      <Fieldset legend={t("marketplace.features.listingEvidencePolicy.ui.requirements.title")}>
+                        <Grid columns={3} gap={3}>
+                          <NumberField
+                            label={t("marketplace.features.listingEvidencePolicy.ui.minimum.photos")}
+                            value={rule.minimumPhotoCount}
+                            onValueChange={(value) => updateRule(rule.key, { minimumPhotoCount: value ?? 0 })}
+                            min={0}
+                            max={100}
+                          />
+                          <NativeSelect
+                            label={t("marketplace.features.listingEvidencePolicy.ui.view.set")}
+                            value={rule.viewSet}
+                            onChange={(event) => updateRule(rule.key, { viewSet: event.target.value })}
+                            items={[
+                              { value: "none", label: t("marketplace.features.listingEvidencePolicy.ui.view.none") },
+                              {
+                                value: "condition",
+                                label: t("marketplace.features.listingEvidencePolicy.ui.view.condition"),
+                              },
+                              {
+                                value: "slab-front-back",
+                                label: t("marketplace.features.listingEvidencePolicy.ui.view.slab.front.back"),
+                              },
+                            ]}
                           />
                           <NumberField
-                            label={t("marketplace.features.listingEvidencePolicy.ui.priority")}
-                            value={rule.priority}
-                            onValueChange={(value) => updateRule(rule.key, { priority: value ?? 0 })}
+                            label={t("marketplace.features.listingEvidencePolicy.ui.minimum.trust.reviews")}
+                            value={rule.minimumTrustReviews}
+                            onValueChange={(value) => updateRule(rule.key, { minimumTrustReviews: value ?? 0 })}
                             min={0}
                           />
-                        </Grid>
-                        <Fieldset
-                          legend={t("marketplace.features.listingEvidencePolicy.ui.selector.title")}
-                          description={t("marketplace.features.listingEvidencePolicy.ui.selector.description")}
-                        >
-                          <Grid columns={2} gap={3}>
-                            <NativeSelect
-                              label={t("marketplace.features.listingEvidencePolicy.ui.selector.kind")}
-                              value={rule.selectorKind}
-                              onChange={(event) =>
-                                updateRule(rule.key, { selectorKind: event.target.value, selectorValue: "" })
-                              }
-                              items={[
-                                {
-                                  value: "all",
-                                  label: t("marketplace.features.listingEvidencePolicy.ui.selector.all"),
-                                },
-                                {
-                                  value: "catalog-item",
-                                  label: t("marketplace.features.listingEvidencePolicy.ui.selector.catalog.item"),
-                                },
-                                {
-                                  value: "product",
-                                  label: t("marketplace.features.listingEvidencePolicy.ui.selector.product"),
-                                },
-                                {
-                                  value: "blueprint",
-                                  label: t("marketplace.features.listingEvidencePolicy.ui.selector.blueprint"),
-                                },
-                                {
-                                  value: "category",
-                                  label: t("marketplace.features.listingEvidencePolicy.ui.selector.category"),
-                                },
-                                {
-                                  value: "option",
-                                  label: t("marketplace.features.listingEvidencePolicy.ui.selector.option"),
-                                },
-                                {
-                                  value: "graded-item",
-                                  label: t("marketplace.features.listingEvidencePolicy.ui.selector.graded"),
-                                },
-                                {
-                                  value: "price",
-                                  label: t("marketplace.features.listingEvidencePolicy.ui.selector.price"),
-                                },
-                                {
-                                  value: "seller-reviews",
-                                  label: t("marketplace.features.listingEvidencePolicy.ui.selector.seller.reviews"),
-                                },
-                                {
-                                  value: "seller-badge",
-                                  label: t("marketplace.features.listingEvidencePolicy.ui.selector.seller.badge"),
-                                },
-                                {
-                                  value: "seller-risk",
-                                  label: t("marketplace.features.listingEvidencePolicy.ui.selector.seller.risk"),
-                                },
-                              ]}
-                            />
-                            {rule.selectorKind === "price" ? (
-                              <Stack gap={2}>
-                                <CurrencyInput
-                                  currencyCode="USD"
-                                  label={t("marketplace.features.listingEvidencePolicy.ui.minimum.price")}
-                                  value={rule.minimumPrice}
-                                  onValueChange={(value) => updateRule(rule.key, { minimumPrice: value ?? "" })}
-                                />
-                                <CurrencyInput
-                                  currencyCode="USD"
-                                  label={t("marketplace.features.listingEvidencePolicy.ui.maximum.price")}
-                                  value={rule.maximumPrice}
-                                  onValueChange={(value) => updateRule(rule.key, { maximumPrice: value ?? "" })}
-                                />
-                              </Stack>
-                            ) : selectorOptions.length > 0 ? (
-                              <NativeSelect
-                                label={t("marketplace.features.listingEvidencePolicy.ui.selector.value")}
-                                value={rule.selectorValue}
-                                onChange={(event) => updateRule(rule.key, { selectorValue: event.target.value })}
-                                items={selectorOptions}
-                                placeholder={t("marketplace.features.listingEvidencePolicy.ui.selector.choose")}
-                              />
-                            ) : ["seller-reviews", "seller-badge"].includes(rule.selectorKind) ? (
-                              <TextInput
-                                label={t("marketplace.features.listingEvidencePolicy.ui.selector.value")}
-                                value={rule.selectorValue}
-                                onChange={(event) => updateRule(rule.key, { selectorValue: event.target.value })}
-                              />
-                            ) : null}
-                          </Grid>
-                        </Fieldset>
-                        <Fieldset legend={t("marketplace.features.listingEvidencePolicy.ui.requirements.title")}>
-                          <Grid columns={3} gap={3}>
-                            <NumberField
-                              label={t("marketplace.features.listingEvidencePolicy.ui.minimum.photos")}
-                              value={rule.minimumPhotoCount}
-                              onValueChange={(value) => updateRule(rule.key, { minimumPhotoCount: value ?? 0 })}
-                              min={0}
-                              max={100}
-                            />
-                            <NativeSelect
-                              label={t("marketplace.features.listingEvidencePolicy.ui.view.set")}
-                              value={rule.viewSet}
-                              onChange={(event) => updateRule(rule.key, { viewSet: event.target.value })}
-                              items={[
-                                { value: "none", label: t("marketplace.features.listingEvidencePolicy.ui.view.none") },
-                                {
-                                  value: "condition",
-                                  label: t("marketplace.features.listingEvidencePolicy.ui.view.condition"),
-                                },
-                                {
-                                  value: "slab-front-back",
-                                  label: t("marketplace.features.listingEvidencePolicy.ui.view.slab.front.back"),
-                                },
-                              ]}
-                            />
-                            <NumberField
-                              label={t("marketplace.features.listingEvidencePolicy.ui.minimum.trust.reviews")}
-                              value={rule.minimumTrustReviews}
-                              onValueChange={(value) => updateRule(rule.key, { minimumTrustReviews: value ?? 0 })}
-                              min={0}
-                            />
-                            <NumberField
-                              label={t("marketplace.features.listingEvidencePolicy.ui.minimum.width")}
-                              value={rule.minimumWidthPixels}
-                              onValueChange={(value) => updateRule(rule.key, { minimumWidthPixels: value })}
-                              min={1}
-                            />
-                            <NumberField
-                              label={t("marketplace.features.listingEvidencePolicy.ui.minimum.height")}
-                              value={rule.minimumHeightPixels}
-                              onValueChange={(value) => updateRule(rule.key, { minimumHeightPixels: value })}
-                              min={1}
-                            />
-                            <NumberField
-                              label={t("marketplace.features.listingEvidencePolicy.ui.maximum.age")}
-                              value={rule.maximumAgeHours}
-                              onValueChange={(value) => updateRule(rule.key, { maximumAgeHours: value })}
-                              min={1}
-                            />
-                            <TextInput
-                              label={t("marketplace.features.listingEvidencePolicy.ui.accepted.badge")}
-                              value={rule.acceptedBadgeKey}
-                              onChange={(event) => updateRule(rule.key, { acceptedBadgeKey: event.target.value })}
-                            />
-                            <Checkbox
-                              label={t("marketplace.features.listingEvidencePolicy.ui.buyer.acknowledgment")}
-                              checked={rule.buyerAcknowledgment}
-                              onCheckedChange={(checked) =>
-                                updateRule(rule.key, { buyerAcknowledgment: checked === true })
-                              }
-                            />
-                          </Grid>
-                        </Fieldset>
-                        {rules.length > 1 ? (
-                          <Button
-                            type="button"
-                            tone="danger"
-                            onClick={() =>
-                              setRules((current) => current.filter((candidate) => candidate.key !== rule.key))
+                          <NumberField
+                            label={t("marketplace.features.listingEvidencePolicy.ui.minimum.width")}
+                            value={rule.minimumWidthPixels}
+                            onValueChange={(value) => updateRule(rule.key, { minimumWidthPixels: value })}
+                            min={1}
+                          />
+                          <NumberField
+                            label={t("marketplace.features.listingEvidencePolicy.ui.minimum.height")}
+                            value={rule.minimumHeightPixels}
+                            onValueChange={(value) => updateRule(rule.key, { minimumHeightPixels: value })}
+                            min={1}
+                          />
+                          <NumberField
+                            label={t("marketplace.features.listingEvidencePolicy.ui.maximum.age")}
+                            value={rule.maximumAgeHours}
+                            onValueChange={(value) => updateRule(rule.key, { maximumAgeHours: value })}
+                            min={1}
+                          />
+                          <TextInput
+                            label={t("marketplace.features.listingEvidencePolicy.ui.accepted.badge")}
+                            value={rule.acceptedBadgeKey}
+                            onChange={(event) => updateRule(rule.key, { acceptedBadgeKey: event.target.value })}
+                          />
+                          <Checkbox
+                            label={t("marketplace.features.listingEvidencePolicy.ui.buyer.acknowledgment")}
+                            checked={rule.buyerAcknowledgment}
+                            onCheckedChange={(checked) =>
+                              updateRule(rule.key, { buyerAcknowledgment: checked === true })
                             }
-                          >
-                            {t("marketplace.features.listingEvidencePolicy.ui.remove.rule")}
-                          </Button>
-                        ) : null}
-                      </Stack>
-                    </Card.Body>
-                  </Card>
+                          />
+                        </Grid>
+                      </Fieldset>
+                      {rules.length > 1 ? (
+                        <Button
+                          type="button"
+                          tone="danger"
+                          onClick={() =>
+                            setRules((current) => current.filter((candidate) => candidate.key !== rule.key))
+                          }
+                        >
+                          {t("marketplace.features.listingEvidencePolicy.ui.remove.rule")}
+                        </Button>
+                      ) : null}
+                    </Stack>
+                  </Inset>
                 );
               })}
             </Stack>
