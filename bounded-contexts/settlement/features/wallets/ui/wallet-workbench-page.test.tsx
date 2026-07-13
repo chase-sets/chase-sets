@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import type { SettlementWalletRow } from "../read-model/queries";
 import type { SettlementWalletAdjustmentRow } from "../read-model/wallet-adjustment-queries";
-import { SettlementWalletWorkbenchPage } from "./wallet-workbench-page";
+import { SettlementWalletWorkbenchPage, type SettlementWalletWorkbenchPageProps } from "./wallet-workbench-page";
 
 function wallet(overrides: Partial<SettlementWalletRow> = {}): SettlementWalletRow {
   return {
@@ -65,145 +66,124 @@ function adjustment(overrides: Partial<SettlementWalletAdjustmentRow> = {}): Set
 const baseAdjustmentsFilters = { limit: 20, offset: 0 };
 const baseLedgerFilters = { limit: 20, offset: 0 };
 
-describe("SettlementWalletWorkbenchPage", () => {
-  it("renders a permission-denied state without leaking wallet data", () => {
-    const html = renderToStaticMarkup(
-      <SettlementWalletWorkbenchPage
-        accountId="acc_test"
-        status="permission-denied"
-        adjustments={{ items: [], total: 0 }}
-        adjustmentsFilters={baseAdjustmentsFilters}
-        ledger={{ items: [], total: 0 }}
-        ledgerFilters={baseLedgerFilters}
-        actorPermissions={[]}
-      />,
-    );
+function renderWorkbench(props: Partial<SettlementWalletWorkbenchPageProps> = {}) {
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/commerce/wallet-workbench/:accountId",
+        element: (
+          <SettlementWalletWorkbenchPage
+            accountId="acc_test"
+            status="ok"
+            adjustments={{ items: [], total: 0 }}
+            adjustmentsFilters={baseAdjustmentsFilters}
+            ledger={{ items: [], total: 0 }}
+            ledgerFilters={baseLedgerFilters}
+            actorPermissions={[]}
+            currentActorUserId="usr_actor"
+            {...props}
+          />
+        ),
+        action: async () => null,
+      },
+    ],
+    { initialEntries: ["/commerce/wallet-workbench/acc_test"] },
+  );
 
-    expect(html).toContain("permission");
-    expect(html).not.toContain("Available");
+  render(<RouterProvider router={router} />);
+}
+
+describe("SettlementWalletWorkbenchPage", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("renders a permission-denied state without leaking wallet data", () => {
+    renderWorkbench({ status: "permission-denied" });
+
+    expect(screen.getAllByText(/permission/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Available")).toBeNull();
   });
 
   it("renders a not-found state for an unopened wallet", () => {
-    const html = renderToStaticMarkup(
-      <SettlementWalletWorkbenchPage
-        accountId="acc_missing"
-        status="not-found"
-        adjustments={{ items: [], total: 0 }}
-        adjustmentsFilters={baseAdjustmentsFilters}
-        ledger={{ items: [], total: 0 }}
-        ledgerFilters={baseLedgerFilters}
-        actorPermissions={[]}
-      />,
-    );
+    renderWorkbench({ accountId: "acc_missing", status: "not-found" });
 
-    expect(html).toContain("not found");
-    expect(html).toContain("acc_missing");
+    expect(screen.getByText(/not found/i)).toBeTruthy();
+    expect(screen.getByText(/acc_missing/)).toBeTruthy();
   });
 
   it("renders an unavailable state on upstream failure", () => {
-    const html = renderToStaticMarkup(
-      <SettlementWalletWorkbenchPage
-        accountId="acc_test"
-        status="unavailable"
-        adjustments={{ items: [], total: 0 }}
-        adjustmentsFilters={baseAdjustmentsFilters}
-        ledger={{ items: [], total: 0 }}
-        ledgerFilters={baseLedgerFilters}
-        actorPermissions={[]}
-      />,
-    );
+    renderWorkbench({ status: "unavailable" });
 
-    expect(html).toContain("unavailable");
+    expect(screen.getByText(/unavailable/i)).toBeTruthy();
   });
 
   it("renders an empty wallet with zero balances and empty tables", () => {
-    const html = renderToStaticMarkup(
-      <SettlementWalletWorkbenchPage
-        accountId="acc_test"
-        status="ok"
-        wallet={wallet()}
-        adjustments={{ items: [], total: 0 }}
-        adjustmentsFilters={baseAdjustmentsFilters}
-        ledger={{ items: [], total: 0 }}
-        ledgerFilters={baseLedgerFilters}
-        actorPermissions={["wallet-adjustments.view"]}
-      />,
-    );
+    renderWorkbench({ wallet: wallet(), actorPermissions: ["wallet-adjustments.view"] });
 
-    expect(html).toContain("$0.00");
-    expect(html).toContain("No adjustments");
-    expect(html).toContain("No ledger");
+    expect(screen.getAllByText("$0.00").length).toBeGreaterThan(0);
+    expect(screen.getByText(/No adjustments/)).toBeTruthy();
+    expect(screen.getByText(/No ledger/)).toBeTruthy();
   });
 
   it("surfaces negative-balance and collections consequences without implying promotional credit", () => {
-    const html = renderToStaticMarkup(
-      <SettlementWalletWorkbenchPage
-        accountId="acc_test"
-        status="ok"
-        wallet={wallet({ negative_balance_status: "collections", available_balance_amount: "-42.00" })}
-        adjustments={{ items: [], total: 0 }}
-        adjustmentsFilters={baseAdjustmentsFilters}
-        ledger={{ items: [], total: 0 }}
-        ledgerFilters={baseLedgerFilters}
-        actorPermissions={["wallet-adjustments.view"]}
-      />,
-    );
+    renderWorkbench({
+      wallet: wallet({ negative_balance_status: "collections", available_balance_amount: "-42.00" }),
+      actorPermissions: ["wallet-adjustments.view"],
+    });
 
-    expect(html).toContain("Collections");
-    expect(html).toContain("restricted");
-    expect(html).not.toContain("bonus");
-    expect(html).not.toContain("free credit");
+    expect(screen.getAllByText("Collections").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/restricted/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/bonus/i)).toBeNull();
+    expect(screen.queryByText(/free credit/i)).toBeNull();
   });
 
   it("renders approve/reject entry points only for a pending adjustment and matching permission", () => {
-    const pending = adjustment({ status: "requested" });
+    const pending = adjustment({ requested_by: "usr_someone_else" });
 
-    const withPermission = renderToStaticMarkup(
-      <SettlementWalletWorkbenchPage
-        accountId="acc_test"
-        status="ok"
-        wallet={wallet()}
-        adjustments={{ items: [pending], total: 1 }}
-        adjustmentsFilters={baseAdjustmentsFilters}
-        ledger={{ items: [], total: 0 }}
-        ledgerFilters={baseLedgerFilters}
-        actorPermissions={["wallet-adjustments.view", "wallet-adjustments.approve"]}
-      />,
-    );
-    expect(withPermission).toContain("Approve");
-    expect(withPermission).toContain("Reject");
+    renderWorkbench({
+      wallet: wallet(),
+      adjustments: { items: [pending], total: 1 },
+      actorPermissions: ["wallet-adjustments.view", "wallet-adjustments.approve"],
+    });
+    expect(screen.getAllByRole("button", { name: "Approve" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Reject" }).length).toBeGreaterThan(0);
+    cleanup();
 
-    const withoutPermission = renderToStaticMarkup(
-      <SettlementWalletWorkbenchPage
-        accountId="acc_test"
-        status="ok"
-        wallet={wallet()}
-        adjustments={{ items: [pending], total: 1 }}
-        adjustmentsFilters={baseAdjustmentsFilters}
-        ledger={{ items: [], total: 0 }}
-        ledgerFilters={baseLedgerFilters}
-        actorPermissions={["wallet-adjustments.view"]}
-      />,
-    );
-    expect(withoutPermission).not.toContain(">Approve<");
-    expect(withoutPermission).not.toContain(">Reject<");
+    renderWorkbench({
+      wallet: wallet(),
+      adjustments: { items: [pending], total: 1 },
+      actorPermissions: ["wallet-adjustments.view"],
+    });
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reject" })).toBeNull();
+  });
+
+  it("blocks the requester from approving their own pending request in the UI", () => {
+    const pending = adjustment({ requested_by: "usr_actor" });
+
+    renderWorkbench({
+      wallet: wallet(),
+      adjustments: { items: [pending], total: 1 },
+      actorPermissions: ["wallet-adjustments.view", "wallet-adjustments.approve"],
+    });
+
+    expect(screen.getAllByText("You requested this adjustment").length).toBeGreaterThan(0);
+    for (const button of screen.getAllByRole("button", { name: "Approve" })) {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    }
   });
 
   it("does not render the create-adjustment form without the create permission", () => {
-    const html = renderToStaticMarkup(
-      <SettlementWalletWorkbenchPage
-        accountId="acc_test"
-        status="ok"
-        wallet={wallet()}
-        adjustments={{ items: [], total: 0 }}
-        adjustmentsFilters={baseAdjustmentsFilters}
-        ledger={{ items: [], total: 0 }}
-        ledgerFilters={baseLedgerFilters}
-        actorPermissions={["wallet-adjustments.view"]}
-      />,
-    );
+    renderWorkbench({ wallet: wallet(), actorPermissions: ["wallet-adjustments.view"] });
 
-    expect(html).not.toContain("request-adjustment");
+    expect(screen.queryByRole("button", { name: "Request preview" })).toBeNull();
+  });
+
+  it("renders the guided create form with the request-preview entry point when the operator can create", () => {
+    renderWorkbench({ wallet: wallet(), actorPermissions: ["wallet-adjustments.view", "wallet-adjustments.create"] });
+
+    expect(screen.getByRole("button", { name: "Request preview" })).toBeTruthy();
   });
 
   it("renders a posted adjustment and its reversal linkage for a reversed pair", () => {
@@ -221,60 +201,125 @@ describe("SettlementWalletWorkbenchPage", () => {
       posted_at: "2026-06-02T00:00:00.000Z",
     });
 
-    const html = renderToStaticMarkup(
-      <SettlementWalletWorkbenchPage
-        accountId="acc_test"
-        status="ok"
-        wallet={wallet()}
-        adjustments={{ items: [posted, reversal], total: 2 }}
-        adjustmentsFilters={baseAdjustmentsFilters}
-        ledger={{ items: [], total: 0 }}
-        ledgerFilters={baseLedgerFilters}
-        actorPermissions={["wallet-adjustments.view", "wallet-adjustments.reverse"]}
-      />,
-    );
+    renderWorkbench({
+      wallet: wallet(),
+      adjustments: { items: [posted, reversal], total: 2 },
+      actorPermissions: ["wallet-adjustments.view", "wallet-adjustments.reverse"],
+    });
 
-    expect(html).toContain("wad_reversal");
-    expect(html).toContain("wad_original");
-    expect(html).toContain("Reversed");
+    expect(screen.getAllByText("wad_reversal").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("wad_original").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Reversed").length).toBeGreaterThan(0);
+  });
+
+  it("renders a reverse entry point for a posted adjustment with the reverse permission", () => {
+    const posted = adjustment({ status: "posted", posted_at: "2026-06-01T00:00:00.000Z" });
+
+    renderWorkbench({
+      wallet: wallet(),
+      adjustments: { items: [posted], total: 1 },
+      actorPermissions: ["wallet-adjustments.view", "wallet-adjustments.reverse"],
+    });
+
+    expect(screen.getAllByRole("button", { name: "Reverse" }).length).toBeGreaterThan(0);
   });
 
   it("shows a stale-projection recovery notice when a just-submitted adjustment has not converged into the list yet", () => {
     const freshSnapshot = adjustment({ adjustment_id: "wad_fresh", status: "requested" });
 
-    const html = renderToStaticMarkup(
-      <SettlementWalletWorkbenchPage
-        accountId="acc_test"
-        status="ok"
-        wallet={wallet()}
-        adjustments={{ items: [], total: 0 }}
-        adjustmentsFilters={baseAdjustmentsFilters}
-        ledger={{ items: [], total: 0 }}
-        ledgerFilters={baseLedgerFilters}
-        actorPermissions={["wallet-adjustments.view", "wallet-adjustments.create"]}
-        lastAction={{ intent: "request-adjustment", snapshot: freshSnapshot }}
-      />,
-    );
+    renderWorkbench({
+      wallet: wallet(),
+      actorPermissions: ["wallet-adjustments.view", "wallet-adjustments.create"],
+      lastAction: { intent: "request-adjustment", snapshot: freshSnapshot },
+    });
 
-    expect(html).toContain("wad_fresh");
-    expect(html).toContain("catching up");
+    expect(screen.getAllByText("wad_fresh").length).toBeGreaterThan(0);
+    expect(screen.getByText(/catching up/i)).toBeTruthy();
   });
 
-  it("surfaces an action error banner without discarding the loaded data", () => {
-    const html = renderToStaticMarkup(
-      <SettlementWalletWorkbenchPage
-        accountId="acc_test"
-        status="ok"
-        wallet={wallet()}
-        adjustments={{ items: [], total: 0 }}
-        adjustmentsFilters={baseAdjustmentsFilters}
-        ledger={{ items: [], total: 0 }}
-        ledgerFilters={baseLedgerFilters}
-        actorPermissions={["wallet-adjustments.view"]}
-        lastAction={{ intent: "approve-adjustment", errorMessage: "Wallet balance changed since preview." }}
-      />,
-    );
+  it("renders the balance-impact preview once the operator requests one", () => {
+    renderWorkbench({
+      wallet: wallet({ available_balance_amount: "100.00" }),
+      actorPermissions: ["wallet-adjustments.view", "wallet-adjustments.create"],
+      lastAction: {
+        intent: "preview-adjustment",
+        values: {
+          direction: "credit",
+          amount: "25.00",
+          reasonCode: "goodwill-cash-credit",
+          explanation: "",
+          evidenceReferences: [],
+        },
+        preview: {
+          target_account_id: "acc_test",
+          direction: "credit",
+          amount: "25.00",
+          currency_code: "usd",
+          reason_code: "goodwill-cash-credit",
+          balance_revision: "wbr_1",
+          available_balance_before: "100.00",
+          available_balance_after: "125.00",
+          pending_balance_amount: "0.00",
+          cash_equivalent: true,
+          spendable: true,
+          payoutable: true,
+          negative_balance_status: "in-good-standing",
+          creates_or_increases_negative_balance: false,
+          high_value: false,
+          self_benefiting: false,
+          blocked_reason: null,
+          requires_second_approval: false,
+          elevation_reasons: [],
+          controls: {
+            high_value_credit_threshold_amount: "500.00",
+            high_value_debit_threshold_amount: "500.00",
+            recent_auth_max_age_minutes: 15,
+          },
+        },
+      },
+    });
 
-    expect(html).toContain("Wallet balance changed since preview.");
+    expect(screen.getByText("$125.00")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Confirm & submit" })).toBeTruthy();
+  });
+
+  it("reveals the elevated-approver field when approval requires a second, elevated approval", () => {
+    const pending = adjustment({ adjustment_id: "wad_elevated", requested_by: "usr_someone_else" });
+
+    renderWorkbench({
+      wallet: wallet(),
+      adjustments: { items: [pending], total: 1 },
+      actorPermissions: ["wallet-adjustments.view", "wallet-adjustments.approve"],
+      lastAction: {
+        intent: "approve-adjustment",
+        adjustmentId: "wad_elevated",
+        error: {
+          kind: "requires-elevated-approval",
+          message: "This Wallet Adjustment requires a second, elevated approval.",
+          fieldErrors: [],
+        },
+      },
+    });
+
+    expect(screen.getAllByText("Second approval required").length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText("Elevated approver user id").length).toBeGreaterThan(0);
+  });
+
+  it("surfaces a classified action-conflict error without discarding the loaded data", () => {
+    const pending = adjustment({ requested_by: "usr_someone_else" });
+
+    renderWorkbench({
+      wallet: wallet(),
+      adjustments: { items: [pending], total: 1 },
+      actorPermissions: ["wallet-adjustments.view", "wallet-adjustments.approve"],
+      lastAction: {
+        intent: "approve-adjustment",
+        adjustmentId: pending.adjustment_id,
+        error: { kind: "conflict", message: "Wallet balance changed since preview.", fieldErrors: [] },
+      },
+    });
+
+    expect(screen.getAllByText("Wallet balance changed since preview.").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Approve" }).length).toBeGreaterThan(0);
   });
 });

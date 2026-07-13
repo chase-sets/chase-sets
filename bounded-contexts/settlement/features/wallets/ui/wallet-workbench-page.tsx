@@ -1,31 +1,30 @@
 import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import {
   Badge,
-  Button,
   Card,
   DataTable,
   EmptyState,
-  Form,
   Grid,
-  HiddenInput,
   Inline,
   LinkButton,
-  NativeSelect,
   Page,
   PageHeader,
   PageSection,
   Stack,
   Text,
-  Textarea,
-  TextInput,
   Banner,
-  CurrencyInput,
   type DataColumn,
   type Tone,
 } from "@chase-sets/design-system";
-import { WALLET_ADJUSTMENT_REASON_CODES, type WalletAdjustmentReasonCode } from "../domain/wallet-adjustment";
+import type { WalletAdjustmentReasonCode } from "../domain/wallet-adjustment";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../read-model/queries";
 import type { SettlementWalletAdjustmentRow } from "../read-model/wallet-adjustment-queries";
+import type { SettlementWalletAdjustmentPreview } from "../../../client";
+import type { WalletAdjustmentFlowError } from "../../../support/request-support/wallet-adjustment-flow-error";
+import type { WalletAdjustmentGuidedFlowValues } from "../../../support/request-support/wallet-adjustment-guided-flow-form-data";
+import { WalletAdjustmentGuidedFlowForm } from "./wallet-adjustment-guided-flow";
+import { WalletAdjustmentApprovalActions } from "./wallet-adjustment-approval-actions";
+import { WalletAdjustmentReversalActions } from "./wallet-adjustment-reversal-actions";
 
 export const WALLET_ADJUSTMENT_PERMISSIONS = {
   view: "wallet-adjustments.view",
@@ -49,9 +48,12 @@ export type WalletWorkbenchLedgerFilters = Readonly<{
 
 export type WalletWorkbenchLastAction = Readonly<{
   intent: string;
+  adjustmentId?: string | null;
   snapshot?: SettlementWalletAdjustmentRow | null;
   reversal?: SettlementWalletAdjustmentRow | null;
-  errorMessage?: string | null;
+  preview?: SettlementWalletAdjustmentPreview | null;
+  values?: WalletAdjustmentGuidedFlowValues | null;
+  error?: WalletAdjustmentFlowError | null;
 }>;
 
 export interface SettlementWalletWorkbenchPageProps {
@@ -64,6 +66,7 @@ export interface SettlementWalletWorkbenchPageProps {
   ledger: { items: readonly SettlementLedgerEntryRow[]; total: number };
   ledgerFilters: WalletWorkbenchLedgerFilters;
   actorPermissions: readonly string[];
+  currentActorUserId?: string;
   lastAction?: WalletWorkbenchLastAction | null;
   marketplaceOrigin?: string | null;
 }
@@ -152,11 +155,6 @@ function reasonCodeLabel(code: WalletAdjustmentReasonCode | string) {
   }
 }
 
-const reasonCodeSelectItems = WALLET_ADJUSTMENT_REASON_CODES.map((code) => ({
-  value: code,
-  label: reasonCodeLabel(code),
-}));
-
 function payoutDetailHref(payoutId: string, marketplaceOrigin?: string | null) {
   if (!marketplaceOrigin) {
     return null;
@@ -230,141 +228,78 @@ function AccountBalanceSummary({ wallet }: { wallet: SettlementWalletRow }) {
   );
 }
 
-function CreateAdjustmentForm() {
+function CreateAdjustmentForm({
+  accountId,
+  accountLabel,
+  currencyCode,
+  lastAction,
+}: {
+  accountId: string;
+  accountLabel: string;
+  currencyCode: string;
+  lastAction?: WalletWorkbenchLastAction | null;
+}) {
+  const preview = lastAction?.intent === "preview-adjustment" ? (lastAction.preview ?? null) : null;
+  const flowError =
+    lastAction?.intent === "preview-adjustment" || lastAction?.intent === "request-adjustment"
+      ? (lastAction.error ?? null)
+      : null;
+
   return (
     <PageSection title={t("settlement.features.wallets.ui.walletWorkbenchPage.request.adjustment")}>
-      <Card>
-        <Form spacing="md" method="post">
-          <Stack gap={3}>
-            <HiddenInput type="hidden" name="intent" value="request-adjustment" readOnly />
-            <Grid columns={{ base: 1, md: 2 }} gap={3}>
-              <NativeSelect
-                name="direction"
-                label={t("settlement.features.wallets.ui.walletWorkbenchPage.direction")}
-                defaultValue="credit"
-                items={[
-                  { value: "credit", label: t("settlement.features.wallets.ui.walletWorkbenchPage.credit") },
-                  { value: "debit", label: t("settlement.features.wallets.ui.walletWorkbenchPage.debit") },
-                ]}
-                required
-              />
-              <CurrencyInput
-                name="amount"
-                label={t("settlement.features.wallets.ui.walletWorkbenchPage.amount")}
-                currencyCode="USD"
-                min="0.01"
-                required
-              />
-              <NativeSelect
-                name="reasonCode"
-                label={t("settlement.features.wallets.ui.walletWorkbenchPage.reason")}
-                items={[...reasonCodeSelectItems]}
-                required
-              />
-              <TextInput
-                name="evidenceReferences"
-                label={t("settlement.features.wallets.ui.walletWorkbenchPage.evidence.references")}
-                description={t("settlement.features.wallets.ui.walletWorkbenchPage.evidence.references.description")}
-              />
-            </Grid>
-            <Textarea
-              name="explanation"
-              label={t("settlement.features.wallets.ui.walletWorkbenchPage.explanation")}
-              description={t("settlement.features.wallets.ui.walletWorkbenchPage.explanation.description")}
-            />
-            <Inline>
-              <Button type="submit">{t("settlement.features.wallets.ui.walletWorkbenchPage.submit.request")}</Button>
-            </Inline>
-          </Stack>
-        </Form>
-      </Card>
+      <WalletAdjustmentGuidedFlowForm
+        targetAccountId={accountId}
+        targetAccountLabel={accountLabel}
+        currencyCode={currencyCode}
+        preview={preview}
+        flowError={flowError}
+        {...(lastAction?.values ? { defaultValues: lastAction.values } : {})}
+      />
     </PageSection>
-  );
-}
-
-function ApproveRejectForms({ adjustment }: { adjustment: SettlementWalletAdjustmentRow }) {
-  return (
-    <Stack gap={2}>
-      <Form spacing="none" method="post">
-        <Stack direction="row" align="end" gap={2}>
-          <HiddenInput type="hidden" name="intent" value="approve-adjustment" readOnly />
-          <HiddenInput type="hidden" name="adjustmentId" value={adjustment.adjustment_id} readOnly />
-          {adjustment.elevation_required ? (
-            <TextInput
-              name="elevationApprovedByUserId"
-              label={t("settlement.features.wallets.ui.walletWorkbenchPage.elevation.approver")}
-              required
-            />
-          ) : null}
-          <Button type="submit" tone="primary" size="sm">
-            {t("settlement.features.wallets.ui.walletWorkbenchPage.approve")}
-          </Button>
-        </Stack>
-      </Form>
-      <Form spacing="none" method="post">
-        <Stack direction="row" align="end" gap={2}>
-          <HiddenInput type="hidden" name="intent" value="reject-adjustment" readOnly />
-          <HiddenInput type="hidden" name="adjustmentId" value={adjustment.adjustment_id} readOnly />
-          <TextInput
-            name="rejectionReason"
-            label={t("settlement.features.wallets.ui.walletWorkbenchPage.rejection.reason")}
-          />
-          <Button type="submit" tone="danger" size="sm">
-            {t("settlement.features.wallets.ui.walletWorkbenchPage.reject")}
-          </Button>
-        </Stack>
-      </Form>
-    </Stack>
-  );
-}
-
-function ReverseForm({ adjustment }: { adjustment: SettlementWalletAdjustmentRow }) {
-  return (
-    <Form spacing="none" method="post">
-      <Stack gap={2}>
-        <HiddenInput type="hidden" name="intent" value="reverse-adjustment" readOnly />
-        <HiddenInput type="hidden" name="adjustmentId" value={adjustment.adjustment_id} readOnly />
-        <Inline gap={2}>
-          <TextInput
-            name="approvedByUserId"
-            label={t("settlement.features.wallets.ui.walletWorkbenchPage.reverse.approver")}
-            required
-          />
-          <TextInput
-            name="elevationApprovedByUserId"
-            label={t("settlement.features.wallets.ui.walletWorkbenchPage.elevation.approver")}
-            required
-          />
-        </Inline>
-        <TextInput
-          name="explanation"
-          label={t("settlement.features.wallets.ui.walletWorkbenchPage.reverse.explanation")}
-        />
-        <Inline>
-          <Button type="submit" tone="danger" size="sm">
-            {t("settlement.features.wallets.ui.walletWorkbenchPage.reverse")}
-          </Button>
-        </Inline>
-      </Stack>
-    </Form>
   );
 }
 
 function AdjustmentActionsCell({
   adjustment,
+  accountLabel,
   actorPermissions,
+  currentActorUserId,
+  lastAction,
 }: {
   adjustment: SettlementWalletAdjustmentRow;
+  accountLabel: string;
   actorPermissions: readonly string[];
+  currentActorUserId: string;
+  lastAction?: WalletWorkbenchLastAction | null;
 }) {
   const canApprove = hasPermission(actorPermissions, WALLET_ADJUSTMENT_PERMISSIONS.approve);
   const canReverse = hasPermission(actorPermissions, WALLET_ADJUSTMENT_PERMISSIONS.reverse);
+  const scopedError =
+    (lastAction?.intent === "approve-adjustment" ||
+      lastAction?.intent === "reject-adjustment" ||
+      lastAction?.intent === "reverse-adjustment") &&
+    lastAction.adjustmentId === adjustment.adjustment_id
+      ? (lastAction.error ?? null)
+      : null;
 
   if (adjustment.status === "requested" && canApprove) {
-    return <ApproveRejectForms adjustment={adjustment} />;
+    return (
+      <WalletAdjustmentApprovalActions
+        adjustment={adjustment}
+        targetAccountLabel={accountLabel}
+        currentActorUserId={currentActorUserId}
+        flowError={scopedError}
+      />
+    );
   }
   if (adjustment.status === "posted" && canReverse) {
-    return <ReverseForm adjustment={adjustment} />;
+    return (
+      <WalletAdjustmentReversalActions
+        adjustment={adjustment}
+        targetAccountLabel={accountLabel}
+        flowError={scopedError}
+      />
+    );
   }
   return null;
 }
@@ -380,15 +315,19 @@ function adjustmentStatusFilterLabel(value: (typeof adjustmentStatusFilterValues
 
 function AdjustmentHistorySection({
   accountId,
+  accountLabel,
   adjustments,
   filters,
   actorPermissions,
+  currentActorUserId,
   lastAction,
 }: {
   accountId: string;
+  accountLabel: string;
   adjustments: { items: readonly SettlementWalletAdjustmentRow[]; total: number };
   filters: WalletWorkbenchAdjustmentsFilters;
   actorPermissions: readonly string[];
+  currentActorUserId: string;
   lastAction?: WalletWorkbenchLastAction | null;
 }) {
   const currentStatus = filters.status ?? "all";
@@ -504,7 +443,15 @@ function AdjustmentHistorySection({
     {
       key: "actions",
       header: t("settlement.features.wallets.ui.walletWorkbenchPage.actions"),
-      cell: (row) => <AdjustmentActionsCell adjustment={row} actorPermissions={actorPermissions} />,
+      cell: (row) => (
+        <AdjustmentActionsCell
+          adjustment={row}
+          accountLabel={accountLabel}
+          actorPermissions={actorPermissions}
+          currentActorUserId={currentActorUserId}
+          lastAction={lastAction}
+        />
+      ),
     },
   ];
 
@@ -517,13 +464,6 @@ function AdjustmentHistorySection({
           tone="info"
           title={t("settlement.features.wallets.ui.walletWorkbenchPage.projection.catching.up.title")}
           description={t("settlement.features.wallets.ui.walletWorkbenchPage.projection.catching.up.description")}
-        />
-      ) : null}
-      {lastAction?.errorMessage ? (
-        <Banner
-          tone="danger"
-          title={t("settlement.features.wallets.ui.walletWorkbenchPage.action.failed.title")}
-          description={lastAction.errorMessage}
         />
       ) : null}
       <Inline gap={2}>
@@ -733,6 +673,8 @@ export function SettlementWalletWorkbenchPage(props: SettlementWalletWorkbenchPa
 
   const wallet = props.wallet ?? null;
   const canCreate = hasPermission(actorPermissions, WALLET_ADJUSTMENT_PERMISSIONS.create);
+  const resolvedAccountLabel = accountLabel || accountId;
+  const currentActorUserId = props.currentActorUserId ?? "";
 
   return (
     <Page>
@@ -746,12 +688,21 @@ export function SettlementWalletWorkbenchPage(props: SettlementWalletWorkbenchPa
         description={t("settlement.features.wallets.ui.walletWorkbenchPage.account.id.reference", { accountId })}
       />
       {wallet ? <AccountBalanceSummary wallet={wallet} /> : null}
-      {canCreate ? <CreateAdjustmentForm /> : null}
+      {canCreate && wallet ? (
+        <CreateAdjustmentForm
+          accountId={accountId}
+          accountLabel={resolvedAccountLabel}
+          currencyCode={wallet.currency_code}
+          lastAction={props.lastAction}
+        />
+      ) : null}
       <AdjustmentHistorySection
         accountId={accountId}
+        accountLabel={resolvedAccountLabel}
         adjustments={props.adjustments}
         filters={props.adjustmentsFilters}
         actorPermissions={actorPermissions}
+        currentActorUserId={currentActorUserId}
         lastAction={props.lastAction}
       />
       <LedgerSection

@@ -5,9 +5,12 @@ import {
   createSettlementRequestApiClient,
   SettlementApiError,
   type SettlementLedgerEntryRow,
+  type SettlementWalletAdjustmentPreview,
   type SettlementWalletAdjustmentRow,
   type SettlementWalletRow,
 } from "../../support/request-support/api-client";
+import { describeWalletAdjustmentFlowError } from "../../support/request-support/wallet-adjustment-flow-error";
+import { readWalletAdjustmentGuidedFlowValues } from "../../support/request-support/wallet-adjustment-guided-flow-form-data";
 import {
   SettlementWalletWorkbenchPage,
   type WalletWorkbenchLastAction,
@@ -147,11 +150,9 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<L
   }
 }
 
-function parseEvidenceReferences(raw: string): readonly string[] {
-  return raw
-    .split(/[,\n]/)
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
+function optionalText(value: FormDataEntryValue | null): string | null {
+  const text = String(value ?? "").trim();
+  return text.length > 0 ? text : null;
 }
 
 export async function action({ request, params }: ActionFunctionArgs): Promise<WalletWorkbenchLastAction | null> {
@@ -160,84 +161,136 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<W
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
 
-  try {
-    if (intent === "request-adjustment") {
-      const explanation = String(formData.get("explanation") ?? "").trim();
-      const evidenceReferences = parseEvidenceReferences(String(formData.get("evidenceReferences") ?? ""));
+  if (intent === "preview-adjustment") {
+    const values = readWalletAdjustmentGuidedFlowValues(formData);
+    try {
+      const preview: SettlementWalletAdjustmentPreview = await settlementApi.previewWalletAdjustment({
+        targetAccountId: accountId,
+        direction: values.direction,
+        amount: values.amount,
+        reasonCode: values.reasonCode,
+      });
+      return { intent, values, preview };
+    } catch (error) {
+      return {
+        intent,
+        values,
+        error: describeWalletAdjustmentFlowError(
+          error,
+          t("settlement.features.wallets.ui.walletWorkbenchPage.preview.could.not.be.generated"),
+        ),
+      };
+    }
+  }
+
+  if (intent === "request-adjustment") {
+    const values = readWalletAdjustmentGuidedFlowValues(formData);
+    const expectedBalanceRevision = optionalText(formData.get("expectedBalanceRevision"));
+    try {
       const snapshot = await settlementApi.requestWalletAdjustment({
         targetAccountId: accountId,
-        direction: String(formData.get("direction") ?? "credit") === "debit" ? "debit" : "credit",
-        amount: String(formData.get("amount") ?? ""),
-        reasonCode: String(formData.get("reasonCode") ?? ""),
-        explanation: explanation || null,
-        evidenceReferences,
+        direction: values.direction,
+        amount: values.amount,
+        reasonCode: values.reasonCode,
+        explanation: optionalText(formData.get("explanation")),
+        evidenceReferences: values.evidenceReferences,
+        ...(expectedBalanceRevision ? { expectedBalanceRevision } : {}),
       });
       return { intent, snapshot };
+    } catch (error) {
+      return {
+        intent,
+        values,
+        error: describeWalletAdjustmentFlowError(
+          error,
+          t("settlement.features.wallets.ui.walletWorkbenchPage.adjustment.could.not.be.submitted"),
+        ),
+      };
     }
+  }
 
-    if (intent === "approve-adjustment") {
-      const adjustmentId = String(formData.get("adjustmentId") ?? "");
-      const elevationApprovedByUserId = String(formData.get("elevationApprovedByUserId") ?? "").trim();
+  if (intent === "approve-adjustment") {
+    const adjustmentId = String(formData.get("adjustmentId") ?? "");
+    const elevationApprovedByUserId = optionalText(formData.get("elevationApprovedByUserId"));
+    try {
       const snapshot = await settlementApi.approveWalletAdjustment(
         adjustmentId,
         elevationApprovedByUserId ? { elevationApprovedByUserId } : {},
       );
-      return { intent, snapshot };
-    }
-
-    if (intent === "reject-adjustment") {
-      const adjustmentId = String(formData.get("adjustmentId") ?? "");
-      const rejectionReason = String(formData.get("rejectionReason") ?? "").trim();
-      const snapshot = await settlementApi.rejectWalletAdjustment(
+      return { intent, adjustmentId, snapshot };
+    } catch (error) {
+      return {
+        intent,
         adjustmentId,
-        rejectionReason ? { rejectionReason } : {},
-      );
-      return { intent, snapshot };
+        error: describeWalletAdjustmentFlowError(
+          error,
+          t("settlement.features.wallets.ui.walletWorkbenchPage.approval.could.not.be.completed"),
+        ),
+      };
     }
-
-    if (intent === "reverse-adjustment") {
-      const adjustmentId = String(formData.get("adjustmentId") ?? "");
-      const approvedByUserId = String(formData.get("approvedByUserId") ?? "").trim();
-      const elevationApprovedByUserId = String(formData.get("elevationApprovedByUserId") ?? "").trim();
-      const explanation = String(formData.get("explanation") ?? "").trim();
-      const result = await settlementApi.reverseWalletAdjustment(adjustmentId, {
-        approvedByUserId,
-        elevationApprovedByUserId,
-        ...(explanation ? { explanation } : {}),
-      });
-      return { intent, snapshot: result.original, reversal: result.reversal };
-    }
-
-    return null;
-  } catch (error) {
-    if (error instanceof SettlementApiError) {
-      const body = error.body as { error?: string } | undefined;
-      return { intent, errorMessage: body?.error ?? error.message };
-    }
-    return {
-      intent,
-      errorMessage: t("settlement.routes.admin.walletWorkbench.action.failed"),
-    };
   }
+
+  if (intent === "reject-adjustment") {
+    const adjustmentId = String(formData.get("adjustmentId") ?? "");
+    try {
+      const snapshot = await settlementApi.rejectWalletAdjustment(adjustmentId, {
+        rejectionReason: optionalText(formData.get("rejectionReason")),
+      });
+      return { intent, adjustmentId, snapshot };
+    } catch (error) {
+      return {
+        intent,
+        adjustmentId,
+        error: describeWalletAdjustmentFlowError(
+          error,
+          t("settlement.features.wallets.ui.walletWorkbenchPage.rejection.could.not.be.completed"),
+        ),
+      };
+    }
+  }
+
+  if (intent === "reverse-adjustment") {
+    const adjustmentId = String(formData.get("adjustmentId") ?? "");
+    try {
+      const result = await settlementApi.reverseWalletAdjustment(adjustmentId, {
+        approvedByUserId: String(formData.get("approvedByUserId") ?? ""),
+        elevationApprovedByUserId: String(formData.get("elevationApprovedByUserId") ?? ""),
+        explanation: optionalText(formData.get("explanation")),
+      });
+      return { intent, adjustmentId, snapshot: result.original, reversal: result.reversal };
+    } catch (error) {
+      return {
+        intent,
+        adjustmentId,
+        error: describeWalletAdjustmentFlowError(
+          error,
+          t("settlement.features.wallets.ui.walletWorkbenchPage.reversal.could.not.be.completed"),
+        ),
+      };
+    }
+  }
+
+  return null;
 }
 
 export const meta: MetaFunction = () => [
   { title: t("settlement.routes.admin.walletWorkbench.wallet.workbench.settlement.admin") },
 ];
 
-function useAdminActorPermissions(): readonly string[] {
+function useAdminActor(): Readonly<{ permissions: readonly string[]; userId: string }> {
   for (const match of useMatches()) {
     if (match.data && typeof match.data === "object" && "actor" in match.data) {
-      const actor = (match.data as { actor?: { permissions?: readonly string[] } }).actor;
-      return actor?.permissions ?? [];
+      const actor = (match.data as { actor?: { permissions?: readonly string[]; userId?: string } }).actor;
+      return { permissions: actor?.permissions ?? [], userId: actor?.userId ?? "" };
     }
   }
-  return [];
+  return { permissions: [], userId: "" };
 }
 
 export default function AdminWalletWorkbenchRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData() as WalletWorkbenchLastAction | null;
+  const actor = useAdminActor();
 
   return (
     <SettlementWalletWorkbenchPage
@@ -249,7 +302,8 @@ export default function AdminWalletWorkbenchRoute() {
       adjustmentsFilters={data.adjustmentsFilters}
       ledger={data.ledger}
       ledgerFilters={data.ledgerFilters}
-      actorPermissions={useAdminActorPermissions()}
+      actorPermissions={actor.permissions}
+      currentActorUserId={actor.userId}
       lastAction={actionData}
       marketplaceOrigin={data.marketplaceOrigin}
     />
