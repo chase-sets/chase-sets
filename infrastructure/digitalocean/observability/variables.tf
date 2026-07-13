@@ -83,7 +83,7 @@ variable "ssh_source_addresses" {
 
 variable "volume_size_gib" {
   type        = number
-  default     = 50
+  default     = 100
   description = "Persistent block volume size for Prometheus, Loki, Tempo, Grafana, and Caddy data."
 
   validation {
