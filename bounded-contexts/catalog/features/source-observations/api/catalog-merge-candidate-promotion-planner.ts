@@ -611,13 +611,15 @@ function normalizeCandidate(candidate: CatalogMergeCandidatePromotionCandidate):
 }
 
 function candidateTitle(snapshot: CatalogMergeCandidateReviewSnapshot): string {
-  return stringFact(snapshot.proposedCatalogItemFacts.name) ?? snapshot.identity.printedProductName;
+  return stringFact(snapshot.proposedCatalogItemFacts.name) ?? snapshot.identity.scopeRecordId;
 }
 
 function candidateSubtitle(snapshot: CatalogMergeCandidateReviewSnapshot): string {
-  const parts = [snapshot.identity.setName, snapshot.identity.collectorNumber].flatMap((value) =>
-    value?.trim() ? [value.trim()] : [],
-  );
+  const parts = [
+    stringFact(snapshot.proposedCatalogItemFacts.setName) ??
+      stringFact(snapshot.proposedCatalogItemFacts.expansionName),
+    snapshot.identity.collectorNumber,
+  ].flatMap((value) => (value?.trim() ? [value.trim()] : []));
   return parts.join(" #");
 }
 

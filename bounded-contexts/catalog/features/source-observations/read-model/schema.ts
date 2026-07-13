@@ -60,7 +60,27 @@ ON CONFLICT (provider_key, language_code, product_line_id, series_id, expansion_
   latest_source_updated_at = EXCLUDED.latest_source_updated_at,
   updated_at = EXCLUDED.updated_at;`;
 
-const catalogSourceObservationRequiredSourceProfileColumnsSql = `ALTER TABLE catalog_source_observations
+const catalogSourceObservationRequiredSourceProfileColumnsSql = `DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'catalog_source_observations_source_profile_required'
+      AND conrelid = 'catalog_source_observations'::regclass
+  ) THEN
+    ALTER TABLE catalog_source_observations
+      ADD CONSTRAINT catalog_source_observations_source_profile_required
+      CHECK (
+        source_profile_key IS NOT NULL
+        AND source_profile_version IS NOT NULL
+        AND source_mapping_fingerprint IS NOT NULL
+      ) NOT VALID;
+  END IF;
+END $$;
+
+ALTER TABLE catalog_source_observations
+  VALIDATE CONSTRAINT catalog_source_observations_source_profile_required;
+
+ALTER TABLE catalog_source_observations
   ALTER COLUMN source_profile_key DROP DEFAULT,
   ALTER COLUMN source_profile_key SET NOT NULL,
   ALTER COLUMN source_profile_version DROP DEFAULT,
@@ -85,7 +105,23 @@ const catalogProviderOptionQueryCacheProfileBackfillSql = `UPDATE catalog_provid
       ingestion_unit_key = COALESCE(ingestion_unit_key, '')
   WHERE profile_key IS NULL OR ingestion_unit_key IS NULL;`;
 
-const catalogProviderOptionQueryCacheRequiredProfileColumnsSql = `ALTER TABLE catalog_provider_option_query_cache
+const catalogProviderOptionQueryCacheRequiredProfileColumnsSql = `DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'catalog_provider_option_query_cache_profile_required'
+      AND conrelid = 'catalog_provider_option_query_cache'::regclass
+  ) THEN
+    ALTER TABLE catalog_provider_option_query_cache
+      ADD CONSTRAINT catalog_provider_option_query_cache_profile_required
+      CHECK (profile_key IS NOT NULL AND ingestion_unit_key IS NOT NULL) NOT VALID;
+  END IF;
+END $$;
+
+ALTER TABLE catalog_provider_option_query_cache
+  VALIDATE CONSTRAINT catalog_provider_option_query_cache_profile_required;
+
+ALTER TABLE catalog_provider_option_query_cache
   ALTER COLUMN profile_key SET DEFAULT '',
   ALTER COLUMN profile_key SET NOT NULL,
   ALTER COLUMN ingestion_unit_key SET DEFAULT '',
@@ -104,6 +140,51 @@ const catalogProviderOptionQueryCacheLookupIndexSql = `CREATE INDEX CONCURRENTLY
     language_code,
     parent_value
   );`;
+
+const catalogMergeCandidateScopeIdentityV2WipeSql = `DELETE FROM catalog_merge_candidate_observations;
+DELETE FROM catalog_merge_candidates;
+DELETE FROM event_store_streams
+  WHERE stream_id LIKE 'catalog.merge-candidate-%' ESCAPE '\\';`;
+
+const catalogMergeCandidateScopeIdentityV2RequiredSql = `DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'catalog_merge_candidates_scope_record_required'
+      AND conrelid = 'catalog_merge_candidates'::regclass
+  ) THEN
+    ALTER TABLE catalog_merge_candidates
+      ADD CONSTRAINT catalog_merge_candidates_scope_record_required
+      CHECK (scope_record_id IS NOT NULL) NOT VALID;
+  END IF;
+END $$;
+
+ALTER TABLE catalog_merge_candidates
+  VALIDATE CONSTRAINT catalog_merge_candidates_scope_record_required;
+
+ALTER TABLE catalog_merge_candidates
+  ALTER COLUMN scope_record_id SET NOT NULL;`;
+
+const catalogMergeCandidateScopeIdentityV2ForeignKeySql = `DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'catalog_merge_candidates_scope_record_fk'
+      AND conrelid = 'catalog_merge_candidates'::regclass
+  ) THEN
+    ALTER TABLE catalog_merge_candidates
+      ADD CONSTRAINT catalog_merge_candidates_scope_record_fk
+      FOREIGN KEY (scope_record_id)
+      REFERENCES catalog_scope_records (scope_record_id)
+      NOT VALID;
+  END IF;
+END $$;
+
+ALTER TABLE catalog_merge_candidates
+  VALIDATE CONSTRAINT catalog_merge_candidates_scope_record_fk;`;
+
+const catalogMergeCandidateScopeIdentityV2IndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_merge_candidates_scope_record_idx
+  ON catalog_merge_candidates (scope_record_id, status, updated_at DESC);`;
 
 export const catalogSourceObservationSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_source_observations (
   observation_id text PRIMARY KEY,
@@ -146,16 +227,8 @@ CREATE INDEX IF NOT EXISTS catalog_source_observations_provider_idx
   ON catalog_source_observations (provider_key, language_code);
 CREATE INDEX IF NOT EXISTS catalog_source_observations_status_idx
   ON catalog_source_observations (status);
-CREATE INDEX IF NOT EXISTS catalog_source_observations_sync_run_idx
-  ON catalog_source_observations (sync_run_id, observed_at DESC)
-  WHERE sync_run_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS catalog_source_observations_observed_at_idx
   ON catalog_source_observations (observed_at DESC, observation_id ASC);
-CREATE INDEX IF NOT EXISTS catalog_source_observations_source_profile_idx
-  ON catalog_source_observations (provider_key, source_profile_version);
-CREATE INDEX IF NOT EXISTS catalog_source_observations_promotion_profile_idx
-  ON catalog_source_observations (provider_key, promotion_profile_version)
-  WHERE promotion_profile_version IS NOT NULL;
 CREATE INDEX IF NOT EXISTS catalog_source_observations_name_idx
   ON catalog_source_observations USING gin (
     to_tsvector(
@@ -187,6 +260,7 @@ CREATE TABLE IF NOT EXISTS ${sourceObservationIntegrationScopeSummaryTable} (
 
 CREATE TABLE IF NOT EXISTS catalog_merge_candidates (
   candidate_id text PRIMARY KEY,
+  scope_record_id text NOT NULL,
   identity_fingerprint text NOT NULL,
   sync_run_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb,
   status text NOT NULL,
@@ -207,10 +281,14 @@ CREATE TABLE IF NOT EXISTS catalog_merge_candidates (
   CONSTRAINT catalog_merge_candidates_status_check
     CHECK (status IN ('ready', 'has-conflicts', 'stale', 'deferred', 'rejected', 'promoted')),
   CONSTRAINT catalog_merge_candidates_promotion_intent_check
-    CHECK (promotion_intent IN ('create-catalog-item', 'update-catalog-item', 'link-existing-catalog-item'))
+    CHECK (promotion_intent IN ('create-catalog-item', 'update-catalog-item', 'link-existing-catalog-item')),
+  CONSTRAINT catalog_merge_candidates_scope_record_fk
+    FOREIGN KEY (scope_record_id)
+    REFERENCES catalog_scope_records (scope_record_id)
 );
 
 ALTER TABLE catalog_merge_candidates
+  ADD COLUMN IF NOT EXISTS scope_record_id text NULL,
   ADD COLUMN IF NOT EXISTS identity_fingerprint text NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS sync_run_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'ready',
@@ -298,24 +376,10 @@ ALTER TABLE catalog_merge_candidate_observations
   ALTER COLUMN observed_at DROP DEFAULT,
   ALTER COLUMN added_at DROP DEFAULT;
 
-CREATE INDEX IF NOT EXISTS catalog_merge_candidates_status_idx
-  ON catalog_merge_candidates (status, updated_at DESC);
-CREATE INDEX IF NOT EXISTS catalog_merge_candidates_updated_idx
-  ON catalog_merge_candidates (updated_at DESC, candidate_id ASC);
-CREATE INDEX IF NOT EXISTS catalog_merge_candidates_identity_fingerprint_idx
-  ON catalog_merge_candidates (identity_fingerprint);
 CREATE INDEX IF NOT EXISTS catalog_merge_candidates_sync_run_ids_idx
   ON catalog_merge_candidates USING gin (sync_run_ids_json);
-CREATE INDEX IF NOT EXISTS catalog_merge_candidates_matched_catalog_item_idx
-  ON catalog_merge_candidates (matched_catalog_item_id)
-  WHERE matched_catalog_item_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS catalog_merge_candidate_observations_observation_idx
   ON catalog_merge_candidate_observations (observation_id);
-CREATE INDEX IF NOT EXISTS catalog_merge_candidate_observations_sync_run_idx
-  ON catalog_merge_candidate_observations (sync_run_id, candidate_id)
-  WHERE sync_run_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS catalog_merge_candidate_observations_provider_idx
-  ON catalog_merge_candidate_observations (provider_key, source_profile_version);
 
 CREATE TABLE IF NOT EXISTS catalog_provider_integration_profile_versions (
   provider_key text NOT NULL,
@@ -346,15 +410,8 @@ ALTER TABLE catalog_provider_integration_profile_versions
   ADD COLUMN IF NOT EXISTS migration_evidence_json jsonb NULL,
   ADD COLUMN IF NOT EXISTS authoring_audit_json jsonb NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS catalog_provider_integration_profile_versions_active_idx
-  ON catalog_provider_integration_profile_versions (provider_key, ingestion_unit_key)
-  WHERE active = true AND lifecycle = 'active';
-
 CREATE INDEX IF NOT EXISTS catalog_provider_integration_profile_versions_provider_idx
   ON catalog_provider_integration_profile_versions (provider_key, profile_version DESC);
-
-CREATE INDEX IF NOT EXISTS catalog_provider_integration_profile_versions_unit_idx
-  ON catalog_provider_integration_profile_versions (provider_key, ingestion_unit_key, profile_version DESC);
 
 CREATE TABLE IF NOT EXISTS catalog_provider_profile_version_sections (
   provider_key text NOT NULL,
@@ -447,17 +504,6 @@ ALTER TABLE catalog_provider_option_query_cache
   ALTER COLUMN profile_key SET DEFAULT '',
   ALTER COLUMN ingestion_unit_key SET DEFAULT '';
 
-CREATE INDEX IF NOT EXISTS catalog_provider_option_query_cache_lookup_idx
-  ON catalog_provider_option_query_cache (
-    provider_key,
-    profile_key,
-    profile_version,
-    ingestion_unit_key,
-    query_kind,
-    language_code,
-    parent_value
-  );
-
 CREATE INDEX IF NOT EXISTS catalog_provider_option_query_cache_stale_until_idx
   ON catalog_provider_option_query_cache (stale_until);
 
@@ -496,7 +542,7 @@ export const catalogSourceObservationSchemaMigrations: readonly BcSchemaMigratio
   {
     migrationId: "20260703_catalog_source_observation_required_source_profile_columns",
     description: "Enforce required Source Observation source-profile columns outside boot schema.",
-    statements: [catalogSourceObservationRequiredSourceProfileColumnsSql],
+    statements: ["SET LOCAL lock_timeout = '5s';", catalogSourceObservationRequiredSourceProfileColumnsSql],
   },
   {
     migrationId: "20260703_catalog_source_observation_integration_scope_summaries",
@@ -520,6 +566,7 @@ export const catalogSourceObservationSchemaMigrations: readonly BcSchemaMigratio
     migrationId: "20260703_catalog_provider_profile_active_index_scope",
     description: "Reshape active provider-profile index to include ingestion-unit scope.",
     statements: [
+      "SET LOCAL lock_timeout = '5s';",
       catalogProviderIntegrationProfileVersionsActiveIndexReshapeSql,
       catalogProviderIntegrationProfileVersionsActiveIndexSql,
     ],
@@ -528,10 +575,54 @@ export const catalogSourceObservationSchemaMigrations: readonly BcSchemaMigratio
     migrationId: "20260703_catalog_provider_option_query_cache_profile_lookup",
     description: "Backfill option-query cache profile scope and reshape lookup index.",
     statements: [
+      "SET LOCAL lock_timeout = '5s';",
       catalogProviderOptionQueryCacheProfileBackfillSql,
       catalogProviderOptionQueryCacheRequiredProfileColumnsSql,
       catalogProviderOptionQueryCacheLookupIndexReshapeSql,
       catalogProviderOptionQueryCacheLookupIndexSql,
+    ],
+  },
+  {
+    migrationId: "20260713_catalog_source_observation_compatibility_indexes",
+    description: "Create indexes for compatibility columns outside repeatable boot schema.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_source_observations_sync_run_idx
+  ON catalog_source_observations (sync_run_id, observed_at DESC)
+  WHERE sync_run_id IS NOT NULL;`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_source_observations_source_profile_idx
+  ON catalog_source_observations (provider_key, source_profile_version);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_source_observations_promotion_profile_idx
+  ON catalog_source_observations (provider_key, promotion_profile_version)
+  WHERE promotion_profile_version IS NOT NULL;`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_merge_candidates_status_idx
+  ON catalog_merge_candidates (status, updated_at DESC);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_merge_candidates_updated_idx
+  ON catalog_merge_candidates (updated_at DESC, candidate_id ASC);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_merge_candidates_identity_fingerprint_idx
+  ON catalog_merge_candidates (identity_fingerprint);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_merge_candidates_matched_catalog_item_idx
+  ON catalog_merge_candidates (matched_catalog_item_id)
+  WHERE matched_catalog_item_id IS NOT NULL;`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_merge_candidate_observations_sync_run_idx
+  ON catalog_merge_candidate_observations (sync_run_id, candidate_id)
+  WHERE sync_run_id IS NOT NULL;`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_merge_candidate_observations_provider_idx
+  ON catalog_merge_candidate_observations (provider_key, source_profile_version);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_provider_integration_profile_versions_unit_idx
+  ON catalog_provider_integration_profile_versions (provider_key, ingestion_unit_key, profile_version DESC);`,
+    ],
+  },
+  {
+    migrationId: "20260713_catalog_merge_candidate_scope_identity_v2",
+    description:
+      "Wipe pre-launch Merge Candidate v1 streams and projections, then enforce canonical scope-record identity.",
+    statements: [
+      "SET LOCAL lock_timeout = '5s';",
+      "ALTER TABLE catalog_merge_candidates ADD COLUMN IF NOT EXISTS scope_record_id text NULL;",
+      catalogMergeCandidateScopeIdentityV2WipeSql,
+      catalogMergeCandidateScopeIdentityV2RequiredSql,
+      catalogMergeCandidateScopeIdentityV2ForeignKeySql,
+      catalogMergeCandidateScopeIdentityV2IndexSql,
     ],
   },
 ];

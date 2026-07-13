@@ -1248,6 +1248,8 @@ export function createIntegrationJobClaimHandoffHarness(
     scope?: Record<string, unknown>;
     profileSnapshot?: Record<string, unknown> | null;
     syncRunId?: string | null;
+    acceptedScopeRecordId?: string;
+    acceptedUnitKey?: string;
     renewSucceeds?: boolean;
     tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient;
   } = {},
@@ -1350,6 +1352,34 @@ export function createIntegrationJobClaimHandoffHarness(
 
         if (sql.includes("SELECT pg_notify")) {
           return { rowCount: 1, rows: [] as T[] };
+        }
+
+        if (sql.includes("FROM catalog_provider_scope_mappings")) {
+          const scope = job.payload.scope;
+          const row = input.acceptedScopeRecordId
+            ? {
+                mapping_id: `map_${input.acceptedScopeRecordId}`,
+                scope_record_id: input.acceptedScopeRecordId,
+                provider_key: String(scope.provider ?? ""),
+                unit_key: input.acceptedUnitKey ?? "test-unit",
+                product_line_id: typeof scope.productLineId === "string" ? scope.productLineId : null,
+                series_id: typeof scope.seriesId === "string" ? scope.seriesId : null,
+                set_id: typeof scope.setId === "string" ? scope.setId : null,
+                set_name: typeof scope.setName === "string" ? scope.setName : null,
+                language_coordinates: { languageCode: typeof scope.language === "string" ? scope.language : "en" },
+                confidence: "exact",
+                review_status: "accepted",
+                provenance: {},
+                evidence: {},
+                last_actor: "test",
+                last_reason: "fixture",
+                policy_version: "test",
+                proposed_at: "2026-05-20T00:00:00.000Z",
+                reviewed_at: "2026-05-20T00:00:00.000Z",
+                updated_at: "2026-05-20T00:00:00.000Z",
+              }
+            : null;
+          return { rowCount: row ? 1 : 0, rows: (row ? [row] : []) as T[] };
         }
 
         if (sql.includes("FROM catalog_reference_types")) {

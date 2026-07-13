@@ -34,4 +34,14 @@ describe("catalog authoring schema composition", () => {
       ]),
     );
   });
+
+  it("includes the canonical-scope Merge Candidate wipe-and-rebuild migration", () => {
+    expect(catalogAuthoringSchemaMigrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          migrationId: "20260713_catalog_merge_candidate_scope_identity_v2",
+        }),
+      ]),
+    );
+  });
 });

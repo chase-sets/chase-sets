@@ -22,7 +22,10 @@ describe("catalogSourceObservationSchemaSql", () => {
       expect.arrayContaining([
         expect.objectContaining({
           migrationId: "20260703_catalog_source_observation_required_source_profile_columns",
-          statements: [expect.stringContaining("ALTER COLUMN source_profile_key SET NOT NULL")],
+          statements: [
+            "SET LOCAL lock_timeout = '5s';",
+            expect.stringContaining("ALTER COLUMN source_profile_key SET NOT NULL"),
+          ],
         }),
         expect.objectContaining({
           migrationId: "20260703_catalog_source_observation_integration_scope_summaries",
@@ -56,6 +59,7 @@ describe("catalogSourceObservationSchemaSql", () => {
         expect.objectContaining({
           migrationId: "20260703_catalog_provider_profile_active_index_scope",
           statements: [
+            "SET LOCAL lock_timeout = '5s';",
             expect.stringContaining("DROP COLUMN IF EXISTS compatibility_mode"),
             expect.stringContaining(
               "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS catalog_provider_integration_profile_versions_active_idx",
@@ -65,6 +69,7 @@ describe("catalogSourceObservationSchemaSql", () => {
         expect.objectContaining({
           migrationId: "20260703_catalog_provider_option_query_cache_profile_lookup",
           statements: [
+            "SET LOCAL lock_timeout = '5s';",
             expect.stringContaining("UPDATE catalog_provider_option_query_cache"),
             expect.stringContaining("ALTER COLUMN ingestion_unit_key SET NOT NULL"),
             expect.stringContaining("DROP INDEX IF EXISTS catalog_provider_option_query_cache_lookup_idx"),
@@ -102,6 +107,8 @@ describe("catalogSourceObservationSchemaSql", () => {
 
   it("persists Catalog Merge Candidates with review, provenance, and promotion-planning shape", () => {
     expect(catalogSourceObservationSchemaSql).toContain("CREATE TABLE IF NOT EXISTS catalog_merge_candidates");
+    expect(catalogSourceObservationSchemaSql).toContain("scope_record_id text NOT NULL");
+    expect(catalogSourceObservationSchemaSql).toContain("REFERENCES catalog_scope_records (scope_record_id)");
     expect(catalogSourceObservationSchemaSql).toContain("identity_fingerprint text NOT NULL");
     expect(catalogSourceObservationSchemaSql).toContain("sync_run_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb");
     expect(catalogSourceObservationSchemaSql).toContain("matched_catalog_item_id text NULL");
@@ -123,6 +130,29 @@ describe("catalogSourceObservationSchemaSql", () => {
     );
   });
 
+  it("wipes v1 candidate identity through a pinned migration and rebuilds only from preserved inputs", () => {
+    const migration = catalogSourceObservationSchemaMigrations.find(
+      (candidate) => candidate.migrationId === "20260713_catalog_merge_candidate_scope_identity_v2",
+    );
+
+    expect(migration).toEqual(
+      expect.objectContaining({
+        statements: [
+          "SET LOCAL lock_timeout = '5s';",
+          expect.stringContaining("ADD COLUMN IF NOT EXISTS scope_record_id text NULL"),
+          expect.stringMatching(
+            /DELETE FROM catalog_merge_candidate_observations;[\s\S]*DELETE FROM catalog_merge_candidates;[\s\S]*DELETE FROM event_store_streams/,
+          ),
+          expect.stringContaining("ALTER COLUMN scope_record_id SET NOT NULL"),
+          expect.stringContaining("REFERENCES catalog_scope_records (scope_record_id)"),
+          expect.stringContaining("CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_merge_candidates_scope_record_idx"),
+        ],
+      }),
+    );
+    expect(migration?.statements.join("\n")).not.toContain("catalog_source_observations");
+    expect(migration?.statements.join("\n")).not.toContain("DELETE FROM catalog_provider_scope_mappings");
+  });
+
   it("persists candidate membership without destructive Source Observation ownership", () => {
     expect(catalogSourceObservationSchemaSql).toContain(
       "CREATE TABLE IF NOT EXISTS catalog_merge_candidate_observations",
@@ -132,11 +162,14 @@ describe("catalogSourceObservationSchemaSql", () => {
       "CREATE INDEX IF NOT EXISTS catalog_merge_candidate_observations_observation_idx",
     );
     expect(catalogSourceObservationSchemaSql).toContain("sync_run_id text NULL");
-    expect(catalogSourceObservationSchemaSql).toContain(
-      "CREATE INDEX IF NOT EXISTS catalog_merge_candidate_observations_sync_run_idx",
+    const compatibilityIndexes = catalogSourceObservationSchemaMigrations.find(
+      (migration) => migration.migrationId === "20260713_catalog_source_observation_compatibility_indexes",
     );
-    expect(catalogSourceObservationSchemaSql).toContain(
-      "CREATE INDEX IF NOT EXISTS catalog_source_observations_sync_run_idx",
+    expect(compatibilityIndexes?.statements.join("\n")).toContain(
+      "CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_merge_candidate_observations_sync_run_idx",
+    );
+    expect(compatibilityIndexes?.statements.join("\n")).toContain(
+      "CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_source_observations_sync_run_idx",
     );
     expect(catalogSourceObservationSchemaSql).toContain(
       "CREATE INDEX IF NOT EXISTS catalog_source_observations_observed_at_idx",
@@ -150,7 +183,7 @@ describe("catalogSourceObservationSchemaSql", () => {
     expect(catalogSourceObservationSchemaSql).not.toContain("REFERENCES catalog_source_observations");
   });
 
-  it("evolves Catalog Merge Candidate sync-run columns before indexing them", () => {
+  it("evolves Catalog Merge Candidate columns in boot SQL and indexes compatibility columns through the ledger", () => {
     const candidateAlterPosition = catalogSourceObservationSchemaSql.indexOf("ALTER TABLE catalog_merge_candidates");
     const candidateIndexPosition = catalogSourceObservationSchemaSql.indexOf(
       "CREATE INDEX IF NOT EXISTS catalog_merge_candidates_sync_run_ids_idx",
@@ -158,17 +191,14 @@ describe("catalogSourceObservationSchemaSql", () => {
     const observationAlterPosition = catalogSourceObservationSchemaSql.indexOf(
       "ALTER TABLE catalog_merge_candidate_observations",
     );
-    const observationIndexPosition = catalogSourceObservationSchemaSql.indexOf(
-      "CREATE INDEX IF NOT EXISTS catalog_merge_candidate_observations_sync_run_idx",
-    );
 
     expect(candidateAlterPosition).toBeGreaterThan(0);
     expect(candidateIndexPosition).toBeGreaterThan(candidateAlterPosition);
     expect(observationAlterPosition).toBeGreaterThan(0);
-    expect(observationIndexPosition).toBeGreaterThan(observationAlterPosition);
     expect(catalogSourceObservationSchemaSql).toContain(
       "ADD COLUMN IF NOT EXISTS sync_run_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb",
     );
+    expect(catalogSourceObservationSchemaSql).toContain("ADD COLUMN IF NOT EXISTS scope_record_id text NULL");
     expect(catalogSourceObservationSchemaSql).toContain(
       "ADD COLUMN IF NOT EXISTS matched_product_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb",
     );
@@ -183,22 +213,24 @@ describe("catalogSourceObservationSchemaSql", () => {
     expect(catalogSourceObservationSchemaSql).toContain(
       "ADD COLUMN IF NOT EXISTS source_profile_version text NOT NULL",
     );
-    expect(catalogSourceObservationSchemaSql).toContain(
-      "CREATE INDEX IF NOT EXISTS catalog_merge_candidates_updated_idx",
+    const compatibilityIndexes = catalogSourceObservationSchemaMigrations.find(
+      (migration) => migration.migrationId === "20260713_catalog_source_observation_compatibility_indexes",
     );
-    expect(catalogSourceObservationSchemaSql).toContain(
+    expect(compatibilityIndexes?.statements.join("\n")).toContain(
+      "CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_merge_candidates_updated_idx",
+    );
+    expect(compatibilityIndexes?.statements.join("\n")).toContain(
       "ON catalog_merge_candidates (updated_at DESC, candidate_id ASC)",
     );
   });
 
-  it("adds provider option query cache profile columns before lookup indexing", () => {
+  it("adds provider option query cache profile columns in boot SQL and ledgers lookup indexing", () => {
     const alterPosition = catalogSourceObservationSchemaSql.indexOf("ALTER TABLE catalog_provider_option_query_cache");
-    const indexPosition = catalogSourceObservationSchemaSql.indexOf(
-      "CREATE INDEX IF NOT EXISTS catalog_provider_option_query_cache_lookup_idx",
-    );
 
     expect(alterPosition).toBeGreaterThan(0);
-    expect(indexPosition).toBeGreaterThan(alterPosition);
+    expect(catalogSourceObservationSchemaSql).not.toContain(
+      "CREATE INDEX IF NOT EXISTS catalog_provider_option_query_cache_lookup_idx",
+    );
     expect(catalogSourceObservationSchemaSql).toContain("ADD COLUMN IF NOT EXISTS profile_key text DEFAULT ''");
     expect(catalogSourceObservationSchemaSql).toContain("ADD COLUMN IF NOT EXISTS ingestion_unit_key text DEFAULT ''");
     expect(catalogSourceObservationSchemaSql).not.toContain("ALTER COLUMN profile_key SET NOT NULL");

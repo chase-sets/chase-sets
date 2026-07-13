@@ -23,8 +23,7 @@ describe("Catalog Merge Candidate domain", () => {
         status: "ready",
         snapshot: {
           identity: {
-            productLineName: "Pokemon TCG",
-            printedProductName: "Abra",
+            scopeRecordId: "scope_base_set",
             collectorNumber: "43",
             languageCode: "en",
           },
@@ -350,13 +349,9 @@ describe("Catalog Merge Candidate domain", () => {
     ).toEqual([expect.objectContaining({ observationId: "obs_tcgplayer_base1_43" })]);
   });
 
-  it("updates candidate identity and field choices while preserving provenance", () => {
+  it("updates candidate field choices while preserving canonical identity and provenance", () => {
     const state = createdCandidateState();
     const snapshot = candidateSnapshot({
-      identity: {
-        ...candidateSnapshot().identity,
-        printedProductName: "Abra - corrected",
-      },
       proposedCatalogItemFacts: {
         ...candidateSnapshot().proposedCatalogItemFacts,
         name: "Abra - corrected",
@@ -390,8 +385,8 @@ describe("Catalog Merge Candidate domain", () => {
       data: {
         audit: {
           action: "update",
-          beforeIdentity: { printedProductName: "Abra" },
-          afterIdentity: { printedProductName: "Abra - corrected" },
+          beforeIdentity: { scopeRecordId: "scope_base_set" },
+          afterIdentity: { scopeRecordId: "scope_base_set" },
         },
       },
     });
@@ -462,10 +457,7 @@ function candidateSnapshot(
     identityFingerprint: "sha256:pokemon:en:base1:43:standard",
     syncRunIds: ["job_sync_base1"],
     identity: {
-      tcg: "pokemon",
-      productLineName: "Pokemon TCG",
-      setName: "Base Set",
-      printedProductName: "Abra",
+      scopeRecordId: "scope_base_set",
       collectorNumber: "43",
       languageCode: "en",
       productForm: "single-card",

@@ -90,6 +90,29 @@ export async function listAcceptedProviderScopeMappingsByProviderUnit(
   return result.rows;
 }
 
+export async function listAcceptedProviderScopeMappingsForProviders(
+  db: PgQueryable,
+  providerKeys: readonly string[],
+): Promise<readonly ProviderScopeMappingRow[]> {
+  const normalizedProviderKeys = [...new Set(providerKeys.map((key) => key.trim().toLowerCase()).filter(Boolean))].sort(
+    (left, right) => left.localeCompare(right),
+  );
+  if (normalizedProviderKeys.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<ProviderScopeMappingRow>(
+    `SELECT *
+     FROM catalog_provider_scope_mappings
+     WHERE provider_key = ANY($1::text[])
+       AND review_status IN ('accepted', 'auto-accepted')
+     ORDER BY provider_key ASC, unit_key ASC, scope_record_id ASC`,
+    [normalizedProviderKeys],
+  );
+
+  return result.rows;
+}
+
 /**
  * Every mapping row for one canonical scope record, regardless of review
  * status. The coverage matrix needs the full history (proposed / accepted /

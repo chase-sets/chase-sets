@@ -68,7 +68,12 @@ export interface CatalogMergeCandidateListItem {
   sync_run_ids_json: string[];
   status: CatalogMergeCandidateStatus;
   status_reason: string | null;
-  identity_json: CatalogMergeCandidateIdentity;
+  identity_json: CatalogMergeCandidateIdentity &
+    Readonly<{
+      printedProductName: string;
+      setName: string | null;
+      productLineName: string;
+    }>;
   matched_catalog_item_id: string | null;
   matched_product_ids_json: string[];
   proposed_catalog_item_facts_json: JsonValue;

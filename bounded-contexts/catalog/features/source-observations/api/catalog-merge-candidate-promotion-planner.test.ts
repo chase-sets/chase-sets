@@ -339,10 +339,7 @@ function candidateSnapshot(
     identityFingerprint: "sha256:abc123",
     syncRunIds: ["job_sync_1"],
     identity: {
-      tcg: "pokemon",
-      productLineName: "Pokemon TCG",
-      setName: "Paldea Evolved",
-      printedProductName: "Charizard ex",
+      scopeRecordId: "scope_paldea_evolved",
       collectorNumber: "054/091",
       languageCode: "en",
       productForm: "pokemon-card",

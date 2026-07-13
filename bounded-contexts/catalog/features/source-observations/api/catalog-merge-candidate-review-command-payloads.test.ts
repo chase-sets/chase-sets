@@ -107,6 +107,7 @@ function candidateRow(overrides: Partial<CatalogMergeCandidateListRow> = {}): Ca
     status: "ready",
     status_reason: null,
     identity_json: {
+      scopeRecordId: "scope_pokemon_base_set",
       tcg: "pokemon",
       productLineName: "Pokemon",
       setName: "Base Set",

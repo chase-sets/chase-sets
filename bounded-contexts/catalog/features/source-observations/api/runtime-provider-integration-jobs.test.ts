@@ -3,6 +3,7 @@ import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runt
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import { createCatalogIntegrationRolloutControlPolicy } from "./catalog-integration-rollout-controls";
+import { TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./provider-adapters/tcgplayer";
 import { createSourceObservationRuntime } from "./runtime";
 import {
   context,
@@ -1425,6 +1426,8 @@ describe("source observation runtime: provider integration jobs", () => {
     const harness = createIntegrationJobClaimHandoffHarness({
       scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
       syncRunId: "job_sync_tcgplayer",
+      acceptedScopeRecordId: "scope_prismatic_evolutions",
+      acceptedUnitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       renewSucceeds: true,
       tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
     });
@@ -1455,6 +1458,7 @@ describe("source observation runtime: provider integration jobs", () => {
         expect.objectContaining({
           payload: expect.objectContaining({
             snapshot: expect.objectContaining({
+              identity: expect.objectContaining({ scopeRecordId: "scope_prismatic_evolutions" }),
               syncRunIds: ["job_sync_tcgplayer"],
               membership: expect.arrayContaining([
                 expect.objectContaining({

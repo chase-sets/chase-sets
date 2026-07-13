@@ -193,6 +193,7 @@ For pre-launch data reset/drop runs, also record:
 For the Catalog Scope Registry / Merge Candidate v2 destructive reset (`catalog-scope-merge-candidate-reset.ts`, #3807, required before #3794/#3799 deploy), also record:
 
 - dry-run and before/after counts from `collectCatalogScopeMergeCandidateVerificationReport`, covering Merge Candidates, Merge Candidate observations, `catalog.merge-candidate-*` event streams/events, and unreviewed Provider Scope Mapping proposals;
+- after migration `20260713_catalog_merge_candidate_scope_identity_v2`, the unfiltered `POST /merge-candidates/generate` response's `observationCount`, `matchedObservationCount`, `excludedObservationCount`, and `candidateCount`; every exclusion must carry `unmapped-provider-scope` or `ambiguous-provider-scope` evidence and be routed to Provider Scope Mapping review before it can enter a candidate;
 - non-empty exact targets from `catalogScopeMergeCandidateResetTargetTables`;
 - confirmation that preserved surfaces (`catalog_scope_records`, reviewed Provider Scope Mappings, `catalog_source_observations`, promoted Catalog Items) are row-count identical before and after — `resetCatalogMergeCandidateDerivedState` throws instead of committing if not;
 - `evaluateCatalogScopeMergeCandidateResetEvidence` result;

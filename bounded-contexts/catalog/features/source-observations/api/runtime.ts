@@ -115,8 +115,11 @@ import {
 } from "../read-model/queries";
 import {
   buildCatalogMergeCandidatesFromObservations,
+  type CatalogMergeCandidateMatchBatch,
+  type CatalogMergeCandidateMatchExclusion,
   type CatalogMergeCandidateMatchResult,
 } from "./catalog-merge-candidate-matcher";
+import { listAcceptedProviderScopeMappingsForProviders } from "../../provider-scope-mapping/read-model/queries";
 import {
   planCatalogMergeCandidatePromotionCommands,
   type CatalogMergeCandidatePromotionCommandPlanResult,
@@ -291,6 +294,14 @@ type CatalogProviderIntegrationProfileVersionReader = Pick<
   CatalogProviderIntegrationProfileVersionStore,
   "listProfileVersions" | "getActiveProfileVersion"
 >;
+
+function catalogProviderProfileVersionLookupKey(
+  providerKey: string,
+  profileKey: string,
+  profileVersion: string,
+): string {
+  return `${providerKey.trim().toLowerCase()}\u0000${profileKey.trim().toLowerCase()}\u0000${profileVersion.trim()}`;
+}
 
 const staticCatalogProviderIntegrationProfileVersions: CatalogProviderIntegrationProfileVersionReader = {
   listProfileVersions: async (providerKey?: string | null) => {
@@ -1111,8 +1122,11 @@ export type CatalogMergeCandidateGenerationResult = Readonly<{
   syncRunId: string | null;
   scope: SourceObservationFilterScope;
   observationCount: number;
+  matchedObservationCount: number;
+  excludedObservationCount: number;
   candidateCount: number;
   candidates: readonly CatalogMergeCandidateMatchResult[];
+  exclusions: readonly CatalogMergeCandidateMatchExclusion[];
 }>;
 
 export type CatalogMergeCandidateActionResult = Readonly<{
@@ -1403,19 +1417,51 @@ export function createSourceObservationRuntime(
       syncRunId,
       scope,
       observationCount: observations.length,
-      candidateCount: generated.length,
-      candidates: generated,
+      matchedObservationCount: observations.length - generated.exclusions.length,
+      excludedObservationCount: generated.exclusions.length,
+      candidateCount: generated.candidates.length,
+      candidates: generated.candidates,
+      exclusions: generated.exclusions,
     };
   }
 
   async function persistCatalogMergeCandidatesFromObservations(
     observations: readonly SourceObservationListRow[],
     context: EventStoreContext,
-  ): Promise<readonly CatalogMergeCandidateMatchResult[]> {
+  ): Promise<CatalogMergeCandidateMatchBatch> {
     const addedAt = new Date().toISOString();
-    const generated = buildCatalogMergeCandidatesFromObservations(observations, { addedAt });
+    const providerKeys = [
+      ...new Set(observations.map((observation) => observation.provider_key.trim().toLowerCase())),
+    ].sort();
+    const providerProfileVersions = (
+      await Promise.all(providerKeys.map((providerKey) => profileVersions.listProfileVersions(providerKey)))
+    ).flat();
+    const unitKeyByProfileVersion = new Map(
+      providerProfileVersions.map((version) => [
+        catalogProviderProfileVersionLookupKey(version.providerKey, version.profileKey, version.profileVersion),
+        unitKeyForCatalogProviderProfileVersion(version),
+      ]),
+    );
+    const providerUnitKeyByObservationId = Object.fromEntries(
+      observations.flatMap((observation) => {
+        const unitKey = unitKeyByProfileVersion.get(
+          catalogProviderProfileVersionLookupKey(
+            observation.provider_key,
+            observation.source_profile_key,
+            observation.source_profile_version,
+          ),
+        );
+        return unitKey ? [[observation.observation_id, unitKey]] : [];
+      }),
+    );
+    const acceptedScopeMappings = await listAcceptedProviderScopeMappingsForProviders(deps.db, providerKeys);
+    const generated = buildCatalogMergeCandidatesFromObservations(observations, {
+      addedAt,
+      acceptedScopeMappings,
+      providerUnitKeyByObservationId,
+    });
 
-    for (const candidate of generated) {
+    for (const candidate of generated.candidates) {
       const streamId = catalogMergeCandidateStreamId(candidate.candidateId);
       const existingEvents = await deps.eventStore.readStream({ streamId });
       const now = new Date().toISOString();
