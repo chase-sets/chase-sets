@@ -407,6 +407,9 @@ function buildSellerPayoutComponents(
     seller_item_net_amount: string;
     shipping_allowance_amount: string;
     seller_shipping_payout_amount: string;
+    protection_amount?: string;
+    protection_allowance_amount?: string;
+    protection_overage_amount?: string;
     seller_payout_amount: string;
   }>[],
 ): SellerPayoutComponent[] {
@@ -438,6 +441,18 @@ function buildSellerPayoutComponents(
             allowZero: true,
           },
         ),
+        protectionAmount: normalizeMoneyAmount(order.protection_amount ?? "0.00", {
+          fieldName: "Order protection amount",
+          allowZero: true,
+        }),
+        protectionAllowanceAmount: normalizeMoneyAmount(order.protection_allowance_amount ?? "0.00", {
+          fieldName: "Allowance-funded Order Protection amount",
+          allowZero: true,
+        }),
+        protectionOverageAmount: normalizeMoneyAmount(order.protection_overage_amount ?? "0.00", {
+          fieldName: "Overage-funded Order Protection amount",
+          allowZero: true,
+        }),
         sellerPayoutAmount: normalizeMoneyAmount(order.seller_payout_amount ?? order.seller_net_amount, {
           fieldName: "Seller payout amount",
           allowZero: true,

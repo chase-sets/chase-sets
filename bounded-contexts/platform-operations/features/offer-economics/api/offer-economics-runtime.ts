@@ -51,7 +51,7 @@ export function createOfferEconomicsRuntime(deps: OfferEconomicsRuntimeDeps): Of
       }
 
       const lockedCohort = await crossContext.getLockedFeeListingCohortSummary({ from: params.from, to: params.to });
-      const [lockedGmv, lockedWeeklyGmv, platformGmv, standardSchedule] = await Promise.all([
+      const [lockedGmv, lockedWeeklyGmv, platformGmv, standardSchedule, protectionReserve] = await Promise.all([
         crossContext.getSellerCohortGmvSummary({
           sellerAccountIds: lockedCohort.lockedSellerAccountIds,
           from: params.from,
@@ -64,6 +64,7 @@ export function createOfferEconomicsRuntime(deps: OfferEconomicsRuntimeDeps): Of
         }),
         crossContext.getPlatformGmvSummary({ from: params.from, to: params.to }),
         crossContext.resolveStandardScheduleTerms({ accountType: params.accountType }),
+        crossContext.getProtectionReserveSummary({ from: params.from, to: params.to }),
       ]);
 
       return computeOfferEconomicsSnapshot({
@@ -74,6 +75,7 @@ export function createOfferEconomicsRuntime(deps: OfferEconomicsRuntimeDeps): Of
         lockedWeeklyGmv,
         platformGmvAmount: platformGmv.gmvAmount,
         standardSchedule,
+        protectionReserve,
       });
     },
   };

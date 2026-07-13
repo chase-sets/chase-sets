@@ -16,6 +16,14 @@ export const helpArticles = [
     relatedFlows: [],
     promiseTable: [
       {
+        claim: "Every order includes a 1% Order Protection reserve contribution without a separate buyer fee line.",
+        issues: ["#4098"],
+        tests: [
+          "bounded-contexts/ordering/features/orders/domain/policies.test.ts",
+          "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.test.ts",
+        ],
+      },
+      {
         claim: "Payment risk, disputes, refunds, and evidence follow provider-backed workflows.",
         issues: ["#4352"],
         tests: [
@@ -94,6 +102,16 @@ export const helpArticles = [
           {
             type: "text",
             value:
+              "Every order includes Order Protection. One percent of the item subtotal, rounded up to the nearest cent, is contributed to the protection reserve. The seller-funded shipping allowance covers Order Protection first and shipping second; buyers see only any combined overflow as Shipping, never as a separate protection fee.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
               "Payments run through provider-backed checkout flows with final totals visible before confirmation. Card payments may request risk-based 3DS step-up; liability-shift facts inform payment risk and dispute posture, but they do not override Settlement payout-release rules.",
           },
         ],
@@ -116,7 +134,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "Checkout and order views keep product, seller, item price, shipping, shipping credit, checkout fee, protection, and fulfillment status visible. Seller sale proceeds and shipping allowances stay pending until delivery, risk, support, and aging rules clear.",
+              "Checkout and order views keep product, seller, item price, one Shipping amount, checkout fee, and fulfillment status visible. Order Protection is described as included and is never itemized as a buyer fee. Seller payout detail itemizes the shipping allowance and Order Protection. Seller sale proceeds stay pending until delivery, risk, support, and aging rules clear.",
           },
         ],
       },
@@ -604,6 +622,11 @@ export const helpArticles = [
       },
       {
         level: 2,
+        id: "order-protection-and-shipping",
+        text: "Order Protection and shipping",
+      },
+      {
+        level: 2,
         id: "when-policy-values-change",
         text: "When policy values change",
       },
@@ -743,6 +766,38 @@ export const helpArticles = [
               key: "checkout-processing-fee.platform-credit.fixed",
             },
           ],
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "order-protection-and-shipping",
+        text: "Order Protection and shipping",
+        content: [
+          {
+            type: "text",
+            value: "Order Protection and shipping",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Every order includes Order Protection. Each order contributes 1% of the item subtotal to the protection reserve, rounded up to the nearest cent. The seller-funded shipping allowance funds Order Protection first and shipping second; any remaining combined overflow appears to the buyer only as one Shipping amount. There is never a separate buyer-facing protection fee.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Founders' 0% Marketplace Sales Fee applies only to the sales fee. It does not reduce or remove the 1% Order Protection contribution.",
+          },
         ],
       },
       {

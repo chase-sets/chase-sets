@@ -97,12 +97,13 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
        WHERE account_id = $1`,
       [seedIds.demoAccountId],
     );
-    // Pending balance covers both seeded captured payments: the accepted-offer
-    // order that receives support requests and the review-eligible delivered
-    // order that stays support-free.
+    // Pending balance covers both seeded captured payments after their Order
+    // Protection allowance shares fund the reserve: the accepted-offer order
+    // that receives support requests and the review-eligible delivered order
+    // that stays support-free.
     expect(wallet.rows[0]).toMatchObject({
-      pending_balance_amount: "86.62",
-      available_balance_amount: "26.20",
+      pending_balance_amount: "106.96",
+      available_balance_amount: "36.83",
     });
 
     const payoutStatuses = await pools.settlement.query<{ status: string }>(

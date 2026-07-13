@@ -117,10 +117,40 @@ export function OfferEconomicsAdminPage({ snapshot }: { snapshot: OfferEconomics
       </PageSection>
 
       <PageSection title={t("platformOperations.offerEconomics.protectionReserve")}>
-        <Badge tone="neutral">{t("platformOperations.offerEconomics.protectionReservePending")}</Badge>
-        <Text tone="secondary" size="sm">
-          {snapshot.protectionReserve.reason}
-        </Text>
+        {snapshot.protectionReserve.available ? (
+          <>
+            <Badge tone="success">{t("platformOperations.offerEconomics.protectionReserveAvailable")}</Badge>
+            <StatGrid columns={{ base: 1, md: 3 }}>
+              <Stat
+                label={t("platformOperations.offerEconomics.protectionReserveContribution")}
+                value={money(snapshot.protectionReserve.contributionAmount)}
+              />
+              <Stat
+                label={t("platformOperations.offerEconomics.protectionReserveAllowance")}
+                value={money(snapshot.protectionReserve.allowanceAmount)}
+              />
+              <Stat
+                label={t("platformOperations.offerEconomics.protectionReserveOverage")}
+                value={money(snapshot.protectionReserve.overageAmount)}
+              />
+              <Stat
+                label={t("platformOperations.offerEconomics.protectionReserveReversals")}
+                value={money(snapshot.protectionReserve.reversalAmount)}
+              />
+              <Stat
+                label={t("platformOperations.offerEconomics.protectionReserveCoveredOrders")}
+                value={snapshot.protectionReserve.coveredOrderCount}
+              />
+            </StatGrid>
+          </>
+        ) : (
+          <>
+            <Badge tone="neutral">{t("platformOperations.offerEconomics.protectionReservePending")}</Badge>
+            <Text tone="secondary" size="sm">
+              {snapshot.protectionReserve.reason}
+            </Text>
+          </>
+        )}
       </PageSection>
     </Page>
   );

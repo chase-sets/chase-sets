@@ -162,7 +162,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.destination.required.for.sales.tax":
     "Delivery address is required before shipping, tax, and final totals can be confirmed.",
   "checkout.features.sessions.ui.checkoutPage.eligible.orders.are.protected.through.payment":
-    "Eligible orders are protected through payment and fulfillment.",
+    "Every order includes Order Protection through payment and fulfillment.",
   "checkout.features.sessions.ui.checkoutPage.expedited": "Expedited",
   "checkout.features.sessions.ui.checkoutPage.fast.checkout.ready": "Fast checkout ready",
   "checkout.features.sessions.ui.checkoutPage.fast.checkout.ready.description":
@@ -180,7 +180,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.lines": "Lines",
   "checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee": "Checkout service fee",
   "checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee.description":
-    "Covers secure payment and order protection, and may be reduced by eligible lower-cost payment methods.",
+    "Passes through payment processing costs and may be reduced by eligible lower-cost payment methods.",
   "checkout.features.sessions.ui.checkoutPage.none": "none",
   "checkout.features.sessions.ui.checkoutPage.not.required": "not required",
   "checkout.features.sessions.ui.checkoutPage.order.totals.created": "Order totals created",

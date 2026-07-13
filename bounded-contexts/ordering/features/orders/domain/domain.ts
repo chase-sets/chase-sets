@@ -72,6 +72,9 @@ export type OrderingCommercialTermsSnapshot = Readonly<{
   sellerItemNetAmount?: string;
   shippingAllowanceAmount?: string;
   sellerShippingPayoutAmount?: string;
+  protectionAmount?: string;
+  protectionAllowanceAmount?: string;
+  protectionOverageAmount?: string;
   sellerPayoutAmount?: string;
   shippingAllowancePercentageBps?: number;
   termsScheduleId: string | null;
@@ -120,6 +123,9 @@ export type OrderingOrderState = Readonly<{
   shippingDiscountAmount: string | null;
   shippingAllowanceAmount: string | null;
   shippingOverageAmount: string | null;
+  protectionAmount: string | null;
+  protectionAllowanceAmount: string | null;
+  protectionOverageAmount: string | null;
   shippingChargeAmount: string | null;
   shippingPlanSnapshot: PackagePlan | null;
   salesTaxAmount: string | null;
@@ -152,6 +158,9 @@ export const initialOrderingOrderState: OrderingOrderState = {
   shippingDiscountAmount: null,
   shippingAllowanceAmount: null,
   shippingOverageAmount: null,
+  protectionAmount: null,
+  protectionAllowanceAmount: null,
+  protectionOverageAmount: null,
   shippingChargeAmount: null,
   shippingPlanSnapshot: null,
   salesTaxAmount: null,
@@ -185,6 +194,9 @@ export type CreateOrderCommand = Readonly<{
   shippingDiscountAmount: string;
   shippingAllowanceAmount?: string;
   shippingOverageAmount?: string;
+  protectionAmount?: string;
+  protectionAllowanceAmount?: string;
+  protectionOverageAmount?: string;
   shippingChargeAmount: string;
   shippingPlanSnapshot: PackagePlan;
   salesTaxAmount: string;
@@ -260,6 +272,9 @@ export type OrderCreatedEvent = DomainEvent<
     shippingDiscountAmount: string;
     shippingAllowanceAmount: string;
     shippingOverageAmount: string;
+    protectionAmount: string;
+    protectionAllowanceAmount: string;
+    protectionOverageAmount: string;
     shippingChargeAmount: string;
     shippingPlanSnapshot: PackagePlan;
     salesTaxAmount: string;
@@ -525,6 +540,18 @@ function normalizeCommercialTermsSnapshot(snapshot: OrderingCommercialTermsSnaps
         allowZero: true,
       },
     ),
+    protectionAmount: normalizeMoneyAmount(snapshot.protectionAmount ?? "0.00", {
+      fieldName: "Order protection amount",
+      allowZero: true,
+    }),
+    protectionAllowanceAmount: normalizeMoneyAmount(snapshot.protectionAllowanceAmount ?? "0.00", {
+      fieldName: "Allowance-funded Order Protection amount",
+      allowZero: true,
+    }),
+    protectionOverageAmount: normalizeMoneyAmount(snapshot.protectionOverageAmount ?? "0.00", {
+      fieldName: "Overage-funded Order Protection amount",
+      allowZero: true,
+    }),
     sellerPayoutAmount: normalizeMoneyAmount(snapshot.sellerPayoutAmount ?? snapshot.sellerNetAmount, {
       fieldName: "Seller payout amount",
       allowZero: true,
@@ -632,6 +659,46 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
         "Orders must include a seller account.",
       );
       assertSeparateTransactionAccounts(command.buyerAccountId, normalizedSellerAccountId as AccountId);
+      const protectionAmount = normalizeMoneyAmount(command.protectionAmount ?? "0.00", {
+        fieldName: "Order protection amount",
+        allowZero: true,
+      });
+      const protectionAllowanceAmount = normalizeMoneyAmount(command.protectionAllowanceAmount ?? "0.00", {
+        fieldName: "Allowance-funded Order Protection amount",
+        allowZero: true,
+      });
+      const protectionOverageAmount = normalizeMoneyAmount(command.protectionOverageAmount ?? "0.00", {
+        fieldName: "Overage-funded Order Protection amount",
+        allowZero: true,
+      });
+      assert(
+        moneyToCents(protectionAllowanceAmount) + moneyToCents(protectionOverageAmount) ===
+          moneyToCents(protectionAmount),
+        "Order Protection funding shares must equal the Order Protection amount.",
+      );
+      const shippingOverageAmount = normalizeMoneyAmount(
+        command.shippingOverageAmount ?? command.shippingChargeAmount,
+        {
+          fieldName: "Shipping overage amount",
+          allowZero: true,
+        },
+      );
+      const shippingChargeAmount = normalizeMoneyAmount(command.shippingChargeAmount, {
+        fieldName: "Shipping charge amount",
+        allowZero: true,
+      });
+      assert(
+        moneyToCents(shippingOverageAmount) + moneyToCents(protectionOverageAmount) ===
+          moneyToCents(shippingChargeAmount),
+        "The buyer Shipping amount must equal shipping and Order Protection overflow.",
+      );
+      const commercialTermsSnapshot = normalizeCommercialTermsSnapshot(command.commercialTermsSnapshot);
+      assert(
+        commercialTermsSnapshot.protectionAmount === protectionAmount &&
+          commercialTermsSnapshot.protectionAllowanceAmount === protectionAllowanceAmount &&
+          commercialTermsSnapshot.protectionOverageAmount === protectionOverageAmount,
+        "Order Protection economics must match the immutable commercial terms snapshot.",
+      );
       return [
         {
           type: "ordering.order.created",
@@ -661,14 +728,11 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
                 allowZero: true,
               },
             ),
-            shippingOverageAmount: normalizeMoneyAmount(command.shippingOverageAmount ?? "0.00", {
-              fieldName: "Shipping overage amount",
-              allowZero: true,
-            }),
-            shippingChargeAmount: normalizeMoneyAmount(command.shippingChargeAmount, {
-              fieldName: "Shipping charge amount",
-              allowZero: true,
-            }),
+            shippingOverageAmount,
+            protectionAmount,
+            protectionAllowanceAmount,
+            protectionOverageAmount,
+            shippingChargeAmount,
             shippingPlanSnapshot: command.shippingPlanSnapshot,
             salesTaxAmount: normalizeMoneyAmount(command.salesTaxAmount, {
               fieldName: "Sales tax amount",
@@ -679,7 +743,7 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
               allowZero: true,
             }),
             taxSnapshot: normalizeTaxSnapshot(command.taxSnapshot),
-            commercialTermsSnapshot: normalizeCommercialTermsSnapshot(command.commercialTermsSnapshot),
+            commercialTermsSnapshot,
             authenticityPlanSnapshot: normalizeAuthenticityPlanSnapshot(command.authenticityPlanSnapshot),
             shippingDestinationSnapshot: normalizeAddressSnapshot(
               command.shippingDestinationSnapshot,
@@ -933,6 +997,9 @@ export const evolveOrderingOrder: AggregateEvolver<OrderingOrderState, OrderingO
         shippingDiscountAmount: event.data.shippingDiscountAmount,
         shippingAllowanceAmount: event.data.shippingAllowanceAmount,
         shippingOverageAmount: event.data.shippingOverageAmount,
+        protectionAmount: event.data.protectionAmount ?? "0.00",
+        protectionAllowanceAmount: event.data.protectionAllowanceAmount ?? "0.00",
+        protectionOverageAmount: event.data.protectionOverageAmount ?? "0.00",
         shippingChargeAmount: event.data.shippingChargeAmount,
         shippingPlanSnapshot: event.data.shippingPlanSnapshot,
         salesTaxAmount: event.data.salesTaxAmount,

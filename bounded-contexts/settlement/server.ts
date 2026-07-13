@@ -31,3 +31,7 @@ export type { SettlementPayoutBoundsPolicyValue } from "./features/payouts/domai
  */
 export { lookupPayoutBySupportId, lookupPayoutBySupportReference } from "./features/payouts/read-model/support-lookup";
 export type { SettlementSupportLookupRow } from "./features/payouts/read-model/support-lookup";
+export {
+  getProtectionReserveSummary,
+  type ProtectionReserveSummary,
+} from "./features/wallets/read-model/protection-reserve-summary";

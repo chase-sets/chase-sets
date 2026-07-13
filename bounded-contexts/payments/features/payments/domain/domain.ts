@@ -141,6 +141,9 @@ export type SellerPayoutComponent = Readonly<{
   sellerItemNetAmount: string;
   shippingAllowanceAmount: string;
   sellerShippingPayoutAmount: string;
+  protectionAmount?: string;
+  protectionAllowanceAmount?: string;
+  protectionOverageAmount?: string;
   sellerPayoutAmount: string;
 }>;
 
@@ -486,6 +489,7 @@ export type PaymentRefundedEvent = DomainEvent<
     refundedAmount: string;
     orderRefundAmounts: OrderMoneyAmount[];
     refundedOrderAmounts: OrderMoneyAmount[];
+    orderRefundCaps: OrderMoneyAmount[];
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
     processorPaymentReference: string;
@@ -662,6 +666,18 @@ function normalizeSellerPayoutComponents(components: readonly SellerPayoutCompon
         allowZero: true,
       },
     ),
+    protectionAmount: normalizeMoneyAmount(component.protectionAmount ?? "0.00", {
+      fieldName: "Order protection amount",
+      allowZero: true,
+    }),
+    protectionAllowanceAmount: normalizeMoneyAmount(component.protectionAllowanceAmount ?? "0.00", {
+      fieldName: "Allowance-funded Order Protection amount",
+      allowZero: true,
+    }),
+    protectionOverageAmount: normalizeMoneyAmount(component.protectionOverageAmount ?? "0.00", {
+      fieldName: "Overage-funded Order Protection amount",
+      allowZero: true,
+    }),
     sellerPayoutAmount: normalizeMoneyAmount(component.sellerPayoutAmount, {
       fieldName: "Seller payout amount",
       allowZero: true,
@@ -1112,6 +1128,7 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
             refundedAmount: cumulativeRefundedAmount,
             orderRefundAmounts,
             refundedOrderAmounts,
+            orderRefundCaps: [...state.orderRefundCaps],
             currencyCode: state.currencyCode!,
             processorName: state.processorName!,
             processorPaymentReference: state.processorPaymentReference!,

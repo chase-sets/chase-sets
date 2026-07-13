@@ -38,6 +38,7 @@ import {
 } from "../domain/common";
 import {
   assertSupplyAvailable,
+  calculateOrderFulfillmentEconomics,
   defaultOrderPaymentDeadlinePolicy,
   quoteMarketplaceSalesFeeFromSnapshot,
   resolveOrderPaymentDeadline,
@@ -242,6 +243,9 @@ type SellerOrderDraft = Readonly<{
   shippingAllowanceAmount: string;
   shippingOverageAmount: string;
   sellerShippingPayoutAmount: string;
+  protectionAmount: string;
+  protectionAllowanceAmount: string;
+  protectionOverageAmount: string;
   shippingChargeAmount: string;
   shippingPlanSnapshot: PackagePlan;
   salesTaxAmount: string;
@@ -634,48 +638,6 @@ function planShippingAllowanceBps(lines: SellerOrderDraft["lines"]) {
   return unique.length === 1 ? (unique[0] ?? 500) : Math.min(...values);
 }
 
-function calculateShippingIncentive(
-  params: Readonly<{
-    sourceType: OrderSourceType;
-    itemSubtotalAmount: string;
-    shippingBaseAmount: string;
-    shippingAllowancePercentageBps: number;
-  }>,
-) {
-  const shippingBaseAmount = normalizeMoneyAmount(params.shippingBaseAmount, {
-    fieldName: "Shipping base amount",
-    allowZero: true,
-  });
-  const allowedAmount = applyBasisPointsToMoneyAmount(
-    params.itemSubtotalAmount,
-    params.shippingAllowancePercentageBps,
-    "floor",
-  );
-  const earnedAmount =
-    moneyToCents(shippingBaseAmount) <= moneyToCents(allowedAmount) ? shippingBaseAmount : allowedAmount;
-
-  if (params.sourceType === "offer-acceptance") {
-    return {
-      shippingBaseAmount,
-      shippingDiscountAmount: "0.00",
-      shippingAllowanceAmount: earnedAmount,
-      shippingOverageAmount: subtractNonNegativeMoneyAmounts(shippingBaseAmount, earnedAmount),
-      sellerShippingPayoutAmount: earnedAmount,
-      shippingChargeAmount: earnedAmount,
-    };
-  }
-
-  const shippingChargeAmount = subtractNonNegativeMoneyAmounts(shippingBaseAmount, earnedAmount);
-  return {
-    shippingBaseAmount,
-    shippingDiscountAmount: earnedAmount,
-    shippingAllowanceAmount: earnedAmount,
-    shippingOverageAmount: "0.00",
-    sellerShippingPayoutAmount: shippingChargeAmount,
-    shippingChargeAmount,
-  };
-}
-
 function checkoutReservationKey(input: Pick<CheckoutInventoryReservationInput, "sellerAccountId" | "inventoryItemId">) {
   return `${input.sellerAccountId.trim()}|${input.inventoryItemId.trim()}`;
 }
@@ -896,8 +858,7 @@ function quotePlan(
       listingCount: draft.listingIds.size,
       packagePlan,
     });
-    const shippingEconomics = calculateShippingIncentive({
-      sourceType,
+    const shippingEconomics = calculateOrderFulfillmentEconomics({
       itemSubtotalAmount: draftSubtotalAmount,
       shippingBaseAmount: quote.baseAmount,
       shippingAllowancePercentageBps,
@@ -918,6 +879,9 @@ function quotePlan(
       shippingAllowanceAmount: shippingEconomics.shippingAllowanceAmount,
       shippingOverageAmount: shippingEconomics.shippingOverageAmount,
       sellerShippingPayoutAmount: shippingEconomics.sellerShippingPayoutAmount,
+      protectionAmount: shippingEconomics.protectionAmount,
+      protectionAllowanceAmount: shippingEconomics.protectionAllowanceAmount,
+      protectionOverageAmount: shippingEconomics.protectionOverageAmount,
       shippingChargeAmount: shippingEconomics.shippingChargeAmount,
       shippingPlanSnapshot: quote.packagePlan ?? packagePlan,
       salesTaxAmount: "0.00",
@@ -1421,7 +1385,10 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     for (const [draftIndex, draft] of plan.orderDrafts.entries()) {
       const marketplaceSalesFeeAmount = sumMoneyAmounts(draft.lines.map((line) => line.marketplaceSalesFeeTotalAmount));
       const sellerNetAmount = sumMoneyAmounts(draft.lines.map((line) => line.sellerNetTotalAmount));
-      const sellerPayoutAmount = addMoneyAmounts(sellerNetAmount, draft.sellerShippingPayoutAmount);
+      const sellerPayoutAmount = subtractNonNegativeMoneyAmounts(
+        addMoneyAmounts(sellerNetAmount, draft.sellerShippingPayoutAmount),
+        draft.protectionAllowanceAmount,
+      );
       const shippingAllowancePercentageBps = planShippingAllowanceBps(draft.lines);
       const firstLine = draft.lines[0];
       const termsScheduleId = firstLine ? planTermsForLines(draft.lines, "termsScheduleId") : null;
@@ -1452,6 +1419,9 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           shippingDiscountAmount: draft.shippingDiscountAmount,
           shippingAllowanceAmount: draft.shippingAllowanceAmount,
           shippingOverageAmount: draft.shippingOverageAmount,
+          protectionAmount: draft.protectionAmount,
+          protectionAllowanceAmount: draft.protectionAllowanceAmount,
+          protectionOverageAmount: draft.protectionOverageAmount,
           shippingChargeAmount: draft.shippingChargeAmount,
           shippingPlanSnapshot: draft.shippingPlanSnapshot,
           salesTaxAmount: draft.salesTaxAmount,
@@ -1494,6 +1464,9 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
             sellerItemNetAmount: sellerNetAmount,
             shippingAllowanceAmount: draft.shippingAllowanceAmount,
             sellerShippingPayoutAmount: draft.sellerShippingPayoutAmount,
+            protectionAmount: draft.protectionAmount,
+            protectionAllowanceAmount: draft.protectionAllowanceAmount,
+            protectionOverageAmount: draft.protectionOverageAmount,
             sellerPayoutAmount,
             shippingAllowancePercentageBps,
             termsScheduleId,
@@ -1727,8 +1700,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           packagePlan,
         });
         const shippingAllowancePercentageBps = planShippingAllowanceBps(lines);
-        const shippingEconomics = calculateShippingIncentive({
-          sourceType: "offer-acceptance",
+        const shippingEconomics = calculateOrderFulfillmentEconomics({
           itemSubtotalAmount,
           shippingBaseAmount: quote.baseAmount,
           shippingAllowancePercentageBps,
@@ -1741,6 +1713,9 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           shippingAllowanceAmount: shippingEconomics.shippingAllowanceAmount,
           shippingOverageAmount: shippingEconomics.shippingOverageAmount,
           sellerShippingPayoutAmount: shippingEconomics.sellerShippingPayoutAmount,
+          protectionAmount: shippingEconomics.protectionAmount,
+          protectionAllowanceAmount: shippingEconomics.protectionAllowanceAmount,
+          protectionOverageAmount: shippingEconomics.protectionOverageAmount,
           shippingChargeAmount: shippingEconomics.shippingChargeAmount,
           shippingPlanSnapshot: quote.packagePlan ?? packagePlan,
           salesTaxAmount: "0.00",

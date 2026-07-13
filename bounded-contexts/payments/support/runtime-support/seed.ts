@@ -20,6 +20,9 @@ type OrderRow = Readonly<{
   seller_item_net_amount: string;
   shipping_allowance_amount: string;
   seller_shipping_payout_amount: string;
+  protection_amount: string;
+  protection_allowance_amount: string;
+  protection_overage_amount: string;
   seller_payout_amount: string;
 }>;
 
@@ -52,6 +55,9 @@ async function getSeedOrder(pool: PgTransactionalPool, orderId: string, buyerAcc
        seller_item_net_amount::text AS seller_item_net_amount,
        shipping_allowance_amount::text AS shipping_allowance_amount,
        seller_shipping_payout_amount::text AS seller_shipping_payout_amount,
+       protection_amount::text AS protection_amount,
+       protection_allowance_amount::text AS protection_allowance_amount,
+       protection_overage_amount::text AS protection_overage_amount,
        seller_payout_amount::text AS seller_payout_amount,
        status
      FROM payments_order_inputs
@@ -84,6 +90,9 @@ function requirePendingPaymentOrder(order: OrderRow & Readonly<{ status: string 
     seller_item_net_amount: order.seller_item_net_amount,
     shipping_allowance_amount: order.shipping_allowance_amount,
     seller_shipping_payout_amount: order.seller_shipping_payout_amount,
+    protection_amount: order.protection_amount,
+    protection_allowance_amount: order.protection_allowance_amount,
+    protection_overage_amount: order.protection_overage_amount,
     seller_payout_amount: order.seller_payout_amount,
   };
 }
@@ -106,6 +115,9 @@ async function getSeedOrderForSource(
        seller_item_net_amount::text AS seller_item_net_amount,
        shipping_allowance_amount::text AS shipping_allowance_amount,
        seller_shipping_payout_amount::text AS seller_shipping_payout_amount,
+       protection_amount::text AS protection_amount,
+       protection_allowance_amount::text AS protection_allowance_amount,
+       protection_overage_amount::text AS protection_overage_amount,
        seller_payout_amount::text AS seller_payout_amount,
        status
      FROM payments_order_inputs
@@ -358,6 +370,15 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
               allowZero: true,
             }),
             sellerShippingPayoutAmount: normalizeMoneyAmount(order.seller_shipping_payout_amount, {
+              allowZero: true,
+            }),
+            protectionAmount: normalizeMoneyAmount(order.protection_amount, {
+              allowZero: true,
+            }),
+            protectionAllowanceAmount: normalizeMoneyAmount(order.protection_allowance_amount, {
+              allowZero: true,
+            }),
+            protectionOverageAmount: normalizeMoneyAmount(order.protection_overage_amount, {
               allowZero: true,
             }),
             sellerPayoutAmount: normalizeMoneyAmount(order.seller_payout_amount, {

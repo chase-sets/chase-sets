@@ -32,6 +32,14 @@ export type OfferEconomicsSellerCohortWeeklyGmvPoint = Readonly<{
 
 export type OfferEconomicsPlatformGmvSummary = Readonly<{ gmvAmount: string }>;
 
+export type OfferEconomicsProtectionReserveSummary = Readonly<{
+  contributionAmount: string;
+  allowanceAmount: string;
+  overageAmount: string;
+  reversalAmount: string;
+  coveredOrderCount: number;
+}>;
+
 export type OfferEconomicsStandardScheduleTerms = Readonly<{
   accountType: string;
   marketplaceSalesFeePercentageBps: number;
@@ -52,6 +60,9 @@ export type OfferEconomicsCrossContextPort = Readonly<{
     params: Readonly<{ sellerAccountIds: readonly string[]; from: string; to: string }>,
   ) => Promise<readonly OfferEconomicsSellerCohortWeeklyGmvPoint[]>;
   getPlatformGmvSummary: (params: Readonly<{ from: string; to: string }>) => Promise<OfferEconomicsPlatformGmvSummary>;
+  getProtectionReserveSummary: (
+    params: Readonly<{ from: string; to: string }>,
+  ) => Promise<OfferEconomicsProtectionReserveSummary>;
   resolveStandardScheduleTerms: (
     params?: Readonly<{ accountType?: string; effectiveAt?: string }>,
   ) => Promise<OfferEconomicsStandardScheduleTerms>;

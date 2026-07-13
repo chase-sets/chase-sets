@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS ordering_order_pages (
   shipping_discount_amount numeric(12,2) NOT NULL,
   shipping_allowance_amount numeric(12,2) NOT NULL DEFAULT 0,
   shipping_overage_amount numeric(12,2) NOT NULL DEFAULT 0,
+  protection_amount numeric(12,2) NOT NULL DEFAULT 0,
+  protection_allowance_amount numeric(12,2) NOT NULL DEFAULT 0,
+  protection_overage_amount numeric(12,2) NOT NULL DEFAULT 0,
   shipping_charge_amount numeric(12,2) NOT NULL,
   sales_tax_amount numeric(12,2) NOT NULL DEFAULT 0,
   taxable_amount numeric(12,2) NOT NULL DEFAULT 0,
@@ -71,6 +74,10 @@ ALTER TABLE ordering_order_pages
   ADD COLUMN IF NOT EXISTS shipping_allowance_amount numeric(12,2) NOT NULL DEFAULT 0;
 ALTER TABLE ordering_order_pages
   ADD COLUMN IF NOT EXISTS shipping_overage_amount numeric(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS protection_amount numeric(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS protection_allowance_amount numeric(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS protection_overage_amount numeric(12,2) NOT NULL DEFAULT 0;
 ALTER TABLE ordering_order_pages
   ADD COLUMN IF NOT EXISTS seller_item_net_amount numeric(12,2) NOT NULL DEFAULT 0;
 ALTER TABLE ordering_order_pages
@@ -186,6 +193,16 @@ export const orderingOrderSchemaMigrations: readonly BcSchemaMigration[] = [
       `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ordering_order_pages_display_reference_key
   ON ordering_order_pages (display_reference)
   WHERE display_reference <> ''`,
+    ],
+  },
+  {
+    migrationId: "20260712_ordering_order_protection_economics",
+    description: "Persist Order Protection amount and immutable allowance/overage funding split.",
+    statements: [
+      `ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS protection_amount numeric(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS protection_allowance_amount numeric(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS protection_overage_amount numeric(12,2) NOT NULL DEFAULT 0`,
     ],
   },
   {

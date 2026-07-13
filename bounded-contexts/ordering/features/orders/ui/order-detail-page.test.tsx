@@ -18,6 +18,9 @@ const order = {
   shipping_discount_amount: "0.00",
   shipping_allowance_amount: "4.99",
   shipping_overage_amount: "0.00",
+  protection_amount: "0.20",
+  protection_allowance_amount: "0.20",
+  protection_overage_amount: "0.00",
   shipping_charge_amount: "4.99",
   sales_tax_amount: "1.75",
   taxable_amount: "24.99",
@@ -156,6 +159,8 @@ describe("ordering order detail page", () => {
     expect(markup).not.toContain("Marketplace sales fee");
     expect(markup).not.toContain("Seller item net");
     expect(markup).not.toContain("Seller payout");
+    expect(markup).toContain("Every order includes Order Protection");
+    expect(markup).not.toContain("$0.20");
     expect(markup).not.toContain("$2.00");
     expect(markup).not.toContain("$22.99");
 
@@ -173,6 +178,8 @@ describe("ordering order detail page", () => {
     expect(markup).toContain("Marketplace sales fee");
     expect(markup).toContain("Seller item net");
     expect(markup).toContain("Seller payout");
+    expect(markup).toContain("Order protection");
+    expect(markup).toContain("$0.20");
     expect(markup).toContain("$2.00");
     expect(markup).toContain("$18.00");
     expect(markup).toContain("$22.99");

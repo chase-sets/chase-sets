@@ -41,6 +41,93 @@ function transportEvent(type: string, data: Record<string, unknown>) {
 }
 
 describe("settlement payment source projection", () => {
+  it("records one replay-idempotent protection reserve contribution per captured order", async () => {
+    const { db, queryMock } = createDb();
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db);
+
+    await handlers["payments.payment-captured"]!(
+      transportEvent("payments.payment-captured", {
+        paymentId: "pay_1",
+        buyerAccountId: "acc_buyer",
+        processorStatus: "succeeded",
+        capturedAt: "2026-05-01T00:00:00.000Z",
+        sellerPayouts: [
+          {
+            orderId: "ord_1",
+            sellerAccountId: "acc_seller",
+            sellerItemNetAmount: "47.50",
+            shippingAllowanceAmount: "2.00",
+            sellerShippingPayoutAmount: "2.50",
+            sellerPayoutAmount: "49.50",
+            protectionAmount: "0.50",
+            protectionAllowanceAmount: "0.50",
+            protectionOverageAmount: "0.00",
+          },
+        ],
+      }),
+    );
+
+    expect(queryMock).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO settlement_protection_reserve_facts"), [
+      "protection_contribution_pay_1_ord_1",
+      "ord_1",
+      "pay_1",
+      1,
+      "0.50",
+      "0.50",
+      "0.00",
+      "2026-05-01T00:00:00.000Z",
+    ]);
+  });
+
+  it("reverses the original protection funding split exactly on a full-order refund", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) =>
+        sql.includes("SELECT amount::text AS amount")
+          ? { rows: [{ amount: "52.50", seller_payouts: [] }] }
+          : { rows: [] },
+      ),
+    };
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never);
+
+    await handlers["payments.payment-refunded"]!(
+      transportEvent("payments.payment-refunded", {
+        paymentId: "pay_1",
+        amount: "52.50",
+        refundedAmount: "52.50",
+        currencyCode: "usd",
+        processorStatus: "refunded",
+        refundedAt: "2026-05-01T01:00:00.000Z",
+        orderRefundAmounts: [{ orderId: "ord_1", amount: "52.50" }],
+        refundedOrderAmounts: [{ orderId: "ord_1", amount: "52.50" }],
+        orderRefundCaps: [{ orderId: "ord_1", amount: "52.50" }],
+        sellerPayouts: [
+          {
+            orderId: "ord_1",
+            sellerAccountId: "acc_seller",
+            sellerItemNetAmount: "47.50",
+            shippingAllowanceAmount: "2.00",
+            sellerShippingPayoutAmount: "2.50",
+            sellerPayoutAmount: "49.60",
+            protectionAmount: "0.50",
+            protectionAllowanceAmount: "0.40",
+            protectionOverageAmount: "0.10",
+          },
+        ],
+      }),
+    );
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO settlement_protection_reserve_facts"), [
+      "protection_reversal_pay_1_ord_1_1",
+      "ord_1",
+      "pay_1",
+      1,
+      "0.50",
+      "0.40",
+      "0.10",
+      "2026-05-01T01:00:00.000Z",
+    ]);
+  });
+
   it("records trust-signal eligibility only for fee-bearing external payment orders", async () => {
     const { db, queryMock } = createDb();
     const handlers = buildSettlementPaymentInputProjectionHandlers(db);

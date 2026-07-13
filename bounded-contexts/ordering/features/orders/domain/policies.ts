@@ -123,6 +123,70 @@ export interface ShippingQuotePolicy {
   ): ShippingQuoteResult;
 }
 
+export const ORDER_PROTECTION_PERCENTAGE_BPS = 100;
+
+export type OrderFulfillmentEconomics = Readonly<{
+  shippingBaseAmount: string;
+  shippingDiscountAmount: string;
+  shippingAllowanceAmount: string;
+  shippingOverageAmount: string;
+  sellerShippingPayoutAmount: string;
+  protectionAmount: string;
+  protectionAllowanceAmount: string;
+  protectionOverageAmount: string;
+  shippingChargeAmount: string;
+}>;
+
+/**
+ * Allocates the seller-funded fulfillment allowance to Order Protection first,
+ * then shipping. The buyer sees the two overflow shares combined as Shipping.
+ */
+export function calculateOrderFulfillmentEconomics(
+  params: Readonly<{
+    itemSubtotalAmount: string;
+    shippingBaseAmount: string;
+    shippingAllowancePercentageBps: number;
+  }>,
+): OrderFulfillmentEconomics {
+  const shippingBaseAmount = normalizeMoneyAmount(params.shippingBaseAmount, {
+    fieldName: "Shipping base amount",
+    allowZero: true,
+  });
+  const allowanceLimitAmount = applyBasisPointsToMoneyAmount(
+    params.itemSubtotalAmount,
+    params.shippingAllowancePercentageBps,
+    "floor",
+  );
+  // Ceil preserves the ratified "always collected" invariant for sub-dollar
+  // item subtotals whose exact 1% is less than one cent.
+  const protectionAmount = applyBasisPointsToMoneyAmount(
+    params.itemSubtotalAmount,
+    ORDER_PROTECTION_PERCENTAGE_BPS,
+    "ceil",
+  );
+  const allowanceLimitCents = moneyToCents(allowanceLimitAmount);
+  const protectionCents = moneyToCents(protectionAmount);
+  const shippingBaseCents = moneyToCents(shippingBaseAmount);
+  const protectionAllowanceCents = protectionCents < allowanceLimitCents ? protectionCents : allowanceLimitCents;
+  const remainingAllowanceCents = allowanceLimitCents - protectionAllowanceCents;
+  const shippingAllowanceCents =
+    shippingBaseCents < remainingAllowanceCents ? shippingBaseCents : remainingAllowanceCents;
+  const protectionOverageCents = protectionCents - protectionAllowanceCents;
+  const shippingOverageCents = shippingBaseCents - shippingAllowanceCents;
+
+  return {
+    shippingBaseAmount,
+    shippingDiscountAmount: centsToMoneyAmount(shippingAllowanceCents),
+    shippingAllowanceAmount: centsToMoneyAmount(shippingAllowanceCents),
+    shippingOverageAmount: centsToMoneyAmount(shippingOverageCents),
+    sellerShippingPayoutAmount: centsToMoneyAmount(shippingOverageCents),
+    protectionAmount,
+    protectionAllowanceAmount: centsToMoneyAmount(protectionAllowanceCents),
+    protectionOverageAmount: centsToMoneyAmount(protectionOverageCents),
+    shippingChargeAmount: centsToMoneyAmount(shippingOverageCents + protectionOverageCents),
+  };
+}
+
 export type OrderPaymentMethodCategory = "card" | "bank-account" | "platform-credit";
 
 export type OrderPaymentDeadlinePolicyToken =

@@ -1,5 +1,6 @@
 import type {
   OfferEconomicsLockedFeeCohortSummary,
+  OfferEconomicsProtectionReserveSummary,
   OfferEconomicsSellerCohortGmvSummary,
   OfferEconomicsSellerCohortWeeklyGmvPoint,
   OfferEconomicsStandardScheduleTerms,
@@ -12,14 +13,9 @@ import type {
  * inputs, the same convention as `reconciliation-policy.ts`'s drift
  * computation.
  *
- * Order protection reserve contributions (per the "protection-funding
- * redesign" issue update, 2026-07-03) are declared but never populated with
- * real numbers: no domain event or table anywhere in the codebase currently
- * records a protection-reserve contribution -- the order-protection funding
- * mechanism is still open/unimplemented as of this monitor shipping.
- * `protectionReserve.available` stays `false` until that lands -- the
- * truth-gating principle this monitor exists to enforce cuts both ways: it
- * must not report a fabricated protection number on itself, either.
+ * Settlement supplies replay-safe protection-reserve contribution and
+ * reversal totals through the platform-api host port. Isolated compositions
+ * stay explicitly unavailable instead of fabricating a zero reserve.
  */
 
 export type OfferEconomicsWeeklySellThroughPoint = Readonly<{
@@ -32,10 +28,9 @@ export type OfferEconomicsWeeklySellThroughPoint = Readonly<{
   sellThroughRate: string | null;
 }>;
 
-export type OfferEconomicsProtectionReserveStatus = Readonly<{
-  available: false;
-  reason: string;
-}>;
+export type OfferEconomicsProtectionReserveStatus =
+  | Readonly<{ available: false; reason: string }>
+  | (Readonly<{ available: true }> & OfferEconomicsProtectionReserveSummary);
 
 export type OfferEconomicsSnapshot = Readonly<{
   from: string;
@@ -63,7 +58,7 @@ export type OfferEconomicsSnapshot = Readonly<{
 }>;
 
 export const PROTECTION_RESERVE_PENDING_REASON =
-  "Order protection reserve funding (#4098) is not yet implemented; no contribution data exists to report.";
+  "Settlement protection-reserve contribution data is unavailable in this runtime profile.";
 
 export type OfferEconomicsSnapshotInputs = Readonly<{
   from: string;
@@ -73,6 +68,7 @@ export type OfferEconomicsSnapshotInputs = Readonly<{
   lockedWeeklyGmv: readonly OfferEconomicsSellerCohortWeeklyGmvPoint[];
   platformGmvAmount: string;
   standardSchedule: OfferEconomicsStandardScheduleTerms;
+  protectionReserve?: OfferEconomicsProtectionReserveSummary;
 }>;
 
 function computeWeeklySellThrough(
@@ -131,6 +127,8 @@ export function computeOfferEconomicsSnapshot(inputs: OfferEconomicsSnapshotInpu
     },
     foregoneFeeEstimateAmount,
     weeklySellThrough: computeWeeklySellThrough(inputs.lockedCohort.weeklyListingsCreated, inputs.lockedWeeklyGmv),
-    protectionReserve: { available: false, reason: PROTECTION_RESERVE_PENDING_REASON },
+    protectionReserve: inputs.protectionReserve
+      ? { available: true, ...inputs.protectionReserve }
+      : { available: false, reason: PROTECTION_RESERVE_PENDING_REASON },
   };
 }

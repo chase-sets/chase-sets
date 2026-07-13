@@ -18,6 +18,9 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
         shippingDiscountAmount: string;
         shippingAllowanceAmount?: string;
         shippingOverageAmount?: string;
+        protectionAmount?: string;
+        protectionAllowanceAmount?: string;
+        protectionOverageAmount?: string;
         shippingChargeAmount: string;
         shippingPlanSnapshot?: unknown;
         totalAmount: string;
@@ -37,6 +40,9 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
           sellerNetAmount: string;
           sellerItemNetAmount?: string;
           shippingAllowanceAmount?: string;
+          protectionAmount?: string;
+          protectionAllowanceAmount?: string;
+          protectionOverageAmount?: string;
           sellerPayoutAmount?: string;
           shippingAllowancePercentageBps?: number;
           termsScheduleId: string | null;
@@ -89,6 +95,9 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
            shipping_discount_amount,
            shipping_allowance_amount,
            shipping_overage_amount,
+           protection_amount,
+           protection_allowance_amount,
+           protection_overage_amount,
            shipping_charge_amount,
            sales_tax_amount,
            taxable_amount,
@@ -117,7 +126,7 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
            cancellation_reason,
            ready_for_fulfillment_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, 'pending-reservation', $34, $34, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, 'pending-reservation', $37, $37, NULL, NULL, NULL
          )
          ON CONFLICT (order_id) DO UPDATE
          SET display_reference = EXCLUDED.display_reference,
@@ -131,6 +140,9 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
              shipping_discount_amount = EXCLUDED.shipping_discount_amount,
              shipping_allowance_amount = EXCLUDED.shipping_allowance_amount,
              shipping_overage_amount = EXCLUDED.shipping_overage_amount,
+             protection_amount = EXCLUDED.protection_amount,
+             protection_allowance_amount = EXCLUDED.protection_allowance_amount,
+             protection_overage_amount = EXCLUDED.protection_overage_amount,
              shipping_charge_amount = EXCLUDED.shipping_charge_amount,
              sales_tax_amount = EXCLUDED.sales_tax_amount,
              taxable_amount = EXCLUDED.taxable_amount,
@@ -169,6 +181,9 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
             data.shippingDiscountAmount,
             data.shippingAllowanceAmount ?? data.shippingChargeAmount,
             data.shippingOverageAmount ?? "0.00",
+            data.protectionAmount ?? data.commercialTermsSnapshot.protectionAmount ?? "0.00",
+            data.protectionAllowanceAmount ?? data.commercialTermsSnapshot.protectionAllowanceAmount ?? "0.00",
+            data.protectionOverageAmount ?? data.commercialTermsSnapshot.protectionOverageAmount ?? "0.00",
             data.shippingChargeAmount,
             data.salesTaxAmount,
             data.taxSnapshot.taxableAmount,

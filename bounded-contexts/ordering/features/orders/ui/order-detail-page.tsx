@@ -132,8 +132,8 @@ export function OrderingOrderDetailPage({
             value: formatMoney(order.shipping_allowance_amount, "USD"),
           },
           {
-            label: t("ordering.features.orders.ui.orderDetailPage.shipping.overage"),
-            value: formatMoney(order.shipping_overage_amount, "USD"),
+            label: t("ordering.features.orders.ui.orderDetailPage.order.protection"),
+            value: formatMoney(order.protection_amount ?? "0.00", "USD"),
           },
           {
             label: t("ordering.features.orders.ui.orderDetailPage.marketplace.fee"),
@@ -202,6 +202,10 @@ export function OrderingOrderDetailPage({
                   : t("ordering.features.orders.ui.orderDetailPage.seller.protection")
               }
               items={[
+                {
+                  title: t("ordering.features.orders.ui.orderDetailPage.protection.included"),
+                  description: t("ordering.features.orders.ui.orderDetailPage.protection.included.description"),
+                },
                 {
                   title: t("ordering.features.orders.ui.orderDetailPage.resolved.terms"),
                   description: order.terms_schedule_id

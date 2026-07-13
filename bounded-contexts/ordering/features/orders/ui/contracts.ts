@@ -15,6 +15,9 @@ export interface OrderingOrderProjection {
   shipping_discount_amount: string;
   shipping_allowance_amount: string;
   shipping_overage_amount: string;
+  protection_amount?: string;
+  protection_allowance_amount?: string;
+  protection_overage_amount?: string;
   shipping_charge_amount: string;
   sales_tax_amount: string;
   total_amount: string;

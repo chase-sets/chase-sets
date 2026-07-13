@@ -18,6 +18,9 @@ export type PaymentOrderInputRow = Readonly<{
   shipping_allowance_amount: string;
   shipping_overage_amount: string;
   seller_shipping_payout_amount: string;
+  protection_amount?: string;
+  protection_allowance_amount?: string;
+  protection_overage_amount?: string;
   seller_payout_amount: string;
   shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
@@ -55,6 +58,9 @@ export async function listPaymentOrderInputs(
         shipping_allowance_amount::text AS shipping_allowance_amount,
         shipping_overage_amount::text AS shipping_overage_amount,
         seller_shipping_payout_amount::text AS seller_shipping_payout_amount,
+        protection_amount::text AS protection_amount,
+        protection_allowance_amount::text AS protection_allowance_amount,
+        protection_overage_amount::text AS protection_overage_amount,
         seller_payout_amount::text AS seller_payout_amount,
        shipping_allowance_percentage_bps,
        terms_schedule_id,

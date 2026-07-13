@@ -44,6 +44,16 @@ Notes:
 - Accepted offers consume the seller-confirmed fee snapshot emitted by Marketplace at offer acceptance time.
 - Ordering does not resolve Commercial Terms for normal listing purchases.
 
+## Order Protection
+
+**Order Protection** is the immutable 1% of item subtotal included with every order, rounded up to the nearest cent.
+
+Notes:
+
+- The seller-funded fulfillment allowance funds Order Protection first and shipping second.
+- Ordering snapshots the amount and its allowance-funded and overage-funded shares.
+- Buyers see only the combined fulfillment overflow as one Shipping amount, never an Order Protection fee line.
+
 ## Order Status
 
 **Order Status** is the pre-fulfillment lifecycle state of an order.

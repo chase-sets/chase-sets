@@ -27,6 +27,12 @@ Buyers see the applicable checkout fee before payment. The current processing ra
 - Bank account: {{policy:checkout-processing-fee.bank-account.bps}} plus {{policy:checkout-processing-fee.bank-account.fixed}}
 - Chase Sets credit: {{policy:checkout-processing-fee.platform-credit.bps}} plus {{policy:checkout-processing-fee.platform-credit.fixed}}
 
+## Order Protection and shipping
+
+Every order includes Order Protection. Each order contributes 1% of the item subtotal to the protection reserve, rounded up to the nearest cent. The seller-funded shipping allowance funds Order Protection first and shipping second; any remaining combined overflow appears to the buyer only as one Shipping amount. There is never a separate buyer-facing protection fee.
+
+Founders' 0% Marketplace Sales Fee applies only to the sales fee. It does not reduce or remove the 1% Order Protection contribution.
+
 ## When policy values change
 
 This page reads the effective policy values when it renders and refreshes within six minutes. If a scheduled revision is within 30 days, the page shows its effective date before the change takes effect.

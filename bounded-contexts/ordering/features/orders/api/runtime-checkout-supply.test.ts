@@ -527,11 +527,14 @@ describe("ordering order runtime: checkout supply and grouping", () => {
         sellerAccountId: "acc_single",
         itemSubtotalAmount: "11.00",
         shippingBaseAmount: "4.99",
-        shippingDiscountAmount: "0.55",
-        shippingAllowanceAmount: "0.55",
-        shippingOverageAmount: "0.00",
-        shippingChargeAmount: "4.44",
-        totalAmount: "15.44",
+        shippingDiscountAmount: "0.44",
+        shippingAllowanceAmount: "0.44",
+        shippingOverageAmount: "4.55",
+        protectionAmount: "0.11",
+        protectionAllowanceAmount: "0.11",
+        protectionOverageAmount: "0.00",
+        shippingChargeAmount: "4.55",
+        totalAmount: "15.55",
       }),
     ]);
   });
@@ -635,7 +638,7 @@ describe("ordering order runtime: checkout supply and grouping", () => {
     expect(taxQuoteResolver.quoteTax).toHaveBeenCalledWith(
       expect.objectContaining({
         itemSubtotalAmount: "14.99",
-        shippingAmount: "4.25",
+        shippingAmount: "4.40",
       }),
     );
     const createdEvent = readAllEvents().find((event) => event.eventType === "ordering.order.created");
@@ -643,16 +646,19 @@ describe("ordering order runtime: checkout supply and grouping", () => {
       sellerAccountId: "acc_seller",
       itemSubtotalAmount: "14.99",
       shippingBaseAmount: "4.99",
-      shippingDiscountAmount: "0.74",
-      shippingAllowanceAmount: "0.74",
-      shippingOverageAmount: "0.00",
-      shippingChargeAmount: "4.25",
+      shippingDiscountAmount: "0.59",
+      shippingAllowanceAmount: "0.59",
+      shippingOverageAmount: "4.40",
+      protectionAmount: "0.15",
+      protectionAllowanceAmount: "0.15",
+      protectionOverageAmount: "0.00",
+      shippingChargeAmount: "4.40",
       salesTaxAmount: "1.57",
-      totalAmount: "20.81",
+      totalAmount: "20.96",
       commercialTermsSnapshot: {
         sellerItemNetAmount: "12.99",
-        shippingAllowanceAmount: "0.74",
-        sellerShippingPayoutAmount: "4.25",
+        shippingAllowanceAmount: "0.59",
+        sellerShippingPayoutAmount: "4.40",
         sellerPayoutAmount: "17.24",
       },
     });
@@ -723,10 +729,12 @@ describe("ordering order runtime: checkout supply and grouping", () => {
     const createdEvent = readAllEvents().find((event) => event.eventType === "ordering.order.created");
     expect(createdEvent?.payload).toMatchObject({
       itemSubtotalAmount: "1.40",
-      shippingDiscountAmount: "0.07",
-      shippingAllowanceAmount: "0.07",
-      shippingChargeAmount: "4.92",
-      totalAmount: "6.32",
+      shippingDiscountAmount: "0.05",
+      shippingAllowanceAmount: "0.05",
+      protectionAmount: "0.02",
+      protectionAllowanceAmount: "0.02",
+      shippingChargeAmount: "4.94",
+      totalAmount: "6.34",
     });
   });
 });

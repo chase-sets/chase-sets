@@ -10,7 +10,7 @@ Live numbers for the "Lower fees" and "Better protections" claims are read from 
 |---|---|---|
 | "Lower fees" | **Softened** | Ratified target numbers (#4066) are not live; today's schedule is close to, not clearly below, TCGplayer/eBay at the low end. |
 | "Founders lock 0% for 60 days" | **Dropped (pre-launch)** | No admission flow exists yet to grant a founder a 0% agreement; the mechanism is real (Commercial Terms agreements) but unused. |
-| "Better protections" | **Softened** | The protection-reserve funding mechanism (#4098) that was supposed to substantiate this claim is not implemented; fall back to policy-text framing only. |
+| "Better protections" | **Substantiated** | Every covered order records a replay-safe 1% protection-reserve contribution with its allowance/overage funding split; buyers never see a separate protection fee line. |
 | "Supports graded cards" | **Softened** | Cert-numbered slab data is enforced end-to-end via the API/import path; there is no listing-create UI form for it yet, and no per-grade pricing exists anywhere. |
 
 ---
@@ -39,11 +39,11 @@ This is not one of the three claims named in #4075, but it is the central campai
 
 **Original substantiation plan (per #4075's own 2026-07-03 update):** every order was to contribute 1% of item value to a protection reserve (allowance-first, buyer-overflow split, per #4098), independent of seller fees — specifically designed so the claim survives the 0% founders cohort (a fee-funded protection promise would be undermined by a 0%-fee cohort; a reserve funded from the shipping-allowance economics is not).
 
-**Current reality (verified against code, 2026-07-12):** #4098 is open and unimplemented. There is no `protection`/`reserve` concept anywhere in `bounded-contexts/ordering` or `bounded-contexts/settlement`; the only "allowance" that exists is `shippingAllowancePercentageBps` on the Commercial Terms schedule (a seller payout offset), not a buyer-facing protection fund. No event, table, or projection records a protection-reserve contribution. The offer-economics monitor's `protectionReserve` field is deliberately hardcoded `{ available: false, reason: "Order protection reserve funding (#4098) is not yet implemented..." }` — see `bounded-contexts/platform-operations/features/offer-economics/read-model/offer-economics-policy.ts` — so this monitor cannot be made to say otherwise until #4098 ships; there is nothing to compute.
+**Current reality (verified against code, 2026-07-12):** Ordering snapshots a 1% Order Protection amount and its allowance/overage funding split. Settlement records one idempotent contribution fact per captured order and proportional, cumulative refund reversal facts that converge exactly on the original split for a full refund. The offer-economics monitor reads the resulting net reserve totals from Settlement.
 
-**Ruling: Softened.** Do not describe protection as funded, guaranteed at a specific rate, or "included on every order" (that exact phrase was reserved for the reserve-mechanism version of this claim and would misrepresent an unbuilt funding model as live). Campaign copy may describe only what is enumerable in policy today: buyer/seller dispute and support-request workflows exist and are live (m85 dispute self-service, #3720-#3733; m107 trust & safety P0 gates). Approved fallback wording: **"Buyer and seller protection built into every transaction — disputes, support, and fraud controls, not a policy you have to read the fine print on."** Do not attach a percentage, a dollar amount, or the word "reserve"/"fund" to this claim until #4098 ships.
+**Ruling: Substantiated.** Approved wording: **"Every order includes Order Protection — funded at 1% of item value and never itemized as a separate buyer fee."**
 
-**Unblock:** #4098 ships (ordering economics tuple + settlement reserve fact + refund symmetry per its own acceptance criteria); extend the offer-economics monitor's `protectionReserve` field to read real contribution data (the type already exists — `OfferEconomicsProtectionReserveStatus` — swap `available: false` for a real `{ available: true, contributionAmount, ... }` variant); re-run this review and promote to Substantiated with "included on every order, never itemized" framing per the original design.
+The monitor reports net contribution, allowance-funded share, overage-funded share, reversals, and covered-order count for the selected window.
 
 ## Claim 3 — "Supports graded cards"
 

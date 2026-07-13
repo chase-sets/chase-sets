@@ -71,6 +71,7 @@ import {
 } from "@chase-sets/pricing/server";
 import {
   createSettlementBalanceCreditResolver,
+  getProtectionReserveSummary,
   lookupPayoutBySupportId,
   lookupPayoutBySupportReference,
   settlementClearancePolicy,
@@ -213,11 +214,11 @@ export function createPlatformApiHost(
     : undefined;
   // Offer-economics monitor: locked-fee cohort (marketplace) + cohort
   // GMV/platform GMV (pricing) + published standard schedule (commercial
-  // terms). Requires all three pools; degrades to the runtime's own
+  // terms) + protection reserve facts (settlement). Requires all four pools; degrades to the runtime's own
   // all-zero fallback (see offer-economics-runtime.ts) if any is absent
   // rather than partially wiring an inconsistent port.
   const offerEconomicsCrossContext: OfferEconomicsCrossContextPort | undefined =
-    marketplacePool && pricingPool && standardScheduleResolver
+    marketplacePool && pricingPool && settlementPool && standardScheduleResolver
       ? {
           getLockedFeeListingCohortSummary: (params) => getLockedFeeListingCohortSummary(marketplacePool, params),
           getSellerCohortGmvSummary: (params) => getSellerCohortGmvSummary(pricingPool, params),
@@ -227,6 +228,7 @@ export function createPlatformApiHost(
             return { gmvAmount: summary.gmvAmount };
           },
           resolveStandardScheduleTerms: (params) => standardScheduleResolver.resolveStandardScheduleTerms(params),
+          getProtectionReserveSummary: (params) => getProtectionReserveSummary(settlementPool, params),
         }
       : undefined;
   const balanceCreditResolver = settlementPool ? createSettlementBalanceCreditResolver(settlementPool) : undefined;

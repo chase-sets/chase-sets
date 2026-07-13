@@ -115,6 +115,9 @@ type SellerPayoutComponent = Readonly<{
   sellerItemNetAmount: string;
   shippingAllowanceAmount: string;
   sellerShippingPayoutAmount: string;
+  protectionAmount: string;
+  protectionAllowanceAmount: string;
+  protectionOverageAmount: string;
   sellerPayoutAmount: string;
 }>;
 
@@ -135,21 +138,137 @@ function normalizeSellerPayoutComponents(value: unknown): SellerPayoutComponent[
     if (typeof candidate.orderId !== "string" || typeof candidate.sellerAccountId !== "string") {
       return [];
     }
-    return [
-      {
-        orderId: candidate.orderId,
-        sellerAccountId: candidate.sellerAccountId,
-        marketplaceSalesFeeAmount: candidate.marketplaceSalesFeeAmount ?? "0.00",
-        marketplaceSalesFeeLines: Array.isArray(candidate.marketplaceSalesFeeLines)
-          ? candidate.marketplaceSalesFeeLines
-          : [],
-        sellerItemNetAmount: candidate.sellerItemNetAmount ?? "0.00",
-        shippingAllowanceAmount: candidate.shippingAllowanceAmount ?? "0.00",
-        sellerShippingPayoutAmount: candidate.sellerShippingPayoutAmount ?? candidate.shippingAllowanceAmount ?? "0.00",
-        sellerPayoutAmount: candidate.sellerPayoutAmount ?? "0.00",
-      },
-    ];
+    const normalized = {
+      orderId: candidate.orderId,
+      sellerAccountId: candidate.sellerAccountId,
+      marketplaceSalesFeeAmount: candidate.marketplaceSalesFeeAmount ?? "0.00",
+      marketplaceSalesFeeLines: Array.isArray(candidate.marketplaceSalesFeeLines)
+        ? candidate.marketplaceSalesFeeLines
+        : [],
+      sellerItemNetAmount: candidate.sellerItemNetAmount ?? "0.00",
+      shippingAllowanceAmount: candidate.shippingAllowanceAmount ?? "0.00",
+      sellerShippingPayoutAmount: candidate.sellerShippingPayoutAmount ?? candidate.shippingAllowanceAmount ?? "0.00",
+      protectionAmount: candidate.protectionAmount ?? "0.00",
+      protectionAllowanceAmount: candidate.protectionAllowanceAmount ?? "0.00",
+      protectionOverageAmount: candidate.protectionOverageAmount ?? "0.00",
+      sellerPayoutAmount: candidate.sellerPayoutAmount ?? "0.00",
+    };
+    if (
+      moneyToCents(normalized.protectionAllowanceAmount) + moneyToCents(normalized.protectionOverageAmount) !==
+      moneyToCents(normalized.protectionAmount)
+    ) {
+      throw new SettlementDomainError("Order Protection funding shares must equal the reserve contribution.");
+    }
+    if (moneyToCents(normalized.protectionAllowanceAmount) > moneyToCents(normalized.sellerItemNetAmount)) {
+      throw new SettlementDomainError("Allowance-funded Order Protection cannot exceed seller item net.");
+    }
+    if (
+      moneyToCents(normalized.sellerItemNetAmount) -
+        moneyToCents(normalized.protectionAllowanceAmount) +
+        moneyToCents(normalized.sellerShippingPayoutAmount) !==
+      moneyToCents(normalized.sellerPayoutAmount)
+    ) {
+      throw new SettlementDomainError("Seller payout must reconcile after Order Protection funding.");
+    }
+    return [normalized];
   });
+}
+
+async function recordProtectionReserveContributions(
+  db: PgQueryable,
+  data: Readonly<{
+    paymentId: string;
+    capturedAt: string;
+    sellerPayouts: readonly SellerPayoutComponent[];
+  }>,
+  event: TransportEvent,
+) {
+  for (const payout of data.sellerPayouts) {
+    const protectionCents = moneyToCents(payout.protectionAmount);
+    const allowanceCents = moneyToCents(payout.protectionAllowanceAmount);
+    const overageCents = moneyToCents(payout.protectionOverageAmount);
+    if (protectionCents === 0n) continue;
+    if (allowanceCents + overageCents !== protectionCents) {
+      throw new SettlementDomainError("Order Protection funding shares must equal the reserve contribution.");
+    }
+    await db.query(
+      `INSERT INTO settlement_protection_reserve_facts (
+         fact_id, fact_kind, order_id, payment_id, payment_stream_version,
+         protection_amount, allowance_amount, overage_amount, recorded_at
+       ) VALUES ($1, 'contribution', $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (order_id) WHERE fact_kind = 'contribution' DO NOTHING`,
+      [
+        `protection_contribution_${data.paymentId}_${payout.orderId}`,
+        payout.orderId,
+        data.paymentId,
+        event.streamVersion,
+        payout.protectionAmount,
+        payout.protectionAllowanceAmount,
+        payout.protectionOverageAmount,
+        data.capturedAt,
+      ],
+    );
+  }
+}
+
+type OrderAmount = Readonly<{ orderId: string; amount: string }>;
+
+function orderAmount(entries: readonly OrderAmount[] | undefined, orderId: string) {
+  return entries?.find((entry) => entry.orderId === orderId)?.amount ?? "0.00";
+}
+
+function proportionalCents(totalCents: bigint, coveredCents: bigint, capCents: bigint) {
+  if (totalCents === 0n || coveredCents === 0n || capCents === 0n) return 0n;
+  return roundRational(totalCents * (coveredCents < capCents ? coveredCents : capCents), capCents, "nearest");
+}
+
+async function recordProtectionReserveReversals(
+  db: PgQueryable,
+  data: Readonly<{
+    paymentId: string;
+    refundedAt: string;
+    sellerPayouts: readonly SellerPayoutComponent[];
+    orderRefundAmounts?: readonly OrderAmount[];
+    refundedOrderAmounts?: readonly OrderAmount[];
+    orderRefundCaps?: readonly OrderAmount[];
+  }>,
+  event: TransportEvent,
+) {
+  for (const payout of data.sellerPayouts) {
+    const capCents = moneyToCents(orderAmount(data.orderRefundCaps, payout.orderId));
+    const deltaRefundCents = moneyToCents(orderAmount(data.orderRefundAmounts, payout.orderId));
+    const cumulativeRefundCents = moneyToCents(orderAmount(data.refundedOrderAmounts, payout.orderId));
+    if (capCents === 0n || deltaRefundCents === 0n) continue;
+    const previousRefundCents =
+      cumulativeRefundCents > deltaRefundCents ? cumulativeRefundCents - deltaRefundCents : 0n;
+    const allowanceTotalCents = moneyToCents(payout.protectionAllowanceAmount);
+    const overageTotalCents = moneyToCents(payout.protectionOverageAmount);
+    const allowanceCents =
+      proportionalCents(allowanceTotalCents, cumulativeRefundCents, capCents) -
+      proportionalCents(allowanceTotalCents, previousRefundCents, capCents);
+    const overageCents =
+      proportionalCents(overageTotalCents, cumulativeRefundCents, capCents) -
+      proportionalCents(overageTotalCents, previousRefundCents, capCents);
+    const protectionCents = allowanceCents + overageCents;
+    if (protectionCents === 0n) continue;
+    await db.query(
+      `INSERT INTO settlement_protection_reserve_facts (
+         fact_id, fact_kind, order_id, payment_id, payment_stream_version,
+         protection_amount, allowance_amount, overage_amount, recorded_at
+       ) VALUES ($1, 'reversal', $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (fact_id) DO NOTHING`,
+      [
+        `protection_reversal_${data.paymentId}_${payout.orderId}_${event.streamVersion}`,
+        payout.orderId,
+        data.paymentId,
+        event.streamVersion,
+        centsToMoneyAmount(protectionCents),
+        centsToMoneyAmount(allowanceCents),
+        centsToMoneyAmount(overageCents),
+        data.refundedAt,
+      ],
+    );
+  }
 }
 
 function assertMarketplaceSalesFeeBreakdown(payout: SellerPayoutComponent) {
@@ -377,12 +496,15 @@ async function creditSellerPayouts(
     const sellerAccountId = payout.sellerAccountId as AccountId;
     const paymentId = data.paymentId as PaymentId;
 
-    if (compareMoney(payout.sellerItemNetAmount, "0.00") > 0) {
+    const sellerItemCreditAmount = centsToMoneyAmount(
+      moneyToCents(payout.sellerItemNetAmount) - moneyToCents(payout.protectionAllowanceAmount),
+    );
+    if (compareMoney(sellerItemCreditAmount, "0.00") > 0) {
       await postSellerCredit({
         accountId: sellerAccountId,
         ledgerEntryId: `led_sale_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
         kind: "sale",
-        amount: payout.sellerItemNetAmount,
+        amount: sellerItemCreditAmount,
         orderId: payout.orderId as OrderId,
         paymentId,
         pendingDescription: `Item sale proceeds for order ${payout.orderId}`,
@@ -723,14 +845,20 @@ export function buildSettlementPaymentInputProjectionHandlers(
         },
         event,
       );
+      const sellerPayouts = normalizeSellerPayoutComponents(data.sellerPayouts);
       await creditSellerPayouts(
         wallets,
         {
           paymentId: data.paymentId,
           currencyCode: data.currencyCode ?? "usd",
           capturedAt: data.capturedAt,
-          sellerPayouts: normalizeSellerPayoutComponents(data.sellerPayouts),
+          sellerPayouts,
         },
+        event,
+      );
+      await recordProtectionReserveContributions(
+        db,
+        { paymentId: data.paymentId, capturedAt: data.capturedAt, sellerPayouts },
         event,
       );
       await creditAuthenticityFee(
@@ -799,6 +927,9 @@ export function buildSettlementPaymentInputProjectionHandlers(
         processorStatus: string;
         refundedAmount?: string;
         sellerPayouts?: unknown;
+        orderRefundAmounts?: readonly OrderAmount[];
+        refundedOrderAmounts?: readonly OrderAmount[];
+        orderRefundCaps?: readonly OrderAmount[];
         refundedAt: string;
       };
 
@@ -839,6 +970,18 @@ export function buildSettlementPaymentInputProjectionHandlers(
           currencyCode: data.currencyCode,
           refundedAt: data.refundedAt,
           sellerPayouts,
+        },
+        event,
+      );
+      await recordProtectionReserveReversals(
+        db,
+        {
+          paymentId: data.paymentId,
+          refundedAt: data.refundedAt,
+          sellerPayouts,
+          orderRefundAmounts: data.orderRefundAmounts,
+          refundedOrderAmounts: data.refundedOrderAmounts,
+          orderRefundCaps: data.orderRefundCaps,
         },
         event,
       );

@@ -8,6 +8,9 @@ revisionDate: "2026-07-12"
 citedPolicies: []
 relatedFlows: []
 promiseTable:
+  - claim: Every order includes a 1% Order Protection reserve contribution without a separate buyer fee line.
+    issues: ["#4098"]
+    tests: ["bounded-contexts/ordering/features/orders/domain/policies.test.ts", "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.test.ts"]
   - claim: Payment risk, disputes, refunds, and evidence follow provider-backed workflows.
     issues: ["#4352"]
     tests: ["bounded-contexts/payments/features/payments/api/runtime.test.ts", "bounded-contexts/payments/features/refunds/api/runtime.test.ts"]
@@ -17,11 +20,13 @@ promiseTable:
 ---
 ## Protected payment
 
+Every order includes Order Protection. One percent of the item subtotal, rounded up to the nearest cent, is contributed to the protection reserve. The seller-funded shipping allowance covers Order Protection first and shipping second; buyers see only any combined overflow as Shipping, never as a separate protection fee.
+
 Payments run through provider-backed checkout flows with final totals visible before confirmation. Card payments may request risk-based 3DS step-up; liability-shift facts inform payment risk and dispute posture, but they do not override Settlement payout-release rules.
 
 ## Order visibility
 
-Checkout and order views keep product, seller, item price, shipping, shipping credit, checkout fee, protection, and fulfillment status visible. Seller sale proceeds and shipping allowances stay pending until delivery, risk, support, and aging rules clear.
+Checkout and order views keep product, seller, item price, one Shipping amount, checkout fee, and fulfillment status visible. Order Protection is described as included and is never itemized as a buyer fee. Seller payout detail itemizes the shipping allowance and Order Protection. Seller sale proceeds stay pending until delivery, risk, support, and aging rules clear.
 
 ## Fraud signals
 
