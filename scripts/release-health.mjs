@@ -57,6 +57,26 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     ),
     canaryPromotionDecision:
       readOption(argv, "--canary-promotion-decision") ?? readEnv("CANARY_PROMOTION_DECISION", env) ?? null,
+    // account-cart-post-write-consistency, a required migrated canary
+    // alongside the Buy Now canary above. Unlike Buy Now, this probe is a
+    // doc-backed observation rather than a self-driving browser flow: it
+    // only blocks promotion when a redacted observation was configured for
+    // the release; otherwise it is a documented advisory coverage gap.
+    accountCartCanaryResult:
+      readOption(argv, "--account-cart-canary-result") ?? readEnv("ACCOUNT_CART_CANARY_RESULT", env) ?? "skipped",
+    accountCartCanaryStartedAt:
+      readOption(argv, "--account-cart-canary-started-at") ?? readEnv("ACCOUNT_CART_CANARY_STARTED_AT", env) ?? null,
+    accountCartCanaryCompletedAt:
+      readOption(argv, "--account-cart-canary-completed-at") ??
+      readEnv("ACCOUNT_CART_CANARY_COMPLETED_AT", env) ??
+      null,
+    accountCartCanaryPromotionDecision:
+      readOption(argv, "--account-cart-canary-promotion-decision") ??
+      readEnv("ACCOUNT_CART_CANARY_PROMOTION_DECISION", env) ??
+      null,
+    accountCartCanaryConfigured: normalizeBoolean(
+      readOption(argv, "--account-cart-canary-configured") ?? readEnv("ACCOUNT_CART_CANARY_CONFIGURED", env) ?? "false",
+    ),
     productionReadinessGateOutcome:
       readOption(argv, "--production-readiness-gate-outcome") ??
       readEnv("PRODUCTION_READINESS_GATE_OUTCOME", env) ??
@@ -194,6 +214,8 @@ export function buildReleaseHealthRecord(input) {
   validateOptionalIsoInstant("stagingCompletedAt", input.stagingCompletedAt, errors);
   validateOptionalIsoInstant("canaryStartedAt", input.canaryStartedAt, errors);
   validateOptionalIsoInstant("canaryCompletedAt", input.canaryCompletedAt, errors);
+  validateOptionalIsoInstant("accountCartCanaryStartedAt", input.accountCartCanaryStartedAt, errors);
+  validateOptionalIsoInstant("accountCartCanaryCompletedAt", input.accountCartCanaryCompletedAt, errors);
   validateOptionalIsoInstant("productionStartedAt", input.productionStartedAt, errors);
   validateOptionalIsoInstant("productionCompletedAt", input.productionCompletedAt, errors);
   validateOptionalIsoInstant("productionRestorePointCreatedAt", input.productionRestorePointCreatedAt, errors);
@@ -269,6 +291,16 @@ export function buildReleaseHealthRecord(input) {
         size: canaryCohortSize,
       },
       promotionDecision: emptyToNull(input.canaryPromotionDecision),
+    },
+    // Required critical migrated canary, kept separate from the Buy Now
+    // `canary` block above so its blocking/advisory posture can be evaluated
+    // on its own budget rather than folded into the Buy Now decision.
+    accountCartCanary: {
+      startedAt: emptyToNull(input.accountCartCanaryStartedAt),
+      completedAt: emptyToNull(input.accountCartCanaryCompletedAt),
+      result: normalizeResult(input.accountCartCanaryResult),
+      configured: Boolean(input.accountCartCanaryConfigured),
+      promotionDecision: emptyToNull(input.accountCartCanaryPromotionDecision),
     },
     production: {
       startedAt: emptyToNull(input.productionStartedAt),
@@ -357,6 +389,7 @@ export function buildGateResults(record, input = {}) {
   const rollbackReadinessResult = record.recovery?.rollbackReadinessResult ?? "unknown";
   const recoveryMode = record.recovery?.mode ?? "none";
   const canaryPromotionDecision = record.canary?.promotionDecision ?? null;
+  const accountCartCanaryConfigured = Boolean(record.accountCartCanary?.configured);
   const readinessOutcome = normalizeGateLabel(input.productionReadinessGateOutcome ?? "not-run");
 
   return [
@@ -417,6 +450,31 @@ export function buildGateResults(record, input = {}) {
       severity: deploymentRequired ? "blocking" : "not-applicable",
       status: deploymentRequired ? statusForCanary(record.canary?.result, canaryPromotionDecision) : "skipped",
       reason: `canary result: ${record.canary?.result ?? "unknown"}; promotion decision: ${canaryPromotionDecision ?? "unknown"}`,
+    }),
+    // account-cart-post-write-consistency as a required critical migrated
+    // canary. It blocks staging promotion when a redacted observation was
+    // configured for the release and the probe did not promote. When no
+    // observation was configured, the milestone policy is to warn explicitly
+    // (advisory) rather than block every release on instrumentation the
+    // runtime/UI owner has not wired up yet, and rather than silently
+    // reporting green.
+    gateResult({
+      id: "account-cart-critical-canary",
+      phase: "staging",
+      owner: "platform-runtime",
+      severity: accountCartCanarySeverity(accountCartCanaryConfigured, deploymentRequired),
+      status: accountCartCanaryStatus(
+        accountCartCanaryConfigured,
+        record.accountCartCanary?.result,
+        record.accountCartCanary?.promotionDecision,
+        deploymentRequired,
+      ),
+      reason: accountCartCanaryReason(
+        accountCartCanaryConfigured,
+        record.accountCartCanary?.result,
+        record.accountCartCanary?.promotionDecision,
+        deploymentRequired,
+      ),
     }),
     gateResult({
       id: "production-smoke-and-marker",
@@ -538,6 +596,33 @@ function statusForCanary(result, promotionDecision) {
     return "skipped";
   }
   return "fail";
+}
+
+function accountCartCanarySeverity(configured, deploymentRequired) {
+  if (!deploymentRequired) {
+    return "not-applicable";
+  }
+  return configured ? "blocking" : "advisory";
+}
+
+function accountCartCanaryStatus(configured, result, promotionDecision, deploymentRequired) {
+  if (!deploymentRequired) {
+    return "skipped";
+  }
+  if (!configured) {
+    return "warn";
+  }
+  return statusForCanary(result, promotionDecision);
+}
+
+function accountCartCanaryReason(configured, result, promotionDecision, deploymentRequired) {
+  if (!deploymentRequired) {
+    return "release does not require deployment";
+  }
+  if (!configured) {
+    return "account-cart post-write consistency observation not configured for this release; documented coverage gap pending fixture-owned automation (issue #2516)";
+  }
+  return `account-cart canary result: ${result ?? "unknown"}; promotion decision: ${promotionDecision ?? "unknown"}`;
 }
 
 function statusForBlockingResult(result) {

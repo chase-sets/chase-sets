@@ -292,6 +292,17 @@ jobs:
       buy_now_probe_account_failure_reason: ${{ steps.buy_now_probes.outputs.account_failure_reason }}
       buy_now_probe_started_at: ${{ steps.buy_now_probes.outputs.started_at }}
       buy_now_probe_completed_at: ${{ steps.buy_now_probes.outputs.completed_at }}
+      # #2516: account-cart post-write consistency promoted alongside the Buy
+      # Now probes as a required migrated canary. Unlike Buy Now, the probe is
+      # a doc-backed observation (issue #1810) rather than a self-driving
+      # browser flow, so it blocks promotion only when an observation is
+      # configured; otherwise it reports an explicit coverage-gap warning
+      # instead of silently passing.
+      account_cart_canary_result: ${{ steps.account_cart_canary.outputs.result || 'skipped' }}
+      account_cart_canary_promotion_decision: ${{ steps.account_cart_canary.outputs.promotion_decision || 'skipped' }}
+      account_cart_canary_configured: ${{ steps.account_cart_canary.outputs.configured || 'false' }}
+      account_cart_canary_started_at: ${{ steps.account_cart_canary.outputs.started_at }}
+      account_cart_canary_completed_at: ${{ steps.account_cart_canary.outputs.completed_at }}
     concurrency:
       group: platform-deploy-staging
       cancel-in-progress: false
@@ -1450,6 +1461,95 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # #2516: promotes account-cart-post-write-consistency from a
+      # route-matrix/UAT-only signal to a required migrated canary that gates
+      # staging promotion the same way the Buy Now probes do. The probe is a
+      # doc-backed observation (docs/runbooks/account-cart-consistency-probe.md):
+      # it cannot yet drive its own account-cart mutation, so it blocks
+      # promotion only when a redacted observation is configured for the run.
+      # When unconfigured it exits 0 but records an explicit warning so the
+      # coverage gap stays visible in the release-health gate instead of
+      # reading as a silent pass.
+      - name: Staging account-cart freshness canary
+        id: account_cart_canary
+        if: env.SHOULD_DEPLOY != 'false'
+        env:
+          ACCOUNT_CART_CANARY_OBSERVATION_JSON: ${{ vars.STAGING_ACCOUNT_CART_CANARY_OBSERVATION_JSON || '' }}
+        run: |
+          set -euo pipefail
+          started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
+          out=artifacts/release-health/account-cart-consistency-probe.json
+          mkdir -p "$(dirname "$out")"
+
+          if [ -z "${ACCOUNT_CART_CANARY_OBSERVATION_JSON:-}" ]; then
+            completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            {
+              echo "completed_at=${completed_at}"
+              echo "result=skipped"
+              echo "configured=false"
+              echo "promotion_decision=not-configured"
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo "## Staging account-cart freshness canary"
+              echo ""
+              echo "::warning::Account-cart post-write consistency observation is not configured (STAGING_ACCOUNT_CART_CANARY_OBSERVATION_JSON); this required migrated canary is a documented coverage gap, not a passing signal. See docs/runbooks/account-cart-consistency-probe.md."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          observation_file="${RUNNER_TEMP}/account-cart-canary-observation.json"
+          printf '%s\n' "${ACCOUNT_CART_CANARY_OBSERVATION_JSON}" > "${observation_file}"
+
+          set +e
+          pnpm run ops account-cart:consistency-probe -- \
+            --environment staging \
+            --release-commit "${{ needs.resolve-release.outputs.release_commit }}" \
+            --evidence-reference "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-account-cart-canary" \
+            --observation-file "${observation_file}" \
+            --out "$out"
+          probe_exit=$?
+          set -e
+          rm -f "${observation_file}"
+
+          completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          promotion_decision="$(jq -r '.promotionDecision // "abort"' "$out" 2>/dev/null || echo abort)"
+          result=success
+          if [ "$probe_exit" -ne 0 ]; then
+            result=failure
+          fi
+
+          {
+            echo "completed_at=${completed_at}"
+            echo "result=${result}"
+            echo "configured=true"
+            echo "promotion_decision=${promotion_decision}"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Staging account-cart freshness canary"
+            echo ""
+            echo "| Result | Promotion decision |"
+            echo "| --- | --- |"
+            echo "| ${result} | ${promotion_decision} |"
+            echo ""
+            echo "Interpretation: docs/runbooks/account-cart-consistency-probe.md."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$result" != "success" ]; then
+            echo "Staging account-cart freshness canary aborted promotion (exit ${probe_exit})." >&2
+            exit 1
+          fi
+
+      - name: Upload staging account-cart canary evidence
+        if: always() && env.SHOULD_DEPLOY != 'false' && steps.account_cart_canary.outputs.configured == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staging-account-cart-freshness-canary
+          path: artifacts/release-health/account-cart-consistency-probe.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Staging Stripe money smoke
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
@@ -1633,6 +1733,11 @@ jobs:
           CANARY_COHORT_SUBJECT_TYPE: operator
           CANARY_COHORT_SIZE: "0"
           CANARY_PROMOTION_DECISION: ${{ needs.deploy-staging.outputs.buy_now_probe_promotion_decision || 'skipped' }}
+          ACCOUNT_CART_CANARY_RESULT: ${{ needs.deploy-staging.outputs.account_cart_canary_result || 'skipped' }}
+          ACCOUNT_CART_CANARY_STARTED_AT: ${{ needs.deploy-staging.outputs.account_cart_canary_started_at }}
+          ACCOUNT_CART_CANARY_COMPLETED_AT: ${{ needs.deploy-staging.outputs.account_cart_canary_completed_at }}
+          ACCOUNT_CART_CANARY_PROMOTION_DECISION: ${{ needs.deploy-staging.outputs.account_cart_canary_promotion_decision || 'skipped' }}
+          ACCOUNT_CART_CANARY_CONFIGURED: ${{ needs.deploy-staging.outputs.account_cart_canary_configured || 'false' }}
           PRODUCTION_SUPERSEDED: ${{ needs.deploy-production.outputs.superseded }}
           PRODUCTION_SUPERSEDED_BY_COMMIT: ${{ needs.deploy-production.outputs.superseded_by_commit }}
           PRODUCTION_RESULT: skipped
@@ -3110,6 +3215,11 @@ jobs:
           CANARY_COHORT_SUBJECT_TYPE: operator
           CANARY_COHORT_SIZE: "0"
           CANARY_PROMOTION_DECISION: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
+          ACCOUNT_CART_CANARY_RESULT: ${{ needs.deploy-staging.outputs.account_cart_canary_result || 'skipped' }}
+          ACCOUNT_CART_CANARY_STARTED_AT: ${{ needs.deploy-staging.outputs.account_cart_canary_started_at }}
+          ACCOUNT_CART_CANARY_COMPLETED_AT: ${{ needs.deploy-staging.outputs.account_cart_canary_completed_at }}
+          ACCOUNT_CART_CANARY_PROMOTION_DECISION: ${{ needs.deploy-staging.outputs.account_cart_canary_promotion_decision || 'skipped' }}
+          ACCOUNT_CART_CANARY_CONFIGURED: ${{ needs.deploy-staging.outputs.account_cart_canary_configured || 'false' }}
           PRODUCTION_READINESS_GATE_OUTCOME: ${{ steps.readiness_gate.outputs.outcome || 'not-run' }}
           PRODUCTION_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || job.status }}
           PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}
