@@ -5,6 +5,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// The loader always reads live policy values through loadLandingFeePresentation
+// (checkout-fee preview + fee-calculator schedule). Every test that calls the
+// loader must stub `fetch` so that read stays in-process: an unstubbed call
+// escapes to a real `chasesets.test` DNS lookup and is a test-hermeticity bug,
+// not a passing test (see the public-presence CI flake this guards against).
+// Tests that don't care about the resolved fee values use this 503 stub —
+// the same "policy read failed" shape the loader's own fallback path already
+// exercises deterministically elsewhere in this file.
+function stubPolicyReadUnavailable() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("policy source unavailable", { status: 503 })),
+  );
+}
+
 describe("public presence home route", () => {
   it("positions the homepage metadata around seller beta early access", () => {
     expect(meta({} as never)).toEqual(
@@ -61,6 +76,7 @@ describe("public presence home route", () => {
   });
 
   it("uses the loader origin for social metadata and JSON-LD", async () => {
+    stubPolicyReadUnavailable();
     const data = await loader({
       request: new Request("https://preview.chasesets.test/?utm_source=deck"),
       params: {},
@@ -257,6 +273,7 @@ describe("public presence home route", () => {
   });
 
   it("carries the ?ref= referral code from the loader into the hidden form source", async () => {
+    stubPolicyReadUnavailable();
     const data = await loader({
       request: new Request("https://chasesets.test/?ref=wls_abc123"),
       params: {},
@@ -267,6 +284,7 @@ describe("public presence home route", () => {
   });
 
   it("returns null when no ?ref= is present", async () => {
+    stubPolicyReadUnavailable();
     const data = await loader({
       request: new Request("https://chasesets.test/"),
       params: {},
@@ -277,6 +295,7 @@ describe("public presence home route", () => {
   });
 
   it("warns loudly outside production when the Discord invite URL is unconfigured", async () => {
+    stubPolicyReadUnavailable();
     const originalDiscordUrl = process.env.CHASE_SETS_DISCORD_INVITE_URL;
     const originalNodeEnv = process.env.NODE_ENV;
     delete process.env.CHASE_SETS_DISCORD_INVITE_URL;
@@ -304,6 +323,7 @@ describe("public presence home route", () => {
   });
 
   it("stays quiet when the Discord invite URL is unconfigured in production", async () => {
+    stubPolicyReadUnavailable();
     const originalDiscordUrl = process.env.CHASE_SETS_DISCORD_INVITE_URL;
     const originalNodeEnv = process.env.NODE_ENV;
     delete process.env.CHASE_SETS_DISCORD_INVITE_URL;
