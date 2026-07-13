@@ -39,6 +39,7 @@ import { createMarketplaceServices } from "./support/runtime-support/services";
 import { marketplaceSchemaSql } from "./support/runtime-support/schema";
 import { marketplaceUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { marketplaceSupplyProjectionSchemaMigrations } from "./features/listings/integrations/supply/supply-schema";
+import { marketplaceListingSchemaMigrations } from "./features/listings/read-model/schema";
 import { reviewSchemaMigrations } from "./features/reviews/read-model/schema";
 import { seedMarketplaceContextDatabase } from "./support/runtime-support/seed";
 
@@ -50,6 +51,7 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
   schemaMigrations: [
     ...marketplaceUnloggedProjectionSchemaMigrations,
     ...marketplaceSupplyProjectionSchemaMigrations,
+    ...marketplaceListingSchemaMigrations,
     ...reviewSchemaMigrations,
   ],
   retentionSweeps: marketplaceRetentionSweeps,

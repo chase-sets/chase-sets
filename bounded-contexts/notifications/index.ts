@@ -14,6 +14,7 @@ import {
 import {
   buildNotificationsFulfillmentProjectionHandlers,
   buildNotificationsInventoryProjectionHandlers,
+  buildNotificationsMarketplaceProjectionHandlers,
   buildNotificationsOrderingProjectionHandlers,
   buildNotificationsSettlementProjectionHandlers,
   NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
@@ -50,6 +51,11 @@ export const module = defineBoundedContextModule<NotificationsServices, PgTransa
           subscriptionName: "notifications.settlement-facts-projection",
           buildHandlers: (subscription) =>
             buildNotificationsSettlementProjectionHandlers(services.notificationOutbox, subscription.projectionName),
+        },
+        [`marketplace.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: {
+          subscriptionName: "notifications.marketplace-facts-projection",
+          buildHandlers: (subscription) =>
+            buildNotificationsMarketplaceProjectionHandlers(services.notificationOutbox, subscription.projectionName),
         },
       },
     }),

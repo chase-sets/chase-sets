@@ -431,6 +431,7 @@ export const sourceContextWakeRegistry = [
       "marketplace:marketplace-review-projection",
       "marketplace:marketplace-review-notification-projection",
       "marketplace:platform-policy-document-projection",
+      "notifications:notifications-source-facts-outbox-projection",
       "ordering:ordering-marketplace-offer-acceptance",
       "ordering:ordering-marketplace-supply-input-projection",
       "ordering:ordering-order-review-opportunity-projection",

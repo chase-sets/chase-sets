@@ -34,6 +34,9 @@ export const notificationsEnglishTranslations = {
   "notifications.intents.payoutReadinessRegression.noDeadline": "no deadline provided",
   "notifications.intents.saleRecorded.body": "{quantity} units across {lineCount} lines were recorded as sold.",
   "notifications.intents.saleRecorded.title": "Sale recorded for order {orderReference}",
+  "notifications.intents.sellerAvailabilityRestored.title": "Your listings are live again",
+  "notifications.intents.sellerAvailabilityRestored.body":
+    "Your away period ended, so your listings automatically resumed and are visible to buyers again.",
   "notifications.intents.stockCommitted.body": "{quantity} units across {lineCount} lines are committed to this sale.",
   "notifications.intents.stockCommitted.title": "Stock committed for order {orderReference}",
   "notifications.intents.stockReturned.body.orderCancelled":

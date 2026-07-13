@@ -361,4 +361,55 @@ describe("notifications source event projector", () => {
 
     expect(outbox.enqueueNotification).not.toHaveBeenCalled();
   });
+
+  it("notifies the seller once when the auto-resume sweep restores their listings", async () => {
+    const outbox = { enqueueNotification: vi.fn(async (_input: EnqueueNotificationInput) => undefined) };
+
+    await projectSourceEventToNotification(
+      outbox,
+      {
+        ...baseEvent,
+        type: "marketplace.seller-listing-availability.enabled",
+        data: {
+          accountId: "acc_seller" as never,
+          enabledAt: "2026-07-13T00:00:00.000Z",
+          enabledBy: "scheduled",
+        },
+      },
+      NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
+    );
+
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
+    expect(outbox.enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          messageType: "marketplace.seller-listing-availability.enabled",
+          actionHref: "/account/selling/listings",
+          idempotencyKey: "notifications:marketplace:seller_availability_restored:acc_seller:2026-07-13T00:00:00.000Z",
+          actor: { userId: null, accountId: "acc_seller" },
+          channels: [expect.objectContaining({ channel: "web", recipient: { accountId: "acc_seller" } })],
+        }),
+      }),
+    );
+  });
+
+  it("does not notify a seller-initiated enable, only a scheduled auto-resume", async () => {
+    const outbox = { enqueueNotification: vi.fn(async (_input: EnqueueNotificationInput) => undefined) };
+
+    await projectSourceEventToNotification(
+      outbox,
+      {
+        ...baseEvent,
+        type: "marketplace.seller-listing-availability.enabled",
+        data: {
+          accountId: "acc_seller" as never,
+          enabledAt: "2026-07-13T00:00:00.000Z",
+          enabledBy: "seller",
+        },
+      },
+      NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
+    );
+
+    expect(outbox.enqueueNotification).not.toHaveBeenCalled();
+  });
 });

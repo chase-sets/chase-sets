@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const marketplaceListingSchemaSql = `
 CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
   listing_id text PRIMARY KEY,
@@ -111,4 +113,23 @@ CREATE TABLE IF NOT EXISTS marketplace_seller_order_capacity_pages (
   max_open_orders integer NULL CHECK (max_open_orders IS NULL OR max_open_orders > 0),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- marketplace_seller_listing_availability_due_restore_idx moved to the schemaMigrations ledger
+-- (boot-time indexes on migration-added columns are forbidden by the structure gate).
 `;
+
+export const marketplaceListingSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260713_marketplace_seller_listing_availability_due_restore_idx",
+    description:
+      "Auto-resume sweep due-index: a partial index so the sweep's due query scans only accounts " +
+      "that are both away AND carry an authoritative Resume Instant, matching the legacy ruling that " +
+      "a bare availableAgainOn date never participates in automated resume.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_seller_listing_availability_due_restore_idx
+  ON marketplace_seller_listing_availability_pages (available_again_at)
+  WHERE status = 'unavailable' AND available_again_at IS NOT NULL`,
+    ],
+  },
+];

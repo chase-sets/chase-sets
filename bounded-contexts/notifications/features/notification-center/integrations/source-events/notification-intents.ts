@@ -60,6 +60,30 @@ export type RestockDecisionPendingNotificationInput = Readonly<{
   correlationId: string;
 }>;
 
+export type SellerAvailabilityRestoredNotificationInput = Readonly<{
+  sellerAccountId: AccountId;
+  restoredAt: string;
+  correlationId: string;
+}>;
+
+export function mapSellerAvailabilityRestoredToNotification(
+  input: SellerAvailabilityRestoredNotificationInput,
+): NotificationMessage {
+  const actionHref = "/account/selling/listings";
+  return sellerWebNotification({
+    sellerAccountId: input.sellerAccountId,
+    messageType: "marketplace.seller-listing-availability.enabled",
+    criticality: "operational",
+    title: t("notifications.intents.sellerAvailabilityRestored.title"),
+    body: t("notifications.intents.sellerAvailabilityRestored.body"),
+    actionHref,
+    templateId: "seller_availability_restored",
+    templateData: { restoredAt: input.restoredAt, actionHref },
+    idempotencyKey: `notifications:marketplace:seller_availability_restored:${input.sellerAccountId}:${input.restoredAt}`,
+    correlationId: input.correlationId,
+  });
+}
+
 export type PayoutReadinessRegressionNotificationInput = Readonly<{
   sellerAccountId: AccountId;
   sellerEmail?: string | null;
