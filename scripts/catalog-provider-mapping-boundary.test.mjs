@@ -11,6 +11,49 @@ const executableMappingImportPattern = new RegExp(
   String.raw`from ["']\.\/(tcgdex|tcgplayer|scrydex)-executable-mapping-contract["']`,
 );
 
+// Scope-first sync planning boundary: the functions that decide WHICH provider
+// units participate in a Catalog sync scope by default (eligibility + default
+// participation) must derive that decision purely from the canonical scope
+// descriptor (productDomain / productForm / reference.kind / unitKey shape),
+// never from a literal provider-key branch or a raw provider set-name /
+// product-line-name equality check, and never from the opt-in `providerHints`
+// escape hatch (that field stays reserved for translating an ALREADY-selected
+// provider's canonical scope into its own transport-scoped import parameters,
+// asserted separately below).
+const scopePlannerPath = "bounded-contexts/catalog/features/source-observations/api/catalog-sync-scope-planner.ts";
+const scopePlannerDefaultParticipationFunctionNames = [
+  "unitMatchesCatalogSyncScope",
+  "eligibilityBlockers",
+  "unitSupportsReferenceScope",
+];
+const providerKeyLiteralBranchPattern =
+  /\.providerKey\s*(?:===|!==)\s*["'][a-z0-9-]+["']|["'][a-z0-9-]+["']\s*(?:===|!==)\s*[a-zA-Z0-9.]*\.providerKey\b/;
+const rawScopeNameEqualityBranchPattern =
+  /\.(?:setName|productLineName|expansionName)\s*(?:===|!==)\s*["']|["']\s*(?:===|!==)\s*[a-zA-Z0-9.]*\.(?:setName|productLineName|expansionName)\b/;
+
+function extractFunctionSource(content, functionName) {
+  const declarationPattern = new RegExp(String.raw`function\s+${functionName}\s*\(`);
+  const match = declarationPattern.exec(content);
+  if (!match) {
+    throw new Error(`Could not locate function ${functionName} to check the scope-first sync-planning boundary.`);
+  }
+
+  const bodyStart = content.indexOf("{", match.index);
+  let depth = 0;
+  for (let index = bodyStart; index < content.length; index += 1) {
+    if (content[index] === "{") {
+      depth += 1;
+    } else if (content[index] === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return content.slice(match.index, index + 1);
+      }
+    }
+  }
+
+  throw new Error(`Could not find the closing brace for function ${functionName}.`);
+}
+
 describe("Catalog provider mapping boundaries", () => {
   it("keeps Source Observation runtime independent from concrete provider profile constants", () => {
     const content = readFileSync(runtimePath, "utf8");
@@ -41,5 +84,88 @@ describe("Catalog provider mapping boundaries", () => {
       expect(content, filePath).not.toContain("tcgplayerAutomationClientProviderProfile");
       expect(content, filePath).not.toContain("scrydexScryfallCardProviderProfile");
     }
+  });
+});
+
+describe("Catalog scope-first sync-planning boundaries", () => {
+  it("keeps default provider-unit participation matching off provider-key branches and raw scope-name equality", () => {
+    const content = readFileSync(scopePlannerPath, "utf8");
+
+    for (const functionName of scopePlannerDefaultParticipationFunctionNames) {
+      const functionSource = extractFunctionSource(content, functionName);
+
+      expect(functionSource, `${scopePlannerPath}:${functionName}`).not.toMatch(providerKeyLiteralBranchPattern);
+      expect(functionSource, `${scopePlannerPath}:${functionName}`).not.toMatch(rawScopeNameEqualityBranchPattern);
+    }
+  });
+
+  it("keeps default provider-unit participation matching off the providerHints escape hatch", () => {
+    const content = readFileSync(scopePlannerPath, "utf8");
+
+    for (const functionName of scopePlannerDefaultParticipationFunctionNames) {
+      const functionSource = extractFunctionSource(content, functionName);
+
+      expect(functionSource, `${scopePlannerPath}:${functionName}`).not.toContain("providerHints");
+      expect(functionSource, `${scopePlannerPath}:${functionName}`).not.toMatch(/\bhint\??\./);
+    }
+  });
+
+  it("keeps runtime import planning off provider-key branches for scope eligibility (extends the existing boundary)", () => {
+    const content = readFileSync(runtimePath, "utf8");
+
+    expect(content).not.toMatch(providerKeyLiteralBranchPattern);
+  });
+
+  it("[fixture] flags a provider-key literal branch reintroduced into scope-eligibility resolution", () => {
+    const violatingFixture = `
+      function unitMatchesCatalogSyncScope(version, unitKey, scope) {
+        if (version.providerKey === "tcgdex") {
+          return true;
+        }
+        return unitMatchesProductDomain(unitKey, scope.productDomain);
+      }
+    `;
+
+    expect(violatingFixture).toMatch(providerKeyLiteralBranchPattern);
+  });
+
+  it("[fixture] flags a raw set-name/product-line-name equality branch reintroduced into scope-eligibility resolution", () => {
+    const violatingFixture = `
+      function eligibilityBlockers(version, unitKey, scope) {
+        if (version.profile.setName === "Base Set") {
+          return [];
+        }
+        return [blockedBecauseSetNameMismatch];
+      }
+    `;
+
+    expect(violatingFixture).toMatch(rawScopeNameEqualityBranchPattern);
+  });
+
+  it("[fixture] flags providerHints leaking into default provider-unit participation matching", () => {
+    const violatingFixture = `
+      function unitMatchesCatalogSyncScope(version, unitKey, scope) {
+        const hint = scope.providerHints?.find((candidate) => candidate.providerKey === version.providerKey);
+        return Boolean(hint?.setId);
+      }
+    `;
+
+    expect(violatingFixture).toContain("providerHints");
+    expect(violatingFixture).toMatch(/\bhint\??\./);
+  });
+
+  it("keeps clean fixtures free of the forbidden patterns (proves the guard is not vacuously true)", () => {
+    const cleanFixture = `
+      function unitMatchesCatalogSyncScope(version, unitKey, scope) {
+        return (
+          unitMatchesProductDomain(unitKey, scope.productDomain) &&
+          unitSupportsReferenceScope(version, scope.reference.kind)
+        );
+      }
+    `;
+
+    expect(cleanFixture).not.toMatch(providerKeyLiteralBranchPattern);
+    expect(cleanFixture).not.toMatch(rawScopeNameEqualityBranchPattern);
+    expect(cleanFixture).not.toContain("providerHints");
   });
 });
