@@ -459,16 +459,17 @@ async function ensureDevDatabase() {
   await preparePlatformDatabase();
 }
 
-async function runBootstrap() {
+async function runBootstrap(targetName = "all") {
   await runCommand("node", [localEnvScript, "sync"], {
     prefix: "env",
   });
   ensureWorktreeSandboxEnvironment({ rootDir });
   await ensureDevDatabase();
 
+  const bootstrapProcesses = applyDevTargetEnvOverrides(targetName, processes);
   for (const workspace of bootstrapWorkspaces) {
     prefixedConsole("bootstrap", `Running ${workspace} bootstrap...`);
-    const processDefinition = processes.find((definition) => definition.workspace === workspace);
+    const processDefinition = bootstrapProcesses.find((definition) => definition.workspace === workspace);
     const invocation = buildPackageManagerInvocation(["--filter", workspace, "run", "bootstrap"]);
     await runCommand(invocation.command, invocation.args, {
       env: processDefinition?.env ?? {},
@@ -497,7 +498,7 @@ function printDevUrls(targetName, selectedProcesses, includePortal = false) {
 }
 
 async function runDev(targetName = "all") {
-  await runBootstrap();
+  await runBootstrap(targetName);
   const selectedProcesses = applyDevTargetEnvOverrides(targetName, resolveProcessesForTarget(targetName));
   printDevUrls(targetName, selectedProcesses, targetName === "all");
 
@@ -638,13 +639,13 @@ async function runDown() {
   });
 }
 
-async function runRefresh() {
+async function runRefresh(targetName = "all") {
   prefixedConsole("dev", `Destroying sandbox ${sandbox.id} Postgres data...`);
   await runCommand(dockerComposeInvocation.command, [...dockerComposeInvocation.args, "down", "-v"], {
     env: sandboxEnv,
     prefix: "docker",
   });
-  await runBootstrap();
+  await runBootstrap(targetName);
 }
 
 function resolveDockerComposeInvocation(dockerComposeArgs) {
@@ -665,11 +666,11 @@ try {
   if (mode === "dev") {
     await runDev(target);
   } else if (mode === "bootstrap") {
-    await runBootstrap();
+    await runBootstrap(target);
   } else if (mode === "down") {
     await runDown();
   } else if (mode === "refresh") {
-    await runRefresh();
+    await runRefresh(target);
   } else {
     console.error(`Unknown mode "${mode}". Use dev, bootstrap, down, or refresh.`);
     process.exitCode = 1;

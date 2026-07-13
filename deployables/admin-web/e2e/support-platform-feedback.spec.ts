@@ -1,6 +1,6 @@
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
 import {
-  authenticateAdmin,
+  authenticatePlatformAdmin,
   expectAdminWebHydrated,
   expectPageOk,
   skipDeployedAdminE2e,
@@ -15,7 +15,7 @@ test.describe("support admin platform feedback", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/support/platform-feedback", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/support/platform-feedback", "/access/sign-in");
 
     await expectPageOk(page, "/support/platform-feedback?status=new");
     await expect(page).toHaveURL(/\/support\/platform-feedback\?status=new$/);

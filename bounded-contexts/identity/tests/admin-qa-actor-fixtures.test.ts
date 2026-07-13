@@ -50,16 +50,34 @@ function createServices(existingIds: ReadonlySet<string> = new Set()) {
 
 describe("admin-qa actor fixtures", () => {
   it("defines exactly the actor aliases and sign-in hosts the staging QA actor matrix requires", () => {
-    expect(ADMIN_QA_ACTOR_FIXTURES.map((fixture) => [fixture.actorAlias, fixture.roleKey, fixture.signInHost])).toEqual(
+    expect(
+      ADMIN_QA_ACTOR_FIXTURES.map((fixture) => [
+        fixture.actorAlias,
+        fixture.roleKey,
+        fixture.signInHost,
+        fixture.capabilities,
+      ]),
+    ).toEqual([
       [
-        ["admin-qa-platform-admin", "platform-admin", "/access/sign-in"],
-        ["admin-qa-owner", "owner", "/access/sign-in"],
-        ["admin-qa-manager", "manager", "/access/sign-in"],
-        ["admin-qa-fulfillment", "fulfillment", "/access/sign-in"],
-        ["admin-qa-viewer", "viewer", "/access/sign-in"],
-        ["admin-qa-catalog-admin", "manager", "/catalog/sign-in"],
+        "admin-qa-platform-admin",
+        "platform-admin",
+        "/access/sign-in",
+        ["customer-submit", "staff-view", "staff-manage", "staff-export"],
       ],
-    );
+      ["admin-qa-owner", "owner", "/access/sign-in", ["customer-submit"]],
+      ["admin-qa-manager", "manager", "/access/sign-in", ["customer-submit"]],
+      ["admin-qa-fulfillment", "fulfillment", "/access/sign-in", ["customer-submit"]],
+      ["admin-qa-viewer", "viewer", "/access/sign-in", ["customer-submit"]],
+      ["admin-qa-catalog-admin", "manager", "/catalog/sign-in", ["customer-submit"]],
+    ]);
+  });
+
+  it("does not give ordinary account roles staff feedback capabilities", () => {
+    expect(
+      ADMIN_QA_ACTOR_FIXTURES.filter((fixture) => fixture.roleKey !== "platform-admin").every(
+        (fixture) => fixture.capabilities.length === 1 && fixture.capabilities[0] === "customer-submit",
+      ),
+    ).toBe(true);
   });
 
   it("creates every fixture when none exist yet, using magic-link auth and platform-bootstrap authority for platform-admin", async () => {
@@ -139,6 +157,7 @@ describe("admin-qa actor fixtures", () => {
       expect(Object.keys(result).sort()).toEqual(
         [
           "actorAlias",
+          "capabilities",
           "createdAccount",
           "createdConsent",
           "createdMembership",

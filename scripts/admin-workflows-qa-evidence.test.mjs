@@ -209,6 +209,7 @@ describe("admin workflows QA evidence", () => {
         coveredActors: ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX,
         missingActors: [],
         hostMismatches: [],
+        removedActors: [],
       },
     });
   });
@@ -280,6 +281,31 @@ describe("admin workflows QA evidence", () => {
     expect(evidence.guidance).toContain(
       "Add the missing support-safe actor aliases and intended sign-in hosts before closing #3016.",
     );
+  });
+
+  it("rejects the retired platform-feedback partial actor instead of restoring ordinary-role access", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3016.md");
+    await writeFile(
+      evidenceFile,
+      [
+        "Environment: staging admin-web",
+        "Actor alias: admin-qa-platform-feedback-view",
+        "Sign-in host: /access/sign-in",
+        "Observed: retired operator actor alias was supplied.",
+      ].join("\n"),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      checkedAt,
+      requireActorMatrixCoverage: true,
+    });
+
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.actorMatrix.removedActors).toEqual([
+      { actorAlias: "admin-qa-platform-feedback-view", severity: "blocker" },
+    ]);
   });
 
   it("fails strict cross-cutting evidence when responsive or state coverage is missing", async () => {

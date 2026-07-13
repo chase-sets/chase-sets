@@ -37,7 +37,9 @@ export {
 } from "./support/runtime-support/production-bootstrap";
 export {
   ADMIN_QA_ACTOR_FIXTURES,
+  ADMIN_QA_ACTOR_FIXTURE_CAPABILITIES,
   provisionAdminQaActorFixtures,
+  type AdminQaActorFixtureCapability,
   type AdminQaActorFixtureDefinition,
   type AdminQaActorFixtureResult,
   type AdminQaActorFixtureSignInHost,

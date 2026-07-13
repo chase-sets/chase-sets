@@ -7,10 +7,20 @@ const ADMIN_QA_ACTOR_FIXTURES_SEEDED_AT = "2026-07-13T00:00:00.000Z";
 
 export type AdminQaActorFixtureSignInHost = "/access/sign-in" | "/catalog/sign-in";
 
+export type AdminQaActorFixtureCapability = "customer-submit" | "staff-view" | "staff-manage" | "staff-export";
+
+export const ADMIN_QA_ACTOR_FIXTURE_CAPABILITIES: readonly AdminQaActorFixtureCapability[] = [
+  "customer-submit",
+  "staff-view",
+  "staff-manage",
+  "staff-export",
+] as const;
+
 export type AdminQaActorFixtureDefinition = Readonly<{
   actorAlias: string;
   roleKey: RoleKey;
   signInHost: AdminQaActorFixtureSignInHost;
+  capabilities: readonly AdminQaActorFixtureCapability[];
   accountId: AccountId;
   userId: UserId;
   membershipId: MembershipId;
@@ -26,6 +36,7 @@ export type AdminQaActorFixtureResult = Readonly<{
   actorAlias: string;
   roleKey: RoleKey;
   signInHost: AdminQaActorFixtureSignInHost;
+  capabilities: readonly AdminQaActorFixtureCapability[];
   createdAccount: boolean;
   createdUser: boolean;
   createdMembership: boolean;
@@ -35,8 +46,11 @@ export type AdminQaActorFixtureResult = Readonly<{
 /**
  * Support-safe staging actor fixtures for the Admin Workflows Staging QA
  * actor matrix. Every alias maps 1:1 to a full role grant that the Identity
- * membership model can actually express today. The Admin Shell Smoke
- * Matrix's single-permission partial-actor rows (`security.manage` only,
+ * membership model can actually express today. Customer feedback submission
+ * is an authenticated-subject capability, not an operator permission. Staff
+ * feedback view/manage/export is platform-admin-only; ordinary account roles
+ * deliberately have none of those operator capabilities. The Admin Shell
+ * Smoke Matrix's single-permission partial-actor rows (`security.manage` only,
  * `memberships.view` only, etc.) are intentionally excluded: Identity only
  * grants whole roles (`ROLE_KEYS`), not scoped single-permission
  * memberships, so those rows stay local-only regression guardrails per
@@ -48,6 +62,7 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
     actorAlias: "admin-qa-platform-admin",
     roleKey: "platform-admin",
     signInHost: "/access/sign-in",
+    capabilities: ["customer-submit", "staff-view", "staff-manage", "staff-export"],
     accountId: "acc_admin_qa_platform_admin" as AccountId,
     userId: "usr_admin_qa_platform_admin" as UserId,
     membershipId: "mbr_admin_qa_platform_admin" as MembershipId,
@@ -62,6 +77,7 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
     actorAlias: "admin-qa-owner",
     roleKey: "owner",
     signInHost: "/access/sign-in",
+    capabilities: ["customer-submit"],
     accountId: "acc_admin_qa_owner" as AccountId,
     userId: "usr_admin_qa_owner" as UserId,
     membershipId: "mbr_admin_qa_owner" as MembershipId,
@@ -76,6 +92,7 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
     actorAlias: "admin-qa-manager",
     roleKey: "manager",
     signInHost: "/access/sign-in",
+    capabilities: ["customer-submit"],
     accountId: "acc_admin_qa_manager" as AccountId,
     userId: "usr_admin_qa_manager" as UserId,
     membershipId: "mbr_admin_qa_manager" as MembershipId,
@@ -90,6 +107,7 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
     actorAlias: "admin-qa-fulfillment",
     roleKey: "fulfillment",
     signInHost: "/access/sign-in",
+    capabilities: ["customer-submit"],
     accountId: "acc_admin_qa_fulfillment" as AccountId,
     userId: "usr_admin_qa_fulfillment" as UserId,
     membershipId: "mbr_admin_qa_fulfillment" as MembershipId,
@@ -104,6 +122,7 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
     actorAlias: "admin-qa-viewer",
     roleKey: "viewer",
     signInHost: "/access/sign-in",
+    capabilities: ["customer-submit"],
     accountId: "acc_admin_qa_viewer" as AccountId,
     userId: "usr_admin_qa_viewer" as UserId,
     membershipId: "mbr_admin_qa_viewer" as MembershipId,
@@ -118,6 +137,7 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
     actorAlias: "admin-qa-catalog-admin",
     roleKey: "manager",
     signInHost: "/catalog/sign-in",
+    capabilities: ["customer-submit"],
     accountId: "acc_admin_qa_catalog_admin" as AccountId,
     userId: "usr_admin_qa_catalog_admin" as UserId,
     membershipId: "mbr_admin_qa_catalog_admin" as MembershipId,
@@ -244,6 +264,7 @@ async function provisionAdminQaActorFixture(
     actorAlias: fixture.actorAlias,
     roleKey: fixture.roleKey,
     signInHost: fixture.signInHost,
+    capabilities: fixture.capabilities,
     createdAccount,
     createdUser,
     createdMembership,
