@@ -1,3 +1,4 @@
+import { normalizedObservation } from "../../../support/test-support/source-observation-fixtures";
 import { describe, expect, it } from "vitest";
 import type { SourceObservationNormalized } from "../domain/domain";
 import type { SourceObservationListRow } from "../read-model/queries";
@@ -184,12 +185,9 @@ function observationRow(
   externalKey: string,
   overrides: Partial<PokemonObservation> = {},
 ): SourceObservationListRow {
-  const normalized: PokemonObservation = {
-    kind: "pokemon-card",
-    tcg: "pokemon",
-    languageCode: "en",
+  const normalized = normalizedObservation({
     name: "Charizard ex",
-    cardNumber: "054/091",
+    cardNumber: overrides.cardNumber ?? "054/091",
     setId: "sv2",
     setName: "Paldea Evolved",
     expansionId: "sv2",
@@ -203,11 +201,8 @@ function observationRow(
     illustrator: null,
     releaseDate: "2023-06-09",
     releaseYear: 2023,
-    category: "Pokemon",
     imageBaseUrl: null,
     imageUrls: ["https://images.example/cards/sv2-054.png"],
-    productAssetSet: null,
-    parallelSet: false,
     cardVariantKey: "standard",
     cardVariantLabel: "Standard",
     cardVariantSourceKey: "normal",
@@ -223,10 +218,8 @@ function observationRow(
       languageCode: "en",
       productForm: "pokemon-card",
     },
-    externalCatalogItemReferences: [],
-    externalProductReferences: [],
     ...overrides,
-  };
+  });
 
   return {
     observation_id: observationId,

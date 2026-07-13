@@ -192,7 +192,7 @@ Admin durable job/status non-example:
 - Destination route: durable job/status or operator control-plane page.
 - Strategy: durable job/status snapshot plus realtime correction.
 - Rule: do not add browser `postWriteHandoff` metadata. Operators need job ids, status rows, progress events, retries, and diagnostics that outlive a short browser receipt.
-- Evidence: `bounded-contexts/catalog/features/source-observations/api/route-integration-jobs.test.ts` and `bounded-contexts/catalog/tests/admin-integrations-route.test.tsx`.
+- Evidence: `bounded-contexts/catalog/features/source-observations/api/route-integration-jobs.test.ts` and `bounded-contexts/catalog/tests/admin-integrations-route-action.test.tsx`.
 
 ## Guardrails And Checks
 

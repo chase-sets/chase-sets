@@ -43,7 +43,8 @@
     "route-support",
     "runtime-support",
     "seed-support",
-    "shell-support"
+    "shell-support",
+    "test-support"
   ],
   "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [],
@@ -637,6 +638,11 @@
         "reference-data",
         "source-observations"
       ]
+    },
+    "test-support": {
+      "classification": "support",
+      "purpose": "Provide reusable test fixture builders shared by Catalog source-observation tests.",
+      "expectedConsumers": ["source-observations"]
     },
     "routes": {
       "classification": "routes",

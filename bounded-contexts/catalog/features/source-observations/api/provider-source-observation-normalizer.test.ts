@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizedObservation } from "../../../support/test-support/source-observation-fixtures";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import { normalizeSourceObservationNaturalKeys, type SourceObservationPokemonCardNormalized } from "../domain/domain";
 import type {
@@ -232,37 +233,37 @@ describe("provider Source Observation normalizer", () => {
       number: "0136",
       set: { id: "swsh3", name: "Darkness Ablaze" },
     };
-    const normalized = normalizeSourceObservationNaturalKeys({
-      kind: "pokemon-card",
-      tcg: "pokemon",
-      languageCode: "EN-us",
-      name: pokemonTcgPayload.name,
-      cardNumber: pokemonTcgPayload.number,
-      setId: pokemonTcgPayload.set.id,
-      setName: pokemonTcgPayload.set.name,
-      expansionId: pokemonTcgPayload.set.id,
-      expansionName: pokemonTcgPayload.set.name,
-      expansionAbbreviation: "DAA",
-      expansionCardCount: 189,
-      expansionParallelSetCardCount: null,
-      seriesId: "swsh",
-      seriesName: "Sword & Shield",
-      rarity: "Uncommon",
-      illustrator: "tetsuya koizumi",
-      releaseDate: "2020-08-14",
-      releaseYear: 2020,
-      category: "Pokemon",
-      imageBaseUrl: null,
-      imageUrls: [],
-      productAssetSet: null,
-      parallelSet: false,
-      cardVariantKey: "standard",
-      cardVariantLabel: "Standard",
-      cardVariantSourceKey: null,
-      cardVariantIsPrimaryImage: true,
-      imageDisclaimer: null,
-      variants: {},
-    } satisfies SourceObservationPokemonCardNormalized);
+    const normalized = normalizeSourceObservationNaturalKeys(
+      normalizedObservation({
+        languageCode: "EN-us",
+        name: pokemonTcgPayload.name,
+        cardNumber: pokemonTcgPayload.number,
+        setId: pokemonTcgPayload.set.id,
+        setName: pokemonTcgPayload.set.name,
+        expansionId: pokemonTcgPayload.set.id,
+        expansionName: pokemonTcgPayload.set.name,
+        expansionAbbreviation: "DAA",
+        expansionCardCount: 189,
+        expansionParallelSetCardCount: null,
+        seriesId: "swsh",
+        seriesName: "Sword & Shield",
+        rarity: "Uncommon",
+        illustrator: "tetsuya koizumi",
+        releaseDate: "2020-08-14",
+        releaseYear: 2020,
+        category: "Pokemon",
+        imageBaseUrl: null,
+        imageUrls: [],
+        productAssetSet: null,
+        parallelSet: false,
+        cardVariantKey: "standard",
+        cardVariantLabel: "Standard",
+        cardVariantSourceKey: null,
+        cardVariantIsPrimaryImage: true,
+        imageDisclaimer: null,
+        variants: {},
+      }) satisfies SourceObservationPokemonCardNormalized,
+    );
 
     expect(normalized).toMatchObject({ languageCode: "en-US", cardNumber: "136" });
   });
