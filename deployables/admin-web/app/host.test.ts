@@ -76,12 +76,6 @@ describe("admin web host context registry", () => {
       children: [
         { key: "integrations-import", label: "Import", icon: "refreshCcw", href: "/catalog/integrations" },
         {
-          key: "integrations-providers",
-          label: "Provider setup",
-          icon: "settings",
-          href: "/catalog/integrations/providers",
-        },
-        {
           key: "integrations-settings",
           label: "Settings",
           icon: "shield",

@@ -284,9 +284,9 @@
           "section": "catalog"
         },
         {
-          "routeId": "integrations-providers",
-          "routePath": "integrations/providers",
-          "fileExport": "./routes/admin/integrations-providers",
+          "routeId": "provider-detail",
+          "routePath": "providers/:providerKey",
+          "fileExport": "./routes/admin/catalog-provider-detail",
           "routeType": "route",
           "sourceContext": "catalog",
           "section": "catalog"
@@ -484,15 +484,6 @@
           "icon": "refreshCcw",
           "href": "/integrations",
           "order": 10,
-          "visibility": "signed-in",
-          "requiredPermissions": ["catalog.view"]
-        },
-        {
-          "key": "integrations-providers",
-          "label": "Provider setup",
-          "icon": "settings",
-          "href": "/integrations/providers",
-          "order": 20,
           "visibility": "signed-in",
           "requiredPermissions": ["catalog.view"]
         },

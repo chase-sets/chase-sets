@@ -4,7 +4,7 @@ import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CatalogApiError } from "../client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
-import { loader as providersLoader, action as providerSetupAction } from "../routes/admin/integrations-providers";
+import { loader as providersLoader, action as providerDetailAction } from "../routes/admin/catalog-provider-detail";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../features/source-observations/ui/primary-workbench-read-model";
@@ -29,8 +29,7 @@ import {
   lorcastLorcanaProfileReview,
   runDailyAction,
   runDailyActionRedirect,
-  runGovernanceAction,
-  runProviderSetupAction,
+  runProviderDetailAction,
   scrydexLorcanaImportPreview,
   scrydexLorcanaProfileReview,
   scrydexOnePieceImportPreview,
@@ -654,7 +653,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
-    const response = await runProviderSetupAction({
+    const response = await runProviderDetailAction({
       _intent: "clone-provider-profile",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
@@ -673,10 +672,11 @@ describe("Catalog integrations route", () => {
       lifecycle: "draft",
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/catalog/integrations/providers");
-    expect(response.headers.get("Location")).toContain("providerKey=tcgdex");
+    expect(response.headers.get("Location")).toContain("/catalog/providers/tcgdex");
     expect(response.headers.get("Location")).toContain("profileVersion=2026.06.04-draft");
-    expect(response.headers.get("Location")).toContain("selectedObservationIds=obs_001");
+    // The v2 Provider detail page carries only entity references (providerKey,
+    // profileVersion) — no daily-review selection/preview state (#3832).
+    expect(response.headers.get("Location")).not.toContain("selectedObservationIds=");
     expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
     expect(response.headers.get("Location")).toContain("commandStatus=success");
     expect(response.headers.get("Location")).toContain("commandResult=draft-created");
@@ -698,7 +698,7 @@ describe("Catalog integrations route", () => {
     const cloneSourceObservationProviderProfile = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({ cloneSourceObservationProviderProfile });
 
-    const response = await runProviderSetupAction({
+    const response = await runProviderDetailAction({
       _intent: "clone-provider-profile",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
@@ -712,7 +712,7 @@ describe("Catalog integrations route", () => {
 
     expect(cloneSourceObservationProviderProfile).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/catalog/integrations/providers");
+    expect(response.headers.get("Location")).toContain("/catalog/providers/tcgdex");
     expect(response.headers.get("Location")).toContain("commandStatus=error");
     expect(response.headers.get("Location")).toContain("commandResult=invalid-intent");
   });
@@ -735,7 +735,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
-    const response = await runProviderSetupAction({
+    const response = await runProviderDetailAction({
       _intent: "update-provider-profile-section",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
@@ -766,7 +766,7 @@ describe("Catalog integrations route", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/catalog/integrations/providers");
+    expect(response.headers.get("Location")).toContain("/catalog/providers/tcgdex");
     expect(response.headers.get("Location")).toContain("profileVersion=2026.06.04-draft");
     expect(response.headers.get("Location")).toContain("commandResult=section-saved");
     expect(response.headers.get("Location")).toContain("commandSection=basics");
@@ -800,7 +800,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
-    const response = await runProviderSetupAction(
+    const response = await runProviderDetailAction(
       {
         _intent: "update-provider-profile-section",
         providerKey: "tcgdex",
@@ -815,7 +815,7 @@ describe("Catalog integrations route", () => {
         migrationRecordedAt: "2026-06-11T00:00:00.000Z",
         promotionPreviewId: "preview-stale",
       },
-      "https://admin.example/catalog/integrations?section=readiness&providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04",
+      "https://admin.example/catalog/providers/tcgdex?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04",
     );
 
     expect(updateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
@@ -834,19 +834,23 @@ describe("Catalog integrations route", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/catalog/integrations/providers");
-    expect(response.headers.get("Location")).toContain("section=readiness");
+    expect(response.headers.get("Location")).toContain("/catalog/providers/tcgdex");
     expect(response.headers.get("Location")).toContain("commandResult=section-saved");
     expect(response.headers.get("Location")).toContain("commandSection=migration-evidence");
-    expect(response.headers.get("Location")).not.toContain("section=profile-work");
     expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
+    // provider-setup-command-handler.ts's migration-evidence special case keys
+    // off an incoming context.section === "validation-readiness", which can no
+    // longer be parsed from a URL (#3832 retires that workspace key), so this
+    // section save now always returns the profile-authoring detour target. The
+    // v2 page's own action ignores this field for routing — it always redirects
+    // to itself — so this is a telemetry-label detail, not a behavior change.
     expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventName: "catalog_control_plane.profile_section_saved",
         providerKey: "tcgdex",
         profileRef: "tcgdex:2026.06.04",
         promotionResult: "section-saved",
-        detourTarget: "validation-readiness",
+        detourTarget: "profile-authoring",
         detourOutcome: "returned",
       }),
     );
@@ -864,7 +868,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
-    const response = await runProviderSetupAction(
+    const response = await runProviderDetailAction(
       {
         _intent: "activate-provider-profile",
         providerKey: "tcgdex",
@@ -874,16 +878,14 @@ describe("Catalog integrations route", () => {
         selectedObservationIds: "obs_001",
         promotionPreviewId: "preview-stale",
       },
-      "https://admin.example/catalog/integrations?section=readiness&providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04",
+      "https://admin.example/catalog/providers/tcgdex?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04",
     );
 
     expect(activateSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.04");
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/catalog/integrations/providers");
-    expect(response.headers.get("Location")).toContain("section=readiness");
-    expect(response.headers.get("Location")).toContain("providerKey=tcgdex");
+    expect(response.headers.get("Location")).toContain("/catalog/providers/tcgdex");
     expect(response.headers.get("Location")).toContain("profileVersion=2026.06.04");
-    expect(response.headers.get("Location")).toContain("selectedObservationIds=obs_001");
+    expect(response.headers.get("Location")).not.toContain("selectedObservationIds=");
     expect(response.headers.get("Location")).toContain("commandStatus=success");
     expect(response.headers.get("Location")).toContain("commandResult=profile-activated");
     expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
@@ -925,9 +927,8 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
-    const lifecycleUrl =
-      "https://admin.example/catalog/integrations?section=lifecycle&providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1";
-    const rollbackResponse = await runGovernanceAction(
+    const lifecycleUrl = "https://admin.example/catalog/providers/tcgdex";
+    const rollbackResponse = await runProviderDetailAction(
       {
         _intent: "rollback-provider-profile",
         providerKey: "tcgdex",
@@ -938,7 +939,7 @@ describe("Catalog integrations route", () => {
       },
       lifecycleUrl,
     );
-    const deprecateResponse = await runGovernanceAction(
+    const deprecateResponse = await runProviderDetailAction(
       {
         _intent: "deprecate-provider-profile",
         providerKey: "tcgdex",
@@ -947,7 +948,7 @@ describe("Catalog integrations route", () => {
       },
       lifecycleUrl,
     );
-    const retireResponse = await runGovernanceAction(
+    const retireResponse = await runProviderDetailAction(
       {
         _intent: "retire-provider-profile",
         providerKey: "tcgdex",
@@ -960,11 +961,7 @@ describe("Catalog integrations route", () => {
     expect(rollbackSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.03");
     expect(deprecateSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.04");
     expect(retireSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.02");
-    expect(rollbackResponse.headers.get("Location")).toContain("/catalog/integrations/governance");
-    // Lifecycle recovery is now the governance surface's default workspace
-    // (conflict resolution, formerly first, is retired), so the redirect's
-    // canonical URL omits ?section= entirely instead of naming it explicitly.
-    expect(rollbackResponse.headers.get("Location")).not.toContain("section=");
+    expect(rollbackResponse.headers.get("Location")).toContain("/catalog/providers/tcgdex");
     expect(rollbackResponse.headers.get("Location")).toContain("commandResult=profile-rolled-back");
     expect(rollbackResponse.headers.get("Location")).not.toContain("promotionPreviewId=");
     expect(deprecateResponse.headers.get("Location")).toContain("commandResult=profile-deprecated");
@@ -999,7 +996,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
-    const response = await runGovernanceAction(
+    const response = await runProviderDetailAction(
       {
         _intent: "retire-provider-profile",
         providerKey: "tcgdex",
@@ -1007,13 +1004,12 @@ describe("Catalog integrations route", () => {
         importScope: "en:3:base:base1",
         profileVersion: "2026.06.02",
       },
-      "https://admin.example/catalog/integrations?section=lifecycle&providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      "https://admin.example/catalog/providers/tcgdex",
     );
 
     expect(retireSourceObservationProviderProfile).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/catalog/integrations/governance");
-    expect(response.headers.get("Location")).not.toContain("section=");
+    expect(response.headers.get("Location")).toContain("/catalog/providers/tcgdex");
     expect(response.headers.get("Location")).toContain("commandStatus=error");
     expect(response.headers.get("Location")).toContain("commandResult=confirmation-required");
     expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
@@ -1039,7 +1035,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
-    const response = await runGovernanceAction(
+    const response = await runProviderDetailAction(
       {
         _intent: "retire-provider-profile",
         providerKey: "tcgdex",
@@ -1049,12 +1045,11 @@ describe("Catalog integrations route", () => {
         lifecycleConfirmation: lifecycleConfirmationValue("retire-provider-profile", "tcgdex", "2026.06.02"),
         promotionPreviewId: "preview-stale",
       },
-      "https://admin.example/catalog/integrations?section=lifecycle&providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      "https://admin.example/catalog/providers/tcgdex",
     );
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/catalog/integrations/governance");
-    expect(response.headers.get("Location")).not.toContain("section=");
+    expect(response.headers.get("Location")).toContain("/catalog/providers/tcgdex");
     expect(response.headers.get("Location")).toContain("commandStatus=error");
     expect(response.headers.get("Location")).toContain("commandResult=lifecycle-conflict");
     expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
@@ -1087,7 +1082,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
     });
 
-    const conflictResponse = await runProviderSetupAction({
+    const conflictResponse = await runProviderDetailAction({
       _intent: "update-provider-profile-section",
       providerKey: "tcgdex",
       profileVersion: "2026.06.04-draft",
@@ -1096,7 +1091,7 @@ describe("Catalog integrations route", () => {
       sourceDocumentPath: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
       fixtureSetVersion: "tcgdex-proof-v1",
     });
-    const invalidResponse = await runProviderSetupAction({
+    const invalidResponse = await runProviderDetailAction({
       _intent: "update-provider-profile-section",
       providerKey: "tcgdex",
       profileVersion: "2026.06.04-draft",

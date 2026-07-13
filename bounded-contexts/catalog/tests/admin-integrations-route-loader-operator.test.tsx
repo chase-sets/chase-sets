@@ -4,7 +4,7 @@ import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CatalogApiError } from "../client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
-import { loader as providersLoader, action as providerSetupAction } from "../routes/admin/integrations-providers";
+import { loader as providersLoader, action as providerDetailAction } from "../routes/admin/catalog-provider-detail";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../features/source-observations/ui/primary-workbench-read-model";
@@ -30,7 +30,7 @@ import {
   runDailyAction,
   runDailyActionRedirect,
   runGovernanceAction,
-  runProviderSetupAction,
+  runProviderDetailAction,
   scrydexLorcanaImportPreview,
   scrydexLorcanaProfileReview,
   scrydexOnePieceImportPreview,

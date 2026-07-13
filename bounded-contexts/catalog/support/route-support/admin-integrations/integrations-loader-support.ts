@@ -784,27 +784,6 @@ async function selectedScopeAliasReview(
   }
 }
 
-// Provider profiles + readiness surface (/admin/integrations/providers). Loads
-// the baseline plus the selected provider profile authoring model that the
-// validation readiness slice needs; it does not fetch the review wave or
-// lifecycle impacts.
-export async function loadProvidersSurface({ request }: LoaderFunctionArgs) {
-  const { api, baseline, routeContext } = await loadIntegrationsBaseline(request);
-  const profileAuthoringModel = await selectedProviderProfileAuthoringModel(api, routeContext);
-
-  const surfaceLoad = await finalizeSurfaceLoad({
-    api,
-    request,
-    surface: "providers",
-    baseline,
-    profileAuthoringModel,
-  });
-
-  // The providers surface renders the scheduled source-option refresh panel
-  //, whose pause/resume/run controls are gated on catalog.manage.
-  return { ...surfaceLoad, canManageCatalog: baseline.canManageCatalog };
-}
-
 // Govern-and-recover surface (/admin/integrations/governance). Loads the baseline
 // plus the selected profile lifecycle impacts and authoring model. Lifecycle
 // recovery's activation operation folds in validation readiness, which derives

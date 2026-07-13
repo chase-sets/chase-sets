@@ -84,11 +84,14 @@ describe("Catalog Control Plane information architecture", () => {
   it("covers every operator workflow without making support workflows equal peers", () => {
     const workflows = CATALOG_CONTROL_PLANE_WORKFLOW_MAP.map((entry) => entry.workflow);
 
+    // #3832: profile authoring / validation readiness / lifecycle recovery are
+    // no longer ?section= workspaces on this deprecated IA — they are the v2
+    // Provider detail page's own linear draft -> validate -> activate flow
+    // (information-architecture-v2.ts), so those two workflow entries retire
+    // along with their workspace keys.
     expect(workflows).toEqual([
       "Primary import-to-promotion path",
       "Health triage",
-      "Profile overview, drafting, and section editing",
-      "Validation, dry run, compare, and activation readiness",
       "Imports, jobs, Source Observation review, promotion, reapply, replay",
       "Lifecycle, rollout, RBAC, observability, and audit evidence",
     ]);
@@ -151,7 +154,7 @@ describe("Catalog Control Plane IA <-> render parity", () => {
     }
   });
 
-  it("resolves every supportTarget in primary-workbench-copy to a renderable destination", () => {
+  it("resolves every supportTarget in primary-workbench-copy to a renderable destination or the v2 Provider detail page", () => {
     const copyCollections: readonly Record<string, CatalogPrimaryWorkbenchOperatorCopy>[] = [
       catalogPrimaryWorkbenchCopyMessages,
       catalogPrimaryWorkbenchProviderTransportCopy,
@@ -166,9 +169,18 @@ describe("Catalog Control Plane IA <-> render parity", () => {
       copyCollections.flatMap((collection) => Object.values(collection).map((entry) => entry.supportTarget)),
     );
 
+    // #3832: profile-authoring, validation-readiness, and lifecycle-recovery are
+    // still valid supportTarget values (the copy still needs to say "this blocker
+    // is a profile problem"), but they no longer resolve to a renderer in this
+    // deprecated IA — WorkspaceBlockerPanel deep-links them straight to the v2
+    // Provider detail page (see workbench-formatting.tsx's
+    // PROVIDER_DETAIL_SUPPORT_TARGETS) instead of a ?section= workspace.
+    const providerDetailSupportTargets = new Set(["profile-authoring", "validation-readiness", "lifecycle-recovery"]);
+
     expect(supportTargets.size).toBeGreaterThan(0);
     const unresolved = [...supportTargets].filter(
-      (target) => !rendererKeys.has(target as CatalogControlPlaneWorkspaceKey),
+      (target) =>
+        !providerDetailSupportTargets.has(target) && !rendererKeys.has(target as CatalogControlPlaneWorkspaceKey),
     );
     expect(unresolved).toEqual([]);
   });
@@ -218,10 +230,9 @@ describe("Catalog Control Plane IA <-> render parity", () => {
 describe("Catalog Control Plane route surfaces", () => {
   const rendererKeys = new Set<string>(Object.keys(CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS));
 
-  it("describes the four audience surface routes from the epic #1737 target IA", () => {
+  it("describes the three remaining audience surface routes after #3832 retires the providers surface", () => {
     expect(CATALOG_CONTROL_PLANE_ROUTE_SURFACES.map((surface) => [surface.key, surface.pathSegment])).toEqual([
       ["daily", ""],
-      ["providers", "providers"],
       ["governance", "governance"],
       ["health", "health"],
     ]);
@@ -230,8 +241,7 @@ describe("Catalog Control Plane route surfaces", () => {
       CATALOG_CONTROL_PLANE_ROUTE_SURFACES.map((surface) => [surface.key, surface.workspaces]),
     );
     expect(surfaceWorkspaces.daily).toEqual(["import-to-promotion"]);
-    expect(surfaceWorkspaces.providers).toEqual(["profile-authoring", "validation-readiness"]);
-    expect(surfaceWorkspaces.governance).toEqual(["lifecycle-recovery", "governance-controls"]);
+    expect(surfaceWorkspaces.governance).toEqual(["governance-controls"]);
     expect(surfaceWorkspaces.health).toEqual(["audit-evidence", "health-triage"]);
   });
 

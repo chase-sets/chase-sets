@@ -1,5 +1,5 @@
 import { action } from "../routes/admin/integrations";
-import { action as providerSetupAction } from "../routes/admin/integrations-providers";
+import { action as providerDetailAction } from "../routes/admin/catalog-provider-detail";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
 import { profileReview } from "../features/source-observations/ui/primary-workbench-test-fixtures";
@@ -428,15 +428,23 @@ export function redirectLocation(response: Response): URL {
   return new URL(location, "https://admin.example");
 }
 
-// The provider-setup and governance surfaces own a redirect after their commands;
-// those tests assert on the redirect Response the surface decides from the result.
-export async function runProviderSetupAction(
+// The provider detail page (#3832, /catalog/providers/:providerKey) owns a
+// redirect after every profile command — clone, section edit, activate,
+// rollback, deprecate, retire — back to itself; these tests assert on that
+// redirect Response. providerKey is a path param on the real route, but
+// dispatchIntegrationsCommand reads providerKey from the form body first (see
+// provider-detail-loader.ts), so a fixed default URL is fine here: the
+// provider-scoped assertions all come from the submitted body.
+export async function runProviderDetailAction(
   body: Record<string, string>,
-  url = "https://admin.example/catalog/integrations/providers",
+  url = "https://admin.example/catalog/providers/tcgdex",
 ): Promise<Response> {
-  return providerSetupAction(actionRequest(body, url) as Parameters<typeof providerSetupAction>[0]);
+  return providerDetailAction(actionRequest(body, url) as Parameters<typeof providerDetailAction>[0]);
 }
 
+// The governance surface (conflict resolution, governance controls) owns a
+// redirect after its commands; those tests assert on the redirect Response the
+// surface decides from the result.
 export async function runGovernanceAction(
   body: Record<string, string>,
   url = "https://admin.example/catalog/integrations/governance",

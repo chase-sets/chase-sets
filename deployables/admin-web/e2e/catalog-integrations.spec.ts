@@ -205,7 +205,11 @@ test.describe.serial("catalog admin integrations", () => {
     // The daily route is the group's Import child, so its side-nav link is current and
     // the sibling surface routes are reachable as nested children.
     await expect(page.locator('a[href="/catalog/integrations"]').first()).toHaveAttribute("aria-current", "page");
-    await expect(page.locator('a[href="/catalog/integrations/providers"]').first()).toBeVisible();
+    // #3832: profile authoring, validation readiness, and lifecycle recovery
+    // moved off the "Provider setup" nav child onto the v2 Provider detail
+    // page (/catalog/providers/:providerKey), reached by forward navigation
+    // from a scope/provider list rather than a persistent nav item. Governance
+    // becomes Settings (#3833): the nav child now links to /settings.
     await expect(page.locator('a[href="/catalog/integrations/settings"]').first()).toBeVisible();
     await expect(page.locator('a[href="/catalog/integrations/health"]').first()).toBeVisible();
 
@@ -295,13 +299,12 @@ test.describe.serial("catalog admin integrations", () => {
       await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
       await expect(page.getByRole("button", { name: "Defer" }).first()).toBeVisible();
       await expect(page.getByRole("button", { name: "Clear selection" }).first()).toBeVisible();
-      // #1975: selection now has a single, URL-backed source of truth. Checking a row
-      // persists it straight to the URL via a client GET navigation (no full reload,
-      // no hand-rolled "Save context" round-trip), so the selection survives in-place
-      // revalidation and round-trips to the pager / deep links. The write is a replace
-      // navigation, so poll the URL rather than asserting it synchronously; do NOT wait
-      // for networkidle (the revalidation may defer-stream and never settle).
-      await expect.poll(() => new URL(page.url()).searchParams.get("selectedObservationIds")).not.toBeNull();
+      // #1975/#5116: selection is durable, sessionStorage-backed page state now, not
+      // a URL detour (see primary-workbench-selection-store.ts) -- checking a row
+      // never grows the URL, no matter how large the selection gets. The bar's own
+      // "N observation(s) selected" label (BulkActionBar's formatSelectedLabel) is
+      // the externally-observable proof that the check landed in the working set.
+      await expect(page.getByText(/\d+ observation\(s\) selected/)).toBeVisible();
       // Reject is reason-required, so it lives behind a panel trigger rather than inline.
       const rejectPanelTrigger = page.getByRole("button", { name: "Reject…" });
       await expect(rejectPanelTrigger.first()).toBeVisible();
@@ -311,9 +314,9 @@ test.describe.serial("catalog admin integrations", () => {
       // "Clear selection" tears the bar back down, proving it is selection-scoped.
       await page.getByRole("button", { name: "Clear selection" }).first().click();
       await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
-      // Clearing flows through the same single URL write: the durable selection is
-      // dropped from the URL too (no orphaned selectedObservationIds left behind).
-      await expect.poll(() => new URL(page.url()).searchParams.get("selectedObservationIds")).toBeNull();
+      // Clearing drops the durable sessionStorage-backed working set too (no
+      // orphaned selection survives): the bar and its selected-count label are gone.
+      await expect(page.getByText(/\d+ observation\(s\) selected/)).toHaveCount(0);
     }
 
     // #2600: the review stage is candidate-first. Open a merged candidate's evidence
@@ -457,15 +460,17 @@ test.describe.serial("catalog admin integrations", () => {
       await reviewRowCheckbox.first().check();
       // The bulk bar's "Preview promotion" is the promote command for the
       // selection (`CommandFormButton intent="preview-promotion"`, a real form
-      // submit, not a client-side dialog). Assert the selection round-tripped to
-      // the URL and the command is wired (visible, and either actionably enabled
-      // or carrying its accessible denial reason) without submitting it — the
-      // merge-group seed does not carry promotable observations, so actually
-      // submitting here would exercise an unseeded write path rather than the
-      // composition seam this suite owns. The full submit -> promoted-candidate
-      // path is covered by the vitest merge-candidate-promotion-planner and
-      // primary-workbench-admin-contracts suites.
-      await expect.poll(() => new URL(page.url()).searchParams.get("selectedObservationIds")).not.toBeNull();
+      // submit, not a client-side dialog). Assert the selection landed in the
+      // durable, sessionStorage-backed working set (#5116 -- checking a row never
+      // writes the URL) via the bar's own selected-count label, and that the
+      // command is wired (visible, and either actionably enabled or carrying its
+      // accessible denial reason) without submitting it — the merge-group seed
+      // does not carry promotable observations, so actually submitting here would
+      // exercise an unseeded write path rather than the composition seam this
+      // suite owns. The full submit -> promoted-candidate path is covered by the
+      // vitest merge-candidate-promotion-planner and primary-workbench-admin-contracts
+      // suites.
+      await expect(page.getByText(/\d+ observation\(s\) selected/)).toBeVisible();
       const previewPromotionButton = page.getByRole("button", { name: /Preview promotion/i }).first();
       await expect(previewPromotionButton).toBeVisible();
       const previewPromotionEnabled = await previewPromotionButton.isEnabled();
@@ -636,91 +641,66 @@ test.describe.serial("catalog admin integrations", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
   });
 
-  test("catalog operator can inspect provider setup readiness @catalog-admin-integrations", async ({ page }) => {
+  test("catalog operator can inspect provider setup readiness on the v2 Provider detail page @catalog-admin-integrations", async ({
+    page,
+  }) => {
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/integrations/providers", "/access/sign-in");
+    await authenticateAdmin(page, "/catalog/providers/tcgdex", "/access/sign-in");
 
-    // The provider-setup surface hosts profile authoring and validation readiness as a
-    // single coherent setup route, off the daily flow. Carry a full working set in and
-    // confirm setup -> return-to-daily round-trips provider/unit/scope/profileVersion.
-    // The deep-linked profileVersion here (2026.06.04) is a stale/unknown version — the
-    // exact shape a missing/invalid-profile blocker deep-links so an operator can author
-    // it. The providers loader must recover from the backend's 404 for that version into
+    // #3832: profile authoring, validation readiness, and the profile lifecycle
+    // are one v2 page (/catalog/providers/:providerKey) reached by path param,
+    // not the retired ?section= providers surface. The deep-linked
+    // profileVersion here (2026.06.04) is a stale/unknown version — the exact
+    // shape a missing/invalid-profile blocker carries so an operator can author
+    // it. The loader must recover from the backend's 404 for that version into
     // the absent-authoring-model state and render (HTTP < 400), not surface a 500.
-    await expectPageOk(
-      page,
-      "/catalog/integrations/providers?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.04",
-    );
-    await expect(page).toHaveURL(/\/catalog\/integrations\/providers\?/);
-    // Both provider-setup workspaces render, stacked on the one providers route. Their
-    // headings are structural (information-architecture metadata) and render in the
-    // absent-authoring-model state, so they do not depend on the stale version resolving.
-    await expectVisibleText(page, "Provider profile authoring");
-    await expectVisibleText(page, "Validation readiness");
-    // The providers surface is the nested "Provider setup" child, so its side-nav link is current.
-    await expect(page.locator('a[href="/catalog/integrations/providers"]').first()).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    // The setup workspaces are not part of the daily route's content/navigation: the daily
-    // import-to-promotion workspace heading does not render on the providers surface.
+    await expectPageOk(page, "/catalog/providers/tcgdex?profileVersion=2026.06.04");
+    await expect(page).toHaveURL(/\/catalog\/providers\/tcgdex/);
+    const providerDetailPage = page.locator("[data-catalog-provider-detail='true']");
+    await expect(providerDetailPage).toBeVisible();
+    // The daily import-to-promotion workspace heading does not render on this page.
     await expect(page.getByRole("heading", { name: "Import to promotion workbench" })).toHaveCount(0);
-    // Return-to-daily preserves the full working set on the base /catalog/integrations route.
-    // The providers surface renders its single header "Back to import workbench" affordance
-    // once (not per stacked workspace); when the deep-linked profile version is stale
-    // the profile-authoring empty state also offers a return path, so take the header link
-    // (first in DOM order) explicitly.
-    const backToDailyHref = await page
-      .getByRole("link", { name: "Back to import workbench" })
-      .first()
-      .getAttribute("href");
-    const backToDailyUrl = new URL(backToDailyHref ?? "", new URL(page.url()).origin);
-    expect(backToDailyUrl.pathname).toBe("/catalog/integrations");
-    expect(backToDailyUrl.searchParams.has("section")).toBe(false);
-    expect(backToDailyUrl.searchParams.get("providerKey")).toBe("tcgdex");
-    expect(backToDailyUrl.searchParams.get("unitKey")).toBe("tcgdex:pokemon:card:import");
-    expect(backToDailyUrl.searchParams.get("importScope")).toBe("en:3:base:base1");
-    expect(backToDailyUrl.searchParams.get("profileVersion")).toBe("2026.06.04");
 
     // A resolving provider profile exposes the read-only authoring lifecycle without
     // submitting commands: operators can clone, inspect typed section editors, review
-    // dry-run/readiness evidence, and see the guarded activation command from one setup
-    // surface.
-    await expectPageOk(
-      page,
-      "/catalog/integrations/providers?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.03",
+    // dry-run/readiness evidence, and see the guarded activation command — all on this
+    // one page, with no cross-surface redirect.
+    await expectPageOk(page, "/catalog/providers/tcgdex?profileVersion=2026.06.03");
+    await expect(page).toHaveURL(/\/catalog\/providers\/tcgdex/);
+    await expect(providerDetailPage.getByRole("button", { name: "Create draft" })).toBeVisible();
+    const cloneForm = providerDetailPage.locator(
+      'form[data-catalog-primary-workbench-command="clone-provider-profile"]',
     );
-    await expect(page).toHaveURL(/\/catalog\/integrations\/providers\?/);
-    const providerProfileWorkspace = page.locator("[data-catalog-profile-authoring-workspace='true']");
-    await expect(providerProfileWorkspace).toBeVisible();
-    await expect(providerProfileWorkspace.getByRole("button", { name: "Create draft" })).toBeVisible();
-    await expect(
-      providerProfileWorkspace.locator('form[data-catalog-primary-workbench-command="clone-provider-profile"]'),
-    ).toHaveCount(1);
+    await expect(cloneForm).toHaveCount(1);
+    await expect(new URL((await cloneForm.getAttribute("action")) ?? "", new URL(page.url()).origin)).toEqual(
+      expect.objectContaining({ pathname: "/catalog/providers/tcgdex" }),
+    );
     await expect
       .poll(() =>
-        page.locator('form[data-catalog-primary-workbench-command="update-provider-profile-section"]').count(),
+        providerDetailPage
+          .locator('form[data-catalog-primary-workbench-command="update-provider-profile-section"]')
+          .count(),
       )
       .toBeGreaterThan(0);
 
-    const validationWorkspace = page.locator("[data-catalog-validation-readiness-workspace='true']");
-    await expect(validationWorkspace).toBeVisible();
-    await expect(validationWorkspace.getByRole("heading", { name: "Provider readiness" })).toBeVisible();
-    await expect(validationWorkspace.getByRole("heading", { name: "Dry-run evidence" })).toBeVisible();
-    await expect(validationWorkspace.getByRole("heading", { name: "Activation readiness" })).toBeVisible();
-    await expect(validationWorkspace.getByRole("heading", { name: "Activation decision" })).toBeVisible();
-    await expect(page.locator('form[data-catalog-validation-evidence-form="true"]')).toHaveCount(1);
-    await expect(page.locator('form[data-catalog-activate-profile-form="true"]')).toHaveCount(1);
-    await expect(page.getByRole("button", { name: "Save migration evidence" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Activate profile" })).toBeVisible();
+    await expect(providerDetailPage.getByRole("heading", { name: "Provider readiness" })).toBeVisible();
+    await expect(providerDetailPage.getByRole("heading", { name: "Dry-run evidence" })).toBeVisible();
+    await expect(providerDetailPage.getByRole("heading", { name: "Activation readiness" })).toBeVisible();
+    await expect(providerDetailPage.getByRole("heading", { name: "Activation decision" })).toBeVisible();
+    await expect(providerDetailPage.getByRole("button", { name: "Save migration evidence" })).toBeVisible();
+    await expect(providerDetailPage.getByRole("button", { name: "Activate profile" })).toBeVisible();
+
+    // Rollback/deprecate/retire are row-level lifecycle actions on this same page.
+    await expect(providerDetailPage.getByRole("heading", { name: "Deprecate profile" })).toBeVisible();
+    await expect(providerDetailPage.getByRole("heading", { name: "Retire profile" })).toBeVisible();
   });
 
-  test("catalog operator can inspect governance and lifecycle controls @catalog-admin-integrations", async ({
+  test("catalog operator can inspect governance controls and health triage deep links @catalog-admin-integrations", async ({
     page,
   }) => {
     test.setTimeout(120_000);
@@ -731,10 +711,11 @@ test.describe.serial("catalog admin integrations", () => {
 
     await authenticateAdmin(page, "/catalog/integrations/governance", "/access/sign-in");
 
-    // The governance-and-recovery surface hosts conflict resolution, lifecycle recovery,
-    // and governance controls as rare, privileged ops off the daily route. The daily flow's
-    // slim denied/stopped indicator deep-links here (section=controls) carrying return
-    // context. Land on that exact deep-link shape — including a stale/unknown profileVersion,
+    // The governance surface hosts governance controls as a rare, privileged op off
+    // the daily route (conflict resolution and lifecycle recovery moved elsewhere; see
+    // below). The daily flow's slim denied/stopped indicator deep-links here
+    // (section=controls) carrying return context. Land on that exact deep-link shape
+    // — including a stale/unknown profileVersion,
     // the shape a missing/invalid-profile blocker carries — and confirm the governance loader
     // recovers from the backend's 404 into the absent-authoring-model state and renders
     // (HTTP < 400) rather than surfacing a 500.
@@ -743,10 +724,11 @@ test.describe.serial("catalog admin integrations", () => {
       "/catalog/integrations/governance?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.04&section=controls",
     );
     await expect(page).toHaveURL(/\/catalog\/integrations\/governance\?/);
-    // Both remaining govern-and-recover workspaces render, stacked on the one
-    // governance route. Conflict resolution is retired as a standalone workspace:
-    // blocking conflicts now resolve inline in the merge candidate review drawer.
-    await expectVisibleText(page, "Lifecycle recovery");
+    // Governance controls is the governance surface's sole workspace now.
+    // Conflict resolution is retired as a standalone workspace: blocking
+    // conflicts now resolve inline in the merge candidate review drawer, and
+    // lifecycle recovery (rollback/deprecate/retire) moved off this surface
+    // onto the v2 Provider detail page (see the provider-detail test above).
     await expectVisibleText(page, "Governance controls");
     // The governance surface is the nested "Settings" child, so its side-nav link is
     // current — even though this deep link used the pre-existing /governance path.
@@ -756,8 +738,8 @@ test.describe.serial("catalog admin integrations", () => {
     );
     // The full RBAC / kill-switch / observability panel lives here, not on the daily route.
     await expect(page.getByRole("heading", { name: "RBAC action matrix" })).toBeVisible();
-    // The governance surface stacks three workspaces but renders the "Back to import
-    // workbench" affordance exactly once, in the surface header; it preserves the working set.
+    // The governance surface renders the "Back to import workbench" affordance
+    // exactly once, in the surface header; it preserves the working set.
     const governanceBackLinks = page.getByRole("link", { name: "Back to import workbench" });
     await expect(governanceBackLinks).toHaveCount(1);
     const backFromGovernanceHref = await governanceBackLinks.getAttribute("href");
@@ -809,43 +791,6 @@ test.describe.serial("catalog admin integrations", () => {
           "magicProductionSignoffReference, so this env-gated control is legitimately absent.",
       );
     }
-
-    // With a resolving profile selected, lifecycle recovery renders the rollback,
-    // deprecate, and retire command forms with confirmation and complete-removal evidence.
-    // The test deliberately does not submit the forms.
-    await expectPageOk(
-      page,
-      "/catalog/integrations/governance?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.03&section=lifecycle",
-    );
-    await expect(page).toHaveURL(/\/catalog\/integrations\/governance\?.*section=lifecycle/);
-    const lifecycleWorkspace = page.locator("[data-catalog-lifecycle-recovery-workspace='true']");
-    await expect(lifecycleWorkspace).toBeVisible();
-    await expect(lifecycleWorkspace.getByRole("heading", { name: "Rollback profile" })).toBeVisible();
-    await expect(lifecycleWorkspace.getByRole("heading", { name: "Deprecate profile" })).toBeVisible();
-    await expect(lifecycleWorkspace.getByRole("heading", { name: "Retire profile" })).toBeVisible();
-    await expect(lifecycleWorkspace.getByText("Retirement removes the profile behavior")).toBeVisible();
-    await expect(
-      lifecycleWorkspace.getByText(/Retiring a provider profile removes its mapping and promotion behavior/i),
-    ).toBeVisible();
-    await expect(page.locator('form[data-catalog-lifecycle-command="rollback"]')).toHaveCount(1);
-    await expect(page.locator('form[data-catalog-lifecycle-command="deprecate"]')).toHaveCount(1);
-    await expect(page.locator('form[data-catalog-lifecycle-command="retire"]')).toHaveCount(1);
-    for (const operation of ["rollback", "deprecate", "retire"] as const) {
-      const lifecycleCommand = page.locator(`form[data-catalog-lifecycle-command="${operation}"]`).first();
-      await expect(lifecycleCommand.locator('input[name="_intent"]')).toHaveValue(`${operation}-provider-profile`);
-      await expect(lifecycleCommand.locator('input[name="providerKey"]')).toHaveValue("tcgdex");
-      await expect(lifecycleCommand.locator('input[name="unitKey"]')).toHaveValue("tcgdex:pokemon:card:import");
-      await expect(lifecycleCommand.locator('input[name="importScope"]')).toHaveValue("en:3:base:base1");
-      await expect(lifecycleCommand.locator('input[name="profileVersion"]')).toHaveValue("2026.06.03");
-      await expect(lifecycleCommand.locator('input[name="selectedObservationIds"]')).toHaveValue("");
-      await expect(lifecycleCommand.locator('input[name="jobId"]')).toHaveValue("");
-      await expect(lifecycleCommand.locator('input[name="promotionPreviewId"]')).toHaveValue("");
-    }
-    await expect(page.getByLabel(/I confirm rollback profile impact and audit evidence/i)).toBeVisible();
-    await expect(page.getByLabel(/I confirm deprecate profile impact and audit evidence/i)).toBeVisible();
-    await expect(
-      page.getByLabel(/I confirm retirement removes this provider profile behavior entirely/i),
-    ).toBeVisible();
 
     // The compact daily health signal deep-links into health triage on the health
     // surface. Land on that exact deep-link shape — including a stale/unknown

@@ -10,6 +10,7 @@ import { catalogSourceObservationsScopeDetailEnglishTranslations } from "./catal
 import { catalogScopeRegistryEnglishTranslations } from "./catalog/scope-registry";
 import { catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations } from "./catalog/source-observations-workbench-health-copy";
 import { catalogSourceObservationsWorkbenchProfileValidationEnglishTranslations } from "./catalog/source-observations-workbench-profile-validation";
+import { catalogSourceObservationsWorkbenchProviderDetailEnglishTranslations } from "./catalog/source-observations-workbench-provider-detail";
 import { catalogRoutesEnglishTranslations } from "./catalog/routes";
 import { catalogBlueprintsEnglishTranslations } from "./catalog/blueprints";
 import { catalogItemsEnglishTranslations } from "./catalog/catalog-items";
@@ -67,6 +68,7 @@ const catalogEnglishTranslationParts = defineCatalogTranslationParts(
   catalogScopeRegistryEnglishTranslations,
   catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations,
   catalogSourceObservationsWorkbenchProfileValidationEnglishTranslations,
+  catalogSourceObservationsWorkbenchProviderDetailEnglishTranslations,
   catalogRoutesEnglishTranslations,
   catalogBlueprintsEnglishTranslations,
   catalogItemsEnglishTranslations,
@@ -99,6 +101,7 @@ export const catalogEnglishTranslations = defineCatalogTranslations({
   ...catalogScopeRegistryEnglishTranslations,
   ...catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations,
   ...catalogSourceObservationsWorkbenchProfileValidationEnglishTranslations,
+  ...catalogSourceObservationsWorkbenchProviderDetailEnglishTranslations,
   ...catalogRoutesEnglishTranslations,
   ...catalogBlueprintsEnglishTranslations,
   ...catalogItemsEnglishTranslations,

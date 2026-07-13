@@ -9,10 +9,8 @@ import type {
   CatalogProviderProfileVersionReview,
   SourceObservationIntegrationScope,
 } from "./contracts";
-import {
-  catalogPrimaryWorkbenchReturnPath,
-  catalogPrimaryWorkbenchSupportingHref,
-} from "./primary-workbench-route-context";
+import { catalogPrimaryWorkbenchReturnPath } from "./primary-workbench-route-context";
+import { catalogProviderDetailHref } from "./admin-control-plane/provider-detail/provider-detail-links";
 import { actionStateForBlockers } from "./primary-workbench-read-model-support";
 import { profileSectionGroups, profileSectionWorkspacesFor } from "./primary-workbench-profile-section-workspaces";
 
@@ -40,15 +38,15 @@ export function profileAuthoringFor(input: {
     ? input.profiles.filter((profile) => profile.providerKey === input.providerKey)
     : input.profiles;
   const selectedOverview = input.selectedProfile ? profileOverviewFor(input.selectedProfile) : null;
-  const activeProfile = input.activeProfile ? profileOptionFor(input.activeProfile, input.routeContext) : null;
-  const availableProfiles = providerProfiles.map((profile) => profileOptionFor(profile, input.routeContext));
+  const activeProfile = input.activeProfile ? profileOptionFor(input.activeProfile) : null;
+  const availableProfiles = providerProfiles.map((profile) => profileOptionFor(profile));
   const cloneBlockers = cloneProfileBlockersFor({
     activeJobCount: input.activeJobCount,
     canManage: input.canManage,
     status,
   });
   const cloneState = actionStateForBlockers(cloneBlockers, "available");
-  const submitHref = catalogPrimaryWorkbenchSupportingHref(input.routeContext, "profile-authoring");
+  const submitHref = catalogProviderDetailHref(input.providerKey ?? input.selectedProfile?.providerKey ?? null);
   const sectionGroups = profileSectionGroups();
   const sectionWorkspaces = input.selectedProfile
     ? profileSectionWorkspacesFor({
@@ -185,7 +183,6 @@ function immutableFact(
 
 function profileOptionFor(
   profile: CatalogProviderProfileVersionReview,
-  routeContext: CatalogPrimaryWorkbenchRouteContext,
 ): CatalogPrimaryWorkbenchReadModel["profileAuthoring"]["availableProfiles"][number] {
   return {
     providerKey: profile.providerKey,
@@ -195,15 +192,7 @@ function profileOptionFor(
     lifecycle: profile.lifecycle,
     active: profile.active,
     status: profile.status,
-    href: catalogPrimaryWorkbenchSupportingHref(
-      {
-        ...routeContext,
-        providerKey: profile.providerKey,
-        profileVersion: profile.profileVersion,
-        promotionPreviewId: null,
-      },
-      "profile-authoring",
-    ),
+    href: catalogProviderDetailHref(profile.providerKey, { profileVersion: profile.profileVersion }),
   };
 }
 

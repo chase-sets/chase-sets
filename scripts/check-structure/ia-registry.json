@@ -131,6 +131,13 @@
     {
       "deployable": "admin-web",
       "section": "catalog",
+      "family": "providers",
+      "owningContext": "catalog",
+      "purpose": "v2 Provider detail page: profile authoring, validation readiness, and lifecycle recovery on one page (catalog, #3832)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
       "family": "reference-records",
       "owningContext": "catalog",
       "purpose": "Reference Records surface (catalog)."

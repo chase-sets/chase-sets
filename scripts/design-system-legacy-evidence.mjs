@@ -207,11 +207,15 @@ const surfaceChecks = [
     mustNotInclude: catalogControlPlaneForbiddenSignals,
   },
   {
-    id: "catalog-lifecycle-workspace-patterns",
+    // Profile authoring, validation readiness, and the profile lifecycle
+    // (rollback/deprecate/retire, previously the deleted
+    // admin-control-plane/lifecycle workspace) are one v2 Provider detail
+    // page. This evidence entry moved with it.
+    id: "catalog-provider-detail-lifecycle-patterns",
     owner: "Catalog",
-    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle",
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail",
     visualEvidence: [
-      "Lifecycle recovery uses workbench grids, workbench forms, hidden inputs, evidence string lists, and shared blocker reasons.",
+      "The Provider detail page's version history uses workbench grids, workbench forms, hidden inputs, evidence string lists, and shared blocker reasons for its row-level lifecycle actions.",
     ],
     accessibilityEvidence: [
       "Lifecycle command confirmation and hidden command metadata are owned by design-system form primitives.",

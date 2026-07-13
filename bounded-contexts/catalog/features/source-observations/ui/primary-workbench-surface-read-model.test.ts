@@ -51,7 +51,7 @@ const dailyRenderedActionKeys = [
 
 describe("Catalog primary workbench read model - per-surface slicing", () => {
   it("validates a read model for every audience surface route", () => {
-    for (const surface of ["daily", "providers", "governance", "health"] as const) {
+    for (const surface of ["daily", "governance", "health"] as const) {
       const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface(surface, fullSurfaceInput("workbench"));
       expect(() => validateCatalogPrimaryWorkbenchReadModelContract(readModel)).not.toThrow();
     }
@@ -194,16 +194,21 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
     }
   });
 
-  it("computes the providers surface slices identically to the full read model", () => {
+  it("computes the governance surface's profile/validation slices identically to the full read model (#3832: the retired providers surface's slices, now the v2 Provider detail page's loader input)", () => {
     const input = fullSurfaceInput("profile-work");
     // The health surface renders every supporting slice, so it computes the
     // complete read model — the reference the other surfaces are compared against.
+    // "providers" was retired by #3832; the profile-authoring/validation-readiness
+    // slices it used to own now feed only the v2 Provider detail page, which
+    // composes from "governance"/"health" (see provider-detail-loader.ts) — so
+    // this test compares "governance" (the cheaper of the two surfaces that still
+    // computes both slices with real data) instead.
     const full = buildCatalogPrimaryWorkbenchReadModelForSurface("health", input);
-    const providers = buildCatalogPrimaryWorkbenchReadModelForSurface("providers", input);
+    const governance = buildCatalogPrimaryWorkbenchReadModelForSurface("governance", input);
 
-    expect(providers.profileAuthoring).toEqual(full.profileAuthoring);
-    expect(providers.validationReadiness).toEqual(full.validationReadiness);
-    expect(providers.profileAuthoring.status).toBe("ready");
+    expect(governance.profileAuthoring).toEqual(full.profileAuthoring);
+    expect(governance.validationReadiness).toEqual(full.validationReadiness);
+    expect(governance.profileAuthoring.status).toBe("ready");
   });
 
   it("computes the governance surface slices identically to the full read model", () => {

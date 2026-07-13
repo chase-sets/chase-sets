@@ -14,12 +14,26 @@ import type {
   CatalogPrimaryWorkbenchReadModel,
   CatalogPrimaryWorkbenchRouteContext,
 } from "../../../api/primary-workbench-admin-contracts";
-import { getCatalogPrimaryWorkbenchBlockerCopy } from "../../primary-workbench-copy";
-import { catalogControlPlaneWorkspaceByKey } from "../information-architecture";
+import {
+  getCatalogPrimaryWorkbenchBlockerCopy,
+  type CatalogPrimaryWorkbenchSupportTarget,
+} from "../../primary-workbench-copy";
+import { catalogControlPlaneWorkspaceByKey, type CatalogControlPlaneWorkspaceKey } from "../information-architecture";
 import {
   catalogPrimaryWorkbenchReturnPath,
   catalogPrimaryWorkbenchSupportingHref,
 } from "../../primary-workbench-route-context";
+import { catalogProviderDetailHref } from "../provider-detail/provider-detail-links";
+
+// The three profile-lifecycle support targets folded into the v2 Provider
+// detail page — they are no longer workspace keys in this deprecated
+// IA, so a daily blocker naming one of them deep-links straight to
+// /catalog/providers/:providerKey instead of a ?section= workspace.
+const PROVIDER_DETAIL_SUPPORT_TARGETS = new Set<CatalogPrimaryWorkbenchSupportTarget>([
+  "profile-authoring",
+  "validation-readiness",
+  "lifecycle-recovery",
+]);
 
 type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number];
 
@@ -276,7 +290,21 @@ function blockerResolveLink(
   if (supportTarget === "import-to-promotion") {
     return undefined;
   }
-  const workspace = catalogControlPlaneWorkspaceByKey(supportTarget);
+  if (PROVIDER_DETAIL_SUPPORT_TARGETS.has(supportTarget)) {
+    return (
+      <LinkButton
+        size="sm"
+        tone="secondary"
+        trailingIcon="chevronRight"
+        href={catalogProviderDetailHref(context.providerKey, { profileVersion: context.profileVersion })}
+      >
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.blockers.resolveIn", {
+          workspace: t("catalog.features.sourceObservations.ui.providerDetail.eyebrow"),
+        })}
+      </LinkButton>
+    );
+  }
+  const workspace = catalogControlPlaneWorkspaceByKey(supportTarget as CatalogControlPlaneWorkspaceKey);
 
   return (
     <LinkButton

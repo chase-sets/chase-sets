@@ -1,9 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
-import { tcgdexPokemonTcgProviderProfile } from "../api/provider-integration-profiles";
-import { catalogProviderProfileEditableSectionKeys } from "../api/provider-profile-section-registry";
 import type { SourceObservationLorcanaCardPrintNormalized } from "../domain/domain";
 import {
   buildCatalogPrimaryWorkbenchReadModelForSurface,
@@ -21,7 +18,6 @@ import {
   sourceObservationListItem,
   sourceObservationScope,
 } from "./primary-workbench-test-fixtures";
-import { CatalogIntegrationProfileAuthoringWorkspace } from "./admin-control-plane/profiles/profile-authoring-workspace";
 
 // The import-jobs module polls live progress via useRevalidator, the daily
 // import-context form submits context changes via useSubmit, and the review
@@ -1125,265 +1121,6 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/holding area/i)).toBeNull();
   });
 
-  it("renders profile authoring overview and draft creation as a focused support workspace", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
-      requestUrl:
-        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=profile-work",
-      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
-      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
-      controlPlaneOverview: null,
-      canManageCatalog: true,
-    });
-
-    render(
-      <CatalogIntegrationProfileAuthoringWorkspace
-        readModel={{
-          ...readModel,
-          profileAuthoring: {
-            ...readModel.profileAuthoring,
-            sectionGroups: [],
-            sectionWorkspaces: [],
-          },
-        }}
-      />,
-    );
-
-    expect(screen.getByRole("heading", { name: "Provider profile authoring" })).toBeTruthy();
-    expect(screen.getByText("Selected profile is ready")).toBeTruthy();
-    expect(screen.getAllByText("TCGdex Pokemon cards").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("tcgdex-pokemon-card@2026.06.04").length).toBeGreaterThan(0);
-    expect(screen.getByText("Draft required for active profiles")).toBeTruthy();
-    expect(screen.getByText("Immutable identity facts")).toBeTruthy();
-    expect(screen.getByLabelText("Draft profile version")).toHaveProperty("value", "2026.06.04-draft");
-    expect(screen.getByRole("button", { name: "Create draft" }).hasAttribute("disabled")).toBe(false);
-
-    const draftForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="clone-provider-profile"]',
-    );
-    expect(draftForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("clone-provider-profile");
-    expect(draftForm?.querySelector<HTMLInputElement>('input[name="sourceProviderKey"]')?.value).toBe("tcgdex");
-    expect(draftForm?.querySelector<HTMLInputElement>('input[name="sourceProfileVersion"]')?.value).toBe("2026.06.04");
-    expect(new URL(draftForm?.getAttribute("action") ?? "", "https://admin.example").pathname).toBe(
-      "/catalog/integrations/providers",
-    );
-    expect(screen.queryByRole("heading", { name: "Provider import operations" })).toBeNull();
-    expect(screen.queryByText(/raw JSON/i)).toBeNull();
-    expect(screen.queryByText(/Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
-  });
-
-  it("renders validation readiness as a focused fixture, dry-run, compare, and activation workspace", () => {
-    const profile = profileReview({
-      active: true,
-      lifecycle: "active",
-      executableMappingContract: jsonClone(tcgdexPokemonCardSourceObservationMappingContract),
-      profile: {
-        providerKey: "tcgdex",
-        supportedScopes: ["pokemon/card"],
-        selectedOptionMapping: {
-          dimensions: [
-            {
-              dimensionKey: "foil-treatment",
-              sourcePath: "card.variant.displayName",
-            },
-          ],
-        },
-      },
-      fixtures: {
-        fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex",
-        coveredFlows: [
-          "normal",
-          "partial",
-          "stale",
-          "changed",
-          "ambiguous",
-          "replay",
-          "sealed-product",
-          "unknown-option",
-        ],
-        liveProviderCallsAllowed: false,
-      },
-    });
-    const overview = controlPlaneOverview();
-    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
-      requestUrl:
-        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&section=readiness",
-      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
-      profileReviews: { items: [profile], total: 1, count: 1 },
-      profileAuthoringModel: profileAuthoringModel({ review: profile }),
-      controlPlaneOverview: {
-        ...overview,
-        readiness: {
-          ...overview.readiness,
-          units: [
-            {
-              ...overview.readiness.units[0],
-              dryRunEvidence: [
-                {
-                  externalKey: "en:sv01-001",
-                  sourceUrl: "fixture://tcgdex/normal.json",
-                  sourceHash: "sha256:tcgdex-normal",
-                  normalizedFacts: {
-                    name: "Sprigatito",
-                    cardNumber: "001",
-                    cardVariantKey: "standard",
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      },
-      canManageCatalog: true,
-    });
-
-    render(
-      <CatalogIntegrationsSurfacePage
-        surface="providers"
-        readModel={{
-          ...readModel,
-          profileAuthoring: {
-            ...readModel.profileAuthoring,
-            sectionGroups: [],
-            sectionWorkspaces: [],
-          },
-        }}
-      />,
-    );
-
-    const validationWorkspace = document.querySelector<HTMLElement>(
-      '[data-catalog-validation-readiness-workspace="true"]',
-    );
-    expect(validationWorkspace).toBeTruthy();
-    const validation = within(validationWorkspace as HTMLElement);
-
-    expect(validation.getByRole("heading", { name: "Validation readiness" })).toBeTruthy();
-    expect(validation.getByRole("heading", { name: "Fixture flow proof" })).toBeTruthy();
-    expect(validation.getByRole("heading", { name: "Dry-run evidence" })).toBeTruthy();
-    expect(validation.getByRole("heading", { name: "Semantic compare" })).toBeTruthy();
-    expect(validation.getByRole("heading", { name: "Activation readiness" })).toBeTruthy();
-    expect(validation.getByRole("heading", { name: "Activation decision" })).toBeTruthy();
-    expect(validation.getByRole("textbox", { name: "Migration evidence" })).toBeTruthy();
-    expect(validation.getByRole("textbox", { name: "Fixture run" })).toBeTruthy();
-    expect(validation.getByRole("button", { name: "Save migration evidence" }).hasAttribute("disabled")).toBe(false);
-    expect(validation.getByRole("button", { name: "Activate profile" }).hasAttribute("disabled")).toBe(true);
-    expect(validation.getAllByText("Migration evidence missing").length).toBeGreaterThan(0);
-    expect(validation.getAllByText("Reference impact review required").length).toBeGreaterThan(0);
-    expect(validation.getByRole("link", { name: "Open audit evidence" }).getAttribute("href")).toContain(
-      "/catalog/integrations/health",
-    );
-    expect(validation.getAllByText(/Sprigatito/).length).toBeGreaterThan(0);
-    expect(validation.getAllByText(/sha256:candidate-mapping/).length).toBeGreaterThan(0);
-    expect(validation.getAllByText("Changes the card variant merge identity.").length).toBeGreaterThan(0);
-    expect(validation.getAllByText("Promotion Plan").length).toBeGreaterThan(0);
-    expectBackToWorkbenchHref(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href"));
-
-    const migrationEvidenceForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-validation-evidence-form="true"]',
-    );
-    expect(migrationEvidenceForm?.getAttribute("action")).toContain("section=readiness");
-    expect(migrationEvidenceForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe(
-      "update-provider-profile-section",
-    );
-    expect(migrationEvidenceForm?.querySelector<HTMLInputElement>('input[name="sectionKey"]')?.value).toBe(
-      "migration-evidence",
-    );
-    expect(migrationEvidenceForm?.querySelector<HTMLInputElement>('input[name="providerKey"]')?.value).toBe("tcgdex");
-    expect(migrationEvidenceForm?.querySelector<HTMLInputElement>('input[name="profileVersion"]')?.value).toBe(
-      "2026.06.04",
-    );
-
-    const activationForm = document.querySelector<HTMLFormElement>('form[data-catalog-activate-profile-form="true"]');
-    expect(activationForm?.getAttribute("action")).toContain("section=readiness");
-    expect(activationForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe(
-      "activate-provider-profile",
-    );
-    expect(activationForm?.querySelector<HTMLInputElement>('input[name="providerKey"]')?.value).toBe("tcgdex");
-    expect(activationForm?.querySelector<HTMLInputElement>('input[name="profileVersion"]')?.value).toBe("2026.06.04");
-
-    // The "Inspect proof" affordance is unique to the validation workspace's dry-run
-    // section; its SideSheet renders in a portal, so scope the revealed proof content
-    // to the open dialog rather than the stacked workspace subtree.
-    fireEvent.click(validation.getAllByRole("button", { name: "Inspect proof" })[0]!);
-
-    const proofSheet = within(screen.getByRole("dialog"));
-    expect(proofSheet.getByRole("heading", { name: "Duplicate candidates" })).toBeTruthy();
-    expect(proofSheet.getByRole("heading", { name: "Selected options" })).toBeTruthy();
-    expect(proofSheet.getByRole("heading", { name: "Promotion command preview" })).toBeTruthy();
-    expect(proofSheet.getAllByText("Option dimension: foil-treatment").length).toBeGreaterThan(0);
-    expect(proofSheet.getAllByText("CreateCatalogItem").length).toBeGreaterThan(0);
-    expect(proofSheet.getByText("Payload body")).toBeTruthy();
-    expect(proofSheet.getByText("not retained")).toBeTruthy();
-    expect(screen.queryByText(/raw JSON|Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
-  }, 15_000);
-
-  it("renders lifecycle recovery with rollback, deprecation, retirement, and complete-removal evidence", () => {
-    const overview = controlPlaneOverview();
-    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
-      requestUrl:
-        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&section=lifecycle",
-      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
-      profileReviews: {
-        items: [profileReview({ active: true, lifecycle: "active", referenceCount: 2 })],
-        total: 1,
-        count: 1,
-      },
-      controlPlaneOverview: {
-        ...overview,
-        unitActivity: {
-          ...overview.unitActivity,
-          units: overview.unitActivity.units.map((unit) => ({ ...unit, recentJobs: [] })),
-        },
-      },
-      canManageCatalog: true,
-    });
-
-    render(<CatalogIntegrationsSurfacePage surface="governance" readModel={readModel} />);
-
-    expect(screen.getByRole("heading", { name: "Lifecycle recovery" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Open activation readiness" }).getAttribute("href")).toContain(
-      "section=readiness",
-    );
-    expect(screen.getByRole("heading", { name: "Rollback profile" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Deprecate profile" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Retire profile" })).toBeTruthy();
-    expect(screen.getByText("Retirement removes the profile behavior")).toBeTruthy();
-    expect(
-      screen.getAllByText(/Retiring a provider profile removes its mapping and promotion behavior/i).length,
-    ).toBeGreaterThan(0);
-    expect(screen.getAllByText("Profile retirement references").length).toBeGreaterThan(0);
-
-    const rollbackForm = document.querySelector<HTMLFormElement>('form[data-catalog-lifecycle-command="rollback"]');
-    const deprecateForm = document.querySelector<HTMLFormElement>('form[data-catalog-lifecycle-command="deprecate"]');
-    const retireForm = document.querySelector<HTMLFormElement>('form[data-catalog-lifecycle-command="retire"]');
-
-    // Lifecycle recovery is now the governance surface's default workspace
-    // (conflict resolution, formerly first, is retired), so its canonical action
-    // URL omits ?section= entirely instead of naming it explicitly.
-    expect(rollbackForm?.getAttribute("action")).toContain("/catalog/integrations/governance");
-    expect(rollbackForm?.getAttribute("action")).not.toContain("section=");
-    expect(deprecateForm?.getAttribute("action")).toContain("/catalog/integrations/governance");
-    expect(deprecateForm?.getAttribute("action")).not.toContain("section=");
-    expect(retireForm?.getAttribute("action")).toContain("/catalog/integrations/governance");
-    expect(retireForm?.getAttribute("action")).not.toContain("section=");
-    expect(rollbackForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe(
-      "rollback-provider-profile",
-    );
-    expect(deprecateForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe(
-      "deprecate-provider-profile",
-    );
-    expect(retireForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("retire-provider-profile");
-    expect(screen.getByLabelText(/I confirm rollback profile impact and audit evidence/i)).toBeTruthy();
-    expect(screen.getByLabelText(/I confirm deprecate profile impact and audit evidence/i)).toBeTruthy();
-    expect(
-      screen.getByLabelText(
-        /I confirm retirement removes this provider profile behavior entirely and all impact evidence is clear/i,
-      ),
-    ).toBeTruthy();
-    expect(retireForm?.querySelector<HTMLInputElement>('input[name="providerKey"]')?.value).toBe("tcgdex");
-    expect(retireForm?.querySelector<HTMLInputElement>('input[name="profileVersion"]')?.value).toBe("2026.06.04");
-    expect(screen.queryByText(/raw JSON|Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
-  });
-
   it("no longer renders the standalone conflict resolution workspace on the governance surface", () => {
     // Conflict resolution is retired as a standalone workspace: blocking
     // conflicts, candidate values, and precedence now render inline in the merge
@@ -1391,6 +1128,12 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     // The conflictResolutionFor composer itself keeps its own coverage in
     // primary-workbench-conflict-resolution.test.ts (it still feeds the
     // governance-controls observability signal and the audit-evidence timeline).
+    //
+    // #3832: profile authoring, validation readiness, and lifecycle recovery are
+    // also retired as standalone workspaces on the governance surface — they are
+    // the v2 Provider detail page's own linear draft -> validate -> activate flow
+    // (information-architecture-v2.ts), leaving governance-controls as the
+    // governance surface's only remaining workspace.
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -1404,167 +1147,8 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByRole("heading", { name: "Conflict resolution" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Fact conflicts" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Precedence rules" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "Lifecycle recovery" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Lifecycle recovery" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Governance controls" })).toBeTruthy();
-  });
-
-  it("renders option-query, import-scope, and mapping authoring detail panels without reviving raw profile editors", () => {
-    const baseOverview = controlPlaneOverview();
-    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
-      requestUrl:
-        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=profile-work&profileVersion=2026.06.04-draft",
-      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
-      profileReviews: {
-        items: [
-          profileReview({
-            active: false,
-            lifecycle: "draft",
-            profileVersion: "2026.06.04-draft",
-            profile: jsonClone(tcgdexPokemonTcgProviderProfile),
-            executableMappingContract: jsonClone(tcgdexPokemonCardSourceObservationMappingContract),
-            capabilities: [...tcgdexPokemonTcgProviderProfile.capabilities],
-            supportedScopes: [...tcgdexPokemonTcgProviderProfile.supportedScopes],
-            languageOptions: [...tcgdexPokemonTcgProviderProfile.languageOptions],
-          }),
-        ],
-        total: 1,
-        count: 1,
-      },
-      controlPlaneOverview: controlPlaneOverview({
-        providerReadiness: {
-          ...baseOverview.providerReadiness,
-          providers: [
-            {
-              ...baseOverview.providerReadiness.providers[0]!,
-              optionQueryHealth: {
-                status: "degraded",
-                diagnosticCodes: ["provider-option-query-stale-cache-used"],
-                message: "Stale provider option query cache used during adapter recovery.",
-              },
-            },
-          ],
-        },
-      }),
-      canManageCatalog: true,
-    });
-
-    render(<CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />);
-
-    expect(screen.getByRole("heading", { name: "Provider option queries" })).toBeTruthy();
-    expect(screen.getAllByText("tcgdex-list-expansions").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("tcgdex-expansion-card-count").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("symbolUrl").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Option queries degraded").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Stale provider option query cache used/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole("heading", { name: "Import-scope controls" })).toBeTruthy();
-    expect(screen.getAllByText("Product / Card").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("en:3:base:base1").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("heading", { name: "Mapping expression rows" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Observation id").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("catalog-merge-evidence").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Preview").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Duplicate").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Reorder").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Remove").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Inline diagnostics").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Long paths").length).toBeGreaterThan(0);
-    expect(screen.queryByText(/Profile JSON|Candidate JSON|Active JSON|raw JSON/i)).toBeNull();
-  });
-
-  it("renders section forms as editable typed controls for draft profiles", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
-      requestUrl:
-        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=profile-work&profileVersion=2026.06.04-draft",
-      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
-      profileReviews: {
-        items: [profileReview({ active: false, lifecycle: "draft", profileVersion: "2026.06.04-draft" })],
-        total: 1,
-        count: 1,
-      },
-      controlPlaneOverview: null,
-      canManageCatalog: true,
-    });
-
-    render(<CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />);
-
-    expect(screen.getByRole("heading", { name: "Guided section workspaces" })).toBeTruthy();
-    expect(screen.getByRole("navigation", { name: "Profile section groups" })).toBeTruthy();
-    expect(screen.getByLabelText("Profile section")).toBeTruthy();
-
-    const forms = document.querySelectorAll<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="update-provider-profile-section"]',
-    );
-    expect(forms).toHaveLength(catalogProviderProfileEditableSectionKeys.length);
-
-    const basics = document.querySelector<HTMLElement>('[data-catalog-profile-section-workspace="basics"]');
-    expect(within(basics!).getByLabelText("Display name")).toHaveProperty("value", "TCGdex Pokemon cards");
-    expect(within(basics!).getByRole("button", { name: "Save section" }).hasAttribute("disabled")).toBe(false);
-    expect(basics?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe(
-      "update-provider-profile-section",
-    );
-    expect(basics?.querySelector<HTMLInputElement>('input[name="sectionKey"]')?.value).toBe("basics");
-    expect(basics?.querySelector<HTMLInputElement>('input[name="profileVersion"]')?.value).toBe("2026.06.04-draft");
-    expect(screen.queryByRole("textbox", { name: /raw json/i })).toBeNull();
-  });
-
-  it("keeps profile overview inspectable but disables draft creation for view-only operators", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
-      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&section=profile-work",
-      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
-      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
-      controlPlaneOverview: null,
-      canManageCatalog: false,
-    });
-
-    render(
-      <CatalogIntegrationProfileAuthoringWorkspace
-        readModel={{
-          ...readModel,
-          profileAuthoring: {
-            ...readModel.profileAuthoring,
-            sectionGroups: [],
-            sectionWorkspaces: [],
-          },
-        }}
-      />,
-    );
-
-    expect(screen.getByRole("heading", { name: "Provider profile authoring" })).toBeTruthy();
-    expect(screen.getAllByText("TCGdex Pokemon cards").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Create draft" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.getAllByText("Permission denied").length).toBeGreaterThan(0);
-    expect(
-      screen.getByText("View-only operators can inspect profile evidence but cannot create draft profiles."),
-    ).toBeTruthy();
-  });
-
-  it("renders stale selected-profile state without falling back to another version", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
-      requestUrl:
-        "https://admin.example/catalog/integrations?providerKey=tcgdex&section=profile-work&profileVersion=missing-version",
-      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
-      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
-      controlPlaneOverview: null,
-      canManageCatalog: true,
-    });
-
-    render(
-      <CatalogIntegrationProfileAuthoringWorkspace
-        readModel={{
-          ...readModel,
-          profileAuthoring: {
-            ...readModel.profileAuthoring,
-            sectionGroups: [],
-            sectionWorkspaces: [],
-          },
-        }}
-      />,
-    );
-
-    expect(screen.getByText("Profile selection is stale")).toBeTruthy();
-    expect(screen.getByText("Select an available version")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Create draft" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.queryByText("Selected profile is ready")).toBeNull();
   });
 
   it("renders scoped durable import monitoring without hiding the primary provider pull", () => {
@@ -1895,13 +1479,14 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText("provider-transport-timeout")).toBeNull();
   });
 
-  it("deep-links daily-flow blockers into the provider-setup surface with return context to the import scope", () => {
+  it("deep-links daily-flow blockers into the v2 Provider detail page (#3832)", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04-draft&filter.status=changed",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
       // No active profile -> the daily flow surfaces the missing-active-profile
-      // blocker, whose support target is the profile-authoring provider-setup workspace.
+      // blocker, whose support target is the profile-authoring concept — now the
+      // v2 Provider detail page, not a ?section= provider-setup workspace.
       profileReviews: {
         items: [profileReview({ active: false, lifecycle: "draft", profileVersion: "2026.06.04-draft" })],
         total: 1,
@@ -1916,32 +1501,18 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(readModel.routeContext.section).toBe("import-to-promotion");
     expect(readModel.readiness.blockers).toContain("missing-active-profile");
 
-    // The consolidated daily blocker panel links the blocker into the providers
-    // surface workspace that clears it, not the daily route itself.
+    // The consolidated daily blocker panel links the blocker straight into the
+    // Provider detail page that clears it — a forward step into the provider's
+    // own detail, not a ?section= detour with returnPath propagation (#3832
+    // retires that machinery for this blocker).
     const resolveLink = screen
-      .getAllByRole("link", { name: /Resolve in Profile authoring/i })
+      .getAllByRole("link", { name: /Resolve in Provider detail/i })
       .map((link) => new URL(link.getAttribute("href") ?? "", "https://admin.example"))
-      .find((url) => url.pathname === "/catalog/integrations/providers");
+      .find((url) => url.pathname === "/catalog/providers/tcgdex");
     expect(resolveLink).toBeTruthy();
-
-    // Profile authoring is the providers-surface default, so the deep link carries no
-    // ?section= but preserves the full provider working set.
-    expect(resolveLink!.searchParams.has("section")).toBe(false);
-    expect(resolveLink!.searchParams.get("providerKey")).toBe("tcgdex");
-    expect(resolveLink!.searchParams.get("unitKey")).toBe("tcgdex:pokemon:card:import");
-    expect(resolveLink!.searchParams.get("importScope")).toBe("en:3:base:base1");
     expect(resolveLink!.searchParams.get("profileVersion")).toBe("2026.06.04-draft");
-
-    // The carried return path round-trips back to the daily surface route preserving
-    // provider, unit, scope, profile version, and review filters.
-    const returnPath = new URL(resolveLink!.searchParams.get("returnPath") ?? "", "https://admin.example");
-    expect(returnPath.pathname).toBe("/catalog/integrations");
-    expect(returnPath.searchParams.has("section")).toBe(false);
-    expect(returnPath.searchParams.get("providerKey")).toBe("tcgdex");
-    expect(returnPath.searchParams.get("unitKey")).toBe("tcgdex:pokemon:card:import");
-    expect(returnPath.searchParams.get("importScope")).toBe("en:3:base:base1");
-    expect(returnPath.searchParams.get("profileVersion")).toBe("2026.06.04-draft");
-    expect(returnPath.searchParams.get("filter.status")).toBe("changed");
+    expect(resolveLink!.searchParams.has("returnPath")).toBe(false);
+    expect(resolveLink!.searchParams.has("section")).toBe(false);
   });
 
   it("surfaces a slim governance denied indicator on the daily route that deep-links to governance controls with return context", () => {
@@ -1971,7 +1542,11 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       .map((link) => new URL(link.getAttribute("href") ?? "", "https://admin.example"))
       .find((url) => url.pathname === "/catalog/integrations/governance");
     expect(governanceLink).toBeTruthy();
-    expect(governanceLink!.searchParams.get("section")).toBe("controls");
+    // governance-controls is now the governance surface's sole workspace
+    // (#3833 dissolves conflict-resolution; #3832 moves lifecycle-recovery to
+    // the v2 Provider detail page), so it is the surface default and needs no
+    // ?section=.
+    expect(governanceLink!.searchParams.has("section")).toBe(false);
     expect(governanceLink!.searchParams.get("providerKey")).toBe("tcgdex");
     expect(governanceLink!.searchParams.get("unitKey")).toBe("tcgdex:pokemon:card:import");
     expect(governanceLink!.searchParams.get("importScope")).toBe("en:3:base:base1");
@@ -2031,7 +1606,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       .map((link) => new URL(link.getAttribute("href") ?? "", "https://admin.example"))
       .find((url) => url.pathname === "/catalog/integrations/governance");
     expect(governanceLink).toBeTruthy();
-    expect(governanceLink!.searchParams.get("section")).toBe("controls");
+    expect(governanceLink!.searchParams.has("section")).toBe(false);
     expect(new URL(governanceLink!.searchParams.get("returnPath") ?? "", "https://admin.example").pathname).toBe(
       "/catalog/integrations",
     );

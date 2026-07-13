@@ -1,7 +1,7 @@
 {
   "schemaVersion": "design-system-legacy-visual-accessibility-evidence/v2",
   "milestone": 12,
-  "checkedAt": "2026-07-13T09:29:11.636Z",
+  "checkedAt": "2026-07-13T15:21:39.967Z",
   "generatedBy": "pnpm run ops design-system:legacy-evidence --write",
   "retainedArtifact": "packages/design-system/DESIGN_SYSTEM_LEGACY_VISUAL_ACCESSIBILITY_EVIDENCE.json",
   "summary": {
@@ -157,6 +157,7 @@
       "discoveredFiles": [
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/alias-review/alias-review-workspace.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx",
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/source-observation-review/source-observation-review-module.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"
       ],
@@ -186,6 +187,7 @@
       "discoverySignalFiles": {
         "DenseAdminWorkbench": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"
         ],
         "DenseAdminWorkbenchLayout": [
@@ -200,6 +202,7 @@
       "requiredSignalFiles": {
         "DenseAdminWorkbench": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"
         ],
         "DenseAdminWorkbenchLayout": [
@@ -500,7 +503,6 @@
       "owner": "Catalog",
       "scope": "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles",
       "discoveredFiles": [
-        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-hidden-inputs.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-import-scope-details.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-mapping-row-details.tsx",
@@ -562,11 +564,9 @@
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx"
         ],
         "WorkbenchForm": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx"
         ],
         "TextInput": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-field-control.tsx"
         ],
         "Textarea": [
@@ -579,7 +579,6 @@
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-field-control.tsx"
         ],
         "HiddenInput": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-hidden-inputs.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx"
         ]
@@ -596,11 +595,9 @@
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx"
         ],
         "WorkbenchForm": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx"
         ],
         "TextInput": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-field-control.tsx"
         ],
         "Textarea": [
@@ -613,7 +610,6 @@
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-field-control.tsx"
         ],
         "HiddenInput": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-hidden-inputs.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx"
         ]
@@ -992,14 +988,15 @@
       "status": "passed"
     },
     {
-      "id": "catalog-lifecycle-workspace-patterns",
+      "id": "catalog-provider-detail-lifecycle-patterns",
       "owner": "Catalog",
-      "scope": "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle",
+      "scope": "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail",
       "discoveredFiles": [
-        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
       ],
       "visualEvidence": [
-        "Lifecycle recovery uses workbench grids, workbench forms, hidden inputs, evidence string lists, and shared blocker reasons."
+        "The Provider detail page's version history uses workbench grids, workbench forms, hidden inputs, evidence string lists, and shared blocker reasons for its row-level lifecycle actions."
       ],
       "accessibilityEvidence": [
         "Lifecycle command confirmation and hidden command metadata are owned by design-system form primitives."
@@ -1023,30 +1020,34 @@
       "discoverySignals": ["WorkbenchForm", "HiddenInput", "EvidenceStringList", "StatusReasonList"],
       "discoverySignalFiles": {
         "WorkbenchForm": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ],
         "HiddenInput": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ],
         "EvidenceStringList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ],
         "StatusReasonList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ]
       },
       "requiredSignalFiles": {
         "WorkbenchForm": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ],
         "HiddenInput": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ],
         "EvidenceStringList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ],
         "StatusReasonList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ]
       },
       "forbiddenSignalFiles": {

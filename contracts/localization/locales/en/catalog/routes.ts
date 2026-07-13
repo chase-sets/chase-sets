@@ -1,10 +1,9 @@
 export const catalogRoutesEnglishTranslations = {
   "catalog.routes.admin.integrations.catalog.integrations.catalog.admin": "Catalog Integrations | Catalog Admin",
-  "catalog.routes.admin.integrationsProviders.providers.catalog.admin":
-    "Provider Profiles & Readiness | Catalog Integrations",
   "catalog.routes.admin.integrationsGovernance.governance.catalog.admin": "Govern & Recover | Catalog Integrations",
   "catalog.routes.admin.integrationsSettings.settings.catalog.admin": "Settings | Catalog Integrations",
   "catalog.routes.admin.integrationsHealth.health.catalog.admin": "Integration Health | Catalog Integrations",
+  "catalog.routes.admin.catalogProviderDetail.provider.catalog.admin": "Provider | Catalog Admin",
   "catalog.routes.admin.sourceObservations.source.observations.catalog.admin": "Source Observations | Catalog Admin",
   "catalog.routes.admin.sourceObservationsDetail.named.title": "{name} | Catalog Admin",
   "catalog.routes.admin.sourceObservationsDetail.source.observation.catalog.admin":
