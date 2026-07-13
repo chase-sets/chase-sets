@@ -27,6 +27,9 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 ### Campaigns
 
 - [Offer Economics Claims Substantiation](./campaigns/offer-economics-claims-substantiation.md): the truth gate for beta campaign copy — every public claim about fees, protections, or graded-card support marked substantiated, softened, or dropped against shipped code, backed by the offer-economics monitor (#4075).
+- [30-Day Campaign Content Calendar](./campaigns/30-day-content-calendar.md): the 2026-07-20 through 2026-08-18 channel/owner/claim-reference plan, with invite-wave moments and week-one copy.
+- [Campaign Market-Data Series](./campaigns/market-data-series.md): deterministic Pricing rollup snippet generation, fixture/staging rehearsal, and production-only publication gate.
+- [Open-Offer Demo Walkthrough](./campaigns/offer-flow-demo.md): the truth-gated 30-second staging capture script and honest TODD creative handoff.
 
 ### Contributing
 
