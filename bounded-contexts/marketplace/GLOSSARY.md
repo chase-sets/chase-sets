@@ -120,6 +120,30 @@ Notes:
 - It is captured client-side as the seller's own local start-of-day for their chosen return date; Marketplace never infers a seller's timezone server-side.
 - Only a disabling fact that carries a Resume Instant participates in an automated resume; a bare `availableAgainOn` display date never does.
 
+## Seller Order Capacity
+
+**Seller Order Capacity** is the account-level Marketplace setting that records a seller's Order Capacity: the maximum number of concurrently Open Orders the account will accept before new order intake pauses.
+
+Notes:
+
+- Seller Order Capacity is owned by Marketplace; Order Capacity is the ubiquitous-language term for the cap this setting records.
+- The setting is scoped by account id and is event-sourced on a Marketplace-owned stream. `maxOpenOrders: null` means unlimited, the default -- no stream exists until a seller sets a cap for the first time.
+- Setting a cap requires a whole number of at least 1. Re-setting the same value is a no-op; changing it emits a fresh fact. Clearing returns the account to unlimited.
+- This slice is additive and inert: the setting and its events publish, but nothing consumes them yet. Ordering owns Open Order truth and Order Capacity enforcement -- computing At Capacity and refusing new order intake -- as a later slice.
+- This setting never gates in-flight orders, payments, fulfillment, refunds, or the account's buying ability -- only new order intake.
+
+## Order Capacity
+
+**Order Capacity** is the seller-set maximum number of concurrently Open Orders a seller account will accept before new order intake pauses, recorded by Seller Order Capacity.
+
+## Open Order
+
+An **Open Order** is an order that has been created and is neither cancelled nor dispatched, used as the numerator against Order Capacity. Open Order truth and counting are owned by Ordering.
+
+## At Capacity
+
+**At Capacity** is the seller state when Open Order count meets or exceeds Order Capacity: new order intake pauses while everything already in flight proceeds unaffected. At Capacity is computed and enforced by Ordering, analogous to Seller Listing Availability but driven by order volume rather than a seller-declared away period.
+
 ## Report
 
 A **Report** is a buyer or visitor submission that flags Marketplace content for Trust & Safety review.
@@ -193,7 +217,7 @@ A **Review Summary** is the canonical aggregate snapshot for an account derived 
 
 ## Planned Seller Capacity And Time Away
 
-These planned terms pre-register upcoming seller time-away and order-capacity language (the m127 seller time-away & capacity milestone cluster). They are not shipped behavior until their owning milestone adds events, read models, APIs, and UI. Seller Listing Availability and its Resume Instant, defined above, are already shipped and are the foundation these planned terms build on.
+These planned terms pre-register upcoming seller time-away language (the m127 seller time-away & capacity milestone cluster). They are not shipped behavior until their owning milestone adds events, read models, APIs, and UI. Seller Listing Availability and its Resume Instant, defined above, are already shipped and are the foundation these planned terms build on. Order Capacity, Open Order, At Capacity, and Seller Order Capacity moved out of this Planned section: the seller-set cap setting and its events are shipped (defined above); Open Order counting and At Capacity enforcement remain owned by Ordering as a later slice.
 
 ### Away Window
 
@@ -202,18 +226,6 @@ An **Away Window** is the planned scheduled start and end pairing a seller sets 
 ### Scheduled Restore
 
 A **Scheduled Restore** is the planned automated enable triggered when an Away Window or a Resume Instant sweep determines a seller's away period has ended. It records `enabledBy: "scheduled"` on the resulting Seller Listing Availability enabled fact.
-
-### Order Capacity
-
-**Order Capacity** is the planned seller-set limit on how many concurrently Open Orders a seller account will accept before new commitments are held back.
-
-### Open Order
-
-An **Open Order** is the planned count of a seller's orders that have not yet reached a terminal fulfillment or cancellation state, used as the numerator against Order Capacity.
-
-### At Capacity
-
-**At Capacity** is the planned seller state when Open Order count meets or exceeds Order Capacity, analogous to Seller Listing Availability but driven by order volume rather than a seller-declared away period.
 
 ## Planned Reputation And Authenticity
 

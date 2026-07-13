@@ -541,5 +541,40 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         [data.accountId, data.enabledAt, event.timing.recordedAt],
       );
     },
+    "marketplace.seller-order-capacity.set": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        maxOpenOrders: number;
+      };
+
+      await db.query(
+        `INSERT INTO marketplace_seller_order_capacity_pages (
+           account_id,
+           max_open_orders,
+           updated_at
+         ) VALUES ($1, $2, $3)
+         ON CONFLICT (account_id) DO UPDATE SET
+           max_open_orders = EXCLUDED.max_open_orders,
+           updated_at = EXCLUDED.updated_at`,
+        [data.accountId, data.maxOpenOrders, event.timing.recordedAt],
+      );
+    },
+    "marketplace.seller-order-capacity.cleared": async (event) => {
+      const data = event.data as {
+        accountId: string;
+      };
+
+      await db.query(
+        `INSERT INTO marketplace_seller_order_capacity_pages (
+           account_id,
+           max_open_orders,
+           updated_at
+         ) VALUES ($1, NULL, $2)
+         ON CONFLICT (account_id) DO UPDATE SET
+           max_open_orders = EXCLUDED.max_open_orders,
+           updated_at = EXCLUDED.updated_at`,
+        [data.accountId, event.timing.recordedAt],
+      );
+    },
   };
 }

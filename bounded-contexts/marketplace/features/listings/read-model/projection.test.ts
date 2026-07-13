@@ -50,9 +50,16 @@ type SellerListingAvailabilityPageRow = {
   updated_at: string;
 };
 
+type SellerOrderCapacityPageRow = {
+  account_id: string;
+  max_open_orders: number | null;
+  updated_at: string;
+};
+
 class ProjectionDb implements PgQueryable {
   public readonly listings = new Map<string, ListingPageRow>();
   public readonly sellerListingAvailability = new Map<string, SellerListingAvailabilityPageRow>();
+  public readonly sellerOrderCapacity = new Map<string, SellerOrderCapacityPageRow>();
   public readonly realtimePayloads: unknown[] = [];
 
   async query<Row = Record<string, unknown>>(
@@ -159,6 +166,29 @@ class ProjectionDb implements PgQueryable {
         updated_at: String(values[2]),
       };
       this.sellerListingAvailability.set(row.account_id, row);
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("INSERT INTO marketplace_seller_order_capacity_pages (") && sql.includes("VALUES ($1, $2, $3)")) {
+      const row: SellerOrderCapacityPageRow = {
+        account_id: String(values[0]),
+        max_open_orders: Number(values[1]),
+        updated_at: String(values[2]),
+      };
+      this.sellerOrderCapacity.set(row.account_id, row);
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (
+      sql.includes("INSERT INTO marketplace_seller_order_capacity_pages (") &&
+      sql.includes("VALUES ($1, NULL, $2)")
+    ) {
+      const row: SellerOrderCapacityPageRow = {
+        account_id: String(values[0]),
+        max_open_orders: null,
+        updated_at: String(values[1]),
+      };
+      this.sellerOrderCapacity.set(row.account_id, row);
       return { rows: [], rowCount: 1 };
     }
 
@@ -482,6 +512,72 @@ describe("marketplace listing projection", () => {
       available_again_on: null,
       available_again_at: null,
       enabled_at: "2026-07-14T00:00:00.000Z",
+    });
+  });
+
+  it("projects a seller order capacity cap being set", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.seller-order-capacity.set"]!(
+      event(
+        "marketplace.seller-order-capacity.set",
+        { accountId: "acc_seller", maxOpenOrders: 5 },
+        "marketplace.seller-order-capacity-acc_seller",
+      ),
+    );
+
+    expect(db.sellerOrderCapacity.get("acc_seller")).toEqual({
+      account_id: "acc_seller",
+      max_open_orders: 5,
+      updated_at: "2026-05-09T00:01:00.000Z",
+    });
+  });
+
+  it("projects a changed seller order capacity cap by overwriting the page", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.seller-order-capacity.set"]!(
+      event(
+        "marketplace.seller-order-capacity.set",
+        { accountId: "acc_seller", maxOpenOrders: 5 },
+        "marketplace.seller-order-capacity-acc_seller",
+      ),
+    );
+    await handlers["marketplace.seller-order-capacity.set"]!(
+      event(
+        "marketplace.seller-order-capacity.set",
+        { accountId: "acc_seller", maxOpenOrders: 8 },
+        "marketplace.seller-order-capacity-acc_seller",
+      ),
+    );
+
+    expect(db.sellerOrderCapacity.get("acc_seller")).toMatchObject({ max_open_orders: 8 });
+  });
+
+  it("projects a seller order capacity cap being cleared back to unlimited", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.seller-order-capacity.set"]!(
+      event(
+        "marketplace.seller-order-capacity.set",
+        { accountId: "acc_seller", maxOpenOrders: 5 },
+        "marketplace.seller-order-capacity-acc_seller",
+      ),
+    );
+    await handlers["marketplace.seller-order-capacity.cleared"]!(
+      event(
+        "marketplace.seller-order-capacity.cleared",
+        { accountId: "acc_seller" },
+        "marketplace.seller-order-capacity-acc_seller",
+      ),
+    );
+
+    expect(db.sellerOrderCapacity.get("acc_seller")).toMatchObject({
+      account_id: "acc_seller",
+      max_open_orders: null,
     });
   });
 });

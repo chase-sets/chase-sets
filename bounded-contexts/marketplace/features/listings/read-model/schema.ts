@@ -102,4 +102,13 @@ CREATE INDEX IF NOT EXISTS marketplace_seller_listing_availability_status_idx
 
 ALTER TABLE marketplace_seller_listing_availability_pages
   ADD COLUMN IF NOT EXISTS available_again_at timestamptz NULL;
+
+-- Order Capacity is the seller-set cap on concurrently Open Orders. Absent
+-- row (or a NULL max_open_orders) means unlimited, the default. Inert until
+-- the enforcement slice starts reading this table.
+CREATE TABLE IF NOT EXISTS marketplace_seller_order_capacity_pages (
+  account_id text PRIMARY KEY,
+  max_open_orders integer NULL CHECK (max_open_orders IS NULL OR max_open_orders > 0),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 `;

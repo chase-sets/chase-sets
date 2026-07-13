@@ -142,6 +142,21 @@ function createServices(): MarketplaceListingServices {
       version: 2,
       status: "available",
     })),
+    getSellerOrderCapacity: vi.fn(async () => ({
+      account_id: "acc_seller",
+      max_open_orders: null,
+      updated_at: "1970-01-01T00:00:00.000Z",
+    })),
+    setSellerOrderCapacity: vi.fn(async () => ({
+      accountId: "acc_seller",
+      version: 1,
+      maxOpenOrders: 5,
+    })),
+    clearSellerOrderCapacity: vi.fn(async () => ({
+      accountId: "acc_seller",
+      version: 2,
+      maxOpenOrders: null,
+    })),
     listSellerListingFeeLockReport: vi.fn(async () => ({
       items: [
         {
@@ -945,5 +960,120 @@ describe("marketplace listing routes", () => {
         }),
       }),
     );
+  });
+
+  it("reads seller order capacity for the acting account", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor, services });
+
+    const response = await app.request("/account/order-capacity");
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(services.getSellerOrderCapacity).toHaveBeenCalledWith("acc_seller");
+    expect(body).toEqual({
+      account_id: "acc_seller",
+      max_open_orders: null,
+      updated_at: "1970-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("sets seller order capacity for the acting account", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor, services });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/order-capacity", {
+        method: "POST",
+        body: JSON.stringify({ maxOpenOrders: 5 }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      accountId: "acc_seller",
+      version: 1,
+      maxOpenOrders: 5,
+    });
+    expect(services.setSellerOrderCapacity).toHaveBeenCalledWith(
+      { accountId: "acc_seller", maxOpenOrders: 5 },
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_seller",
+          performedByUserId: "usr_seller",
+        }),
+      }),
+    );
+  });
+
+  it("rejects setting seller order capacity below 1", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor, services });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/order-capacity", {
+        method: "POST",
+        body: JSON.stringify({ maxOpenOrders: 0 }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(services.setSellerOrderCapacity).not.toHaveBeenCalled();
+  });
+
+  it("clears seller order capacity for the acting account", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor, services });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/order-capacity", {
+        method: "DELETE",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      accountId: "acc_seller",
+      version: 2,
+      maxOpenOrders: null,
+    });
+    expect(services.clearSellerOrderCapacity).toHaveBeenCalledWith(
+      { accountId: "acc_seller" },
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_seller",
+          performedByUserId: "usr_seller",
+        }),
+      }),
+    );
+  });
+
+  it("requires listings.manage permission to set seller order capacity", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "viewer",
+        permissions: ["listings.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/order-capacity", {
+        method: "POST",
+        body: JSON.stringify({ maxOpenOrders: 5 }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(services.setSellerOrderCapacity).not.toHaveBeenCalled();
   });
 });
