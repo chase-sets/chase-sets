@@ -57,3 +57,4 @@ The marketplace and admin deployables only compose routes from this context. Pro
 - [Landing page positioning](docs/landing-page-positioning.md)
 - [Landing page analytics](docs/landing-page-analytics.md)
 - [Help article contract](docs/help-article-contract.md)
+- [Seller migration and bulk-listing proof walkthrough](docs/seller-migration-bulk-listing-proof.md)

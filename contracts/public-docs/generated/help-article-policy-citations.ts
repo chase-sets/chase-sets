@@ -32,6 +32,17 @@ export const publicHelpArticlePolicyCitations = [
     citedPolicies: ["settlement.clearance-window", "settlement.payout-bounds"],
   },
   {
+    slug: "seller-migration-tcgplayer-ebay",
+    locale: "en",
+    title: "Seller migration from TCGplayer or eBay: a bulk-listing on-ramp",
+    href: "/help/selling/seller-migration-tcgplayer-ebay",
+    citedPolicies: [
+      "commercial-terms.marketplace-sales-fee-schedule",
+      "settlement.clearance-window",
+      "settlement.payout-bounds",
+    ],
+  },
+  {
     slug: "sales-fees",
     locale: "en",
     title: "Marketplace sales and checkout fees",
