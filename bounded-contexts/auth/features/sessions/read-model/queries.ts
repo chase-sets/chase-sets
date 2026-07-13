@@ -18,6 +18,15 @@ export type SessionRow = Readonly<{
   authentication_method: string;
   status: string;
   expires_at: string;
+  /**
+   * The session's own moment-of-authentication, set once and never
+   * overwritten by later account-switch/revoke/expire mutations. Optional at
+   * the type level only so callers that construct a `SessionRow` without
+   * this column (older fixtures, the in-memory rehydration fallback) still
+   * type-check; every real query below selects it, and recent-auth checks
+   * (`resolveRecentAuthenticationStatus`) fail closed when it is absent.
+   */
+  started_at?: string;
   updated_at: string;
 }>;
 
@@ -67,6 +76,7 @@ export async function listSessions(db: PgQueryable, params: ListParams = {}) {
             sessions.authentication_method,
             sessions.status,
             sessions.expires_at,
+            sessions.started_at,
             sessions.updated_at
      ${from}
      ${where}
@@ -90,6 +100,7 @@ export async function getSession(db: PgQueryable, sessionId: string) {
             sessions.authentication_method,
             sessions.status,
             sessions.expires_at,
+            sessions.started_at,
             sessions.updated_at
      FROM identity_sessions AS sessions
      LEFT JOIN auth_identity_users AS users ON users.user_id = sessions.user_id

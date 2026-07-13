@@ -4,6 +4,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, LedgerEntryId, UserId, WalletAdjustmentId } from "@chase-sets/primitives/typed-ids";
 import type { SettlementWalletRow } from "../read-model/queries";
@@ -13,12 +14,12 @@ import {
   decideWalletAdjustment,
   evolveWalletAdjustment,
   initialWalletAdjustmentState,
-  WALLET_ADJUSTMENT_CONTROLS_DEFAULT,
   type WalletAdjustmentControls,
   type WalletAdjustmentEvent,
   type WalletAdjustmentReasonCode,
   type WalletAdjustmentState,
 } from "../domain/wallet-adjustment";
+import { walletAdjustmentControlsPolicy } from "../domain/wallet-adjustment-controls-policy";
 import {
   buildWalletAdjustmentPreview,
   computeWalletBalanceRevision,
@@ -159,6 +160,15 @@ export type WalletAdjustmentServices = Readonly<{
   deriveAdjustmentId: (idempotencyKey: string, targetAccountId: AccountId) => WalletAdjustmentId;
   /** Authoritative, projection-independent preview of a proposed adjustment's balance and governance consequence. */
   preview: (input: PreviewWalletAdjustmentInput) => Promise<WalletAdjustmentPreview>;
+  /**
+   * The currently-resolved `settlement.wallet-adjustment-controls` policy
+   * (ADR 0020's thresholds and recent-auth window) -- the same resolution
+   * `approve`/`reverse`/`preview` fall back to when a caller does not supply
+   * an explicit `controls` override. Exposed so the API layer's recent-auth
+   * ("step-up") gate checks the live policy window rather than a
+   * second, possibly-drifted copy.
+   */
+  resolveControls: () => Promise<WalletAdjustmentControls>;
   /** The target account's authoritative wallet summary for the operator adjustment surface. */
   getAccountSummary: (accountId: string) => Promise<SettlementWalletRow>;
   request: (input: RequestWalletAdjustmentInput, context: EventStoreContext) => Promise<WalletAdjustmentSnapshot>;
@@ -190,6 +200,7 @@ type WalletAdjustmentRuntimeDeps = Readonly<{
   eventStore: EventStore;
   db: PgQueryable;
   wallets: WalletServices;
+  policies: Pick<PolicyRuntime, "resolvePolicy">;
 }>;
 
 /** Command-owned snapshot so immediate UI does not depend on projection convergence. */
@@ -246,6 +257,19 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
   async function loadState(adjustmentId: WalletAdjustmentId): Promise<WalletAdjustmentState> {
     const loaded = await repository.load(adjustmentStreamId(adjustmentId));
     return loaded.state;
+  }
+
+  /**
+   * Resolves the live `settlement.wallet-adjustment-controls` policy through
+   * the ratified platform-policy machinery -- falling back to the ADR's
+   * compiled conservative default only when no operator has revised the
+   * policy document, exactly like `settlementClearancePolicy`. Every caller
+   * below that does not receive an explicit `controls` override resolves
+   * through here, so a policy revision applies uniformly.
+   */
+  async function resolveControls(): Promise<WalletAdjustmentControls> {
+    const resolved = await deps.policies.resolvePolicy(walletAdjustmentControlsPolicy);
+    return resolved.value;
   }
 
   async function runCommand(
@@ -350,7 +374,7 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
         type: "ApproveWalletAdjustment",
         approvedBy: input.approvedBy,
         approvedAt: input.approvedAt ?? new Date().toISOString(),
-        controls: input.controls ?? WALLET_ADJUSTMENT_CONTROLS_DEFAULT,
+        controls: input.controls ?? (await resolveControls()),
         createsOrIncreasesNegativeBalance,
         reversalAfterFundsSettled,
         elevationApprovedBy: input.elevationApprovedBy ?? null,
@@ -490,7 +514,8 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
         {
           adjustmentId: reversalAdjustmentId,
           approvedBy: input.approvedBy,
-          controls: input.controls ?? WALLET_ADJUSTMENT_CONTROLS_DEFAULT,
+          // approve() resolves the live policy itself when omitted.
+          ...(input.controls ? { controls: input.controls } : {}),
           elevationApprovedBy: input.elevationApprovedBy,
         },
         context,
@@ -514,6 +539,7 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
 
   async function preview(input: PreviewWalletAdjustmentInput): Promise<WalletAdjustmentPreview> {
     const wallet = await deps.wallets.loadWalletState(input.targetAccountId);
+    const controls = input.controls ?? (await resolveControls());
     return buildWalletAdjustmentPreview(wallet, {
       direction: normalizeLedgerEntryDirection(input.direction),
       amount: normalizeMoneyAmount(input.amount, { fieldName: "Wallet Adjustment amount" }),
@@ -523,13 +549,14 @@ export function createWalletAdjustmentRuntime(deps: WalletAdjustmentRuntimeDeps)
       // A first-class adjustment (not a reversal) never carries the
       // reversal-after-settlement elevation reason.
       reversalAfterFundsSettled: false,
-      ...(input.controls ? { controls: input.controls } : {}),
+      controls,
     });
   }
 
   return {
     deriveAdjustmentId: deriveWalletAdjustmentId,
     preview,
+    resolveControls,
     getAccountSummary: (accountId) => deps.wallets.getWallet(accountId),
     request,
     approve,

@@ -35,6 +35,14 @@ export const AUTH_ROLE_PERMISSIONS = {
     "security.manage",
     "support.manage",
     "support.view",
+    // Platform Wallet Adjustment authority (ADR 0020): platform-admin only.
+    // Must stay identical to Identity's ROLE_PERMISSIONS platform-admin entry
+    // -- contract-tested in constants.test.ts -- and never bundled into
+    // payouts.*.
+    "wallet-adjustments.approve",
+    "wallet-adjustments.create",
+    "wallet-adjustments.reverse",
+    "wallet-adjustments.view",
   ],
   owner: [
     "accounts.manage",
