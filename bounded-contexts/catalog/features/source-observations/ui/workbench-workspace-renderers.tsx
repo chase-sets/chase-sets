@@ -8,9 +8,8 @@ import type {
 } from "./contracts";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import type { CatalogControlPlaneWorkspaceKey } from "./admin-control-plane/information-architecture";
-import { CatalogIntegrationConflictResolutionWorkspace } from "./admin-control-plane/conflicts/conflict-resolution-workspace";
 import { CatalogIntegrationAuditEvidenceWorkspace } from "./admin-control-plane/evidence/audit-evidence-workspace";
-import { CatalogIntegrationGovernanceControlsWorkspace } from "./admin-control-plane/governance/governance-controls-workspace";
+import { CatalogControlPlaneSettingsPage } from "./admin-control-plane/settings/catalog-control-plane-settings-page";
 import { CatalogIntegrationHealthTriageWorkspace } from "./admin-control-plane/health/integration-health-dashboard";
 import { CatalogIntegrationImportToPromotionWorkspace } from "./admin-control-plane/import-to-promotion/import-to-promotion-workspace";
 import { CatalogIntegrationLifecycleRecoveryWorkspace } from "./admin-control-plane/lifecycle/lifecycle-recovery-workspace";
@@ -54,9 +53,8 @@ export const CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS: Readonly<
   "health-triage": (readModel) => <CatalogIntegrationHealthTriageWorkspace readModel={readModel} />,
   "profile-authoring": (readModel) => <CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />,
   "validation-readiness": (readModel) => <CatalogIntegrationValidationReadinessWorkspace readModel={readModel} />,
-  "conflict-resolution": (readModel) => <CatalogIntegrationConflictResolutionWorkspace readModel={readModel} />,
   "lifecycle-recovery": (readModel) => <CatalogIntegrationLifecycleRecoveryWorkspace readModel={readModel} />,
-  "governance-controls": (readModel) => <CatalogIntegrationGovernanceControlsWorkspace readModel={readModel} />,
+  "governance-controls": (readModel) => <CatalogControlPlaneSettingsPage readModel={readModel} />,
   "audit-evidence": (readModel) => <CatalogIntegrationAuditEvidenceWorkspace readModel={readModel} />,
 };
 

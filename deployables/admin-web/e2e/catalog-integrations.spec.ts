@@ -201,7 +201,7 @@ test.describe.serial("catalog admin integrations", () => {
     // the sibling surface routes are reachable as nested children.
     await expect(page.locator('a[href="/catalog/integrations"]').first()).toHaveAttribute("aria-current", "page");
     await expect(page.locator('a[href="/catalog/integrations/providers"]').first()).toBeVisible();
-    await expect(page.locator('a[href="/catalog/integrations/governance"]').first()).toBeVisible();
+    await expect(page.locator('a[href="/catalog/integrations/settings"]').first()).toBeVisible();
     await expect(page.locator('a[href="/catalog/integrations/health"]').first()).toBeVisible();
 
     await expect(page.getByRole("button", { name: "Apply context" })).toHaveCount(0);
@@ -721,12 +721,14 @@ test.describe.serial("catalog admin integrations", () => {
       "/catalog/integrations/governance?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.04&section=controls",
     );
     await expect(page).toHaveURL(/\/catalog\/integrations\/governance\?/);
-    // All three govern-and-recover workspaces render, stacked on the one governance route.
-    await expectVisibleText(page, "Conflict resolution");
+    // Both remaining govern-and-recover workspaces render, stacked on the one
+    // governance route. Conflict resolution is retired as a standalone workspace:
+    // blocking conflicts now resolve inline in the merge candidate review drawer.
     await expectVisibleText(page, "Lifecycle recovery");
     await expectVisibleText(page, "Governance controls");
-    // The governance surface is the nested "Governance" child, so its side-nav link is current.
-    await expect(page.locator('a[href="/catalog/integrations/governance"]').first()).toHaveAttribute(
+    // The governance surface is the nested "Settings" child, so its side-nav link is
+    // current — even though this deep link used the pre-existing /governance path.
+    await expect(page.locator('a[href="/catalog/integrations/settings"]').first()).toHaveAttribute(
       "aria-current",
       "page",
     );

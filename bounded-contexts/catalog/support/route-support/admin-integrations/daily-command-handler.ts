@@ -223,7 +223,11 @@ export async function handleDailyCommand(input: {
       }
 
       if (intent === "promote-merge-candidate") {
-        await api.promoteCatalogMergeCandidate(candidateId, { reason });
+        const conflictResolutions = mergeCandidateConflictResolutionsFromFormData(formData);
+        if (conflictResolutions === "missing-resolution") {
+          return dailyResult(intent, "error", "reason-required", { ...context, selectedObservationIds });
+        }
+        await api.promoteCatalogMergeCandidate(candidateId, { reason, conflictResolutions });
       } else if (intent === "ignore-merge-candidate") {
         await api.ignoreCatalogMergeCandidate(candidateId, { reason });
       } else {
@@ -294,6 +298,79 @@ function mergeCandidateCommandBody(formData: FormData): Record<string, unknown> 
   try {
     const parsed = JSON.parse(value) as unknown;
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+type MergeCandidateBlockingConflictField = Readonly<{
+  code: string;
+  fieldPath: string | null;
+  existingValueJson: string;
+  proposedValueJson: string;
+  observationIds: readonly string[];
+}>;
+
+type MergeCandidateConflictResolutionBody = Readonly<{
+  conflictCode: string;
+  fieldPath: string | null;
+  chosenValue: unknown;
+  reason: string;
+  observationIds: readonly string[];
+}>;
+
+// Conflict resolution dissolved into candidate review: the review drawer submits
+// one radio choice (`resolution.<code>`) and one reason (`reason.<code>`) per
+// blocking conflict, alongside a `blockingConflictsJson` blob naming exactly
+// which conflicts (and their existing/proposed values) the operator is
+// resolving. Reconstitutes the typed conflictResolutions promote-command field
+// the domain's requireConflictResolutionsForBlockingConflicts invariant
+// requires — every blocking conflict on the candidate must have a resolution by
+// code, or promotion is rejected. Returns "missing-resolution" if any blocking
+// conflict on the submitted form lacks a reason, and undefined (no candidate had
+// blocking conflicts) when the sheet did not submit a conflicts blob at all.
+function mergeCandidateConflictResolutionsFromFormData(
+  formData: FormData,
+): readonly MergeCandidateConflictResolutionBody[] | "missing-resolution" | undefined {
+  const raw = String(formData.get("blockingConflictsJson") ?? "").trim();
+  if (!raw) {
+    return undefined;
+  }
+
+  let conflicts: readonly MergeCandidateBlockingConflictField[];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    conflicts = Array.isArray(parsed) ? (parsed as MergeCandidateBlockingConflictField[]) : [];
+  } catch {
+    return "missing-resolution";
+  }
+  if (conflicts.length === 0) {
+    return undefined;
+  }
+
+  const resolutions: MergeCandidateConflictResolutionBody[] = [];
+  for (const conflict of conflicts) {
+    const choice = String(formData.get(`resolution.${conflict.code}`) ?? "existing");
+    const reason = String(formData.get(`reason.${conflict.code}`) ?? "").trim();
+    if (!reason) {
+      return "missing-resolution";
+    }
+    const chosenValueJson = choice === "proposed" ? conflict.proposedValueJson : conflict.existingValueJson;
+    resolutions.push({
+      conflictCode: conflict.code,
+      fieldPath: conflict.fieldPath,
+      chosenValue: parseJsonValue(chosenValueJson),
+      reason,
+      observationIds: conflict.observationIds,
+    });
+  }
+
+  return resolutions;
+}
+
+function parseJsonValue(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
   } catch {
     return null;
   }

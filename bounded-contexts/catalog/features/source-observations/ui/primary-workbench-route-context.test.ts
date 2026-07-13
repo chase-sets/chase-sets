@@ -262,7 +262,7 @@ describe("Catalog primary workbench route context", () => {
     ).toBe("profile-authoring");
     expect(
       parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/governance").section,
-    ).toBe("conflict-resolution");
+    ).toBe("lifecycle-recovery");
     expect(parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/health").section).toBe(
       "audit-evidence",
     );

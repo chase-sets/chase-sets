@@ -1265,6 +1265,7 @@ describe("Catalog primary workbench admin contracts", () => {
               blocking: 0,
               warnings: 0,
               messages: [],
+              blockingConflicts: [],
             },
             promoteReadiness: {
               state: "ready",

@@ -533,7 +533,10 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
   const wantsProviderSlices = surface === "providers" || surface === "governance" || surface === "health";
   const wantsHealthTriage = surface === "governance" || surface === "health";
   const wantsGovernanceSlices = surface === "governance" || surface === "health";
-  const wantsHealthSlices = surface === "health";
+  // The Settings page (the "governance" surface) embeds the Evidence drawer, so it
+  // also needs the audit-evidence slice computed — not just cited like the
+  // observability signal in governanceControlsSlice.
+  const wantsHealthSlices = surface === "health" || surface === "governance";
 
   const sliceInput = (wanted: boolean): CatalogPrimaryWorkbenchInput =>
     wanted ? input : emptyControlPlaneInput(input);

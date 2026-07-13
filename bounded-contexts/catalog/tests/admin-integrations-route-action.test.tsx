@@ -961,7 +961,10 @@ describe("Catalog integrations route", () => {
     expect(deprecateSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.04");
     expect(retireSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.02");
     expect(rollbackResponse.headers.get("Location")).toContain("/catalog/integrations/governance");
-    expect(rollbackResponse.headers.get("Location")).toContain("section=lifecycle");
+    // Lifecycle recovery is now the governance surface's default workspace
+    // (conflict resolution, formerly first, is retired), so the redirect's
+    // canonical URL omits ?section= entirely instead of naming it explicitly.
+    expect(rollbackResponse.headers.get("Location")).not.toContain("section=");
     expect(rollbackResponse.headers.get("Location")).toContain("commandResult=profile-rolled-back");
     expect(rollbackResponse.headers.get("Location")).not.toContain("promotionPreviewId=");
     expect(deprecateResponse.headers.get("Location")).toContain("commandResult=profile-deprecated");
@@ -1010,7 +1013,7 @@ describe("Catalog integrations route", () => {
     expect(retireSourceObservationProviderProfile).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/catalog/integrations/governance");
-    expect(response.headers.get("Location")).toContain("section=lifecycle");
+    expect(response.headers.get("Location")).not.toContain("section=");
     expect(response.headers.get("Location")).toContain("commandStatus=error");
     expect(response.headers.get("Location")).toContain("commandResult=confirmation-required");
     expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
@@ -1051,7 +1054,7 @@ describe("Catalog integrations route", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/catalog/integrations/governance");
-    expect(response.headers.get("Location")).toContain("section=lifecycle");
+    expect(response.headers.get("Location")).not.toContain("section=");
     expect(response.headers.get("Location")).toContain("commandStatus=error");
     expect(response.headers.get("Location")).toContain("commandResult=lifecycle-conflict");
     expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");

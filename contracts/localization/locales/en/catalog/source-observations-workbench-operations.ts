@@ -127,6 +127,26 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.split": "Split",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.update": "Update",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflict.count": "{count} with conflicts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.chosenValue":
+    "Chosen value",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.description":
+    "This candidate cannot promote until every blocking conflict below has a chosen value and a reason.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.keepExisting":
+    "Keep the catalog value: {value}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.otherBlockers.description":
+    "Clear the remaining blockers below before this candidate can promote; conflicts alone do not block it once resolved.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.otherBlockers.title":
+    "Other blockers remain",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.promoteReason":
+    "Promotion reason",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.reason":
+    "Reason for this resolution",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.submit":
+    "Resolve & promote",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.title":
+    "Resolve blocking conflicts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.useProposed":
+    "Use the proposed source value: {value}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflicts.blocking": "{count} blocking",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflicts.warning": "{count} warnings",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.description":

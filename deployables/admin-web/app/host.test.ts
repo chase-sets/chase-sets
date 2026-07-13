@@ -82,10 +82,10 @@ describe("admin web host context registry", () => {
           href: "/catalog/integrations/providers",
         },
         {
-          key: "integrations-governance",
-          label: "Governance",
+          key: "integrations-settings",
+          label: "Settings",
           icon: "shield",
-          href: "/catalog/integrations/governance",
+          href: "/catalog/integrations/settings",
         },
         {
           key: "integrations-health",

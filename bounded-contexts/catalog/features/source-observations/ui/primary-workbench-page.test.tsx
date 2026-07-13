@@ -1350,9 +1350,15 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     const deprecateForm = document.querySelector<HTMLFormElement>('form[data-catalog-lifecycle-command="deprecate"]');
     const retireForm = document.querySelector<HTMLFormElement>('form[data-catalog-lifecycle-command="retire"]');
 
-    expect(rollbackForm?.getAttribute("action")).toContain("section=lifecycle");
-    expect(deprecateForm?.getAttribute("action")).toContain("section=lifecycle");
-    expect(retireForm?.getAttribute("action")).toContain("section=lifecycle");
+    // Lifecycle recovery is now the governance surface's default workspace
+    // (conflict resolution, formerly first, is retired), so its canonical action
+    // URL omits ?section= entirely instead of naming it explicitly.
+    expect(rollbackForm?.getAttribute("action")).toContain("/catalog/integrations/governance");
+    expect(rollbackForm?.getAttribute("action")).not.toContain("section=");
+    expect(deprecateForm?.getAttribute("action")).toContain("/catalog/integrations/governance");
+    expect(deprecateForm?.getAttribute("action")).not.toContain("section=");
+    expect(retireForm?.getAttribute("action")).toContain("/catalog/integrations/governance");
+    expect(retireForm?.getAttribute("action")).not.toContain("section=");
     expect(rollbackForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe(
       "rollback-provider-profile",
     );
@@ -1372,68 +1378,28 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/raw JSON|Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
   });
 
-  it("renders conflict resolution as a focused evidence workspace without exposing compatibility overrides", () => {
-    const baseObservation = sourceObservationListItem({
-      observation_id: "obs_conflict",
-      promoted_catalog_item_id: "cat_001",
-    });
+  it("no longer renders the standalone conflict resolution workspace on the governance surface", () => {
+    // Conflict resolution is retired as a standalone workspace: blocking
+    // conflicts, candidate values, and precedence now render inline in the merge
+    // candidate review drawer, where resolution already happens at promote time.
+    // The conflictResolutionFor composer itself keeps its own coverage in
+    // primary-workbench-conflict-resolution.test.ts (it still feeds the
+    // governance-controls observability signal and the audit-evidence timeline).
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
-      requestUrl:
-        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&selectedObservationIds=obs_conflict&promotionPreviewId=preview_001&section=conflicts",
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
       profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
-      controlPlaneOverview: controlPlaneOverview({
-        auditLifecycle: {
-          ...controlPlaneOverview().auditLifecycle,
-          entries: [
-            {
-              eventId: "aud_conflict_001",
-              occurredAt: "2026-06-09T01:05:00.000Z",
-              eventName: "profile-section-edited",
-              category: "profile-section",
-              providerKey: "tcgdex",
-              unitKey: "tcgdex:pokemon:card:import",
-              profileVersion: "2026.06.04",
-              actorUserId: "user_admin",
-              relatedJobId: null,
-              summary: "Promotion mapping reviewed for conflicting Catalog item.",
-              diagnosticCodes: [],
-            },
-          ],
-        },
-      }),
-      reviewObservations: {
-        items: [
-          {
-            ...baseObservation,
-            normalized: {
-              ...baseObservation.normalized,
-              mergeIdentity: undefined,
-              externalCatalogItemReferences: [],
-            },
-          },
-        ],
-        total: 1,
-        count: 1,
-      },
+      controlPlaneOverview: controlPlaneOverview(),
       canManageCatalog: true,
     });
 
     render(<CatalogIntegrationsSurfacePage surface="governance" readModel={readModel} />);
 
-    expect(screen.getByRole("heading", { name: "Conflict resolution" })).toBeTruthy();
-    expect(screen.getByText("Conflicts are blocking promotion")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Fact conflicts" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Precedence rules" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Override policy" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Conflict audit evidence" })).toBeTruthy();
-    expect(screen.getAllByText("promotion-command.conflict-blocking.v1").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Promotion blocking").length).toBeGreaterThan(0);
-    expect(screen.getByText("Overrides fail closed")).toBeTruthy();
-    expect(screen.getByText(/no compatibility override path is available/i)).toBeTruthy();
-    expect(screen.getAllByText("Promotion mapping reviewed for conflicting Catalog item.").length).toBeGreaterThan(0);
-    expectBackToWorkbenchHref(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href"));
-    expect(screen.queryByText(/raw JSON|Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Conflict resolution" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Fact conflicts" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Precedence rules" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Lifecycle recovery" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Governance controls" })).toBeTruthy();
   });
 
   it("renders option-query, import-scope, and mapping authoring detail panels without reviving raw profile editors", () => {

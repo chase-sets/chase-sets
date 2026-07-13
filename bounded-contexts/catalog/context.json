@@ -299,6 +299,14 @@
           "section": "catalog"
         },
         {
+          "routeId": "integrations-settings",
+          "routePath": "integrations/settings",
+          "fileExport": "./routes/admin/integrations-settings",
+          "routeType": "route",
+          "sourceContext": "catalog",
+          "section": "catalog"
+        },
+        {
           "routeId": "integrations-health",
           "routePath": "integrations/health",
           "fileExport": "./routes/admin/integrations-health",
@@ -480,10 +488,10 @@
           "requiredPermissions": ["catalog.view"]
         },
         {
-          "key": "integrations-governance",
-          "label": "Governance",
+          "key": "integrations-settings",
+          "label": "Settings",
           "icon": "shield",
-          "href": "/integrations/governance",
+          "href": "/integrations/settings",
           "order": 30,
           "visibility": "signed-in",
           "requiredPermissions": ["catalog.view"]

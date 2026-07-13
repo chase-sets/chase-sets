@@ -17,12 +17,15 @@ export type CatalogControlPlaneContextKey =
   | "promotionPreviewId"
   | "returnPath";
 
+// "conflict-resolution" is retired as a standalone workspace: blocking conflicts,
+// candidate values, and precedence now render inline in the merge candidate review
+// drawer, where conflict resolution already happens at promote time (see
+// catalog-merge-candidate.ts requireConflictResolutionsForBlockingConflicts).
 export type CatalogControlPlaneWorkspaceKey =
   | "import-to-promotion"
   | "health-triage"
   | "profile-authoring"
   | "validation-readiness"
-  | "conflict-resolution"
   | "lifecycle-recovery"
   | "governance-controls"
   | "audit-evidence";
@@ -161,30 +164,6 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     linkBackContextKeys: ["section", "providerKey", "unitKey", "importScope", "profileVersion", "returnPath"],
   },
   {
-    key: "conflict-resolution",
-    routeSegment: "conflicts",
-    routeSurface: "governance",
-    accessibleName: "Conflict resolution",
-    group: "govern",
-    keyboardOrder: 60,
-    operatorJob: "Explain source fact conflicts, precedence rules, promotion blocking, and audit evidence.",
-    startsAt: "Duplicate, conflict, changed-source, or promotion-conflict evidence on Source Observations.",
-    completesAt: "Conflict state is auto-resolved, reviewed, or clearly blocking promotion with evidence.",
-    evidenceScope: ["Affected facts", "Candidate values", "Precedence rules", "Audit evidence"],
-    primaryPathRole: "supporting-detour",
-    linkBackContextKeys: [
-      "section",
-      "providerKey",
-      "unitKey",
-      "importScope",
-      "profileVersion",
-      "sourceObservationFilters",
-      "selectedObservationIds",
-      "promotionPreviewId",
-      "returnPath",
-    ],
-  },
-  {
     key: "lifecycle-recovery",
     routeSegment: "lifecycle",
     routeSurface: "governance",
@@ -263,7 +242,7 @@ export const CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS = [
   {
     key: "govern",
     accessibleName: "Govern and recover",
-    items: ["conflict-resolution", "lifecycle-recovery", "governance-controls"],
+    items: ["lifecycle-recovery", "governance-controls"],
   },
   {
     key: "verify",
@@ -292,7 +271,7 @@ export const CATALOG_CONTROL_PLANE_ROUTE_SURFACES = [
     key: "governance",
     pathSegment: "governance",
     accessibleName: "Govern and recover",
-    workspaces: ["conflict-resolution", "lifecycle-recovery", "governance-controls"],
+    workspaces: ["lifecycle-recovery", "governance-controls"],
   },
   {
     key: "health",
@@ -352,14 +331,7 @@ export const CATALOG_CONTROL_PLANE_WORKFLOW_MAP = [
     startsIn: "import-to-promotion",
     completesIn: "import-to-promotion",
     requiredEvidence: ["Durable job state", "Observation evidence", "Promotion command plan", "Recovery result"],
-    blockedBy: ["conflict-resolution", "lifecycle-recovery", "governance-controls"],
-  },
-  {
-    workflow: "Conflict resolution and source precedence",
-    startsIn: "conflict-resolution",
-    completesIn: "import-to-promotion",
-    requiredEvidence: ["Affected facts", "Candidate values", "Precedence rule", "Audit evidence"],
-    blockedBy: ["governance-controls", "audit-evidence"],
+    blockedBy: ["lifecycle-recovery", "governance-controls"],
   },
   {
     workflow: "Lifecycle, rollout, RBAC, observability, and audit evidence",
