@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { defaultPostagePolicy, type PostagePolicy } from "@chase-sets/product-measures";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import {
   context,
   createCheckpointStore,
-  createInMemoryEventStore,
   createOrderingOrderRuntimeForTest,
   createSupplyDb,
   shippingAddress,

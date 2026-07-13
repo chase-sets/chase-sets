@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { createFakePaymentProcessorGateway } from "./test-support";
+import { createFakePaymentProcessorGateway, testPaymentProcessorGatewayContract } from "./test-support";
+
+testPaymentProcessorGatewayContract(createFakePaymentProcessorGateway, {
+  createWebhookInput: (kind) => ({
+    rawBody: JSON.stringify({
+      eventId: `evt_${kind}`,
+      kind,
+      processorPaymentReference: "pi_gateway_contract",
+      processorStatus: kind === "payment-captured" ? "succeeded" : "requires_payment_method",
+      occurredAt: "2026-07-13T00:00:00.000Z",
+    }),
+    signatureHeader: null,
+  }),
+});
 
 describe("fake payment processor gateway", () => {
   it("implements the payment processor port", async () => {

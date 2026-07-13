@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, ReadAllInput, ReadStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
@@ -13,51 +14,6 @@ const context = {
     forAccountId: "acc_seller" as AccountId,
   },
 };
-
-function createInMemoryEventStore() {
-  let globalPosition = 0;
-  const streams = new Map<string, StoredEvent[]>();
-  const allEvents: StoredEvent[] = [];
-
-  const eventStore: EventStore = {
-    appendToStream: async (input: AppendToStreamInput) => {
-      const existing = streams.get(input.streamId) ?? [];
-      const stored = input.events.map((event, index) => {
-        globalPosition += 1;
-        return {
-          eventId: `evt_${globalPosition}` as EventId,
-          streamId: input.streamId,
-          streamVersion: existing.length + index + 1,
-          globalPosition: String(globalPosition) as never,
-          tenantId: input.context.tenantId,
-          eventType: event.eventType,
-          payload: event.payload,
-          metadata: event.metadata ?? {},
-          occurredAt: new Date().toISOString() as never,
-          recordedAt: new Date().toISOString() as never,
-          performedByUserId: input.context.audit.performedByUserId,
-          forAccountId: input.context.audit.forAccountId,
-          traceId: input.context.trace?.traceId,
-          spanId: input.context.trace?.spanId,
-          parentSpanId: input.context.trace?.parentSpanId,
-          traceState: input.context.trace?.traceState,
-        } satisfies StoredEvent;
-      });
-
-      streams.set(input.streamId, [...existing, ...stored]);
-      allEvents.push(...stored);
-      return stored;
-    },
-    readStream: async (input: ReadStreamInput) =>
-      [...(streams.get(input.streamId) ?? [])].slice(input.fromVersion ?? 0),
-    readAll: async (input?: ReadAllInput) => {
-      const after = Number(input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION);
-      return allEvents.filter((event) => Number(event.globalPosition) > after).slice(0, input?.limit ?? 500);
-    },
-  };
-
-  return { eventStore };
-}
 
 function createDeps() {
   const { eventStore } = createInMemoryEventStore();

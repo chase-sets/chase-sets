@@ -1,66 +1,10 @@
 import { vi } from "vitest";
-import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
-import type {
-  AppendToStreamInput,
-  GlobalPosition,
-  ReadAllInput,
-  ReadStreamInput,
-  StoredEvent,
-} from "@chase-sets/event-core/storage";
+import type { GlobalPosition } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { type ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import { createOrderingOrderRuntime } from "./runtime";
-import type { IsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
-import type { AccountId, EventId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
-
-export function createInMemoryEventStore() {
-  let globalPosition = 0;
-  const streams = new Map<string, StoredEvent[]>();
-  const allEvents: StoredEvent[] = [];
-
-  const eventStore: EventStore = {
-    appendToStream: async (input: AppendToStreamInput) => {
-      const existing = streams.get(input.streamId) ?? [];
-      const stored = input.events.map((event, index) => {
-        globalPosition += 1;
-        return {
-          eventId: `evt_${globalPosition}` as EventId,
-          streamId: input.streamId,
-          streamVersion: existing.length + index + 1,
-          globalPosition: String(globalPosition) as GlobalPosition,
-          tenantId: input.context.tenantId,
-          eventType: event.eventType,
-          payload: event.payload,
-          metadata: event.metadata ?? {},
-          occurredAt: new Date().toISOString() as IsoUtcTimestamp,
-          recordedAt: new Date().toISOString() as IsoUtcTimestamp,
-          performedByUserId: input.context.audit.performedByUserId,
-          forAccountId: input.context.audit.forAccountId,
-          traceId: input.context.trace?.traceId,
-          spanId: input.context.trace?.spanId,
-          parentSpanId: input.context.trace?.parentSpanId,
-          traceState: input.context.trace?.traceState,
-        } satisfies StoredEvent;
-      });
-
-      streams.set(input.streamId, [...existing, ...stored]);
-      allEvents.push(...stored);
-      return stored;
-    },
-    readStream: async (input: ReadStreamInput) =>
-      [...(streams.get(input.streamId) ?? [])].slice(input.fromVersion ?? 0),
-    readAll: async (input?: ReadAllInput) => {
-      const after = Number(input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION);
-      return allEvents.filter((event) => Number(event.globalPosition) > after);
-    },
-  };
-
-  return {
-    eventStore,
-    readAllEvents: () => allEvents,
-  };
-}
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 export function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();

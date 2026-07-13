@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { AppendToStreamsIndependentResult, EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type {
@@ -10,90 +11,6 @@ import type {
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createMarketplaceListingRuntime } from "./runtime";
-
-function createInMemoryEventStore() {
-  let globalPosition = 0;
-  const streams = new Map<string, StoredEvent[]>();
-  const allEvents: StoredEvent[] = [];
-
-  function appendStoredEvents(input: AppendToStreamInput): StoredEvent[] {
-    const existing = streams.get(input.streamId) ?? [];
-    const stored = input.events.map((event, index) => {
-      globalPosition += 1;
-      return {
-        eventId: `evt_${globalPosition}` as never,
-        streamId: input.streamId,
-        streamVersion: existing.length + index + 1,
-        globalPosition: String(globalPosition) as GlobalPosition,
-        tenantId: input.context.tenantId,
-        eventType: event.eventType,
-        payload: event.payload,
-        metadata: event.metadata ?? {},
-        occurredAt: new Date().toISOString() as never,
-        recordedAt: new Date().toISOString() as never,
-        performedByUserId: input.context.audit.performedByUserId,
-        forAccountId: input.context.audit.forAccountId,
-        traceId: input.context.trace?.traceId,
-        spanId: input.context.trace?.spanId,
-        parentSpanId: input.context.trace?.parentSpanId,
-        traceState: input.context.trace?.traceState,
-      } satisfies StoredEvent;
-    });
-
-    streams.set(input.streamId, [...existing, ...stored]);
-    allEvents.push(...stored);
-    return stored;
-  }
-
-  function currentVersionMatches(input: AppendToStreamInput): boolean {
-    const currentVersion = (streams.get(input.streamId) ?? []).length;
-    if (input.expectedVersion === "any") {
-      return true;
-    }
-    if (input.expectedVersion === "no_stream") {
-      return currentVersion === 0;
-    }
-    return input.expectedVersion === currentVersion;
-  }
-
-  const eventStore: EventStore = {
-    appendToStream: async (input: AppendToStreamInput) => appendStoredEvents(input),
-    // A simplified but version-faithful independent-append fake: per-stream
-    // conflicts are isolated (never abort a sibling's append) -- the same
-    // invariant `appendToStreamsIndependently` guarantees against real
-    // Postgres (see event-core-postgres/event-store.db.test.ts).
-    appendToStreamsIndependently: async (inputs) => {
-      const results: AppendToStreamsIndependentResult[] = [];
-      for (const input of inputs) {
-        if (input.events.length === 0) {
-          results.push({ streamId: input.streamId, outcome: "no_op", storedEvents: [] });
-          continue;
-        }
-        if (!currentVersionMatches(input)) {
-          results.push({
-            streamId: input.streamId,
-            outcome: "conflict",
-            storedEvents: [],
-            error: Object.assign(new Error("Expected stream version does not match current version."), {
-              code: "concurrency_conflict",
-            }) as never,
-          });
-          continue;
-        }
-        results.push({ streamId: input.streamId, outcome: "appended", storedEvents: appendStoredEvents(input) });
-      }
-      return results;
-    },
-    readStream: async (input: ReadStreamInput) =>
-      [...(streams.get(input.streamId) ?? [])].slice(input.fromVersion ?? 0),
-    readAll: async (input?: ReadAllInput) => {
-      const after = Number(input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION);
-      return allEvents.filter((event) => Number(event.globalPosition) > after);
-    },
-  };
-
-  return { eventStore };
-}
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();

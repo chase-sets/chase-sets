@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import {
   context,
   createCheckpointStore,
-  createInMemoryEventStore,
   createOrderingOrderRuntimeForTest,
   createSupplyDb,
   shipFromAddress,
