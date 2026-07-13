@@ -12,7 +12,7 @@ import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/con
 // Sync freshness and promotion readiness are honest proxies derived from the
 // canonical record itself (its language-edition coverage, lifecycle status, and
 // projection recency) — the same freshness proxy the attention queue uses —
-// until the dedicated scope-sync-state model (#3798) lands. No per-scope
+// until the dedicated scope-sync-state model lands. No per-scope
 // aggregate is fabricated here.
 // ---------------------------------------------------------------------------
 
