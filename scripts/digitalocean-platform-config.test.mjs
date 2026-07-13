@@ -1319,6 +1319,38 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingDeployStep).toContain('--runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}"');
     expect(stagingDeployStep).toContain('--runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}"');
     expect(stagingDeployStep).toContain('--runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}"');
+    // Runtime-env parity with the App Platform path and the preview deploy
+    // (platform-pr.yml): the DOKS Helm chart bakes per-domain origins,
+    // notification/provider config, and optional provider endpoints as ""/noop
+    // defaults, so every value the App Platform platform-api/admin-web/worker
+    // reads from a Terraform var must be threaded here or it arrives empty on
+    // DOKS (the #5159 silent-misconfig class).
+    expect(stagingDeployStep).toContain(
+      "terraform -chdir=infrastructure/digitalocean/platform output -raw landing_domain",
+    );
+    expect(stagingDeployStep).toContain('--runtime-env "CHASE_SETS_PUBLIC_ORIGIN=https://${landing_domain}"');
+    expect(stagingDeployStep).toContain(
+      '--runtime-env "NOTIFICATION_EMAIL_PROVIDER=${TF_VAR_notification_email_provider:-noop}"',
+    );
+    expect(stagingDeployStep).toContain(
+      '--runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${TF_VAR_stripe_connect_accounts_api:-v2}"',
+    );
+    expect(stagingDeployStep).toContain('--runtime-env "EASYPOST_MODE=${TF_VAR_easypost_mode:-test}"');
+    expect(stagingDeployStep).toContain(
+      'add_optional_runtime_env "CHASE_SETS_MARKETPLACE_ORIGIN" "${marketplace_domain:+https://${marketplace_domain}}"',
+    );
+    expect(stagingDeployStep).toContain('add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"');
+    expect(stagingDeployStep).toContain('add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"');
+    expect(stagingDeployStep).toContain(
+      'add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"',
+    );
+    expect(stagingDeployStep).toContain(
+      'add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"',
+    );
+    expect(stagingDeployStep).toContain(
+      'add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"',
+    );
+    expect(stagingDeployStep).toContain('"${optional_runtime_env[@]}"');
     expect(stagingDeployStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
     expect(stagingDeployStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
     expect(stagingDiagnosticsStep).toContain("pnpm run platform:kubernetes-deployment -- diagnostics");
@@ -1376,6 +1408,31 @@ describe("DigitalOcean platform configuration", () => {
     expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}"');
     expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}"');
     expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}"');
+    // Runtime-env parity with the App Platform path and the preview deploy
+    // (platform-pr.yml): see the staging assertion above for the #5159
+    // silent-misconfig class this guards.
+    expect(deployStep).toContain("terraform -chdir=infrastructure/digitalocean/platform output -raw landing_domain");
+    expect(deployStep).toContain('--runtime-env "CHASE_SETS_PUBLIC_ORIGIN=https://${landing_domain}"');
+    expect(deployStep).toContain(
+      '--runtime-env "NOTIFICATION_EMAIL_PROVIDER=${TF_VAR_notification_email_provider:-noop}"',
+    );
+    expect(deployStep).toContain(
+      '--runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${TF_VAR_stripe_connect_accounts_api:-v2}"',
+    );
+    expect(deployStep).toContain('--runtime-env "EASYPOST_MODE=${TF_VAR_easypost_mode:-test}"');
+    expect(deployStep).toContain(
+      'add_optional_runtime_env "CHASE_SETS_MARKETPLACE_ORIGIN" "${marketplace_domain:+https://${marketplace_domain}}"',
+    );
+    expect(deployStep).toContain('add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"');
+    expect(deployStep).toContain('add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"');
+    expect(deployStep).toContain(
+      'add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"',
+    );
+    expect(deployStep).toContain('add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"');
+    expect(deployStep).toContain(
+      'add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"',
+    );
+    expect(deployStep).toContain('"${optional_runtime_env[@]}"');
     expect(deployStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
     expect(deployStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
 
