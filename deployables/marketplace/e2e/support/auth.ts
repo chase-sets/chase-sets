@@ -131,28 +131,25 @@ async function waitForAuthInvitationProjection(page: Page, origin: string, admin
     return;
   }
 
-  const deadline = Date.now() + 90_000;
   let lastObservedPosition = "0";
-  while (Date.now() < deadline) {
-    const refreshResponse = await page.request.post(`${origin}/api/platform/projections/refresh`, {
-      headers: { Cookie: adminCookie },
-    });
-    expect(refreshResponse.status(), "platform admin should refresh projection status").toBe(200);
-    const body = (await refreshResponse.json()) as ProjectionRefreshResponse;
-    const authInvitationProjection = body.projectionGroups?.find(
-      (group) => group.targetContextName === "auth" && group.projectionName === "auth-identity-invitation-projection",
-    );
-    lastObservedPosition = maxObservedPosition(authInvitationProjection, "identity") ?? lastObservedPosition;
-    if (BigInt(lastObservedPosition) >= BigInt(identityCommit.maxGlobalPosition)) {
-      return;
-    }
-
-    await page.waitForTimeout(1_000);
-  }
-
-  throw new Error(
-    `Auth invitation projection did not reach identity position ${identityCommit.maxGlobalPosition}; last observed ${lastObservedPosition}.`,
-  );
+  await expect
+    .poll(
+      async () => {
+        const refreshResponse = await page.request.post(`${origin}/api/platform/projections/refresh`, {
+          headers: { Cookie: adminCookie },
+        });
+        expect(refreshResponse.status(), "platform admin should refresh projection status").toBe(200);
+        const body = (await refreshResponse.json()) as ProjectionRefreshResponse;
+        const authInvitationProjection = body.projectionGroups?.find(
+          (group) =>
+            group.targetContextName === "auth" && group.projectionName === "auth-identity-invitation-projection",
+        );
+        lastObservedPosition = maxObservedPosition(authInvitationProjection, "identity") ?? lastObservedPosition;
+        return BigInt(lastObservedPosition) >= BigInt(identityCommit.maxGlobalPosition);
+      },
+      { intervals: [1_000, 2_000, 5_000], timeout: 90_000 },
+    )
+    .toBe(true);
 }
 
 type ProjectionRefreshResponse = {

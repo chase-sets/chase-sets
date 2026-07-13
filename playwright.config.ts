@@ -1,6 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 import { resolveWorktreeSandbox } from "./scripts/lib/sandbox.mjs";
 
+const retryTelemetryReporterPath = "./deployables/admin-web/e2e/support/retry-telemetry-reporter.ts";
+
 const sandbox = resolveWorktreeSandbox();
 const adminWebBaseUrl = process.env.ADMIN_WEB_URL ?? sandbox.urls.adminWeb;
 const marketplaceBaseUrl = process.env.MARKETPLACE_WEB_URL ?? sandbox.urls.marketplaceWeb;
@@ -31,7 +33,11 @@ export default defineConfig({
   forbidOnly: isCi,
   retries: isCi ? 2 : 0,
   workers: isCi ? 1 : undefined,
-  reporter: [["list"], ["html", { open: "never", outputFolder: "artifacts/playwright/report" }]],
+  reporter: [
+    ["list"],
+    [retryTelemetryReporterPath],
+    ["html", { open: "never", outputFolder: "artifacts/playwright/report" }],
+  ],
   use: {
     trace: "on-first-retry",
     screenshot: "only-on-failure",

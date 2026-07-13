@@ -20,30 +20,41 @@ test.describe("growth admin promo bar", () => {
     const description = `Growth admin e2e message ${uniqueSuffix}`;
     const createForm = page.locator("form").filter({ has: page.getByRole("button", { name: "Create message" }) });
 
-    await createForm.getByLabel("Title", { exact: true }).fill(title);
-    await createForm.getByLabel("Description", { exact: true }).fill(description);
-    await createForm.getByLabel("Link", { exact: true }).fill("/selling");
-    await createForm.getByLabel("Link label", { exact: true }).fill("Review selling");
-    await createForm.getByLabel("Tone", { exact: true }).selectOption("success");
-    await createForm.getByLabel("Display order", { exact: true }).fill("1");
-    await createForm.locator('input[name="isActive"]').evaluate((element) => {
-      const input = element as HTMLInputElement;
-      input.checked = false;
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    await createForm.getByRole("button", { name: "Create message" }).click();
+    let activated = false;
+    try {
+      await createForm.getByLabel("Title", { exact: true }).fill(title);
+      await createForm.getByLabel("Description", { exact: true }).fill(description);
+      await createForm.getByLabel("Link", { exact: true }).fill("/selling");
+      await createForm.getByLabel("Link label", { exact: true }).fill("Review selling");
+      await createForm.getByLabel("Tone", { exact: true }).selectOption("success");
+      await createForm.getByLabel("Display order", { exact: true }).fill("1");
+      await createForm.locator('input[name="isActive"]').evaluate((element) => {
+        const input = element as HTMLInputElement;
+        input.checked = false;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await createForm.getByRole("button", { name: "Create message" }).click();
 
-    await expect(page.getByText("Promo bar message created.")).toBeVisible();
-    const createdRow = page.getByRole("row").filter({ hasText: title });
-    await expect(createdRow).toBeVisible();
-    await expect(createdRow.getByText("Inactive").first()).toBeVisible();
+      await expect(page.getByText("Promo bar message created.")).toBeVisible();
+      const createdRow = page.getByRole("row").filter({ hasText: title });
+      await expect(createdRow).toBeVisible();
+      await expect(createdRow.getByText("Inactive").first()).toBeVisible();
 
-    await createdRow.getByRole("button", { name: "Activate" }).click();
+      await createdRow.getByRole("button", { name: "Activate" }).click();
+      activated = true;
 
-    await expect(page.getByText("Promo bar message activated.")).toBeVisible();
-    const activatedRow = page.getByRole("row").filter({ hasText: title });
-    await expect(activatedRow.getByText("Active").first()).toBeVisible();
-    await expect(activatedRow.getByRole("button", { name: "Deactivate" })).toBeVisible();
+      await expect(page.getByText("Promo bar message activated.")).toBeVisible();
+      const activatedRow = page.getByRole("row").filter({ hasText: title });
+      await expect(activatedRow.getByText("Active").first()).toBeVisible();
+      await expect(activatedRow.getByRole("button", { name: "Deactivate" })).toBeVisible();
+    } finally {
+      if (activated) {
+        const activatedRow = page.getByRole("row").filter({ hasText: title });
+        await expect(activatedRow.getByRole("button", { name: "Deactivate" })).toBeVisible();
+        await activatedRow.getByRole("button", { name: "Deactivate" }).click();
+        await expect(page.getByText("Promo bar message deactivated.")).toBeVisible();
+      }
+    }
   });
 });

@@ -48,24 +48,23 @@ async function expectPageOk(page: Page, path: string) {
 }
 
 async function expectAccountRouteReady(page: Page, route: AccountRoute) {
-  const deadline = Date.now() + authProjectionTimeoutMs;
-  let lastPathname = "";
+  await expect
+    .poll(
+      async () => {
+        const response = await page.goto(route.path, { waitUntil: "domcontentloaded" });
+        expect(response, `${route.path} did not return a page response`).not.toBeNull();
+        expect(response!.status(), `${route.path} returned HTTP ${response!.status()}`).toBeLessThan(400);
 
-  while (Date.now() < deadline) {
-    const response = await page.goto(route.path, { waitUntil: "domcontentloaded" });
-    expect(response, `${route.path} did not return a page response`).not.toBeNull();
-    expect(response!.status(), `${route.path} returned HTTP ${response!.status()}`).toBeLessThan(400);
+        if (new URL(page.url()).pathname !== route.path) {
+          return false;
+        }
 
-    lastPathname = new URL(page.url()).pathname;
-    if (lastPathname === route.path) {
-      await expect(page.getByRole("heading", { name: route.heading }).first()).toBeVisible();
-      return;
-    }
-
-    await page.waitForTimeout(1_000);
-  }
-
-  expect(lastPathname, `${route.flow} should be reachable as the authenticated account`).toBe(route.path);
+        await expect(page.getByRole("heading", { name: route.heading }).first()).toBeVisible();
+        return true;
+      },
+      { intervals: [1_000, 2_000, 5_000], timeout: authProjectionTimeoutMs },
+    )
+    .toBe(true);
 }
 
 function marketplaceAccountFor(testInfo: TestInfo) {
