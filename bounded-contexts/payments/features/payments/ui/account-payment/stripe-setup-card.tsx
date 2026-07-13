@@ -1,4 +1,6 @@
 import { t } from "@chase-sets/localization";
+import { loadStripe } from "@stripe/stripe-js";
+import type { Stripe, StripeElements, StripePaymentElement } from "@stripe/stripe-js";
 import { useEffect, useRef, useState } from "react";
 import { useRevalidator } from "react-router";
 import {
@@ -15,80 +17,6 @@ import {
 } from "@chase-sets/design-system";
 import { createPaymentsApiClient, type PaymentsSavedCheckoutSetupSession } from "../../../../client";
 
-type StripeElementsAppearance = ReturnType<typeof createStripeElementsAppearance>;
-
-type StripePaymentElement = {
-  mount(target: HTMLElement | string): void;
-  destroy(): void;
-};
-
-type StripeElements = {
-  create(type: "payment"): StripePaymentElement;
-  update?(options: { appearance: StripeElementsAppearance }): void;
-};
-
-type StripeSetupClient = {
-  elements(options: { clientSecret: string; appearance: StripeElementsAppearance }): StripeElements;
-  confirmSetup(options: {
-    elements: StripeElements;
-    redirect: "if_required";
-  }): Promise<{ error?: { message?: string } }>;
-};
-
-type StripeSetupFactory = (publishableKey: string) => StripeSetupClient;
-
-let stripeFactoryPromise: Promise<StripeSetupFactory> | null = null;
-
-function loadStripeFactory(): Promise<StripeSetupFactory> {
-  if (typeof window === "undefined") {
-    return Promise.reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.can.only.load.in.the")));
-  }
-
-  const existingFactory = (window as Window & { Stripe?: StripeSetupFactory }).Stripe;
-  if (existingFactory) {
-    return Promise.resolve(existingFactory);
-  }
-
-  if (!stripeFactoryPromise) {
-    stripeFactoryPromise = new Promise((resolve, reject) => {
-      const existingScript = document.querySelector<HTMLScriptElement>('script[data-stripe-js="true"]');
-
-      if (existingScript) {
-        existingScript.addEventListener("load", () => {
-          const factory = (window as Window & { Stripe?: StripeSetupFactory }).Stripe;
-          if (factory) {
-            resolve(factory);
-            return;
-          }
-          reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.js.loaded.without.exposing.stripe")));
-        });
-        existingScript.addEventListener("error", () =>
-          reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.js.failed.to.load"))),
-        );
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.async = true;
-      script.src = "https://js.stripe.com/dahlia/stripe.js";
-      script.dataset.stripeJs = "true";
-      script.onload = () => {
-        const factory = (window as Window & { Stripe?: StripeSetupFactory }).Stripe;
-        if (factory) {
-          resolve(factory);
-          return;
-        }
-        reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.js.loaded.without.exposing.stripe.2")));
-      };
-      script.onerror = () =>
-        reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.js.failed.to.load.2")));
-      document.head.appendChild(script);
-    });
-  }
-
-  return stripeFactoryPromise;
-}
-
 const POLL_INTERVAL_MS = 2_000;
 const POLL_MAX_INTERVAL_MS = 30_000;
 const POLL_MAX_DURATION_MS = 5 * 60_000;
@@ -98,7 +26,7 @@ type SetupPhase = "idle" | "confirming" | "processing";
 export function StripeSetupCard({ setup, onSaved }: { setup: PaymentsSavedCheckoutSetupSession; onSaved: () => void }) {
   const revalidator = useRevalidator();
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const stripeRef = useRef<StripeSetupClient | null>(null);
+  const stripeRef = useRef<Stripe | null>(null);
   const elementsRef = useRef<StripeElements | null>(null);
   const elementRef = useRef<StripePaymentElement | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -136,13 +64,16 @@ export function StripeSetupCard({ setup, onSaved }: { setup: PaymentsSavedChecko
     setErrorMessage(null);
     setIsReady(false);
 
-    void loadStripeFactory()
-      .then((factory) => {
+    void loadStripe(publishableKey)
+      .then((stripe) => {
         if (cancelled) {
           return;
         }
 
-        const stripe = factory(publishableKey);
+        if (!stripe) {
+          throw new Error(t("payments.routes.marketplace.accountPayment.stripe.could.not.load"));
+        }
+
         const elements = stripe.elements({
           clientSecret,
           appearance: createStripeElementsAppearance({ scope: container }),
@@ -189,7 +120,7 @@ export function StripeSetupCard({ setup, onSaved }: { setup: PaymentsSavedChecko
     if (!container) {
       return;
     }
-    elementsRef.current?.update?.({ appearance: createStripeElementsAppearance({ scope: container }) });
+    void elementsRef.current?.update({ appearance: createStripeElementsAppearance({ scope: container }) });
   }, [appearanceVersion, isReady]);
 
   async function reconcileUntilSaved() {

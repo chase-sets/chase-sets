@@ -100,6 +100,12 @@ describe("run e2e suite", () => {
     expect(
       e2eNoSuiteExclusionForChangedFile("deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts"),
     ).toMatchObject({ reason: expect.stringContaining("Manual staging UAT") });
+    expect(e2eSuiteIdsForChangedFile("deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts")).toEqual(
+      [],
+    );
+    expect(
+      e2eNoSuiteExclusionForChangedFile("deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts"),
+    ).toMatchObject({ reason: expect.stringContaining("Manual staging UAT") });
   });
 
   it("routes shared auth changes to marketplace and admin auth coverage", () => {
