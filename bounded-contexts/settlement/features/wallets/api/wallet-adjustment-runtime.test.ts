@@ -8,6 +8,7 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { WALLET_ADJUSTMENT_CONTROLS_DEFAULT, type WalletAdjustmentControls } from "../domain/wallet-adjustment";
 import { createWalletRuntime } from "./runtime";
 import { createWalletAdjustmentRuntime, deriveWalletAdjustmentId } from "./wallet-adjustment-runtime";
 
@@ -69,10 +70,22 @@ const context = {
   audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_seller" as never },
 };
 
-function createRuntimes() {
+/** Resolves straight to the ADR compiled default unless a test overrides it -- no DB/policy-runtime required. */
+function fakePolicies(controlsOverride?: WalletAdjustmentControls) {
+  return {
+    resolvePolicy: async () => ({ value: controlsOverride ?? WALLET_ADJUSTMENT_CONTROLS_DEFAULT }) as never,
+  };
+}
+
+function createRuntimes(controlsOverride?: WalletAdjustmentControls) {
   const { eventStore, allEvents } = createInMemoryEventStore();
   const wallets = createWalletRuntime({ eventStore, checkpointStore: {} as never, db: noopDb });
-  const adjustments = createWalletAdjustmentRuntime({ eventStore, db: noopDb, wallets });
+  const adjustments = createWalletAdjustmentRuntime({
+    eventStore,
+    db: noopDb,
+    wallets,
+    policies: fakePolicies(controlsOverride),
+  });
   return { wallets, adjustments, allEvents };
 }
 
@@ -303,5 +316,100 @@ describe("wallet adjustment runtime", () => {
     );
     expect(second.reversal.adjustment_id).toBe(first.reversal.adjustment_id);
     expect((await wallets.loadWalletState("acc_seller" as never)).availableBalanceAmount).toBe("0.00");
+  });
+
+  describe("live wallet-adjustment-controls policy resolution", () => {
+    const revisedControls: WalletAdjustmentControls = {
+      highValueCreditThresholdAmount: "20.00",
+      highValueDebitThresholdAmount: "20.00",
+      recentAuthMaxAgeMinutes: 5,
+    };
+
+    it("resolveControls surfaces the currently-resolved policy, not a second hardcoded copy", async () => {
+      const { adjustments } = createRuntimes(revisedControls);
+      expect(await adjustments.resolveControls()).toEqual(revisedControls);
+    });
+
+    it("preview resolves the live policy's high-value threshold when no override is supplied", async () => {
+      const { adjustments } = createRuntimes(revisedControls);
+
+      const preview = await adjustments.preview({
+        targetAccountId: "acc_seller" as never,
+        direction: "credit",
+        amount: "20.00",
+        reasonCode: "goodwill-cash-credit",
+        selfBenefiting: false,
+      });
+      expect(preview.high_value).toBe(true);
+      expect(preview.controls.high_value_credit_threshold_amount).toBe("20.00");
+      expect(preview.controls.recent_auth_max_age_minutes).toBe(5);
+    });
+
+    it("approve requires elevation at the live policy's revised (lower) high-value threshold without an explicit controls override", async () => {
+      const { wallets, adjustments } = createRuntimes(revisedControls);
+      await seedAvailable(wallets, "acc_seller", "100.00");
+      const requested = await adjustments.request(
+        {
+          idempotencyKey: "corr-live-policy-1",
+          targetAccountId: "acc_seller" as never,
+          direction: "credit",
+          amount: "25.00",
+          reasonCode: "goodwill-cash-credit",
+          requestedBy: "usr_requester" as never,
+          selfBenefiting: false,
+        },
+        context,
+      );
+
+      // $25.00 is below the ADR compiled default ($500.00) but above the
+      // live-revised policy's $20.00 threshold -- proves the runtime is
+      // reading the resolved policy, not the compiled default.
+      await expect(
+        adjustments.approve(
+          { adjustmentId: requested.adjustment_id as never, approvedBy: "usr_approver" as never },
+          context,
+        ),
+      ).rejects.toThrow(/requires a second, elevated approval/);
+
+      const posted = await adjustments.approveAndPost(
+        {
+          adjustmentId: requested.adjustment_id as never,
+          approvedBy: "usr_approver" as never,
+          elevationApprovedBy: "usr_elevated" as never,
+        },
+        context,
+      );
+      expect(posted.status).toBe("posted");
+      expect(posted.high_value_credit_threshold_amount).toBe("20.00");
+      expect(posted.recent_auth_max_age_minutes).toBe(5);
+    });
+
+    it("an explicit controls override still wins over the live-resolved policy", async () => {
+      const { wallets, adjustments } = createRuntimes(revisedControls);
+      await seedAvailable(wallets, "acc_seller", "100.00");
+      const requested = await adjustments.request(
+        {
+          idempotencyKey: "corr-live-policy-2",
+          targetAccountId: "acc_seller" as never,
+          direction: "credit",
+          amount: "25.00",
+          reasonCode: "goodwill-cash-credit",
+          requestedBy: "usr_requester" as never,
+          selfBenefiting: false,
+        },
+        context,
+      );
+
+      const posted = await adjustments.approveAndPost(
+        {
+          adjustmentId: requested.adjustment_id as never,
+          approvedBy: "usr_approver" as never,
+          controls: WALLET_ADJUSTMENT_CONTROLS_DEFAULT,
+        },
+        context,
+      );
+      expect(posted.status).toBe("posted");
+      expect(posted.high_value_credit_threshold_amount).toBe("500.00");
+    });
   });
 });

@@ -304,6 +304,12 @@ function toSessionRowFromState(state: SessionState, updatedAt: string): SessionR
     authentication_method: state.authenticationMethod,
     status: state.status,
     expires_at: state.expiresAt,
+    // The rehydrated in-memory aggregate does not itself carry a started-at
+    // fact (SessionState has no timestamp field). This fallback path only
+    // fires before the session projection has caught up, i.e. immediately
+    // after the session started, so "now" is an accurate approximation --
+    // consistent with `updated_at` already being synthesized the same way.
+    started_at: updatedAt,
     updated_at: updatedAt,
   };
 }
@@ -520,5 +526,6 @@ export async function resolveActorFromSessionId(
     membershipId: membership.membership_id,
     roleKey: membership.role_key,
     permissions,
+    authenticatedAt: session.started_at ?? null,
   };
 }

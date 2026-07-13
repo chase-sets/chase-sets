@@ -31,9 +31,16 @@ function snapshot(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const DEFAULT_CONTROLS = {
+  highValueCreditThresholdAmount: "500.00",
+  highValueDebitThresholdAmount: "500.00",
+  recentAuthMaxAgeMinutes: 15,
+};
+
 function createServices(overrides: Partial<WalletAdjustmentServices> = {}): WalletAdjustmentServices {
   return {
     deriveAdjustmentId: vi.fn(),
+    resolveControls: vi.fn(async () => DEFAULT_CONTROLS as never),
     preview: vi.fn(async () => ({ balance_revision: "wbr_abc", direction: "credit", amount: "10.00" }) as never),
     getAccountSummary: vi.fn(
       async () => ({ account_id: "acc_target", updated_at: "2026-07-13T00:00:00.000Z" }) as never,
@@ -58,7 +65,16 @@ const walletsStub: Pick<WalletServices, "listWalletEntries"> = {
   listWalletEntries: vi.fn(async () => ({ items: [], total: 0 })),
 };
 
-function createApp(services: WalletAdjustmentServices, permissions: readonly string[] | null) {
+function createApp(
+  services: WalletAdjustmentServices,
+  permissions: readonly string[] | null,
+  options: Readonly<{ authenticatedAt?: string | null }> = {},
+) {
+  // Recently authenticated by default so every pre-existing authorization/
+  // validation test below is exercising only what it names, not incidentally
+  // tripping the recent-auth ("step-up") gate too -- see the dedicated
+  // "recent authentication (step-up)" describe block for that gate's tests.
+  const authenticatedAt = "authenticatedAt" in options ? options.authenticatedAt : new Date().toISOString();
   const app = new Hono<SettlementApiEnv>();
   app.use("*", async (c, next) => {
     c.set(
@@ -72,6 +88,7 @@ function createApp(services: WalletAdjustmentServices, permissions: readonly str
             membershipId: "mem_test",
             roleKey: "platform-admin",
             permissions,
+            authenticatedAt,
           }
         : null,
     );
@@ -283,6 +300,94 @@ describe("wallet adjustment routes: approve, reject, reverse", () => {
       }),
       expect.anything(),
     );
+  });
+});
+
+describe("wallet adjustment routes: recent authentication (step-up)", () => {
+  const requestBody = {
+    targetAccountId: "acc_target",
+    direction: "credit",
+    amount: "10.00",
+    reasonCode: "goodwill-cash-credit",
+  };
+
+  it("rejects posting a request with a specific step-up-required response when the actor has no authentication moment", async () => {
+    const services = createServices();
+    const app = createApp(services, OPERATOR_PERMISSIONS, { authenticatedAt: null });
+    const response = await post(app, "/wallet-adjustments", requestBody);
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("step_up_required");
+    expect(services.request).not.toHaveBeenCalled();
+  });
+
+  it("rejects posting a request when the actor authenticated outside the policy's recent-auth window", async () => {
+    const services = createServices();
+    const stale = new Date(Date.now() - 16 * 60_000).toISOString();
+    const app = createApp(services, OPERATOR_PERMISSIONS, { authenticatedAt: stale });
+    const response = await post(app, "/wallet-adjustments", requestBody);
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("step_up_required");
+    expect(services.request).not.toHaveBeenCalled();
+  });
+
+  it("allows posting a request when the actor authenticated within the policy's recent-auth window", async () => {
+    const services = createServices();
+    const fresh = new Date(Date.now() - 5 * 60_000).toISOString();
+    const app = createApp(services, OPERATOR_PERMISSIONS, { authenticatedAt: fresh });
+    const response = await post(app, "/wallet-adjustments", requestBody);
+    expect(response.status).toBe(201);
+    expect(services.request).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects approval with step-up-required when the session is not recently authenticated", async () => {
+    const services = createServices();
+    const app = createApp(services, OPERATOR_PERMISSIONS, { authenticatedAt: null });
+    const response = await post(app, "/wallet-adjustments/wad_1/approve", {});
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("step_up_required");
+    expect(services.approveAndPost).not.toHaveBeenCalled();
+  });
+
+  it("rejects reversal with step-up-required when the session is not recently authenticated", async () => {
+    const services = createServices();
+    const app = createApp(services, OPERATOR_PERMISSIONS, { authenticatedAt: null });
+    const response = await post(app, "/wallet-adjustments/wad_1/reverse", {
+      approvedByUserId: "usr_approver",
+      elevationApprovedByUserId: "usr_elevated",
+    });
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("step_up_required");
+    expect(services.reverse).not.toHaveBeenCalled();
+  });
+
+  it("does not require recent authentication to preview, reject, or read", async () => {
+    const services = createServices();
+    const app = createApp(services, OPERATOR_PERMISSIONS, { authenticatedAt: null });
+
+    expect((await post(app, "/wallet-adjustments/preview", requestBody)).status).toBe(200);
+    expect((await post(app, "/wallet-adjustments/wad_1/reject", {})).status).toBe(200);
+    expect((await app.request("/wallet-adjustments")).status).toBe(200);
+  });
+
+  it("resolves the recent-auth window from the live policy, not a hardcoded value", async () => {
+    const services = createServices({
+      resolveControls: vi.fn(async () => ({
+        highValueCreditThresholdAmount: "500.00",
+        highValueDebitThresholdAmount: "500.00",
+        recentAuthMaxAgeMinutes: 60,
+      })) as never,
+    });
+    // 30 minutes old: stale under the ADR compiled default (15 min) but
+    // fresh under this policy's revised 60-minute window.
+    const authenticatedAt = new Date(Date.now() - 30 * 60_000).toISOString();
+    const app = createApp(services, OPERATOR_PERMISSIONS, { authenticatedAt });
+    const response = await post(app, "/wallet-adjustments", requestBody);
+    expect(response.status).toBe(201);
+    expect(services.request).toHaveBeenCalledTimes(1);
   });
 });
 

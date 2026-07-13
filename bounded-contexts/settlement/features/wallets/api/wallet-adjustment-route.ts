@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import { t } from "@chase-sets/localization";
+import { resolveRecentAuthenticationStatus } from "@chase-sets/auth-context";
 import {
   apiErrorResponse,
   authenticationRequiredResponse,
@@ -29,9 +30,10 @@ import {
 /**
  * Purpose-specific wallet-adjustment permissions ratified by ADR 0020, distinct
  * from `payouts.*`: an ordinary account operator with payout authority can never
- * reach the platform adjustment surface. The role grants and recent-auth gating
- * that make these production-enablable are owned by the platform-admin RBAC
- * slice; these routes only enforce their presence.
+ * reach the platform adjustment surface. Granted to platform-admin only (see
+ * `ROLE_PERMISSIONS`/`AUTH_ROLE_PERMISSIONS`, contract-tested there). Posting
+ * (`create`), approval, and reversal additionally require the acting session
+ * to be recently authenticated -- see `requireRecentAuthentication` below.
  */
 export const WALLET_ADJUSTMENT_PERMISSIONS = {
   view: "wallet-adjustments.view",
@@ -123,6 +125,40 @@ function jsonResponse(body: unknown, status: number): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+/**
+ * A machine-coded 401 distinct from `authentication_required`: the actor is
+ * authenticated, but their session did not authenticate recently enough for
+ * this specific high-risk action. The client's remedy is step-up
+ * re-authentication, not sign-in from scratch.
+ */
+function stepUpRequiredResponse(message: string): Response {
+  return jsonResponse({ error: { code: "step_up_required", message } }, 401);
+}
+
+/**
+ * ADR 0020's recent-authentication ("step-up") requirement for posting a
+ * Wallet Adjustment request, approving/rejecting it, and reversing it. Uses
+ * Auth's own session-authentication fact on the resolved actor
+ * (`ResolvedActor.authenticatedAt`, via `resolveRecentAuthenticationStatus`)
+ * rather than a new Settlement-owned session concept, gated by the same
+ * `settlement.wallet-adjustment-controls` policy window `services.approve`/
+ * `reverse` themselves resolve -- so the API boundary and the domain always
+ * agree on the window in force. Fails closed: policy or actor-fact
+ * resolution failures are surfaced as `step_up_required`, never silently
+ * allowed through.
+ */
+async function requireRecentAuthentication(
+  actor: ResolvedActor,
+  services: Pick<WalletAdjustmentServices, "resolveControls">,
+): Promise<Response | null> {
+  const controls = await services.resolveControls();
+  const status = resolveRecentAuthenticationStatus(actor, { maxAgeMinutes: controls.recentAuthMaxAgeMinutes });
+  if (status.recentlyAuthenticated) {
+    return null;
+  }
+  return stepUpRequiredResponse(t("settlement.features.wallets.api.wallet-adjustment-route.step.up.required"));
 }
 
 /**
@@ -508,6 +544,10 @@ export function createWalletAdjustmentRoutes(
     if (access.response) {
       return access.response;
     }
+    const stepUp = await requireRecentAuthentication(access.actor, services);
+    if (stepUp) {
+      return stepUp;
+    }
     try {
       const body = await c.req.json().catch(() => ({}));
       const targetAccountId = parseAccountId(body.targetAccountId);
@@ -550,6 +590,10 @@ export function createWalletAdjustmentRoutes(
     const access = requireAccess(c, WALLET_ADJUSTMENT_PERMISSIONS.approve);
     if (access.response) {
       return access.response;
+    }
+    const stepUp = await requireRecentAuthentication(access.actor, services);
+    if (stepUp) {
+      return stepUp;
     }
     try {
       const adjustmentId = parseAdjustmentId(c.req.param("adjustmentId"));
@@ -613,6 +657,10 @@ export function createWalletAdjustmentRoutes(
     const access = requireAccess(c, WALLET_ADJUSTMENT_PERMISSIONS.reverse);
     if (access.response) {
       return access.response;
+    }
+    const stepUp = await requireRecentAuthentication(access.actor, services);
+    if (stepUp) {
+      return stepUp;
     }
     try {
       const adjustmentId = parseAdjustmentId(c.req.param("adjustmentId"));
