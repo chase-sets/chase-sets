@@ -7,6 +7,9 @@ import { createIsolatedPostgresTestSchema, type IsolatedPostgresTestSchema } fro
 import { withPgTransaction, type PgPoolClient, type PgTransactionalPool } from "./types";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
+if (!adminDatabaseUrl && process.env.CI) {
+  throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
+}
 const describeDb = adminDatabaseUrl ? describe : describe.skip;
 
 describeDb("postgres event store real database integration", () => {

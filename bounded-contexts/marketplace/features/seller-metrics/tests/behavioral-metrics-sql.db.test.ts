@@ -18,6 +18,9 @@ import {
 import { getSellerBehavioralMetricsChips, getSellerBehavioralMetricsSummary } from "../read-model/queries";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
+if (!databaseBaseUrl && process.env.CI) {
+  throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
+}
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 const contextNames = ["marketplace"] as const;
 

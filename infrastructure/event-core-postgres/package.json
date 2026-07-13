@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --config ./vitest.config.ts",
+    "test:unit": "vitest run --config ./vitest.config.ts --exclude event-store.db.test.ts --exclude projection-store.db.test.ts --exclude aggregate-snapshot-store.db.test.ts",
     "test:db": "vitest run --config ./vitest.config.ts event-store.db.test.ts projection-store.db.test.ts aggregate-snapshot-store.db.test.ts",
     "test:watch": "vitest --config ./vitest.config.ts"
   },
@@ -22,5 +23,8 @@
   },
   "devDependencies": {
     "@types/pg": "^8.20.0"
+  },
+  "chaseSets": {
+    "testProfile": "db"
   }
 }
