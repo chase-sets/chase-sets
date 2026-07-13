@@ -30,6 +30,7 @@ export function buildMarketplaceSettlementNegativeBalanceProjectionHandlers(
           accountId: data.accountId,
           reasonCategory: "operations",
           availableAgainOn: null,
+          availableAgainAt: null,
         },
         marketplaceSystemContext(data.accountId),
       );

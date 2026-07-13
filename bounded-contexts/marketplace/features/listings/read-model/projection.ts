@@ -478,6 +478,10 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         accountId: string;
         reasonCategory: string | null;
         availableAgainOn: string | null;
+        // Additive: absent on events recorded before the authoritative
+        // resume instant existed. Those rows project `available_again_at`
+        // as NULL, matching the replay-safe legacy ruling.
+        availableAgainAt?: string | null;
         disabledAt: string;
       };
 
@@ -487,18 +491,27 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
            status,
            disabled_reason_category,
            available_again_on,
+           available_again_at,
            disabled_at,
            enabled_at,
            updated_at
-         ) VALUES ($1, 'unavailable', $2, $3, $4, NULL, $5)
+         ) VALUES ($1, 'unavailable', $2, $3, $4, $5, NULL, $6)
          ON CONFLICT (account_id) DO UPDATE SET
            status = EXCLUDED.status,
            disabled_reason_category = EXCLUDED.disabled_reason_category,
            available_again_on = EXCLUDED.available_again_on,
+           available_again_at = EXCLUDED.available_again_at,
            disabled_at = EXCLUDED.disabled_at,
            enabled_at = EXCLUDED.enabled_at,
            updated_at = EXCLUDED.updated_at`,
-        [data.accountId, data.reasonCategory, data.availableAgainOn, data.disabledAt, event.timing.recordedAt],
+        [
+          data.accountId,
+          data.reasonCategory,
+          data.availableAgainOn,
+          data.availableAgainAt ?? null,
+          data.disabledAt,
+          event.timing.recordedAt,
+        ],
       );
     },
     "marketplace.seller-listing-availability.enabled": async (event) => {
@@ -513,14 +526,16 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
            status,
            disabled_reason_category,
            available_again_on,
+           available_again_at,
            disabled_at,
            enabled_at,
            updated_at
-         ) VALUES ($1, 'available', NULL, NULL, NULL, $2, $3)
+         ) VALUES ($1, 'available', NULL, NULL, NULL, NULL, $2, $3)
          ON CONFLICT (account_id) DO UPDATE SET
            status = EXCLUDED.status,
            disabled_reason_category = EXCLUDED.disabled_reason_category,
            available_again_on = EXCLUDED.available_again_on,
+           available_again_at = EXCLUDED.available_again_at,
            enabled_at = EXCLUDED.enabled_at,
            updated_at = EXCLUDED.updated_at`,
         [data.accountId, data.enabledAt, event.timing.recordedAt],

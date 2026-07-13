@@ -101,6 +101,7 @@ export interface MarketplaceSellerListingAvailability {
   status: "available" | "unavailable";
   disabled_reason_category: string | null;
   available_again_on: string | null;
+  available_again_at: string | null;
   disabled_at: string | null;
   enabled_at: string | null;
   updated_at: string;

@@ -40,6 +40,7 @@ function services(): MarketplaceListingServices {
       status: "available",
       disabled_reason_category: null,
       available_again_on: null,
+      available_again_at: null,
       disabled_at: null,
       enabled_at: "2026-07-08T00:00:00.000Z",
       updated_at: "2026-07-08T00:00:00.000Z",

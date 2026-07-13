@@ -10,9 +10,21 @@ const availableListings = {
   status: "available",
   disabled_reason_category: null,
   available_again_on: null,
+  available_again_at: null,
   disabled_at: null,
   enabled_at: "2026-06-01T00:00:00.000Z",
   updated_at: "2026-06-01T00:00:00.000Z",
+} satisfies MarketplaceSellerListingAvailability;
+
+const unavailableListings = {
+  account_id: "acc_seller",
+  status: "unavailable",
+  disabled_reason_category: "travel",
+  available_again_on: "2026-07-20",
+  available_again_at: "2026-07-20T05:00:00.000Z",
+  disabled_at: "2026-07-13T12:00:00.000Z",
+  enabled_at: null,
+  updated_at: "2026-07-13T12:00:00.000Z",
 } satisfies MarketplaceSellerListingAvailability;
 
 function buildListingRow(overrides: Partial<MarketplaceListingListItem> = {}): MarketplaceListingListItem {
@@ -179,5 +191,50 @@ describe("marketplace listings workbench", () => {
     expect(screen.getByText("Succeeded")).toBeTruthy();
     expect(screen.getByText("Failed")).toBeTruthy();
     expect(screen.getByText("Listing is withdrawn.")).toBeTruthy();
+  });
+
+  it("captures the seller-local resume instant client-side when a return date is chosen", () => {
+    const { container } = render(
+      <MarketplaceListingListPage data={{ items: [] }} listingAvailability={availableListings} />,
+    );
+
+    const dateInput = screen.getByLabelText("Available again on") as HTMLInputElement;
+    fireEvent.change(dateInput, { target: { value: "2026-07-20" } });
+
+    const hiddenInstant = container.querySelector(
+      'input[type="hidden"][name="availableAgainAt"]',
+    ) as HTMLInputElement | null;
+    expect(hiddenInstant?.value).toBe(new Date("2026-07-20T00:00:00").toISOString());
+  });
+
+  it("clears the hidden resume instant when the return date is cleared", () => {
+    const { container } = render(
+      <MarketplaceListingListPage data={{ items: [] }} listingAvailability={availableListings} />,
+    );
+
+    const dateInput = screen.getByLabelText("Available again on") as HTMLInputElement;
+    fireEvent.change(dateInput, { target: { value: "2026-07-20" } });
+    fireEvent.change(dateInput, { target: { value: "" } });
+
+    const hiddenInstant = container.querySelector(
+      'input[type="hidden"][name="availableAgainAt"]',
+    ) as HTMLInputElement | null;
+    expect(hiddenInstant?.value).toBe("");
+  });
+
+  it("allows refreshing away settings while already unavailable, prefilled from current state", () => {
+    render(<MarketplaceListingListPage data={{ items: [] }} listingAvailability={unavailableListings} />);
+
+    expect(screen.getByRole("button", { name: "Turn on listings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Update away settings" })).toBeTruthy();
+    expect((screen.getByLabelText("Reason") as HTMLSelectElement).value).toBe("travel");
+    expect((screen.getByLabelText("Available again on") as HTMLInputElement).value).toBe("2026-07-20");
+  });
+
+  it("labels the away-settings action as turning listings off while currently available", () => {
+    render(<MarketplaceListingListPage data={{ items: [] }} listingAvailability={availableListings} />);
+
+    expect(screen.getByRole("button", { name: "Turn off listings" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Turn on listings" })).toBeNull();
   });
 });

@@ -258,6 +258,14 @@ function parseAvailableAgainOn(value: unknown) {
   return normalized ? normalized : null;
 }
 
+// The instant is captured client-side (seller-local start-of-day for the
+// chosen date); the API accepts it verbatim and never guesses a timezone
+// server-side.
+function parseAvailableAgainAt(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized ? normalized : null;
+}
+
 function isMultipartRequest(c: { req: { header(name: string): string | undefined } }) {
   return (c.req.header("content-type") ?? "").includes("multipart/form-data");
 }
@@ -415,6 +423,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
           accountId: access.actor.accountId,
           reasonCategory: parseSellerListingAvailabilityReason(body.reasonCategory),
           availableAgainOn: parseAvailableAgainOn(body.availableAgainOn),
+          availableAgainAt: parseAvailableAgainAt(body.availableAgainAt),
         },
         context,
       );

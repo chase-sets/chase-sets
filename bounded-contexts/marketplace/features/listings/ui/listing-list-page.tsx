@@ -117,6 +117,22 @@ function availabilityTone(status: MarketplaceSellerListingAvailability["status"]
   return status === "available" ? "success" : "warning";
 }
 
+// The domain accepts only a fully-formed instant and never guesses a
+// timezone server-side, so the date `<input>` is converted here, in the
+// browser, using the seller's own local clock -- "back on July 20" means
+// listings resume the morning of the 20th in the seller's own timezone.
+// This only ever runs from a real `onChange` event, so it never executes
+// during server rendering (where "local" would mean the server's timezone,
+// not the seller's).
+function localDateInputToInstant(value: string): string {
+  if (!value) {
+    return "";
+  }
+
+  const localMidnight = new Date(`${value}T00:00:00`);
+  return Number.isNaN(localMidnight.valueOf()) ? "" : localMidnight.toISOString();
+}
+
 function availabilityReasonLabel(reason: string | null) {
   switch (reason) {
     case "travel":
@@ -205,6 +221,7 @@ export function MarketplaceListingListPage({
   sellerBehavioralMetrics?: SellerBehavioralMetricsSummary | null;
 }) {
   const [selectedListingIds, setSelectedListingIds] = useState<Set<string>>(new Set());
+  const [availableAgainAt, setAvailableAgainAt] = useState("");
   const activeListings = statusCounts
     ? statusCounts.active
     : data.items.filter((item) => item.status === "active").length;
@@ -281,39 +298,42 @@ export function MarketplaceListingListPage({
                 </Form>
               ) : null}
             </Stack>
-            {listingAvailability.status === "available" ? (
-              <Form spacing="none" method="post">
-                <Stack gap={3}>
-                  <Grid columns={{ base: 1, md: 2 }} gap={3}>
-                    <NativeSelect
-                      label={t("marketplace.features.listings.ui.listingListPage.reason")}
-                      name="reasonCategory"
-                      defaultValue=""
-                      items={[
-                        { value: "", label: t("marketplace.features.listings.ui.listingListPage.reason.not.set") },
-                        { value: "travel", label: t("marketplace.features.listings.ui.listingListPage.reason.travel") },
-                        { value: "audit", label: t("marketplace.features.listings.ui.listingListPage.reason.audit") },
-                        {
-                          value: "operations",
-                          label: t("marketplace.features.listings.ui.listingListPage.reason.operations"),
-                        },
-                        { value: "other", label: t("marketplace.features.listings.ui.listingListPage.reason.other") },
-                      ]}
-                    />
-                    <TextInput
-                      label={t("marketplace.features.listings.ui.listingListPage.available.again.on")}
-                      name="availableAgainOn"
-                      type="date"
-                    />
-                  </Grid>
-                  <Inline>
-                    <Button type="submit" name="intent" value="disable-listing-availability" tone="secondary">
-                      {t("marketplace.features.listings.ui.listingListPage.turn.off.listings")}
-                    </Button>
-                  </Inline>
-                </Stack>
-              </Form>
-            ) : null}
+            <Form spacing="none" method="post">
+              <Stack gap={3}>
+                <Grid columns={{ base: 1, md: 2 }} gap={3}>
+                  <NativeSelect
+                    label={t("marketplace.features.listings.ui.listingListPage.reason")}
+                    name="reasonCategory"
+                    defaultValue={listingAvailability.disabled_reason_category ?? ""}
+                    items={[
+                      { value: "", label: t("marketplace.features.listings.ui.listingListPage.reason.not.set") },
+                      { value: "travel", label: t("marketplace.features.listings.ui.listingListPage.reason.travel") },
+                      { value: "audit", label: t("marketplace.features.listings.ui.listingListPage.reason.audit") },
+                      {
+                        value: "operations",
+                        label: t("marketplace.features.listings.ui.listingListPage.reason.operations"),
+                      },
+                      { value: "other", label: t("marketplace.features.listings.ui.listingListPage.reason.other") },
+                    ]}
+                  />
+                  <TextInput
+                    label={t("marketplace.features.listings.ui.listingListPage.available.again.on")}
+                    name="availableAgainOn"
+                    type="date"
+                    defaultValue={listingAvailability.available_again_on ?? undefined}
+                    onChange={(changeEvent) => setAvailableAgainAt(localDateInputToInstant(changeEvent.target.value))}
+                  />
+                </Grid>
+                <HiddenInput type="hidden" name="availableAgainAt" value={availableAgainAt} />
+                <Inline>
+                  <Button type="submit" name="intent" value="disable-listing-availability" tone="secondary">
+                    {listingAvailability.status === "unavailable"
+                      ? t("marketplace.features.listings.ui.listingListPage.update.away.settings")
+                      : t("marketplace.features.listings.ui.listingListPage.turn.off.listings")}
+                  </Button>
+                </Inline>
+              </Stack>
+            </Form>
           </Grid>
         </Card>
       </PageSection>

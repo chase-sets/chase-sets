@@ -50,6 +50,7 @@ import {
   evolveSellerListingAvailability,
   initialSellerListingAvailabilityState,
   type SellerListingAvailabilityCommand,
+  type SellerListingAvailabilityEnabledBy,
   type SellerListingAvailabilityEvent,
   type SellerListingAvailabilityReasonCategory,
   type SellerListingAvailabilityState,
@@ -303,11 +304,22 @@ export type MarketplaceListingServices = Readonly<{
       accountId: string;
       reasonCategory: SellerListingAvailabilityReasonCategory | null;
       availableAgainOn: string | null;
+      /**
+       * The authoritative resume instant, captured client-side (seller-local
+       * start-of-day for the chosen date). Optional for back-compat with
+       * system callers and non-JS form submits, which fall back to the
+       * informational-only `availableAgainOn` date.
+       */
+      availableAgainAt?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: string; version: number; status: "unavailable" }>;
   enableSellerListingAvailability: (
-    params: Readonly<{ accountId: string }>,
+    params: Readonly<{
+      accountId: string;
+      /** Defaults to `"seller"`; the auto-resume sweep passes `"scheduled"`. */
+      enabledBy?: SellerListingAvailabilityEnabledBy;
+    }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: string; version: number; status: "available" }>;
   listSellerListings: (params: Parameters<typeof listSellerListings>[1]) => ReturnType<typeof listSellerListings>;
@@ -1287,6 +1299,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           accountId: params.accountId,
           reasonCategory: params.reasonCategory,
           availableAgainOn: params.availableAgainOn,
+          availableAgainAt: params.availableAgainAt ?? null,
           disabledAt: new Date().toISOString(),
         },
         context,
@@ -1305,6 +1318,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           type: "EnableSellerListingAvailability",
           accountId: params.accountId,
           enabledAt: new Date().toISOString(),
+          enabledBy: params.enabledBy ?? "seller",
         },
         context,
       });

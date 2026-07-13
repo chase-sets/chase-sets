@@ -28,6 +28,7 @@ describe("marketplace settlement negative-balance projection", () => {
         accountId: "acc_seller",
         reasonCategory: "operations",
         availableAgainOn: null,
+        availableAgainAt: null,
       },
       expect.objectContaining({
         tenantId: "tnt_marketplace_system",
