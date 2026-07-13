@@ -4,6 +4,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { normalizeRouteMatrixDeployWindow } from "./read-consistency-route-matrix-deploy-window.mjs";
 import { DEFAULT_ROUTE_MATRIX_ROUTES } from "./read-consistency-route-matrix-evidence.mjs";
 
 export const READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_VERSION = "read-consistency-route-matrix-sampler/v1";
@@ -27,6 +28,8 @@ export function parseReadConsistencyRouteMatrixSamplerArgs(argv, env = process.e
       readOption(argv, "--checkout-probe-file") ?? readEnv("ROUTE_MATRIX_SAMPLER_CHECKOUT_PROBE_FILE", env),
     accountCartProbePath:
       readOption(argv, "--account-cart-probe-file") ?? readEnv("ROUTE_MATRIX_SAMPLER_ACCOUNT_CART_PROBE_FILE", env),
+    deployWindowPath:
+      readOption(argv, "--deploy-window-file") ?? readEnv("ROUTE_MATRIX_SAMPLER_DEPLOY_WINDOW_FILE", env),
     outPath:
       readOption(argv, "--out") ??
       readEnv("READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_OUT", env) ??
@@ -37,13 +40,16 @@ export function parseReadConsistencyRouteMatrixSamplerArgs(argv, env = process.e
 export async function runReadConsistencyRouteMatrixSampler(options = {}) {
   const checkoutProbe = await readOptionalJson(options.checkoutProbePath);
   const accountCartProbe = await readOptionalJson(options.accountCartProbePath);
-  const routes = DEFAULT_ROUTE_MATRIX_ROUTES.map((route) =>
-    buildRouteSample(route.routeTemplate, checkoutProbe, accountCartProbe),
-  );
+  const deployWindow = normalizeRouteMatrixDeployWindow(await readOptionalJson(options.deployWindowPath));
+  const routes = DEFAULT_ROUTE_MATRIX_ROUTES.map((route) => {
+    const sample = buildRouteSample(route.routeTemplate, checkoutProbe, accountCartProbe);
+    return annotateDeployWindowSample(sample, deployWindow);
+  });
   const artifact = buildRouteMatrixSamplerArtifact({
     environment: options.environment,
     checkedAt: options.checkedAt,
     routes,
+    deployWindow,
   });
   const leaks = assertRouteMatrixSamplerRedacted(artifact);
   if (leaks.length > 0) {
@@ -66,8 +72,10 @@ export function buildRouteMatrixSamplerArtifact(input) {
       sampledRouteCount: routes.filter((route) => route.status === "sampled").length,
       blockedRouteCount: routes.filter((route) => route.status === "blocked").length,
       failedRouteCount: routes.filter((route) => route.status === "failed").length,
+      skippedRouteCount: routes.filter((route) => route.status === "skipped").length,
       allRoutesSampled: routes.every((route) => route.status === "sampled"),
     },
+    ...(input.deployWindow ? { deployWindow: normalizeRouteMatrixDeployWindow(input.deployWindow) } : {}),
     routes,
     redaction: {
       supportSafe: true,
@@ -248,13 +256,29 @@ function normalizeRouteSample(route) {
   return {
     routeTemplate: sanitizeRouteTemplate(route.routeTemplate),
     driver: normalizeEnum(route.driver, ["automatic", "representative-commerce-state", "operator"], "operator"),
-    status: normalizeEnum(route.status, ["sampled", "blocked", "failed"], "blocked"),
+    status: normalizeEnum(route.status, ["sampled", "blocked", "failed", "skipped"], "blocked"),
     outcomeCategory: normalizeCategory(route.outcomeCategory) ?? "unknown",
     sourceJourney: normalizeCategory(route.sourceJourney) ?? "unknown",
     attemptCount: normalizeNonNegativeInteger(route.attemptCount),
     probeDecision: normalizeCategory(route.probeDecision),
     probeFinalState: normalizeCategory(route.probeFinalState),
     blockerCategory: normalizeCategory(route.blockerCategory),
+  };
+}
+
+function annotateDeployWindowSample(route, deployWindow) {
+  if (deployWindow?.status !== "active" || route.status === "blocked") {
+    return route;
+  }
+
+  return {
+    ...route,
+    status: "skipped",
+    outcomeCategory: "deploy-window-active",
+    attemptCount: 0,
+    probeDecision: null,
+    probeFinalState: null,
+    blockerCategory: "active-deploy-window",
   };
 }
 

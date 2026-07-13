@@ -140,6 +140,10 @@ export const SUBCOMMANDS = {
     script: "read-consistency-route-matrix-sampler.mjs",
     description: "Support-safe staging route-matrix sampler and blocker artifact.",
   },
+  "read-consistency:route-matrix-deploy-window": {
+    script: "read-consistency-route-matrix-deploy-window.mjs",
+    description: "Support-safe staging route-matrix deploy-window state artifact.",
+  },
   "push-wake:capacity-evidence": {
     script: "push-wake-capacity-evidence.mjs",
     description: "CI-safe push-wake connection budget and listener expansion evidence.",
