@@ -12,10 +12,19 @@ export const helpArticles = [
     audience: "buyer",
     category: "buying",
     reviewedAt: "2026-07-12",
-    citedPolicies: [],
-    relatedFlows: [],
+    citedPolicies: ["platform-operations.support-deadlines"],
+    relatedFlows: ["product-not-received", "product-not-as-described", "authenticity-concern"],
     claimCategories: ["protection", "payouts", "shipping"],
     promiseTable: [
+      {
+        claim:
+          "Order problems open structured support cases that stamp response deadlines at open time and apply default remedies on seller silence.",
+        issues: ["#3722", "#4288"],
+        tests: [
+          "bounded-contexts/platform-operations/features/support-requests/domain/domain.test.ts",
+          "bounded-contexts/platform-operations/features/support-requests/api/runtime.test.ts",
+        ],
+      },
       {
         claim: "Every order includes a 1% Order Protection reserve contribution without a separate buyer fee line.",
         issues: ["#4098"],
@@ -57,6 +66,11 @@ export const helpArticles = [
         level: 2,
         id: "fraud-signals",
         text: "Fraud signals",
+      },
+      {
+        level: 2,
+        id: "getting-help-with-an-order",
+        text: "Getting help with an order",
       },
       {
         level: 2,
@@ -158,6 +172,46 @@ export const helpArticles = [
             type: "text",
             value:
               "Early fraud warnings and processor fraud reviews are recorded against the Payment. If an early fraud warning arrives on a captured payment that is not already disputed, the current runtime attempts a refund for the remaining refundable amount when the refund service is configured.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "getting-help-with-an-order",
+        text: "Getting help with an order",
+        content: [
+          {
+            type: "text",
+            value: "Getting help with an order",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "If an order never arrives or the item is not as described, damaged, wrong, or missing, you open a structured support case directly from the order. Each case captures the evidence support needs — photos, condition notes, quantities — and stamps the seller's response deadline the moment it opens; for most flows that deadline is ",
+          },
+          {
+            type: "policy-value",
+            key: "support-deadlines.product-not-received.seller-response.hours",
+          },
+          {
+            type: "text",
+            value:
+              ". If the seller does not respond in time, the flow's default remedy applies automatically: when delivery cannot be proven on a product-not-received case, that remedy is a full refund. Cases that need review go to support with a stamped deadline of their own, and authenticity concerns route to support immediately as urgent. See ",
+          },
+          {
+            type: "link",
+            label: "Refunds and returns",
+            href: "/help/buying/refunds-and-returns",
+          },
+          {
+            type: "text",
+            value: " for each flow in detail.",
           },
         ],
       },
@@ -272,27 +326,55 @@ export const helpArticles = [
         ],
       },
     ],
-    policyValueKeys: [],
+    policyValueKeys: ["support-deadlines.product-not-received.seller-response.hours"],
   },
   {
     slug: "refunds-and-returns",
     locale: "en",
     title: "Refunds and returns",
     description:
-      "How refund and return handling relates to order status, payment outcome, shipment progress, and support review.",
+      "How cancellations, order problems, returns, and refunds work — what each side provides and what happens on the deadlines.",
     audience: "buyer",
     category: "buying",
     reviewedAt: "2026-07-12",
-    citedPolicies: [],
-    relatedFlows: [],
+    citedPolicies: ["platform-operations.support-deadlines"],
+    relatedFlows: ["return-request", "buyer-cancel-request", "product-not-received", "refund-status"],
     claimCategories: ["protection", "shipping"],
     promiseTable: [
       {
-        claim: "Refund and return outcomes are tied to durable payment and shipment behavior.",
-        issues: ["#4352"],
+        claim:
+          "Refunds are issued only through order cancellation, support-flow resolutions, or platform fraud safeguards, always to the original payment and capped at the remaining refundable amount.",
+        issues: ["#3560"],
         tests: [
+          "bounded-contexts/payments/features/payments/domain/domain.test.ts",
           "bounded-contexts/payments/features/refunds/api/runtime.test.ts",
-          "bounded-contexts/fulfillment/features/shipments/domain/domain.test.ts",
+        ],
+      },
+      {
+        claim:
+          "A buyer can cancel self-service until packing starts, and a captured payment is refunded including the order's checkout-fee share even when capture lands after cancellation.",
+        issues: ["#3557"],
+        tests: [
+          "bounded-contexts/ordering/features/orders/api/runtime-order-lifecycle.test.ts",
+          "bounded-contexts/payments/features/refunds/integrations/ordering/order-cancellation-refund-effect-projection.test.ts",
+        ],
+      },
+      {
+        claim:
+          "Order problems run through structured support flows with evidence checklists, stamped response deadlines, and default remedies applied on seller silence.",
+        issues: ["#3722", "#4288"],
+        tests: [
+          "bounded-contexts/platform-operations/features/support-requests/domain/domain.test.ts",
+          "bounded-contexts/platform-operations/features/support-requests/api/runtime.test.ts",
+        ],
+      },
+      {
+        claim:
+          "Return refunds require completed return evidence, are gated on return delivery, and release after the inspection window unless the seller disputes condition; high-value returns require support review.",
+        issues: ["#4248"],
+        tests: [
+          "bounded-contexts/platform-operations/features/support-requests/domain/domain.test.ts",
+          "bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.test.ts",
         ],
       },
     ],
@@ -305,8 +387,28 @@ export const helpArticles = [
       },
       {
         level: 2,
-        id: "marketplace-model",
-        text: "Marketplace model",
+        id: "where-refunds-come-from",
+        text: "Where refunds come from",
+      },
+      {
+        level: 2,
+        id: "cancelling-an-order",
+        text: "Cancelling an order",
+      },
+      {
+        level: 2,
+        id: "reporting-a-problem-with-an-order",
+        text: "Reporting a problem with an order",
+      },
+      {
+        level: 2,
+        id: "returns",
+        text: "Returns",
+      },
+      {
+        level: 2,
+        id: "what-refunds-do-on-the-seller-side",
+        text: "What refunds do on the seller side",
       },
       {
         level: 2,
@@ -340,12 +442,12 @@ export const helpArticles = [
       {
         type: "heading",
         level: 2,
-        id: "marketplace-model",
-        text: "Marketplace model",
+        id: "where-refunds-come-from",
+        text: "Where refunds come from",
         content: [
           {
             type: "text",
-            value: "Marketplace model",
+            value: "Where refunds come from",
           },
         ],
       },
@@ -355,7 +457,166 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "Return options, dispute paths, payment outcomes, and support contact stay visible before and after checkout so accounts understand the path before money moves.",
+              "There is no ad-hoc refund button on either side. A refund is created by one of three things: an order cancellation, the resolution of a support request, or a platform fraud safeguard. Every refund goes back to the original payment, and no combination of refunds can exceed what was actually paid.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "cancelling-an-order",
+        text: "Cancelling an order",
+        content: [
+          {
+            type: "text",
+            value: "Cancelling an order",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Before payment completes, a buyer or seller can cancel and nothing is charged. After payment, a buyer can still cancel self-service until the seller starts packing; the refund covers the order total plus the order's share of the checkout fee, and this holds even if the payment capture lands after the cancellation. Once packing has started, cancellation becomes a request the seller confirms — and if the seller does not respond within ",
+          },
+          {
+            type: "policy-value",
+            key: "support-deadlines.buyer-cancel-request.seller-response.hours",
+          },
+          {
+            type: "text",
+            value: ", the cancellation is confirmed automatically.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "A seller who cannot fulfill an order raises it as an urgent support case whose default outcome is a full refund to the buyer.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "reporting-a-problem-with-an-order",
+        text: "Reporting a problem with an order",
+        content: [
+          {
+            type: "text",
+            value: "Reporting a problem with an order",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Order problems are structured flows opened from the order: product not received, product not as described, product arrived damaged, wrong product received, missing products, and authenticity concern. Each flow captures specific evidence up front — photos and condition notes for condition issues, package photos for damage, the missing quantity for shortages — and gives the seller a set of structured responses such as accepting a return, offering a partial refund or replacement, or challenging with evidence.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "The seller's response deadline is stamped when the case opens; for most flows it is ",
+          },
+          {
+            type: "policy-value",
+            key: "support-deadlines.product-not-received.seller-response.hours",
+          },
+          {
+            type: "text",
+            value:
+              ". If the seller does not respond in time, the flow's default remedy applies automatically: a full refund when delivery cannot be proven, a return for refund for condition issues, a replacement for a wrong product. Contested cases and cases needing a calculated amount go to support review instead, with its own stamped deadline of ",
+          },
+          {
+            type: "policy-value",
+            key: "support-deadlines.product-not-received.support-review.hours",
+          },
+          {
+            type: "text",
+            value: " for most flows. Authenticity concerns go straight to support review as urgent cases.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "returns",
+        text: "Returns",
+        content: [
+          {
+            type: "text",
+            value: "Returns",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "A return starts as a return request on the order. The buyer selects a reason and provides photos of the item as received plus condition notes before any refund can be resolved. If the seller accepts — or does not respond within ",
+          },
+          {
+            type: "policy-value",
+            key: "support-deadlines.return-request.seller-response.hours",
+          },
+          {
+            type: "text",
+            value: " while the evidence checklist is complete — the case resolves as a return for refund.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "The refund itself is gated on the return: it is held until return delivery is confirmed, then a five-day inspection window runs. If the seller says nothing, the refund releases automatically; if the seller disputes the returned item's condition within the window, the case converts to a support investigation and only support can release the refund. Returns on orders of $250 or more always require support review before the refund releases.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "what-refunds-do-on-the-seller-side",
+        text: "What refunds do on the seller side",
+        content: [
+          {
+            type: "text",
+            value: "What refunds do on the seller side",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "A refund reverses the seller's share of the order proportionally, and the order's Order Protection contribution is reversed with it. Open cases also hold the order's funds — see ",
+          },
+          {
+            type: "link",
+            label: "Getting paid",
+            href: "/help/selling/getting-paid",
+          },
+          {
+            type: "text",
+            value: " for how holds interact with payouts.",
           },
         ],
       },
@@ -376,22 +637,28 @@ export const helpArticles = [
         content: [
           {
             type: "text",
-            value: "For questions about refund or return handling, contact support@chasesets.com.",
+            value:
+              "For questions about a refund in progress, open a refund-status request from the order or contact support@chasesets.com.",
           },
         ],
       },
     ],
-    policyValueKeys: [],
+    policyValueKeys: [
+      "support-deadlines.buyer-cancel-request.seller-response.hours",
+      "support-deadlines.product-not-received.seller-response.hours",
+      "support-deadlines.product-not-received.support-review.hours",
+      "support-deadlines.return-request.seller-response.hours",
+    ],
   },
   {
     slug: "frequently-asked-questions",
     locale: "en",
     title: "Frequently asked questions",
-    description: "Short answers about marketplace availability, seller fees, shipping, and order protection.",
+    description: "Short answers about marketplace availability, seller fees, shipping, payouts, and order protection.",
     audience: "buyer",
     category: "getting-started",
     reviewedAt: "2026-07-12",
-    citedPolicies: ["commercial-terms.checkout-processing-fee"],
+    citedPolicies: ["commercial-terms.checkout-processing-fee", "settlement.clearance-window"],
     relatedFlows: [],
     claimCategories: ["protection", "fees", "payouts", "shipping"],
     promiseTable: [
@@ -414,6 +681,11 @@ export const helpArticles = [
           "bounded-contexts/fulfillment/features/shipments/api/runtime.test.ts",
         ],
       },
+      {
+        claim: "Seller funds release after recorded delivery plus the published clearance window.",
+        issues: ["#4287"],
+        tests: ["bounded-contexts/settlement/features/wallets/read-model/queries.db.test.ts"],
+      },
     ],
     href: "/help/getting-started/frequently-asked-questions",
     headings: [
@@ -431,6 +703,11 @@ export const helpArticles = [
         level: 2,
         id: "how-does-shipping-work",
         text: "How does shipping work?",
+      },
+      {
+        level: 2,
+        id: "when-do-sellers-get-paid",
+        text: "When do sellers get paid?",
       },
       {
         level: 2,
@@ -488,7 +765,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              " explains the standard seller fee, per-item cap, and listing-time fee confirmation. Buyers pay only payment processing at cost, shown before payment: ",
+              " explains the standard seller fee, per-item cap, listing-time fee locks, and the founders window. Buyers pay only payment processing at cost, shown before payment: ",
           },
           {
             type: "policy-value",
@@ -558,7 +835,62 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "Checkout shows the shipping method, estimate, items from the same seller, and any earned shipping allowance before payment. Sellers see the applicable shipping allowance before accepting an order.",
+              "Checkout shows the shipping method, estimate, items from the same seller, and any earned shipping allowance before payment. Sellers buy USPS labels in-product with tracking attached automatically; ",
+          },
+          {
+            type: "link",
+            label: "Shipping requirements",
+            href: "/help/selling/shipping-requirements",
+          },
+          {
+            type: "text",
+            value: " covers evidence tiers, signature and insurance thresholds, and address handling.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "when-do-sellers-get-paid",
+        text: "When do sellers get paid?",
+        content: [
+          {
+            type: "text",
+            value: "When do sellers get paid?",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Sale proceeds stay pending until the order is delivered, then clear ",
+          },
+          {
+            type: "policy-value",
+            key: "settlement.clearance.base.days",
+          },
+          {
+            type: "text",
+            value: " after delivery on the standard window or ",
+          },
+          {
+            type: "policy-value",
+            key: "settlement.clearance.extended.days",
+          },
+          {
+            type: "text",
+            value: " on the extended window. ",
+          },
+          {
+            type: "link",
+            label: "Getting paid",
+            href: "/help/selling/getting-paid",
+          },
+          {
+            type: "text",
+            value: " explains the windows, what pauses funds, and how payouts work.",
           },
         ],
       },
@@ -579,8 +911,26 @@ export const helpArticles = [
         content: [
           {
             type: "text",
+            value: "Every order includes ",
+          },
+          {
+            type: "link",
+            label: "Order protection",
+            href: "/help/buying/order-protection",
+          },
+          {
+            type: "text",
             value:
-              "Before payment, checkout shows item details, seller profile, shipping, return options, and support coverage. After purchase, support reviews tracking, payment status, listing evidence, and account context.",
+              " — there is never a separate buyer protection fee. Order problems open structured support cases with stamped deadlines and automatic default remedies; ",
+          },
+          {
+            type: "link",
+            label: "Refunds and returns",
+            href: "/help/buying/refunds-and-returns",
+          },
+          {
+            type: "text",
+            value: " covers cancellations, problem reports, and how return refunds release.",
           },
         ],
       },
@@ -592,13 +942,624 @@ export const helpArticles = [
       "checkout-processing-fee.bank-account.fixed",
       "checkout-processing-fee.platform-credit.bps",
       "checkout-processing-fee.platform-credit.fixed",
+      "settlement.clearance.base.days",
+      "settlement.clearance.extended.days",
     ],
+  },
+  {
+    slug: "getting-paid",
+    locale: "en",
+    title: "Getting paid",
+    description:
+      "When sale proceeds become available, what the clearance window depends on, what pauses funds, and how payouts work.",
+    audience: "seller",
+    category: "selling",
+    reviewedAt: "2026-07-12",
+    citedPolicies: ["settlement.clearance-window", "settlement.payout-bounds"],
+    relatedFlows: ["refund-status"],
+    claimCategories: ["payouts", "protection"],
+    promiseTable: [
+      {
+        claim:
+          "Sale proceeds and shipping payouts stay pending until delivery is recorded and the clearance window has passed; there is no release without a recorded delivery.",
+        issues: ["#4287"],
+        tests: [
+          "bounded-contexts/settlement/features/wallets/read-model/queries.db.test.ts",
+          "bounded-contexts/settlement/features/wallets/integrations/fulfillment-source/fulfillment-source-projection.test.ts",
+        ],
+      },
+      {
+        claim:
+          "Open support requests, fraud reviews, and chargebacks hold seller funds, and a chargeback hold releases only when the dispute is won.",
+        issues: ["#4491", "#4499"],
+        tests: [
+          "bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.test.ts",
+          "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.test.ts",
+        ],
+      },
+      {
+        claim:
+          "Payout requests are validated against the published bounds, the available balance, support holds, negative balances, and payout setup, with failed payouts returned to the wallet.",
+        issues: ["#4287", "#4570"],
+        tests: [
+          "bounded-contexts/settlement/features/payouts/api/runtime.test.ts",
+          "bounded-contexts/settlement/features/payouts/domain/payout-policy.test.ts",
+        ],
+      },
+      {
+        claim: "New sale proceeds offset a negative balance before entering the clearance pipeline.",
+        issues: ["#4534"],
+        tests: [
+          "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.test.ts",
+          "bounded-contexts/settlement/features/wallets/domain/domain.test.ts",
+        ],
+      },
+    ],
+    href: "/help/selling/getting-paid",
+    headings: [
+      {
+        level: 2,
+        id: "pending-then-available",
+        text: "Pending, then available",
+      },
+      {
+        level: 2,
+        id: "the-clearance-window",
+        text: "The clearance window",
+      },
+      {
+        level: 2,
+        id: "what-pauses-funds",
+        text: "What pauses funds",
+      },
+      {
+        level: 2,
+        id: "requesting-a-payout",
+        text: "Requesting a payout",
+      },
+      {
+        level: 2,
+        id: "shipping-allowance-and-order-protection",
+        text: "Shipping allowance and Order Protection",
+      },
+      {
+        level: 2,
+        id: "if-your-balance-goes-negative",
+        text: "If your balance goes negative",
+      },
+    ],
+    blocks: [
+      {
+        type: "heading",
+        level: 2,
+        id: "pending-then-available",
+        text: "Pending, then available",
+        content: [
+          {
+            type: "text",
+            value: "Pending, then available",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "When a buyer's payment is captured, your money posts to your Chase Sets wallet as pending: one entry for the item proceeds and, when the order carries one, a separate entry for your shipping payout. Pending funds become available automatically once the order is delivered and the clearance window has passed. Both entries release on the same schedule.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Delivery is the gate. Release requires a recorded carrier delivery for the order, so shipping with tracking through the platform is what starts the clock — see ",
+          },
+          {
+            type: "link",
+            label: "Shipping requirements",
+            href: "/help/selling/shipping-requirements",
+          },
+          {
+            type: "text",
+            value: ". An order with no recorded delivery does not release, no matter how much time passes.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "the-clearance-window",
+        text: "The clearance window",
+        content: [
+          {
+            type: "text",
+            value: "The clearance window",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Two windows exist today: a standard window of ",
+          },
+          {
+            type: "policy-value",
+            key: "settlement.clearance.base.days",
+          },
+          {
+            type: "text",
+            value: " after delivery and an extended window of ",
+          },
+          {
+            type: "policy-value",
+            key: "settlement.clearance.extended.days",
+          },
+          {
+            type: "text",
+            value: " after delivery.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "The standard window applies when everything about the sale checks out: the platform has marked your account a trusted seller, your account has at least one eligible review, no risk signals are linked to your account, the order qualifies for trust signals, and the sale is under ",
+          },
+          {
+            type: "policy-value",
+            key: "settlement.clearance.high-value-threshold",
+          },
+          {
+            type: "text",
+            value: ". If any of those conditions is not met — including every sale at or above ",
+          },
+          {
+            type: "policy-value",
+            key: "settlement.clearance.high-value-threshold",
+          },
+          {
+            type: "text",
+            value: ", and all sales while your account is new — the extended window applies instead.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "These are the current published values; this page reads them live from the platform policy.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "what-pauses-funds",
+        text: "What pauses funds",
+        content: [
+          {
+            type: "text",
+            value: "What pauses funds",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Some events hold your funds beyond the normal schedule:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value:
+                "An open support request on an order holds that order's funds until the request is resolved, and refund-shaped resolutions keep the hold for the refund.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Payment fraud reviews and early fraud warnings hold funds while they are reviewed.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value:
+                "A chargeback holds the disputed order's funds and releases them only if the dispute is won. When a chargeback arrives after funds were released, the disputed amount is recovered from your balance.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Held amounts are excluded from what you can pay out, and orders under an active hold do not mature.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "requesting-a-payout",
+        text: "Requesting a payout",
+        content: [
+          {
+            type: "text",
+            value: "Requesting a payout",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Payouts are seller-initiated. You request a payout of your available balance to the bank account connected during payout setup; the current bounds are ",
+          },
+          {
+            type: "policy-value",
+            key: "settlement.payout.minimum",
+          },
+          {
+            type: "text",
+            value: " minimum and ",
+          },
+          {
+            type: "policy-value",
+            key: "settlement.payout.maximum",
+          },
+          {
+            type: "text",
+            value:
+              " maximum per request. A payout moves through requested, in transit, and completed; if the provider fails the payout, the amount returns to your wallet.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "A payout request is refused while payout setup is incomplete, while support holds cover the requested funds, while your balance is negative, or when the amount exceeds what is available. For 24 hours after you change your payout destination, requesting a payout requires additional identity verification.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "shipping-allowance-and-order-protection",
+        text: "Shipping allowance and Order Protection",
+        content: [
+          {
+            type: "text",
+            value: "Shipping allowance and Order Protection",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Every sale carries a seller-funded fulfillment allowance. The allowance funds the order's Order Protection contribution first and shipping second, and your order payout detail itemizes both. See ",
+          },
+          {
+            type: "link",
+            label: "Marketplace sales and checkout fees",
+            href: "/sales-fees",
+          },
+          {
+            type: "text",
+            value: " for the published rates.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "if-your-balance-goes-negative",
+        text: "If your balance goes negative",
+        content: [
+          {
+            type: "text",
+            value: "If your balance goes negative",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Refunds, chargebacks, and payout recoveries can push a wallet below zero. New sale proceeds then offset the negative balance first, before any remainder enters the normal clearance pipeline. Payout requests stay paused until the balance recovers, and prolonged negative balances move the account to collections, which also pauses new listings.",
+          },
+        ],
+      },
+    ],
+    policyValueKeys: [
+      "settlement.clearance.base.days",
+      "settlement.clearance.extended.days",
+      "settlement.clearance.high-value-threshold",
+      "settlement.payout.minimum",
+      "settlement.payout.maximum",
+    ],
+  },
+  {
+    slug: "shipping-requirements",
+    locale: "en",
+    title: "Shipping requirements",
+    description:
+      "What sellers must know about labels, tracking, evidence tiers, signature and insurance thresholds, and address handling.",
+    audience: "seller",
+    category: "selling",
+    reviewedAt: "2026-07-12",
+    citedPolicies: [],
+    relatedFlows: ["shipping-label-or-tracking"],
+    claimCategories: ["shipping", "protection"],
+    promiseTable: [
+      {
+        claim:
+          "Every shipment's evidence tier, service class, and thresholds come from the package plan committed at order time.",
+        issues: ["#4249"],
+        tests: [
+          "contracts/product-measures/index.test.ts",
+          "bounded-contexts/fulfillment/features/shipments/api/runtime.test.ts",
+        ],
+      },
+      {
+        claim:
+          "Postage is purchased in-product with tracking attached before dispatch, and delivery is recorded from carrier tracking events.",
+        issues: ["#3558"],
+        tests: [
+          "bounded-contexts/fulfillment/features/shipments/domain/domain.test.ts",
+          "bounded-contexts/fulfillment/features/shipments/api/runtime.test.ts",
+        ],
+      },
+      {
+        claim:
+          "Dispute evidence is submitted only when tracking proof exists; otherwise the platform records that evidence was unavailable.",
+        issues: ["#4245"],
+        tests: [
+          "bounded-contexts/payments/features/payments/integrations/dispute-evidence/dispute-evidence-submission.test.ts",
+        ],
+      },
+      {
+        claim:
+          "Buyer addresses are verified at checkout, snapshotted onto the shipment, and excluded from durable postage records; label address overrides require a reason and are audited.",
+        issues: ["#3558", "#3910"],
+        tests: [
+          "infrastructure/easypost-postage/index.test.ts",
+          "bounded-contexts/fulfillment/features/shipments/api/runtime.test.ts",
+        ],
+      },
+    ],
+    href: "/help/selling/shipping-requirements",
+    headings: [
+      {
+        level: 2,
+        id: "labels-and-tracking",
+        text: "Labels and tracking",
+      },
+      {
+        level: 2,
+        id: "shipping-evidence-tiers",
+        text: "Shipping evidence tiers",
+      },
+      {
+        level: 2,
+        id: "addresses-and-privacy",
+        text: "Addresses and privacy",
+      },
+      {
+        level: 2,
+        id: "what-happens-after-dispatch",
+        text: "What happens after dispatch",
+      },
+    ],
+    blocks: [
+      {
+        type: "heading",
+        level: 2,
+        id: "labels-and-tracking",
+        text: "Labels and tracking",
+        content: [
+          {
+            type: "text",
+            value: "Labels and tracking",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "All postage is purchased on Chase Sets. When an order is ready to ship, you buy the USPS label in-product; the tracking number attaches to the shipment automatically and delivery is recorded from carrier tracking events. There is no separate step to paste in a tracking number, and shipments cannot be dispatched without a purchased label.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Tracking is what protects you. Delivery confirmation from the carrier is what releases your sale proceeds, and tracking proof is the evidence the platform submits if a payment dispute arises. Without it, the platform records that delivery evidence was unavailable rather than inventing proof.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "shipping-evidence-tiers",
+        text: "Shipping evidence tiers",
+        content: [
+          {
+            type: "text",
+            value: "Shipping evidence tiers",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Each order commits to one of four evidence tiers when it is placed, based on the item value and the buyer's shipping choice:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value: "Untracked letter mail: raw cards only, order item value up to $50, small and light mailpieces.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Tracked parcel: the standard tier for everything above the letter class.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Signature-confirmed: required at $250 or more of item value, and for any priority shipment.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value:
+                "Carrier-insured: required at $500 or more of item value; the shipment is insured for the item subtotal.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Slabs, sealed products, and other rigid or oversized items always ship as parcels regardless of value. The committed tier is enforced at label purchase: a shipment that requires a parcel cannot buy a letter-mail label, and required signature or insurance options are added to the label automatically.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "These dollar thresholds are the current launch policy values. Orders keep the requirements committed at order time even if the policy is revised later.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "addresses-and-privacy",
+        text: "Addresses and privacy",
+        content: [
+          {
+            type: "text",
+            value: "Addresses and privacy",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Buyers enter their address at checkout, where it is verified against carrier delivery data. The destination is snapshotted onto the shipment, and you purchase the label without handling raw address data outside the platform: addresses are sent to the postage provider at purchase time but are not kept in durable postage records. Correcting an address at label time requires a stated reason and records a full audit trail.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Packing slips print without prices or payment details.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "what-happens-after-dispatch",
+        text: "What happens after dispatch",
+        content: [
+          {
+            type: "text",
+            value: "What happens after dispatch",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Carrier tracking events move the shipment through dispatched and delivered states, and delivery is what starts your payout clearance window — see ",
+          },
+          {
+            type: "link",
+            label: "Getting paid",
+            href: "/help/selling/getting-paid",
+          },
+          {
+            type: "text",
+            value:
+              ". Return-to-sender and carrier exceptions are recorded against the shipment and give support a concrete record to review.",
+          },
+        ],
+      },
+    ],
+    policyValueKeys: [],
   },
   {
     slug: "sales-fees",
     locale: "en",
     title: "Marketplace sales and checkout fees",
-    description: "See the live standard sales-fee schedule and buyer checkout processing fees before you transact.",
+    description:
+      "See the live standard sales-fee schedule, listing-time fee locks, the founders window, and buyer checkout processing fees.",
     audience: "seller",
     category: "selling",
     reviewedAt: "2026-07-12",
@@ -611,6 +1572,30 @@ export const helpArticles = [
         issues: ["#4353"],
         tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx"],
       },
+      {
+        claim:
+          "Confirming a listing locks the resolved fee terms for its units, and later schedule revisions never change locked units.",
+        issues: ["#4067"],
+        tests: [
+          "bounded-contexts/marketplace/features/listings/domain/domain.test.ts",
+          "bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.test.ts",
+        ],
+      },
+      {
+        claim: "The per-item fee cap is re-audited when settlement credits the seller.",
+        issues: ["#4099"],
+        tests: [
+          "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.test.ts",
+        ],
+      },
+      {
+        claim: "The founders window applies a 0% sales-fee agreement for 60 days, capped at 500 founders.",
+        issues: ["#4068"],
+        tests: [
+          "bounded-contexts/identity/features/founders-cohort/domain/domain.test.ts",
+          "bounded-contexts/commercial-terms/features/agreements/integrations/identity/founders-window-reaction.test.ts",
+        ],
+      },
     ],
     href: "/sales-fees",
     headings: [
@@ -618,6 +1603,16 @@ export const helpArticles = [
         level: 2,
         id: "one-standard-sales-fee",
         text: "One standard sales fee",
+      },
+      {
+        level: 2,
+        id: "how-fee-locks-work",
+        text: "How fee locks work",
+      },
+      {
+        level: 2,
+        id: "founders-window",
+        text: "Founders window",
       },
       {
         level: 2,
@@ -688,6 +1683,60 @@ export const helpArticles = [
             type: "text",
             value:
               "There is no separate listing fee. You see the applicable sales fee before confirming a listing, and the locked amount does not change for that transaction if the published schedule is revised later.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "how-fee-locks-work",
+        text: "How fee locks work",
+        content: [
+          {
+            type: "text",
+            value: "How fee locks work",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Confirming a listing locks the fee terms you saw — the rate, the fixed amount, and the per-item cap — for every unit created at that moment. If the published schedule changes between your fee preview and your confirmation, the confirmation is rejected and you re-confirm at the current terms; nothing is locked silently.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "The lock covers the formula, not a frozen dollar figure: if you edit the item price later, the fee is recomputed from your locked terms, never from a newer schedule. Units you add when restocking lock at the schedule in effect at that time, so one listing can carry tranches at different locked terms. The same locked formula is re-applied when the order is placed, and settlement re-audits the fee — including the per-item cap — before crediting your sale proceeds.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "founders-window",
+        text: "Founders window",
+        content: [
+          {
+            type: "text",
+            value: "Founders window",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "The first 500 accounts to list an item or submit an offer after receiving beta access claim a founders place. A founders account pays a 0% marketplace sales fee for 60 days from the start of its beta access; listings confirmed inside the window lock the 0% rate exactly like any other locked rate. After the window ends, new listings lock at the standard schedule.",
           },
         ],
       },
@@ -801,6 +1850,33 @@ export const helpArticles = [
             type: "text",
             value:
               "Founders' 0% Marketplace Sales Fee applies only to the sales fee. It does not reduce or remove the 1% Order Protection contribution.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "For how the allowance and protection interact with your payout, see ",
+          },
+          {
+            type: "link",
+            label: "Getting paid",
+            href: "/help/selling/getting-paid",
+          },
+          {
+            type: "text",
+            value: ". For how protection works for buyers, see ",
+          },
+          {
+            type: "link",
+            label: "Order protection",
+            href: "/help/buying/order-protection",
+          },
+          {
+            type: "text",
+            value: ".",
           },
         ],
       },

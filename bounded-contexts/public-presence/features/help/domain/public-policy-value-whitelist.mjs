@@ -79,6 +79,30 @@ export const publicPolicyValueWhitelist = [
     selector: { path: ["maximumAmount"] },
   },
   {
+    key: "support-deadlines.product-not-received.seller-response.hours",
+    policyKey: "platform-operations.support-deadlines",
+    type: "hours",
+    selector: { path: ["product-not-received", "sellerResponseHours"] },
+  },
+  {
+    key: "support-deadlines.product-not-received.support-review.hours",
+    policyKey: "platform-operations.support-deadlines",
+    type: "hours",
+    selector: { path: ["product-not-received", "supportReviewHours"] },
+  },
+  {
+    key: "support-deadlines.return-request.seller-response.hours",
+    policyKey: "platform-operations.support-deadlines",
+    type: "hours",
+    selector: { path: ["return-request", "sellerResponseHours"] },
+  },
+  {
+    key: "support-deadlines.buyer-cancel-request.seller-response.hours",
+    policyKey: "platform-operations.support-deadlines",
+    type: "hours",
+    selector: { path: ["buyer-cancel-request", "sellerResponseHours"] },
+  },
+  {
     key: "rate-limits.waitlist.maximum-requests",
     policyKey: "platform-operations.rate-limits",
     type: "number",

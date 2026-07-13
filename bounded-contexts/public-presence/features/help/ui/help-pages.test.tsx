@@ -2,7 +2,24 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { publicHelpArticles } from "../domain/article-catalog";
+import { resolveArticlePolicyValues } from "../domain/resolve-article-policy-values";
 import { HelpArticlePage, HelpCategoryPage, HelpHubPage } from "./help-pages";
+
+function resolvedArticle(slug: string) {
+  const article = publicHelpArticles.find((candidate) => candidate.slug === slug);
+  if (!article) throw new Error(`missing article '${slug}'`);
+  return resolveArticlePolicyValues(article, {
+    values: Object.fromEntries(
+      article.policyValueKeys.map((key) => [
+        key,
+        { type: "hours", value: 48, effectiveFrom: "2026-07-03T00:00:00.000Z", upcoming: [] } as const,
+      ]),
+    ),
+    resolvedAt: "2026-07-12T00:00:00.000Z",
+    propagationSeconds: 360,
+    changeCalloutDays: 30,
+  });
+}
 
 describe("public help pages", () => {
   beforeEach(() => {
@@ -29,10 +46,11 @@ describe("public help pages", () => {
   });
 
   it("renders compiled blocks, review metadata, a table of contents, and related articles", () => {
-    const article = publicHelpArticles.find((candidate) => candidate.slug === "order-protection");
-    const related = publicHelpArticles.filter((candidate) => candidate.category === "buying" && candidate !== article);
-    expect(article).toBeDefined();
-    render(<HelpArticlePage article={article!} related={related} />, { wrapper: MemoryRouter });
+    const article = resolvedArticle("order-protection");
+    const related = publicHelpArticles.filter(
+      (candidate) => candidate.category === "buying" && candidate.slug !== article.slug,
+    );
+    render(<HelpArticlePage article={article} related={related} />, { wrapper: MemoryRouter });
     expect(screen.getByRole("heading", { name: "Order protection", level: 1 })).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "On this page" })).toBeTruthy();
     expect(screen.getByText("Last reviewed July 12, 2026")).toBeTruthy();
@@ -40,12 +58,11 @@ describe("public help pages", () => {
   });
 
   it("renders future-effective policy changes as dated callouts", () => {
-    const article = publicHelpArticles.find((candidate) => candidate.slug === "order-protection");
-    expect(article).toBeDefined();
+    const article = resolvedArticle("order-protection");
     render(
       <HelpArticlePage
         article={{
-          ...article!,
+          ...article,
           policyChanges: [
             {
               effectiveFrom: "2026-07-20T00:00:00.000Z",

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { publicHelpArticlePolicyCitations } from "@chase-sets/public-docs";
 import {
   buildCommercialTermsPublicDocReviewProjectionHandlers,
   buildPlatformOperationsPublicDocReviewProjectionHandlers,
@@ -13,28 +14,39 @@ function policyRevision(policyKey: string) {
   } as never;
 }
 
+function expectedQueueParams(policyKey: string) {
+  return publicHelpArticlePolicyCitations
+    .filter((article) => article.citedPolicies.some((citedPolicy) => citedPolicy === policyKey))
+    .map((article) => [
+      article.locale,
+      article.slug,
+      article.title,
+      article.href,
+      policyKey,
+      "pol_sales_fee",
+      "evt_policy_revision_2",
+      "2026-07-12T12:00:00.000Z",
+    ]);
+}
+
 describe("public doc review queue projection", () => {
   it("flags every article citing a revised policy and ignores unrelated policies", async () => {
     const query = vi.fn(async (_sql: string, _params?: unknown[]) => ({ rows: [] }));
     const handlers = buildCommercialTermsPublicDocReviewProjectionHandlers({ query } as never);
 
-    await handlers["platform-policy.document.revised"]?.(
-      policyRevision("commercial-terms.marketplace-sales-fee-schedule"),
-    );
-    expect(query).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls[0]?.[1]).toEqual([
-      "en",
-      "sales-fees",
-      "Marketplace sales and checkout fees",
-      "/sales-fees",
-      "commercial-terms.marketplace-sales-fee-schedule",
-      "pol_sales_fee",
-      "evt_policy_revision_2",
-      "2026-07-12T12:00:00.000Z",
-    ]);
+    const citedPolicyKeys = [...new Set(publicHelpArticlePolicyCitations.flatMap((article) => article.citedPolicies))];
+    for (const policyKey of citedPolicyKeys) {
+      query.mockClear();
+      await handlers["platform-policy.document.revised"]?.(policyRevision(policyKey));
+
+      const expectedParams = expectedQueueParams(policyKey);
+      expect(expectedParams.length).toBeGreaterThan(0);
+      expect(query).toHaveBeenCalledTimes(expectedParams.length);
+      expect(query.mock.calls.map((call) => call[1])).toEqual(expectedParams);
+    }
 
     query.mockClear();
-    await handlers["platform-policy.document.revised"]?.(policyRevision("settlement.clearance-window"));
+    await handlers["platform-policy.document.revised"]?.(policyRevision("platform-operations.unrelated-policy"));
     expect(query).not.toHaveBeenCalled();
   });
 

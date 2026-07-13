@@ -22,7 +22,7 @@ export type PublicPolicySource = Readonly<{
 }>;
 
 export type PublicPolicyValue = Readonly<{
-  type: "bps" | "money" | "days" | "minutes" | "number";
+  type: "bps" | "money" | "days" | "hours" | "minutes" | "number";
   value: string | number;
   currency?: string;
   effectiveFrom: string | null;
