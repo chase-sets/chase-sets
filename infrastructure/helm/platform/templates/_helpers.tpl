@@ -61,6 +61,14 @@ imagePullSecrets:
 {{- printf "%s-%s" (include "chase-sets-platform.componentName" .) $suffix | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "chase-sets-platform.rolloutIngressName" -}}
+{{- printf "%s-%s-stable" (include "chase-sets-platform.fullname" .root) .name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "chase-sets-platform.analysisTemplateName" -}}
+{{- printf "%s-%s-readiness" (include "chase-sets-platform.fullname" .root) .name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "chase-sets-platform.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "chase-sets-platform.name" .root }}
 app.kubernetes.io/instance: {{ .root.Release.Name }}

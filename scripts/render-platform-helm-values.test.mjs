@@ -273,14 +273,16 @@ describe("render platform Helm values", () => {
     // #4765 widened scope: tolerant liveness (startupPath/livenessPath/
     // livenessProbe) is now a BASE-chart default for platform-api, so every
     // environment gets it -- not just staging. The staging overlay stays
-    // scoped to what is genuinely staging-only: replica count and resources.
+    // scoped to what is genuinely staging-only: replica count, resources,
+    // and the staged Argo Rollout activation.
     expect(stagingValues.components["platform-api"]).toEqual(doksStagingApiOverrides);
-    expect(stagingValues.components["platform-api"]).toEqual({
+    expect(stagingValues.components["platform-api"]).toMatchObject({
       replicas: 2,
       resources: {
         requests: { cpu: "250m", memory: "512Mi" },
         limits: { cpu: "1", memory: "1Gi" },
       },
+      rollout: { enabled: true, canary: { trafficRouting: { nginx: { enabled: true } } } },
     });
     expect(stagingValues.components["platform-api"].startupPath).toBeUndefined();
     expect(stagingValues.components["platform-api"].livenessPath).toBeUndefined();
@@ -622,7 +624,7 @@ describe("render platform Helm values", () => {
     expect(pathExpressionLines).toHaveLength(3);
   });
 
-  it("scaffolds Rollouts only for public buyer web components and keeps them disabled by default", () => {
+  it("scaffolds Rollouts for public traffic owners and keeps them disabled by default", () => {
     const values = buildPlatformHelmValues({ repoRoot });
 
     expect(values.components["public-web"].rollout).toMatchObject({
@@ -632,16 +634,17 @@ describe("render platform Helm values", () => {
         trafficRouting: {
           nginx: {
             enabled: false,
-            stableIngress: "",
           },
         },
-        steps: [{ setWeight: 10 }, { pause: {} }],
+        weights: [10, 25, 50, 100],
+        pauseAfterWeight: 10,
       },
+      analysis: { path: "/health/ready", count: 3, failureLimit: 0 },
     });
     expect(values.components.marketplace.rollout).toEqual(values.components["public-web"].rollout);
+    expect(values.components["platform-api"].rollout).toEqual(values.components["public-web"].rollout);
 
     expect(values.components["admin-web"].rollout).toBeUndefined();
-    expect(values.components["platform-api"].rollout).toBeUndefined();
     expect(values.components["platform-worker"].rollout).toBeUndefined();
     expect(values.components["platform-bootstrap"].rollout).toBeUndefined();
   });
@@ -680,7 +683,7 @@ describe("render platform Helm values", () => {
   it("keeps live deploy wiring out of the scaffold", () => {
     const chartFiles = [
       "templates/_helpers.tpl",
-
+      "templates/analysis-template.yaml",
       "templates/deployment.yaml",
       "templates/ingress.yaml",
       "templates/job.yaml",
@@ -704,7 +707,7 @@ describe("render platform Helm values", () => {
     expect(chartText).toContain(".Values.doksIngress");
     expect(chartText).not.toContain("ExternalSecret");
     expect(chartText).not.toContain("SecretProviderClass");
-    expect(rolloutStates).toEqual([false, false]);
+    expect(rolloutStates).toEqual([false, false, false]);
     expect(chartText).toContain("helm.sh/hook");
     expect(chartText).toContain("activeDeadlineSeconds");
     expect(chartText).toContain("bootstrap-quiesce.mjs");
@@ -717,13 +720,16 @@ describe("render platform Helm values", () => {
     expect(chartText).toContain("preview-postgres");
   });
 
-  it("models the opt-in Argo Rollout contract for public-web and marketplace", () => {
-    const [helperTemplate, deploymentTemplate, rolloutTemplate, serviceTemplate] = readChartFiles([
-      "templates/_helpers.tpl",
-      "templates/deployment.yaml",
-      "templates/rollout.yaml",
-      "templates/service.yaml",
-    ]);
+  it("models proportional Argo Rollouts with isolated nginx routes and readiness analysis", () => {
+    const [helperTemplate, analysisTemplate, deploymentTemplate, ingressTemplate, rolloutTemplate, serviceTemplate] =
+      readChartFiles([
+        "templates/_helpers.tpl",
+        "templates/analysis-template.yaml",
+        "templates/deployment.yaml",
+        "templates/ingress.yaml",
+        "templates/rollout.yaml",
+        "templates/service.yaml",
+      ]);
 
     expect(deploymentTemplate).toContain("(not $rolloutEnabled)");
     expect(rolloutTemplate).toContain("apiVersion: argoproj.io/v1alpha1");
@@ -732,6 +738,16 @@ describe("render platform Helm values", () => {
     expect(rolloutTemplate).toContain("canaryService:");
     expect(rolloutTemplate).toContain("trafficRouting:");
     expect(rolloutTemplate).toContain("stableIngress:");
+    expect(rolloutTemplate).toContain("rollbackWindow:");
+    expect(rolloutTemplate).toContain("pauseAfterWeight");
+    expect(analysisTemplate).toContain("kind: AnalysisTemplate");
+    expect(analysisTemplate).toContain('successCondition: result.status == "ok"');
+    expect(analysisTemplate).toContain("canaryServiceName");
+    expect(analysisTemplate).toContain("$.Release.Namespace");
+    expect(analysisTemplate).toContain("svc.cluster.local");
+    expect(ingressTemplate).toContain("rolloutIngressName");
+    expect(ingressTemplate).toContain("$basePaths");
+    expect(ingressTemplate).toContain("$matchingPaths");
     expect(serviceTemplate).toContain("chase-sets-platform.canaryServiceName");
     expect(serviceTemplate).toContain("chase-sets.com/traffic-role: canary");
     expect(helperTemplate).toContain("chase-sets-platform.canaryServiceName");

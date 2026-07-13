@@ -1,5 +1,8 @@
 {{- range $name, $component := .Values.components }}
 {{- if and $component.enabled (eq $component.kind "service") $component.rollout $component.rollout.enabled }}
+{{- if and $component.rollout.canary.trafficRouting.nginx.enabled (not $.Values.doksIngress.enabled) }}
+{{- fail (printf "components.%s rollout requires doksIngress.enabled=true for proportional nginx traffic routing" $name) }}
+{{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
@@ -9,6 +12,11 @@ metadata:
 {{ include "chase-sets-platform.labels" (dict "root" $ "name" $name) | nindent 4 }}
 spec:
   replicas: {{ $component.replicas }}
+  revisionHistoryLimit: {{ $component.rollout.revisionHistoryLimit }}
+  progressDeadlineAbort: true
+  progressDeadlineSeconds: {{ $component.rollout.progressDeadlineSeconds }}
+  rollbackWindow:
+    revisions: {{ $component.rollout.rollbackWindowRevisions }}
   selector:
     matchLabels:
 {{ include "chase-sets-platform.selectorLabels" (dict "root" $ "name" $name) | nindent 6 }}
@@ -16,14 +24,20 @@ spec:
     canary:
       stableService: {{ include "chase-sets-platform.componentName" (dict "root" $ "name" $name) }}
       canaryService: {{ include "chase-sets-platform.canaryServiceName" (dict "root" $ "name" $name) }}
-      {{- if and $component.rollout.canary.trafficRouting.nginx.enabled $component.rollout.canary.trafficRouting.nginx.stableIngress }}
+      {{- if $component.rollout.canary.trafficRouting.nginx.enabled }}
       trafficRouting:
         nginx:
-          stableIngress: {{ $component.rollout.canary.trafficRouting.nginx.stableIngress | quote }}
+          stableIngress: {{ include "chase-sets-platform.rolloutIngressName" (dict "root" $ "name" $name) | quote }}
       {{- end }}
-      {{- with $component.rollout.canary.steps }}
       steps:
-{{ toYaml . | nindent 8 }}
+      {{- range $weight := $component.rollout.canary.weights }}
+        - setWeight: {{ $weight }}
+        - analysis:
+            templates:
+              - templateName: {{ include "chase-sets-platform.analysisTemplateName" (dict "root" $ "name" $name) }}
+        {{- if eq (int $weight) (int $component.rollout.canary.pauseAfterWeight) }}
+        - pause: {}
+        {{- end }}
       {{- end }}
   template:
     metadata:

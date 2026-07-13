@@ -5,12 +5,13 @@ Cluster ingress, load balancer, and TLS add-ons for the DOKS runtime accepted by
 (issue #4045). This is the DOKS equivalent of the routing and certificate surface
 App Platform provides today.
 
-It owns four cluster-scoped concerns:
+It owns five cluster-scoped concerns:
 
 - **Ingress controller + load balancer** — the upstream `ingress-nginx` chart, whose
   `LoadBalancer` Service provisions the DigitalOcean Load Balancer that fronts DOKS
   ingress and terminates TLS with cert-manager certificates.
 - **cert-manager** — the upstream `jetstack/cert-manager` chart, installed with CRDs.
+- **Argo Rollouts** — the upstream `argo/argo-rollouts` chart, installed with CRDs and a private two-replica controller; no dashboard is exposed.
 - **ACME `ClusterIssuer`s** — rendered by this chart (`letsencrypt-staging` and
   `letsencrypt-production`, HTTP-01 solver via the nginx ingress class; the
   production issuer also carries a DNS-01 solver scoped by `selector.dnsZones`
@@ -30,6 +31,7 @@ load balancer, and issuers/certificate those Ingress objects depend on.
 | --- | --- | --- |
 | ingress-nginx controller + DO Load Balancer | upstream chart + `ingress-nginx-values.yaml` | `ingress-nginx` |
 | cert-manager + CRDs | upstream chart + `cert-manager-values.yaml` | `cert-manager` |
+| Argo Rollouts controller + CRDs | upstream chart + `argo-rollouts-values.yaml` | `argo-rollouts` |
 | ACME `ClusterIssuer`s | this chart (`templates/cluster-issuer.yaml`) | `cert-manager` |
 | `digitalocean-dns-token` Secret (DNS-01 credential, staging only) | `scripts/doks-cluster-addons.mjs` (applied via `kubectl apply` stdin, never in git) | `cert-manager` |
 | Shared preview wildcard `Certificate` (staging only) | this chart (`templates/preview-wildcard-certificate.yaml`) | `cert-manager` |

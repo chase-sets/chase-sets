@@ -207,16 +207,16 @@ Rotation sequence:
 
 Manual `kubectl edit secret` is an emergency-only action. If used, immediately follow with the source-owned helper so the next deployment does not unintentionally revert the key set.
 
-## Ingress Controller, Cert-Manager, And Load Balancer
+## Ingress, Certificates, Argo Rollouts, And Load Balancer
 
-The ingress controller (ingress-nginx), its DigitalOcean Load Balancer, cert-manager, and the ACME `ClusterIssuer`s are installed from the source-owned add-ons in [infrastructure/helm/doks-ingress](../../infrastructure/helm/doks-ingress/README.md). Versions and values stay in git; install through the helper, never ad hoc:
+The ingress controller (ingress-nginx), its DigitalOcean Load Balancer, cert-manager, the ACME `ClusterIssuer`s, and Argo Rollouts are installed from the source-owned add-ons in [infrastructure/helm/doks-ingress](../../infrastructure/helm/doks-ingress/README.md). Versions and values stay in git; install through the helper, never ad hoc:
 
 ```bash
 node ./scripts/doks-cluster-addons.mjs --environment staging --dry-run   # preview pinned commands
 node ./scripts/doks-cluster-addons.mjs --environment staging             # install / upgrade
 ```
 
-This installs `ingress-nginx` (namespace `ingress-nginx`) whose `LoadBalancer` Service provisions the `chase-sets-<environment>-doks-ingress` DigitalOcean Load Balancer, `cert-manager` with CRDs (namespace `cert-manager`), and the `letsencrypt-staging` / `letsencrypt-production` `ClusterIssuer`s. The load balancer runs L4 pass-through for 80/443 so NGINX terminates TLS with cert-manager certificates; port 80 stays reachable for HTTP-01 challenges and PROXY protocol carries real client IPs.
+This installs `ingress-nginx` (namespace `ingress-nginx`) whose `LoadBalancer` Service provisions the `chase-sets-<environment>-doks-ingress` DigitalOcean Load Balancer, `cert-manager` with CRDs (namespace `cert-manager`), the `letsencrypt-staging` / `letsencrypt-production` `ClusterIssuer`s, and the two-replica Argo Rollouts controller with CRDs (namespace `argo-rollouts`). The Argo dashboard is disabled. The load balancer runs L4 pass-through for 80/443 so NGINX terminates TLS with cert-manager certificates; port 80 stays reachable for HTTP-01 challenges and PROXY protocol carries real client IPs.
 
 Confirm the load balancer IPv4 before touching DNS:
 
@@ -224,6 +224,8 @@ Confirm the load balancer IPv4 before touching DNS:
 kubectl get service ingress-nginx-controller --namespace ingress-nginx -o wide
 kubectl get service --all-namespaces | grep -i loadbalancer
 kubectl get clusterissuers
+kubectl get deployment --namespace argo-rollouts
+kubectl get crd rollouts.argoproj.io analysistemplates.argoproj.io analysisruns.argoproj.io
 ```
 
 ### Preview Wildcard Certificate Bootstrap (One-Time, `--environment staging` Only)
@@ -269,6 +271,28 @@ kubectl get ingress --namespace chase-sets-platform
 kubectl describe ingress --namespace chase-sets-platform
 kubectl get certificates,orders,challenges --namespace chase-sets-platform
 ```
+
+### Proportional Rollout Evidence (Staging First)
+
+Staging enables Rollouts in `values.staging.yaml`; previews remain Deployments. The deploy workflow holds `public-web`, `marketplace`, and `platform-api` at 10% after canary-Service readiness analysis. Its existing smoke, projection-convergence, Buy Now freshness, and Stripe money gates are the promotion decision. A green tail advances through analyzed 25%, 50%, and 100% steps; a failed tail runs `abort` before normal incident classification.
+
+For the staging evidence attached to the rollout PR/issue:
+
+1. Run both add-on dry runs, then install/upgrade the staging add-ons from an approved operator session. Confirm the controller Deployment and three CRDs above are ready.
+2. Confirm `DOKS_INGRESS_TARGET` is set and the shadow or live DOKS hosts pass `platform-ingress-wait`; proportional routing intentionally refuses to render without DOKS ingress.
+3. Dispatch Platform Deploy for a reviewed staging revision. While it is held, capture:
+
+   ```bash
+   kubectl get rollouts,analysisruns --namespace chase-sets-platform
+   kubectl get ingress --namespace chase-sets-platform -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.nginx\.ingress\.kubernetes\.io/canary-weight}{"\n"}{end}'
+   kubectl argo rollouts get rollout chase-sets-platform-chase-sets-platform-marketplace --namespace chase-sets-platform
+   ```
+
+   Expected: the new revision is paused after successful readiness analysis, and the controller-generated canary Ingress reports weight `10`.
+4. Let the workflow verification tail finish. Confirm all three Rollouts become `Healthy`, the production job begins only after staging promotion, and the release-health artifact retains the existing smoke/freshness decisions.
+5. Rehearse failure only in a controlled staging window: temporarily patch one generated `AnalysisTemplate` to an unreachable canary URL, deploy a new staging revision, and verify its AnalysisRun becomes `Failed`, the Rollout becomes `Degraded`/aborted, and nginx returns the canary weight to `0`. Immediately restore the source-owned template with the next Helm deploy and verify `Healthy`. Never perform this drill in production and never replace it with a fake metrics provider in committed configuration.
+
+Production remains a separate operator flip. After #4053 has installed the production add-ons, proven production DOKS ingress on internal/shadow hosts, and completed the DNS rollback rehearsal, set the production GitHub Environment variable `PRODUCTION_ARGO_ROLLOUTS_ENABLED=true`. Leave it absent/false before that cutover; Helm fails closed if the flip requests nginx proportional routing without an enabled DOKS Ingress.
 
 ## DNS Cutover And Rehearsed Rollback
 

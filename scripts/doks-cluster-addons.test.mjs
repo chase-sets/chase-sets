@@ -23,9 +23,11 @@ describe("doks cluster addons planner", () => {
     expect(steps.map((step) => step.name)).toEqual([
       "add ingress-nginx repo",
       "add cert-manager repo",
+      "add Argo repo",
       "refresh repos",
       "install ingress-nginx controller and DigitalOcean load balancer",
       "install cert-manager",
+      "install Argo Rollouts controller and CRDs",
       "install ACME cluster issuers",
     ]);
   });
@@ -42,8 +44,11 @@ describe("doks cluster addons planner", () => {
     const steps = planClusterAddons({ environment: "staging" });
     const ingress = steps.find((step) => step.name.startsWith("install ingress-nginx"));
     const certManager = steps.find((step) => step.name === "install cert-manager");
+    const argoRollouts = steps.find((step) => step.name === "install Argo Rollouts controller and CRDs");
     expect(ingress.command).toContain(pinned.ingressNginx.version);
     expect(certManager.command).toContain(pinned.certManager.version);
+    expect(argoRollouts.command).toContain(pinned.argoRollouts.version);
+    expect(pinned.argoRollouts.appVersion).toBe("v1.9.0");
   });
 
   it("names the DigitalOcean load balancer per environment", () => {

@@ -127,14 +127,11 @@ The staging-only overlay (`values.staging.yaml`, via `doksStagingApiOverrides`) 
 
 ## Rollouts
 
-Argo Rollouts are scaffolded as an opt-in chart capability for the two user-facing web components only:
+Staging renders Argo `Rollout` resources for the three public traffic owners: `public-web`, `marketplace`, and `platform-api`. Preview and production values remain ordinary `Deployment` resources unless their deploy lane passes `--rollouts-enabled true`.
 
-- `public-web`
-- `marketplace`
+Each Rollout keeps the existing component Service as stable, adds a canary Service, and owns a component-specific stable Ingress. Isolating routes is required: cloning the former shared multi-service Ingress would apply nginx canary annotations to unrelated paths and couple independently progressing components. The controller shifts 10%, runs three checks against the canary Service's existing JSON readiness endpoint, and pauses. After CI smoke, projection convergence, Buy Now freshness, and money smoke pass, the workflow promotes the hold; 25%, 50%, and 100% each repeat the readiness analysis. One failed measurement aborts the update, and a three-revision rollback window lets the Helm restore-point flow fast-track recent stable revisions.
 
-The default chart still renders Kubernetes `Deployment` resources for every service and worker. `public-web` and `marketplace` values include a disabled `rollout` block so CI can prove the manifest shape before DOKS owns traffic. When a component's `rollout.enabled` is set to `true`, that component renders an Argo `Rollout` instead of a `Deployment`, keeps the existing component Service as the stable service, and renders an additional canary Service with the configured suffix.
-
-Do not enable this in staging or production until Argo Rollouts, nginx ingress traffic routing, the DOKS deploy helper, and staging cutover evidence are all in place. Current production "canary" checks remain post-deploy synthetic smoke against the single deployed App Platform release; proportional Rollouts are reserved for beta-wave exposure control after DOKS cutover.
+Rollout activation fails Helm rendering unless DOKS ingress is enabled; this prevents a rollout from claiming proportional exposure while no traffic router exists. Production stays gated by the `PRODUCTION_ARGO_ROLLOUTS_ENABLED` GitHub Environment variable until the #4053 DOKS ingress/DNS cutover is complete. Do not flip it while App Platform still serves production traffic.
 
 ## Validation
 
@@ -170,15 +167,17 @@ The harness uses the Dockerized Helm image `alpine/helm:3.15.4`, so a local `hel
 
 ```bash
 pnpm run platform:kubernetes-deployment -- plan --image registry.digitalocean.com/chase-sets/chase-sets-platform:<tag> --namespace staging --release chase-sets-staging
-pnpm run platform:kubernetes-deployment -- deploy --image registry.digitalocean.com/chase-sets/chase-sets-platform:<tag> --namespace staging --release chase-sets-staging
-pnpm run platform:kubernetes-deployment -- rollback --namespace staging --release chase-sets-staging
+pnpm run platform:kubernetes-deployment -- deploy --image registry.digitalocean.com/chase-sets/chase-sets-platform:<tag> --namespace staging --release chase-sets-staging --runtime-env DEPLOYMENT_ENVIRONMENT=staging --rollouts-enabled true
+pnpm run platform:kubernetes-deployment -- promote --namespace staging --release chase-sets-staging --rollouts-enabled true
+pnpm run platform:kubernetes-deployment -- abort --namespace staging --release chase-sets-staging --rollouts-enabled true
+pnpm run platform:kubernetes-deployment -- rollback --namespace staging --release chase-sets-staging --rollouts-enabled true
 pnpm run platform:kubernetes-deployment -- diagnostics --namespace staging --release chase-sets-staging
 ```
 
-Deploy uses `helm upgrade --install --wait --atomic`, then waits for every rendered runtime Deployment through `kubectl rollout status`. Rollback uses `helm rollback --wait`, then reuses the same rollout waits. Diagnostics use Kubernetes resources, descriptions, and pod logs; they do not depend on App Platform state.
+Deploy uses `helm upgrade --install --wait --atomic`, waits for ordinary Deployments through `kubectl rollout status`, and waits for Argo Rollouts to reach the 10% analysis hold. `promote` and `abort` use the pinned Argo kubectl plugin; promotion then waits for `Healthy`. Helm rollback detects whether the restored revision contains a Rollout or Deployment before waiting, so rollback targets captured before Argo activation remain valid. Diagnostics include Rollouts and AnalysisRuns in addition to Kubernetes workloads, descriptions, events, and pod logs.
 
 ## Boundaries
 
-This scaffold intentionally does not own ingress controller installation, certificate issuer installation, external secrets, Argo Rollouts controller installation, live DOKS apply wiring, or App Platform removal.
+This chart intentionally does not own ingress controller installation, certificate issuer installation, external secrets, or App Platform removal. The cluster-scoped Argo controller contract lives with the other DOKS add-ons in `scripts/doks-cluster-addons.mjs`.
 
 `platform-bootstrap` renders as a Helm `pre-install,pre-upgrade` hook. Before running bootstrap it scales the worker Deployment targets to zero through the in-image `bootstrap-quiesce.mjs` wrapper, waits for those pods to drain, then runs the existing bootstrap command. If bootstrap fails or exceeds `CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS`, the wrapper restores the previous worker replica counts before returning the failing exit code so Helm aborts before new pods roll. The hook Job uses `activeDeadlineSeconds` below Helm's rollout timeout so Kubernetes reports a Job failure before Helm reaches its generic condition timeout. During first install, missing worker Deployments are skipped because there is no outgoing version to quiesce yet.

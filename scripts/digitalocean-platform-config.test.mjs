@@ -1172,6 +1172,9 @@ describe("DigitalOcean platform configuration", () => {
     );
     const stagingDeployIndex = deployStagingJob.indexOf("- name: Deploy staging Kubernetes release");
     const stagingIngressWaitIndex = deployStagingJob.indexOf("- name: Wait for staging ingress URLs");
+    const stagingPromoteIndex = deployStagingJob.indexOf("- name: Promote staging Argo Rollouts");
+    const stagingAbortIndex = deployStagingJob.indexOf("- name: Abort staging Argo Rollouts");
+    const stagingAppliedIndex = deployStagingJob.indexOf("- name: Mark staging applied");
     const captureIndex = deployProductionJob.indexOf("- name: Capture production rollback target");
     const readinessIndex = deployProductionJob.indexOf("- name: Evaluate production rollback readiness");
     const applyIndex = deployProductionJob.indexOf("- name: Terraform apply", readinessIndex);
@@ -1182,6 +1185,8 @@ describe("DigitalOcean platform configuration", () => {
     const deployIndex = deployProductionJob.indexOf("- name: Deploy production Kubernetes release");
     const smokeIndex = deployProductionJob.lastIndexOf("- name: Smoke check");
     const stage1Index = deployProductionJob.indexOf("- name: Stage 1 production canary");
+    const productionPromoteIndex = deployProductionJob.indexOf("- name: Promote production Argo Rollouts");
+    const productionAbortIndex = deployProductionJob.indexOf("- name: Abort production Argo Rollouts");
     const diagnosticsIndex = deployProductionJob.indexOf(
       "- name: Capture post-cutover production Kubernetes diagnostics",
     );
@@ -1193,6 +1198,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingRuntimeSecretsIndex).toBeLessThan(stagingRegistryPullSecretIndex);
     expect(stagingRegistryPullSecretIndex).toBeLessThan(stagingDeployIndex);
     expect(stagingDeployIndex).toBeLessThan(stagingIngressWaitIndex);
+    expect(stagingIngressWaitIndex).toBeLessThan(stagingPromoteIndex);
+    expect(stagingPromoteIndex).toBeLessThan(stagingAbortIndex);
+    expect(stagingAbortIndex).toBeLessThan(stagingAppliedIndex);
     expect(captureIndex).toBeLessThan(readinessIndex);
     expect(readinessIndex).toBeLessThan(applyIndex);
     expect(applyIndex).toBeLessThan(runtimeSecretsIndex);
@@ -1201,8 +1209,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(deployIndex).toBeLessThan(smokeIndex);
     expect(smokeIndex).toBeLessThan(rollbackIndex);
     expect(stage1Index).toBeLessThan(diagnosticsIndex);
+    expect(stage1Index).toBeLessThan(productionPromoteIndex);
+    expect(productionPromoteIndex).toBeLessThan(productionAbortIndex);
+    expect(productionAbortIndex).toBeLessThan(diagnosticsIndex);
     expect(diagnosticsIndex).toBeLessThan(rollbackIndex);
     expect(rollbackIndex).toBeLessThan(markerIndex);
+    expect(deployStagingJob).toContain('ARGO_ROLLOUTS_ENABLED: "true"');
+    expect(deployProductionJob).toContain("PRODUCTION_ARGO_ROLLOUTS_ENABLED");
+    expect(platformProductionWorkflow).toContain("kubectl-argo-rollouts-linux-amd64");
+    expect(platformProductionWorkflow).toContain("d1c98f59f6d3716b7a35aa540506764700a358448dd6a10e92381b7aa294d00b");
 
     expect(kubeconfigStep).toContain("infrastructure/digitalocean/doks");
     expect(kubeconfigStep).toContain("-backend-config=key=doks/production.tfstate");

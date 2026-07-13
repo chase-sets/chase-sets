@@ -9,6 +9,54 @@ doksIngress:
     secretName: "chase-sets-platform-doks-tls"
   hosts: []
 components:
+  public-web:
+    rollout:
+      enabled: true
+      revisionHistoryLimit: 5
+      progressDeadlineSeconds: 900
+      rollbackWindowRevisions: 3
+      analysis:
+        path: "/health/ready"
+        initialDelay: "5s"
+        interval: "10s"
+        count: 3
+        failureLimit: 0
+        timeoutSeconds: 5
+      canary:
+        canaryServiceSuffix: "canary"
+        trafficRouting:
+          nginx:
+            enabled: true
+        weights:
+          - 10
+          - 25
+          - 50
+          - 100
+        pauseAfterWeight: 10
+  marketplace:
+    rollout:
+      enabled: true
+      revisionHistoryLimit: 5
+      progressDeadlineSeconds: 900
+      rollbackWindowRevisions: 3
+      analysis:
+        path: "/health/ready"
+        initialDelay: "5s"
+        interval: "10s"
+        count: 3
+        failureLimit: 0
+        timeoutSeconds: 5
+      canary:
+        canaryServiceSuffix: "canary"
+        trafficRouting:
+          nginx:
+            enabled: true
+        weights:
+          - 10
+          - 25
+          - 50
+          - 100
+        pauseAfterWeight: 10
   platform-api:
     replicas: 2
     resources:
@@ -18,6 +66,29 @@ components:
       limits:
         cpu: "1"
         memory: "1Gi"
+    rollout:
+      enabled: true
+      revisionHistoryLimit: 5
+      progressDeadlineSeconds: 900
+      rollbackWindowRevisions: 3
+      analysis:
+        path: "/health/ready"
+        initialDelay: "5s"
+        interval: "10s"
+        count: 3
+        failureLimit: 0
+        timeoutSeconds: 5
+      canary:
+        canaryServiceSuffix: "canary"
+        trafficRouting:
+          nginx:
+            enabled: true
+        weights:
+          - 10
+          - 25
+          - 50
+          - 100
+        pauseAfterWeight: 10
   platform-worker:
     # Keep one warm worker for health and deploy continuity; KEDA adds up to four pods when eligible wake intents accumulate.
     # The cap preserves the staging database connection budget while covering representative wake and import bursts.
