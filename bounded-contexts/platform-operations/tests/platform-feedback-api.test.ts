@@ -156,13 +156,10 @@ describe("experience platform feedback API", () => {
     const list = await app.request("/?status=new&topic=ease-of-use&workflow=listing-publish&limit=25&offset=50");
     const metrics = await app.request("/metrics");
     const detail = await app.request("/pfb_test");
-    const exported = await app.request("/export?status=new&topic=ease-of-use&workflow=listing-publish");
 
     expect(list.status).toBe(200);
     expect(metrics.status).toBe(200);
     expect(detail.status).toBe(200);
-    expect(exported.status).toBe(200);
-    expect(exported.headers.get("Content-Type")).toContain("text/csv");
     expect(listPlatformFeedback).toHaveBeenCalledWith({
       limit: 25,
       offset: 50,
@@ -170,6 +167,50 @@ describe("experience platform feedback API", () => {
       topic: "ease-of-use",
       workflow: "listing-publish",
     });
+  });
+
+  it("gates the comment export behind a separate export capability (#5145)", async () => {
+    const services = createServices({
+      listPlatformFeedback: vi.fn(async () => ({ items: [], total: 0 })),
+    });
+
+    // A view-only staff assignment cannot download the free-text comment corpus.
+    const viewOnly = appFor(services, actorWithPermissions(["platform-feedback.view"]));
+    const deniedExport = await viewOnly.request("/export?status=new");
+    expect(deniedExport.status).toBe(403);
+
+    // Even manage authority does not imply export.
+    const manager = appFor(services, actorWithPermissions(["platform-feedback.view", "platform-feedback.manage"]));
+    const managerExport = await manager.request("/export?status=new");
+    expect(managerExport.status).toBe(403);
+
+    // Export requires the explicit export grant.
+    const exporter = appFor(services, actorWithPermissions(["platform-feedback.view", "platform-feedback.export"]));
+    const exported = await exporter.request("/export?status=new");
+    expect(exported.status).toBe(200);
+    expect(exported.headers.get("Content-Type")).toContain("text/csv");
+  });
+
+  it("rejects a customer submission that tries to override account or subject identity (#5145)", async () => {
+    const submitPlatformFeedback = vi.fn(async () => ({ feedbackId: "pfb_test", version: 1 }));
+    const services = createServices({ submitPlatformFeedback });
+
+    const response = await appFor(services).request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        rating: 5,
+        topic: "checkout-payment",
+        workflow: "checkout-payment",
+        sourceRoutePath: "/checkout",
+        // Cross-account replay attempt: attribute feedback to another account.
+        accountId: "acc_victim",
+        userId: "usr_victim",
+      }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(submitPlatformFeedback).not.toHaveBeenCalled();
   });
 
   it("requires manage permission for reviewed, archived, note, and bulk actions", async () => {

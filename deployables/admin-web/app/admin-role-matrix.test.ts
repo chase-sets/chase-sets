@@ -29,6 +29,7 @@ const ROLE_PERMISSIONS = {
     "projection-operations.operate",
     "projection-operations.rebuild",
     "projection-operations.view",
+    "platform-feedback.export",
     "platform-feedback.manage",
     "platform-feedback.view",
     "platform-policy.manage",
@@ -71,8 +72,6 @@ const ROLE_PERMISSIONS = {
     "payouts.request",
     "payouts.setup",
     "payouts.view",
-    "platform-feedback.manage",
-    "platform-feedback.view",
     "platform-policy.view",
     "public-presence.manage",
     "public-presence.view",
@@ -110,8 +109,6 @@ const ROLE_PERMISSIONS = {
     "payouts.request",
     "payouts.setup",
     "payouts.view",
-    "platform-feedback.manage",
-    "platform-feedback.view",
     "platform-policy.view",
     "public-presence.manage",
     "public-presence.view",
@@ -129,7 +126,6 @@ const ROLE_PERMISSIONS = {
     "listings.view",
     "offers.view",
     "orders.view",
-    "platform-feedback.view",
     "public-presence.view",
     "reputation.view",
     "support.manage",
@@ -144,7 +140,6 @@ const ROLE_PERMISSIONS = {
     "offers.view",
     "orders.view",
     "payouts.view",
-    "platform-feedback.view",
     "public-presence.view",
     "reputation.view",
     "support.view",
@@ -169,7 +164,11 @@ describe("admin RBAC matrix (role fixtures)", () => {
     ["owner", ["access", "catalog", "commerce", "growth", "platform", "support"]],
     ["manager", ["access", "catalog", "commerce", "growth", "platform", "support"]],
     ["fulfillment", ["access", "growth", "support"]],
-    ["viewer", ["access", "growth", "support"]],
+    // viewer no longer sees Support: its only Support-section nav contribution
+    // was the customer-feedback operator surface, removed by #5145. support.view
+    // alone unlocks no navigable Support surface (Support Requests needs
+    // support.manage), so viewer correctly loses the section.
+    ["viewer", ["access", "growth"]],
   ] as const)("role %s sees exactly its authorized top-level sections", (roleKey, expectedSections) => {
     expect(visibleSectionKeys(roleKey)).toEqual([...expectedSections].sort());
   });

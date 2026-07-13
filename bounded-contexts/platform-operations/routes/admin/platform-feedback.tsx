@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { redirect, useLoaderData, useMatches } from "react-router";
 import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { PlatformFeedbackAdminListPage } from "../../features/platform-feedback/ui/admin-pages";
 import { createExperienceRequestApiClient } from "../../support/request-support/api-client";
@@ -66,12 +66,26 @@ export const meta: MetaFunction = () => [
 
 export default function PlatformFeedbackRoute() {
   const data = useLoaderData<typeof loader>();
+  const permissions = useAdminActorPermissions();
   return (
     <PlatformFeedbackAdminListPage
       feedback={data.feedback}
       metrics={data.metrics}
       filters={data.filters}
       exportHref={data.exportHref}
+      canExport={permissions.includes("platform-feedback.export")}
+      canManage={permissions.includes("platform-feedback.manage")}
     />
   );
+}
+
+function useAdminActorPermissions(): readonly string[] {
+  for (const match of useMatches()) {
+    if (match.data && typeof match.data === "object" && "actor" in match.data) {
+      const actor = (match.data as { actor?: { permissions?: readonly string[] } }).actor;
+      return actor?.permissions ?? [];
+    }
+  }
+
+  return [];
 }
