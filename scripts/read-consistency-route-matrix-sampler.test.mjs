@@ -24,6 +24,8 @@ describe("read consistency route matrix sampler", () => {
           "artifacts/checkout.json",
           "--account-cart-probe-file",
           "artifacts/account-cart.json",
+          "--deploy-window-file",
+          "artifacts/deploy-window.json",
           "--out",
           "artifacts/sampler.json",
         ],
@@ -34,6 +36,7 @@ describe("read consistency route matrix sampler", () => {
       checkedAt,
       checkoutProbePath: "artifacts/checkout.json",
       accountCartProbePath: "artifacts/account-cart.json",
+      deployWindowPath: "artifacts/deploy-window.json",
       outPath: "artifacts/sampler.json",
     });
 
@@ -42,11 +45,13 @@ describe("read consistency route matrix sampler", () => {
         ROUTE_MATRIX_SAMPLER_ENVIRONMENT: "staging",
         ROUTE_MATRIX_SAMPLER_CHECKOUT_PROBE_FILE: "checkout.json",
         ROUTE_MATRIX_SAMPLER_ACCOUNT_CART_PROBE_FILE: "account-cart.json",
+        ROUTE_MATRIX_SAMPLER_DEPLOY_WINDOW_FILE: "deploy-window.json",
       }),
     ).toMatchObject({
       environment: "staging",
       checkoutProbePath: "checkout.json",
       accountCartProbePath: "account-cart.json",
+      deployWindowPath: "deploy-window.json",
     });
   });
 
@@ -90,6 +95,7 @@ describe("read consistency route matrix sampler", () => {
         sampledRouteCount: 2,
         blockedRouteCount: 4,
         failedRouteCount: 0,
+        skippedRouteCount: 0,
         allRoutesSampled: false,
       },
       redaction: {
@@ -166,6 +172,52 @@ describe("read consistency route matrix sampler", () => {
       blockerCategory: "checkout-probe-failed",
     });
     expect(JSON.stringify(artifact)).not.toContain("hidden raw details");
+  });
+
+  it("skips automatic samples during an active deploy window while preserving expected blockers", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "route-matrix-sampler-deploy-window-"));
+    const checkoutProbePath = join(dir, "checkout-probe.json");
+    const accountCartProbePath = join(dir, "account-cart-probe.json");
+    const deployWindowPath = join(dir, "deploy-window.json");
+    await writeFile(
+      checkoutProbePath,
+      JSON.stringify({ promotionDecision: "promote", finalState: "pass", attempts: [{ state: "pass" }] }),
+    );
+    await writeFile(
+      accountCartProbePath,
+      JSON.stringify({ promotionDecision: "promote", observedOutcomes: ["reconciliation"] }),
+    );
+    await writeFile(
+      deployWindowPath,
+      JSON.stringify({
+        schemaVersion: "read-consistency-route-matrix-deploy-window/v1",
+        status: "active",
+        source: "github-actions+argo-rollouts",
+        activeRunCount: 1,
+        activeRolloutCount: 1,
+      }),
+    );
+
+    const artifact = await runReadConsistencyRouteMatrixSampler({
+      environment: "staging",
+      checkedAt,
+      checkoutProbePath,
+      accountCartProbePath,
+      deployWindowPath,
+    });
+
+    expect(artifact).toMatchObject({
+      deployWindow: { status: "active", activeRunCount: 1, activeRolloutCount: 1 },
+      summary: { sampledRouteCount: 0, blockedRouteCount: 4, failedRouteCount: 0, skippedRouteCount: 2 },
+    });
+    expect(artifact.routes[0]).toMatchObject({
+      status: "skipped",
+      outcomeCategory: "deploy-window-active",
+      blockerCategory: "active-deploy-window",
+      attemptCount: 0,
+    });
+    expect(artifact.routes[1].status).toBe("skipped");
+    expect(artifact.routes[2].status).toBe("blocked");
   });
 
   it("marks account cart as failed when the cart probe aborts without copying raw details", async () => {

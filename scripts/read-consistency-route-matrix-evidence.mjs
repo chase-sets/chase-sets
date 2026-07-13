@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
+import { normalizeRouteMatrixDeployWindow } from "./read-consistency-route-matrix-deploy-window.mjs";
 
 export const READ_CONSISTENCY_ROUTE_MATRIX_EVIDENCE_VERSION = "read-consistency-route-matrix-evidence/v1";
 export const DEFAULT_PROMETHEUS_WINDOW = "30m";
@@ -128,6 +129,7 @@ export async function runReadConsistencyRouteMatrixEvidence(options, queryPromet
         prometheusToken: options.prometheusToken,
       }));
   const samplerRoutes = samplerRoutesByTemplate(samplerReport);
+  const deployWindow = normalizeRouteMatrixDeployWindow(samplerReport?.deployWindow);
   const globalWorkSignalErrorRate = await query(workSignalErrorRateQuery(options.window));
   const routes = [];
 
@@ -168,6 +170,7 @@ export async function runReadConsistencyRouteMatrixEvidence(options, queryPromet
           exactDependencyFallbackCount: fallbackCount,
         },
         samplerRoutes.get(route.routeTemplate) ?? null,
+        deployWindow,
       ),
     );
   }
@@ -179,6 +182,7 @@ export async function runReadConsistencyRouteMatrixEvidence(options, queryPromet
     prometheusUrl: options.prometheusUrl,
     routes,
     globalWorkSignalErrorRate,
+    deployWindow,
   });
 }
 
@@ -198,6 +202,7 @@ export function buildReadConsistencyRouteMatrixEvidence(input) {
       diagnosticMissingReceiptCount: nonNegativeInteger(route.wakeBeforeWait.diagnosticMissingReceiptCount),
       missingTargetContextCount: nonNegativeInteger(route.wakeBeforeWait.missingTargetContextCount),
       exactDependencyFallbackCount: nonNegativeInteger(route.wakeBeforeWait.exactDependencyFallbackCount),
+      ...(route.wakeBeforeWait.deploymentWindow ? { deploymentWindow: route.wakeBeforeWait.deploymentWindow } : {}),
       ...(route.wakeBeforeWait.sampler
         ? {
             sampler: {
@@ -234,20 +239,28 @@ export function buildReadConsistencyRouteMatrixEvidence(input) {
     },
     summary: {
       routeCount: routes.length,
+      // Sampled means the route has a usable steady-state metric verdict;
+      // deploy-window-skipped routes retain raw counters for diagnosis but do
+      // not count as valid coverage.
+      sampledRouteCount: routes.filter((route) => ["pass", "fail"].includes(route.wakeBeforeWait.status)).length,
       passingRouteCount: routes.filter((route) => route.wakeBeforeWait.status === "pass").length,
       failingRouteCount: routes.filter((route) => route.wakeBeforeWait.status === "fail").length,
+      skippedRouteCount: routes.filter((route) => route.wakeBeforeWait.status === "skipped").length,
       // Blocked = the sampler recorded a support-safe blocker and the window
       // held zero samples: a coverage gap to close, never proof
       // of wake health and never conflated with a failing route.
       blockedRouteCount: routes.filter((route) => route.wakeBeforeWait.status === "blocked").length,
-      coverage: routes.some((route) => route.wakeBeforeWait.status === "blocked") ? "partial" : "full",
+      coverage: routes.some((route) => ["blocked", "skipped"].includes(route.wakeBeforeWait.status))
+        ? "partial"
+        : "full",
       globalWorkSignalErrorRate: nonNegativeRate(input.globalWorkSignalErrorRate),
     },
+    ...(input.deployWindow ? { deployWindow: normalizeRouteMatrixDeployWindow(input.deployWindow) } : {}),
     routes,
   };
 }
 
-export function routeMatrixRouteEvidence(route, measurement, samplerRoute = null) {
+export function routeMatrixRouteEvidence(route, measurement, samplerRoute = null, deployWindow = null) {
   const sampleCount = nonNegativeInteger(measurement.sampleCount);
   const p95Ms = nullableNonNegativeInteger(measurement.p95Ms);
   const p99Ms = nullableNonNegativeInteger(measurement.p99Ms);
@@ -273,7 +286,14 @@ export function routeMatrixRouteEvidence(route, measurement, samplerRoute = null
   // as `blocked` so the evidence distinguishes "no traffic possible" from
   // "traffic present and failing". Ambient samples always win —
   // any nonzero sampleCount keeps the strict metric-based verdict.
-  const status = samplerRoute?.status === "blocked" && sampleCount === 0 ? "blocked" : metricStatus;
+  const normalizedDeployWindow = normalizeRouteMatrixDeployWindow(deployWindow);
+  const status =
+    samplerRoute?.status === "skipped" ||
+    (normalizedDeployWindow?.status === "active" && samplerRoute?.status !== "blocked")
+      ? "skipped"
+      : samplerRoute?.status === "blocked" && sampleCount === 0
+        ? "blocked"
+        : metricStatus;
 
   return {
     routeTemplate: route.routeTemplate,
@@ -294,6 +314,7 @@ export function routeMatrixRouteEvidence(route, measurement, samplerRoute = null
       diagnosticMissingReceiptCount,
       missingTargetContextCount,
       exactDependencyFallbackCount,
+      ...(normalizedDeployWindow ? { deploymentWindow: normalizedDeployWindow } : {}),
       ...(samplerRoute
         ? {
             sampler: {

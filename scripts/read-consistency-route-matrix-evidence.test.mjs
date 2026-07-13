@@ -320,6 +320,56 @@ describe("read consistency route matrix evidence", () => {
     expect(evidence.routes.some((route) => route.wakeBeforeWait.status === "fail")).toBe(false);
   });
 
+  it("skips sampler measurements captured during an active deploy window", async () => {
+    const samplerReport = {
+      schemaVersion: "read-consistency-route-matrix-sampler/v1",
+      deployWindow: {
+        schemaVersion: "read-consistency-route-matrix-deploy-window/v1",
+        status: "active",
+        source: "github-actions+argo-rollouts",
+        activeRunCount: 1,
+        activeRolloutCount: 1,
+      },
+      routes: [
+        {
+          routeTemplate: "/checkout/buy/session/:sessionId",
+          status: "skipped",
+          outcomeCategory: "deploy-window-active",
+        },
+        { routeTemplate: "/account/cart", status: "blocked", outcomeCategory: "account-cart-probe-missing" },
+        { routeTemplate: "/account/sell-list", status: "blocked", outcomeCategory: "sell-list-source-unavailable" },
+        { routeTemplate: "/account/payouts/:payoutId", status: "blocked", outcomeCategory: "payout-state-required" },
+        { routeTemplate: "/account/payments/:paymentId", status: "blocked", outcomeCategory: "payment-state-required" },
+        { routeTemplate: "/account/listings/:listingId", status: "blocked", outcomeCategory: "listing-state-required" },
+      ],
+    };
+    const evidence = await runReadConsistencyRouteMatrixEvidence(
+      { prometheusUrl: "https://prometheus.staging.chasesets.com", environment: "staging", window: "30m", checkedAt },
+      async (query) => {
+        if (query.includes("work_signal_errors")) return 0;
+        if (query.includes("histogram_quantile")) return null;
+        return query.includes('route_path="/account/checkout-sessions/:sessionId"') ? 12 : 0;
+      },
+      samplerReport,
+    );
+
+    expect(evidence).toMatchObject({
+      deployWindow: { status: "active", activeRunCount: 1, activeRolloutCount: 1 },
+      summary: {
+        sampledRouteCount: 0,
+        skippedRouteCount: 1,
+        failingRouteCount: 0,
+        blockedRouteCount: 5,
+        coverage: "partial",
+      },
+    });
+    expect(evidence.routes[0].wakeBeforeWait).toMatchObject({
+      status: "skipped",
+      sampleCount: 12,
+      deploymentWindow: { status: "active" },
+    });
+  });
+
   it("builds bounded Prometheus queries for each route", () => {
     const checkout = DEFAULT_ROUTE_MATRIX_ROUTES[0];
     const queries = routeMatrixPrometheusQueries(checkout, "30m");

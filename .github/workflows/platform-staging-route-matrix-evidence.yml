@@ -65,6 +65,7 @@ jobs:
       READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_OUT: artifacts/wake-drills/read-consistency-route-matrix-sampler.json
       ROUTE_MATRIX_CHECKOUT_PROBE_OUT: artifacts/wake-drills/route-matrix-checkout-probe.json
       ROUTE_MATRIX_ACCOUNT_CART_PROBE_OUT: artifacts/wake-drills/route-matrix-account-cart-probe.json
+      ROUTE_MATRIX_DEPLOY_WINDOW_OUT: artifacts/wake-drills/read-consistency-route-matrix-deploy-window.json
     steps:
       - name: Confirm staging route-matrix evidence
         run: |
@@ -203,6 +204,37 @@ jobs:
             exit 1
           fi
 
+      - name: Capture deploy window state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          deploy_runs_file="${RUNNER_TEMP}/route-matrix-platform-deploy-runs.json"
+          argo_rollouts_file="${RUNNER_TEMP}/route-matrix-argo-rollouts.json"
+          if ! gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/platform-production.yml/runs?per_page=100" > "${deploy_runs_file}"; then
+            printf '%s\n' '{"available":false,"workflow_runs":[]}' > "${deploy_runs_file}"
+          fi
+          if command -v kubectl >/dev/null 2>&1 && [ -n "${KUBECONFIG:-}" ]; then
+            if ! kubectl get rollouts --all-namespaces --output json > "${argo_rollouts_file}"; then
+              printf '%s\n' '{"available":false,"items":[]}' > "${argo_rollouts_file}"
+            fi
+          else
+            # The route-matrix job normally has no cluster credentials. When a
+            # caller supplies KUBECONFIG, the Argo Rollouts CRD is the cheaper
+            # and more precise deployment signal; otherwise GitHub Actions is
+            # the bounded fallback.
+            printf '%s\n' '{"available":false,"items":[]}' > "${argo_rollouts_file}"
+          fi
+          pnpm run ops read-consistency:route-matrix-deploy-window -- \
+            --environment "${ROUTE_MATRIX_EVIDENCE_ENVIRONMENT}" \
+            --github-runs-file "${deploy_runs_file}" \
+            --argo-rollouts-file "${argo_rollouts_file}" \
+            --out "${ROUTE_MATRIX_DEPLOY_WINDOW_OUT}"
+          deploy_window_status="$(jq -r '.status // "unknown"' "${ROUTE_MATRIX_DEPLOY_WINDOW_OUT}")"
+          if [ "${deploy_window_status}" = "active" ]; then
+            echo "::warning::A deployment window is active; route-matrix probes will be skipped and evidence will remain non-passing until rerun."
+          fi
+
       - name: Drive checkout route-matrix sample
         env:
           GUEST_BUY_NOW_PROBE_ITEM_PATH: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH || '' }}
@@ -218,6 +250,11 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
         run: |
           set -euo pipefail
+          deploy_window_status="$(jq -r '.status // "unknown"' "${ROUTE_MATRIX_DEPLOY_WINDOW_OUT}" 2>/dev/null || echo unknown)"
+          if [ "${deploy_window_status}" = "active" ]; then
+            echo "::warning::Skipping checkout route-matrix probe because a deploy window is active; evidence will report skipped coverage."
+            exit 0
+          fi
           checkout_args=(
             --environment staging
             --base-url "https://marketplace.staging.chasesets.com"
@@ -253,6 +290,11 @@ jobs:
           ACCOUNT_CART_CONSISTENCY_EVIDENCE_REFERENCE: ${{ vars.STAGING_ACCOUNT_CART_CONSISTENCY_EVIDENCE_REFERENCE || '' }}
         run: |
           set -euo pipefail
+          deploy_window_status="$(jq -r '.status // "unknown"' "${ROUTE_MATRIX_DEPLOY_WINDOW_OUT}" 2>/dev/null || echo unknown)"
+          if [ "${deploy_window_status}" = "active" ]; then
+            echo "::warning::Skipping account-cart route-matrix probe because a deploy window is active; evidence will report skipped coverage."
+            exit 0
+          fi
           if [ -z "${ACCOUNT_CART_CONSISTENCY_OBSERVATION_JSON:-}" ]; then
             echo "No account-cart route-matrix observation configured; sampler artifact will record the support-safe blocker."
             exit 0
@@ -283,6 +325,7 @@ jobs:
             --environment "${ROUTE_MATRIX_EVIDENCE_ENVIRONMENT}" \
             --checkout-probe-file "${ROUTE_MATRIX_CHECKOUT_PROBE_OUT}" \
             --account-cart-probe-file "${ROUTE_MATRIX_ACCOUNT_CART_PROBE_OUT}" \
+            --deploy-window-file "${ROUTE_MATRIX_DEPLOY_WINDOW_OUT}" \
             --out "${READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_OUT}"
 
       - name: Generate route-matrix evidence
@@ -331,6 +374,7 @@ jobs:
                 "- sampled: " + (.summary.sampledRouteCount | tostring) + "/" + (.summary.routeCount | tostring),
                 "- blocked: " + (.summary.blockedRouteCount | tostring),
                 "- failed: " + (.summary.failedRouteCount | tostring),
+                "- skipped (deploy window): " + (.summary.skippedRouteCount | tostring),
                 "",
                 "| Route | Sampler status | Outcome | Blocker |",
                 "| --- | --- | --- | --- |",
@@ -343,6 +387,7 @@ jobs:
               "- window: " + (.window // "unknown"),
               "- routes: " + ((.summary.passingRouteCount | tostring) + "/" + (.summary.routeCount | tostring) + " passing"),
               "- failing: " + ((.summary.failingRouteCount // "unknown") | tostring),
+              "- skipped (deploy window): " + ((.summary.skippedRouteCount // "unknown") | tostring),
               "- blocked (coverage gap, not SLO signal): " + ((.summary.blockedRouteCount // "unknown") | tostring),
               "- coverage: " + (.summary.coverage // "unknown"),
               "",
