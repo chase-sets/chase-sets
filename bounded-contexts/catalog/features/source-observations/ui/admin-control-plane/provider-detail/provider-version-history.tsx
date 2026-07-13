@@ -165,7 +165,13 @@ function profileColumns(providerKey: string | null): DataColumn<LifecycleProfile
                 ]
               : []),
             ...(providerKey && profile.providerKey === providerKey
-              ? [{ key: "selected", label: "This provider", tone: "neutral" as const }]
+              ? [
+                  {
+                    key: "selected",
+                    label: t("catalog.features.sourceObservations.ui.lifecycleRecovery.badge.selectedProvider"),
+                    tone: "neutral" as const,
+                  },
+                ]
               : []),
           ]}
         />

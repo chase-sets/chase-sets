@@ -7,6 +7,7 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.lifecycleRecovery.audit.notRecorded": "not recorded",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.audit.title": "Recent lifecycle audit",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.badge.active": "Active",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.badge.selectedProvider": "This provider",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.banner.blockedDescription":
     "Resolve active jobs, profile lifecycle conflicts, or profile references before running lifecycle recovery.",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.banner.blockedTitle": "Lifecycle recovery has blockers",
