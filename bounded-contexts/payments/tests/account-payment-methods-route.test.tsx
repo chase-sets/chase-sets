@@ -35,6 +35,20 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   };
 });
 
+// @stripe/stripe-js caches its script-load promise at module scope so a real
+// browser only ever injects one <script> tag per page. That singleton
+// survives across `it()` blocks in this file, which would pin every test to
+// whichever `window.Stripe` mock happened to load first. Route the loader
+// through the live `window.Stripe` stub instead so each test's mock takes
+// effect immediately, matching how the component behaves in a real browser
+// where `window.Stripe` is genuinely stable per page load.
+vi.mock("@stripe/stripe-js", () => ({
+  loadStripe: (publishableKey: string) => {
+    const factory = (window as unknown as { Stripe?: (key: string) => unknown }).Stripe;
+    return Promise.resolve(factory ? factory(publishableKey) : null);
+  },
+}));
+
 import AccountPaymentMethodsRoute, { action, loader } from "../routes/marketplace/account-payment-methods";
 
 const cardMethod = {

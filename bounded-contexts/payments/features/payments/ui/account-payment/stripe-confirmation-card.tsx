@@ -1,4 +1,13 @@
 import { formatMoney, t } from "@chase-sets/localization";
+import { loadStripe } from "@stripe/stripe-js";
+import type {
+  Stripe,
+  StripeCheckoutElementsSdk,
+  StripeCheckoutLoadActionsSuccess,
+  StripeElements,
+  StripePaymentElement,
+  StripePaymentElementOptions,
+} from "@stripe/stripe-js";
 import { useEffect, useRef, useState } from "react";
 import { useRevalidator } from "react-router";
 import {
@@ -28,127 +37,6 @@ type StripeConfirmablePayment = Readonly<{
   processor_publishable_key: string | null;
 }>;
 
-type StripeElementsAppearance = ReturnType<typeof createStripeElementsAppearance>;
-
-type StripePaymentElement = {
-  mount(target: HTMLElement | string): void;
-  destroy(): void;
-};
-
-type StripePaymentElementOptions = {
-  wallets: {
-    applePay: "auto";
-    googlePay: "auto";
-  };
-  defaultValues?: PaymentElementDefaultValues;
-};
-
-type StripeCheckoutController = {
-  createPaymentElement(options: StripePaymentElementOptions): StripePaymentElement;
-  loadActions(): Promise<StripeCheckoutActionsLoadResult>;
-  changeAppearance?(appearance: StripeElementsAppearance): void;
-};
-
-type StripeCheckoutActionsLoadResult = {
-  type?: "success" | "error";
-  actions?: StripeCheckoutActions;
-  error?: { message?: string };
-};
-
-type StripeCheckoutActions = {
-  confirm(options?: { redirect: "if_required"; email?: string }): Promise<{ error?: { message?: string } }>;
-  changeAppearance?(appearance: StripeElementsAppearance): void;
-};
-
-type StripeElementsOptions = {
-  clientSecret: string;
-  appearance: StripeElementsAppearance;
-};
-
-type StripeCheckoutOptions = {
-  clientSecret: string;
-  elementsOptions: {
-    appearance: StripeElementsAppearance;
-  };
-};
-
-type StripeElements = {
-  create(type: "payment", options: StripePaymentElementOptions): StripePaymentElement;
-  update?(options: { appearance: StripeElementsAppearance }): void;
-};
-
-type StripeClient = {
-  initCheckoutElementsSdk?: (
-    options: StripeCheckoutOptions,
-  ) => StripeCheckoutController | Promise<StripeCheckoutController>;
-  initCheckout?: (options: StripeCheckoutOptions) => StripeCheckoutController | Promise<StripeCheckoutController>;
-  elements(options: StripeElementsOptions): StripeElements;
-  confirmPayment(options: {
-    elements: StripeElements;
-    redirect: "if_required";
-  }): Promise<{ error?: { message?: string } }>;
-};
-
-type StripeFactory = (publishableKey: string) => StripeClient;
-
-declare global {
-  interface Window {
-    Stripe?: StripeFactory;
-  }
-}
-
-let stripeFactoryPromise: Promise<StripeFactory> | null = null;
-
-function loadStripeFactory(): Promise<StripeFactory> {
-  if (typeof window === "undefined") {
-    return Promise.reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.can.only.load.in.the")));
-  }
-
-  if (window.Stripe) {
-    return Promise.resolve(window.Stripe);
-  }
-
-  if (!stripeFactoryPromise) {
-    stripeFactoryPromise = new Promise((resolve, reject) => {
-      const existingScript = document.querySelector<HTMLScriptElement>('script[data-stripe-js="true"]');
-
-      if (existingScript) {
-        existingScript.addEventListener("load", () => {
-          if (window.Stripe) {
-            resolve(window.Stripe);
-            return;
-          }
-
-          reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.js.loaded.without.exposing.stripe")));
-        });
-        existingScript.addEventListener("error", () => {
-          reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.js.failed.to.load")));
-        });
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.async = true;
-      script.src = "https://js.stripe.com/dahlia/stripe.js";
-      script.dataset.stripeJs = "true";
-      script.onload = () => {
-        if (window.Stripe) {
-          resolve(window.Stripe);
-          return;
-        }
-
-        reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.js.loaded.without.exposing.stripe.2")));
-      };
-      script.onerror = () => {
-        reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.js.failed.to.load.2")));
-      };
-      document.head.appendChild(script);
-    });
-  }
-
-  return stripeFactoryPromise;
-}
-
 function createBrowserPaymentsApiClient() {
   return createPaymentsApiClient({
     fetch: (input, init) => globalThis.fetch(input, init),
@@ -170,9 +58,9 @@ export function StripeConfirmationCard({
 }) {
   const revalidator = useRevalidator();
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const stripeRef = useRef<StripeClient | null>(null);
-  const checkoutRef = useRef<StripeCheckoutController | null>(null);
-  const checkoutActionsRef = useRef<StripeCheckoutActions | null>(null);
+  const stripeRef = useRef<Stripe | null>(null);
+  const checkoutRef = useRef<StripeCheckoutElementsSdk | null>(null);
+  const checkoutActionsRef = useRef<StripeCheckoutLoadActionsSuccess | null>(null);
   const elementsRef = useRef<StripeElements | null>(null);
   const elementRef = useRef<StripePaymentElement | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -218,26 +106,30 @@ export function StripeConfirmationCard({
     setErrorMessage(null);
     setIsReady(false);
 
-    void loadStripeFactory()
-      .then(async (factory) => {
+    void loadStripe(payment.processor_publishable_key!)
+      .then(async (stripe) => {
         if (cancelled) {
           return;
         }
 
-        const stripe = factory(payment.processor_publishable_key!);
+        if (!stripe) {
+          throw new Error(t("payments.routes.marketplace.accountPayment.stripe.could.not.load"));
+        }
+
         const clientSecret = payment.processor_client_secret!;
         const stripeElementsAppearance = createStripeElementsAppearance({ scope: container });
         const checkoutElementsAppearance = createStripeElementsAppearance({ includeRules: false, scope: container });
-        const initCheckoutElements = stripe.initCheckoutElementsSdk ?? stripe.initCheckout;
-        const checkout =
-          clientSecret.startsWith("cs_") && initCheckoutElements
-            ? await initCheckoutElements({
-                clientSecret,
-                elementsOptions: {
-                  appearance: checkoutElementsAppearance,
-                },
-              })
-            : null;
+        // Custom Checkout (Checkout Session client secrets, prefixed `cs_`) carries buyer
+        // defaultValues on the SDK itself; the Payment Element path carries them per-element.
+        const checkout = clientSecret.startsWith("cs_")
+          ? stripe.initCheckoutElementsSdk({
+              clientSecret,
+              elementsOptions: {
+                appearance: checkoutElementsAppearance,
+              },
+              defaultValues: buyerEmail ? { email: buyerEmail } : undefined,
+            })
+          : null;
         if (cancelled) {
           return;
         }
@@ -248,16 +140,16 @@ export function StripeConfirmationCard({
               clientSecret,
               appearance: stripeElementsAppearance,
             });
-        const paymentElementOptions: StripePaymentElementOptions = {
-          wallets: {
-            applePay: "auto",
-            googlePay: "auto",
-          },
-          defaultValues: JSON.parse(defaultValuesKey) as PaymentElementDefaultValues,
+        const wallets: StripePaymentElementOptions["wallets"] = {
+          applePay: "auto",
+          googlePay: "auto",
         };
         const paymentElement = checkout
-          ? checkout.createPaymentElement(paymentElementOptions)
-          : elements!.create("payment", paymentElementOptions);
+          ? checkout.createPaymentElement({ wallets })
+          : elements!.create("payment", {
+              wallets,
+              defaultValues: JSON.parse(defaultValuesKey) as PaymentElementDefaultValues,
+            });
         paymentElement.mount(container);
 
         const checkoutActionsResult = checkout ? await checkout.loadActions() : null;
@@ -266,22 +158,23 @@ export function StripeConfirmationCard({
           return;
         }
 
-        if (checkoutActionsResult?.type === "error" || checkoutActionsResult?.error?.message) {
+        if (checkoutActionsResult?.type === "error") {
           paymentElement.destroy();
           throw new Error(
-            checkoutActionsResult.error?.message ??
+            checkoutActionsResult.error.message ||
               t("payments.routes.marketplace.accountPayment.stripe.could.not.load"),
           );
         }
 
-        if (checkout && !checkoutActionsResult?.actions) {
+        const checkoutActions = checkoutActionsResult?.type === "success" ? checkoutActionsResult.actions : null;
+        if (checkout && !checkoutActions) {
           paymentElement.destroy();
           throw new Error(t("payments.routes.marketplace.accountPayment.stripe.could.not.load"));
         }
 
         stripeRef.current = stripe;
         checkoutRef.current = checkout;
-        checkoutActionsRef.current = checkoutActionsResult?.actions ?? null;
+        checkoutActionsRef.current = checkoutActions;
         elementsRef.current = elements;
         elementRef.current = paymentElement;
         setIsReady(true);
@@ -328,16 +221,11 @@ export function StripeConfirmationCard({
     }
 
     if (checkoutRef.current) {
-      const appearance = createStripeElementsAppearance({ includeRules: false, scope: container });
-      if (checkoutRef.current.changeAppearance) {
-        checkoutRef.current.changeAppearance(appearance);
-      } else {
-        checkoutActionsRef.current?.changeAppearance?.(appearance);
-      }
+      checkoutRef.current.changeAppearance(createStripeElementsAppearance({ includeRules: false, scope: container }));
       return;
     }
 
-    elementsRef.current?.update?.({ appearance: createStripeElementsAppearance({ scope: container }) });
+    void elementsRef.current?.update({ appearance: createStripeElementsAppearance({ scope: container }) });
   }, [appearanceVersion, isReady]);
 
   useEffect(() => {
@@ -411,17 +299,29 @@ export function StripeConfirmationCard({
     setConfirmPhase("confirming");
     setErrorMessage(null);
     try {
-      const result = checkoutRef.current
-        ? await checkoutActionsRef.current!.confirm({ redirect: "if_required", email: buyerEmail ?? undefined })
-        : await stripeRef.current.confirmPayment({
-            elements: elementsRef.current!,
-            redirect: "if_required",
-          });
-
-      if (result.error?.message) {
-        setErrorMessage(result.error.message);
-        setConfirmPhase("idle");
-        return;
+      if (checkoutRef.current) {
+        const confirmResult = await checkoutActionsRef.current!.confirm({
+          redirect: "if_required",
+          email: buyerEmail ?? undefined,
+        });
+        if (confirmResult.type === "error") {
+          setErrorMessage(confirmResult.error.message);
+          setConfirmPhase("idle");
+          return;
+        }
+      } else {
+        const paymentResult = await stripeRef.current.confirmPayment({
+          elements: elementsRef.current!,
+          redirect: "if_required",
+        });
+        if (paymentResult.error) {
+          setErrorMessage(
+            paymentResult.error.message ??
+              t("payments.routes.marketplace.accountPayment.the.secure.processor.could.not.complete"),
+          );
+          setConfirmPhase("idle");
+          return;
+        }
       }
 
       // Confirm succeeded; the payment status only resolves once the webhook

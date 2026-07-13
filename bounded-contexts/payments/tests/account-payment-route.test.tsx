@@ -81,11 +81,13 @@ type PaymentsPaymentDetail = Readonly<{
   seller_payout_amount: string;
 }>;
 
-type StripeMock = ReturnType<typeof vi.fn>;
-type StripeWindow = Window &
-  typeof globalThis & {
-    Stripe?: StripeMock;
-  };
+// Deliberately not `Window & {Stripe?: ...}`: @stripe/stripe-js's ambient
+// `Window.Stripe?: StripeConstructor` declaration would merge with this local
+// property into an unsatisfiable intersection. Cast through `unknown` at each
+// use site instead of widening this type.
+type StripeWindow = {
+  Stripe?: (publishableKey: string) => unknown;
+};
 
 type StripeAppearanceMock = Readonly<{
   theme: string;
@@ -159,6 +161,20 @@ vi.mock("@chase-sets/platform-operations/web", async () => {
     },
   };
 });
+
+// @stripe/stripe-js caches its script-load promise at module scope so a real
+// browser only ever injects one <script> tag per page. That singleton
+// survives across `it()` blocks in this file, which would pin every test to
+// whichever `window.Stripe` mock happened to load first. Route the loader
+// through the live `window.Stripe` stub instead so each test's mock takes
+// effect immediately, matching how the component behaves in a real browser
+// where `window.Stripe` is genuinely stable per page load.
+vi.mock("@stripe/stripe-js", () => ({
+  loadStripe: (publishableKey: string) => {
+    const factory = (window as unknown as StripeWindow).Stripe;
+    return Promise.resolve(factory ? factory(publishableKey) : null);
+  },
+}));
 
 import MarketplaceAccountPaymentRoute from "../routes/marketplace/account-payment";
 
@@ -261,7 +277,7 @@ describe("marketplace account payment route", () => {
     vi.clearAllMocks();
     vi.restoreAllMocks();
     platformFeedbackPromptProps.calls = [];
-    delete (window as StripeWindow).Stripe;
+    delete (window as unknown as StripeWindow).Stripe;
     document.head.innerHTML = "";
   });
 
@@ -606,7 +622,7 @@ describe("marketplace account payment route", () => {
       paymentElementDefaultValues,
     });
 
-    (window as StripeWindow).Stripe = vi.fn(() => ({
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
       elements,
       confirmPayment,
     }));
@@ -678,7 +694,7 @@ describe("marketplace account payment route", () => {
       ],
       paymentElementDefaultValues: null,
     });
-    (window as StripeWindow).Stripe = stripeFactory;
+    (window as unknown as StripeWindow).Stripe = stripeFactory;
 
     render(
       <ChaseRoot>
@@ -691,7 +707,12 @@ describe("marketplace account payment route", () => {
     expect(stripeFactory).not.toHaveBeenCalled();
   });
 
-  it("loads versioned Stripe.js for Checkout Sessions", async () => {
+  it("routes a Checkout Session client secret to the typed Checkout Elements SDK", async () => {
+    const initCheckoutElementsSdk = vi.fn(() => ({
+      createPaymentElement: vi.fn(() => ({ mount: vi.fn(), destroy: vi.fn() })),
+      loadActions: vi.fn().mockResolvedValue({ type: "success", actions: { confirm: vi.fn() } }),
+    }));
+
     mockUseLoaderData.mockReturnValue({
       payment: buildPayment({
         processor_client_secret: "cs_live_123_secret_456",
@@ -701,6 +722,11 @@ describe("marketplace account payment route", () => {
       orders: [buildPurchase()],
       paymentElementDefaultValues,
     });
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
+      initCheckoutElementsSdk,
+      elements: vi.fn(),
+      confirmPayment: vi.fn(),
+    }));
 
     render(
       <ChaseRoot>
@@ -709,8 +735,11 @@ describe("marketplace account payment route", () => {
     );
 
     await waitFor(() =>
-      expect(document.querySelector<HTMLScriptElement>('script[data-stripe-js="true"]')?.src).toBe(
-        "https://js.stripe.com/dahlia/stripe.js",
+      expect(initCheckoutElementsSdk).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientSecret: "cs_live_123_secret_456",
+          defaultValues: { email: "buyer@example.com" },
+        }),
       ),
     );
   });
@@ -742,7 +771,7 @@ describe("marketplace account payment route", () => {
       paymentElementDefaultValues,
     });
 
-    (window as StripeWindow).Stripe = vi.fn(() => ({
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
       initCheckoutElementsSdk,
       elements: vi.fn(),
       confirmPayment: vi.fn(),
@@ -779,12 +808,14 @@ describe("marketplace account payment route", () => {
           }),
         },
       },
+      // Custom Checkout carries buyer defaultValues on the SDK itself
+      // (stripe.initCheckoutElementsSdk), not per-element. The typed
+      // @stripe/stripe-js loader has no `defaultValues` slot on
+      // createPaymentElement for this integration pattern.
+      defaultValues: { email: "buyer@example.com" },
     });
     expect(initCheckoutOptions?.elementsOptions.appearance.rules).toBeUndefined();
-    expect(createPaymentElement).toHaveBeenCalledWith({
-      ...walletElementOptions,
-      defaultValues: paymentElementDefaultValues,
-    });
+    expect(createPaymentElement).toHaveBeenCalledWith(walletElementOptions);
     expect(paymentElement.mount).toHaveBeenCalled();
   });
 
@@ -809,7 +840,7 @@ describe("marketplace account payment route", () => {
       paymentElementDefaultValues,
     });
 
-    (window as StripeWindow).Stripe = vi.fn(() => ({
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
       elements,
       confirmPayment: vi.fn(),
     }));
@@ -867,7 +898,7 @@ describe("marketplace account payment route", () => {
       paymentElementDefaultValues,
     });
 
-    (window as StripeWindow).Stripe = vi.fn(() => ({
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
       initCheckoutElementsSdk,
       elements: vi.fn(),
       confirmPayment: vi.fn(),
@@ -918,7 +949,7 @@ describe("marketplace account payment route", () => {
       paymentElementDefaultValues,
     });
 
-    (window as StripeWindow).Stripe = vi.fn(() => ({
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
       elements: vi.fn(() => ({
         create: vi.fn(() => paymentElement),
         update: vi.fn(),
@@ -958,7 +989,7 @@ describe("marketplace account payment route", () => {
       paymentElementDefaultValues,
     });
 
-    (window as StripeWindow).Stripe = vi.fn(() => ({
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
       elements: vi.fn(() => ({
         create: vi.fn(() => paymentElement),
         update: vi.fn(),
@@ -995,7 +1026,7 @@ describe("marketplace account payment route", () => {
       paymentElementDefaultValues,
     });
 
-    (window as StripeWindow).Stripe = vi.fn(() => ({
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
       elements: vi.fn(() => ({
         create: vi.fn(() => paymentElement),
         update: vi.fn(),
@@ -1041,7 +1072,7 @@ describe("marketplace account payment route", () => {
       paymentElementDefaultValues,
     });
 
-    (window as StripeWindow).Stripe = vi.fn(() => ({
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
       elements: vi.fn(() => ({
         create: vi.fn(() => paymentElement),
         update: vi.fn(),
@@ -1099,7 +1130,7 @@ describe("marketplace account payment route", () => {
       orders: [buildPurchase()],
     });
 
-    (window as StripeWindow).Stripe = vi.fn(() => ({
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
       elements: vi.fn(() => ({
         create: vi.fn(() => paymentElement),
         update: vi.fn(),
@@ -1167,7 +1198,7 @@ describe("marketplace account payment route", () => {
       orders: [buildPurchase()],
     });
 
-    (window as StripeWindow).Stripe = vi.fn(() => ({
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
       elements: vi.fn(() => ({
         create: vi.fn(() => paymentElement),
         update: vi.fn(),
@@ -1220,7 +1251,7 @@ describe("marketplace account payment route", () => {
       orders: [buildPurchase()],
     });
 
-    (window as StripeWindow).Stripe = vi.fn(() => ({
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
       elements: vi.fn(() => ({
         create: vi.fn(() => paymentElement),
       })),
@@ -1277,7 +1308,7 @@ describe("marketplace account payment route", () => {
       orders: [buildPurchase()],
     });
 
-    (window as StripeWindow).Stripe = vi.fn(() => ({
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
       elements: vi.fn(() => ({
         create: vi.fn(() => paymentElement),
       })),

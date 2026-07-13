@@ -11,10 +11,13 @@ type StripePaymentElementMock = Readonly<{
   destroy: () => void;
 }>;
 
-type StripeWindow = Window &
-  typeof globalThis & {
-    Stripe?: ReturnType<typeof vi.fn>;
-  };
+// Deliberately not `Window & {Stripe?: ...}`: @stripe/stripe-js's ambient
+// `Window.Stripe?: StripeConstructor` declaration would merge with this local
+// property into an unsatisfiable intersection. Cast through `unknown` at each
+// use site instead of widening this type.
+type StripeWindow = {
+  Stripe?: (publishableKey: string) => unknown;
+};
 
 const {
   mockUseActionData,
@@ -48,6 +51,19 @@ vi.mock("react-router", async () => {
     useRouteLoaderData: mockUseRouteLoaderData,
   };
 });
+
+// The real @stripe/stripe-js `loadStripe()` injects an actual
+// <script src="https://js.stripe.com/dahlia/stripe.js"> tag and waits for a
+// browser `load` event that JSDOM never fires (no network), which would hang
+// this test forever. Route the loader through the live `window.Stripe` stub
+// instead, matching how the component behaves in a real browser once
+// Stripe.js has loaded.
+vi.mock("@stripe/stripe-js", () => ({
+  loadStripe: (publishableKey: string) => {
+    const factory = (window as unknown as StripeWindow).Stripe;
+    return Promise.resolve(factory ? factory(publishableKey) : null);
+  },
+}));
 
 import { MemoryRouter } from "react-router";
 import MarketplaceAccountPaymentRoute from "@chase-sets/payments/routes/marketplace/account-payment";
@@ -147,7 +163,7 @@ describe("marketplace payment layout hydration", () => {
       cartCount: 0,
     });
     mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
-    (window as StripeWindow).Stripe = vi.fn(() => ({
+    (window as unknown as StripeWindow).Stripe = vi.fn(() => ({
       initCheckoutElementsSdk: vi.fn(() => ({
         createPaymentElement: vi.fn(() => paymentElement),
         loadActions: vi.fn().mockResolvedValue({
@@ -164,7 +180,7 @@ describe("marketplace payment layout hydration", () => {
     cleanup();
     vi.clearAllMocks();
     vi.restoreAllMocks();
-    delete (window as StripeWindow).Stripe;
+    delete (window as unknown as StripeWindow).Stripe;
     document.head.innerHTML = "";
     document.body.innerHTML = "";
   });

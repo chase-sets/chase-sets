@@ -221,6 +221,11 @@ export const e2eNoSuiteExclusions = Object.freeze([
     pattern: /^deployables\/admin-web\/e2e\/catalog-staging-provider-sync\.uat\.spec\.ts$/,
     reason: "Manual staging UAT spec; it is intentionally outside the CI grep suite catalog.",
   },
+  {
+    pattern: /^deployables\/marketplace\/e2e\/account-payment-stripe-embed\.uat\.spec\.ts$/,
+    reason:
+      "Manual staging UAT spec exercising the real Stripe embed -> confirm -> webhook path with live Stripe test-mode keys; it is intentionally outside the CI grep suite catalog.",
+  },
 ]);
 
 const marketplaceRouteSuiteOwnership = [

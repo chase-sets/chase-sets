@@ -789,10 +789,16 @@ importers:
       '@chase-sets/provider-webhook-inbox':
         specifier: workspace:*
         version: link:../../infrastructure/provider-webhook-inbox
+      '@stripe/stripe-js':
+        specifier: 9.9.0
+        version: 9.9.0
       hono:
         specifier: ^4.12.12
         version: 4.12.18
     devDependencies:
+      '@chase-sets/stripe-config':
+        specifier: workspace:*
+        version: link:../../infrastructure/stripe-config
       vitest:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
@@ -1315,6 +1321,9 @@ importers:
       '@react-router/serve':
         specifier: 7.14.0
         version: 7.14.0(react-router@7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(typescript@7.0.2)
+      '@stripe/stripe-js':
+        specifier: 9.9.0
+        version: 9.9.0
       isbot:
         specifier: ^5
         version: 5.1.40
@@ -3921,6 +3930,10 @@ packages:
 
   '@stripe/connect-js@3.4.5':
     resolution: {integrity: sha512-2GZYc1pO2gYtq5rooZei483oSqeNROTD4XwnKXK8GXILvrLVJjMUCLDXi8Rmu8ojL5DWMnEOtXdnZxs8xxZecQ==}
+
+  '@stripe/stripe-js@9.9.0':
+    resolution: {integrity: sha512-Vwqe6Q5cU4i82tPyAv2BpaW/fQSNdOSO4/J8EeDLPp5/oIZiMmdB+Hgh863zFH+rtoxpuWGvD1L7QPh8k1Rdvw==}
+    engines: {node: '>=12.16'}
 
   '@tailwindcss/node@4.3.0':
     resolution: {integrity: sha512-aFb4gUhFOgdh9AXo4IzBEOzBkkAxm9VigwDJnMIYv3lcfXCJVesNfbEaBl4BNgVRyid92AmdviqwBUBRKSeY3g==}
@@ -8263,6 +8276,8 @@ snapshots:
   '@standard-schema/spec@1.1.0': {}
 
   '@stripe/connect-js@3.4.5': {}
+
+  '@stripe/stripe-js@9.9.0': {}
 
   '@tailwindcss/node@4.3.0':
     dependencies:

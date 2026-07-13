@@ -37,9 +37,11 @@
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/provider-webhook-inbox": "workspace:*",
+    "@stripe/stripe-js": "9.9.0",
     "hono": "^4.12.12"
   },
   "devDependencies": {
+    "@chase-sets/stripe-config": "workspace:*",
     "vitest": "^4.1.4"
   }
 }

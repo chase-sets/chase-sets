@@ -31,6 +31,7 @@
     "@chase-sets/settlement": "workspace:*",
     "@react-router/node": "7.14.0",
     "@react-router/serve": "7.14.0",
+    "@stripe/stripe-js": "9.9.0",
     "isbot": "^5",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
