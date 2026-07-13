@@ -4,6 +4,7 @@ import {
   getInventoryItemSupply,
   getLockedFeeListingCohortSummary,
   getMarketSummaryForItem,
+  listDueSellerAvailabilityRestores,
   listItemListings,
   listSellerInventoryItemSupply,
   listSellerListings,
@@ -333,5 +334,47 @@ describe("marketplace listing read-model queries", () => {
     const result = await getLockedFeeListingCohortSummary(db, { from: "2026-06-25", to: "2026-07-12" });
 
     expect(result).toEqual({ listingsCreatedCount: 0, lockedSellerAccountIds: [], weeklyListingsCreated: [] });
+  });
+
+  it("listDueSellerAvailabilityRestores scopes the due-index predicate and clamps the batch limit", async () => {
+    const calls: QueryCall[] = [];
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>(sql: string, params: readonly unknown[] = []) {
+        calls.push({ sql, params });
+        return {
+          rows: [
+            { account_id: "acc_away_1", available_again_at: "2026-07-13T00:00:00.000Z" },
+            { account_id: "acc_away_2", available_again_at: "2026-07-13T06:00:00.000Z" },
+          ] as Row[],
+        };
+      },
+    };
+
+    const result = await listDueSellerAvailabilityRestores(db, { now: "2026-07-13T12:00:00.000Z", limit: 10_000 });
+
+    expect(result).toEqual([
+      { account_id: "acc_away_1", available_again_at: "2026-07-13T00:00:00.000Z" },
+      { account_id: "acc_away_2", available_again_at: "2026-07-13T06:00:00.000Z" },
+    ]);
+    expect(calls[0]?.sql).toContain("status = 'unavailable'");
+    expect(calls[0]?.sql).toContain("available_again_at IS NOT NULL");
+    expect(calls[0]?.sql).toContain("available_again_at <= $1::timestamptz");
+    expect(calls[0]?.sql).toContain("ORDER BY available_again_at ASC, account_id ASC");
+    // Batch limit clamps to the documented ceiling regardless of caller input.
+    expect(calls[0]?.params).toEqual(["2026-07-13T12:00:00.000Z", 500]);
+  });
+
+  it("listDueSellerAvailabilityRestores defaults to a limit of 100 when unspecified", async () => {
+    const calls: QueryCall[] = [];
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>(sql: string, params: readonly unknown[] = []) {
+        calls.push({ sql, params });
+        return { rows: [] as Row[] };
+      },
+    };
+
+    await listDueSellerAvailabilityRestores(db, { now: "2026-07-13T12:00:00.000Z" });
+
+    expect(calls[0]?.params).toEqual(["2026-07-13T12:00:00.000Z", 100]);
   });
 });

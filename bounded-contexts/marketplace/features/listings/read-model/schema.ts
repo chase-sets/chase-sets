@@ -111,4 +111,12 @@ CREATE TABLE IF NOT EXISTS marketplace_seller_order_capacity_pages (
   max_open_orders integer NULL CHECK (max_open_orders IS NULL OR max_open_orders > 0),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Auto-resume sweep due-index: a partial index so the sweep's due query
+-- scans only accounts that are both away AND carry an authoritative Resume
+-- Instant, matching the legacy ruling that a bare availableAgainOn date
+-- never participates in automated resume.
+CREATE INDEX IF NOT EXISTS marketplace_seller_listing_availability_due_restore_idx
+  ON marketplace_seller_listing_availability_pages (available_again_at)
+  WHERE status = 'unavailable' AND available_again_at IS NOT NULL;
 `;

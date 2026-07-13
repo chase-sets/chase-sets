@@ -7,6 +7,7 @@ import {
   mapPayoutReadinessRegressionToNotification,
   mapRestockDecisionPendingToNotification,
   mapSaleRecordedToNotification,
+  mapSellerAvailabilityRestoredToNotification,
   mapShipmentDeliveredToNotification,
   mapStockCommittedToNotification,
   mapStockReturnedToNotification,
@@ -82,6 +83,16 @@ type RestockDecisionPendingEvent = TransportEvent &
       orderId?: string | null;
       itemId?: string | null;
       quantity?: number | null;
+    }>;
+  }>;
+
+type SellerListingAvailabilityEnabledEvent = TransportEvent &
+  Readonly<{
+    type: "marketplace.seller-listing-availability.enabled";
+    data: Readonly<{
+      accountId: AccountId;
+      enabledAt: string;
+      enabledBy?: "seller" | "scheduled";
     }>;
   }>;
 
@@ -213,6 +224,27 @@ export async function projectSourceEventToNotification(
     return;
   }
 
+  if (event.type === "marketplace.seller-listing-availability.enabled") {
+    const data = event.data as SellerListingAvailabilityEnabledEvent["data"];
+    // Only the auto-resume sweep's restore is notification-worthy -- a
+    // seller-initiated enable is the seller's own action, they already know.
+    // Guarding on the fact itself (not the runner) means replays and
+    // read-model rebuilds never re-notify.
+    if (data.enabledBy !== "scheduled") {
+      return;
+    }
+
+    await outbox.enqueueNotification({
+      message: mapSellerAvailabilityRestoredToNotification({
+        sellerAccountId: data.accountId,
+        restoredAt: data.enabledAt,
+        correlationId: correlationIdFromEvent(event),
+      }),
+      source,
+    });
+    return;
+  }
+
   if (event.type === "settlement.payout-readiness.recorded") {
     const data = event.data as PayoutReadinessRecordedEvent["data"];
     const blockingRequirements = (data.missingRequirements ?? []).filter(Boolean);
@@ -274,6 +306,16 @@ export function buildNotificationsSettlementProjectionHandlers(
 ): ProjectorHandlerMap {
   return {
     "settlement.payout-readiness.recorded": (event) => projectSourceEventToNotification(outbox, event, projectionName),
+  };
+}
+
+export function buildNotificationsMarketplaceProjectionHandlers(
+  outbox: NotificationOutbox,
+  projectionName = NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
+): ProjectorHandlerMap {
+  return {
+    "marketplace.seller-listing-availability.enabled": (event) =>
+      projectSourceEventToNotification(outbox, event, projectionName),
   };
 }
 

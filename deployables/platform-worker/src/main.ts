@@ -1279,6 +1279,7 @@ function createScheduledJobRunners(
     | "supportRequestDeadlineSweepIntervalMs"
     | "reviewWindowSweepIntervalMs"
     | "reviewOpportunityReminderSweepIntervalMs"
+    | "sellerAvailabilityRestoreSweepIntervalMs"
     | "sellerFundsReleaseIntervalMs"
     | "payoutReconciliationIntervalMs"
     | "marketRollupsCloserIntervalMs"
@@ -1341,6 +1342,14 @@ function createScheduledJobRunners(
           now?: string;
           limit?: number;
         }) => Promise<{ remindersSent: number }>;
+      }
+    | undefined;
+  const marketplaceListings = (services.marketplace as { listings?: unknown } | undefined)?.listings as
+    | {
+        sweepDueSellerAvailabilityRestores?: (
+          params: { now?: string; limit?: number } | undefined,
+          context: typeof SYSTEM_CONTEXT,
+        ) => Promise<{ checked: number; restored: number; skipped: number }>;
       }
     | undefined;
   const pricing = services.pricing as
@@ -1503,6 +1512,25 @@ function createScheduledJobRunners(
             result,
           });
           return result.remindersSent;
+        },
+      ),
+    );
+  }
+
+  const sweepDueSellerAvailabilityRestores = marketplaceListings?.sweepDueSellerAvailabilityRestores;
+  if (sweepDueSellerAvailabilityRestores && input.sellerAvailabilityRestoreSweepIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        "marketplace.seller-availability-restore-sweep",
+        input.sellerAvailabilityRestoreSweepIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await sweepDueSellerAvailabilityRestores({ limit: 100 }, SYSTEM_CONTEXT);
+          logger.info("Marketplace seller-availability auto-resume sweep completed.", {
+            type: "marketplace.seller-availability-restore-sweep",
+            result,
+          });
+          return result.restored + result.skipped;
         },
       ),
     );

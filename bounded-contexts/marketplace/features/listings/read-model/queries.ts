@@ -708,6 +708,40 @@ export async function getSellerOrderCapacity(
   );
 }
 
+export type MarketplaceDueSellerAvailabilityRestoreRow = Readonly<{
+  account_id: string;
+  available_again_at: string;
+}>;
+
+/**
+ * Auto-resume sweep due index: accounts whose Resume Instant has passed
+ * while still marked unavailable. Ordered by `available_again_at` so the
+ * sweep processes the longest-overdue accounts first within a batch; the
+ * partial index backing this query only exists for
+ * `status = 'unavailable' AND available_again_at IS NOT NULL`, so a legacy
+ * `availableAgainOn`-only row (no resume instant) is never returned here.
+ */
+export async function listDueSellerAvailabilityRestores(
+  db: PgQueryable,
+  params: Readonly<{ now: string; limit?: number }>,
+): Promise<readonly MarketplaceDueSellerAvailabilityRestoreRow[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
+  const result = await db.query<MarketplaceDueSellerAvailabilityRestoreRow>(
+    `SELECT
+       account_id,
+       available_again_at::text AS available_again_at
+     FROM marketplace_seller_listing_availability_pages
+     WHERE status = 'unavailable'
+       AND available_again_at IS NOT NULL
+       AND available_again_at <= $1::timestamptz
+     ORDER BY available_again_at ASC, account_id ASC
+     LIMIT $2`,
+    [params.now, limit],
+  );
+
+  return result.rows;
+}
+
 // High-dollar listing publication trust is gated on the account's OWN
 // reliability as a SELLER, so this reads the as-seller reputation dimension
 // (m108) — an account's history as a buyer must not unlock seller trust.

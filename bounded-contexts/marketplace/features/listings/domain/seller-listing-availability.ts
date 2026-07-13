@@ -62,6 +62,17 @@ export type EnableSellerListingAvailabilityCommand = Readonly<{
   accountId: string;
   enabledAt: string;
   enabledBy: SellerListingAvailabilityEnabledBy;
+  /**
+   * The Resume Instant the caller observed as due, for compare-and-swap
+   * protection against a lost race. When present, the command only enables
+   * if it still matches the CURRENT aggregate's `availableAgainAt` --
+   * otherwise the seller re-disabled or pushed the Resume Instant forward
+   * between the caller's read and this command reaching the aggregate, and
+   * the command no-ops instead of overriding that concurrent seller action.
+   * Omitted by every seller-initiated enable: a human clicking a button has
+   * nothing to race against.
+   */
+  dueBy?: string | null;
 }>;
 
 export type SellerListingAvailabilityCommand =
@@ -219,6 +230,15 @@ export const decideSellerListingAvailability: AggregateDecider<
       assert(enabledAt.length > 0, "Enabled timestamp is required.");
 
       if (state.status === "available") {
+        return [];
+      }
+
+      // Compare-and-swap for a scheduled (auto-resume sweep) enable: when the
+      // caller supplies the Resume Instant it observed as due, a mismatch
+      // against the CURRENT aggregate means the seller acted between the
+      // sweep's read and this command -- no-op rather than clobber that
+      // action. Undefined skips the check entirely (unconditional enable).
+      if (command.dueBy !== undefined && command.dueBy !== state.availableAgainAt) {
         return [];
       }
 

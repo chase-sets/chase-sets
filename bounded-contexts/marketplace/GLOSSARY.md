@@ -146,6 +146,17 @@ Notes:
 - It is captured client-side as the seller's own local start-of-day for their chosen return date; Marketplace never infers a seller's timezone server-side.
 - Only a disabling fact that carries a Resume Instant participates in an automated resume; a bare `availableAgainOn` display date never does.
 
+## Scheduled Restore
+
+A **Scheduled Restore** is the automated enable the auto-resume sweep issues once a Resume Instant has passed. It records `enabledBy: "scheduled"` on the resulting Seller Listing Availability enabled fact, distinguishing it from a seller-initiated enable.
+
+Notes:
+
+- A Scheduled Restore is owned by Marketplace.
+- The sweep is compare-and-swap protected: if the seller re-disables or pushes the Resume Instant forward between the sweep observing an account as due and its enable command reaching the aggregate, the command no-ops rather than overriding the seller's own concurrent action.
+- A Scheduled Restore emits a seller notification ("Your listings are live again") from the enabled fact itself, not from the sweep runner, so replays and read-model rebuilds never re-notify.
+- An **Away Window** (below, planned) will be a second trigger for a Scheduled Restore once shipped; today the Resume Instant sweep is the only trigger.
+
 ## Seller Order Capacity
 
 **Seller Order Capacity** is the account-level Marketplace setting that records a seller's Order Capacity: the maximum number of concurrently Open Orders the account will accept before new order intake pauses.
@@ -247,11 +258,7 @@ These planned terms pre-register upcoming seller time-away language (the m127 se
 
 ### Away Window
 
-An **Away Window** is the planned scheduled start and end pairing a seller sets in advance so Seller Listing Availability disables and resumes automatically without a same-day manual action.
-
-### Scheduled Restore
-
-A **Scheduled Restore** is the planned automated enable triggered when an Away Window or a Resume Instant sweep determines a seller's away period has ended. It records `enabledBy: "scheduled"` on the resulting Seller Listing Availability enabled fact.
+An **Away Window** is the planned scheduled start and end pairing a seller sets in advance so Seller Listing Availability disables and resumes automatically without a same-day manual action. Once shipped, an Away Window's automated resume is a second trigger for a Scheduled Restore (see the main glossary body above), alongside the already-shipped Resume Instant sweep.
 
 ## Planned Reputation And Authenticity
 
@@ -326,5 +333,7 @@ An **Account Trust Signal** is the planned account-level input Marketplace may c
 **Buyer Reliability** is the planned transaction-outcome reputation view focused on payment, cancellation, dispute, and offer behavior.
 
 Seller Reliability, On-Time Shipment Rate, Dispute Rate, and Cancellation Rate moved out of this Planned section (m108, #4271): they are shipped behavior now -- see the main glossary body above.
+
+Scheduled Restore moved out of this Planned section (m127 seller time-away audit's auto-resume sweep): it is shipped behavior now -- see the main glossary body above. Away Window, above, remains planned.
 
 Authenticity terminology (Authenticity Case, Authenticity Verdict, Verdict Reason Code, and related concepts) moved to the [Authenticity](../authenticity/GLOSSARY.md) bounded context ahead of the m109 Authenticity Check milestone (epic #4284); Marketplace does not own that vocabulary.

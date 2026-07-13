@@ -232,6 +232,69 @@ describe("seller listing availability", () => {
     expect(scheduledState.enabledBy).toBe("scheduled");
   });
 
+  it("enables on a scheduled sweep when the observed dueBy still matches the live resume instant", () => {
+    const disabled = decideSellerListingAvailability(initialSellerListingAvailabilityState, {
+      type: "DisableSellerListingAvailability",
+      accountId: "acc_seller",
+      reasonCategory: "travel",
+      availableAgainOn: null,
+      availableAgainAt: "2026-07-20T05:00:00.000Z",
+      disabledAt: "2026-07-13T12:00:00.000Z",
+    }).reduce(evolveSellerListingAvailability, initialSellerListingAvailabilityState);
+
+    const events = decideSellerListingAvailability(disabled, {
+      type: "EnableSellerListingAvailability",
+      accountId: "acc_seller",
+      enabledAt: "2026-07-20T06:00:00.000Z",
+      enabledBy: "scheduled",
+      dueBy: "2026-07-20T05:00:00.000Z",
+    });
+
+    expect(events).toEqual([
+      {
+        type: "marketplace.seller-listing-availability.enabled",
+        data: {
+          accountId: "acc_seller",
+          enabledAt: "2026-07-20T06:00:00.000Z",
+          enabledBy: "scheduled",
+        },
+      },
+    ]);
+  });
+
+  it("no-ops a scheduled sweep enable when the seller pushed the resume instant forward after the sweep's read (lost race)", () => {
+    const disabled = decideSellerListingAvailability(initialSellerListingAvailabilityState, {
+      type: "DisableSellerListingAvailability",
+      accountId: "acc_seller",
+      reasonCategory: "travel",
+      availableAgainOn: null,
+      availableAgainAt: "2026-07-20T05:00:00.000Z",
+      disabledAt: "2026-07-13T12:00:00.000Z",
+    }).reduce(evolveSellerListingAvailability, initialSellerListingAvailabilityState);
+
+    // The seller extends their away period between the sweep's due-query and
+    // the sweep's command reaching the aggregate.
+    const extended = decideSellerListingAvailability(disabled, {
+      type: "DisableSellerListingAvailability",
+      accountId: "acc_seller",
+      reasonCategory: "travel",
+      availableAgainOn: null,
+      availableAgainAt: "2026-08-01T05:00:00.000Z",
+      disabledAt: "2026-07-19T09:00:00.000Z",
+    }).reduce(evolveSellerListingAvailability, disabled);
+
+    const events = decideSellerListingAvailability(extended, {
+      type: "EnableSellerListingAvailability",
+      accountId: "acc_seller",
+      enabledAt: "2026-07-20T06:00:00.000Z",
+      enabledBy: "scheduled",
+      dueBy: "2026-07-20T05:00:00.000Z",
+    });
+
+    expect(events).toEqual([]);
+    expect(extended).toMatchObject({ status: "unavailable", availableAgainAt: "2026-08-01T05:00:00.000Z" });
+  });
+
   it("reads legacy disabled events with only availableAgainOn as informational, never populating availableAgainAt", () => {
     const legacyDisabledEvent = {
       type: "marketplace.seller-listing-availability.disabled",

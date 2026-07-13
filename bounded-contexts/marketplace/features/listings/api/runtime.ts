@@ -75,6 +75,7 @@ import {
   getSellerOrderCapacity,
   hasSellerSupplyLocationNamed,
   listActiveListingsForInventoryItem,
+  listDueSellerAvailabilityRestores,
   listItemListings,
   listSellerListingFeeLockReport,
   listSellerInventoryItemSupply,
@@ -333,6 +334,8 @@ export type MarketplaceListingServices = Readonly<{
       accountId: string;
       /** Defaults to `"seller"`; the auto-resume sweep passes `"scheduled"`. */
       enabledBy?: SellerListingAvailabilityEnabledBy;
+      /** Compare-and-swap guard for a scheduled enable; see the domain command's `dueBy` doc comment. */
+      dueBy?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: string; version: number; status: "available" }>;
@@ -345,6 +348,22 @@ export type MarketplaceListingServices = Readonly<{
     params: Readonly<{ accountId: string }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: string; version: number; maxOpenOrders: null }>;
+  /**
+   * Auto-resume sweep: finds seller listing availability rows whose Resume
+   * Instant has passed while still `unavailable` and auto-enables them with
+   * `enabledBy: "scheduled"` provenance. Bounded to one due-index query and
+   * batch per call (mirrors `sweepReviewWindowExpirations`) -- the scheduled
+   * runner's own interval cadence drains any remainder on the next tick.
+   * Each restore is compare-and-swap protected against a lost race (see
+   * `EnableSellerListingAvailabilityCommand.dueBy`): a seller who manually
+   * enabled or pushed their Resume Instant forward between this sweep's
+   * read and its command is never overridden, and that lost race counts as
+   * `skipped`, never `failed`.
+   */
+  sweepDueSellerAvailabilityRestores: (
+    params: Readonly<{ now?: string; limit?: number }> | undefined,
+    context: EventStoreContext,
+  ) => Promise<{ checked: number; restored: number; skipped: number }>;
   listSellerListings: (params: Parameters<typeof listSellerListings>[1]) => ReturnType<typeof listSellerListings>;
   getSellerListingStatusCounts: (accountId: string) => ReturnType<typeof getSellerListingStatusCounts>;
   listSellerInventoryItemSupply: (
@@ -1350,6 +1369,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           accountId: params.accountId,
           enabledAt: new Date().toISOString(),
           enabledBy: params.enabledBy ?? "seller",
+          dueBy: params.dueBy,
         },
         context,
       });
@@ -1393,6 +1413,37 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         version: result.version,
         maxOpenOrders: null,
       };
+    },
+    sweepDueSellerAvailabilityRestores: async (params, context) => {
+      const now = params?.now ?? new Date().toISOString();
+      const candidates = await listDueSellerAvailabilityRestores(deps.db, { now, limit: params?.limit });
+      let restored = 0;
+      let skipped = 0;
+
+      for (const candidate of candidates) {
+        const result = await sellerAvailabilityCommandHandler({
+          streamId: `marketplace.seller-listing-availability-${candidate.account_id}`,
+          command: {
+            type: "EnableSellerListingAvailability",
+            accountId: candidate.account_id,
+            enabledAt: now,
+            enabledBy: "scheduled",
+            dueBy: candidate.available_again_at,
+          },
+          context,
+        });
+
+        if (result.newEvents.length > 0) {
+          restored += 1;
+        } else {
+          // The seller enabled, or pushed the resume instant forward,
+          // between the due-query read above and this command -- the
+          // decider's compare-and-swap already no-opped it cleanly.
+          skipped += 1;
+        }
+      }
+
+      return { checked: candidates.length, restored, skipped };
     },
     listSellerListings: (params) => listSellerListings(deps.db, params),
     getSellerListingStatusCounts: (accountId) => getSellerListingStatusCounts(deps.db, accountId),

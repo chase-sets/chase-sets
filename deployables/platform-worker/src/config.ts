@@ -83,6 +83,7 @@ export type PlatformWorkerConfig = Readonly<{
   supportRequestDeadlineSweepIntervalMs: number | null;
   reviewWindowSweepIntervalMs: number | null;
   reviewOpportunityReminderSweepIntervalMs: number | null;
+  sellerAvailabilityRestoreSweepIntervalMs: number | null;
   sellerFundsReleaseIntervalMs: number | null;
   payoutReconciliationIntervalMs: number | null;
   marketRollupsCloserIntervalMs: number | null;
@@ -460,6 +461,14 @@ export function loadConfig(): PlatformWorkerConfig {
     reviewOpportunityReminderSweepIntervalMs: getOptionalPositiveNumberEnv(
       "REVIEW_OPPORTUNITY_REMINDER_SWEEP_INTERVAL_MS",
       3_600_000,
+    ),
+    // Auto-resume sweep: a seller whose listings stay dark past their
+    // declared return date is the worst failure mode of the away-listing
+    // feature, so this runs close to continuously -- cheap enough (one
+    // bounded due-index query) to run every minute by default.
+    sellerAvailabilityRestoreSweepIntervalMs: getOptionalPositiveNumberEnv(
+      "SELLER_AVAILABILITY_RESTORE_SWEEP_INTERVAL_MS",
+      60_000,
     ),
     sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),
     payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYOUT_RECONCILIATION_INTERVAL_MS", 300_000),

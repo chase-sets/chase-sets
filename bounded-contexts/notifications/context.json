@@ -42,12 +42,20 @@
       "eventTypes": ["settlement.payout-readiness.recorded"],
       "order": 50,
       "projectionHandlerSetNames": ["notifications-settlement-facts-projection"]
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["marketplace.seller-listing-availability.enabled"],
+      "order": 60,
+      "projectionHandlerSetNames": ["notifications-marketplace-facts-projection"]
     }
   ],
   "projectionGroups": [
     {
       "projectionName": "notifications-source-facts-outbox-projection",
-      "sourceContextNames": ["ordering", "fulfillment", "inventory", "settlement"],
+      "sourceContextNames": ["ordering", "fulfillment", "inventory", "settlement", "marketplace"],
       "ownedTables": ["notification_outbox"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "append-only-no-reset"
