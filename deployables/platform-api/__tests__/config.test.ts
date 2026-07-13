@@ -444,6 +444,30 @@ describe("platform api config", () => {
     );
   });
 
+  it("allows admin-qa actor fixtures only outside production", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.staging.chasesets.test";
+    process.env.PLATFORM_DATA_PROFILES = "critical-bootstrap,catalog-integration-bootstrap,admin-qa-actor-fixtures";
+
+    expect(loadBootstrapConfig().dataProfiles).toEqual([
+      "critical-bootstrap",
+      "catalog-integration-bootstrap",
+      "admin-qa-actor-fixtures",
+    ]);
+
+    process.env.DEPLOYMENT_ENVIRONMENT = "production";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
+
+    expect(() => loadBootstrapConfig()).toThrow(
+      "admin-qa-actor-fixtures is not allowed when DEPLOYMENT_ENVIRONMENT=production.",
+    );
+  });
+
   it("requires platform admin email and password together", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.PLATFORM_ADMIN_EMAIL = "ops@chasesets.com";

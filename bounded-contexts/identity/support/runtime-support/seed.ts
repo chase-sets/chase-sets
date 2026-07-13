@@ -3,6 +3,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "../seed-support/ids";
 import { createIdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
+import { provisionAdminQaActorFixtures } from "./admin-qa-actor-fixtures";
 import type { AccountId, ConsentId, MembershipId, ShippingAddressId, UserId } from "@chase-sets/primitives/typed-ids";
 
 const DEMO_CONTACT_METHOD_ID = "ctm_seed_demo_sms";
@@ -176,14 +177,20 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
   const context = createIdentityBootstrapContext();
   const shouldSeedScenario = profileEnabled(options, "scenario-seed");
   const shouldSeedRepresentative = profileEnabled(options, "representative-commerce-state");
+  const shouldSeedAdminQaActorFixtures = profileEnabled(options, "admin-qa-actor-fixtures");
 
-  if (!shouldSeedScenario && !shouldSeedRepresentative) {
+  if (!shouldSeedScenario && !shouldSeedRepresentative && !shouldSeedAdminQaActorFixtures) {
     console.log("Identity seed skipped for selected data profiles.");
     return;
   }
 
   if (!shouldSeedScenario) {
-    await seedRepresentativeIdentityAccounts(services, context);
+    if (shouldSeedRepresentative) {
+      await seedRepresentativeIdentityAccounts(services, context);
+    }
+    if (shouldSeedAdminQaActorFixtures) {
+      await provisionAdminQaActorFixtures(services);
+    }
     return;
   }
 
@@ -194,6 +201,9 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
       await ensureScenarioTrustedSellerBadges(services, context);
       if (shouldSeedRepresentative) {
         await seedRepresentativeIdentityAccounts(services, context);
+      }
+      if (shouldSeedAdminQaActorFixtures) {
+        await provisionAdminQaActorFixtures(services);
       }
       return;
     }
@@ -782,6 +792,9 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
 
   if (shouldSeedRepresentative) {
     await seedRepresentativeIdentityAccounts(services, context);
+  }
+  if (shouldSeedAdminQaActorFixtures) {
+    await provisionAdminQaActorFixtures(services);
   }
 }
 

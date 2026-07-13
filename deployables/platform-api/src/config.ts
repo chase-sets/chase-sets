@@ -381,6 +381,9 @@ function assertDataProfilesAllowed(
   if (environmentName === "production" && profiles.includes("representative-commerce-state")) {
     throw new Error("representative-commerce-state is not allowed when DEPLOYMENT_ENVIRONMENT=production.");
   }
+  if (environmentName === "production" && profiles.includes("admin-qa-actor-fixtures")) {
+    throw new Error("admin-qa-actor-fixtures is not allowed when DEPLOYMENT_ENVIRONMENT=production.");
+  }
 
   return profiles;
 }

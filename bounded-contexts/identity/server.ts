@@ -36,6 +36,13 @@ export {
   type PlatformAdminBootstrapResult,
 } from "./support/runtime-support/production-bootstrap";
 export {
+  ADMIN_QA_ACTOR_FIXTURES,
+  provisionAdminQaActorFixtures,
+  type AdminQaActorFixtureDefinition,
+  type AdminQaActorFixtureResult,
+  type AdminQaActorFixtureSignInHost,
+} from "./support/runtime-support/admin-qa-actor-fixtures";
+export {
   createLinkedPlatformAuthorizationStore,
   type LinkedPlatformAuthorizationRow,
   type LinkedPlatformAuthorizationStore,
