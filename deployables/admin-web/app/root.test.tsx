@@ -87,4 +87,21 @@ describe("admin root layout", () => {
     expect(html).not.toContain("Go to Catalog");
     expect(html).not.toContain('href="/catalog"');
   });
+
+  it("redacts raw ids, emails, and tokens out of the rendered technical detail", () => {
+    mockUseRouteError.mockReturnValue(
+      new Error("membership_01H8ZZZZZZZZZZZZZZZZZZZZZZ update failed for operator@example.com"),
+    );
+
+    const html = renderToString(
+      <MemoryRouter>
+        <ErrorBoundary />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain("[redacted-id]");
+    expect(html).toContain("[redacted-email]");
+    expect(html).not.toContain("membership_01H8ZZZZZZZZZZZZZZZZZZZZZZ");
+    expect(html).not.toContain("operator@example.com");
+  });
 });

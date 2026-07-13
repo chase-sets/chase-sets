@@ -16,6 +16,7 @@ import {
   useRouteError,
 } from "react-router";
 import { AdminRootShell } from "./admin-root-shell";
+import { redactAdminErrorDetail } from "./error-detail-redaction";
 import { registerAdminServiceWorker } from "./pwa/register-service-worker";
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -75,11 +76,15 @@ export function ErrorBoundary() {
         ? error.data
         : JSON.stringify(error.data)
       : null;
-  const message = isRouteErrorResponse(error)
+  const rawMessage = isRouteErrorResponse(error)
     ? [error.status, error.statusText || responseDetail].filter(Boolean).join(" ")
     : error instanceof Error
       ? error.message
       : t("adminWeb.app.root.unknown.error");
+  // Loaders/actions across every admin section can throw with an arbitrary message. Redact it
+  // before it ever reaches the DOM so a stray raw id, token, or cookie never leaks through this
+  // shared error surface.
+  const message = redactAdminErrorDetail(rawMessage);
   const title = status === 404 ? t("adminWeb.app.root.not.found.title") : t("adminWeb.app.root.admin.error.2");
   const retryHref = `${location.pathname}${location.search}${location.hash}` || "/";
 
