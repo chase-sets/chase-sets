@@ -851,7 +851,11 @@ export function createStripeConnectMoneyMovementGateway(
     const disableStripeUserAuthentication = readiness?.requirementsCollector === "application";
     const componentFeatures =
       component === "notification_banner"
-        ? {}
+        ? {
+            [`components[${component}][features][disable_stripe_user_authentication]`]: disableStripeUserAuthentication
+              ? "true"
+              : "false",
+          }
         : {
             [`components[${component}][features][external_account_collection]`]: "true",
             [`components[${component}][features][disable_stripe_user_authentication]`]: disableStripeUserAuthentication
@@ -859,7 +863,13 @@ export function createStripeConnectMoneyMovementGateway(
               : "false",
           };
     const notificationBannerComponent =
-      component === "notification_banner" ? {} : { "components[notification_banner][enabled]": "true" };
+      component === "notification_banner"
+        ? {}
+        : {
+            "components[notification_banner][enabled]": "true",
+            "components[notification_banner][features][disable_stripe_user_authentication]":
+              disableStripeUserAuthentication ? "true" : "false",
+          };
     const accountSession = await stripeRequest<StripeAccountSessionResponse>("/v1/account_sessions", {
       method: "POST",
       headers: {
