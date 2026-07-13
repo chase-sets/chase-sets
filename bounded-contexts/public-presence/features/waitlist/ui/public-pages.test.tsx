@@ -315,6 +315,66 @@ describe("public waitlist form migration smoke", () => {
     expect(previewSection.textContent).not.toContain("Order protectionIncluded");
   });
 
+  it("places the truth-gated seller-tools differentiator after seller economics", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const sellerEconomicsSection = container.querySelector('[data-public-presence-section="seller_economics"]');
+    const sellerToolsSection = container.querySelector('[data-public-presence-section="seller_tools"]');
+    const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
+    if (!sellerEconomicsSection || !sellerToolsSection || !feeComparisonSection) {
+      throw new Error("Expected seller economics, seller tools, and fee comparison sections to render.");
+    }
+
+    expect(sellerEconomicsSection.compareDocumentPosition(sellerToolsSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(sellerToolsSection.compareDocumentPosition(feeComparisonSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(sellerToolsSection.textContent).toContain(t("publicPresence.home.sellerTools.comingToBeta"));
+    expect(sellerToolsSection.textContent).not.toContain("Included at launch");
+    expect(sellerToolsSection.textContent).toContain(t("publicPresence.home.sellerTools.repricing.title"));
+    expect(sellerToolsSection.textContent).toContain(t("publicPresence.home.sellerTools.market.title"));
+    expect(sellerToolsSection.textContent).toContain(t("publicPresence.home.sellerTools.scale.title"));
+    expect(sellerToolsSection.querySelector('a[href="/#waitlist-form-final"]')).not.toBeNull();
+  });
+
+  it("tracks the seller-tools early-access CTA through the existing funnel event", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+    const sellerToolsSection = container.querySelector('[data-public-presence-section="seller_tools"]');
+    const cta = sellerToolsSection?.querySelector('a[href="/#waitlist-form-final"]');
+    if (!cta) {
+      throw new Error("Expected seller-tools early-access CTA to render.");
+    }
+
+    fireEvent.click(cta);
+
+    expect(window.dataLayer).toContainEqual(
+      expect.objectContaining({
+        event: "cta_clicked",
+        section: "seller_tools",
+        target: "waitlist_form_final",
+        variant: "seller_first_v1",
+      }),
+    );
+  });
+
   it("concretizes the founders offer with cap, numbered badge, and 60-day window, linked ahead of the audience paths and from the footer", () => {
     vi.stubGlobal(
       "fetch",
