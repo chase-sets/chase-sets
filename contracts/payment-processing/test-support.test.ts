@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createFakePaymentProcessorGateway, testPaymentProcessorGatewayContract } from "./test-support";
+import { createFakePaymentProcessorGateway } from "./test-support";
+import { testPaymentProcessorGatewayContract } from "./gateway-contract.test-support";
 
 testPaymentProcessorGatewayContract(createFakePaymentProcessorGateway, {
   createWebhookInput: (kind) => ({

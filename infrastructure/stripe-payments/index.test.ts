@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createStripePaymentProcessorGateway } from ".";
 import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
-import { testPaymentProcessorGatewayContract } from "@chase-sets/payment-processing/test-support";
+import { testPaymentProcessorGatewayContract } from "@chase-sets/payment-processing/gateway-contract";
 
 function signature(rawBody: string, secret: string, timestamp: number) {
   const digest = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
