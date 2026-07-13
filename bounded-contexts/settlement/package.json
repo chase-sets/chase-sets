@@ -23,6 +23,7 @@
   "types": "./index.ts",
   "dependencies": {
     "@chase-sets/auth-context": "workspace:*",
+    "@chase-sets/customer-feedback": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/design-system": "workspace:*",

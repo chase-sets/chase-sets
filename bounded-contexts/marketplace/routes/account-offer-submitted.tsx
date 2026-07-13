@@ -1,12 +1,10 @@
-import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/web";
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData, useLocation, useSearchParams } from "react-router";
+import { useLoaderData, useLocation } from "react-router";
 import { classifyPostWriteDestinationResult } from "@chase-sets/http/responses";
 import { loadAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { platformFeedbackWorkflowFromSearchParams } from "@chase-sets/platform-operations/server";
 import { MarketplaceApiError, type SubmittedOfferDetail } from "../support/request-support/api-client";
 import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
 import {
@@ -70,7 +68,6 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountSubmittedOfferRoute() {
   const data = useLoaderData<typeof loader>();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
 
   if (!data.submittedOffer) {
     return (
@@ -81,25 +78,5 @@ export default function MarketplaceAccountSubmittedOfferRoute() {
     );
   }
 
-  const feedbackWorkflow = platformFeedbackWorkflowFromSearchParams("submitted-offer-detail", searchParams);
-
-  return (
-    <MarketplaceSubmittedOfferDetailPage
-      offer={data.submittedOffer as SubmittedOfferDetail}
-      feedbackPrompt={
-        feedbackWorkflow ? (
-          <PlatformFeedbackPrompt
-            workflow={feedbackWorkflow}
-            sourceRoutePath={`/account/offers/submitted/${data.submittedOffer.offer_id}`}
-            relatedEntities={[
-              { type: "offer", id: data.submittedOffer.offer_id },
-              { type: "catalog-item", id: data.submittedOffer.catalog_catalog_item_id },
-            ]}
-            title={t("marketplace.routes.accountOfferSubmitted.feedback.title")}
-            description={t("marketplace.routes.accountOfferSubmitted.feedback.description")}
-          />
-        ) : null
-      }
-    />
-  );
+  return <MarketplaceSubmittedOfferDetailPage offer={data.submittedOffer as SubmittedOfferDetail} />;
 }

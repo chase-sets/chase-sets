@@ -1,12 +1,10 @@
-import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/web";
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
 import { classifyPostWriteDestinationResult } from "@chase-sets/http/responses";
 import { loadAfterWrite, navigateAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { platformFeedbackWorkflowFromSearchParams } from "@chase-sets/platform-operations/server";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
@@ -99,7 +97,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? ""),
       });
       return redirect(
-        navigateAfterWrite(result, `/account/offers/matches/${params.offerId}?feedbackWorkflow=offer-accept`, {
+        navigateAfterWrite(result, `/account/offers/matches/${params.offerId}`, {
           telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
         }),
       );
@@ -108,7 +106,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     if (intent === "decline-offer") {
       const result = await api.declineOfferMatch(params.offerId!);
       return redirect(
-        navigateAfterWrite(result, "/account/offers/matches?feedbackWorkflow=offer-decline", {
+        navigateAfterWrite(result, "/account/offers/matches", {
           telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
         }),
       );
@@ -117,7 +115,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     if (intent === "mute-offer-buyer") {
       const result = await api.muteOfferBuyer(params.offerId!);
       return redirect(
-        navigateAfterWrite(result, "/account/offers/matches?feedbackWorkflow=offer-mute", {
+        navigateAfterWrite(result, "/account/offers/matches", {
           telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
         }),
       );
@@ -159,15 +157,12 @@ export default function MarketplaceAccountOfferMatchRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
 
   if (!data.offerMatch) {
     return (
       <MarketplaceOfferDetailRecoveryPage kind="offer-match" currentPath={`${location.pathname}${location.search}`} />
     );
   }
-
-  const feedbackWorkflow = platformFeedbackWorkflowFromSearchParams("offer-match-detail", searchParams);
 
   return (
     <MarketplaceOfferMatchDetailPage
@@ -178,20 +173,6 @@ export default function MarketplaceAccountOfferMatchRoute() {
       }
       canAccept
       errorMessage={actionData?.error ?? null}
-      feedbackPrompt={
-        feedbackWorkflow ? (
-          <PlatformFeedbackPrompt
-            workflow={feedbackWorkflow}
-            sourceRoutePath={`/account/offers/matches/${data.offerMatch.offer_id}`}
-            relatedEntities={[
-              { type: "offer", id: data.offerMatch.offer_id },
-              { type: "catalog-item", id: data.offerMatch.catalog_catalog_item_id },
-            ]}
-            title={t("marketplace.routes.accountOfferMatch.feedback.title")}
-            description={t("marketplace.routes.accountOfferMatch.feedback.description")}
-          />
-        ) : null
-      }
     />
   );
 }

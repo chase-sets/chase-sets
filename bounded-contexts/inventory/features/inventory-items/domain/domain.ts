@@ -2,6 +2,7 @@ import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-set
 import type { InventoryAdjustmentSourceRef } from "@chase-sets/event-core/public-event-payloads";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import type { InventorySelectedOptionEntry } from "../integrations/catalog/versioning";
 import {
   assert,
@@ -52,6 +53,7 @@ export const initialInventoryItemState: InventoryItemState = {
 
 export type CreateInventoryItemCommand = Readonly<{
   type: "CreateInventoryItem";
+  csatOutcomeFact?: JsonObject;
   itemId: InventoryItemId;
   accountId: AccountId;
   catalogItemId: CatalogItemId;
@@ -65,6 +67,7 @@ export type CreateInventoryItemCommand = Readonly<{
 
 export type AdjustInventoryItemQuantityCommand = Readonly<{
   type: "AdjustInventoryItemQuantity";
+  csatOutcomeFact?: JsonObject;
   quantityDelta: number;
   heldQuantity: number;
   reason: string;
@@ -85,6 +88,7 @@ export type InventoryItemCreatedEvent = DomainEvent<
     storageLocationId: string;
     totalQuantity: number;
     acquisitionCostAmount: string | null;
+    csatOutcomeFact?: JsonObject;
   }>
 >;
 
@@ -95,6 +99,7 @@ export type InventoryItemAdjustedEvent = DomainEvent<
     quantityDelta: number;
     reason: string;
     sourceRef?: InventoryAdjustmentSourceRef;
+    csatOutcomeFact?: JsonObject;
   }>
 >;
 
@@ -124,6 +129,7 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
             storageLocationId: normalizeLabel(command.storageLocationId),
             totalQuantity: command.totalQuantity,
             acquisitionCostAmount: command.acquisitionCostAmount ?? null,
+            ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
           },
         },
       ];
@@ -146,6 +152,7 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
             quantityDelta: command.quantityDelta,
             reason: normalizeLabel(command.reason),
             sourceRef: command.sourceRef ?? null,
+            ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
           },
         },
       ];

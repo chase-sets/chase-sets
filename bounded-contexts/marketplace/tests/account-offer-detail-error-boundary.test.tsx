@@ -14,7 +14,7 @@ afterEach(() => {
 
 function freshSubmittedOfferPath(nowMs = Date.now()) {
   return appendFreshWriteToken(
-    "/account/offers/submitted/off_pending?feedbackWorkflow=offer-submit",
+    "/account/offers/submitted/off_pending",
     {
       commitPositions: [
         {
@@ -31,7 +31,7 @@ function freshSubmittedOfferPath(nowMs = Date.now()) {
 
 function freshOfferMatchPath(nowMs = Date.now()) {
   return appendFreshWriteToken(
-    "/account/offers/matches/off_pending?feedbackWorkflow=offer-accept",
+    "/account/offers/matches/off_pending",
     {
       commitPositions: [
         {

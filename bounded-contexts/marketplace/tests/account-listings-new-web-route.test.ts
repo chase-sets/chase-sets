@@ -319,7 +319,7 @@ describe("marketplace listing create route", () => {
     expect(result).toBeInstanceOf(Response);
     expect((result as Response).status).toBe(302);
     const location = (result as Response).headers.get("Location") ?? "";
-    expect(location).toMatch(/^\/account\/listings\/lst_1\?feedbackWorkflow=listing-publish&postWriteToken=/);
+    expect(location).toMatch(/^\/account\/listings\/lst_1\?postWriteToken=/);
     expect(readCompactPostWriteToken(location)).toMatch(/^pwt_listings/);
     expect(location).not.toContain("afterWrite=");
     expect(location).not.toContain("evt_listing_created");

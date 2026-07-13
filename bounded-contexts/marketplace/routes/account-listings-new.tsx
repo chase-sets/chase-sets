@@ -452,9 +452,7 @@ export async function action({ request }: ActionFunctionArgs) {
       return redirect(
         await navigateToAccountListingsNewAfterWriteFromSources(
           redirectReceipts,
-          intent === "create-and-publish-listing"
-            ? `/account/listings/${result.id}?feedbackWorkflow=listing-publish`
-            : `/account/listings/${result.id}`,
+          intent === "create-and-publish-listing" ? `/account/listings/${result.id}` : `/account/listings/${result.id}`,
         ),
       );
     }

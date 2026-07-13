@@ -342,7 +342,7 @@ describe("marketplace listing detail route", () => {
     } as never);
 
     const location = (result as Response).headers.get("Location") ?? "";
-    expect(location).toMatch(/^\/account\/listings\/lst_1\?feedbackWorkflow=listing-publish&postWriteToken=/);
+    expect(location).toMatch(/^\/account\/listings\/lst_1\?postWriteToken=/);
     expect(readCompactPostWriteToken(location)).toMatch(/^pwt_listing/);
     expect(location).not.toContain("afterWrite=");
     expect(location).not.toContain("postWriteHandoff=");
@@ -438,7 +438,7 @@ describe("marketplace listing detail route", () => {
     } as never);
 
     const location = (result as Response).headers.get("Location") ?? "";
-    expect(location).toBe("/account/listings/lst_1?feedbackWorkflow=listing-update");
+    expect(location).toBe("/account/listings/lst_1");
     expect(location).not.toContain("postWriteToken=");
     expect(location).not.toContain("afterWrite=");
     expect(store.storeCalls).toHaveLength(0);

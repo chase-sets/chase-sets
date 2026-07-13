@@ -134,10 +134,6 @@ const { mockUseActionData, mockUseLoaderData, mockUseRevalidator } = vi.hoisted(
   mockUseRevalidator: vi.fn(),
 }));
 
-const platformFeedbackPromptProps = vi.hoisted(() => ({
-  calls: [] as unknown[],
-}));
-
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
   const React = await vi.importActual<typeof import("react")>("react");
@@ -148,17 +144,6 @@ vi.mock("react-router", async () => {
     useActionData: mockUseActionData,
     useLoaderData: mockUseLoaderData,
     useRevalidator: mockUseRevalidator,
-  };
-});
-
-vi.mock("@chase-sets/platform-operations/web", async () => {
-  const React = await vi.importActual<typeof import("react")>("react");
-
-  return {
-    PlatformFeedbackPrompt: (props: unknown) => {
-      platformFeedbackPromptProps.calls.push(props);
-      return React.createElement("section", { "data-testid": "platform-feedback-prompt" });
-    },
   };
 });
 
@@ -276,7 +261,6 @@ describe("marketplace account payment route", () => {
     vi.useRealTimers();
     vi.clearAllMocks();
     vi.restoreAllMocks();
-    platformFeedbackPromptProps.calls = [];
     delete (window as unknown as StripeWindow).Stripe;
     document.head.innerHTML = "";
   });
@@ -308,15 +292,7 @@ describe("marketplace account payment route", () => {
     expect(screen.getByText("ready-for-fulfillment")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Open purchase" })).toBeTruthy();
     expect(screen.queryByText("Confirm payment")).toBeNull();
-    expect(screen.getByTestId("platform-feedback-prompt")).toBeTruthy();
-    expect(platformFeedbackPromptProps.calls[0]).toMatchObject({
-      workflow: "checkout-payment",
-      sourceRoutePath: "/account/payments/pay_1",
-      relatedEntities: [
-        { type: "payment", id: "pay_1" },
-        { type: "order", id: "ord_1" },
-      ],
-    });
+    expect(screen.queryByTestId("platform-feedback-prompt")).toBeNull();
   });
 
   it("renders payment deadline guidance for pending confirmations", () => {
@@ -340,10 +316,9 @@ describe("marketplace account payment route", () => {
     expect(screen.getByText("Complete payment by deadline")).toBeTruthy();
   });
 
-  it("shows checkout feedback for zero-dollar completed outcomes but not unresolved or failed statuses", () => {
+  it("does not render retired ad-hoc checkout feedback triggers", () => {
     for (const status of ["pending-confirmation", "failed", "cancelled"]) {
       cleanup();
-      platformFeedbackPromptProps.calls = [];
       mockUseLoaderData.mockReturnValue({
         payment: buildPayment({
           status,
@@ -361,11 +336,9 @@ describe("marketplace account payment route", () => {
       );
 
       expect(screen.queryByTestId("platform-feedback-prompt")).toBeNull();
-      expect(platformFeedbackPromptProps.calls).toHaveLength(0);
     }
 
     cleanup();
-    platformFeedbackPromptProps.calls = [];
     mockUseLoaderData.mockReturnValue({
       payment: buildPayment({
         status: "captured",
@@ -382,11 +355,7 @@ describe("marketplace account payment route", () => {
       </ChaseRoot>,
     );
 
-    expect(screen.getByTestId("platform-feedback-prompt")).toBeTruthy();
-    expect(platformFeedbackPromptProps.calls[0]).toMatchObject({
-      workflow: "checkout-payment",
-      sourceRoutePath: "/account/payments/pay_1",
-    });
+    expect(screen.queryByTestId("platform-feedback-prompt")).toBeNull();
   });
 
   it("hydrates payment timelines without locale-dependent timestamp text", async () => {

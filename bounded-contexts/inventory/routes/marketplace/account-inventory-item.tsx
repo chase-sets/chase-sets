@@ -1,11 +1,9 @@
-import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/web";
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
 import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { platformFeedbackWorkflowFromSearchParams } from "@chase-sets/platform-operations/server";
 import { InventoryApiError, type InventoryItemDetail } from "../../support/request-support/api-client";
 import { createInventoryRequestApiClient } from "../../support/request-support/api-client";
 import { InventoryItemDetailPage } from "../../features/inventory-items/ui/inventory-item-detail-page";
@@ -86,7 +84,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
               quantityDelta: Number(formData.get("quantityDelta") ?? 0),
               reason: formData.get("reason"),
             }),
-            `${new URL(request.url).pathname}?feedbackWorkflow=inventory-adjust`,
+            new URL(request.url).pathname,
           ),
         );
       case "create-hold":
@@ -133,33 +131,12 @@ export default function MarketplaceInventoryItemRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
-  const feedbackWorkflow = platformFeedbackWorkflowFromSearchParams("inventory-item-detail", searchParams);
 
   return (
     <InventoryItemDetailPage
       item={data.item as InventoryItemDetail}
       currentPath={`${location.pathname}${location.search}`}
       errorMessage={actionData?.error ?? null}
-      feedbackPrompt={
-        feedbackWorkflow ? (
-          <PlatformFeedbackPrompt
-            workflow={feedbackWorkflow}
-            sourceRoutePath={`/account/inventory/items/${data.item.item_id}`}
-            relatedEntities={[{ type: "inventory-item", id: data.item.item_id }]}
-            title={
-              feedbackWorkflow === "inventory-create"
-                ? t("inventory.routes.marketplace.accountInventory.feedback.title")
-                : t("inventory.routes.marketplace.accountInventoryItem.feedback.title")
-            }
-            description={
-              feedbackWorkflow === "inventory-create"
-                ? t("inventory.routes.marketplace.accountInventory.feedback.description")
-                : t("inventory.routes.marketplace.accountInventoryItem.feedback.description")
-            }
-          />
-        ) : null
-      }
     />
   );
 }

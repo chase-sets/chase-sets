@@ -1,5 +1,4 @@
 import { formatBpsPercent, formatDateTime, formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
-import type { ReactNode } from "react";
 import {
   HiddenInput,
   Form,
@@ -171,14 +170,12 @@ export function MarketplaceListingDetailPage({
   priceDraftAmount,
   pricePreview,
   errorMessage,
-  feedbackPrompt,
 }: {
   listing: MarketplaceListingDetail;
   feeHistory?: readonly MarketplaceListingFeeHistoryEntry[];
   priceDraftAmount?: string | null;
   pricePreview?: MarketplaceListingTermsPreview | null;
   errorMessage?: string | null;
-  feedbackPrompt?: ReactNode;
 }) {
   const currentFeeLock = listing.fee_locks.at(-1);
   const publishDisabled =
@@ -206,8 +203,6 @@ export function MarketplaceListingDetailPage({
           description={errorMessage}
         />
       ) : null}
-
-      {feedbackPrompt}
 
       <PageSection title={t("marketplace.features.listings.ui.listingDetailPage.listing.overview")}>
         <Stack gap={4}>

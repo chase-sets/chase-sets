@@ -1,5 +1,6 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, PayoutId } from "@chase-sets/primitives/typed-ids";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import {
   assert,
   assertNever,
@@ -83,6 +84,7 @@ export type RecordPayoutProviderReferencesCommand = Readonly<{
 
 export type CompletePayoutCommand = Readonly<{
   type: "CompletePayout";
+  csatOutcomeFact?: JsonObject;
   providerStatus?: string | null;
   completedAt: string;
 }>;
@@ -148,6 +150,7 @@ export type PayoutCompletedEvent = DomainEvent<
     amount: string;
     notificationEmail: string | null;
     completedAt: string;
+    csatOutcomeFact?: JsonObject;
   }>
 >;
 
@@ -262,6 +265,7 @@ export const decidePayout: AggregateDecider<PayoutState, PayoutCommand, PayoutEv
             amount: state.amount,
             notificationEmail: state.notificationEmail,
             completedAt: ensureIsoTimestamp(command.completedAt, "Payout completion must record a timestamp."),
+            ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
           },
         },
       ];

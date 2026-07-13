@@ -50,6 +50,7 @@ import {
   selectEvidenceGarbageCollectionTargets,
   type EvidenceGarbageCollectionEntry,
 } from "../domain/evidence-garbage-collection";
+import { createListingPublishedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { marketplaceListingGatePolicy, type MarketplaceListingGatePolicyValue } from "../domain/listing-gate-policy";
 import { marketplaceListingBulkPriceUpdatePolicy } from "../domain/bulk-price-update-policy";
 import { normalizeListingPhoto } from "./listing-photo-normalization";
@@ -1656,6 +1657,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         command: {
           type: "PublishListing",
           readiness,
+          csatOutcomeFact: createListingPublishedCsatOutcomeFact({
+            accountId: params.accountId,
+            listingId: params.listingId,
+          }),
         },
         context,
       });

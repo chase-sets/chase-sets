@@ -1,5 +1,4 @@
 import { formatDateTime, formatLanguageCodeLabel, t } from "@chase-sets/localization";
-import type { ReactNode } from "react";
 import {
   HiddenInput,
   Form,
@@ -159,12 +158,10 @@ function selectedLedgerKind(currentPath: string | null | undefined) {
 export function InventoryItemDetailPage({
   item,
   errorMessage,
-  feedbackPrompt,
   currentPath,
 }: {
   item: InventoryItemDetail;
   errorMessage?: string | null;
-  feedbackPrompt?: ReactNode;
   currentPath?: string | null;
 }) {
   const selectedKind = selectedLedgerKind(currentPath);
@@ -192,8 +189,6 @@ export function InventoryItemDetailPage({
           </Stack>
         }
       />
-
-      {feedbackPrompt}
 
       {errorMessage ? (
         <Card>

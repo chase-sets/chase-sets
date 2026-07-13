@@ -44,7 +44,6 @@ export function AccountPaymentPage({
   showSupportDetails,
   paymentElementDefaultValues,
   retryActionError,
-  feedbackPrompt,
   guestClaimSection,
 }: AccountPaymentPageProps) {
   const statusCopy = paymentStatusCopy(payment.status);
@@ -217,8 +216,6 @@ export function AccountPaymentPage({
                 </Stack>
               </Surface>
             ) : null}
-
-            {feedbackPrompt}
 
             {paymentDeadlineAt && payment.status === "pending-confirmation" ? (
               <MarketplaceNotice

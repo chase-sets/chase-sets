@@ -29,6 +29,7 @@ import {
   type InventoryItemEvent,
   type InventoryItemState,
 } from "../domain/domain";
+import { createInventoryItemAdjustedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { buildInventoryItemProjectionHandlers } from "../read-model/projection";
 import { buildInventoryItemLedgerProjectionHandlers } from "../read-model/ledger-projection";
 import { getInventoryItem, getInventoryItemForListingStock, listInventoryItems } from "../read-model/queries";
@@ -209,6 +210,11 @@ export function createInventoryItemRuntime(
           type: "CreateInventoryItem",
           itemId,
           accountId: params.accountId,
+          csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
+            accountId: params.accountId,
+            itemId,
+            idempotencyKey: `inventory:item.adjusted:${itemId}:created`,
+          }),
           catalogItemId: params.catalogItemId as CatalogItemId,
           productId: catalogVersion.productId,
           selectedOptions: catalogVersion.selection,
@@ -281,6 +287,11 @@ export function createInventoryItemRuntime(
           streamId: `inventory.item-${params.itemId}`,
           command: {
             type: "AdjustInventoryItemQuantity",
+            csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
+              accountId: params.accountId as AccountId,
+              itemId: params.itemId as InventoryItemId,
+              idempotencyKey: idempotencyKey ?? `inventory:item.adjusted:${params.itemId}:${commandFingerprint}`,
+            }),
             quantityDelta: params.quantityDelta,
             heldQuantity: stock.heldQuantity,
             reason: params.reason,
@@ -411,6 +422,11 @@ export function createInventoryItemRuntime(
             type: "CreateInventoryItem",
             itemId,
             accountId: params.accountId,
+            csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
+              accountId: params.accountId,
+              itemId,
+              idempotencyKey: `inventory:item.adjusted:${itemId}:listing-stock-created`,
+            }),
             catalogItemId: params.catalogItemId as CatalogItemId,
             productId: catalogVersion.productId,
             selectedOptions: catalogVersion.selection,
@@ -431,6 +447,11 @@ export function createInventoryItemRuntime(
           streamId: `inventory.item-${inventoryItemId}`,
           command: {
             type: "AdjustInventoryItemQuantity",
+            csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
+              accountId: params.accountId,
+              itemId: inventoryItemId,
+              idempotencyKey: `inventory:item.adjusted:${inventoryItemId}:listing-stock:${params.quantity}`,
+            }),
             quantityDelta: adjustedQuantityBy,
             heldQuantity: existingItem?.held_quantity ?? 0,
             reason: "Automatic listing stock",

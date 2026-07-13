@@ -50,6 +50,5 @@ export type AccountPaymentPageProps = Readonly<{
   showSupportDetails: boolean;
   paymentElementDefaultValues: PaymentElementDefaultValues | null;
   retryActionError: string | null;
-  feedbackPrompt: ReactNode;
   guestClaimSection: ReactNode;
 }>;

@@ -343,7 +343,7 @@ describe("marketplace inventory routes", () => {
 
     const location = response.headers.get("Location") ?? "";
     expect(location).toContain("/account/inventory/items/inv_created?");
-    expect(location).toContain("feedbackWorkflow=inventory-create");
+    expect(location).not.toContain("feedbackWorkflow=");
     expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("61");
   });
 
@@ -393,8 +393,8 @@ describe("marketplace inventory routes", () => {
 
     const location = response.headers.get("Location") ?? "";
     expect(location).toContain("/account/sell-list?");
-    expect(location).toContain("feedbackWorkflow=inventory-create");
-    expect(location).toContain("feedbackEntityId=inv_created");
+    expect(location).not.toContain("feedbackWorkflow=");
+    expect(location).not.toContain("feedbackEntityId=");
     expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("62");
   });
 
@@ -664,7 +664,8 @@ describe("marketplace inventory routes", () => {
     } as never)) as Response;
 
     const location = response.headers.get("Location") ?? "";
-    expect(location).toContain("/account/inventory/items/inv_1?feedbackWorkflow=inventory-adjust");
+    expect(location).toContain("/account/inventory/items/inv_1?afterWrite=");
+    expect(location).not.toContain("feedbackWorkflow=");
     expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("73");
   });
 

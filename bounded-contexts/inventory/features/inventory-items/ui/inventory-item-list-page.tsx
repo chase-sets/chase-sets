@@ -1,5 +1,5 @@
 import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import {
   HiddenInput,
   Form,
@@ -74,7 +74,6 @@ export function InventoryItemListPage({
   locations,
   errorMessage,
   catalogItemApiBaseUrl = DEFAULT_CATALOG_ITEM_API_BASE_URL,
-  feedbackPrompt,
   createItemDraft,
   currentPath,
 }: {
@@ -83,7 +82,6 @@ export function InventoryItemListPage({
   locations: readonly InventoryStorageLocation[];
   errorMessage?: string | null;
   catalogItemApiBaseUrl?: string;
-  feedbackPrompt?: ReactNode;
   createItemDraft?: {
     catalogItemId?: string | null;
     selectedOptions?: readonly { dimensionId: string; optionId: string }[];
@@ -226,8 +224,6 @@ export function InventoryItemListPage({
           </LinkButton>
         }
       />
-
-      {feedbackPrompt}
 
       {errorMessage ? (
         <Card>
