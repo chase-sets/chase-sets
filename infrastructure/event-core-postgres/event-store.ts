@@ -62,6 +62,8 @@ export const EVENT_STORE_READ_PAGE_SIZE_DEFAULT = 500;
 export const EVENT_STORE_READ_PAGE_SIZE_LIMIT = 500;
 // Bounds the payload portion of a full 500-event catch-up page to about 32 MiB.
 export const EVENT_STORE_MAX_PAYLOAD_BYTES = 64 * 1024;
+// Appenders take the shared side; catch-up horizon reads take the exclusive
+// side. Every canonical writer and global-position reader uses this same key.
 export const EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY = "-8041932795057830931";
 
 export type EventStoreWakeNotificationPayload = Readonly<{
@@ -437,10 +439,12 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
         },
         async () => {
           try {
+            const safeHeadGlobalPosition = await readGapSafeEventStoreHead(pool, eventsTable);
             const result = await pool.query<DbEventRow>(
               buildReadAllSql(eventsTable, input),
               buildReadAllParams({
                 afterGlobalPosition,
+                safeHeadGlobalPosition,
                 limit,
                 tenantId: input?.tenantId,
                 eventTypes: input?.eventTypes,
@@ -456,6 +460,37 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
       );
     },
   };
+}
+
+/**
+ * Captures the largest global position that a catch-up consumer may safely
+ * checkpoint. Appenders hold the shared advisory transaction lock from
+ * position assignment through commit; this query takes the exclusive side,
+ * so every position at or below the returned sequence value is committed or
+ * permanently abandoned by a rolled-back transaction.
+ *
+ * The sequence must remain CACHE 1. A cached sequence could hand out a future
+ * position below `last_value` after this fence releases, invalidating the
+ * horizon. `schema.sql` enforces that storage invariant.
+ */
+export async function readGapSafeEventStoreHead(
+  pool: PgTransactionalPool,
+  eventsTableName = DEFAULT_EVENTS_TABLE,
+): Promise<GlobalPosition> {
+  const eventsTable = assertSqlIdentifier(eventsTableName);
+  const result = await pool.query<Readonly<{ head: string | number | bigint | null }>>(
+    `WITH append_fence AS MATERIALIZED (
+       SELECT pg_advisory_xact_lock($1::bigint)
+     )
+     SELECT COALESCE(
+              pg_sequence_last_value(pg_get_serial_sequence($2, 'global_position')::regclass),
+              0
+            )::text AS head
+     FROM append_fence`,
+    [EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY, eventsTable],
+  );
+
+  return parseGlobalPosition(String(result.rows[0]?.head ?? ZERO_GLOBAL_POSITION));
 }
 
 type AppendInTransactionArgs = Readonly<{
@@ -482,6 +517,7 @@ type AppendStreamsIndependentlyInTransactionArgs = AppendStreamsInTransactionArg
 
 type ReadAllQueryInput = Readonly<{
   afterGlobalPosition: GlobalPosition;
+  safeHeadGlobalPosition: GlobalPosition;
   limit: number;
   tenantId?: ReadAllInput["tenantId"];
   eventTypes?: readonly string[];
@@ -496,8 +532,8 @@ type NormalizedEventStoreWakeNotificationConfig = Readonly<{
 }>;
 
 function buildReadAllSql(eventsTable: string, input: ReadAllInput | undefined): string {
-  const predicates = ["global_position > $1::bigint"];
-  let nextParam = 2;
+  const predicates = ["global_position > $1::bigint", "global_position <= $2::bigint"];
+  let nextParam = 3;
 
   if (input?.tenantId) {
     predicates.push(`tenant_id = $${nextParam}`);
@@ -527,7 +563,7 @@ function buildReadAllSql(eventsTable: string, input: ReadAllInput | undefined): 
 }
 
 function buildReadAllParams(input: ReadAllQueryInput): readonly unknown[] {
-  const params: unknown[] = [input.afterGlobalPosition];
+  const params: unknown[] = [input.afterGlobalPosition, input.safeHeadGlobalPosition];
 
   if (input.tenantId) {
     params.push(input.tenantId);
@@ -601,11 +637,13 @@ async function appendEventsToStream(args: AppendInTransactionArgs): Promise<read
 
   const insertedEventsById = new Map<string, StoredEvent>();
   if (eventsToInsert.length > 0) {
-    // The event log uses a bigserial global position. Hold the store-wide xact
-    // advisory lock only while assigning positions, and until commit, so
-    // readAll/source-head checkpoint scans cannot observe a higher committed
-    // position while a lower assigned position is still in flight.
-    await args.client.query("SELECT pg_advisory_xact_lock($1::bigint)", [EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY]);
+    // Independent appenders share this transaction lock, so unrelated streams
+    // can assign positions and commit concurrently. Catch-up readers take the
+    // exclusive side before capturing the sequence horizon; they therefore
+    // cannot checkpoint past any position owned by an in-flight append.
+    await args.client.query("SELECT pg_advisory_xact_lock_shared($1::bigint)", [
+      EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
+    ]);
     const insertResult = await args.client.query<DbEventRow>(
       buildInsertEventsSql(args.eventsTable, eventsToInsert.length),
       buildInsertEventsParams(eventsToInsert),
@@ -689,10 +727,9 @@ type PendingIndependentStreamAppend = Readonly<{
  * stream that fails validation from the batch WITHOUT aborting the others,
  * then performs exactly one multi-row INSERT across every stream that
  * passed -- extending the single-stream multi-row insert (m106's
- * batch-apply work) to the multi-stream case. The store-wide advisory lock is
- * acquired at most once per call, right before that single INSERT, so a
- * chunk of K streams holds the lock for one bounded window instead of K
- * separate windows.
+ * batch-apply work) to the multi-stream case. The shared append-fence lock is
+ * acquired at most once per call, right before that single INSERT, so a chunk
+ * of K streams holds it for one bounded window instead of K separate windows.
  */
 async function appendEventsToStreamsIndependently(
   args: AppendStreamsIndependentlyInTransactionArgs,
@@ -786,7 +823,9 @@ async function appendEventsToStreamsIndependently(
     // excluded above never reach this INSERT, so their conflict never rolls
     // back a sibling stream's events.
     args.onAdvisoryLockAcquired();
-    await args.client.query("SELECT pg_advisory_xact_lock($1::bigint)", [EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY]);
+    await args.client.query("SELECT pg_advisory_xact_lock_shared($1::bigint)", [
+      EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
+    ]);
     const insertResult = await args.client.query<DbEventRow>(
       buildInsertEventsSql(args.eventsTable, combinedEventsToInsert.length),
       buildInsertEventsParams(combinedEventsToInsert),

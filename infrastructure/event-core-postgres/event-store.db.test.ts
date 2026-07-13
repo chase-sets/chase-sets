@@ -454,33 +454,32 @@ describeDb("postgres event store real database integration", () => {
     ]);
   });
 
-  it("does not expose a later committed append while a lower global position is in flight", async () => {
+  it("does not let a catch-up checkpoint skip a lower in-flight global position", async () => {
     const store = createPostgresEventStore({ pool: schema.pool, createEventId });
-    const lowPositionClient = await beginUncommittedAppendWithGlobalLock(schema.pool);
-    let lowPositionClientReleased = false;
-
-    const appendHighPosition = store.appendToStream({
-      streamId: "catalog.item-high",
-      expectedVersion: "no_stream",
-      context: eventContext("tenant_a"),
-      events: [eventToStore("catalog.item.created", { itemId: "high" })],
+    const lowPositionClient = await beginUncommittedAppendWithSharedFence(schema.pool, {
+      eventId: "evt_db_low",
+      streamId: "catalog.item-low",
+      itemId: "low",
     });
+    let lowPositionClientReleased = false;
+    await appendRawEventWithSharedFence(schema.pool, {
+      eventId: "evt_db_high",
+      streamId: "catalog.item-high",
+      itemId: "high",
+    });
+    const catchUpRead = store.readAll({ limit: 10 });
 
     try {
-      await expect(hasSettledWithin(appendHighPosition, 50)).resolves.toBe(false);
-      await expect(store.readAll({ limit: 10 })).resolves.toEqual([]);
+      // A bare `global_position > checkpoint` read settles here with position 2,
+      // advances to 2, and permanently skips the still-invisible position 1.
+      await expect(hasSettledWithin(catchUpRead, 50)).resolves.toBe(false);
 
       await lowPositionClient.query("COMMIT");
       lowPositionClient.release();
       lowPositionClientReleased = true;
 
-      await expect(appendHighPosition).resolves.toEqual([
-        expect.objectContaining({
-          streamId: "catalog.item-high",
-          globalPosition: "2",
-        }),
-      ]);
-      await expect(store.readAll({ limit: 10 })).resolves.toEqual([
+      const catchUpEvents = await catchUpRead;
+      expect(catchUpEvents).toEqual([
         expect.objectContaining({
           eventId: "evt_db_low",
           streamId: "catalog.item-low",
@@ -491,12 +490,97 @@ describeDb("postgres event store real database integration", () => {
           globalPosition: "2",
         }),
       ]);
+      expect(catchUpEvents.at(-1)?.globalPosition).toBe("2");
     } finally {
       if (!lowPositionClientReleased) {
         await lowPositionClient.query("ROLLBACK").catch(() => undefined);
         lowPositionClient.release();
       }
     }
+  });
+
+  it("keeps independent stream appends concurrent while a lower position is in flight", async () => {
+    const store = createPostgresEventStore({ pool: schema.pool, createEventId });
+    const lowPositionClient = await beginUncommittedAppendWithSharedFence(schema.pool, {
+      eventId: "evt_db_concurrent_low",
+      streamId: "catalog.item-concurrent-low",
+      itemId: "concurrent-low",
+    });
+    let lowPositionClientReleased = false;
+    const highPositionAppend = store.appendToStream({
+      streamId: "catalog.item-concurrent-high",
+      expectedVersion: "no_stream",
+      context: eventContext("tenant_a"),
+      events: [eventToStore("catalog.item.created", { itemId: "concurrent-high" })],
+    });
+
+    try {
+      await expect(hasSettledWithin(highPositionAppend, 250)).resolves.toBe(true);
+      await expect(highPositionAppend).resolves.toEqual([
+        expect.objectContaining({
+          streamId: "catalog.item-concurrent-high",
+          globalPosition: "2",
+        }),
+      ]);
+
+      await lowPositionClient.query("COMMIT");
+      lowPositionClient.release();
+      lowPositionClientReleased = true;
+
+      await expect(store.readAll({ limit: 10 })).resolves.toEqual([
+        expect.objectContaining({ streamId: "catalog.item-concurrent-low", globalPosition: "1" }),
+        expect.objectContaining({ streamId: "catalog.item-concurrent-high", globalPosition: "2" }),
+      ]);
+    } finally {
+      if (!lowPositionClientReleased) {
+        await lowPositionClient.query("ROLLBACK").catch(() => undefined);
+        lowPositionClient.release();
+      }
+      await highPositionAppend.catch(() => undefined);
+    }
+  });
+
+  it("delivers every parallel distinct-stream append through paged catch-up", async () => {
+    const store = createPostgresEventStore({ pool: schema.pool, createEventId });
+    const workerCount = 16;
+    let appendsSettled = false;
+    const appends = Promise.all(
+      Array.from({ length: workerCount }, (_, worker) =>
+        store.appendToStream({
+          streamId: `catalog.item-worker-${worker}` as never,
+          expectedVersion: "no_stream",
+          context: eventContext("tenant_a"),
+          events: [eventToStore("catalog.item.created", { itemId: `worker-${worker}` })],
+        }),
+      ),
+    ).finally(() => {
+      appendsSettled = true;
+    });
+    const observedEventIds = new Set<string>();
+    let checkpoint = "0";
+    const pollCatchUp = async (): Promise<boolean> => {
+      const page = await store.readAll({ afterGlobalPosition: checkpoint as never, limit: 3 });
+      if (page.length === 0) {
+        return false;
+      }
+      for (const event of page) {
+        observedEventIds.add(event.eventId);
+      }
+      checkpoint = page.at(-1)!.globalPosition;
+      return true;
+    };
+
+    while (!appendsSettled) {
+      await pollCatchUp();
+    }
+    const appended = await appends;
+    while (await pollCatchUp()) {
+      // Drain every page committed after the last concurrent poll.
+    }
+
+    const expectedEventIds = new Set(appended.flat().map((event) => event.eventId));
+    expect(observedEventIds).toEqual(expectedEventIds);
+    expect(observedEventIds.size).toBe(workerCount);
   });
 
   it("commits sibling streams even when one stream conflicts in an independent multi-stream append", async () => {
@@ -589,7 +673,7 @@ describeDb("postgres event store real database integration", () => {
     expect(results[0]?.storedEvents[0]).toEqual(single[0]);
   });
 
-  it("acquires the store-wide advisory lock exactly once per independent-append chunk", async () => {
+  it("acquires the shared append fence exactly once per independent-append chunk", async () => {
     const store = createPostgresEventStore({
       pool: schema.pool,
       now: () => "2026-07-09T12:00:00.000Z" as never,
@@ -615,8 +699,8 @@ describeDb("postgres event store real database integration", () => {
 
     try {
       // The chunk's SELECT ... FOR UPDATE pre-checks can run before the shared
-      // advisory lock, but the INSERT that finally commits the chunk cannot
-      // proceed while another session holds the store-wide advisory lock.
+      // append fence, but the INSERT that finally commits the chunk cannot
+      // proceed while another session holds the exclusive side.
       await expect(hasSettledWithin(chunkAppend, 50)).resolves.toBe(false);
 
       await lockClient.query("COMMIT");
@@ -773,16 +857,21 @@ async function beginGlobalAppendLock(pool: IsolatedPostgresTestSchema["pool"]): 
   }
 }
 
-async function beginUncommittedAppendWithGlobalLock(pool: IsolatedPostgresTestSchema["pool"]): Promise<PgPoolClient> {
+async function beginUncommittedAppendWithSharedFence(
+  pool: IsolatedPostgresTestSchema["pool"],
+  event: Readonly<{ eventId: string; streamId: string; itemId: string }>,
+): Promise<PgPoolClient> {
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-    await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY]);
+    await client.query("SELECT pg_advisory_xact_lock_shared($1::bigint)", [
+      EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
+    ]);
     await client.query(
       `INSERT INTO event_store_streams (stream_id, current_version, updated_at)
-       VALUES ('catalog.item-low', 0, $1::timestamptz)`,
-      ["2026-06-28T12:00:00.000Z"],
+       VALUES ($1, 0, $2::timestamptz)`,
+      [event.streamId, "2026-06-28T12:00:00.000Z"],
     );
     await client.query(
       `INSERT INTO event_store_events (
@@ -800,30 +889,46 @@ async function beginUncommittedAppendWithGlobalLock(pool: IsolatedPostgresTestSc
          performed_by_user_id,
          for_account_id
        ) VALUES (
-         'evt_db_low',
-         'catalog.item-low',
+         $2,
+         $3,
          1,
          'tenant_a',
          'catalog',
          'catalog.item',
          'catalog.item.created',
-         '{"itemId":"low"}'::jsonb,
+         jsonb_build_object('itemId', $4::text),
          '{}'::jsonb,
          $1::timestamptz,
          $1::timestamptz,
          'user_db_test',
          'account_db_test'
        )`,
-      ["2026-06-28T12:00:00.000Z"],
+      ["2026-06-28T12:00:00.000Z", event.eventId, event.streamId, event.itemId],
     );
     await client.query(
       `UPDATE event_store_streams
        SET current_version = 1, updated_at = $2::timestamptz
        WHERE stream_id = $1`,
-      ["catalog.item-low", "2026-06-28T12:00:00.000Z"],
+      [event.streamId, "2026-06-28T12:00:00.000Z"],
     );
 
     return client;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    client.release(error);
+    throw error;
+  }
+}
+
+async function appendRawEventWithSharedFence(
+  pool: IsolatedPostgresTestSchema["pool"],
+  event: Readonly<{ eventId: string; streamId: string; itemId: string }>,
+): Promise<void> {
+  const client = await beginUncommittedAppendWithSharedFence(pool, event);
+
+  try {
+    await client.query("COMMIT");
+    client.release();
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     client.release(error);

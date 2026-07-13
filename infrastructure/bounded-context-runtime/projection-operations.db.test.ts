@@ -348,7 +348,7 @@ describeDb("projection operations Postgres integration", () => {
     const sourceEventStore = createPostgresEventStore({ pool: pools.source });
     const runner = runtime.subscriptionRunners[0];
     const context = createProjectionRunContext();
-    const lowPositionClient = await beginUncommittedSourceAppendWithGlobalLock(pools.source);
+    const lowPositionClient = await beginUncommittedSourceAppendWithSharedFence(pools.source);
     let lowPositionClientReleased = false;
 
     const appendHighPosition = sourceEventStore.appendToStream({
@@ -364,21 +364,18 @@ describeDb("projection operations Postgres integration", () => {
     });
 
     try {
-      await expect(hasSettledWithin(appendHighPosition, 50)).resolves.toBe(false);
-      await expect(runner.runOnce(context)).resolves.toMatchObject({
-        processed: 0,
-        lastGlobalPosition: "0",
-        state: "caught-up",
-      });
+      await expect(hasSettledWithin(appendHighPosition, 250)).resolves.toBe(true);
+      await appendHighPosition;
+      const catchUp = runner.runOnce(context);
+      await expect(hasSettledWithin(catchUp, 50)).resolves.toBe(false);
       await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBeNull();
       await expect(readProjectedItems()).resolves.toEqual([]);
 
       await lowPositionClient.query("COMMIT");
       lowPositionClient.release();
       lowPositionClientReleased = true;
-      await appendHighPosition;
 
-      await expect(runner.runOnce(context)).resolves.toMatchObject({
+      await expect(catchUp).resolves.toMatchObject({
         processed: 2,
         lastGlobalPosition: "2",
       });
@@ -392,6 +389,7 @@ describeDb("projection operations Postgres integration", () => {
         await lowPositionClient.query("ROLLBACK").catch(() => undefined);
         lowPositionClient.release();
       }
+      await appendHighPosition.catch(() => undefined);
     }
   });
 
@@ -794,12 +792,14 @@ describeDb("projection operations Postgres integration", () => {
   }
 });
 
-async function beginUncommittedSourceAppendWithGlobalLock(pool: PgTransactionalPool): Promise<PgPoolClient> {
+async function beginUncommittedSourceAppendWithSharedFence(pool: PgTransactionalPool): Promise<PgPoolClient> {
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-    await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY]);
+    await client.query("SELECT pg_advisory_xact_lock_shared($1::bigint)", [
+      EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
+    ]);
     await client.query(
       `INSERT INTO event_store_streams (stream_id, current_version, updated_at)
        VALUES ('source.item-low', 0, $1::timestamptz)`,

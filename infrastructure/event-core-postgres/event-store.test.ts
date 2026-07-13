@@ -25,9 +25,9 @@ describe("postgres event store", () => {
     await expect(store.readStream({ streamId: "checkout.checkout-session-chk_01" as never })).resolves.toEqual([]);
     await expect(store.readAll()).resolves.toEqual([]);
 
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     expect(calls[0].params).toEqual(["checkout.checkout-session-chk_01", 1, EVENT_STORE_READ_PAGE_SIZE_DEFAULT]);
-    expect(calls[1].params?.[calls[1].params.length - 1]).toBe(EVENT_STORE_READ_PAGE_SIZE_DEFAULT);
+    expect(calls[2].params?.[calls[2].params.length - 1]).toBe(EVENT_STORE_READ_PAGE_SIZE_DEFAULT);
   });
 
   it("allows readStream and readAll page sizes at the 1 to 500 boundaries", async () => {
@@ -46,7 +46,7 @@ describe("postgres event store", () => {
     await expect(store.readAll({ limit: 1 })).resolves.toEqual([]);
     await expect(store.readAll({ limit: EVENT_STORE_READ_PAGE_SIZE_LIMIT })).resolves.toEqual([]);
 
-    expect(calls.map((call) => call.params?.[call.params.length - 1])).toEqual([
+    expect(calls.filter((call) => !call.sql.includes("append_fence")).map((call) => call.params?.at(-1))).toEqual([
       1,
       EVENT_STORE_READ_PAGE_SIZE_LIMIT,
       1,
@@ -175,17 +175,20 @@ describe("postgres event store", () => {
       limit: 25,
     });
 
-    expect(queries).toHaveLength(1);
-    expect(queries[0].sql).toContain("global_position > $1::bigint");
-    expect(queries[0].sql).toContain("tenant_id = $2");
-    expect(queries[0].sql).toContain("event_type = ANY($3::text[])");
-    expect(queries[0].sql).toContain(
-      "((stream_context_name = $4 AND stream_id LIKE $5 || '%' ESCAPE '\\') OR (stream_context_name = $6 AND stream_id LIKE $7 || '%' ESCAPE '\\'))",
+    expect(queries).toHaveLength(2);
+    expect(queries[0].sql).toContain("append_fence");
+    expect(queries[1].sql).toContain("global_position > $1::bigint");
+    expect(queries[1].sql).toContain("global_position <= $2::bigint");
+    expect(queries[1].sql).toContain("tenant_id = $3");
+    expect(queries[1].sql).toContain("event_type = ANY($4::text[])");
+    expect(queries[1].sql).toContain(
+      "((stream_context_name = $5 AND stream_id LIKE $6 || '%' ESCAPE '\\') OR (stream_context_name = $7 AND stream_id LIKE $8 || '%' ESCAPE '\\'))",
     );
-    expect(queries[0].sql).not.toContain("stream_category = ANY");
-    expect(queries[0].sql).toContain("LIMIT $8");
-    expect(queries[0].params).toEqual([
+    expect(queries[1].sql).not.toContain("stream_category = ANY");
+    expect(queries[1].sql).toContain("LIMIT $9");
+    expect(queries[1].params).toEqual([
       "42",
+      "0",
       "tenant_1",
       ["catalog.catalog-item.published"],
       "catalog",
@@ -214,12 +217,13 @@ describe("postgres event store", () => {
       limit: 50,
     });
 
-    expect(queries[0].sql).toContain(
-      "((stream_context_name = $3 AND stream_id LIKE $4 || '%' ESCAPE '\\') OR (stream_context_name = $5 AND stream_id LIKE $6 || '%' ESCAPE '\\'))",
+    expect(queries[1].sql).toContain(
+      "((stream_context_name = $4 AND stream_id LIKE $5 || '%' ESCAPE '\\') OR (stream_context_name = $6 AND stream_id LIKE $7 || '%' ESCAPE '\\'))",
     );
-    expect(queries[0].sql).not.toContain("stream_category = ANY");
-    expect(queries[0].params).toEqual([
+    expect(queries[1].sql).not.toContain("stream_category = ANY");
+    expect(queries[1].params).toEqual([
       "10",
+      "0",
       ["identity.account.created"],
       "marketplace",
       "marketplace.review-",
@@ -245,8 +249,8 @@ describe("postgres event store", () => {
       limit: 5,
     });
 
-    expect(queries[0].sql).toContain("stream_id LIKE $3 || '%' ESCAPE '\\'");
-    expect(queries[0].params).toEqual(["0", "catalog", "catalog.item\\_\\%", 5]);
+    expect(queries[1].sql).toContain("stream_id LIKE $4 || '%' ESCAPE '\\'");
+    expect(queries[1].params).toEqual(["0", "0", "catalog", "catalog.item\\_\\%", 5]);
   });
 
   it("emits a versioned event-store wake notification only after append commit when enabled", async () => {

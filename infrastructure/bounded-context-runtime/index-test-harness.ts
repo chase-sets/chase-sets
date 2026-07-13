@@ -170,7 +170,7 @@ export function createMockPool(): MockPool {
         return { rows: [], rowCount: 0 };
       }
 
-      if (sql.includes("SELECT COALESCE(MAX(global_position), 0) AS head")) {
+      if (sql.includes("pg_sequence_last_value")) {
         const configuredHead = sourceHeadByPool.get(pool);
         if (configuredHead) {
           return { rows: [{ head: configuredHead }] };
@@ -583,6 +583,10 @@ export function createEventCoreMock() {
 export function createEventCorePostgresMock() {
   return {
     withPgTransaction: async (_pool: object, work: (client: object) => Promise<unknown>) => work(_pool),
+    readGapSafeEventStoreHead: async (pool: MockPool) => {
+      const result = await pool.query("SELECT pg_sequence_last_value('event_store_events') AS head");
+      return String(result.rows[0]?.head ?? "0");
+    },
     runInProjectionCascadeContext: <T>(_controller: unknown, work: () => T): T => work(),
     getProjectionCascadeController: () => undefined,
     runBoundedProjectionCascade: async (

@@ -3,6 +3,10 @@ import { eventStoreEventsReadIndexStatements } from "./event-store-indexes";
 import { eventCorePostgresSchemaSql } from "./schema";
 
 describe("event-core Postgres schema", () => {
+  it("keeps the global-position sequence uncached for gap-safe horizons", () => {
+    expect(eventCorePostgresSchemaSql).toContain("ALTER SEQUENCE event_store_events_global_position_seq CACHE 1");
+  });
+
   it("keeps event-store read indexes in the package-owned schema", () => {
     for (const statement of eventStoreEventsReadIndexStatements) {
       expect(eventCorePostgresSchemaSql).toContain(statement.boot);
