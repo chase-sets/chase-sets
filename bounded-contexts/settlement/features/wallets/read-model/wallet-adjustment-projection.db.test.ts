@@ -29,7 +29,11 @@ function requireDatabaseBaseUrl(): string {
   return databaseBaseUrl;
 }
 
-const adjustmentId = "wad_replay_1";
+// Real minted Wallet Adjustment ids are ULIDs (deriveWalletAdjustmentId), so
+// the display-reference derivation yields a WAD-XXXXXXXX reference. Fixtures
+// must use a real ULID; a short placeholder trips the raw-id fallback and
+// would not exercise the display-reference path the projection relies on.
+const adjustmentId = "wad_01JZ6DKP7S7Z4AZ5N5E6K7M8N9";
 
 /** Minimal transport envelope fields the notification-enqueueing handlers read; unused by the plain replay tests below. */
 function envelope(id: string, occurredAt: string) {
@@ -245,8 +249,8 @@ describeDb("settlement wallet adjustment projection persistence boundary", () =>
   });
 
   it("enqueues no posted notice for a bare posting and exactly one reversed notice linking both entries", async () => {
-    const originalId = "wad_rev_orig";
-    const reversalId = "wad_rev_reversal";
+    const originalId = "wad_01JZ6DKP7S7Z4AZ5N5E6K7M8P1";
+    const reversalId = "wad_01JZ6DKP7S7Z4AZ5N5E6K7M8P2";
     const targetAccountId = "acc_rev_target";
 
     const outbox = createOutboxSpy();

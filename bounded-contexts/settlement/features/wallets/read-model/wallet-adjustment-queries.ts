@@ -163,11 +163,17 @@ export async function getWalletAdjustmentForAccount(
   }
 
   const isTypedId = /^wad_/i.test(reference);
+  // A typed Wallet Adjustment id is a ULID (`wad_` + uppercase Crockford body)
+  // stored verbatim, so it must be matched with its exact case -- lowercasing
+  // it would corrupt the ULID body and miss every real adjustment. A display
+  // reference (`WAD-...`) is uppercased so an account holder can paste it in
+  // any case.
+  const normalizedReference = isTypedId ? reference : reference.toUpperCase();
   const result = await db.query<SettlementWalletAdjustmentAccountDetailRow>(
     `${walletAdjustmentAccountDetailSelect}
      WHERE ${isTypedId ? "adjustment.adjustment_id = $1" : "adjustment.display_reference = $1"}
        AND adjustment.target_account_id = $2`,
-    [isTypedId ? reference.toLowerCase() : reference.toUpperCase(), params.accountId],
+    [normalizedReference, params.accountId],
   );
   return result.rows[0] ?? null;
 }
