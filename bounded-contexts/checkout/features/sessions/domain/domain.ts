@@ -10,6 +10,10 @@ import type {
 import type { CartReadinessFulfillmentGroup, CartReadinessSnapshot } from "../../cart/domain/readiness";
 import type { CheckoutFulfillmentPreview } from "./fulfillment-preview";
 import {
+  checkoutCsatOutcomeFactEventType,
+  createCheckoutCsatOutcomeFact,
+} from "../../../support/request-support/csat-outcome-fact";
+import {
   assert,
   assertNever,
   CheckoutDomainError,
@@ -340,6 +344,11 @@ export type CheckoutSessionCancelledEvent = DomainEvent<
   }>
 >;
 
+export type CheckoutCsatOutcomeFactPublishedEvent = DomainEvent<
+  typeof checkoutCsatOutcomeFactEventType,
+  ReturnType<typeof createCheckoutCsatOutcomeFact>
+>;
+
 export type CheckoutSessionEvent =
   | CheckoutSessionStartedEvent
   | CheckoutShippingOptionSelectedEvent
@@ -351,7 +360,8 @@ export type CheckoutSessionEvent =
   | CheckoutOrdersCreatedEvent
   | CheckoutPaymentStartedEvent
   | CheckoutOfferSubmittedEvent
-  | CheckoutSessionCancelledEvent;
+  | CheckoutSessionCancelledEvent
+  | CheckoutCsatOutcomeFactPublishedEvent;
 
 function normalizeLine(line: CheckoutSessionLine): CheckoutSessionLine {
   const lockedListingId = normalizeOptionalText(line.lockedListingId ?? line.listingId);
@@ -724,15 +734,29 @@ export const decideCheckoutSession: AggregateDecider<
       if (state.orderIds.length > 0) {
         return [];
       }
+      const orderIds = normalizeOrderIds(command.orderIds);
+      const recordedAt = normalizeRequiredText(command.recordedAt, "Order recording must include a timestamp.");
       return [
         {
           type: "checkout.session.orders-created",
           data: {
             sessionId: state.sessionId,
-            orderIds: normalizeOrderIds(command.orderIds),
+            orderIds,
             orderWriteCommitPositions: normalizeCommitPositions(command.orderWriteCommitPositions),
-            recordedAt: normalizeRequiredText(command.recordedAt, "Order recording must include a timestamp."),
+            recordedAt,
           },
+        },
+        {
+          type: checkoutCsatOutcomeFactEventType,
+          data: createCheckoutCsatOutcomeFact({
+            outcomeCode: "checkout.completed",
+            subjectAccountId: state.buyerAccountId!,
+            subjectKind: "buyer",
+            subjectEntityType: "checkout-session",
+            subjectEntityId: state.sessionId,
+            outcomeOccurredAt: recordedAt,
+            idempotencyKey: `checkout-session:${state.sessionId}:completed`,
+          }),
         },
       ];
     case "RecordCheckoutReservations":
@@ -933,6 +957,8 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         ),
         updatedAt: event.data.cancelledAt,
       };
+    case checkoutCsatOutcomeFactEventType:
+      return state;
     default:
       return assertNever(event);
   }

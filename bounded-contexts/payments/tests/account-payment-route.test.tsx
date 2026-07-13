@@ -316,8 +316,8 @@ describe("marketplace account payment route", () => {
     expect(screen.getByText("Complete payment by deadline")).toBeTruthy();
   });
 
-  it("does not render retired ad-hoc checkout feedback triggers", () => {
-    for (const status of ["pending-confirmation", "failed", "cancelled"]) {
+  it("does not render the retired checkout-payment feedback prompt for any payment status", () => {
+    for (const status of ["pending-confirmation", "failed", "cancelled", "captured"]) {
       cleanup();
       mockUseLoaderData.mockReturnValue({
         payment: buildPayment({
@@ -337,25 +337,6 @@ describe("marketplace account payment route", () => {
 
       expect(screen.queryByTestId("platform-feedback-prompt")).toBeNull();
     }
-
-    cleanup();
-    mockUseLoaderData.mockReturnValue({
-      payment: buildPayment({
-        status: "captured",
-        processor_amount: "0.00",
-      }),
-      orders: [buildPurchase()],
-      isGuestCheckoutPayment: false,
-      showSupportDetails: false,
-    });
-
-    render(
-      <ChaseRoot>
-        <MarketplaceAccountPaymentRoute />
-      </ChaseRoot>,
-    );
-
-    expect(screen.queryByTestId("platform-feedback-prompt")).toBeNull();
   });
 
   it("hydrates payment timelines without locale-dependent timestamp text", async () => {

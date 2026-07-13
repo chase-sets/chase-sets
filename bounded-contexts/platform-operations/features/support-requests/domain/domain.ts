@@ -36,6 +36,10 @@ import {
 } from "./common";
 import { createChecklist, getSupportFlowDefinition, includesEvidenceType } from "./flow-catalog";
 import { isHighValueReturnAmount, returnFlowPolicy } from "./return-flow-policy";
+import {
+  createSupportCsatOutcomeFact,
+  supportCsatOutcomeFactEventType,
+} from "../../../support/request-support/csat-outcome-fact";
 
 export type SupportRequestState = Readonly<{
   supportRequestId: SupportRequestId | null;
@@ -396,6 +400,11 @@ export type SupportRequestResolvedEvent = DomainEvent<
   }>
 >;
 
+export type SupportCsatOutcomeFactPublishedEvent = DomainEvent<
+  typeof supportCsatOutcomeFactEventType,
+  ReturnType<typeof createSupportCsatOutcomeFact>
+>;
+
 export type SupportRequestClosedEvent = DomainEvent<
   "support.support-request.closed",
   Readonly<{
@@ -484,7 +493,8 @@ export type SupportRequestEvent =
   | SupportReviewReminderEmittedEvent
   | SupportRequestReturnDeliveredEvent
   | SupportRequestReturnConditionDisputedEvent
-  | SupportRequestReturnRefundReleasedEvent;
+  | SupportRequestReturnRefundReleasedEvent
+  | SupportCsatOutcomeFactPublishedEvent;
 
 function addHours(timestamp: string, hours: number | null) {
   if (hours === null) {
@@ -698,6 +708,25 @@ function refundAmountForResolution(
   }
 
   return selected.amount ?? selected.capAmount;
+}
+
+function createSupportResolutionOutcomeFact(
+  input: Readonly<{
+    supportRequestId: SupportRequestId;
+    buyerAccountId: AccountId;
+    flowType: SupportFlowType;
+    resolution: SupportResolution;
+  }>,
+) {
+  return createSupportCsatOutcomeFact({
+    outcomeCode: input.flowType === "return-request" ? "return.resolved" : "support.request-resolved",
+    subjectAccountId: input.buyerAccountId,
+    subjectKind: "buyer",
+    subjectEntityType: input.flowType === "return-request" ? "return" : "support-request",
+    subjectEntityId: input.supportRequestId,
+    outcomeOccurredAt: input.resolution.resolvedAt,
+    idempotencyKey: `support-request:${input.supportRequestId}:resolved`,
+  });
 }
 
 function normalizeEvidence(command: SubmitSupportEvidenceCommand): SupportEvidence {
@@ -1016,26 +1045,37 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
           definition.allowedResolutions.includes("cancel-order"),
           "This resolution is not accepted for the support flow.",
         );
+        const resolution: SupportResolution = {
+          resolutionType: "cancel-order",
+          summary: "Seller confirmed the buyer cancellation request.",
+          refundAmount: null,
+          resolvedByAccountId: response.submittedByAccountId,
+          resolvedByRole: response.submittedByRole,
+          resolvedAt: response.submittedAt,
+        };
+        const resolvedEvent: SupportRequestResolvedEvent = {
+          type: "support.support-request.resolved",
+          data: {
+            supportRequestId: state.supportRequestId,
+            orderId: state.orderId!,
+            buyerAccountId: state.buyerAccountId!,
+            sellerAccountId: state.sellerAccountId!,
+            flowType: state.flowType,
+            resolution,
+            autoCloseDueAt: autoCloseDueAtFor(response.submittedAt),
+          },
+        };
         return [
           responseRecorded,
+          resolvedEvent,
           {
-            type: "support.support-request.resolved",
-            data: {
+            type: supportCsatOutcomeFactEventType,
+            data: createSupportResolutionOutcomeFact({
               supportRequestId: state.supportRequestId,
-              orderId: state.orderId!,
               buyerAccountId: state.buyerAccountId!,
-              sellerAccountId: state.sellerAccountId!,
               flowType: state.flowType,
-              resolution: {
-                resolutionType: "cancel-order",
-                summary: "Seller confirmed the buyer cancellation request.",
-                refundAmount: null,
-                resolvedByAccountId: response.submittedByAccountId,
-                resolvedByRole: response.submittedByRole,
-                resolvedAt: response.submittedAt,
-              },
-              autoCloseDueAt: autoCloseDueAtFor(response.submittedAt),
-            },
+              resolution,
+            }),
           },
         ];
       }
@@ -1088,6 +1128,15 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
             resolution,
             autoCloseDueAt: autoCloseDueAtFor(resolution.resolvedAt),
           },
+        },
+        {
+          type: supportCsatOutcomeFactEventType,
+          data: createSupportResolutionOutcomeFact({
+            supportRequestId: state.supportRequestId,
+            buyerAccountId: state.buyerAccountId!,
+            flowType: state.flowType!,
+            resolution,
+          }),
         },
       ];
     }
@@ -1187,18 +1236,28 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         resolvedByRole,
         resolvedAt: normalizeIsoTimestamp(command.resolvedAt, "Support resolution must record a timestamp."),
       };
+      const resolvedEvent: SupportRequestResolvedEvent = {
+        type: "support.support-request.resolved",
+        data: {
+          supportRequestId: state.supportRequestId,
+          orderId: state.orderId!,
+          buyerAccountId: state.buyerAccountId!,
+          sellerAccountId: state.sellerAccountId!,
+          flowType: state.flowType!,
+          resolution,
+          autoCloseDueAt: autoCloseDueAtFor(resolution.resolvedAt),
+        },
+      };
       return [
+        resolvedEvent,
         {
-          type: "support.support-request.resolved",
-          data: {
+          type: supportCsatOutcomeFactEventType,
+          data: createSupportResolutionOutcomeFact({
             supportRequestId: state.supportRequestId,
-            orderId: state.orderId!,
             buyerAccountId: state.buyerAccountId!,
-            sellerAccountId: state.sellerAccountId!,
-            flowType: state.flowType!,
+            flowType: state.flowType,
             resolution,
-            autoCloseDueAt: autoCloseDueAtFor(resolution.resolvedAt),
-          },
+          }),
         },
       ];
     }
@@ -1502,6 +1561,8 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         ...state,
         returnRefundGateStatus: "return-refund-released",
       };
+    case supportCsatOutcomeFactEventType:
+      return state;
     default:
       return assertNever(event);
   }

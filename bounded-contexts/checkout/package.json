@@ -28,6 +28,7 @@
     "@chase-sets/catalog-seed": "workspace:*",
     "@chase-sets/checkout-order-source": "workspace:*",
     "@chase-sets/commercial-terms": "workspace:*",
+    "@chase-sets/customer-feedback": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",

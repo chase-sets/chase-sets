@@ -458,16 +458,19 @@ describe("support request domain", () => {
       }),
     ).toThrow("High-value return refunds require support review.");
 
-    expect(
-      decideSupportRequest(state, {
-        type: "ResolveSupportRequest",
-        resolutionType: "return-for-refund",
-        summary: "Support reviewed the high-value return.",
-        resolvedByAccountId: "acc_support" as never,
-        resolvedByRole: "support",
-        resolvedAt: "2026-05-09T14:00:00.000Z",
-      }),
-    ).toHaveLength(1);
+    const events = decideSupportRequest(state, {
+      type: "ResolveSupportRequest",
+      resolutionType: "return-for-refund",
+      summary: "Support reviewed the high-value return.",
+      resolvedByAccountId: "acc_support" as never,
+      resolvedByRole: "support",
+      resolvedAt: "2026-05-09T14:00:00.000Z",
+    });
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({
+      type: "platform-operations.csat-outcome-fact.v1",
+      data: { outcomeCode: "return.resolved" },
+    });
   });
 
   it("opens seller condition-attestation after return delivery and converts discrepancies to support review", () => {
@@ -669,6 +672,7 @@ describe("support request domain", () => {
     expect(accepted.map((event) => event.type)).toEqual([
       "support.support-request.offer-accepted",
       "support.support-request.resolved",
+      "platform-operations.csat-outcome-fact.v1",
     ]);
     expect(accepted[1]).toMatchObject({
       data: {
@@ -761,6 +765,7 @@ describe("support request domain", () => {
     expect(events.map((event) => event.type)).toEqual([
       "support.support-request.response-recorded",
       "support.support-request.resolved",
+      "platform-operations.csat-outcome-fact.v1",
     ]);
     expect(events[1]).toMatchObject({
       data: {
@@ -960,16 +965,19 @@ describe("support request domain", () => {
         }),
       ).toThrow("Escalated support requests can only be resolved by support.");
 
-      expect(
-        decideSupportRequest(afterEscalation, {
-          type: "ResolveSupportRequest",
-          resolutionType: "full-refund",
-          summary: "Support reviewed and issued a full refund.",
-          resolvedByAccountId: "acc_support" as never,
-          resolvedByRole: "support",
-          resolvedAt: "2026-05-09T14:00:00.000Z",
-        }),
-      ).toHaveLength(1);
+      const events = decideSupportRequest(afterEscalation, {
+        type: "ResolveSupportRequest",
+        resolutionType: "full-refund",
+        summary: "Support reviewed and issued a full refund.",
+        resolvedByAccountId: "acc_support" as never,
+        resolvedByRole: "support",
+        resolvedAt: "2026-05-09T14:00:00.000Z",
+      });
+      expect(events).toHaveLength(2);
+      expect(events[1]).toMatchObject({
+        type: "platform-operations.csat-outcome-fact.v1",
+        data: { outcomeCode: "support.request-resolved" },
+      });
     });
   });
 

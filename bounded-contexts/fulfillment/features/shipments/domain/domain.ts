@@ -4,6 +4,10 @@ import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import {
+  createFulfillmentCsatOutcomeFact,
+  fulfillmentCsatOutcomeFactEventType,
+} from "../../../support/request-support/csat-outcome-fact";
+import {
   assert,
   assertNever,
   ensureIsoTimestamp,
@@ -465,6 +469,11 @@ export type ShipmentExceptionRaisedEvent = DomainEvent<
   }>
 >;
 
+export type FulfillmentCsatOutcomeFactPublishedEvent = DomainEvent<
+  typeof fulfillmentCsatOutcomeFactEventType,
+  ReturnType<typeof createFulfillmentCsatOutcomeFact>
+>;
+
 export type FulfillmentShipmentEvent =
   | ShipmentCreatedEvent
   | ShipmentPackingStartedEvent
@@ -480,7 +489,8 @@ export type FulfillmentShipmentEvent =
   | ShipmentDispatchedEvent
   | ShipmentDeliveredEvent
   | ShipmentReturnedEvent
-  | ShipmentExceptionRaisedEvent;
+  | ShipmentExceptionRaisedEvent
+  | FulfillmentCsatOutcomeFactPublishedEvent;
 
 function normalizeShipmentLines(lines: readonly FulfillmentShipmentLineInput[]) {
   assert(lines.length > 0, "Shipments must include at least one line.");
@@ -833,6 +843,7 @@ export const decideFulfillmentShipment: AggregateDecider<
         state.status === "dispatched" || state.status === "exception",
         "Only dispatched shipments or shipments in exception can be delivered.",
       );
+      const deliveredAt = ensureIsoTimestamp(command.deliveredAt, "Delivery must record a timestamp.");
       return [
         {
           type: "fulfillment.shipment.delivered",
@@ -842,8 +853,20 @@ export const decideFulfillmentShipment: AggregateDecider<
             buyerAccountId: state.buyerAccountId,
             shippingDestinationSnapshot: state.shippingDestinationSnapshot,
             trackingIdentifier: state.trackingIdentifier,
-            deliveredAt: ensureIsoTimestamp(command.deliveredAt, "Delivery must record a timestamp."),
+            deliveredAt,
           },
+        },
+        {
+          type: fulfillmentCsatOutcomeFactEventType,
+          data: createFulfillmentCsatOutcomeFact({
+            outcomeCode: "order.delivered",
+            subjectAccountId: state.buyerAccountId,
+            subjectKind: "buyer",
+            subjectEntityType: "order",
+            subjectEntityId: state.orderId,
+            outcomeOccurredAt: deliveredAt,
+            idempotencyKey: `order:${state.orderId}:delivered`,
+          }),
         },
       ];
     case "ReturnShipment":
@@ -1083,6 +1106,8 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
         currentExceptionNotes: event.data.notes,
         exceptionRaisedAt: event.data.raisedAt,
       };
+    case fulfillmentCsatOutcomeFactEventType:
+      return state;
     default:
       return assertNever(event);
   }

@@ -7,7 +7,7 @@
   "slices": ["shipments"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
-  "allowedContextDependencies": ["@chase-sets/identity"],
+  "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity"],
   "seedRequirements": ["identity", "payments", "ordering"],
   "eventSubscriptions": [
     {
@@ -421,7 +421,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by fulfillment-owned features and composition seams.",
-      "expectedConsumers": ["Multiple fulfillment slices", "Deployable composition for fulfillment"],
+      "expectedConsumers": ["shipments"],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
