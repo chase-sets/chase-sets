@@ -89,6 +89,12 @@ export type MarketplaceSellerListingAvailabilityRow = Readonly<{
   updated_at: string;
 }>;
 
+export type MarketplaceSellerOrderCapacityRow = Readonly<{
+  account_id: string;
+  max_open_orders: number | null;
+  updated_at: string;
+}>;
+
 export type MarketplaceAccountRiskRow = Readonly<{
   account_id: string;
   badges: readonly string[];
@@ -669,6 +675,34 @@ export async function getSellerListingAvailability(
       available_again_at: null,
       disabled_at: null,
       enabled_at: null,
+      updated_at: new Date(0).toISOString(),
+    }
+  );
+}
+
+/**
+ * Order Capacity read. Absent row (or a NULL max_open_orders) means
+ * unlimited, mirroring the domain aggregate's default-unlimited-when-no-
+ * stream-exists shape. Inert until the enforcement slice reads it.
+ */
+export async function getSellerOrderCapacity(
+  db: PgQueryable,
+  accountId: string,
+): Promise<MarketplaceSellerOrderCapacityRow> {
+  const result = await db.query<MarketplaceSellerOrderCapacityRow>(
+    `SELECT
+       account_id,
+       max_open_orders,
+       updated_at::text AS updated_at
+     FROM marketplace_seller_order_capacity_pages
+     WHERE account_id = $1`,
+    [accountId],
+  );
+
+  return (
+    result.rows[0] ?? {
+      account_id: accountId,
+      max_open_orders: null,
       updated_at: new Date(0).toISOString(),
     }
   );

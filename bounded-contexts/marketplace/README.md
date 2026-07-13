@@ -22,6 +22,7 @@ If an item uses a `condition` dimension, that condition is part of the selected 
 - Requested quantity
 - Listing visibility and activation state
 - Seller Listing Availability
+- Order Capacity setting (the seller-set cap on Open Orders; inert until the ordering-owned enforcement slice consumes it)
 - Marketplace-wide demand visibility for matching seller supply
 - Source liquidity lists that let sellers send selected offers to Checkout Sell List
 - Post-transaction reviews, ratings, written feedback, review eligibility, and canonical review summaries (`features/reviews`)
@@ -42,6 +43,7 @@ Marketplace terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 Marketplace sales fee confirmation rules are documented in [Marketplace Sales Fee Confirmation](./docs/marketplace-sales-fee-confirmation.md).
 Limited Product Alert demand visibility is documented in [Limited Offer Demand Signals](./docs/limited-offer-demand-signals.md).
 Seller Listing Availability is documented in [Seller Listing Availability](./docs/seller-listing-availability.md).
+Order Capacity is documented in [Seller Order Capacity](./docs/seller-order-capacity.md).
 Standard listing Inventory disclosure is documented in [Standard Listing Inventory Disclosure](./docs/standard-listing-inventory-disclosure.md).
 Offer abuse controls are documented in [Offer Abuse Controls](./docs/offer-abuse-controls.md).
 
@@ -52,6 +54,7 @@ Offer Matches is a Marketplace source list. It can surface matching demand and p
 - Listing
 - Offer
 - Seller Listing Availability
+- Seller Order Capacity
 - Listing Publication Policy
 - Report
 - Offer Visibility Projection
@@ -69,6 +72,8 @@ Offer Matches is a Marketplace source list. It can surface matching demand and p
 - `ListingWithdrawn`
 - `SellerListingAvailabilityDisabled`
 - `SellerListingAvailabilityEnabled`
+- `SellerOrderCapacitySet`
+- `SellerOrderCapacityCleared`
 - `OfferSubmitted`
 - `OfferAccepted`
 

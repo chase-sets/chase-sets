@@ -55,6 +55,14 @@ import {
   type SellerListingAvailabilityReasonCategory,
   type SellerListingAvailabilityState,
 } from "../domain/seller-listing-availability";
+import {
+  decideSellerOrderCapacity,
+  evolveSellerOrderCapacity,
+  initialSellerOrderCapacityState,
+  type SellerOrderCapacityCommand,
+  type SellerOrderCapacityEvent,
+  type SellerOrderCapacityState,
+} from "../domain/seller-order-capacity";
 import { buildMarketplaceListingProjectionHandlers } from "../read-model/projection";
 import {
   getActiveQuantityCapForInventoryItem,
@@ -64,6 +72,7 @@ import {
   getSellerListing,
   getSellerListingAvailability,
   getSellerListingStatusCounts,
+  getSellerOrderCapacity,
   hasSellerSupplyLocationNamed,
   listActiveListingsForInventoryItem,
   listItemListings,
@@ -122,6 +131,11 @@ export type MarketplaceListingServices = Readonly<{
     SellerListingAvailabilityCommand,
     SellerListingAvailabilityState,
     SellerListingAvailabilityEvent
+  >;
+  orderCapacityCommandHandler: CommandHandler<
+    SellerOrderCapacityCommand,
+    SellerOrderCapacityState,
+    SellerOrderCapacityEvent
   >;
   createListing: (
     params: Readonly<{
@@ -322,6 +336,15 @@ export type MarketplaceListingServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: string; version: number; status: "available" }>;
+  getSellerOrderCapacity: (accountId: string) => ReturnType<typeof getSellerOrderCapacity>;
+  setSellerOrderCapacity: (
+    params: Readonly<{ accountId: string; maxOpenOrders: number }>,
+    context: EventStoreContext,
+  ) => Promise<{ accountId: string; version: number; maxOpenOrders: number }>;
+  clearSellerOrderCapacity: (
+    params: Readonly<{ accountId: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ accountId: string; version: number; maxOpenOrders: null }>;
   listSellerListings: (params: Parameters<typeof listSellerListings>[1]) => ReturnType<typeof listSellerListings>;
   getSellerListingStatusCounts: (accountId: string) => ReturnType<typeof getSellerListingStatusCounts>;
   listSellerInventoryItemSupply: (
@@ -451,6 +474,13 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     initialState: () => initialSellerListingAvailabilityState,
     evolve: evolveSellerListingAvailability,
     decide: decideSellerListingAvailability,
+  });
+  const { commandHandler: orderCapacityCommandHandler } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<SellerOrderCapacityEvent>(),
+    initialState: () => initialSellerOrderCapacityState,
+    evolve: evolveSellerOrderCapacity,
+    decide: decideSellerOrderCapacity,
   });
 
   /**
@@ -1048,6 +1078,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
   return {
     commandHandler,
     sellerAvailabilityCommandHandler,
+    orderCapacityCommandHandler,
     createListing,
     createBatchDraftListingFromInventorySnapshot: async (params, context) => {
       assert(
@@ -1327,6 +1358,40 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         accountId: params.accountId,
         version: result.version,
         status: "available",
+      };
+    },
+    getSellerOrderCapacity: (accountId) => getSellerOrderCapacity(deps.db, accountId),
+    setSellerOrderCapacity: async (params, context) => {
+      const result = await orderCapacityCommandHandler({
+        streamId: `marketplace.seller-order-capacity-${params.accountId}`,
+        command: {
+          type: "SetSellerOrderCapacity",
+          accountId: params.accountId,
+          maxOpenOrders: params.maxOpenOrders,
+        },
+        context,
+      });
+
+      return {
+        accountId: params.accountId,
+        version: result.version,
+        maxOpenOrders: params.maxOpenOrders,
+      };
+    },
+    clearSellerOrderCapacity: async (params, context) => {
+      const result = await orderCapacityCommandHandler({
+        streamId: `marketplace.seller-order-capacity-${params.accountId}`,
+        command: {
+          type: "ClearSellerOrderCapacity",
+          accountId: params.accountId,
+        },
+        context,
+      });
+
+      return {
+        accountId: params.accountId,
+        version: result.version,
+        maxOpenOrders: null,
       };
     },
     listSellerListings: (params) => listSellerListings(deps.db, params),

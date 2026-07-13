@@ -266,6 +266,14 @@ function parseAvailableAgainAt(value: unknown) {
   return normalized ? normalized : null;
 }
 
+function parseMaxOpenOrders(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric < 1) {
+    throw new Error("Order capacity must be a whole number of at least 1.");
+  }
+  return numeric;
+}
+
 function isMultipartRequest(c: { req: { header(name: string): string | undefined } }) {
   return (c.req.header("content-type") ?? "").includes("multipart/form-data");
 }
@@ -455,6 +463,82 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     try {
       const result = await services.enableSellerListingAvailability({ accountId: access.actor.accountId }, context);
+
+      return c.json(result);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  // Order Capacity is inert in this slice: the setting and its events
+  // publish, but nothing enforces them yet (no new order intake is
+  // refused). Enforcement is a later slice.
+  app.get("/order-capacity", async (c) => {
+    const access = requireListingAccess(c, "listings.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json(await services.getSellerOrderCapacity(access.actor.accountId));
+  });
+
+  app.post("/order-capacity", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+
+    try {
+      const result = await services.setSellerOrderCapacity(
+        {
+          accountId: access.actor.accountId,
+          maxOpenOrders: parseMaxOpenOrders(body.maxOpenOrders ?? body.max_open_orders),
+        },
+        context,
+      );
+
+      return c.json(result);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.delete("/order-capacity", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      const result = await services.clearSellerOrderCapacity({ accountId: access.actor.accountId }, context);
 
       return c.json(result);
     } catch (error) {

@@ -5,6 +5,7 @@
     "listing",
     "offer",
     "seller-listing-availability",
+    "seller-order-capacity",
     "report",
     "review",
     "review-summary",
@@ -93,7 +94,9 @@
         "marketplace.listing.auto-unlisted",
         "marketplace.listing.withdrawn",
         "marketplace.seller-listing-availability.disabled",
-        "marketplace.seller-listing-availability.enabled"
+        "marketplace.seller-listing-availability.enabled",
+        "marketplace.seller-order-capacity.set",
+        "marketplace.seller-order-capacity.cleared"
       ],
       "order": 22,
       "projectionHandlerSetNames": ["marketplace-listing-projection"]
@@ -264,7 +267,11 @@
     {
       "projectionName": "marketplace-listing-projection",
       "sourceContextNames": ["catalog", "marketplace"],
-      "ownedTables": ["marketplace_listing_pages", "marketplace_seller_listing_availability_pages"],
+      "ownedTables": [
+        "marketplace_listing_pages",
+        "marketplace_seller_listing_availability_pages",
+        "marketplace_seller_order_capacity_pages"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
@@ -1012,13 +1019,15 @@
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/withdraw",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/preview",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/prices/bulk",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /order-capacity",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:DELETE /order-capacity",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /terms/public-standard/listing-preview"
       ],
       "visibleDestination": {
-        "description": "Listing API commands return command-owned ids, versions, statuses, draft intent snapshots, or fee quote snapshots; browser form destinations use the returned receipt for fresh detail/list reads."
+        "description": "Listing API commands return command-owned ids, versions, statuses, draft intent snapshots, or fee quote snapshots; browser form destinations use the returned receipt for fresh detail/list reads. Order Capacity set/clear are additive and inert -- no browser destination consumes them in this slice (no seller-facing UI yet); they return the same command-owned accountId/version/maxOpenOrders snapshot shape as the other listing commands."
       },
       "proof": {
-        "authoritativeResponse": "Listing create/update/publish/pause/withdraw and availability commands respond from the committed command result with id/version/status; draft intent and claim routes return the draft snapshot; fee preview routes return the computed terms snapshot, with stale fee quote responses carrying the current quote.",
+        "authoritativeResponse": "Listing create/update/publish/pause/withdraw and availability commands respond from the committed command result with id/version/status; draft intent and claim routes return the draft snapshot; fee preview routes return the computed terms snapshot, with stale fee quote responses carrying the current quote; setSellerOrderCapacity/clearSellerOrderCapacity respond from the committed command result with accountId/version/maxOpenOrders.",
         "tests": [
           "bounded-contexts/marketplace/features/listings/api/route.test.ts",
           "bounded-contexts/marketplace/features/listings/api/runtime.test.ts",
