@@ -43,9 +43,9 @@ describe("payments refund domain", () => {
         ...requestRefund,
         orderIds: ["ord_1" as never, "ord_1" as never],
         amount: "10",
-        currencyCode: "USD",
+        currencyCode: "usd",
         reason: " Item was unavailable. ",
-        processorName: "STRIPE",
+        processorName: "stripe",
       }),
     ).toEqual([
       {
@@ -175,6 +175,13 @@ describe("payments refund domain", () => {
         },
       },
     ]);
+  });
+
+  it("rejects a provider failure after the refund was issued", () => {
+    const requestedState = evolve(initialRefundState, requestRefund);
+    const issuedState = evolve(requestedState, recordIssued);
+
+    expect(() => decide(issuedState, recordFailure)).toThrow("Issued refunds cannot fail.");
   });
 
   it.each([
