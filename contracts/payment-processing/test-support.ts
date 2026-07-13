@@ -72,13 +72,16 @@ export function createFakePaymentProcessorGateway(
       };
     },
     async createSetupSession(input: CreateProcessorSetupSessionInput) {
+      const embedded = input.uiMode === "embedded";
       return {
         processorName: "stripe",
-        processorSetupKind: "checkout-setup-session",
-        processorSetupReference: `cs_setup_seed_${input.accountId}`,
-        processorClientSecret: `cs_setup_seed_${input.accountId}_secret_seed`,
-        processorRedirectUrl: `https://checkout.stripe.test/setup/${input.accountId}`,
-        processorStatus: "open",
+        processorSetupKind: embedded ? "setup-intent" : "checkout-setup-session",
+        processorSetupReference: embedded ? `seti_setup_seed_${input.accountId}` : `cs_setup_seed_${input.accountId}`,
+        processorClientSecret: embedded
+          ? `seti_setup_seed_${input.accountId}_secret_seed`
+          : `cs_setup_seed_${input.accountId}_secret_seed`,
+        processorRedirectUrl: embedded ? null : `https://checkout.stripe.test/setup/${input.accountId}`,
+        processorStatus: embedded ? "requires_payment_method" : "open",
       };
     },
     async retrieveSetupSessionResult(processorSetupReference) {

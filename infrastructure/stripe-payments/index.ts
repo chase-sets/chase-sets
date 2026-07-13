@@ -97,6 +97,7 @@ type StripeCustomerResponse = Readonly<{
 
 type StripeSetupIntentResponse = Readonly<{
   id: string;
+  client_secret?: string | null;
   status?: string | null;
   payment_method?: string | Readonly<StripePaymentMethodResponse> | null;
   customer?: string | Readonly<{ id?: string | null }> | null;
@@ -1341,6 +1342,40 @@ export function createStripePaymentProcessorGateway(
       };
     },
     async createSetupSession(input: CreateProcessorSetupSessionInput): Promise<CreatedProcessorSetupSession> {
+      if (input.uiMode === "embedded") {
+        const body = await stripeRequest<StripeSetupIntentResponse>(
+          "/v1/setup_intents",
+          {
+            method: "POST",
+            body: toFormBody({
+              customer: input.providerCustomerReference,
+              usage: "off_session",
+              "automatic_payment_methods[enabled]": "true",
+              "metadata[account_id]": input.accountId,
+              "metadata[setup_reference]": input.consentId,
+              "metadata[saved_payment_consent_id]": input.consentId,
+              "metadata[saved_payment_consent_text]": input.consentText,
+            }),
+          },
+          {
+            idempotencyKey: input.idempotencyKey ?? `payments:account:${input.accountId}:setup:${input.consentId}`,
+          },
+        );
+
+        if (!body.id?.trim()) {
+          throw new Error("Stripe did not return a setup intent id.");
+        }
+
+        return {
+          processorName: "stripe",
+          processorSetupKind: "setup-intent",
+          processorSetupReference: body.id,
+          processorClientSecret: body.client_secret?.trim() ?? null,
+          processorRedirectUrl: null,
+          processorStatus: body.status?.trim() ?? "requires_payment_method",
+        };
+      }
+
       const setupReturnUrl = normalizeOptionalText(input.returnUrl) ?? "http://localhost/account/payment-methods";
       const body = await stripeRequest<StripeCheckoutSessionResponse>(
         "/v1/checkout/sessions",
@@ -1379,6 +1414,28 @@ export function createStripePaymentProcessorGateway(
       };
     },
     async retrieveSetupSessionResult(processorSetupReference: string): Promise<ProcessorSetupSessionResult> {
+      if (processorSetupReference.startsWith("seti_")) {
+        const setupIntent = await stripeRequest<StripeSetupIntentResponse>(
+          `/v1/setup_intents/${encodeURIComponent(processorSetupReference)}`,
+          { method: "GET" },
+        );
+        const methodReference = paymentMethodReference(setupIntent.payment_method);
+        const savedPaymentMethod =
+          setupIntent.payment_method && typeof setupIntent.payment_method !== "string"
+            ? mapSavedPaymentMethod(setupIntent.payment_method)
+            : methodReference
+              ? await retrievePaymentMethod(methodReference)
+              : null;
+
+        return {
+          processorName: "stripe",
+          processorSetupReference,
+          processorStatus: setupIntent.status?.trim() ?? "unknown",
+          setupIntentReference: setupIntent.id,
+          savedPaymentMethod,
+        };
+      }
+
       const session = await stripeRequest<StripeCheckoutSessionResponse>(
         `/v1/checkout/sessions/${encodeURIComponent(processorSetupReference)}`,
         { method: "GET" },
