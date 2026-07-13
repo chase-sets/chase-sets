@@ -108,6 +108,7 @@ describe("public presence home route", () => {
           role: "both",
           interests: "low-sales-fees",
           marketingConsent: "yes",
+          landingExperimentVariant: "seller_first_v2",
           pagePath: "/",
         }),
       }),
@@ -121,6 +122,7 @@ describe("public presence home route", () => {
     expect(location.pathname).toBe("/welcome");
     expect(location.searchParams.get("signup")).toBe("wls_public");
     expect(location.searchParams.get("fresh")).toBe("1");
+    expect(location.searchParams.get("variant")).toBe("seller_first_v2");
     expect(location.searchParams.has("attributed")).toBe(false);
     expect(fetch).toHaveBeenCalledWith(
       "https://chasesets.test/api/public-presence/waitlist",

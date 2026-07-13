@@ -119,6 +119,24 @@ describe("waitlist success page", () => {
     expect(events).toContain("waitlist_signup_attributed");
   });
 
+  it("keeps the buyer hero assignment on signup analytics", async () => {
+    vi.stubGlobal("fetch", stubFetch(0));
+    window.dataLayer = [];
+
+    render(
+      <WaitlistSuccessPage
+        signupId="wls_public"
+        publicOrigin="https://chasesets.com"
+        discordInviteUrl={null}
+        landingExperimentVariant="seller_first_v2"
+      />,
+    );
+
+    expect(window.dataLayer).toContainEqual(
+      expect.objectContaining({ event: "waitlist_signup_succeeded", variant: "seller_first_v2" }),
+    );
+  });
+
   it("omits the attributed event for an unreferred signup", async () => {
     vi.stubGlobal("fetch", stubFetch(0));
     window.dataLayer = [];

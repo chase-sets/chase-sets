@@ -178,7 +178,7 @@ export const publicPresenceEnglishTranslations = {
     "Before payment, checkout shows item details, seller profile, shipping, return options, and support coverage. After purchase, support reviews tracking, payment status, listing evidence, and account context.",
   "publicPresence.faq.safety.question": "How are purchases protected?",
   "publicPresence.faq.shipping.answer":
-    "Checkout shows shipping method, estimate, items from the same seller, and 5% of item value earned toward shipping before payment. Sellers who accept offers earn a 5% shipping rebate.",
+    "Checkout shows shipping method, estimate, and items from the same seller. The Collector Shipping Credit puts 5% of item value toward shipping before payment. The Accepted Offer Rebate gives sellers who accept offers a 5% shipping rebate.",
   "publicPresence.faq.shipping.question": "How does shipping work?",
   "publicPresence.faq.title": "Marketplace questions",
   "publicPresence.footer.description":
@@ -186,8 +186,11 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.footer.title": "Chase Sets prelaunch",
   "publicPresence.home.description":
     "Request early access to post open offers for the cards you want, or list yours with 0% fees during beta. Built for people who buy and sell.",
+  "publicPresence.home.buyerHero.description":
+    "Request early access to finish sets and decks, post open offers for the cards you want, and compare delivered totals before checkout.",
   "publicPresence.home.discordCta": "Join the founders circle on Discord",
   "publicPresence.home.eyebrow": "Chase the cards. Complete the sets. Keep the margin.",
+  "publicPresence.home.buyerHero.eyebrow": "Complete the sets. See the total. Buy with confidence.",
   "publicPresence.home.feeCalculator.caption":
     "Marketplace fee, seller-paid payment processing, and what you keep selling {total}: Chase Sets versus TCGplayer and eBay.",
   "publicPresence.home.feeCalculator.capNote":
@@ -265,6 +268,12 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.heroHighlight.lowValue.value": "Keep 100% of the sale",
   "publicPresence.home.heroHighlight.offers.label": "Open offers",
   "publicPresence.home.heroHighlight.offers.value": "Post what you'll pay",
+  "publicPresence.home.buyerHero.highlight.deliveredTotals.label": "Delivered totals",
+  "publicPresence.home.buyerHero.highlight.deliveredTotals.value": "See costs before payment",
+  "publicPresence.home.buyerHero.highlight.shippingCredit.label": "Collector Shipping Credit",
+  "publicPresence.home.buyerHero.highlight.shippingCredit.value": "Earn 5% of item value toward shipping",
+  "publicPresence.home.buyerHero.highlight.setCompletion.label": "Set completion",
+  "publicPresence.home.buyerHero.highlight.setCompletion.value": "Find the cards that finish your sets",
   "publicPresence.home.heroImageAlt":
     "Trading cards being sorted, priced, and prepared for shipment on an account workspace.",
   "publicPresence.home.howItWorks.badge": "Workflow preview",
@@ -439,6 +448,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.sellerEconomics.math.graded.total.value": "$100.00",
   "publicPresence.home.sellerEconomics.title": "Fees that work differently",
   "publicPresence.home.title": "The marketplace that works both ways.",
+  "publicPresence.home.buyerHero.title": "The cards you need, with the full picture before you pay.",
   "publicPresence.home.trust.description":
     "Chase Sets is still prelaunch. The trust proof available now is public policy clarity, visible support, no live transaction pressure, and payment plans that keep totals visible before money moves.",
   "publicPresence.home.trust.payment.description":

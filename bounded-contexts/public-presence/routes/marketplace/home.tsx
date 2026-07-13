@@ -13,6 +13,7 @@ import {
   type CheckoutFeePreview,
 } from "../../features/waitlist/ui/checkout-fee-preview";
 import { launchTimeline } from "../../features/waitlist/ui/launch-config";
+import { normalizeLandingExperimentVariant } from "../../features/waitlist/ui/landing-experiment";
 import { publicPresenceT as t } from "../../features/waitlist/ui/public-presence-translator";
 import { loadLandingFeePresentation } from "../../support/request-support/landing-fee-presentation";
 
@@ -119,6 +120,10 @@ export async function action({ request }: ActionFunctionArgs) {
     // games already recorded (for prefilling the chips) without a projection
     // read.
     welcomeUrl.searchParams.set("role", String(formData.get("role") ?? "both"));
+    welcomeUrl.searchParams.set(
+      "variant",
+      normalizeLandingExperimentVariant(optional(formData.get("landingExperimentVariant"))),
+    );
     for (const game of new Set(formData.getAll("games").map(String))) {
       welcomeUrl.searchParams.append("game", game);
     }

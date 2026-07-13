@@ -29,7 +29,7 @@ Event details include:
 - bounded-cardinality metric details such as `section`, `target`, `field`, `role`, `interest`, `status`, and `variant`
 - sanitized log-only source details such as `checked`, `page_path`, `utm_source`, `utm_medium`, and `utm_campaign`
 
-The current public landing experiment variant is `seller_first_v1`. Treat variants as durable public experiment keys, not remediation, audit, branch, or implementation labels.
+The current public landing experiment variants are `seller_first_v1` (the unchanged seller-first default) and `seller_first_v2` (the buyer-intent hero). The assignment is deterministic and first-party: an explicit `?intent=buy` or buyer-oriented UTM signal selects v2, while sell, both, invalid, or absent signals remain on v1. The selected key is included in the landing, section, form, and signup events so campaign funnel metrics can split by variant. Treat variants as durable public experiment keys, not remediation, audit, branch, or implementation labels.
 
 Keep event properties free of email addresses, account identifiers, user identifiers, raw URLs, and unbounded text. The public-web bridge may forward only bounded source fields for funnel analysis: `page_path`, `utm_source`, `utm_medium`, and `utm_campaign`. UTM values may contain normal campaign text such as spaces, percent signs, plus signs, periods, or hyphens, but must still reject emails, URLs, and long arbitrary strings. Referrer, `utm_content`, and `utm_term` remain durable waitlist source fields rather than operational analytics labels.
 

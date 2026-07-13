@@ -28,6 +28,34 @@ afterEach(() => {
 });
 
 describe("public waitlist form migration smoke", () => {
+  it("renders the buyer hero and records seller_first_v2 for an explicit buyer intent", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(
+      <PublicPresenceHomePage
+        actionData={null}
+        source={{ ...source, pagePath: "/?intent=buy", utmSource: null, utmCampaign: null }}
+      />,
+    );
+
+    expect(container.textContent).toContain("The cards you need, with the full picture before you pay.");
+    expect(container.textContent).toContain("Collector Shipping Credit");
+    expect(container.textContent).toContain("Set completion");
+
+    const form = document.getElementById("waitlist-form")?.querySelector("form");
+    expect(new FormData(form!).get("role")).toBe("buy");
+    expect(new FormData(form!).get("landingExperimentVariant")).toBe("seller_first_v2");
+    expect(window.dataLayer).toContainEqual(
+      expect.objectContaining({ event: "landing_page_view", variant: "seller_first_v2" }),
+    );
+  });
+
   it("keeps the hero form to email + intent, with no required consent control", () => {
     vi.stubGlobal(
       "fetch",
@@ -65,6 +93,7 @@ describe("public waitlist form migration smoke", () => {
     expect(formData.get("utmCampaign")).toBe("form-migration");
     expect(formData.get("utmContent")).toBe("hero");
     expect(formData.get("utmTerm")).toBe("pokemon");
+    expect(formData.get("landingExperimentVariant")).toBe("seller_first_v1");
   });
 
   it("keeps the final-CTA form's marketing consent checkbox optional", () => {

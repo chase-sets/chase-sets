@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   Form,
   Banner,
@@ -56,6 +56,13 @@ import {
   type CheckoutFeePreview,
 } from "./checkout-fee-preview";
 import { FeeCalculatorSection, type PublicMarketplaceFeeSchedule } from "./fee-comparison-calculator";
+import {
+  landingExperimentVariantForIntent,
+  landingExperimentVariants,
+  resolveLandingIntent,
+  type LandingExperimentVariant,
+  type LandingIntent,
+} from "./landing-experiment";
 import { launchTimeline } from "./launch-config";
 import { publicPresenceT as t } from "./public-presence-translator";
 
@@ -164,7 +171,7 @@ function gameRosterHref(pagePath: string, game: string) {
   return `/?${params.toString()}#waitlist-form`;
 }
 
-type WaitlistMarketplaceIntent = "both" | "buy" | "sell";
+type WaitlistMarketplaceIntent = LandingIntent;
 type WaitlistInterest = "low-sales-fees" | "bulk-listing" | "set-completion" | "pricing-tools" | "efficient-shipping";
 
 type WaitlistIntent = Readonly<{
@@ -177,7 +184,13 @@ const defaultIntent: WaitlistIntent = {
   interest: "low-sales-fees",
 };
 
-const landingExperimentVariant = "seller_first_v1";
+const LandingExperimentVariantContext = createContext<LandingExperimentVariant>(
+  landingExperimentVariants.sellerFirstV1,
+);
+
+function useLandingExperimentVariant() {
+  return useContext(LandingExperimentVariantContext);
+}
 
 const sellerIntent: WaitlistIntent = {
   role: "sell",
@@ -219,6 +232,11 @@ function resolveHeroIntent(value: string): WaitlistIntent {
   return defaultIntent;
 }
 
+function resolveInitialHeroIntent(source: WaitlistPageSource): WaitlistIntent {
+  const pageUrl = new URL(source.pagePath, "https://chasesets.test");
+  return resolveHeroIntent(resolveLandingIntent({ ...source, intent: pageUrl.searchParams.get("intent") }));
+}
+
 const policyLinks = [
   { href: "/help", label: t("publicPresence.nav.help") },
   { href: "/terms", label: t("publicPresence.nav.terms") },
@@ -229,33 +247,38 @@ const policyLinks = [
   { href: "/founders", label: t("publicPresence.nav.foundersTerms") },
 ];
 
-function trackCtaClick(placement: string, target: string) {
+function trackCtaClick(
+  placement: string,
+  target: string,
+  variant: LandingExperimentVariant = landingExperimentVariants.sellerFirstV1,
+) {
   trackWaitlistEvent("cta_clicked", {
     section: placement,
     target,
-    variant: landingExperimentVariant,
+    variant,
   });
 }
 
-function useLandingSectionViewTracking() {
+function useLandingSectionViewTracking(variant: LandingExperimentVariant) {
+  const viewedSections = useRef(new Set<string>());
+
   useEffect(() => {
     if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
       return undefined;
     }
 
-    const viewedSections = new Set<string>();
     const sections = document.querySelectorAll<HTMLElement>("[data-public-presence-section]");
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           const section = entry.target.getAttribute("data-public-presence-section");
-          if (!section || viewedSections.has(section) || !entry.isIntersecting) {
+          if (!section || viewedSections.current.has(section) || !entry.isIntersecting) {
             return;
           }
-          viewedSections.add(section);
+          viewedSections.current.add(section);
           trackWaitlistEvent("section_viewed", {
             section,
-            variant: landingExperimentVariant,
+            variant,
           });
           observer.unobserve(entry.target);
         });
@@ -265,10 +288,21 @@ function useLandingSectionViewTracking() {
 
     sections.forEach((section) => observer.observe(section));
     return () => observer.disconnect();
-  }, []);
+  }, [variant]);
 }
 
-function DiscordInviteLink({ href, section = "final_cta" }: { href: string; section?: string }) {
+function DiscordInviteLink({
+  href,
+  section = "final_cta",
+  variant,
+}: {
+  href: string;
+  section?: string;
+  variant?: LandingExperimentVariant;
+}) {
+  const contextVariant = useLandingExperimentVariant();
+  const landingExperimentVariant = variant ?? contextVariant;
+
   return (
     <LinkButton
       href={href}
@@ -277,7 +311,7 @@ function DiscordInviteLink({ href, section = "final_cta" }: { href: string; sect
       leadingIcon="message"
       target="_blank"
       rel="noopener noreferrer"
-      onClick={() => trackCtaClick(section, "discord")}
+      onClick={() => trackCtaClick(section, "discord", landingExperimentVariant)}
     >
       {t("publicPresence.home.discordCta")}
     </LinkButton>
@@ -350,58 +384,66 @@ function useWaitlistCounterDisplay() {
   return displayCount;
 }
 
-export function PublicPresencePageShell({ children }: { children: ReactNode }) {
+export function PublicPresencePageShell({
+  children,
+  landingExperimentVariant = landingExperimentVariants.sellerFirstV1,
+}: {
+  children: ReactNode;
+  landingExperimentVariant?: LandingExperimentVariant;
+}) {
   const promoBarMessages = usePromoBarMessages();
 
   return (
-    <ChaseRoot colorMode="system" linkComponent={RouterLinkAdapter}>
-      <SkipLink />
-      <MobileStickyInset>
-        <Container width="wide">
-          <Stack gap={4}>
-            <PromoBar messages={promoBarMessages} />
-            <Surface element="nav" tone="subtle" padding={2}>
-              <Cluster gap={2}>
-                <Inline gap={3} align="center">
-                  <BrandLink label={t("publicPresence.brand")} />
-                </Inline>
-                <LinkButton
-                  href="/#waitlist-form"
-                  tone="primary"
-                  size="sm"
-                  leadingIcon="rocket"
-                  onClick={() => trackCtaClick("nav", "waitlist_form")}
-                >
-                  {t("publicPresence.nav.waitlist")}
-                </LinkButton>
-              </Cluster>
-            </Surface>
-            <main id="main-content">{children}</main>
-            <Surface element="footer" tone="subtle">
-              <Stack gap={3}>
-                <Text weight="semibold">{t("publicPresence.footer.title")}</Text>
-                <Inline gap={3}>
-                  {policyLinks.map((link) => (
-                    <LinkText key={link.href} href={link.href}>
-                      {link.label}
-                    </LinkText>
-                  ))}
-                  <LinkText href="/contact">{t("publicPresence.nav.contact")}</LinkText>
-                </Inline>
-                <Text size="sm" tone="secondary">
-                  {t("publicPresence.footer.description")}
-                </Text>
-              </Stack>
-            </Surface>
-          </Stack>
-        </Container>
-      </MobileStickyInset>
-      <MobileStickyWaitlistCta />
-    </ChaseRoot>
+    <LandingExperimentVariantContext.Provider value={landingExperimentVariant}>
+      <ChaseRoot colorMode="system" linkComponent={RouterLinkAdapter}>
+        <SkipLink />
+        <MobileStickyInset>
+          <Container width="wide">
+            <Stack gap={4}>
+              <PromoBar messages={promoBarMessages} />
+              <Surface element="nav" tone="subtle" padding={2}>
+                <Cluster gap={2}>
+                  <Inline gap={3} align="center">
+                    <BrandLink label={t("publicPresence.brand")} />
+                  </Inline>
+                  <LinkButton
+                    href="/#waitlist-form"
+                    tone="primary"
+                    size="sm"
+                    leadingIcon="rocket"
+                    onClick={() => trackCtaClick("nav", "waitlist_form", landingExperimentVariant)}
+                  >
+                    {t("publicPresence.nav.waitlist")}
+                  </LinkButton>
+                </Cluster>
+              </Surface>
+              <main id="main-content">{children}</main>
+              <Surface element="footer" tone="subtle">
+                <Stack gap={3}>
+                  <Text weight="semibold">{t("publicPresence.footer.title")}</Text>
+                  <Inline gap={3}>
+                    {policyLinks.map((link) => (
+                      <LinkText key={link.href} href={link.href}>
+                        {link.label}
+                      </LinkText>
+                    ))}
+                    <LinkText href="/contact">{t("publicPresence.nav.contact")}</LinkText>
+                  </Inline>
+                  <Text size="sm" tone="secondary">
+                    {t("publicPresence.footer.description")}
+                  </Text>
+                </Stack>
+              </Surface>
+            </Stack>
+          </Container>
+        </MobileStickyInset>
+        <MobileStickyWaitlistCta landingExperimentVariant={landingExperimentVariant} />
+      </ChaseRoot>
+    </LandingExperimentVariantContext.Provider>
   );
 }
 
-function MobileStickyWaitlistCta() {
+function MobileStickyWaitlistCta({ landingExperimentVariant }: { landingExperimentVariant: LandingExperimentVariant }) {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
@@ -442,7 +484,7 @@ function MobileStickyWaitlistCta() {
             size="sm"
             block
             leadingIcon="rocket"
-            onClick={() => trackCtaClick("mobile_sticky", "waitlist_form_final")}
+            onClick={() => trackCtaClick("mobile_sticky", "waitlist_form_final", landingExperimentVariant)}
           >
             {t("publicPresence.home.stickyCta.action")}
           </LinkButton>
@@ -474,7 +516,8 @@ export function PublicPresenceHomePage({
    */
   feeSchedule?: PublicMarketplaceFeeSchedule | null;
 }) {
-  const [intent, setIntent] = useState<WaitlistIntent>(defaultIntent);
+  const [intent, setIntent] = useState<WaitlistIntent>(() => resolveInitialHeroIntent(source));
+  const landingExperimentVariant = landingExperimentVariantForIntent(heroIntentValue(intent));
   const waitlistCounterDisplay = useWaitlistCounterDisplay();
   const selectedGame = normalizeSelectedGame(selectedGameInput);
 
@@ -500,7 +543,7 @@ export function PublicPresenceHomePage({
         variant: landingExperimentVariant,
       });
     }
-  }, [actionData, intent, source.pagePath]);
+  }, [actionData, intent, landingExperimentVariant, source.pagePath]);
 
   function selectIntent(nextIntent: WaitlistIntent, section: string) {
     setIntent(nextIntent);
@@ -512,7 +555,7 @@ export function PublicPresenceHomePage({
           : t("publicPresence.home.paths.buy.action"),
       role: nextIntent.role,
       interest: nextIntent.interest,
-      variant: landingExperimentVariant,
+      variant: landingExperimentVariantForIntent(heroIntentValue(nextIntent)),
     });
 
     const prefersReducedMotion =
@@ -526,10 +569,10 @@ export function PublicPresenceHomePage({
     });
   }
 
-  useLandingSectionViewTracking();
+  useLandingSectionViewTracking(landingExperimentVariant);
 
   return (
-    <PublicPresencePageShell>
+    <PublicPresencePageShell landingExperimentVariant={landingExperimentVariant}>
       <Page>
         <Stack gap={2} data-public-presence-section="hero">
           <MarketingImageHero
@@ -544,21 +587,57 @@ export function PublicPresenceHomePage({
             imageWidth={1600}
             imageHeight={1000}
             density="compact"
-            eyebrow={t("publicPresence.home.eyebrow")}
-            title={t("publicPresence.home.title")}
-            description={t("publicPresence.home.description")}
+            eyebrow={
+              landingExperimentVariant === landingExperimentVariants.sellerFirstV2
+                ? t("publicPresence.home.buyerHero.eyebrow")
+                : t("publicPresence.home.eyebrow")
+            }
+            title={
+              landingExperimentVariant === landingExperimentVariants.sellerFirstV2
+                ? t("publicPresence.home.buyerHero.title")
+                : t("publicPresence.home.title")
+            }
+            description={
+              landingExperimentVariant === landingExperimentVariants.sellerFirstV2
+                ? t("publicPresence.home.buyerHero.description")
+                : t("publicPresence.home.description")
+            }
             highlights={[
               {
-                label: t("publicPresence.home.heroHighlight.offers.label"),
-                value: t("publicPresence.home.heroHighlight.offers.value"),
+                label: t(
+                  landingExperimentVariant === landingExperimentVariants.sellerFirstV2
+                    ? "publicPresence.home.buyerHero.highlight.deliveredTotals.label"
+                    : "publicPresence.home.heroHighlight.offers.label",
+                ),
+                value: t(
+                  landingExperimentVariant === landingExperimentVariants.sellerFirstV2
+                    ? "publicPresence.home.buyerHero.highlight.deliveredTotals.value"
+                    : "publicPresence.home.heroHighlight.offers.value",
+                ),
               },
               {
-                label: t("publicPresence.home.heroHighlight.lowValue.label"),
-                value: t("publicPresence.home.heroHighlight.lowValue.value"),
+                label: t(
+                  landingExperimentVariant === landingExperimentVariants.sellerFirstV2
+                    ? "publicPresence.home.buyerHero.highlight.shippingCredit.label"
+                    : "publicPresence.home.heroHighlight.lowValue.label",
+                ),
+                value: t(
+                  landingExperimentVariant === landingExperimentVariants.sellerFirstV2
+                    ? "publicPresence.home.buyerHero.highlight.shippingCredit.value"
+                    : "publicPresence.home.heroHighlight.lowValue.value",
+                ),
               },
               {
-                label: t("publicPresence.home.heroHighlight.launch.label"),
-                value: t("publicPresence.home.heroHighlight.launch.value"),
+                label: t(
+                  landingExperimentVariant === landingExperimentVariants.sellerFirstV2
+                    ? "publicPresence.home.buyerHero.highlight.setCompletion.label"
+                    : "publicPresence.home.heroHighlight.launch.label",
+                ),
+                value: t(
+                  landingExperimentVariant === landingExperimentVariants.sellerFirstV2
+                    ? "publicPresence.home.buyerHero.highlight.setCompletion.value"
+                    : "publicPresence.home.heroHighlight.launch.value",
+                ),
               },
             ]}
             conversionPanel={
@@ -571,6 +650,7 @@ export function PublicPresenceHomePage({
                 variant="hero"
                 waitlistCounterDisplay={waitlistCounterDisplay}
                 selectedGame={selectedGame}
+                landingExperimentVariant={landingExperimentVariant}
               />
             }
           />
@@ -607,6 +687,7 @@ export function PublicPresenceHomePage({
           onIntentChange={setIntent}
           source={source}
           selectedGame={selectedGame}
+          landingExperimentVariant={landingExperimentVariant}
         />
 
         <FaqPreview checkoutFeePreview={checkoutFeePreview} />
@@ -621,6 +702,8 @@ export function PublicPresenceHomePage({
 // prefills the signup form's game selection. Truth-gated: names exactly the
 // five supported games; the copy line is the approved catalog claim.
 function GameRosterSection({ pagePath, selectedGame }: { pagePath: string; selectedGame: string | null }) {
+  const landingExperimentVariant = useLandingExperimentVariant();
+
   return (
     <PageSection
       data-public-presence-section="game_roster"
@@ -635,7 +718,7 @@ function GameRosterSection({ pagePath, selectedGame }: { pagePath: string; selec
             tone={selectedGame === game.value ? "primary" : "secondary"}
             size="lg"
             block
-            onClick={() => trackCtaClick("game_roster", game.value)}
+            onClick={() => trackCtaClick("game_roster", game.value, landingExperimentVariant)}
           >
             {game.label}
           </LinkButton>
@@ -1047,6 +1130,8 @@ function FeeComparisonSection() {
 // Ship the offer terms accurately now; wire the live counter once that
 // cohort-counter machinery lands.
 function FoundersOfferSection() {
+  const landingExperimentVariant = useLandingExperimentVariant();
+
   return (
     <PageSection
       data-public-presence-section="founders_offer"
@@ -1070,7 +1155,7 @@ function FoundersOfferSection() {
               href="/founders"
               tone="secondary"
               size="sm"
-              onClick={() => trackCtaClick("founders_offer", "founders_terms")}
+              onClick={() => trackCtaClick("founders_offer", "founders_terms", landingExperimentVariant)}
             >
               {t("publicPresence.home.foundersOffer.action")}
             </LinkButton>
@@ -1088,6 +1173,8 @@ function FoundersOfferSection() {
 // public launch date is concrete. Both values interpolate from
 // `launch-config.ts` so a date change is one edit.
 function LaunchTimelineSection() {
+  const landingExperimentVariant = useLandingExperimentVariant();
+
   const steps = [
     { key: "waves", badgeTone: "info" as const },
     { key: "founders", badgeTone: "trust" as const },
@@ -1125,7 +1212,7 @@ function LaunchTimelineSection() {
           tone="primary"
           size="sm"
           leadingIcon="rocket"
-          onClick={() => trackCtaClick("launch_timeline", "waitlist_form")}
+          onClick={() => trackCtaClick("launch_timeline", "waitlist_form", landingExperimentVariant)}
         >
           {t("publicPresence.home.launchTimeline.action")}
         </LinkButton>
@@ -1180,6 +1267,8 @@ function MarketplaceModelSection() {
 }
 
 function ProductSignalPreview({ checkoutFeePreview }: { checkoutFeePreview: CheckoutFeePreview }) {
+  const landingExperimentVariant = useLandingExperimentVariant();
+
   // The concrete buyer-side checkout-fee presentation: the card processing
   // line states the real passthrough terms and the sample order resolves to
   // a concrete total, instead of a fee "quoted before payment".
@@ -1230,7 +1319,7 @@ function ProductSignalPreview({ checkoutFeePreview }: { checkoutFeePreview: Chec
             <LinkButton
               href="/#waitlist-form"
               size="sm"
-              onClick={() => trackCtaClick("product_preview", "waitlist_form")}
+              onClick={() => trackCtaClick("product_preview", "waitlist_form", landingExperimentVariant)}
             >
               {t("publicPresence.preview.listing.action")}
             </LinkButton>
@@ -1240,7 +1329,7 @@ function ProductSignalPreview({ checkoutFeePreview }: { checkoutFeePreview: Chec
               href="/order-protection"
               tone="secondary"
               size="sm"
-              onClick={() => trackCtaClick("product_preview", "order_protection")}
+              onClick={() => trackCtaClick("product_preview", "order_protection", landingExperimentVariant)}
             >
               {t("publicPresence.preview.listing.secondaryAction")}
             </LinkButton>
@@ -1348,6 +1437,7 @@ function FinalCtaSection({
   onIntentChange,
   source,
   selectedGame = null,
+  landingExperimentVariant,
 }: {
   actionData: WaitlistActionData;
   discordInviteUrl?: string | null;
@@ -1355,6 +1445,7 @@ function FinalCtaSection({
   onIntentChange: (intent: WaitlistIntent) => void;
   source: WaitlistPageSource;
   selectedGame?: string | null;
+  landingExperimentVariant: LandingExperimentVariant;
 }) {
   return (
     <PageSection data-public-presence-section="final_cta">
@@ -1376,12 +1467,12 @@ function FinalCtaSection({
             ]}
           />
           <Inline gap={2}>
-            {discordInviteUrl ? <DiscordInviteLink href={discordInviteUrl} /> : null}
+            {discordInviteUrl ? <DiscordInviteLink href={discordInviteUrl} variant={landingExperimentVariant} /> : null}
             <LinkButton
               href="/founders"
               tone="secondary"
               size="lg"
-              onClick={() => trackCtaClick("final_cta", "founders_terms")}
+              onClick={() => trackCtaClick("final_cta", "founders_terms", landingExperimentVariant)}
             >
               {t("publicPresence.home.foundersOffer.action")}
             </LinkButton>
@@ -1395,6 +1486,7 @@ function FinalCtaSection({
           panelId="waitlist-form-final"
           variant="full"
           selectedGame={selectedGame}
+          landingExperimentVariant={landingExperimentVariant}
         />
       </Grid>
     </PageSection>
@@ -1410,6 +1502,7 @@ function WaitlistSignupPanel({
   variant = "full",
   waitlistCounterDisplay = null,
   selectedGame = null,
+  landingExperimentVariant,
 }: {
   actionData: WaitlistActionData;
   intent: WaitlistIntent;
@@ -1421,6 +1514,7 @@ function WaitlistSignupPanel({
   waitlistCounterDisplay?: number | null;
   /** Normalized `?game=` slug from a game roster tile / per-game campaign link; prefills the games selection. */
   selectedGame?: string | null;
+  landingExperimentVariant: LandingExperimentVariant;
 }) {
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [games, setGames] = useState<string[]>(selectedGame ? [selectedGame] : []);
@@ -1461,12 +1555,13 @@ function WaitlistSignupPanel({
 
   function trackRoleSelected(role: WaitlistMarketplaceIntent) {
     trackFormStart("role");
-    onIntentChange({ ...intent, role });
+    const nextIntent = { ...intent, role };
+    onIntentChange(nextIntent);
     trackWaitlistEvent("waitlist_role_selected", {
       section,
       role,
       interest: intent.interest,
-      variant: landingExperimentVariant,
+      variant: landingExperimentVariantForIntent(heroIntentValue(nextIntent)),
     });
   }
 
@@ -1489,7 +1584,7 @@ function WaitlistSignupPanel({
       section,
       role: nextIntent.role,
       interest: nextIntent.interest,
-      variant: landingExperimentVariant,
+      variant: landingExperimentVariantForIntent(heroIntentValue(nextIntent)),
     });
   }
 
@@ -1684,6 +1779,7 @@ function WaitlistSignupPanel({
             <HiddenInput name="utmContent" value={source.utmContent ?? ""} />
             <HiddenInput name="utmTerm" value={source.utmTerm ?? ""} />
             <HiddenInput name="referredBySignupId" value={source.referredBySignupId ?? ""} />
+            <HiddenInput name="landingExperimentVariant" value={landingExperimentVariant} />
             <Button type="submit" size={isHero ? "md" : "lg"} block leadingIcon="rocket">
               {t("publicPresence.waitlist.submit")}
             </Button>
@@ -1700,6 +1796,8 @@ function WaitlistSignupPanel({
 }
 
 function FaqPreview({ checkoutFeePreview }: { checkoutFeePreview: CheckoutFeePreview }) {
+  const landingExperimentVariant = useLandingExperimentVariant();
+
   const previewQuestions = [
     ["publicPresence.faq.launch.question", "publicPresence.faq.launch.answer"],
     ["publicPresence.faq.fees.question", "publicPresence.faq.fees.answer"],
@@ -1713,7 +1811,7 @@ function FaqPreview({ checkoutFeePreview }: { checkoutFeePreview: CheckoutFeePre
       description={t("publicPresence.faq.description")}
     >
       <Inline>
-        <LinkButton href="/faq" tone="secondary" onClick={() => trackCtaClick("faq", "faq")}>
+        <LinkButton href="/faq" tone="secondary" onClick={() => trackCtaClick("faq", "faq", landingExperimentVariant)}>
           {t("publicPresence.faq.all")}
         </LinkButton>
       </Inline>

@@ -1,6 +1,7 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { WaitlistSuccessPage } from "../../features/waitlist/ui/success-page";
+import { normalizeLandingExperimentVariant } from "../../features/waitlist/ui/landing-experiment";
 import { publicPresenceT as t } from "../../features/waitlist/ui/public-presence-translator";
 
 const fallbackPublicOrigin = "https://chasesets.com";
@@ -39,6 +40,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return {
     signupId,
     attributed: url.searchParams.get("attributed") === "1",
+    landingExperimentVariant: normalizeLandingExperimentVariant(url.searchParams.get("variant")),
     // Signup role from the post-signup redirect: gates the sell/both-intent
     // "wave placement" step. Absent on bookmarked/repeat visits, which hide
     // the step rather than re-asking for cohort-quality signals a buy-intent
@@ -68,6 +70,7 @@ export default function PublicPresenceWelcomeRoute() {
       publicOrigin={data.publicOrigin || fallbackPublicOrigin}
       discordInviteUrl={data.discordInviteUrl}
       attributed={data.attributed}
+      landingExperimentVariant={data.landingExperimentVariant}
       role={data.role}
       initialGames={data.games}
     />
