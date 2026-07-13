@@ -588,7 +588,7 @@ describe("Catalog integrations route", () => {
     expect(location.searchParams.get("commandStatus")).toBe("success");
     expect(location.searchParams.get("commandResult")).toBe("preview-ready");
     expect(location.searchParams.get("promotionPreviewId")).toBe(
-      "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1",
+      "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1-no-fingerprint",
     );
   });
 
@@ -621,7 +621,7 @@ describe("Catalog integrations route", () => {
     expect(location.pathname).toBe("/catalog/integrations");
     expect(location.searchParams.get("commandResult")).toBe("preview-ready");
     expect(location.searchParams.get("promotionPreviewId")).toBe(
-      "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_filtered-124-124",
+      "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_filtered-124-124-no-fingerprint",
     );
   });
 
@@ -1150,7 +1150,7 @@ describe("Catalog integrations route", () => {
       profileVersion: "2026.06.04",
       selectedObservationIds: "obs_001",
       promotionPreviewId:
-        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_obs_001-1-1",
+        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_obs_001-1-1-no-fingerprint",
     });
 
     expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"]);
@@ -1183,7 +1183,7 @@ describe("Catalog integrations route", () => {
       profileVersion: "2026.06.05",
       selectedObservationIds: "obs_001",
       promotionPreviewId:
-        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1",
+        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1-no-fingerprint",
     });
 
     expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
@@ -1212,7 +1212,7 @@ describe("Catalog integrations route", () => {
       importScope: "en:3:base:base1",
       profileVersion: "2026.06.04",
       promotionPreviewId:
-        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_filtered-124-124",
+        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_filtered-124-124-no-fingerprint",
     });
 
     expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith({

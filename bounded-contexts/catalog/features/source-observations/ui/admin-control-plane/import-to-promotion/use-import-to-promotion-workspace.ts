@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSubmit } from "react-router";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
-import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
 import { isReviewableObservationRow } from "../source-observation-review/source-observation-review-module";
+import {
+  observationSelectionScopeKey,
+  readPersistedObservationSelection,
+  writePersistedObservationSelection,
+} from "../../primary-workbench-selection-store";
 
 type SourceObservationReviewRow = CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number];
 
@@ -70,7 +73,7 @@ export function useImportToPromotionWorkspace(
   readModel: CatalogPrimaryWorkbenchReadModel,
 ): ImportToPromotionWorkspaceState {
   const { activeStage, setActiveStage } = useReconciledActiveStage(readModel);
-  const { selectedObservationKeys, setSelectedObservationKeys } = useUrlBackedObservationSelection(readModel);
+  const { selectedObservationKeys, setSelectedObservationKeys } = useDurableObservationSelection(readModel);
 
   // One normalized blocker set for the whole flow: deduplicate readiness and
   // promotion-command blockers so the consolidated affordance renders each once.
@@ -154,57 +157,57 @@ function useReconciledActiveStage(readModel: CatalogPrimaryWorkbenchReadModel): 
   return { activeStage, setActiveStage };
 }
 
-// Collapse observation selection to ONE durable source of truth: the URL-backed
-// `selectedObservationIds` (the pager and deep links already round-trip it through
-// the loader). The client `Set` is purely an ephemeral mirror of that truth —
-// it gives the checkboxes instant feedback and is what selected-record commands
-// read live — and every selection change is written straight to the URL via the
-// client-navigation idiom, so the durable selection never drifts from the
-// `Set`.
-//
-// The change handler persists every selection change to the URL itself, so the
-// only time the URL selection changes WITHOUT a checkbox edit is a navigation that
-// is the new truth — which the reconcile below adopts. A change handler's own URL
-// write resolves to the same value the `Set` already holds, so it is a no-op.
-function useUrlBackedObservationSelection(readModel: CatalogPrimaryWorkbenchReadModel): {
+// Collapse observation selection to ONE durable source of truth: a
+// sessionStorage-backed working set keyed by the current review scope
+// (provider/unit/import-scope/profile) — see `primary-workbench-selection-store.ts`.
+// This is "durable page state, not a URL detour" per the Catalog Control Plane v2
+// blueprint: selection survives a reload or in-tab navigation for its scope
+// without ever touching the query string, so a 500-row bulk selection never
+// inflates the URL. A deep link that DOES carry `selectedObservationIds` (an
+// explicit share link, or a redirect from a just-completed command) still seeds
+// the initial selection and is immediately folded into the durable working set;
+// after that, the URL is no longer the source of truth.
+function useDurableObservationSelection(readModel: CatalogPrimaryWorkbenchReadModel): {
   selectedObservationKeys: Set<string>;
   setSelectedObservationKeys: (keys: Set<string>) => void;
 } {
-  const submit = useSubmit();
+  const scopeKey = observationSelectionScopeKey({
+    providerKey: readModel.routeContext.providerKey,
+    unitKey: readModel.routeContext.unitKey,
+    importScope: readModel.routeContext.importScope,
+    profileVersion: readModel.routeContext.profileVersion,
+  });
   const urlSelectionKey = readModel.routeContext.selectedObservationIds.join(OBSERVATION_KEY_SEPARATOR);
 
-  const [selectedObservationKeys, setSelectedObservationKeys] = useState<Set<string>>(
-    () => new Set(readModel.routeContext.selectedObservationIds),
-  );
+  const [selectedObservationKeys, setSelectedObservationKeys] = useState<Set<string>>(() => {
+    if (readModel.routeContext.selectedObservationIds.length > 0) {
+      return new Set(readModel.routeContext.selectedObservationIds);
+    }
+    return new Set(readPersistedObservationSelection(scopeKey));
+  });
 
-  // Adopt a navigation-driven selection: when the URL's selection changes (a deep
-  // link, the pager, a reload), that is the durable truth, so re-seed the
-  // ephemeral mirror from it. A checkbox edit's own URL write lands here too, but
-  // with the value the `Set` already holds, so it is a no-op.
+  // Reconcile on scope change or an explicit URL-carried selection (a deep link
+  // or a just-completed command's redirect): a non-empty URL selection wins and
+  // is folded into durable storage; otherwise fall back to whatever this scope's
+  // durable working set already holds (a reload with no selection in the URL).
   useEffect(() => {
-    setSelectedObservationKeys(
-      new Set(urlSelectionKey.length > 0 ? urlSelectionKey.split(OBSERVATION_KEY_SEPARATOR) : []),
-    );
-  }, [urlSelectionKey]);
+    if (urlSelectionKey.length > 0) {
+      const keys = urlSelectionKey.split(OBSERVATION_KEY_SEPARATOR);
+      setSelectedObservationKeys(new Set(keys));
+      writePersistedObservationSelection(scopeKey, keys);
+      return;
+    }
+    setSelectedObservationKeys(new Set(readPersistedObservationSelection(scopeKey)));
+  }, [urlSelectionKey, scopeKey]);
 
   const persistSelection = useCallback(
     (keys: Set<string>) => {
-      // Mirror instantly for responsive checkboxes, then persist to the URL as a
-      // client GET navigation (no full reload, no extra history frame, scroll
-      // preserved) so the durable selection stays in lockstep for pager / deep-link
-      // round-trips and reloads — the same submit idiom the import-context bar uses.
+      // Instant, purely client-side: no navigation, no query-string write, so
+      // selecting rows never grows the URL regardless of selection size.
       setSelectedObservationKeys(keys);
-      submit(null, {
-        method: "get",
-        replace: true,
-        preventScrollReset: true,
-        action: catalogPrimaryWorkbenchHref(
-          { ...readModel.routeContext, selectedObservationIds: [...keys] },
-          "source-observation-review",
-        ),
-      });
+      writePersistedObservationSelection(scopeKey, [...keys]);
     },
-    [readModel.routeContext, submit],
+    [scopeKey],
   );
 
   return { selectedObservationKeys, setSelectedObservationKeys: persistSelection };

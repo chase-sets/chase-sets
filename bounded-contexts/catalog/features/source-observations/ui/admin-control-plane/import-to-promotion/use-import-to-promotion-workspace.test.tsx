@@ -1,24 +1,12 @@
 // @vitest-environment jsdom
 import { act, cleanup, render } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../primary-workbench-route-context";
 import {
   useImportToPromotionWorkspace,
-  type ImportToPromotionStageKey,
   type ImportToPromotionWorkspaceState,
 } from "./use-import-to-promotion-workspace";
-
-// The hook persists every selection change to the URL via the #1969 client-GET
-// submit idiom; capture that submit so the persistence and its target href can be
-// asserted without a data router. The hook only reaches for `useSubmit`.
-const mocks = vi.hoisted(() => ({
-  submit: vi.fn(),
-}));
-
-vi.mock("react-router", () => ({
-  useSubmit: () => mocks.submit,
-}));
 
 type ReviewRows = CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"];
 type ReviewCounts = CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["counts"];
@@ -82,16 +70,7 @@ function Probe({ model }: Readonly<{ model: CatalogPrimaryWorkbenchReadModel }>)
   return null;
 }
 
-function lastSubmitTarget(): string {
-  const lastCall = mocks.submit.mock.calls.at(-1);
-  return (lastCall?.[1] as { action: string }).action;
-}
-
 describe("useImportToPromotionWorkspace — stage reconciliation with server truth", () => {
-  beforeEach(() => {
-    mocks.submit.mockReset();
-  });
-
   afterEach(() => {
     // No globals in this workspace's vitest config, so testing-library's auto
     // cleanup is not registered; unmount probes between tests explicitly.
@@ -231,16 +210,17 @@ describe("useImportToPromotionWorkspace — stage reconciliation with server tru
   });
 });
 
-describe("useImportToPromotionWorkspace — URL-backed selection (single source of truth)", () => {
+describe("useImportToPromotionWorkspace — durable (storage-backed) selection", () => {
   beforeEach(() => {
-    mocks.submit.mockReset();
+    window.sessionStorage.clear();
   });
 
   afterEach(() => {
     cleanup();
+    window.sessionStorage.clear();
   });
 
-  it("seeds the ephemeral selection from the URL", () => {
+  it("seeds the ephemeral selection from the URL when the URL carries one (deep link)", () => {
     render(
       <Probe
         model={readModel({
@@ -253,7 +233,7 @@ describe("useImportToPromotionWorkspace — URL-backed selection (single source 
     expect([...latest.selectedObservationKeys].sort()).toEqual(["obs_1", "obs_2"]);
   });
 
-  it("persists a selection change to the URL as a client GET navigation and updates the mirror instantly", () => {
+  it("persists a selection change to durable storage instantly, without any URL write", () => {
     render(
       <Probe
         model={readModel({
@@ -267,21 +247,35 @@ describe("useImportToPromotionWorkspace — URL-backed selection (single source 
       latest.setSelectedObservationKeys(new Set(["obs_1"]));
     });
 
-    // Instant mirror: the checkbox reflects the new selection without waiting on the
-    // revalidation round-trip.
+    // Instant mirror: the checkbox reflects the new selection immediately.
     expect([...latest.selectedObservationKeys]).toEqual(["obs_1"]);
 
-    // Persisted to the URL via the #1969 idiom: a replace GET navigation that
-    // preserves scroll, with the new selection on the target href.
-    expect(mocks.submit).toHaveBeenCalledTimes(1);
-    const submitOptions = mocks.submit.mock.calls[0]![1] as Record<string, unknown>;
-    expect(submitOptions).toMatchObject({ method: "get", replace: true, preventScrollReset: true });
-    const target = new URL(lastSubmitTarget(), "https://admin.example");
-    expect(target.searchParams.get("selectedObservationIds")).toBe("obs_1");
-    expect(target.searchParams.get("providerKey")).toBe("tcgdex");
+    // Durable: sessionStorage carries the working set for this scope, not the URL.
+    const stored = window.sessionStorage.getItem("catalog.primaryWorkbench.observationSelection.tcgdex|none|none|none");
+    expect(stored).toBe(JSON.stringify(["obs_1"]));
   });
 
-  it("clears the selection through the same URL write (no manual Save context round-trip)", () => {
+  it("survives an unmount/remount with no URL selection — a reload with no deep link (the core fix)", () => {
+    const model = readModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex",
+      review: { rows: [reviewRow("obs_1")], counts: { observed: 1, changed: 1 } },
+    });
+    const { unmount } = render(<Probe model={model} />);
+
+    act(() => {
+      latest.setSelectedObservationKeys(new Set(["obs_1"]));
+    });
+    expect([...latest.selectedObservationKeys]).toEqual(["obs_1"]);
+
+    // Simulate a reload: unmount, then mount fresh against the same URL (which
+    // never carried the selection — it lives in storage, not the query string).
+    unmount();
+    render(<Probe model={model} />);
+
+    expect([...latest.selectedObservationKeys]).toEqual(["obs_1"]);
+  });
+
+  it("clears the durable working set when the selection empties", () => {
     render(
       <Probe
         model={readModel({
@@ -297,11 +291,12 @@ describe("useImportToPromotionWorkspace — URL-backed selection (single source 
     });
 
     expect([...latest.selectedObservationKeys]).toEqual([]);
-    const target = new URL(lastSubmitTarget(), "https://admin.example");
-    expect(target.searchParams.get("selectedObservationIds")).toBeNull();
+    expect(
+      window.sessionStorage.getItem("catalog.primaryWorkbench.observationSelection.tcgdex|none|none|none"),
+    ).toBeNull();
   });
 
-  it("adopts a navigation-driven URL selection (deep link / pager) into the mirror", () => {
+  it("adopts a navigation-driven URL selection (deep link / pager) into the mirror and durable store", () => {
     const { rerender } = render(
       <Probe
         model={readModel({
@@ -312,8 +307,8 @@ describe("useImportToPromotionWorkspace — URL-backed selection (single source 
     );
     expect([...latest.selectedObservationKeys]).toEqual(["obs_1"]);
 
-    // A pager / deep-link navigation lands a new URL selection — the new durable
-    // truth — so the ephemeral mirror re-seeds from it.
+    // A pager / deep-link navigation lands a new URL selection — folded into the
+    // ephemeral mirror and the durable store alike.
     rerender(
       <Probe
         model={readModel({
@@ -324,6 +319,53 @@ describe("useImportToPromotionWorkspace — URL-backed selection (single source 
       />,
     );
     expect([...latest.selectedObservationKeys].sort()).toEqual(["obs_2", "obs_3"]);
+  });
+
+  it("keeps a 500-row selection durable without ever writing it to the URL", () => {
+    render(
+      <Probe
+        model={readModel({
+          requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex",
+          review: { rows: [reviewRow("obs_1")], counts: { observed: 1, changed: 1 } },
+        })}
+      />,
+    );
+    const bulkIds = Array.from({ length: 500 }, (_, index) => `obs_${index}`);
+
+    act(() => {
+      latest.setSelectedObservationKeys(new Set(bulkIds));
+    });
+
+    expect(latest.selectedObservationKeys.size).toBe(500);
+    const stored = window.sessionStorage.getItem("catalog.primaryWorkbench.observationSelection.tcgdex|none|none|none");
+    expect(JSON.parse(stored ?? "[]")).toHaveLength(500);
+  });
+
+  it("scopes the durable working set per provider/unit/import-scope/profile", () => {
+    const { unmount } = render(
+      <Probe
+        model={readModel({
+          requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex",
+          review: { rows: [reviewRow("obs_1")], counts: { observed: 1, changed: 1 } },
+        })}
+      />,
+    );
+    act(() => {
+      latest.setSelectedObservationKeys(new Set(["obs_1"]));
+    });
+    unmount();
+
+    // A different provider scope starts with an empty durable selection — the
+    // tcgdex working set does not leak into it.
+    render(
+      <Probe
+        model={readModel({
+          requestUrl: "https://admin.example/catalog/integrations?providerKey=scryfall",
+          review: { rows: [reviewRow("obs_x")], counts: { observed: 1, changed: 1 } },
+        })}
+      />,
+    );
+    expect([...latest.selectedObservationKeys]).toEqual([]);
   });
 
   it("computes selection-impact counts (eligible / reviewable) from the mirrored rows", () => {

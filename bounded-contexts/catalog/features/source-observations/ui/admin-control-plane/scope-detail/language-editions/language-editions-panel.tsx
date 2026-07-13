@@ -198,10 +198,11 @@ function CandidateRow({
   );
 }
 
-type DispatchableCandidateAction = Extract<CatalogAliasReviewActionKey, "accept" | "reject" | "defer" | "revoke">;
-
-function isDispatchableCandidateAction(action: CatalogAliasReviewActionKey): action is DispatchableCandidateAction {
-  return action !== "auto-accept";
+// Every CatalogAliasReviewActionKey is dispatchable now: accept and auto-accept
+// collapsed into one `alias.accept` action (Catalog Control Plane v2 vocabulary),
+// so there is no longer a non-dispatchable variant to filter out.
+function isDispatchableCandidateAction(action: CatalogAliasReviewActionKey): action is CatalogAliasReviewActionKey {
+  return true;
 }
 
 function CandidateActionForm({
@@ -210,12 +211,12 @@ function CandidateActionForm({
   actionHref,
   disabled,
 }: {
-  action: DispatchableCandidateAction;
+  action: CatalogAliasReviewActionKey;
   candidate: CatalogAliasReviewCandidateSummary;
   actionHref: string;
   disabled: boolean;
 }) {
-  const requiresReason = action === "reject" || action === "revoke";
+  const requiresReason = action === "alias.reject" || action === "alias.revoke";
   const label = candidateActionLabel(action);
 
   if (requiresReason) {
@@ -240,7 +241,7 @@ function CandidateActionForm({
     <WorkbenchForm variant="button" method="post" action={actionHref} data-language-edition-command={action}>
       <HiddenInput name="_intent" value={action} />
       <HiddenInput name="aliasHashes" value={candidate.aliasHash} />
-      <Button type="submit" size="sm" tone={action === "accept" ? "primary" : "secondary"} disabled={disabled}>
+      <Button type="submit" size="sm" tone={action === "alias.accept" ? "primary" : "secondary"} disabled={disabled}>
         {label}
       </Button>
     </WorkbenchForm>
@@ -249,16 +250,14 @@ function CandidateActionForm({
 
 function candidateActionLabel(action: CatalogAliasReviewActionKey): string {
   switch (action) {
-    case "accept":
+    case "alias.accept":
       return t("catalog.features.sourceObservations.ui.aliasReview.action.accept");
-    case "reject":
+    case "alias.reject":
       return t("catalog.features.sourceObservations.ui.aliasReview.action.reject");
-    case "defer":
+    case "alias.defer":
       return t("catalog.features.sourceObservations.ui.aliasReview.action.defer");
-    case "revoke":
+    case "alias.revoke":
       return t("catalog.features.sourceObservations.ui.aliasReview.action.revoke");
-    case "auto-accept":
-      return t("catalog.features.sourceObservations.ui.aliasReview.action.autoAccept");
   }
 }
 

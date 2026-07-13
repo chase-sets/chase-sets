@@ -129,6 +129,12 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   afterEach(() => {
     cleanup();
     window.history.pushState({}, "", "/catalog/integrations");
+    // The durable observation-selection working set is sessionStorage-backed and
+    // scoped by provider/unit/import-scope/profile (see
+    // `primary-workbench-selection-store.ts`); many fixtures across this file
+    // reuse the same tcgdex scope, so a stale selection from one test must not
+    // leak into the next.
+    window.sessionStorage.clear();
   });
 
   it("guides a Japanese SV8 operator from provider options to sync, review, and promote-all", () => {
@@ -2511,7 +2517,11 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(executeForms.length).toBeGreaterThan(0);
   });
 
-  it("clears route-provided Source Observation selections when the review context changes", async () => {
+  it("keeps a durable Source Observation selection across a review-context re-render in the same scope", async () => {
+    // Selection is durable page state (sessionStorage-backed), not a URL detour:
+    // a re-render that drops `selectedObservationIds` from the URL (a filter
+    // tweak, a poll, a fetcher revalidation) must NOT silently drop the
+    // operator's selection for the same provider/unit/import-scope/profile.
     const selectedReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&selectedObservationIds=obs_001",
@@ -2522,7 +2532,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       reviewPagination: { limit: 25, offset: 0 },
       canManageCatalog: true,
     });
-    const clearedReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+    const revalidatedReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -2537,7 +2547,40 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     expect(screen.getByText("1 observation(s) selected")).toBeTruthy();
 
-    rerender(<CatalogIntegrationsSurfacePage surface="daily" readModel={clearedReadModel} />);
+    rerender(<CatalogIntegrationsSurfacePage surface="daily" readModel={revalidatedReadModel} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("1 observation(s) selected")).toBeTruthy();
+    });
+  });
+
+  it("does not carry a Source Observation selection into a different provider/unit/import-scope", async () => {
+    const selectedReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&selectedObservationIds=obs_001",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+    const otherScopeReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=scryfall&unitKey=scryfall:mtg:card:import&importScope=en:1:mtg:mtg1&filter.status=changed",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    const { rerender } = render(<CatalogIntegrationsSurfacePage surface="daily" readModel={selectedReadModel} />);
+
+    expect(screen.getByText("1 observation(s) selected")).toBeTruthy();
+
+    rerender(<CatalogIntegrationsSurfacePage surface="daily" readModel={otherScopeReadModel} />);
 
     await waitFor(() => {
       expect(screen.queryByText("1 observation(s) selected")).toBeNull();

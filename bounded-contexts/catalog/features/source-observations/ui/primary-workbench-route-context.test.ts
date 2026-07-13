@@ -323,6 +323,32 @@ describe("Catalog primary workbench route context", () => {
     expect(serializeCatalogPrimaryWorkbenchRouteContext(firstPage).has("reviewOffset")).toBe(false);
   });
 
+  it("keeps a small selection in the URL but caps a bulk (500-row) selection to a count, not the row ids", () => {
+    const context = parseCatalogPrimaryWorkbenchRouteContext(
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:base",
+    );
+
+    const smallSelection = { ...context, selectedObservationIds: ["obs_1", "obs_2"] };
+    const smallHref = new URL(
+      catalogPrimaryWorkbenchHref(smallSelection, "source-observation-review"),
+      "https://admin.example",
+    );
+    expect(smallHref.searchParams.get("selectedObservationIds")).toBe("obs_1,obs_2");
+    expect(smallHref.searchParams.has("selectedObservationCount")).toBe(false);
+
+    const bulkIds = Array.from({ length: 500 }, (_, index) => `obs_${index}`);
+    const bulkSelection = { ...context, selectedObservationIds: bulkIds };
+    const bulkHref = new URL(
+      catalogPrimaryWorkbenchHref(bulkSelection, "source-observation-review"),
+      "https://admin.example",
+    );
+    expect(bulkHref.searchParams.has("selectedObservationIds")).toBe(false);
+    expect(bulkHref.searchParams.get("selectedObservationCount")).toBe("500");
+    // The href itself stays well clear of any practical URL/query-string budget
+    // regardless of how large the selection is.
+    expect(bulkHref.toString().length).toBeLessThan(500);
+  });
+
   it("builds supporting detours with a safe return path to the primary workbench", () => {
     const context = parseCatalogPrimaryWorkbenchRouteContext(
       "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:base&filter.status=changed&selectedObservationIds=obs_1",

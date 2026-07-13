@@ -2,14 +2,36 @@ import type { ActionFunctionArgs } from "react-router";
 import { createCatalogRequestApiClient } from "../../request-support/api-client";
 
 // Scope Detail route action (`/catalog/scopes/:id`). Dispatches the
-// language-editions section's accept/reject/defer/revoke forms against the
+// language-editions section's alias.accept/alias.reject/alias.defer/alias.revoke
+// forms — the Catalog Control Plane v2 entity-scoped action ids — against the
 // same Catalog Alias aggregate the generic alias-review table uses (accept,
 // reject, revoke via the alias-equivalence HTTP command endpoint; defer keeps
 // a candidate pending with no aggregate write) and stays on this page — no
 // detour, no `returnPath` — so the operator sees the result in place.
-export type ScopeDetailCommandIntent = "accept" | "reject" | "defer" | "revoke";
+export type ScopeDetailCommandIntent = "alias.accept" | "alias.reject" | "alias.defer" | "alias.revoke";
 
-const SCOPE_DETAIL_COMMAND_INTENTS = new Set<string>(["accept", "reject", "defer", "revoke"]);
+const SCOPE_DETAIL_COMMAND_INTENTS = new Set<string>([
+  "alias.accept",
+  "alias.reject",
+  "alias.defer",
+  "alias.revoke",
+] satisfies ScopeDetailCommandIntent[]);
+
+// The alias-review HTTP command endpoint's own aggregate-command vocabulary
+// (accept/reject/revoke) predates this action's v2 action ids; this is the one
+// translation point between the two, so a v2 action id never leaks past it.
+function aliasReviewAggregateIntent(
+  intent: Exclude<ScopeDetailCommandIntent, "alias.defer">,
+): "accept" | "reject" | "revoke" {
+  switch (intent) {
+    case "alias.accept":
+      return "accept";
+    case "alias.reject":
+      return "reject";
+    case "alias.revoke":
+      return "revoke";
+  }
+}
 
 export type ScopeDetailCommandResult = Readonly<{
   status: "success" | "error";
@@ -47,18 +69,18 @@ export async function action({ request }: ActionFunctionArgs): Promise<ScopeDeta
 
   // Deferring keeps a candidate pending; there is no aggregate transition, so
   // the surface just acknowledges and the next loader re-reads the still-pending row.
-  if (intent === "defer") {
+  if (intent === "alias.defer") {
     return { status: "success", intent, result: "job-queued" };
   }
 
   const reason = String(formData.get("reason") ?? "").trim();
-  if ((intent === "reject" || intent === "revoke") && !reason) {
+  if ((intent === "alias.reject" || intent === "alias.revoke") && !reason) {
     return { status: "error", intent, result: "reason-required" };
   }
 
   const api = createCatalogRequestApiClient(request);
   await api.dispatchCatalogAliasReviewCommand({
-    intent,
+    intent: aliasReviewAggregateIntent(intent),
     aliasHashes,
     ...(reason ? { reason } : {}),
   });

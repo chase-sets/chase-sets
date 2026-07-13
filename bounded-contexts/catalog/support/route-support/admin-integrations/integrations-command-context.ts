@@ -178,6 +178,14 @@ export function reapplyScopeFromContext(context: RouteContext): SourceObservatio
   };
 }
 
+// The promotion preview checkpoint token. It carries a genuine content
+// fingerprint of the eligible observations the preview was computed from (see
+// `SourceObservationPromotionPreview.fingerprint`), not just aggregate counts:
+// two previews with the same matched/eligible counts but different underlying
+// observation content (a re-import changed a field, an observation entered or
+// left the eligible set) produce different tokens, so `confirmsFreshPromotionPreview`
+// below rejects execution against the stale one — self-invalidation is a server-side
+// guarantee, not a UI nicety the operator can bypass by resubmitting a stale token.
 export function promotionPreviewIdFor(
   preview: SourceObservationPromotionPreview,
   context: RouteContext,
@@ -188,6 +196,7 @@ export function promotionPreviewIdFor(
     promotionPreviewScopeToken(context, selectedObservationIds),
     preview.matched,
     preview.eligible,
+    preview.fingerprint || "no-fingerprint",
   ].join("-");
 }
 

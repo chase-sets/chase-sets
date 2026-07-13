@@ -158,6 +158,10 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "Generated command payloads",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayloads.empty":
     "No generated split or update payload is available for this row.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayloads.copyLabel":
+    "Copy raw payload",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayloads.copiedLabel":
+    "Copied",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.description":
     "Compare source values, provenance, proposed references, Product mapping, and review actions for this candidate.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.fieldProvenance": "Field provenance",

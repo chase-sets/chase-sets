@@ -85,7 +85,11 @@ export type CatalogAliasReviewWarningKey =
  * `defer` keeps a candidate pending; `auto-accept` is only offered when the
  * governance decision yields an `auto-accepted` review state.
  */
-export type CatalogAliasReviewActionKey = "accept" | "reject" | "defer" | "revoke" | "auto-accept";
+// Entity-scoped action ids from the Catalog Control Plane v2 vocabulary
+// (`alias.*`). `accept` and `auto-accept` collapsed into one `alias.accept`
+// action: the aggregate command is identical either way, so the distinct
+// legacy intent added no domain meaning.
+export type CatalogAliasReviewActionKey = "alias.accept" | "alias.reject" | "alias.defer" | "alias.revoke";
 
 /**
  * Auto-accept eligibility for a candidate, derived from the
@@ -330,13 +334,18 @@ function availableActions(
 ): readonly CatalogAliasReviewActionKey[] {
   if (PUBLISHABLE.has(reviewStatus)) {
     // Accepted/auto-accepted aliases can only be revoked.
-    return ["revoke"];
+    return ["alias.revoke"];
   }
   if (reviewStatus === "pending") {
-    return autoAcceptEligible ? ["accept", "auto-accept", "reject", "defer"] : ["accept", "reject", "defer"];
+    // autoAcceptEligible no longer changes the offered action set: accept and
+    // auto-accept collapsed into one `alias.accept` action (see
+    // CatalogAliasReviewActionKey). The eligibility still governs the bulk
+    // "accept eligible" affordance in the workspace, not the vocabulary here.
+    void autoAcceptEligible;
+    return ["alias.accept", "alias.reject", "alias.defer"];
   }
   // Rejected/revoked aliases can be re-accepted if evidence warrants.
-  return ["accept"];
+  return ["alias.accept"];
 }
 
 function nativePrintedName(row: CatalogAliasCandidateRow, evidence: Record<string, JsonValue>): string {
