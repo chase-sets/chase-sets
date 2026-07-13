@@ -65,6 +65,7 @@ import {
 } from "./landing-experiment";
 import { launchTimeline } from "./launch-config";
 import { publicPresenceT as t } from "./public-presence-translator";
+import { sellerToolsClaimStatus } from "./seller-tools-claims";
 
 export type WaitlistActionData = Readonly<{ status: "error"; message: string }> | null;
 
@@ -662,6 +663,8 @@ export function PublicPresenceHomePage({
 
         <SellerEconomicsSection />
 
+        <SellerToolsSection />
+
         <FeeComparisonSection />
 
         <FeeCalculatorSection schedule={feeSchedule} />
@@ -1056,6 +1059,105 @@ function SellerEconomicsSection() {
           reassurance={t("publicPresence.home.sellerEconomics.math.graded.reassurance")}
         />
       </Grid>
+    </PageSection>
+  );
+}
+
+// Seller-tools differentiator: the repricing engine and market analytics are
+// real platform machinery, but their seller-facing controls are launch-gated.
+// Keep every capability card explicitly future-facing until seller access is
+// available; this section must never turn an implementation milestone into a
+// claim of current product availability.
+function SellerToolsSection() {
+  const cards = [
+    {
+      capability: "repricing" as const,
+      status: sellerToolsClaimStatus("repricing"),
+      icon: "settings" as const,
+      title: t("publicPresence.home.sellerTools.repricing.title"),
+      description: t("publicPresence.home.sellerTools.repricing.description"),
+      points: [
+        t("publicPresence.home.sellerTools.repricing.point.anchor"),
+        t("publicPresence.home.sellerTools.repricing.point.floor"),
+        t("publicPresence.home.sellerTools.repricing.point.preview"),
+      ],
+    },
+    {
+      capability: "marketAnalytics" as const,
+      status: sellerToolsClaimStatus("marketAnalytics"),
+      icon: "chart" as const,
+      title: t("publicPresence.home.sellerTools.market.title"),
+      description: t("publicPresence.home.sellerTools.market.description"),
+      points: [
+        t("publicPresence.home.sellerTools.market.point.history"),
+        t("publicPresence.home.sellerTools.market.point.collection"),
+        t("publicPresence.home.sellerTools.market.point.fairness"),
+      ],
+    },
+    {
+      capability: "sellerScale" as const,
+      status: sellerToolsClaimStatus("sellerScale"),
+      icon: "dashboard" as const,
+      title: t("publicPresence.home.sellerTools.scale.title"),
+      description: t("publicPresence.home.sellerTools.scale.description"),
+      points: [
+        t("publicPresence.home.sellerTools.scale.point.inventory"),
+        t("publicPresence.home.sellerTools.scale.point.bulk"),
+        t("publicPresence.home.sellerTools.scale.point.api"),
+      ],
+    },
+  ];
+
+  return (
+    <PageSection
+      id="seller-tools"
+      data-public-presence-section="seller_tools"
+      title={t("publicPresence.home.sellerTools.title")}
+      description={t("publicPresence.home.sellerTools.description")}
+    >
+      <Grid columns={{ base: 1, lg: 3 }} gap={4}>
+        {cards.map((card) => (
+          <Surface
+            key={card.title}
+            tone="subtle"
+            elevated
+            data-seller-tools-capability={card.capability}
+            data-seller-tools-status={card.status}
+          >
+            <Stack gap={3}>
+              <BadgeRow>
+                <Badge tone={card.status === "live" ? "success" : "info"}>
+                  {card.status === "live"
+                    ? t("publicPresence.home.sellerTools.live")
+                    : t("publicPresence.home.sellerTools.comingToBeta")}
+                </Badge>
+              </BadgeRow>
+              <ToneIcon name={card.icon} tone="primary" size="lg" label={card.title} />
+              <Heading level={3}>{card.title}</Heading>
+              <Text tone="secondary">{card.description}</Text>
+              <List items={card.points} />
+            </Stack>
+          </Surface>
+        ))}
+      </Grid>
+      <Surface tone="subtle">
+        <Inline gap={3} align="center">
+          <ToneIcon name="rocket" tone="success" size="md" label={t("publicPresence.home.sellerTools.cta.title")} />
+          <Stack gap={1}>
+            <Heading level={3}>{t("publicPresence.home.sellerTools.cta.title")}</Heading>
+            <Text size="sm" tone="secondary">
+              {t("publicPresence.home.sellerTools.cta.description")}
+            </Text>
+          </Stack>
+          <LinkButton
+            href="#waitlist-form-final"
+            tone="primary"
+            onClick={() => trackCtaClick("seller_tools", "waitlist_form_final")}
+          >
+            {t("publicPresence.home.sellerTools.cta.action")}
+          </LinkButton>
+        </Inline>
+      </Surface>
     </PageSection>
   );
 }

@@ -447,6 +447,37 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.sellerEconomics.math.graded.total": "Seller net before shipping",
   "publicPresence.home.sellerEconomics.math.graded.total.value": "$100.00",
   "publicPresence.home.sellerEconomics.title": "Fees that work differently",
+  "publicPresence.home.sellerTools.cta.action": "Request early access",
+  "publicPresence.home.sellerTools.cta.description":
+    "Join the seller wave and help shape how these tools work with real inventories.",
+  "publicPresence.home.sellerTools.cta.title": "Ready to stop pricing in a spreadsheet?",
+  "publicPresence.home.sellerTools.description":
+    "Chase Sets connects market signals to seller decisions: less spreadsheet maintenance, more control over the margin and inventory you actually manage.",
+  "publicPresence.home.sellerTools.comingToBeta": "Coming to beta",
+  "publicPresence.home.sellerTools.market.description":
+    "Market tape, rollups, and charts turn completed sales into price history, market estimates, and collection value signals.",
+  "publicPresence.home.sellerTools.market.point.collection": "Track collection value as market estimates move.",
+  "publicPresence.home.sellerTools.market.point.fairness":
+    "Buyer-facing market context helps prices stay easier to understand.",
+  "publicPresence.home.sellerTools.market.point.history": "Price history stays close to the catalog item.",
+  "publicPresence.home.sellerTools.market.title": "See the market behind every card",
+  "publicPresence.home.sellerTools.live": "Available now",
+  "publicPresence.home.sellerTools.repricing.description":
+    "A repricing policy can follow a market anchor while respecting the floor you control, with changes previewed and auditable before it acts.",
+  "publicPresence.home.sellerTools.repricing.point.anchor":
+    "Choose a market anchor and let the strategy follow signals continuously.",
+  "publicPresence.home.sellerTools.repricing.point.floor":
+    "Hard floors keep a market move from pushing below the price you accept.",
+  "publicPresence.home.sellerTools.repricing.point.preview":
+    "Preview proposed changes and keep an audit trail of what moved.",
+  "publicPresence.home.sellerTools.repricing.title": "Set a strategy once. Keep prices in context.",
+  "publicPresence.home.sellerTools.scale.description":
+    "Bulk repricing and agent-ready APIs give high-volume sellers a path beyond one-card-at-a-time work, with the same policy and market facts underneath.",
+  "publicPresence.home.sellerTools.scale.point.api": "API-ready foundations for seller workflows and agents.",
+  "publicPresence.home.sellerTools.scale.point.bulk": "A bulk on-ramp for importing and managing large price sets.",
+  "publicPresence.home.sellerTools.scale.point.inventory": "Designed for six-figure inventories.",
+  "publicPresence.home.sellerTools.scale.title": "From spreadsheet scale to a native workflow",
+  "publicPresence.home.sellerTools.title": "Seller tools that follow the market",
   "publicPresence.home.title": "The marketplace that works both ways.",
   "publicPresence.home.buyerHero.title": "The cards you need, with the full picture before you pay.",
   "publicPresence.home.trust.description":
