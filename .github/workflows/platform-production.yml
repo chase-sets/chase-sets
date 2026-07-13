@@ -905,6 +905,21 @@ jobs:
           echo "${RUNNER_TEMP}" >> "$GITHUB_PATH"
           "$binary" version >/dev/null 2>&1 || "$binary" --help >/dev/null
 
+      - name: Install Argo Rollouts controller and CRDs for staging
+        if: env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          manifest="${RUNNER_TEMP}/argo-rollouts-install.yaml"
+          curl --fail --location --silent --show-error \
+            https://github.com/argoproj/argo-rollouts/releases/download/v1.9.0/install.yaml \
+            --output "$manifest"
+          echo "6d23b368a668065958124c5670d7c94d8656034fe1b48f6af73b7aecaceea674  ${manifest}" | sha256sum --check
+          kubectl create namespace argo-rollouts --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -n argo-rollouts --server-side --force-conflicts -f "$manifest"
+          kubectl wait --for condition=Established --timeout=120s \
+            crd/rollouts.argoproj.io crd/analysistemplates.argoproj.io crd/analysisruns.argoproj.io
+          kubectl -n argo-rollouts rollout status deployment/argo-rollouts --timeout=300s
+
       - name: Export staging Kubernetes database URLs
         if: env.SHOULD_DEPLOY != 'false'
         env:
@@ -2445,6 +2460,21 @@ jobs:
           echo "${RUNNER_TEMP}" >> "$GITHUB_PATH"
           "$binary" version >/dev/null 2>&1 || "$binary" --help >/dev/null
 
+      - name: Install Argo Rollouts controller and CRDs for production
+        if: env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          manifest="${RUNNER_TEMP}/argo-rollouts-install.yaml"
+          curl --fail --location --silent --show-error \
+            https://github.com/argoproj/argo-rollouts/releases/download/v1.9.0/install.yaml \
+            --output "$manifest"
+          echo "6d23b368a668065958124c5670d7c94d8656034fe1b48f6af73b7aecaceea674  ${manifest}" | sha256sum --check
+          kubectl create namespace argo-rollouts --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -n argo-rollouts --server-side --force-conflicts -f "$manifest"
+          kubectl wait --for condition=Established --timeout=120s \
+            crd/rollouts.argoproj.io crd/analysistemplates.argoproj.io crd/analysisruns.argoproj.io
+          kubectl -n argo-rollouts rollout status deployment/argo-rollouts --timeout=300s
+
       - name: Capture production rollback target
         if: env.SHOULD_DEPLOY != 'false'
         id: rollback_target
@@ -3303,6 +3333,8 @@ jobs:
       contents: read
       issues: write
     steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
       - name: Classify deploy outcome
         id: classify_deploy_outcome
         env:
