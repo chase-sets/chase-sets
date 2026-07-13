@@ -33,7 +33,6 @@ describe("run-workspaces", () => {
     expect(verifyTest).toBe(
       "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 && node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4",
     );
-    expect(verifyTest).not.toContain("run-vitest-projects.mjs");
   });
 
   it("preserves serial behavior by default", async () => {
