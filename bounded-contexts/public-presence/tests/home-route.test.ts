@@ -186,6 +186,74 @@ describe("public presence home route", () => {
     expect(result).toEqual({ status: "error", message: "Enter a valid email address." });
   });
 
+  it("builds the checkout-fee preview from the live whitelisted policy read (#3951)", async () => {
+    const policyValue = (type: "bps" | "money", value: number | string) => ({
+      type,
+      value,
+      ...(type === "money" ? { currency: "USD" } : {}),
+      effectiveFrom: "2026-07-03T00:00:00.000Z",
+      upcoming: [],
+    });
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            values: {
+              "checkout-processing-fee.card.bps": policyValue("bps", 350),
+              "checkout-processing-fee.card.fixed": policyValue("money", "0.20"),
+              "checkout-processing-fee.bank-account.bps": policyValue("bps", 80),
+              "checkout-processing-fee.bank-account.fixed": policyValue("money", "0.00"),
+            },
+            resolvedAt: "2026-07-12T00:00:00.000Z",
+            propagationSeconds: 360,
+            changeCalloutDays: 30,
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const data = await loader({
+      request: new Request("https://chasesets.test/"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(fetch).toHaveBeenCalledWith("https://chasesets.test/api/public-presence/policy-values", expect.anything());
+    // A revised live policy drives the presentation; the compiled launch
+    // terms are only the unavailable-read fallback.
+    expect(data.checkoutFeePreview.cardRate).toBe("3.5%");
+    expect(data.checkoutFeePreview.cardFixed).toBe("$0.20");
+    expect(data.checkoutFeePreview.bankRate).toBe("0.8%");
+    expect(data.checkoutFeePreview.balanceTotalAmount).toBe("$83.88");
+  });
+
+  it("falls back to the compiled launch terms when the policy read is unavailable", async () => {
+    const fetch = vi.fn(async () => new Response("unavailable", { status: 503 }));
+    vi.stubGlobal("fetch", fetch);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      const data = await loader({
+        request: new Request("https://chasesets.test/"),
+        params: {},
+        context: undefined,
+      } as never);
+
+      expect(data.checkoutFeePreview).toMatchObject({
+        cardRate: "2.9%",
+        cardFixed: "$0.30",
+        bankRate: "0.5%",
+        cardFeeAmount: "$2.82",
+        cardTotalAmount: "$86.70",
+        balanceTotalAmount: "$83.88",
+      });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("checkout processing terms"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("carries the ?ref= referral code from the loader into the hidden form source", async () => {
     const data = await loader({
       request: new Request("https://chasesets.test/?ref=wls_abc123"),

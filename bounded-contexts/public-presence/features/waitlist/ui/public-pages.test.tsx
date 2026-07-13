@@ -272,7 +272,14 @@ describe("public waitlist form migration smoke", () => {
     expect(balanceFlywheel.textContent).toContain("Buy with balance");
     expect(balanceFlywheel.textContent).toContain("skip card processing entirely");
     expect(previewSection.textContent).toContain("Shipping");
-    expect(previewSection.textContent).toContain("Card processing");
+    // #3951: the card processing line states the real passthrough terms and
+    // the sample order resolves to a concrete total -- no fee on this surface
+    // is described only as "quoted before payment".
+    expect(previewSection.textContent).toContain("Card processing (2.9% + $0.30)");
+    expect(previewSection.textContent).toContain("$2.82");
+    expect(previewSection.textContent).toContain("$86.70");
+    expect(previewSection.textContent).not.toMatch(/quoted before payment/i);
+    expect(previewSection.textContent).not.toContain("At checkout");
     expect(previewSection.textContent).toContain("$0 with Chase Sets balance");
     expect(previewSection.textContent).toContain("Every order includes Order Protection.");
     expect(previewSection.querySelector('a[href="/order-protection"]')).not.toBeNull();
