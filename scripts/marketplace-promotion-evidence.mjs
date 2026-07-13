@@ -24,6 +24,8 @@ export const REQUIRED_MARKETPLACE_PROMOTION_PROOFS = [
   "checkoutLaunchGuestAndSignedInReviewed",
   "checkoutLaunchDesktopMobileAccessibilityReviewed",
   "checkoutLaunchNoPreConfirmationSideEffects",
+  "checkoutLaunchObservabilitySupportSecurityHandoffsReviewed",
+  "checkoutLaunchFulfillmentAssignmentBeforeSessionReviewed",
   "checkoutLaunchFreshStateCleanupReviewed",
   "checkoutLaunchNoLegacyCompatibilityPaths",
   "publicPresenceLaunchCopyReviewed",
