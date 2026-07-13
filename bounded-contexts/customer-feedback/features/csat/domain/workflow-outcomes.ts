@@ -1,31 +1,29 @@
 /**
  * Stable workflow / outcome-code registry.
  *
- * This is the allow-list that validates a server-issued invitation against
+ * This is the allow-list that invitation issuance validates against
  * so clients can never claim an arbitrary workflow. Every survey is anchored to
  * exactly one of these stable codes, and each code is owned (published) by a
  * single source context. The codes are intentionally named after the customer
  * OUTCOME (not the owning context) so they remain stable even if ownership moves.
  *
- * Coverage maps to the journey leaves that will publish outcome facts:
- *   -: checkout, checkout recovery, delivery, returns, support resolution, reputation
- *   -: listing, offers, inventory, payout
- *   -: sampled discovery, registration, authentication, onboarding
+ * Coverage maps to the commerce, selling, discovery, and onboarding journeys
+ * that publish outcome facts.
  */
 export const csatWorkflowOutcomeCodes = [
-  // — commerce completion, failure/recovery, delivery, returns, support, reputation
+  // Commerce completion, failure/recovery, delivery, returns, support, reputation.
   "checkout.completed",
   "checkout.recovered",
   "order.delivered",
   "return.resolved",
   "support.request-resolved",
   "reputation.review-received",
-  // — selling outcomes
+  // Selling outcomes.
   "listing.published",
   "offer.accepted",
   "inventory.item-adjusted",
   "payout.completed",
-  // — sampled discovery / account-onboarding outcomes
+  // Sampled discovery and account-onboarding outcomes.
   "discovery.search-completed",
   "registration.completed",
   "authentication.completed",
@@ -66,7 +64,7 @@ export function sourceContextForOutcomeCode(code: CsatWorkflowOutcomeCode): stri
 }
 
 /**
- * Validate a claimed (code, sourceContext) pair against the registry. uses
+ * Validate a claimed (code, sourceContext) pair against the registry. Issuance uses
  * this when redeeming a server-issued outcome fact into an invitation so a fact
  * cannot assert a code it does not own.
  */

@@ -1,14 +1,18 @@
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
+import { createCsatInvitationRuntime } from "../../features/csat/api/runtime";
 
 /**
  * Runtime services for the Customer Feedback context.
  *
- * At the start gate the context exposes contracts and its event-store base only;
- * the invitation aggregate, its event store wake wiring, and projections are added
- * by/. Services here therefore hold just the pool/query handles those
- * leaves extend.
+ * Composes the invitation aggregate, event-store wake wiring, and context-owned
+ * query projections while keeping the deployable host thin.
  */
 export type CustomerFeedbackServices = Readonly<{
+  invitations: ReturnType<typeof createCsatInvitationRuntime>;
+  projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;
@@ -19,5 +23,13 @@ export function createCustomerFeedbackServices(
   pool: PgTransactionalPool,
   _ports: CustomerFeedbackHostPorts = {},
 ): CustomerFeedbackServices {
-  return { pool, db: pool as PgQueryable };
+  const db = pool as PgQueryable;
+  const eventStore = createPostgresEventStore({
+    pool,
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({
+      sourceContextName: "customer-feedback",
+    }),
+  });
+  const invitations = createCsatInvitationRuntime({ eventStore, db });
+  return { invitations, projectors: invitations.projectors, pool, db };
 }

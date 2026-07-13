@@ -3,13 +3,13 @@
  *
  * Source contexts publish a completed outcome fact they own (checkout recovered,
  * order delivered, support request resolved, payout completed, ...). Customer
- * Feedback CONSUMES those facts and decides whether/when to issue an invitation
- *. The fact is the ONLY authoritative basis for an invitation — clients
- * may never claim workflow/entity provenance directly (epic security gap;).
+ * Feedback CONSUMES those facts and decides whether/when to issue an invitation.
+ * The fact is the ONLY authoritative basis for an invitation — clients may never
+ * claim workflow/entity provenance directly.
  *
  * No source context publishes this yet. The contract is defined here, at the
- * start gate, so the journey leaves (//) publish exactly this
- * shape and/ consume it without renegotiation.
+ * start gate, so journey slices publish exactly this shape and invitation and
+ * analytics slices consume it without renegotiation.
  */
 import { isProvenanceAuthoritative, type CsatWorkflowOutcomeCode } from "./workflow-outcomes";
 

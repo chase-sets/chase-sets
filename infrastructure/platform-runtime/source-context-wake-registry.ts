@@ -269,13 +269,13 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "customer-feedback",
     owner: "Customer Feedback",
-    rolloutState: "not-eligible",
+    rolloutState: "eligible",
     phase: "phase-3-expansion",
-    rolloutWave: "wave-4-deferred-or-not-eligible",
+    rolloutWave: "wave-3-platform-expansion",
     priorityLane: "bulk",
     expectedEventVolume: "low",
-    wakeStoreLoadEstimate: "none",
-    affectedProjectionNames: [],
+    wakeStoreLoadEstimate: "low",
+    affectedProjectionNames: ["customer-feedback:customer-feedback-csat-invitation-projection"],
     routeDependencyIds: [],
   }),
   registryEntry({

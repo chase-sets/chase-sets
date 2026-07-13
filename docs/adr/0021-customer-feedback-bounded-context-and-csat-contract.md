@@ -87,13 +87,28 @@ controls (#5155); and the physical removal of the Platform Operations
 `platform-feedback` runtime slice once those consumers migrate. This staging matches
 the epic dependency graph and avoids duplicating the sibling leaves' work.
 
+Issue #5147 completes the intentionally stubbed invitation surface without
+changing the stable survey-identity, Outcome Fact, workflow/outcome allow-list, or
+metric contracts. The invitation contract now includes all eight lifecycle states
+and versioned events, an opaque public redemption reference, a persisted sampling
+decision and policy schema version, and the explicit `issuanceEnabled` kill switch.
+The aggregate owns presentation/dismissal/submission transitions because
+single-use redemption and expiry are invitation invariants; #5148 remains the
+owner of survey UI composition and aggregate CSAT/response-rate analytics.
+Per-subject/workflow cooldown uses an internal, versioned
+`customer-feedback.sampling.cooldown-claimed` fact. The claim and issued
+invitation append atomically to separate event streams, avoiding an eventually
+consistent projection read as the concurrency authority.
+
 ## Consequences
 
 - Sibling leaves consume one authoritative contract via
   `@chase-sets/customer-feedback/server`; event and metric shapes are fixed at the
   gate and stay replay-stable.
-- Customer Feedback is registered as a source context in the wake registry
-  (inactive until #5147 emits events).
+- Customer Feedback is registered as an eligible source context in the wake
+  registry. Its first query projection is
+  `customer-feedback-csat-invitation-projection`; rollout enablement remains an
+  operational push-wake decision.
 - Platform Operations retains the legacy `platform-feedback` slice until its
   consumers migrate; both the legacy events and the new `legacy-experience-rating`
   classification keep those rows replayable and permanently out of CSAT.
