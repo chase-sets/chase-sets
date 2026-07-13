@@ -66,6 +66,7 @@ import {
   summarizeDatabasePoolPressure,
   summarizeRunnerCapacity,
 } from "@chase-sets/platform-runtime/worker-capacity";
+import { attributeProjectionHotLag } from "@chase-sets/platform-runtime/projection-hot-lag-evidence";
 import { createNotificationOutboxDispatcher, createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPostgresWebNotificationAdapter } from "@chase-sets/web-notifications";
 import { createTwilioMessagingAdapter } from "@chase-sets/twilio-messaging";
@@ -669,7 +670,7 @@ app.get("/health/ready", async (c) => {
   await pools.control.query("SELECT 1");
   return c.json({ status: "ok" });
 });
-app.get("/internal/workers/status", async (c) => {
+const buildWorkerStatusPayload = async (): Promise<Record<string, unknown>> => {
   const loopStatuses = runnerLoops.map((runnerLoop) => ({
     name: runnerLoop.name,
     maxConcurrentRunners: runnerLoop.maxConcurrentRunners,
@@ -681,7 +682,7 @@ app.get("/internal/workers/status", async (c) => {
     workSignalStore.summarizeProjectionWakeIntents(),
     workSignalStore.summarizeProjectionWakeIntentBreakdown(),
   ]);
-  return c.json({
+  return {
     status: "ok",
     runtimeProfile: config.runtimeProfile,
     workerKind,
@@ -722,7 +723,27 @@ app.get("/internal/workers/status", async (c) => {
     workers: await controlPlane.listWorkerHeartbeats(),
     runners: await controlPlane.listRunnerStatuses(),
     leases: await controlPlane.listLeases(),
-  });
+  };
+};
+
+app.get("/internal/workers/status", async (c) => {
+  return c.json(await buildWorkerStatusPayload());
+});
+// Live hot/background lane attribution for Platform Operations, computed
+// in-process from the same data as /internal/workers/status plus current
+// projection-group status snapshots. Mirrors the offline
+// scripts/projection-hot-lag-evidence.mjs classification so support can get
+// a same-cause answer without the manual capture-artifacts-then-run-CLI
+// workflow. Not part of /internal/workers/status itself so its (small)
+// extra projection-status read never adds cost to the frequently polled
+// heartbeat/status endpoint.
+app.get("/internal/workers/hot-lag-evidence", async (c) => {
+  const [workerStatus, projectionStatus] = await Promise.all([
+    buildWorkerStatusPayload(),
+    controlPlane.listProjectionStatusSnapshots(),
+  ]);
+
+  return c.json(attributeProjectionHotLag({ workerStatus, projectionStatus }));
 });
 
 startGracefulHttpServer({

@@ -26,6 +26,7 @@
     "./mcp-contracts": "./mcp-contracts.ts",
     "./mcp-protocol": "./mcp-protocol.ts",
     "./mcp-tool-call-limiter": "./mcp-tool-call-limiter.ts",
+    "./projection-hot-lag-evidence": "./projection-hot-lag-evidence.ts",
     "./projection-operations-routes": "./projection-operations-routes.ts",
     "./post-write-token-store": "./post-write-token-store.ts",
     "./post-write-tokens": "./post-write-tokens.ts",

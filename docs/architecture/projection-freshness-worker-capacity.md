@@ -56,7 +56,9 @@ For guest Buy Now staging canary or release evidence, collect:
 - projection status snapshot source, source lag, applicable lag, blocked stream count, and poison event count for `checkout.session-projection`;
 - confirmation that exact-dependency wait mode stayed enabled for normal canary runs.
 
-For #2515 production-push handoffs, turn the captured worker/projection JSON into a no-secret evidence record:
+For a live first read during an incident, call `GET /internal/workers/hot-lag-evidence` on the platform worker (same non-public-ingress surface as `/internal/workers/status`). It computes the same `primaryCause` (`worker-absent-or-stale`, `database-pool-pressure`, `projection-repair-needed`, `projection-group-lease-contention`, `hot-lane-queueing`, `background-work-pressure`, or `no-hot-lag-evidence`) in-process from current worker status and projection status snapshots, so an operator gets an attributed answer from one call instead of capturing two JSON files and running the CLI. It has no `--wake-outcomes` or `--background-controls` input (those come from Grafana/log exports outside a single process), so `projection-group-lease-contention` on this endpoint is only detected from runner `last_error` text, not from wake-outcome counters; treat a live `hot-lane-queueing` result with `confidence: "low"` as a prompt to pull the fuller offline evidence below, not as the final word.
+
+For #2515 production-push handoffs, or when the live endpoint's confidence is low, turn the captured worker/projection JSON into a no-secret evidence record:
 
 ```powershell
 pnpm run ops projection:hot-lag-evidence -- --worker-status <worker-status.json> --projection-status <projection-status.json> --out artifacts/projection-hot-lag-evidence.json
