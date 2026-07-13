@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { forwardRef, useId } from "react";
 import { Radio } from "@base-ui/react/radio";
 import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group";
 import { cx } from "../../utils/cx";
@@ -16,24 +16,27 @@ export interface RadioGroupProps extends BaseInputProps {
   readOnly?: boolean;
 }
 
-export function RadioGroup({
-  id,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  items,
-  name,
-  form,
-  value,
-  defaultValue,
-  onValueChange,
-  disabled = false,
-  readOnly = false,
-}: RadioGroupProps) {
+export const RadioGroup = forwardRef<HTMLButtonElement, RadioGroupProps>(function RadioGroup(
+  {
+    id,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    items,
+    name,
+    form,
+    value,
+    defaultValue,
+    onValueChange,
+    disabled = false,
+    readOnly = false,
+  },
+  ref,
+) {
   const fallbackId = useId();
   const groupId = id ?? fallbackId;
   const legendId = `${groupId}-legend`;
@@ -78,6 +81,7 @@ export function RadioGroup({
           return (
             <Radio.Root
               key={item.value}
+              ref={index === 0 ? ref : undefined}
               id={itemId}
               value={item.value}
               aria-labelledby={itemLabelId}
@@ -106,4 +110,5 @@ export function RadioGroup({
       </RadioGroupPrimitive>
     </FieldChrome>
   );
-}
+});
+RadioGroup.displayName = "RadioGroup";

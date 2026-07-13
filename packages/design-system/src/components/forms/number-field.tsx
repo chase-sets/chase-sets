@@ -1,4 +1,4 @@
-import { useId, type ComponentProps, type ReactNode } from "react";
+import { forwardRef, useId, type ComponentProps, type ReactNode, type Ref } from "react";
 import { NumberField as NumberFieldPrimitive } from "@base-ui/react/number-field";
 import {
   centsToMoneyAmount,
@@ -27,6 +27,7 @@ function NumberFieldControlGroup({
   decrementLabel,
   incrementLabel,
   inputProps,
+  inputRef,
   prefixAdornment,
   suffixAdornment,
 }: {
@@ -35,6 +36,7 @@ function NumberFieldControlGroup({
   decrementLabel: string;
   incrementLabel: string;
   inputProps: Omit<ComponentProps<typeof NumberFieldPrimitive.Input>, "className">;
+  inputRef?: Ref<HTMLInputElement>;
   /**
    * Decorative content flowed in-line before/after the input, inside the same
    * middle grid cell as the input itself (for example a currency symbol). Kept
@@ -70,6 +72,7 @@ function NumberFieldControlGroup({
         <NumberFieldPrimitive.Input
           role="spinbutton"
           {...inputProps}
+          ref={inputRef}
           className="min-w-0 flex-1 bg-transparent py-[var(--control-sm-py)] text-center outline-none"
         />
         {suffixAdornment ? (
@@ -101,29 +104,32 @@ export interface NumberFieldProps extends BaseInputProps {
   incrementLabel?: string;
 }
 
-export function NumberField({
-  id,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  name,
-  form,
-  value,
-  defaultValue,
-  onValueChange,
-  min,
-  max,
-  step = 1,
-  disabled = false,
-  readOnly = false,
-  placeholder,
-  decrementLabel = "Decrease value",
-  incrementLabel = "Increase value",
-}: NumberFieldProps) {
+export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(function NumberField(
+  {
+    id,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    name,
+    form,
+    value,
+    defaultValue,
+    onValueChange,
+    min,
+    max,
+    step = 1,
+    disabled = false,
+    readOnly = false,
+    placeholder,
+    decrementLabel = "Decrease value",
+    incrementLabel = "Increase value",
+  },
+  ref,
+) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
 
@@ -157,6 +163,7 @@ export function NumberField({
           disabledChrome={disabled}
           decrementLabel={decrementLabel}
           incrementLabel={incrementLabel}
+          inputRef={ref}
           inputProps={{
             placeholder,
             "aria-describedby": fieldDescribedBy({ inputId, description, error, status, counter }),
@@ -166,7 +173,8 @@ export function NumberField({
       </NumberFieldPrimitive.Root>
     </FieldChrome>
   );
-}
+});
+NumberField.displayName = "NumberField";
 
 // ─── CurrencyInput ───────────────────────────────────────────────────────────
 //
@@ -292,34 +300,37 @@ export interface CurrencyInputProps extends BaseInputProps {
   "aria-label"?: string;
 }
 
-export function CurrencyInput({
-  id,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  name,
-  form,
-  currencyCode,
-  value,
-  defaultValue,
-  onValueChange,
-  min,
-  max,
-  step = "0.01",
-  allowNegative = false,
-  disabled = false,
-  readOnly = false,
-  placeholder,
-  locale,
-  currencyAccessibleDescription,
-  decrementLabel = "Decrease amount",
-  incrementLabel = "Increase amount",
-  "aria-label": ariaLabel,
-}: CurrencyInputProps) {
+export const CurrencyInput = forwardRef<HTMLInputElement, CurrencyInputProps>(function CurrencyInput(
+  {
+    id,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    name,
+    form,
+    currencyCode,
+    value,
+    defaultValue,
+    onValueChange,
+    min,
+    max,
+    step = "0.01",
+    allowNegative = false,
+    disabled = false,
+    readOnly = false,
+    placeholder,
+    locale,
+    currencyAccessibleDescription,
+    decrementLabel = "Decrease amount",
+    incrementLabel = "Increase amount",
+    "aria-label": ariaLabel,
+  },
+  ref,
+) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
   const resolvedCurrencyDescription = (
@@ -370,6 +381,7 @@ export function CurrencyInput({
           incrementLabel={incrementLabel}
           prefixAdornment={affix.position === "prefix" ? affix.symbol : undefined}
           suffixAdornment={affix.position === "suffix" ? affix.symbol : undefined}
+          inputRef={ref}
           inputProps={{
             placeholder,
             inputMode: "decimal",
@@ -387,4 +399,5 @@ export function CurrencyInput({
       </NumberFieldPrimitive.Root>
     </FieldChrome>
   );
-}
+});
+CurrencyInput.displayName = "CurrencyInput";

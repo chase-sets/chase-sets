@@ -1,4 +1,4 @@
-import { useId, useState, type KeyboardEvent } from "react";
+import { forwardRef, useId, useState, type KeyboardEvent } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
 import { FieldChrome, compoundControlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
@@ -12,22 +12,25 @@ export interface TagInputProps extends BaseInputProps {
   maxTags?: number;
 }
 
-export function TagInput({
-  id,
-  name,
-  form,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  values,
-  onValuesChange,
-  placeholder = "Add a tag\u2026",
-  maxTags,
-}: TagInputProps) {
+export const TagInput = forwardRef<HTMLInputElement, TagInputProps>(function TagInput(
+  {
+    id,
+    name,
+    form,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    values,
+    onValuesChange,
+    placeholder = "Add a tag\u2026",
+    maxTags,
+  },
+  ref,
+) {
   const [input, setInput] = useState("");
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
@@ -85,6 +88,7 @@ export function TagInput({
         ))}
         <input
           id={inputId}
+          ref={ref}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -97,4 +101,5 @@ export function TagInput({
       </div>
     </FieldChrome>
   );
-}
+});
+TagInput.displayName = "TagInput";

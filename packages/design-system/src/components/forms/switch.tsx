@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { forwardRef, useId } from "react";
 import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
 import { cx } from "../../utils/cx";
 import { FieldChrome, fieldDescribedBy, type BaseInputProps } from "./shared";
@@ -15,25 +15,28 @@ export interface SwitchProps extends BaseInputProps {
   uncheckedValue?: string;
 }
 
-export function Switch({
-  id,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  checked,
-  defaultChecked,
-  onCheckedChange,
-  disabled = false,
-  readOnly = false,
-  name,
-  form,
-  value,
-  uncheckedValue,
-}: SwitchProps) {
+export const Switch = forwardRef<HTMLButtonElement, SwitchProps>(function Switch(
+  {
+    id,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    checked,
+    defaultChecked,
+    onCheckedChange,
+    disabled = false,
+    readOnly = false,
+    name,
+    form,
+    value,
+    uncheckedValue,
+  },
+  ref,
+) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
 
@@ -62,6 +65,7 @@ export function Switch({
         </div>
         <SwitchPrimitive.Root
           id={inputId}
+          ref={ref}
           name={name}
           form={form}
           value={value}
@@ -94,4 +98,5 @@ export function Switch({
       </label>
     </FieldChrome>
   );
-}
+});
+Switch.displayName = "Switch";

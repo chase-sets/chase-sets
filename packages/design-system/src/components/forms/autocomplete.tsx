@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { forwardRef, useId, type ReactNode } from "react";
 import { Autocomplete as AutocompletePrimitive } from "@base-ui/react/autocomplete";
 import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
@@ -25,24 +25,27 @@ export interface AutocompleteProps extends BaseInputProps {
   noMatchesLabel?: string;
 }
 
-export function Autocomplete({
-  id,
-  name,
-  form,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  items,
-  value,
-  defaultValue,
-  onValueChange,
-  placeholder = "Search",
-  noMatchesLabel = "No matches",
-}: AutocompleteProps) {
+export const Autocomplete = forwardRef<HTMLInputElement, AutocompleteProps>(function Autocomplete(
+  {
+    id,
+    name,
+    form,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    items,
+    value,
+    defaultValue,
+    onValueChange,
+    placeholder = "Search",
+    noMatchesLabel = "No matches",
+  },
+  ref,
+) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
   const listboxId = useId();
@@ -82,6 +85,7 @@ export function Autocomplete({
         >
           <AutocompletePrimitive.Input
             id={inputId}
+            ref={ref}
             placeholder={placeholder}
             aria-controls={listboxId}
             aria-describedby={fieldDescribedBy({ inputId, description, error, status, counter })}
@@ -130,4 +134,5 @@ export function Autocomplete({
       </AutocompletePrimitive.Root>
     </FieldChrome>
   );
-}
+});
+Autocomplete.displayName = "Autocomplete";

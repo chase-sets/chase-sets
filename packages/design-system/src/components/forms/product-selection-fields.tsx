@@ -1,3 +1,4 @@
+import { forwardRef } from "react";
 import { NativeSelect } from "./select";
 
 export interface ProductSelectionFieldOption {
@@ -27,19 +28,23 @@ export interface ProductSelectionFieldsProps {
  * caller computes which dimensions are active/ordered and owns selection-state normalization
  * (see `@chase-sets/product-selection`), this component only renders the resulting fields.
  */
-export function ProductSelectionFields({ fields, onFieldChange, fieldName }: ProductSelectionFieldsProps) {
-  return (
-    <>
-      {fields.map((field) => (
-        <NativeSelect
-          key={field.dimensionId}
-          label={field.label}
-          name={fieldName?.(field.dimensionId)}
-          value={field.value}
-          onChange={(event) => onFieldChange(field.dimensionId, event.target.value)}
-          items={[...field.options]}
-        />
-      ))}
-    </>
-  );
-}
+export const ProductSelectionFields = forwardRef<HTMLSelectElement, ProductSelectionFieldsProps>(
+  function ProductSelectionFields({ fields, onFieldChange, fieldName }, ref) {
+    return (
+      <>
+        {fields.map((field, index) => (
+          <NativeSelect
+            key={field.dimensionId}
+            ref={index === 0 ? ref : undefined}
+            label={field.label}
+            name={fieldName?.(field.dimensionId)}
+            value={field.value}
+            onChange={(event) => onFieldChange(field.dimensionId, event.target.value)}
+            items={[...field.options]}
+          />
+        ))}
+      </>
+    );
+  },
+);
+ProductSelectionFields.displayName = "ProductSelectionFields";
