@@ -21,10 +21,9 @@ import {
   ToggleGroup,
 } from "@chase-sets/design-system";
 import { trackWaitlistEvent } from "./analytics";
+import { landingExperimentVariants, type LandingExperimentVariant } from "./landing-experiment";
 import { publicPresenceT as t } from "./public-presence-translator";
 import { gameItems, inventorySizeItems, PublicPresencePageShell } from "./public-pages";
-
-const landingExperimentVariant = "seller_first_v1";
 
 type ReferralSummary = Readonly<{
   referralCount: number;
@@ -100,7 +99,15 @@ type CohortSaveStatus = "idle" | "saving" | "saved" | "error";
  * individually the moment it changes -- there is no submit wall, so partial
  * answers still reach the wave-selection store.
  */
-function WavePlacementSection({ signupId, initialGames }: { signupId: string; initialGames: readonly string[] }) {
+function WavePlacementSection({
+  signupId,
+  initialGames,
+  landingExperimentVariant,
+}: {
+  signupId: string;
+  initialGames: readonly string[];
+  landingExperimentVariant: LandingExperimentVariant;
+}) {
   const [games, setGames] = useState<string[]>([...new Set(initialGames.filter((game) => validGameSlugs.has(game)))]);
   const [inventorySize, setInventorySize] = useState("");
   const [storeUrl, setStoreUrl] = useState("");
@@ -221,6 +228,7 @@ export function WaitlistSuccessPage({
   attributed,
   role = null,
   initialGames = [],
+  landingExperimentVariant = landingExperimentVariants.sellerFirstV1,
 }: {
   signupId: string;
   publicOrigin: string;
@@ -236,6 +244,8 @@ export function WaitlistSuccessPage({
   role?: "buy" | "sell" | "both" | null;
   /** Games already recorded at signup, prefilled into the wave-placement chips. */
   initialGames?: readonly string[];
+  /** The first-party landing assignment carried through the signup redirect. */
+  landingExperimentVariant?: LandingExperimentVariant;
 }) {
   // The share link carries its own UTM channel so referral traffic shows up
   // as a distinct row in campaign channel attribution (utm_source=referral),
@@ -280,7 +290,7 @@ export function WaitlistSuccessPage({
   const twitterIntentUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText(referralLink))}`;
 
   return (
-    <PublicPresencePageShell>
+    <PublicPresencePageShell landingExperimentVariant={landingExperimentVariant}>
       <Page>
         <PageHeader
           eyebrow={t("publicPresence.welcome.eyebrow")}
@@ -289,7 +299,11 @@ export function WaitlistSuccessPage({
         />
 
         {role === "sell" || role === "both" ? (
-          <WavePlacementSection signupId={signupId} initialGames={initialGames} />
+          <WavePlacementSection
+            signupId={signupId}
+            initialGames={initialGames}
+            landingExperimentVariant={landingExperimentVariant}
+          />
         ) : null}
 
         <PageSection title={t("publicPresence.welcome.whatNext.title")}>
