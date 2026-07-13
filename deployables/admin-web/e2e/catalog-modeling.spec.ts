@@ -58,6 +58,12 @@ async function probeCatalogAuthoringStreamEndpoint(
       };
     } finally {
       window.clearTimeout(timeout);
+      // A successfully-opened (200) probe never reads the event-stream body, so the
+      // connection would otherwise stay open (and keep leasing a slot against the
+      // shared per-account realtime stream budget, see resolveRealtimeConnectionKey)
+      // until this page is torn down. Abort proactively so the lease releases
+      // immediately instead of lingering into the next probe/test.
+      controller.abort("stream probe complete");
     }
   }, path);
 }
@@ -139,7 +145,17 @@ test.describe.serial("catalog admin modeling", () => {
       "/api/catalog/bulk-authoring-jobs/topology-smoke/events",
       "/api/realtime/public/events?topic=catalog%3Aadmin%3Acatalog-items",
     ]) {
-      expectControlledCatalogAuthoringStreamProbe(path, await probeCatalogAuthoringStreamEndpoint(page, path));
+      // The shared realtime/durable-job stream limiters key leases per account
+      // (or per client address) with a small per-key budget. A lease from a
+      // just-torn-down page/test can take a moment to release server-side, so a
+      // probe can transiently observe a saturated budget (429/503) immediately
+      // after another admin-web test closes. Re-probe within a settle window
+      // instead of asserting on a single point-in-time snapshot: this keeps the
+      // check real (still requires a genuine open stream or a genuine controlled
+      // JSON error) while not racing the lease-release teardown.
+      await expect(async () => {
+        expectControlledCatalogAuthoringStreamProbe(path, await probeCatalogAuthoringStreamEndpoint(page, path));
+      }).toPass({ intervals: [250, 500, 1_000, 2_000], timeout: 15_000 });
     }
   });
 

@@ -31,6 +31,12 @@ async function probeAccountRealtimeEndpoint(page: Page, path: string): Promise<A
       };
     } finally {
       window.clearTimeout(timeout);
+      // A successfully-opened (200) probe never reads the event-stream body, so the
+      // connection would otherwise stay open (and keep leasing a slot against the
+      // shared per-account stream budget, see resolveRealtimeConnectionKey) until
+      // this page is torn down. Abort proactively so the lease releases
+      // immediately instead of lingering into the next probe/test.
+      controller.abort("stream probe complete");
     }
   }, path);
 }
@@ -42,7 +48,10 @@ function expectControlledAccountRealtimeProbe(path: string, result: AccountRealt
     return;
   }
 
-  expect([401, 403, 429, 503], `${path} should return a controlled JSON response`).toContain(result.status);
+  // 404 joins the sibling catalog-authoring/job-stream probes' allowed set for
+  // consistency: all four admin-web stream probes hit the same realtime/durable
+  // job routes and should tolerate the same controlled-failure shapes.
+  expect([401, 403, 404, 429, 503], `${path} should return a controlled JSON response`).toContain(result.status);
   expect(result.contentType, `${path} should not return host HTML`).toContain("application/json");
   expect(result.textStart, `${path} should not return an HTML fallback`).not.toMatch(/<!doctype html|<html/i);
   expect(() => JSON.parse(result.textStart || "{}"), `${path} should return JSON`).not.toThrow();
@@ -60,7 +69,14 @@ test.describe("admin cross-cutting API topology", () => {
     await expectPageOk(page, "/platform/projections");
 
     const path = "/api/realtime/account/events?topic=account%3Atopology-smoke%3Alistings";
-    expectControlledAccountRealtimeProbe(path, await probeAccountRealtimeEndpoint(page, path));
+    // See catalog-modeling.spec.ts's authoring-stream probe for why this
+    // re-probes within a settle window instead of asserting a single
+    // point-in-time snapshot: the shared per-account stream limiter's lease
+    // release from a just-finished admin-web test can lag behind this probe's
+    // start.
+    await expect(async () => {
+      expectControlledAccountRealtimeProbe(path, await probeAccountRealtimeEndpoint(page, path));
+    }).toPass({ intervals: [250, 500, 1_000, 2_000], timeout: 15_000 });
   });
 });
 

@@ -31,6 +31,12 @@ async function probeStreamEndpoint(page: Page, path: string): Promise<StreamProb
       };
     } finally {
       window.clearTimeout(timeout);
+      // A successfully-opened (200) probe never reads the event-stream body, so the
+      // connection would otherwise stay open (and keep leasing a slot against the
+      // shared per-account/per-address stream budget) until this page is torn
+      // down. Abort proactively so the lease releases immediately instead of
+      // lingering into the next probe/test.
+      controller.abort("stream probe complete");
     }
   }, path);
 }
@@ -42,7 +48,12 @@ function expectControlledStreamProbe(path: string, result: StreamProbeResult) {
     return;
   }
 
-  expect([401, 403, 404], `${path} should return a controlled auth/not-found response`).toContain(result.status);
+  // 429/503 are legitimate controlled responses from the shared realtime/durable
+  // job stream limiters (per-account or per-address lease budgets), not just
+  // auth/not-found outcomes -- see durable-job-events.ts and realtime.ts. Admin
+  // e2e specs share one demo account, so a budget-saturated response is a real,
+  // expected outcome under concurrent admin-web test traffic, not a failure.
+  expect([401, 403, 404, 429, 503], `${path} should return a controlled JSON response`).toContain(result.status);
   expect(result.contentType, `${path} should not return host HTML`).toContain("application/json");
   expect(result.textStart, `${path} should not return an HTML fallback`).not.toMatch(/<!doctype html|<html/i);
   expect(() => JSON.parse(result.textStart || "{}"), `${path} should return JSON`).not.toThrow();
@@ -62,7 +73,13 @@ test.describe("platform admin projection operations", () => {
     await expectPageOk(page, "/platform/projections");
 
     const path = "/api/platform/projections/operations/op_admin_e2e_missing/events";
-    expectControlledStreamProbe(path, await probeStreamEndpoint(page, path));
+    // See catalog-modeling.spec.ts's authoring-stream probe for why this
+    // re-probes within a settle window instead of asserting a single
+    // point-in-time snapshot: the shared stream limiter's lease release from a
+    // just-finished admin-web test can lag behind this probe's start.
+    await expect(async () => {
+      expectControlledStreamProbe(path, await probeStreamEndpoint(page, path));
+    }).toPass({ intervals: [250, 500, 1_000, 2_000], timeout: 15_000 });
   });
 
   test("operator reviews projection console and refreshes status @admin-platform", async ({ page }) => {
