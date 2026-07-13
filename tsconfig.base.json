@@ -114,6 +114,15 @@
       "@chase-sets/commercial-terms/server": [
         "./bounded-contexts/commercial-terms/server.ts"
       ],
+      "@chase-sets/customer-feedback": [
+        "./bounded-contexts/customer-feedback/index.ts"
+      ],
+      "@chase-sets/customer-feedback/context": [
+        "./bounded-contexts/customer-feedback/context.json"
+      ],
+      "@chase-sets/customer-feedback/server": [
+        "./bounded-contexts/customer-feedback/server.ts"
+      ],
       "@chase-sets/design-system": [
         "./packages/design-system/src/index.ts"
       ],

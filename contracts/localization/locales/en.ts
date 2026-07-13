@@ -6,6 +6,7 @@ import { fulfillmentEnglishTranslations } from "./en/fulfillment";
 import { orderingEnglishTranslations } from "./en/ordering";
 import { checkoutEnglishTranslations } from "./en/checkout";
 import { commercialTermsEnglishTranslations } from "./en/commercial-terms";
+import { customerFeedbackEnglishTranslations } from "./en/customer-feedback";
 import { discoveryEnglishTranslations } from "./en/discovery";
 import { identityEnglishTranslations } from "./en/identity";
 import { inventoryEnglishTranslations } from "./en/inventory";
@@ -30,6 +31,7 @@ export const englishTranslations = {
   ...orderingEnglishTranslations,
   ...checkoutEnglishTranslations,
   ...commercialTermsEnglishTranslations,
+  ...customerFeedbackEnglishTranslations,
   ...discoveryEnglishTranslations,
   ...identityEnglishTranslations,
   ...inventoryEnglishTranslations,
