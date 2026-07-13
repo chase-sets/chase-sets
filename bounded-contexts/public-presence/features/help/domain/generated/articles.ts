@@ -2427,6 +2427,477 @@ export const helpArticles = [
     policyValueKeys: [],
   },
   {
+    slug: "creators-and-press",
+    locale: "en",
+    title: "Creator and press fact sheet",
+    description:
+      "One page for creators and press: what Chase Sets is, the launch timeline, the founders offer, live marketplace fees, and Order Protection.",
+    audience: "buyer",
+    category: "getting-started",
+    reviewedAt: "2026-07-12",
+    citedPolicies: ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
+    relatedFlows: [],
+    claimCategories: ["fees", "protection"],
+    promiseTable: [
+      {
+        claim: "Published fee figures resolve from the current ratified policy documents.",
+        issues: ["#4353"],
+        tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx"],
+      },
+      {
+        claim: "Public launch is September 1, 2026, with beta invite waves beginning late July 2026.",
+        issues: ["#3952"],
+        tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"],
+      },
+      {
+        claim: "Every order includes a 1% Order Protection reserve contribution without a separate buyer fee line.",
+        issues: ["#4098"],
+        tests: [
+          "bounded-contexts/ordering/features/orders/domain/policies.test.ts",
+          "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.test.ts",
+        ],
+      },
+    ],
+    href: "/press",
+    headings: [
+      {
+        level: 2,
+        id: "what-chase-sets-is",
+        text: "What Chase Sets is",
+      },
+      {
+        level: 2,
+        id: "launch-timeline",
+        text: "Launch timeline",
+      },
+      {
+        level: 2,
+        id: "the-founders-offer",
+        text: "The founders offer",
+      },
+      {
+        level: 2,
+        id: "marketplace-fees",
+        text: "Marketplace fees",
+      },
+      {
+        level: 2,
+        id: "order-protection",
+        text: "Order Protection",
+      },
+      {
+        level: 2,
+        id: "graded-cards",
+        text: "Graded cards",
+      },
+      {
+        level: 2,
+        id: "open-offers",
+        text: "Open offers",
+      },
+      {
+        level: 2,
+        id: "about-the-founder",
+        text: "About the founder",
+      },
+      {
+        level: 2,
+        id: "creator-and-press-contact",
+        text: "Creator and press contact",
+      },
+    ],
+    blocks: [
+      {
+        type: "heading",
+        level: 2,
+        id: "what-chase-sets-is",
+        text: "What Chase Sets is",
+        content: [
+          {
+            type: "text",
+            value: "What Chase Sets is",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Chase Sets is a trading card marketplace built for accounts that both buy and sell. At launch it supports five games — Pokemon (English and Japanese), Magic: The Gathering, Yu-Gi-Oh!, Disney Lorcana, and One Piece Card Game — each with a full curated catalog covering raw and graded singles.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Marketplace checkout is not open yet. During prelaunch the public site takes early-access signups, and buyers can already see how pricing works: delivered totals are shown before payment, with no hidden buyer fees at checkout.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "launch-timeline",
+        text: "Launch timeline",
+        content: [
+          {
+            type: "text",
+            value: "Launch timeline",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value: "Beta invite waves begin late July 2026.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Public launch — open signup for everyone — is September 1, 2026.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Invite waves are gated on operational readiness between waves, so Chase Sets does not promise per-wave dates.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "the-founders-offer",
+        text: "The founders offer",
+        content: [
+          {
+            type: "text",
+            value: "The founders offer",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "The first 500 accounts to list or make an offer claim a numbered founder badge, shown publicly and kept permanently. Beta access also opens a 60-day 0% seller-fee window: every listing created in that window locks 0% seller fees until it sells. The complete plain-language terms, including exactly how the fee lock behaves, are published at ",
+          },
+          {
+            type: "link",
+            label: "Founders offer terms",
+            href: "/founders",
+          },
+          {
+            type: "text",
+            value: ".",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "marketplace-fees",
+        text: "Marketplace fees",
+        content: [
+          {
+            type: "text",
+            value: "Marketplace fees",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Fee figures on this page are read live from the published policy documents, not copied into the text:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value: "Standard sales fee for every account type: ",
+            },
+            {
+              type: "policy-value",
+              key: "marketplace-sales-fee.standard.bps",
+            },
+            {
+              type: "text",
+              value: " of the item price plus ",
+            },
+            {
+              type: "policy-value",
+              key: "marketplace-sales-fee.standard.fixed",
+            },
+            {
+              type: "text",
+              value: ", capped at ",
+            },
+            {
+              type: "policy-value",
+              key: "marketplace-sales-fee.standard.cap",
+            },
+            {
+              type: "text",
+              value: " per item.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "There is no separate listing fee.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Buyer checkout processing: ",
+            },
+            {
+              type: "policy-value",
+              key: "checkout-processing-fee.card.bps",
+            },
+            {
+              type: "text",
+              value: " plus ",
+            },
+            {
+              type: "policy-value",
+              key: "checkout-processing-fee.card.fixed",
+            },
+            {
+              type: "text",
+              value: " by card, ",
+            },
+            {
+              type: "policy-value",
+              key: "checkout-processing-fee.bank-account.bps",
+            },
+            {
+              type: "text",
+              value: " plus ",
+            },
+            {
+              type: "policy-value",
+              key: "checkout-processing-fee.bank-account.fixed",
+            },
+            {
+              type: "text",
+              value: " by bank account, and ",
+            },
+            {
+              type: "policy-value",
+              key: "checkout-processing-fee.platform-credit.bps",
+            },
+            {
+              type: "text",
+              value: " plus ",
+            },
+            {
+              type: "policy-value",
+              key: "checkout-processing-fee.platform-credit.fixed",
+            },
+            {
+              type: "text",
+              value: " with Chase Sets credit.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "The full schedule and how listing-time fee locks work are on the ",
+          },
+          {
+            type: "link",
+            label: "marketplace sales fee schedule",
+            href: "/sales-fees",
+          },
+          {
+            type: "text",
+            value: ".",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "order-protection",
+        text: "Order Protection",
+        content: [
+          {
+            type: "text",
+            value: "Order Protection",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Every order includes Order Protection — funded at 1% of item value and never itemized as a separate buyer fee. How safeguards apply across payment, fulfillment, disputes, and payouts is documented in ",
+          },
+          {
+            type: "link",
+            label: "Order protection",
+            href: "/help/buying/order-protection",
+          },
+          {
+            type: "text",
+            value: ".",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "graded-cards",
+        text: "Graded cards",
+        content: [
+          {
+            type: "text",
+            value: "Graded cards",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Beta supports graded-card listings — PSA, BGS, CGC, and SGC certification numbers, validated, with slab photos required.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "open-offers",
+        text: "Open offers",
+        content: [
+          {
+            type: "text",
+            value: "Open offers",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Buyers can post open offers — the price they will pay for a card — so sellers can sell into demand instead of waiting for a search.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "about-the-founder",
+        text: "About the founder",
+        content: [
+          {
+            type: "text",
+            value: "About the founder",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Chase Sets is founder-built: the founder buys, sells, and ships trading cards himself, and the fee math and policies stay public instead of buried in fine print. Founder interviews and quotes are available on request.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "creator-and-press-contact",
+        text: "Creator and press contact",
+        content: [
+          {
+            type: "text",
+            value: "Creator and press contact",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Email ",
+          },
+          {
+            type: "link",
+            label: "support@chasesets.com",
+            href: "mailto:support@chasesets.com",
+          },
+          {
+            type: "text",
+            value:
+              " for creator partnerships, press questions, screenshots, logo files, and interview requests, or use the ",
+          },
+          {
+            type: "link",
+            label: "contact page",
+            href: "/contact",
+          },
+          {
+            type: "text",
+            value:
+              ". Chase Sets does not publish user or sales counts during prelaunch, so please do not cite traction numbers from third parties.",
+          },
+        ],
+      },
+    ],
+    policyValueKeys: [
+      "marketplace-sales-fee.standard.bps",
+      "marketplace-sales-fee.standard.fixed",
+      "marketplace-sales-fee.standard.cap",
+      "checkout-processing-fee.card.bps",
+      "checkout-processing-fee.card.fixed",
+      "checkout-processing-fee.bank-account.bps",
+      "checkout-processing-fee.bank-account.fixed",
+      "checkout-processing-fee.platform-credit.bps",
+      "checkout-processing-fee.platform-credit.fixed",
+    ],
+  },
+  {
     slug: "sales-fees",
     locale: "en",
     title: "Marketplace sales and checkout fees",
