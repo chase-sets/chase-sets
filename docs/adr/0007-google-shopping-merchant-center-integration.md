@@ -79,8 +79,9 @@ Platform Worker owns runtime configuration and disabled-by-default safety:
 - `GOOGLE_MERCHANT_CONTENT_LANGUAGE`
 - `GOOGLE_MERCHANT_FEED_LABEL`
 - `GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME`
+- `GOOGLE_MERCHANT_PRODUCTION_SYNC_APPROVAL_REFERENCE`
 
-When sync is enabled, missing or malformed config fails startup. Logs may describe whether credentials are configured but must not print credential JSON, private keys, OAuth tokens, or raw provider secrets.
+When sync is enabled, missing or malformed config fails startup. Logs may describe whether credentials are configured but must not print credential JSON, private keys, OAuth tokens, or raw provider secrets. When `GOOGLE_MERCHANT_DRY_RUN=false`, startup additionally fails unless `GOOGLE_MERCHANT_PRODUCTION_SYNC_APPROVAL_REFERENCE` is a real, non-placeholder evidence reference, so live Merchant writes cannot be enabled by config alone without a recorded approval.
 
 ## Launch Exclusions
 

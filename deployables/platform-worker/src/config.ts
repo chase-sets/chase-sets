@@ -178,6 +178,7 @@ export type PlatformWorkerGoogleMerchantConfig =
       contentLanguage: string;
       feedLabel: string;
       credentialSecretName: string;
+      productionSyncApprovalReference: string | null;
     }>;
 
 export type PlatformWorkerMobileMessagingConfig =
@@ -244,6 +245,9 @@ export function loadConfig(): PlatformWorkerConfig {
   const googleMerchantContentLanguage = getOptionalEnv("GOOGLE_MERCHANT_CONTENT_LANGUAGE") ?? "en";
   const googleMerchantFeedLabel = getOptionalEnv("GOOGLE_MERCHANT_FEED_LABEL") ?? googleMerchantTargetCountry;
   const googleMerchantCredentialSecretName = getOptionalEnv("GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME");
+  const googleMerchantProductionSyncApprovalReference = getOptionalEnv(
+    "GOOGLE_MERCHANT_PRODUCTION_SYNC_APPROVAL_REFERENCE",
+  );
   const voyageApiKey = getOptionalEnv("VOYAGE_API_KEY");
   const mobileMessagingProvider = resolveMobileMessagingProvider(getOptionalEnv("MOBILE_MESSAGING_PROVIDER"));
   const twilioAccountSid = getOptionalEnv("TWILIO_ACCOUNT_SID");
@@ -526,6 +530,7 @@ export function loadConfig(): PlatformWorkerConfig {
       contentLanguage: googleMerchantContentLanguage,
       feedLabel: googleMerchantFeedLabel,
       credentialSecretName: googleMerchantCredentialSecretName,
+      productionSyncApprovalReference: googleMerchantProductionSyncApprovalReference,
     }),
     notificationEmail: {
       provider: notificationEmailProvider,
@@ -570,7 +575,18 @@ export function describeGoogleMerchantConfigForLogs(config: PlatformWorkerGoogle
     contentLanguage: config.contentLanguage,
     feedLabel: config.feedLabel,
     credentialSecretName: "[configured]",
+    productionSyncApprovalReference: config.productionSyncApprovalReference,
   };
+}
+
+// Mirrors scripts/marketplace-evidence-references.mjs so the worker refuses to boot into live
+// Merchant writes on the same placeholder references the launch-readiness evidence gate rejects.
+const PLACEHOLDER_PRODUCTION_SYNC_APPROVAL_REFERENCE_PATTERN =
+  /^(?:tbd|todo|none|null|n\/a|na|placeholder|example|sample|test|ticket|record|launch-000)$/i;
+
+function isValidProductionSyncApprovalReference(value: string): boolean {
+  const normalized = value.trim();
+  return normalized.length >= 6 && !PLACEHOLDER_PRODUCTION_SYNC_APPROVAL_REFERENCE_PATTERN.test(normalized);
 }
 
 function loadGoogleMerchantConfig(input: {
@@ -582,6 +598,7 @@ function loadGoogleMerchantConfig(input: {
   contentLanguage: string;
   feedLabel: string;
   credentialSecretName: string | null;
+  productionSyncApprovalReference: string | null;
 }): PlatformWorkerGoogleMerchantConfig {
   if (!input.syncEnabled) {
     return {
@@ -609,6 +626,18 @@ function loadGoogleMerchantConfig(input: {
     throw new Error("GOOGLE_MERCHANT_CONTENT_LANGUAGE must be a language code such as en or en-US.");
   }
 
+  const productionSyncApprovalReference = input.productionSyncApprovalReference?.trim() || null;
+  if (productionSyncApprovalReference && !isValidProductionSyncApprovalReference(productionSyncApprovalReference)) {
+    throw new Error(
+      "GOOGLE_MERCHANT_PRODUCTION_SYNC_APPROVAL_REFERENCE must point to a real external evidence record, not a placeholder.",
+    );
+  }
+  if (!input.dryRun && !productionSyncApprovalReference) {
+    throw new Error(
+      "GOOGLE_MERCHANT_PRODUCTION_SYNC_APPROVAL_REFERENCE is required when GOOGLE_MERCHANT_DRY_RUN=false. Run `pnpm run ops google-shopping:launch-readiness-evidence -- --expected-mode live` and record the passing evidence reference before enabling live Merchant writes.",
+    );
+  }
+
   return {
     syncEnabled: true,
     dryRun: input.dryRun,
@@ -618,6 +647,7 @@ function loadGoogleMerchantConfig(input: {
     contentLanguage: input.contentLanguage,
     feedLabel: input.feedLabel,
     credentialSecretName: input.credentialSecretName as string,
+    productionSyncApprovalReference,
   };
 }
 
