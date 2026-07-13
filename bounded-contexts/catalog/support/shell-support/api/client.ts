@@ -1993,6 +1993,14 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async listCatalogScopeRecords<T>(query = ""): Promise<T> {
+      const search = query ? `?${new URLSearchParams(queryFromString(query)).toString()}` : "";
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/scope-records${search}`, {
+        method: "GET",
+        headers: headersToRecord(headers),
+      });
+      return parseJsonResponse<T>(response);
+    },
     async getCatalogAliasReviewReadModel<T>(query = ""): Promise<T> {
       const search = query ? `?${new URLSearchParams(queryFromString(query)).toString()}` : "";
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/alias-review${search}`, {

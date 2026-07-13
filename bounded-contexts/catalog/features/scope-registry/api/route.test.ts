@@ -35,7 +35,7 @@ function buildApp(
   actor: CatalogAuthoringEnv["Variables"]["actor"] | null,
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
-  app.use("/scope-records/*", async (c, next) => {
+  app.use("*", async (c, next) => {
     c.set("actor", actor);
     await next();
   });
@@ -109,5 +109,77 @@ describe("Catalog scope registry route", () => {
 
     expect(response.status).toBe(403);
     expect(getScopeRecord).not.toHaveBeenCalled();
+  });
+});
+
+describe("Catalog scope registry list route", () => {
+  it("returns the canonical scope record list for catalog.view operators", async () => {
+    const listScopeRecords = vi.fn().mockResolvedValue({ items: [paldeanFatesRow()], total: 1 });
+    const app = buildApp({ getScopeRecord: vi.fn(), listScopeRecords }, viewActor);
+
+    const response = await app.request("/scope-records");
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.total).toBe(1);
+    expect(body.count).toBe(1);
+    expect(body.items[0].officialSetCode).toBe("PAF");
+    expect(body.items[0].languageEditions).toEqual(["en", "ja"]);
+  });
+
+  it("parses product domain / scope kind / status / search / pagination into the query params", async () => {
+    const listScopeRecords = vi.fn().mockResolvedValue({ items: [], total: 0 });
+    const app = buildApp({ getScopeRecord: vi.fn(), listScopeRecords }, viewActor);
+
+    await app.request(
+      "/scope-records?productDomain=pokemon&scopeKind=expansion&status=active&search=paldean&limit=25&offset=50",
+    );
+
+    expect(listScopeRecords).toHaveBeenCalledWith({
+      productDomain: "pokemon",
+      scopeKind: "expansion",
+      lifecycleStatus: "active",
+      search: "paldean",
+      limit: 25,
+      offset: 50,
+    });
+  });
+
+  it("ignores unknown enum filter values rather than forwarding them", async () => {
+    const listScopeRecords = vi.fn().mockResolvedValue({ items: [], total: 0 });
+    const app = buildApp({ getScopeRecord: vi.fn(), listScopeRecords }, viewActor);
+
+    await app.request("/scope-records?productDomain=not-a-domain&status=not-a-status");
+
+    expect(listScopeRecords).toHaveBeenCalledWith({ limit: 50, offset: 0 });
+  });
+
+  it("clamps the page limit to the maximum", async () => {
+    const listScopeRecords = vi.fn().mockResolvedValue({ items: [], total: 0 });
+    const app = buildApp({ getScopeRecord: vi.fn(), listScopeRecords }, viewActor);
+
+    await app.request("/scope-records?limit=100000");
+
+    expect(listScopeRecords.mock.calls[0]?.[0].limit).toBe(200);
+  });
+
+  it("returns 401 when no actor is present", async () => {
+    const listScopeRecords = vi.fn();
+    const app = buildApp({ getScopeRecord: vi.fn(), listScopeRecords }, null);
+
+    const response = await app.request("/scope-records");
+
+    expect(response.status).toBe(401);
+    expect(listScopeRecords).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 when the actor lacks catalog.view", async () => {
+    const listScopeRecords = vi.fn();
+    const app = buildApp({ getScopeRecord: vi.fn(), listScopeRecords }, { permissions: [] });
+
+    const response = await app.request("/scope-records");
+
+    expect(response.status).toBe(403);
+    expect(listScopeRecords).not.toHaveBeenCalled();
   });
 });

@@ -348,6 +348,14 @@
           "section": "catalog"
         },
         {
+          "routeId": "scope-landing",
+          "routePath": "scopes",
+          "fileExport": "./routes/admin/scope-landing",
+          "routeType": "route",
+          "sourceContext": "catalog",
+          "section": "catalog"
+        },
+        {
           "routeId": "scope-detail",
           "routePath": "scopes/:id",
           "fileExport": "./routes/admin/scope-detail",
@@ -451,6 +459,18 @@
       "icon": "book",
       "href": "/reference-records",
       "order": 65,
+      "visibility": "signed-in",
+      "requiredPermissions": ["catalog.view"],
+      "section": "catalog"
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "scopes",
+      "label": "Scopes",
+      "icon": "grid",
+      "href": "/scopes",
+      "order": 67,
       "visibility": "signed-in",
       "requiredPermissions": ["catalog.view"],
       "section": "catalog"
