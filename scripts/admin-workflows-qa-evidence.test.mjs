@@ -10,6 +10,7 @@ import {
   ADMIN_WORKFLOWS_QA_EVIDENCE_VERSION,
   ADMIN_WORKFLOWS_QA_PROJECTION_OPERATIONS_REQUIRED_COVERAGE,
   ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX,
+  buildAdminWorkflowsQaAccessEvidenceScaffold,
   findAdminWorkflowsQaEvidenceFindings,
   parseAdminWorkflowsQaEvidenceArgs,
   runAdminWorkflowsQaEvidence,
@@ -647,6 +648,43 @@ describe("admin workflows QA evidence", () => {
     expect(evidence.guidance).toContain(
       "Add the missing Access coverage keys before using this packet to close #3020.",
     );
+  });
+
+  it("scaffolds a fill-in-the-blanks Access evidence packet covering every required key", () => {
+    const scaffold = buildAdminWorkflowsQaAccessEvidenceScaffold();
+
+    for (const coverage of ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE) {
+      expect(scaffold).toContain(`Access coverage: ${coverage.key}`);
+      expect(scaffold).toContain(`Actor alias: ${coverage.suggestedActorAlias}`);
+    }
+    expect(scaffold).not.toMatch(/\n{3,}/);
+  });
+
+  it("produces a scaffold that passes the redaction scan and only fails on TODO placeholders", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3020-scaffold.md");
+    await writeFile(evidenceFile, buildAdminWorkflowsQaAccessEvidenceScaffold());
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      checkedAt,
+      requireAccessCoverage: true,
+    });
+
+    expect(evidence.files[0]).toMatchObject({ status: "pass", findings: [] });
+    expect(evidence.access).toMatchObject({ status: "pass", missingCoverage: [] });
+  });
+
+  it("parses the --scaffold-access CLI flag and its environment fallback", () => {
+    expect(parseAdminWorkflowsQaEvidenceArgs(["--scaffold-access"], {})).toMatchObject({
+      scaffoldAccess: true,
+    });
+    expect(parseAdminWorkflowsQaEvidenceArgs([], { ADMIN_WORKFLOWS_QA_SCAFFOLD_ACCESS: "true" })).toMatchObject({
+      scaffoldAccess: true,
+    });
+    expect(parseAdminWorkflowsQaEvidenceArgs([], {})).toMatchObject({
+      scaffoldAccess: false,
+    });
   });
 
   it("passes complete catalog integrations coverage evidence", async () => {

@@ -147,6 +147,18 @@ Access coverage: access:least-privilege-denied-writes
 
 The #3020 public packet may name only actor aliases, route templates, fixture aliases, expected vs observed behavior, and artifact folders. Keep concrete account ids, user ids, membership ids, invitation tokens, API key ids/secrets, session ids, emails, cookies, and raw recovery tokens out of GitHub.
 
+To start the #3020 packet instead of hand-typing every coverage key, generate a fill-in-the-blanks scaffold:
+
+```bash
+pnpm run ops admin-workflows:qa-evidence -- --scaffold-access --out artifacts/admin-qa/issue-3020.md
+```
+
+The scaffold pre-fills one evidence block per required coverage key with a suggested least-privilege-appropriate actor alias, the `/access/sign-in` host, and the `Access coverage:` label the gate scans for. Replace every `<TODO: ...>` placeholder — `Route or workflow`, `Observed`, and `Redaction review` — with real deployed staging QA results before running the strict gate above. `access:accounts-suspend`, `access:accounts-reactivate`, `access:accounts-close-terminal`, badge add/remove, user and membership lifecycle, invitation lifecycle, API key lifecycle, and pagination rows default to `admin-qa-platform-admin`; `access:memberships-account-scoped-filtering` defaults to `admin-qa-manager`; `access:actor-security-manage` and `access:actor-memberships-view` default to their matching single-permission actor alias; `access:least-privilege-denied-writes` defaults to `admin-qa-viewer`. Swap any row's actor alias if a different least-privilege actor proves the behavior more precisely.
+
+Per the single-permission limitation in [Fixture Provisioning](#fixture-provisioning), the `access:actor-security-manage` and `access:actor-memberships-view` rows cannot get deployed browser evidence today — record their `Observed` as `controlled-unavailable` with a reference to that limitation instead of fabricating a staging sign-in.
+
+Note: API key create and rotate are no longer known-broken (the route-handler gap tracked as #3002 is resolved), so `access:api-keys-create` and `access:api-keys-rotate` can be confirmed directly against staging without the earlier caveat.
+
 For final #3022 catalog integrations/source-observation evidence, run the catalog integrations gate:
 
 ```bash

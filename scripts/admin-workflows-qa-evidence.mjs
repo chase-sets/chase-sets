@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
-import { basename, isAbsolute, relative } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, relative } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
@@ -186,48 +186,215 @@ const PROJECTION_OPERATIONS_COVERAGE_ALIASES = Object.freeze([
 ]);
 
 export const ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE = Object.freeze([
-  { key: "access:accounts-suspend", description: "Account suspend action" },
-  { key: "access:accounts-reactivate", description: "Account reactivate action" },
-  { key: "access:accounts-close-terminal", description: "Account close terminal state" },
-  { key: "access:accounts-badge-founding-add-remove", description: "Founding Account badge add/remove" },
-  { key: "access:accounts-badge-trusted-seller-add-remove", description: "Trusted Seller badge add/remove" },
+  {
+    key: "access:accounts-suspend",
+    description: "Account suspend action",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:accounts-reactivate",
+    description: "Account reactivate action",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:accounts-close-terminal",
+    description: "Account close terminal state",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:accounts-badge-founding-add-remove",
+    description: "Founding Account badge add/remove",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:accounts-badge-trusted-seller-add-remove",
+    description: "Trusted Seller badge add/remove",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
   {
     key: "access:accounts-badge-manual-payout-review-add-remove",
     description: "Manual Payout Review badge add/remove",
+    suggestedActorAlias: "admin-qa-platform-admin",
   },
-  { key: "access:users-profile-edit", description: "User profile edit action" },
-  { key: "access:users-suspend", description: "User suspend action" },
-  { key: "access:users-reactivate", description: "User reactivate action" },
-  { key: "access:memberships-role-owner", description: "Membership role change to owner" },
-  { key: "access:memberships-role-manager", description: "Membership role change to manager" },
-  { key: "access:memberships-role-fulfillment", description: "Membership role change to fulfillment" },
-  { key: "access:memberships-role-viewer", description: "Membership role change to viewer" },
-  { key: "access:memberships-revoke", description: "Membership revoke action" },
-  { key: "access:memberships-reinstate", description: "Membership reinstate action" },
+  {
+    key: "access:users-profile-edit",
+    description: "User profile edit action",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  { key: "access:users-suspend", description: "User suspend action", suggestedActorAlias: "admin-qa-platform-admin" },
+  {
+    key: "access:users-reactivate",
+    description: "User reactivate action",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:memberships-role-owner",
+    description: "Membership role change to owner",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:memberships-role-manager",
+    description: "Membership role change to manager",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:memberships-role-fulfillment",
+    description: "Membership role change to fulfillment",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:memberships-role-viewer",
+    description: "Membership role change to viewer",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:memberships-revoke",
+    description: "Membership revoke action",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:memberships-reinstate",
+    description: "Membership reinstate action",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
   {
     key: "access:memberships-account-scoped-filtering",
     description: "Account-scoped filtering for non-platform-admin actors",
+    suggestedActorAlias: "admin-qa-manager",
   },
-  { key: "access:invitations-create", description: "Invitation create action" },
-  { key: "access:invitations-resend", description: "Invitation resend action" },
-  { key: "access:invitations-cancel", description: "Invitation cancel action" },
-  { key: "access:invitations-decline", description: "Invitation decline path" },
-  { key: "access:invitations-expire", description: "Invitation expire path" },
-  { key: "access:api-keys-create", description: "API key create action" },
-  { key: "access:api-keys-rotate", description: "API key rotate action" },
-  { key: "access:api-keys-revoke", description: "API key revoke action" },
-  { key: "access:sessions-switch-active-account", description: "Session switch active account action" },
-  { key: "access:sessions-revoke", description: "Session revoke action" },
-  { key: "access:pagination-over-50-accounts", description: "Accounts list over-50 pagination behavior" },
-  { key: "access:pagination-over-50-users", description: "Users list over-50 pagination behavior" },
-  { key: "access:pagination-over-50-memberships", description: "Memberships list over-50 pagination behavior" },
-  { key: "access:pagination-over-50-invitations", description: "Invitations list over-50 pagination behavior" },
-  { key: "access:pagination-over-50-api-keys", description: "API Keys list over-50 pagination behavior" },
-  { key: "access:pagination-over-50-sessions", description: "Sessions list over-50 pagination behavior" },
-  { key: "access:actor-security-manage", description: "security.manage actor evidence" },
-  { key: "access:actor-memberships-view", description: "memberships.view actor evidence" },
-  { key: "access:least-privilege-denied-writes", description: "Least-privilege denied-write behavior" },
+  {
+    key: "access:invitations-create",
+    description: "Invitation create action",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:invitations-resend",
+    description: "Invitation resend action",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:invitations-cancel",
+    description: "Invitation cancel action",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:invitations-decline",
+    description: "Invitation decline path",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:invitations-expire",
+    description: "Invitation expire path",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:api-keys-create",
+    description: "API key create action",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:api-keys-rotate",
+    description: "API key rotate action",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:api-keys-revoke",
+    description: "API key revoke action",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:sessions-switch-active-account",
+    description: "Session switch active account action",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:sessions-revoke",
+    description: "Session revoke action",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:pagination-over-50-accounts",
+    description: "Accounts list over-50 pagination behavior",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:pagination-over-50-users",
+    description: "Users list over-50 pagination behavior",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:pagination-over-50-memberships",
+    description: "Memberships list over-50 pagination behavior",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:pagination-over-50-invitations",
+    description: "Invitations list over-50 pagination behavior",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:pagination-over-50-api-keys",
+    description: "API Keys list over-50 pagination behavior",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:pagination-over-50-sessions",
+    description: "Sessions list over-50 pagination behavior",
+    suggestedActorAlias: "admin-qa-platform-admin",
+  },
+  {
+    key: "access:actor-security-manage",
+    description: "security.manage actor evidence",
+    suggestedActorAlias: "admin-qa-security-manage",
+  },
+  {
+    key: "access:actor-memberships-view",
+    description: "memberships.view actor evidence",
+    suggestedActorAlias: "admin-qa-memberships-view",
+  },
+  {
+    key: "access:least-privilege-denied-writes",
+    description: "Least-privilege denied-write behavior",
+    suggestedActorAlias: "admin-qa-viewer",
+  },
 ]);
+
+/**
+ * Renders a fill-in-the-blanks Markdown evidence scaffold for the Access
+ * section checklist: one evidence block per required coverage key,
+ * pre-filled with the support-safe suggested actor alias and the
+ * `Access coverage:` label the completeness gate scans for. Operators
+ * replace the `Route or workflow`, `Observed`, `Evidence artifact`, and
+ * `Redaction review` placeholders with real deployed staging QA results;
+ * everything else stays as generated. Cuts the manual packet-authoring
+ * step down to filling in per-row observations instead of retyping the
+ * checklist shape and every coverage key by hand.
+ */
+export function buildAdminWorkflowsQaAccessEvidenceScaffold() {
+  const lines = [
+    "<!-- Generated by `pnpm run ops admin-workflows:qa-evidence -- --scaffold-access`. -->",
+    "<!-- Replace every <TODO: ...> placeholder with real deployed staging QA evidence before posting. -->",
+    "<!-- Keep account/user/membership/invitation/API-key/session ids, emails, cookies, and full URLs out of this file. -->",
+    "",
+  ];
+  for (const coverage of ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE) {
+    lines.push(
+      `### ${coverage.key} — ${coverage.description}`,
+      "",
+      "Environment: staging admin-web",
+      `Actor alias: ${coverage.suggestedActorAlias}`,
+      "Sign-in host: /access/sign-in",
+      "Route or workflow: <TODO: route template>",
+      `Expected: ${coverage.description} succeeds for an authorized actor and is denied for an unauthorized one.`,
+      "Observed: <TODO: fill from staging>",
+      `Evidence artifact: artifacts/admin-qa/3020/${coverage.key.slice("access:".length)}`,
+      "Redaction review: <TODO: passed / controlled-unavailable>",
+      `Access coverage: ${coverage.key}`,
+      "",
+    );
+  }
+  return lines.join("\n").replace(/\n+$/, "\n");
+}
 
 const ACCESS_COVERAGE_LABELS = Object.freeze(["Access coverage", "Access checklist coverage"]);
 
@@ -346,6 +513,7 @@ export function parseAdminWorkflowsQaEvidenceArgs(argv, env = process.env) {
     requireCatalogIntegrationsCoverage:
       argv.includes("--require-catalog-integrations-coverage") ||
       readEnv("ADMIN_WORKFLOWS_QA_REQUIRE_CATALOG_INTEGRATIONS_COVERAGE", env) === "true",
+    scaffoldAccess: argv.includes("--scaffold-access") || readEnv("ADMIN_WORKFLOWS_QA_SCAFFOLD_ACCESS", env) === "true",
   };
 }
 
@@ -999,7 +1167,17 @@ function normalizeIssue(value) {
 
 async function main(argv, env = process.env) {
   try {
-    const evidence = await runAdminWorkflowsQaEvidence(parseAdminWorkflowsQaEvidenceArgs(argv, env));
+    const options = parseAdminWorkflowsQaEvidenceArgs(argv, env);
+    if (options.scaffoldAccess) {
+      const scaffold = buildAdminWorkflowsQaAccessEvidenceScaffold();
+      if (options.outPath) {
+        await mkdir(dirname(options.outPath), { recursive: true });
+        await writeFile(options.outPath, scaffold);
+      }
+      console.log(scaffold);
+      return 0;
+    }
+    const evidence = await runAdminWorkflowsQaEvidence(options);
     console.log(JSON.stringify(evidence, null, 2));
     return evidence.verdict === "pass" ? 0 : 1;
   } catch (error) {
