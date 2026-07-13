@@ -22,6 +22,7 @@ import { validateCrossContextFallbackInventory } from "./cross-context-fallback-
 import { validateCrossContextReadInventory } from "./cross-context-read-inventory.mjs";
 import { validateGlossaryCoverage } from "./glossary-coverage.mjs";
 import { validateReadAfterWriteRouteInventory } from "./read-after-write-inventory.mjs";
+import { validateServerBarrelReactFree } from "./server-barrel-react-free.mjs";
 import { findBootSchemaDdlDisciplineViolations } from "./boot-schema-ddl-discipline.mjs";
 import { validateRetentionSweepCoverage } from "./retention-sweep-coverage.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
@@ -3323,6 +3324,17 @@ export async function runStructureCheck(options = {}) {
     violations.push(violation);
   }
   for (const warning of glossaryCoverageResult.warnings) {
+    warnings.push(warning);
+  }
+
+  const serverBarrelReactFreeResult = await validateServerBarrelReactFree({
+    repoRoot,
+    contextManifests,
+  });
+  for (const violation of serverBarrelReactFreeResult.violations) {
+    violations.push(violation);
+  }
+  for (const warning of serverBarrelReactFreeResult.warnings) {
     warnings.push(warning);
   }
 
