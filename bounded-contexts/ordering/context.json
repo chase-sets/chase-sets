@@ -27,7 +27,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "ordering-marketplace-supply-input-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -37,7 +37,9 @@
         "marketplace.listing.paused",
         "marketplace.listing.withdrawn",
         "marketplace.seller-listing-availability.disabled",
-        "marketplace.seller-listing-availability.enabled"
+        "marketplace.seller-listing-availability.enabled",
+        "marketplace.seller-order-capacity.set",
+        "marketplace.seller-order-capacity.cleared"
       ],
       "order": 30,
       "projectionHandlerSetNames": ["ordering-marketplace-supply-input-projection"]

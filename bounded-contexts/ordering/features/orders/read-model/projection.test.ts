@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
@@ -19,6 +19,8 @@ class OrderProjectionDb implements PgQueryable {
   public readonly orders = new Map<string, OrderPageRow>();
   public readonly lines = new Map<string, unknown>();
   public readonly holds = new Map<string, unknown>();
+  /** order_id -> seller_account_id, standing in for ordering_seller_open_order_claims (m127). */
+  public readonly openCapacityClaims = new Map<string, string>();
 
   async query<Row = Record<string, unknown>>(
     sql: string,
@@ -60,6 +62,23 @@ class OrderProjectionDb implements PgQueryable {
     if (sql.includes("INSERT INTO ordering_order_line_pages")) {
       this.lines.set(`${String(values[0])}:${String(values[1])}`, values);
       return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("UPDATE ordering_order_pages")) {
+      const row = this.orders.get(String(values[0]));
+      if (row) {
+        row.status = "cancelled";
+      }
+      return { rows: [], rowCount: row ? 1 : 0 };
+    }
+
+    if (sql.includes("UPDATE ordering_seller_open_order_claims")) {
+      const sellerAccountId = this.openCapacityClaims.get(String(values[0]));
+      if (!sellerAccountId) {
+        return { rows: [], rowCount: 0 };
+      }
+      this.openCapacityClaims.delete(String(values[0]));
+      return { rows: [{ seller_account_id: sellerAccountId }] as Row[], rowCount: 1 };
     }
 
     throw new Error(`Unexpected query: ${sql}`);
@@ -152,5 +171,46 @@ describe("ordering order projection", () => {
       seller_account_id: "acc_seller",
       status: "pending-reservation",
     });
+  });
+
+  it("releases the seller's Order Capacity claim and reports it, regardless of cancellation reason (m127)", async () => {
+    const db = new OrderProjectionDb();
+    db.openCapacityClaims.set("ord_1", "acc_seller");
+    const onOrderCapacityReleased = vi.fn(async () => {});
+    const handlers = buildOrderingOrderProjectionHandlers(db, { onOrderCapacityReleased });
+
+    await handlers["ordering.order.cancelled"]!(
+      event("ordering.order.cancelled", {
+        orderId: "ord_1",
+        cancelledAt: "2026-05-09T00:10:00.000Z",
+        reason: "inventory-unavailable",
+      }),
+    );
+
+    expect(onOrderCapacityReleased).toHaveBeenCalledWith({
+      sellerAccountId: "acc_seller",
+      context: {
+        tenantId: "tnt_1",
+        audit: { performedByUserId: "usr_1", forAccountId: "acc_buyer" },
+        trace: {},
+      },
+    });
+    expect(db.openCapacityClaims.has("ord_1")).toBe(false);
+  });
+
+  it("does not report a capacity release when the order had no open claim", async () => {
+    const db = new OrderProjectionDb();
+    const onOrderCapacityReleased = vi.fn(async () => {});
+    const handlers = buildOrderingOrderProjectionHandlers(db, { onOrderCapacityReleased });
+
+    await handlers["ordering.order.cancelled"]!(
+      event("ordering.order.cancelled", {
+        orderId: "ord_never_claimed",
+        cancelledAt: "2026-05-09T00:10:00.000Z",
+        reason: "buyer-cancelled",
+      }),
+    );
+
+    expect(onOrderCapacityReleased).not.toHaveBeenCalled();
   });
 });

@@ -131,6 +131,22 @@ export function createSupplyDb(resolver: (params: readonly unknown[] | undefined
         return { rows: [] };
       }
 
+      // Order Capacity enforcement (m127): the standalone capacity-cap and
+      // open-claims-count lookups (order-capacity.ts) are unrelated to
+      // supply-candidate resolution and must be checked before the supply
+      // query passthrough below -- the supply-candidate SQL itself also
+      // references `ordering_seller_open_order_claims` in its exclusion
+      // join, so this can only key off queries that are NOT also a supply
+      // query. Empty rows mean no cap is set (unlimited), so the claim
+      // path stays a no-op and every existing supply-candidate scenario
+      // here is unaffected.
+      if (
+        !sql.includes("FROM ordering_market_listing_inputs") &&
+        (sql.includes("ordering_seller_order_capacity_inputs") || sql.includes("ordering_seller_open_order_claims"))
+      ) {
+        return { rows: [], rowCount: 0 };
+      }
+
       return {
         rows: resolver(params).map((candidate) => ({
           listing_id: candidate.listingId,
