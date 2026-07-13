@@ -373,7 +373,7 @@ export const helpArticles = [
     audience: "buyer",
     category: "getting-started",
     reviewedAt: "2026-07-12",
-    citedPolicies: [],
+    citedPolicies: ["commercial-terms.checkout-processing-fee"],
     relatedFlows: [],
     claimCategories: ["protection", "fees", "payouts", "shipping"],
     promiseTable: [
@@ -470,7 +470,55 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              " explains the standard seller fee, per-item cap, and listing-time fee confirmation. Buyers see any checkout fee before payment.",
+              " explains the standard seller fee, per-item cap, and listing-time fee confirmation. Buyers pay only payment processing at cost, shown before payment: ",
+          },
+          {
+            type: "policy-value",
+            key: "checkout-processing-fee.card.bps",
+          },
+          {
+            type: "text",
+            value: " plus ",
+          },
+          {
+            type: "policy-value",
+            key: "checkout-processing-fee.card.fixed",
+          },
+          {
+            type: "text",
+            value: " by card, ",
+          },
+          {
+            type: "policy-value",
+            key: "checkout-processing-fee.bank-account.bps",
+          },
+          {
+            type: "text",
+            value: " plus ",
+          },
+          {
+            type: "policy-value",
+            key: "checkout-processing-fee.bank-account.fixed",
+          },
+          {
+            type: "text",
+            value: " by bank account, and ",
+          },
+          {
+            type: "policy-value",
+            key: "checkout-processing-fee.platform-credit.bps",
+          },
+          {
+            type: "text",
+            value: " plus ",
+          },
+          {
+            type: "policy-value",
+            key: "checkout-processing-fee.platform-credit.fixed",
+          },
+          {
+            type: "text",
+            value: " with Chase Sets credit.",
           },
         ],
       },
@@ -519,7 +567,14 @@ export const helpArticles = [
         ],
       },
     ],
-    policyValueKeys: [],
+    policyValueKeys: [
+      "checkout-processing-fee.card.bps",
+      "checkout-processing-fee.card.fixed",
+      "checkout-processing-fee.bank-account.bps",
+      "checkout-processing-fee.bank-account.fixed",
+      "checkout-processing-fee.platform-credit.bps",
+      "checkout-processing-fee.platform-credit.fixed",
+    ],
   },
   {
     slug: "sales-fees",

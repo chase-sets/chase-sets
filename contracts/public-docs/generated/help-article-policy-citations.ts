@@ -4,6 +4,13 @@ import type { PublicHelpArticlePolicyCitation } from "../index";
 
 export const publicHelpArticlePolicyCitations = [
   {
+    slug: "frequently-asked-questions",
+    locale: "en",
+    title: "Frequently asked questions",
+    href: "/help/getting-started/frequently-asked-questions",
+    citedPolicies: ["commercial-terms.checkout-processing-fee"],
+  },
+  {
     slug: "sales-fees",
     locale: "en",
     title: "Marketplace sales and checkout fees",

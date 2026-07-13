@@ -4,7 +4,6 @@ title: Frequently asked questions
 description: Short answers about marketplace availability, seller fees, shipping, and order protection.
 audience: buyer
 category: getting-started
-revisionDate: "2026-07-12"
 reviewedAt: "2026-07-12"
 citedPolicies: ["commercial-terms.checkout-processing-fee"]
 relatedFlows: []
