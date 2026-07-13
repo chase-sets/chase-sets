@@ -195,6 +195,7 @@ describe("account listings new route", () => {
         });
       }),
       hasSellerSupplyLocationNamed: vi.fn().mockResolvedValue(true),
+      previewListingEvidenceReadiness: vi.fn().mockResolvedValue(null),
     });
     mockCreateInventoryRequestApiClient.mockReturnValue({});
 

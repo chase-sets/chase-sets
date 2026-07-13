@@ -175,6 +175,7 @@ describe("root export coverage smoke tests", () => {
         label="Upload pick list"
         description="CSV exports only."
         accept=".csv"
+        capture="environment"
         multiple
         onFilesChange={onFilesChange}
       />,
@@ -186,6 +187,7 @@ describe("root export coverage smoke tests", () => {
     expect(input.getAttribute("form")).toBe("packing-form");
     expect(input.accept).toBe(".csv");
     expect(input.multiple).toBe(true);
+    expect(input.getAttribute("capture")).toBe("environment");
     expect(input.getAttribute("aria-describedby")).toContain("pick-list-description");
 
     await user.upload(input, file);

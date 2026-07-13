@@ -1,9 +1,10 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
+import type { ResolvedListingEvidenceRequirements } from "../../listing-evidence-policy/domain/policy";
+import type { EvidenceCoverageResult } from "../domain/evidence-coverage";
 import type { MarketplaceListingFeeLock } from "../domain/fee-lock";
 import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
-import type { EvidenceCoverageResult } from "../domain/evidence-coverage";
-import type { ResolvedListingEvidenceRequirements } from "../../listing-evidence-policy/domain/policy";
+import type { ListingEvidenceReadinessCode } from "../domain/listing-evidence-readiness";
 
 export type MarketplaceListingPhotoAssetRole = "source" | "thumbnail" | "search-card" | "catalog-detail";
 
@@ -123,7 +124,29 @@ export interface MarketplaceGradedCardDetails {
   conditionDescriptors: string[];
 }
 
-export interface MarketplaceListingDetail extends MarketplaceListingListItem {}
+export type MarketplaceListingEvidenceReadiness = Readonly<{
+  ready: boolean;
+  policy: Readonly<{
+    policyId: ListingEvidenceRequirementSnapshot["policyId"];
+    policyVersion: ListingEvidenceRequirementSnapshot["policyVersion"];
+    policyHash: ListingEvidenceRequirementSnapshot["policyHash"];
+    requirementHash: ListingEvidenceRequirementSnapshot["requirementHash"];
+    evaluatedAt: ListingEvidenceRequirementSnapshot["evaluatedAt"];
+    explanationCodes: ListingEvidenceRequirementSnapshot["explanationCodes"];
+  }>;
+  requirements: ResolvedListingEvidenceRequirements;
+  coverage: EvidenceCoverageResult;
+  nextActions: readonly Readonly<{
+    code: ListingEvidenceReadinessCode;
+    localeKey: string;
+    slotIds: readonly string[];
+  }>[];
+  publicGallery: readonly MarketplaceListingPublicGalleryImage[];
+}>;
+
+export interface MarketplaceListingDetail extends MarketplaceListingListItem {
+  evidence_readiness: MarketplaceListingEvidenceReadiness;
+}
 
 export type MarketplaceListingEvidenceCoverage = Readonly<{
   listingId: string;

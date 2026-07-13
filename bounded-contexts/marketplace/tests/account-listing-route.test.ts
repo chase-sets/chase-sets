@@ -342,7 +342,7 @@ describe("marketplace listing detail route", () => {
     } as never);
 
     const location = (result as Response).headers.get("Location") ?? "";
-    expect(location).toMatch(/^\/account\/listings\/lst_1\?postWriteToken=/);
+    expect(location).toMatch(/^\/account\/listings\/lst_1\?evidenceEvent=publication_succeeded&postWriteToken=/);
     expect(readCompactPostWriteToken(location)).toMatch(/^pwt_listing/);
     expect(location).not.toContain("afterWrite=");
     expect(location).not.toContain("postWriteHandoff=");
@@ -401,6 +401,42 @@ describe("marketplace listing detail route", () => {
       pricePreview: currentQuote,
       error: "Fee quote is stale. Refresh the fee preview before continuing.",
     });
+  });
+
+  it("returns current evidence readiness when publication is incomplete", async () => {
+    const currentEvidenceReadiness = { coverage: { complete: false, unmetCodes: ["slot-missing"] } };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/api/auth/session")) return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        return Promise.resolve(
+          jsonResponse(
+            {
+              error: {
+                code: "listing_evidence_incomplete",
+                message: "Evidence is incomplete.",
+                currentEvidenceReadiness,
+              },
+            },
+            409,
+          ),
+        );
+      }),
+    );
+    const form = new URLSearchParams({ intent: "publish", feeQuoteFingerprint: "quote-1" });
+
+    const result = await listingAction({
+      request: new Request("http://localhost/account/listings/lst_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { listingId: "lst_1" },
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({ evidenceReadiness: currentEvidenceReadiness });
   });
 
   it("redirects without a post-write token when a no-op price update commits no new events", async () => {

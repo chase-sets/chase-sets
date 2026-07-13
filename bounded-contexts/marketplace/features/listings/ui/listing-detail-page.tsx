@@ -4,8 +4,6 @@ import {
   Form,
   Badge,
   Button,
-  FileDropzone,
-  ImageGallery,
   OrderProtectionModule,
   Card,
   Inline,
@@ -32,51 +30,7 @@ import type {
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingTermsPreview,
 } from "./contracts";
-
-function listingPhotoImage(
-  photo: MarketplaceListingDetail["evidence"][number],
-  role: "thumbnail" | "search-card" | "catalog-detail",
-  sizes: string,
-) {
-  const variants = photo.assetSet.variants
-    .filter((variant) => variant.role === role)
-    .sort((left, right) => left.width - right.width);
-  const oneX = variants.find((variant) => variant.density === 1) ?? variants[0] ?? null;
-
-  if (!oneX) {
-    return {
-      src: photo.assetSet.source.publicUrl,
-      srcSet: undefined,
-      sizes,
-      width: photo.assetSet.source.width,
-      height: photo.assetSet.source.height,
-    };
-  }
-
-  return {
-    src: oneX.publicUrl,
-    srcSet: variants.map((variant) => `${variant.publicUrl} ${variant.width}w`).join(", "),
-    sizes,
-    width: oneX.width,
-    height: oneX.height,
-  };
-}
-
-function listingPhotoImages(listing: MarketplaceListingDetail) {
-  return listing.evidence.map((photo, index) => {
-    const detailImage = listingPhotoImage(photo, "catalog-detail", "(min-width: 768px) 480px, min(100vw, 276px)");
-    const thumbnailImage = listingPhotoImage(photo, "thumbnail", "64px");
-
-    return {
-      ...detailImage,
-      thumbnailSrc: thumbnailImage.src,
-      thumbnailSrcSet: thumbnailImage.srcSet,
-      thumbnailSizes: thumbnailImage.sizes,
-      alt: photo.altText ?? `${listing.item_title ?? listing.catalog_catalog_item_id} photo ${index + 1}`,
-      label: photo.originalFilename ?? `Photo ${index + 1}`,
-    };
-  });
-}
+import { ListingEvidenceReadiness } from "./listing-evidence-readiness";
 
 function formatOptionalMoney(amount: string | null) {
   return amount ? formatMoney(amount, "USD") : t("marketplace.features.listings.ui.listingDetailPage.not.set");
@@ -179,7 +133,10 @@ export function MarketplaceListingDetailPage({
 }) {
   const currentFeeLock = listing.fee_locks.at(-1);
   const publishDisabled =
-    listing.status === "active" || listing.status === "withdrawn" || listing.product_measure_snapshot === null;
+    listing.status === "active" ||
+    listing.status === "withdrawn" ||
+    listing.product_measure_snapshot === null ||
+    !listing.evidence_readiness.ready;
 
   return (
     <Page>
@@ -208,9 +165,6 @@ export function MarketplaceListingDetailPage({
         <Stack gap={4}>
           <Card>
             <Stack gap={4}>
-              {listing.evidence.length > 0 ? (
-                <ImageGallery images={listingPhotoImages(listing)} aspectRatio="3/4" />
-              ) : null}
               <Stack gap={2}>
                 <Inline>
                   <Badge tone={statusTone(listing.status)}>{listing.status}</Badge>
@@ -383,6 +337,10 @@ export function MarketplaceListingDetailPage({
         </Stack>
       </PageSection>
 
+      <PageSection title={t("marketplace.features.listings.ui.evidence.readiness.title")}>
+        <ListingEvidenceReadiness listing={listing} />
+      </PageSection>
+
       <PageSection title={t("marketplace.features.listings.ui.listingDetailPage.fee.lock.history")}>
         <ProgressiveDisclosure
           title={t("marketplace.features.listings.ui.listingDetailPage.fee.lock.history")}
@@ -391,26 +349,6 @@ export function MarketplaceListingDetailPage({
           })}
           tone={(feeHistory?.length ?? 0) > 0 ? "info" : "neutral"}
         >
-          <Card>
-            <Form spacing="none" method="post" encType="multipart/form-data">
-              <Stack gap={3}>
-                <HiddenInput type="hidden" name="intent" value="add-photos" />
-                <FileDropzone
-                  label={t("marketplace.features.listings.ui.listingDetailPage.listing.photos")}
-                  description={t("marketplace.features.listings.ui.listingDetailPage.listing.photos.description")}
-                  name="evidence"
-                  accept="image/jpeg,image/png,image/webp"
-                  multiple
-                  dropLabel={t("marketplace.features.listings.ui.listingDetailPage.drop.listing.photos")}
-                  browseLabel={t("marketplace.features.listings.ui.listingDetailPage.choose.photos")}
-                />
-                <Button type="submit" tone="secondary">
-                  {t("marketplace.features.listings.ui.listingDetailPage.add.photos")}
-                </Button>
-              </Stack>
-            </Form>
-          </Card>
-
           <Card>
             <Stack gap={3}>
               {(feeHistory ?? []).length > 0 ? (
@@ -588,6 +526,14 @@ export function MarketplaceListingDetailPage({
                 {listing.status !== "active" && listing.status !== "withdrawn" && !listing.product_measure_snapshot ? (
                   <Text size="sm" tone="secondary">
                     {t("marketplace.features.listings.ui.listingDetailPage.publish.requires.shipping.measure")}
+                  </Text>
+                ) : null}
+                {listing.status !== "active" &&
+                listing.status !== "withdrawn" &&
+                listing.product_measure_snapshot &&
+                !listing.evidence_readiness.ready ? (
+                  <Text size="sm" tone="secondary">
+                    {t("marketplace.features.listings.ui.evidence.publish.blocked")}
                   </Text>
                 ) : null}
               </Form>

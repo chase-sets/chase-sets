@@ -15,6 +15,7 @@ export type {
   MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
   MarketplaceListingDetail,
+  MarketplaceListingEvidenceReadiness,
   MarketplaceListingFeeLockReportEntry,
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingInventoryItemOption,
@@ -48,6 +49,7 @@ import type {
   MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
   MarketplaceListingDetail,
+  MarketplaceListingEvidenceReadiness,
   MarketplaceListingFeeLockReportEntry,
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingInventoryItemOption,
@@ -430,6 +432,23 @@ export function createMarketplaceApiClient({
         ),
       );
     },
+    async removeListingPhoto(id: string, photoId: string) {
+      return parseJsonResponse(
+        await configuredFetch(
+          joinApiPath(baseUrl, `/account/listings/${encodeURIComponent(id)}/photos/${encodeURIComponent(photoId)}`),
+          { method: "DELETE", headers },
+        ),
+      );
+    },
+    async reorderListingPhotos(id: string, orderedPhotoIds: readonly string[]) {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, `/account/listings/${encodeURIComponent(id)}/photos/reorder`), {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headersToRecord(headers) },
+          body: JSON.stringify({ orderedPhotoIds }),
+        }),
+      );
+    },
     async previewListingTerms(
       body: Record<string, unknown>,
       options: Readonly<{ signal?: AbortSignal }> = {},
@@ -441,6 +460,19 @@ export function createMarketplaceApiClient({
             "content-type": "application/json",
             ...headersToRecord(headers),
           },
+          body: JSON.stringify(body),
+          signal: options.signal,
+        }),
+      );
+    },
+    async previewListingEvidenceReadiness(
+      body: Record<string, unknown>,
+      options: Readonly<{ signal?: AbortSignal }> = {},
+    ): Promise<MarketplaceListingEvidenceReadiness> {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, "/account/listings/evidence-readiness/preview"), {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headersToRecord(headers) },
           body: JSON.stringify(body),
           signal: options.signal,
         }),

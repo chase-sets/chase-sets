@@ -32,9 +32,16 @@ import {
   toProductSelectionFields,
   type ProductSelectionSchema,
 } from "@chase-sets/product-selection";
-import type { MarketplaceListingInventoryItemOption, MarketplaceListingTermsPreview } from "./contracts";
+import type {
+  MarketplaceListingEvidenceReadiness,
+  MarketplaceListingInventoryItemOption,
+  MarketplaceListingTermsPreview,
+} from "./contracts";
+import { EvidenceReadinessChecklist } from "./listing-evidence-readiness";
+import { trackListingEvidenceEvent } from "./listing-evidence-analytics";
 
 const DEFAULT_CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
+const DEFAULT_EVIDENCE_READINESS_API_URL = "/api/marketplace/account/listings/evidence-readiness/preview";
 
 type ListingCatalogItemSnapshot = Readonly<{
   catalog_item_id: string;
@@ -91,9 +98,11 @@ export function MarketplaceListingCreatePage({
   inventoryItems,
   createForm,
   createPreview,
+  evidenceReadiness: initialEvidenceReadiness,
   errorMessage,
   hasListingStockLocation,
   catalogItemApiBaseUrl = DEFAULT_CATALOG_ITEM_API_BASE_URL,
+  evidenceReadinessApiUrl = DEFAULT_EVIDENCE_READINESS_API_URL,
   backHref = "/account/listings",
 }: {
   inventoryItems: readonly MarketplaceListingInventoryItemOption[];
@@ -108,12 +117,18 @@ export function MarketplaceListingCreatePage({
     maxUnitsPerCustomerAccount?: string | null;
   };
   createPreview?: MarketplaceListingTermsPreview | null;
+  evidenceReadiness?: MarketplaceListingEvidenceReadiness | null;
   errorMessage?: string | null;
   hasListingStockLocation: boolean;
   catalogItemApiBaseUrl?: string;
+  evidenceReadinessApiUrl?: string;
   backHref?: string;
 }) {
-  const selectedInventory = selectedInventorySummary(inventoryItems, createForm?.inventoryItemId);
+  const [inventoryItemId, setInventoryItemId] = useState(createForm?.inventoryItemId?.trim() ?? "");
+  const [priceAmount, setPriceAmount] = useState(createForm?.priceAmount?.trim() ?? "");
+  const [evidenceReadiness, setEvidenceReadiness] = useState(initialEvidenceReadiness ?? null);
+  const [evidenceReadinessPending, setEvidenceReadinessPending] = useState(false);
+  const selectedInventory = selectedInventorySummary(inventoryItems, inventoryItemId);
   const selectedInventoryBlocksPublication =
     selectedInventory !== null && selectedInventory.product_measure_snapshot === null;
   const hasInventory = inventoryItems.length > 0;
@@ -130,6 +145,40 @@ export function MarketplaceListingCreatePage({
   const serializedSelectedOptions = catalogItem?.product_schema
     ? JSON.stringify(recordToProductSelectionEntries(catalogItem.product_schema, selectedOptions))
     : JSON.stringify(createForm?.selectedOptions ?? []);
+
+  useEffect(() => {
+    if (!inventoryItemId) {
+      setEvidenceReadiness(null);
+      setEvidenceReadinessPending(false);
+      return undefined;
+    }
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      setEvidenceReadinessPending(true);
+      void fetch(evidenceReadinessApiUrl, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inventoryItemId, priceAmount: priceAmount || "0" }),
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error(String(response.status));
+          return response.json() as Promise<MarketplaceListingEvidenceReadiness>;
+        })
+        .then(setEvidenceReadiness)
+        .catch(() => {
+          if (!controller.signal.aborted) setEvidenceReadiness(null);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setEvidenceReadinessPending(false);
+        });
+    }, 250);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [evidenceReadinessApiUrl, inventoryItemId, priceAmount]);
 
   useEffect(() => {
     const search = catalogItemSearch.trim();
@@ -253,7 +302,17 @@ export function MarketplaceListingCreatePage({
 
       <PageSection title={t("marketplace.features.listings.ui.listingCreatePage.create.listing")}>
         <Card>
-          <Form spacing="none" method="post" encType="multipart/form-data">
+          <Form
+            spacing="none"
+            method="post"
+            encType="multipart/form-data"
+            onSubmit={(event) => {
+              const photos = new FormData(event.currentTarget).getAll("evidence");
+              if (photos.some((photo) => photo instanceof File && photo.size > 0)) {
+                trackListingEvidenceEvent("upload_started", { surface: "listing-create" });
+              }
+            }}
+          >
             <Stack gap={3}>
               <Banner
                 title={t("marketplace.features.listings.ui.listingCreatePage.list.without.managing.inventory")}
@@ -332,7 +391,8 @@ export function MarketplaceListingCreatePage({
                       decrementLabel={t("localization.currency.decreaseAmount")}
                       incrementLabel={t("localization.currency.increaseAmount")}
                       placeholder="24.99"
-                      defaultValue={createForm?.priceAmount ?? undefined}
+                      value={priceAmount}
+                      onValueChange={(value) => setPriceAmount(value ?? "")}
                       required
                     />
                     <NumberField
@@ -415,7 +475,21 @@ export function MarketplaceListingCreatePage({
                     multiple
                     dropLabel={t("marketplace.features.listings.ui.listingCreatePage.drop.listing.photos")}
                     browseLabel={t("marketplace.features.listings.ui.listingCreatePage.choose.photos")}
+                    capture="environment"
                   />
+                  {evidenceReadiness ? (
+                    <EvidenceReadinessChecklist readiness={evidenceReadiness} surface="listing-create" />
+                  ) : (
+                    <MarketplaceNotice
+                      tone="info"
+                      title={t("marketplace.features.listings.ui.evidence.readiness.pending.title")}
+                      description={
+                        evidenceReadinessPending
+                          ? t("marketplace.features.listings.ui.evidence.readiness.refreshing")
+                          : t("marketplace.features.listings.ui.evidence.readiness.select.inventory")
+                      }
+                    />
+                  )}
                 </Stack>
               </Grid>
               <Accordion
@@ -440,7 +514,8 @@ export function MarketplaceListingCreatePage({
                           <NativeSelect
                             label={t("marketplace.features.listings.ui.listingCreatePage.use.existing.inventory")}
                             name="inventoryItemId"
-                            defaultValue={createForm?.inventoryItemId ?? ""}
+                            value={inventoryItemId}
+                            onChange={(event) => setInventoryItemId(event.target.value)}
                             placeholder={t(
                               "marketplace.features.listings.ui.listingCreatePage.automatic.listing.stock",
                             )}
@@ -493,7 +568,7 @@ export function MarketplaceListingCreatePage({
                   type="submit"
                   name="intent"
                   value="create-and-publish-listing"
-                  disabled={selectedInventoryBlocksPublication}
+                  disabled={selectedInventoryBlocksPublication || !evidenceReadiness?.coverage.complete}
                 >
                   {t("marketplace.features.listings.ui.listingCreatePage.create.and.publish")}
                 </Button>

@@ -8,6 +8,7 @@ export interface FileDropzoneProps extends BaseInputProps {
   name?: string;
   form?: string;
   accept?: string;
+  capture?: "user" | "environment";
   multiple?: boolean;
   onFilesChange?: (files: FileList | null) => void;
   dropLabel?: string;
@@ -27,6 +28,7 @@ export const FileDropzone = forwardRef<HTMLInputElement, FileDropzoneProps>(func
     hideLabel,
     form,
     accept,
+    capture,
     multiple = false,
     onFilesChange,
     dropLabel = "Drop files here",
@@ -101,6 +103,7 @@ export const FileDropzone = forwardRef<HTMLInputElement, FileDropzoneProps>(func
           name={name}
           form={form}
           accept={accept}
+          capture={capture}
           multiple={multiple}
           required={required}
           type="file"

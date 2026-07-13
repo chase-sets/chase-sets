@@ -319,7 +319,7 @@ describe("marketplace listing create route", () => {
     expect(result).toBeInstanceOf(Response);
     expect((result as Response).status).toBe(302);
     const location = (result as Response).headers.get("Location") ?? "";
-    expect(location).toMatch(/^\/account\/listings\/lst_1\?postWriteToken=/);
+    expect(location).toMatch(/^\/account\/listings\/lst_1\?evidenceEvent=publication_succeeded&postWriteToken=/);
     expect(readCompactPostWriteToken(location)).toMatch(/^pwt_listings/);
     expect(location).not.toContain("afterWrite=");
     expect(location).not.toContain("evt_listing_created");
@@ -335,6 +335,63 @@ describe("marketplace listing create route", () => {
       expect.stringContaining("/api/marketplace/account/listings/lst_1/publish"),
       expect.any(Object),
     );
+  });
+
+  it("preserves the created draft when publication returns current incomplete evidence readiness", async () => {
+    const store = createTestPostWriteTokenStore();
+    restorePostWriteTokenStore = configureMarketplacePostWriteTokenStoreForTests(store);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/api/auth/session")) return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        if (url.includes("/api/marketplace/account/listings/lst_1/publish")) {
+          return Promise.resolve(
+            jsonResponse(
+              {
+                error: {
+                  code: "listing_evidence_incomplete",
+                  message: "Evidence is incomplete.",
+                  currentEvidenceReadiness: { coverage: { complete: false } },
+                },
+              },
+              409,
+            ),
+          );
+        }
+        return Promise.resolve(
+          jsonResponse({ id: "lst_1", version: 1 }, 201, {
+            "Chase-Sets-Consistency": "eventual",
+            [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt([
+              { sourceContextName: "marketplace", maxGlobalPosition: "41", eventIds: ["evt_listing_created"] },
+            ]),
+          }),
+        );
+      }),
+    );
+    const form = new URLSearchParams({
+      intent: "create-and-publish-listing",
+      inventoryItemId: "inv_1",
+      priceAmount: "24.99",
+      quantityCap: "1",
+    });
+
+    const result = await listingsNewAction({
+      request: new Request("http://localhost/account/listings/new", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    const location = (result as Response).headers.get("Location") ?? "";
+    expect(location).toMatch(/^\/account\/listings\/lst_1\?evidenceEvent=publication_blocked&postWriteToken=/);
+    expect(location).not.toContain("feedbackWorkflow=listing-publish");
+    expect(store.storeCalls[0]?.payload.receipt.sources).toEqual([
+      { sourceContextName: "marketplace", maxGlobalPosition: "41", eventIds: ["evt_listing_created"] },
+    ]);
   });
 
   it("carries write consistency metadata into create redirects", async () => {
