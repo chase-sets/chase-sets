@@ -346,6 +346,110 @@ test.describe.serial("catalog admin integrations", () => {
     await expect(page.getByText(/Old integrations surface/i)).toHaveCount(0);
   });
 
+  test("scope-first admin journey: map a scope, sync it, edit and bulk-promote a candidate, and hand off to draft Catalog Items @catalog-admin-integrations", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    // This journey walks the m88 scope-first admin path end to end: pick/confirm a
+    // canonical sync scope, start a Catalog sync for it, review and edit a merged
+    // candidate, bulk-promote reviewed Source Observations, and land on the draft
+    // Catalog Items handoff. Every step that depends on seeded provider data stays
+    // conditional (mirrors the rest of this file) — the merge-group e2e seed does
+    // not currently populate Source Observations, so a hard assertion here would
+    // repeat the poisoned-seed-contract incident this suite already guards
+    // against. The composition/wiring assertions (scope selector present, stage
+    // reachable, handoff route resolves) stay unconditional because they hold
+    // regardless of seed volume.
+    await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
+    await expectPageOk(page, "/catalog/integrations");
+    await expectAdminWebHydrated(page);
+
+    await test.step("Map / confirm the sync scope", async () => {
+      const importContextBar = page.locator("[data-catalog-import-context-bar='true']");
+      await expect(importContextBar.getByRole("combobox", { name: "Provider" })).toBeVisible();
+      const unitSelect = importContextBar.getByRole("combobox", { name: "Unit" });
+      if (await unitSelect.count()) {
+        await expect(unitSelect.first()).toBeVisible();
+      }
+      // The scope-mapping affordance is either the guided select group (sourced
+      // from synced provider source options, when the selected provider declares
+      // option kinds) or the transitional free-text scope box — exactly one of
+      // the two renders per provider. Either shape satisfies "a scope can be
+      // mapped from this bar", so assert their union rather than assuming which
+      // one the seed-selected provider declares.
+      const guidedScopeGroup = page.getByRole("group", {
+        name: /scope/i,
+      });
+      const scopeFreeTextInput = importContextBar.getByRole("textbox", { name: /scope/i });
+      await expect(guidedScopeGroup.or(scopeFreeTextInput).first()).toBeVisible();
+      await expect(importContextBar.getByRole("button", { name: "Select source scope" })).toBeVisible();
+    });
+
+    await test.step("Sync scope", async () => {
+      await page.getByRole("button", { name: "Run sync" }).first().click();
+      const catalogSyncCommand = page.locator('form[data-catalog-primary-workbench-command="start-catalog-sync"]');
+      await expect(catalogSyncCommand.getByRole("button", { name: "Start Catalog sync" })).toBeVisible();
+    });
+
+    await test.step("Edit a merge candidate", async () => {
+      await page.getByRole("button", { name: "Review changes" }).first().click();
+      const mergeCandidateReviewHeading = page.getByRole("heading", { name: "Merged candidate review" });
+      if (!(await mergeCandidateReviewHeading.count())) {
+        return;
+      }
+      await expect(mergeCandidateReviewHeading.first()).toBeVisible({ timeout: 30_000 });
+      const candidateTable = page.getByRole("table", { name: "Merged candidate review" });
+      const updateCandidateButton = candidateTable.getByRole("button", { name: "Update" });
+      if (await updateCandidateButton.count()) {
+        // The per-candidate "Update" action is the edit affordance for a merged
+        // candidate; it is reason-gated (a command form, not a bare link), so
+        // proving it is present and enabled is the composition-level assertion —
+        // the reason/command-body wiring is covered at the vitest layer.
+        await expect(updateCandidateButton.first()).toBeVisible();
+      }
+    });
+
+    await test.step("Bulk promote reviewed observations", async () => {
+      const reviewRowCheckbox = page.getByRole("row").getByRole("checkbox");
+      if (!(await reviewRowCheckbox.count())) {
+        return;
+      }
+      await reviewRowCheckbox.first().check();
+      // The bulk bar's "Preview promotion" is the promote command for the
+      // selection (`CommandFormButton intent="preview-promotion"`, a real form
+      // submit, not a client-side dialog). Assert the selection round-tripped to
+      // the URL and the command is wired (visible, and either actionably enabled
+      // or carrying its accessible denial reason) without submitting it — the
+      // merge-group seed does not carry promotable observations, so actually
+      // submitting here would exercise an unseeded write path rather than the
+      // composition seam this suite owns. The full submit -> promoted-candidate
+      // path is covered by the vitest merge-candidate-promotion-planner and
+      // primary-workbench-admin-contracts suites.
+      await expect.poll(() => new URL(page.url()).searchParams.get("selectedObservationIds")).not.toBeNull();
+      const previewPromotionButton = page.getByRole("button", { name: /Preview promotion/i }).first();
+      await expect(previewPromotionButton).toBeVisible();
+      const previewPromotionEnabled = await previewPromotionButton.isEnabled();
+      if (!previewPromotionEnabled) {
+        await expect(previewPromotionButton).toHaveAttribute("aria-label", /.+/);
+      }
+    });
+
+    await test.step("Verify draft Catalog Items handoff", async () => {
+      await page.getByRole("button", { name: "Create / update items" }).first().click();
+      await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
+      // The handoff seam from the promotion stage into the separate Catalog Items
+      // area, filtered to the drafts this scope's sync would have created. It must
+      // resolve (HTTP < 400) even before any draft exists yet for this provider.
+      await expectPageOk(page, "/catalog/catalog-items?source=tcgdex");
+      await expect(page).toHaveURL(/\/catalog\/catalog-items\?source=tcgdex/);
+    });
+  });
+
   test("catalog operator can page review results and reach catalog item handoff @catalog-admin-integrations", async ({
     page,
   }) => {
