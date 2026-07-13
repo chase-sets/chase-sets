@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { signInThroughMarketplaceForm } from "./support/auth";
 import { marketplaceBrowserE2eBuyerCredentials } from "./support/seed-contract";
 
@@ -33,8 +33,7 @@ test.describe("marketplace seller time away & order capacity", () => {
     // Start from a clean slate: if a prior run left a pending window, cancel it.
     const preexistingCancel = page.getByRole("button", { name: /^Cancel scheduled away window$/i });
     if (await preexistingCancel.isVisible().catch(() => false)) {
-      await preexistingCancel.click();
-      await expect(page).toHaveURL(/\/account\/listings(?:\?|$)/);
+      await submitAndWaitForAccountListingsPostWrite(page, preexistingCancel);
     }
 
     // Schedule a future away window through the real schedule form. The date
@@ -44,32 +43,31 @@ test.describe("marketplace seller time away & order capacity", () => {
     await page.locator('select[name="awayWindowReasonCategory"]').selectOption("travel");
     await page.locator('input[name="awayWindowStartsOn"]').fill(startDate);
     await page.locator('input[name="awayWindowEndsOn"]').fill(endDate);
-    await page.getByRole("button", { name: /^Schedule away window$/i }).click();
+    await submitAndWaitForAccountListingsPostWrite(page, page.getByRole("button", { name: /^Schedule away window$/i }));
 
     // Card now shows the scheduled window with the automatic-return notice and
     // a cancel control, and no longer offers the schedule form.
-    await expect(page).toHaveURL(/\/account\/listings(?:\?|$)/);
     await expect(page.getByRole("button", { name: /^Cancel scheduled away window$/i })).toBeVisible();
     await expect(page.getByText(/Your listings will turn off on/i)).toBeVisible();
     await expect(page.getByRole("button", { name: /^Schedule away window$/i })).toHaveCount(0);
 
     // Cancel the window; the schedule form returns and the cancel control goes.
-    await page.getByRole("button", { name: /^Cancel scheduled away window$/i }).click();
-    await expect(page).toHaveURL(/\/account\/listings(?:\?|$)/);
+    await submitAndWaitForAccountListingsPostWrite(
+      page,
+      page.getByRole("button", { name: /^Cancel scheduled away window$/i }),
+    );
     await expect(page.getByRole("button", { name: /^Schedule away window$/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Cancel scheduled away window$/i })).toHaveCount(0);
 
     // Set an Order Capacity cap through the real form; the current-cap line
     // reflects the new value after the post/redirect/fresh-read cycle.
     await page.locator('input[name="maxOpenOrders"]').fill("5");
-    await page.getByRole("button", { name: /^Set capacity$/i }).click();
-    await expect(page).toHaveURL(/\/account\/listings(?:\?|$)/);
+    await submitAndWaitForAccountListingsPostWrite(page, page.getByRole("button", { name: /^Set capacity$/i }));
     await expect(page.getByText(/^Current cap: 5 open orders$/i)).toBeVisible();
     await expect(page.getByRole("button", { name: /^Remove cap$/i })).toBeVisible();
 
     // Clean up so re-runs start capacity-unset.
-    await page.getByRole("button", { name: /^Remove cap$/i }).click();
-    await expect(page).toHaveURL(/\/account\/listings(?:\?|$)/);
+    await submitAndWaitForAccountListingsPostWrite(page, page.getByRole("button", { name: /^Remove cap$/i }));
     await expect(page.getByText(/No cap set/i)).toBeVisible();
   });
 });
@@ -77,4 +75,14 @@ test.describe("marketplace seller time away & order capacity", () => {
 function futureDate(daysFromNow: number): string {
   const date = new Date(Date.now() + daysFromNow * 24 * 60 * 60 * 1000);
   return date.toISOString().slice(0, 10);
+}
+
+async function submitAndWaitForAccountListingsPostWrite(page: Page, submit: Locator): Promise<void> {
+  const previousUrl = page.url();
+  await Promise.all([
+    page.waitForURL(
+      (url) => url.pathname === "/account/listings" && url.href !== previousUrl && url.searchParams.has("afterWrite"),
+    ),
+    submit.click(),
+  ]);
 }

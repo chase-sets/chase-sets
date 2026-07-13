@@ -493,6 +493,7 @@ export const sourceContextWakeRegistry = [
       "marketplace.listing-stock-location-self-refresh",
       "marketplace.offer-match-accept-to-detail",
       "marketplace.offer-match-seller-control-list-refresh",
+      "marketplace.order-capacity-self-refresh",
       "marketplace.review-reply-to-detail",
       "marketplace.review-submit-to-detail",
       "marketplace.submitted-offer-detail",
