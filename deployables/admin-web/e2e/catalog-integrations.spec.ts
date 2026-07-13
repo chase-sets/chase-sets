@@ -700,6 +700,71 @@ test.describe.serial("catalog admin integrations", () => {
     await expect(providerDetailPage.getByRole("heading", { name: "Retire profile" })).toBeVisible();
   });
 
+  test("catalog operator can inspect job recovery and review reapply/replay controls @catalog-admin-integrations", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
+    await expectPageOk(page, "/catalog/integrations");
+
+    // Import-job retry / resume / cancel is a distinct recovery surface from the
+    // provider-profile "Lifecycle recovery" workspace asserted on the governance route
+    // (rollback/deprecate/retire). It lives on the daily "Run sync" stage's job table,
+    // and each action's availability is driven by the job's live operatorStatus/phase,
+    // so coverage here is deliberately opportunistic: every assertion is guarded on a
+    // matching action button actually rendering for a row. The test never submits a
+    // recovery command.
+    await page.getByRole("button", { name: "Run sync" }).first().click();
+    const importJobRows = page.locator("[data-catalog-import-job-row='true']");
+    const importJobRowCount = await importJobRows.count();
+    for (let index = 0; index < importJobRowCount; index += 1) {
+      const row = importJobRows.nth(index);
+      const jobId = await row.getAttribute("data-catalog-import-job-id");
+      for (const [buttonName, intent] of [
+        ["Retry", "retry-import-job"],
+        ["Resume", "resume-import-job"],
+        ["Cancel", "cancel-import-job"],
+      ] as const) {
+        const actionButton = row.getByRole("button", { name: buttonName });
+        if (!(await actionButton.count())) {
+          continue;
+        }
+        const commandForm = row.locator(`form[data-catalog-primary-workbench-command="${intent}"]`);
+        await expect(commandForm).toHaveCount(1);
+        await expect(commandForm.locator('input[name="_intent"]')).toHaveValue(intent);
+        await expect(commandForm.locator('input[name="jobId"]')).toHaveValue(jobId ?? "");
+      }
+    }
+
+    // Reapply / Replay are per-observation Source Observation review-row commands
+    // (available only on a "promoted" observation; Replay is further gated on original
+    // source-profile evidence being recorded), not part of the import-job table above.
+    // Open "Review changes" and guard on either command form actually rendering before
+    // inspecting its command metadata. The test never submits these commands.
+    //
+    // The `start-reapply` intent is also used by the unit-level Source-scope workset
+    // (`data-catalog-source-scope-unit`), whose reapply form deliberately carries an
+    // EMPTY selectedObservationIds — it reapplies the whole unit's promoted set, not a
+    // per-observation selection. Exclude that workset form so we assert on the
+    // review-row command, which carries the row's own observationId as the selection.
+    await page.getByRole("button", { name: "Review changes" }).first().click();
+    for (const intent of ["start-reapply", "start-replay"] as const) {
+      const commandForm = page
+        .locator(`form[data-catalog-primary-workbench-command="${intent}"]:not([data-catalog-source-scope-unit])`)
+        .first();
+      if (!(await commandForm.count())) {
+        continue;
+      }
+      await expect(commandForm.locator('input[name="_intent"]')).toHaveValue(intent);
+      await expect(commandForm.locator('input[name="selectedObservationIds"]')).not.toHaveValue("");
+    }
+  });
+
   test("catalog operator can inspect governance controls and health triage deep links @catalog-admin-integrations", async ({
     page,
   }) => {
