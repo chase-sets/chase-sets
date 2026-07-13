@@ -96,6 +96,19 @@ on post-launch beta cohorts or feature flags.
 **Response Rate** is unique submitted invitations divided by unique presented
 invitations, over the trailing 7-day and 30-day windows.
 
+The denominator is a presentation cohort in a half-open UTC interval. The
+numerator is the subset of those same invitations submitted before the interval
+ends. A submission whose presentation belongs to an earlier interval does not
+enter the current interval's numerator.
+
+## CSAT Analytics Fact
+
+A **CSAT Analytics Fact** is the replayable, invitation-unique read-model row that
+records independently observed eligibility, issuance, presentation, dismissal,
+expiry, and submission timestamps plus the submitted rating and authoritative
+dimensions. Duplicate and out-of-order lifecycle delivery converges on the same
+row without incrementing counters.
+
 ## Legacy Experience Rating
 
 A **Legacy Experience Rating** is a pre-existing generic 1–5 platform-feedback

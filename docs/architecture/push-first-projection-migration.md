@@ -1,6 +1,6 @@
 # Push-First Projection Migration Inventory
 
-Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-07-11.
+Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-07-13.
 
 This is the migration report that classifies every projection group and every read-after-write route inventory entry into an explicit push-first disposition. The machine-readable source of truth is `@chase-sets/platform-runtime/projection-push-migration`, which derives every row below from the [source-context wake registry](./source-context-wake-registry.md) (#1245); registry tests pin that registry to `bounded-contexts/*/context.json`, and `projection-push-migration.test.ts` pins this document to the same inventory, so a new projection group or route entry fails CI until both are classified here.
 
@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (116)
+## Projection Groups (117)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -63,6 +63,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `commercial-terms:commercial-terms-account-projection` | Commercial Terms | **identity** | push-enabled | 1/1 |
 | `commercial-terms:commercial-terms-founders-window-reaction` | Commercial Terms | **identity** | push-enabled | 1/1 |
 | `commercial-terms:platform-policy-document-projection` | Commercial Terms | **commercial-terms** | push-enabled | 1/1 |
+| `customer-feedback:customer-feedback-csat-analytics-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-csat-invitation-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `discovery:discovery-category-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-google-shopping-feed-row-projection` | Discovery | **catalog** | push-enabled | 1/1 |
@@ -156,7 +157,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations** | push-enabled | 2/2 |
 
-Totals: 97 `push-enabled`, 16 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 97 `push-enabled`, 17 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (71)
 

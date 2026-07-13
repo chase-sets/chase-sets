@@ -6,6 +6,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId, createInternalId } from "@chase-sets/primitives/typed-ids";
+import type { CsatAnalyticsQuery, CsatProjectionReadiness } from "./analytics-contract";
 import {
   decideCsatInvitation,
   evolveCsatInvitation,
@@ -16,8 +17,15 @@ import {
 import type { CustomerFeedbackInvitationEvent } from "../domain/invitation";
 import type { CsatOutcomeFactV1 } from "../domain/outcome-fact";
 import type { CsatSamplingCooldownClaimedEvent, CsatSamplingPolicyV1 } from "../domain/sampling";
+import type { CsatRatingValue, SurveyVersionId } from "../domain/survey";
+import { buildCsatAnalyticsProjectionHandlers } from "../read-model/analytics-projection";
+import { readCsatAnalytics } from "../read-model/analytics-query";
 import { buildCsatInvitationProjectionHandlers } from "../read-model/projection";
-import { getCsatInvitationByPublicReference, getCsatInvitationStreamIdByPublicReference } from "../read-model/queries";
+import {
+  getCsatInvitationByPublicReference,
+  getCsatInvitationStreamIdByPublicReference,
+  type CsatInvitationPageRow,
+} from "../read-model/queries";
 
 export type CsatInvitationRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -38,6 +46,30 @@ export type RedeemCsatInvitationCommand = Exclude<
   { type: "EvaluateCsatOutcomeFact" | "ExpireCsatInvitation" | "RevokeCsatInvitation" }
 >;
 
+export type RecordCsatPresentationParams = Readonly<{
+  publicReference: RedeemCsatInvitationCommand["publicReference"];
+  subjectAccountId: string;
+  presentedAt?: string;
+}>;
+
+export type RecordCsatDismissalParams = Readonly<{
+  publicReference: RedeemCsatInvitationCommand["publicReference"];
+  subjectAccountId: string;
+  dismissedAt?: string;
+}>;
+
+export type RecordCsatSubmissionParams = Readonly<{
+  publicReference: RedeemCsatInvitationCommand["publicReference"];
+  subjectAccountId: string;
+  rating: CsatRatingValue;
+  comment: string | null;
+  followUpConsent: boolean;
+  followUpConsentVersion: string;
+  followUpConsentAt: string | null;
+  submissionIdempotencyKey: string;
+  submittedAt?: string;
+}>;
+
 const cooldownCodec = createPassthroughDomainEventCodec<CsatSamplingCooldownClaimedEvent>();
 
 export function createCsatInvitationRuntime(deps: CsatInvitationRuntimeDeps) {
@@ -53,6 +85,36 @@ export function createCsatInvitationRuntime(deps: CsatInvitationRuntimeDeps) {
   if (!appendToStreams) {
     throw new Error("CSAT invitation issuance requires atomic multi-stream append support.");
   }
+
+  const executeByPublicReference = async (command: RedeemCsatInvitationCommand, context: EventStoreContext) => {
+    const streamId = await getCsatInvitationStreamIdByPublicReference(
+      deps.db,
+      command.publicReference,
+      command.subjectAccountId,
+    );
+    if (!streamId) {
+      throw new CsatInvitationDecisionError("invitation-not-found", "Invitation does not exist.", {
+        state: null,
+        outcomeCode: null,
+      });
+    }
+    const result = await commandHandler({ streamId, command, context });
+    return requireResult(result.state.invitation);
+  };
+
+  const loadAuthoritativeInvitation = async (
+    publicReference: RedeemCsatInvitationCommand["publicReference"],
+    subjectAccountId: string,
+  ): Promise<CsatInvitationPageRow> => {
+    const invitation = await getCsatInvitationByPublicReference(deps.db, publicReference, subjectAccountId);
+    if (!invitation) {
+      throw new CsatInvitationDecisionError("invitation-not-found", "Invitation does not exist.", {
+        state: null,
+        outcomeCode: null,
+      });
+    }
+    return invitation;
+  };
 
   return {
     commandHandler,
@@ -120,28 +182,73 @@ export function createCsatInvitationRuntime(deps: CsatInvitationRuntimeDeps) {
 
       throw new Error("CSAT invitation issuance exceeded its concurrency retry budget.");
     },
-    executeByPublicReference: async (command: RedeemCsatInvitationCommand, context: EventStoreContext) => {
-      const streamId = await getCsatInvitationStreamIdByPublicReference(
-        deps.db,
-        command.publicReference,
-        command.subjectAccountId,
+    executeByPublicReference,
+    recordPresentation: async (params: RecordCsatPresentationParams, context: EventStoreContext) => {
+      const invitation = await loadAuthoritativeInvitation(params.publicReference, params.subjectAccountId);
+      return executeByPublicReference(
+        {
+          type: "PresentCsatInvitation",
+          publicReference: params.publicReference,
+          subjectAccountId: params.subjectAccountId,
+          surveyVersion: surveyVersionFromRow(invitation),
+          actedAt: params.presentedAt ?? new Date().toISOString(),
+        },
+        context,
       );
-      if (!streamId) {
-        throw new CsatInvitationDecisionError("invitation-not-found", "Invitation does not exist.", {
-          state: null,
-          outcomeCode: null,
-        });
-      }
-      const result = await commandHandler({ streamId, command, context });
-      return requireResult(result.state.invitation);
     },
+    recordDismissal: async (params: RecordCsatDismissalParams, context: EventStoreContext) => {
+      const invitation = await loadAuthoritativeInvitation(params.publicReference, params.subjectAccountId);
+      return executeByPublicReference(
+        {
+          type: "DismissCsatInvitation",
+          publicReference: params.publicReference,
+          subjectAccountId: params.subjectAccountId,
+          surveyVersion: surveyVersionFromRow(invitation),
+          actedAt: params.dismissedAt ?? new Date().toISOString(),
+        },
+        context,
+      );
+    },
+    recordSubmission: async (params: RecordCsatSubmissionParams, context: EventStoreContext) => {
+      const invitation = await loadAuthoritativeInvitation(params.publicReference, params.subjectAccountId);
+      return executeByPublicReference(
+        {
+          type: "SubmitCsatSurvey",
+          publicReference: params.publicReference,
+          subjectAccountId: params.subjectAccountId,
+          surveyVersion: surveyVersionFromRow(invitation),
+          rating: params.rating,
+          comment: params.comment,
+          followUpConsent: params.followUpConsent,
+          followUpConsentVersion: params.followUpConsentVersion,
+          followUpConsentAt: params.followUpConsentAt,
+          submissionIdempotencyKey: params.submissionIdempotencyKey,
+          submittedAt: params.submittedAt ?? new Date().toISOString(),
+        },
+        context,
+      );
+    },
+    readAnalytics: (query: CsatAnalyticsQuery, readiness: CsatProjectionReadiness) =>
+      readCsatAnalytics(deps.db, query, readiness),
     getByPublicReference: getCsatInvitationByPublicReference.bind(null, deps.db),
     projectors: [
       createProjectionHandlerSet({
         projectionName: "customer-feedback-csat-invitation-projection",
         handlers: buildCsatInvitationProjectionHandlers(deps.db),
       }),
+      createProjectionHandlerSet({
+        projectionName: "customer-feedback-csat-analytics-projection",
+        handlers: buildCsatAnalyticsProjectionHandlers(deps.db),
+      }),
     ] as readonly ProjectionHandlerSet[],
+  };
+}
+
+function surveyVersionFromRow(row: CsatInvitationPageRow): SurveyVersionId {
+  return {
+    surveyKind: row.survey_kind as SurveyVersionId["surveyKind"],
+    surveyVersion: row.survey_version,
+    questionVersion: row.question_version,
   };
 }
 

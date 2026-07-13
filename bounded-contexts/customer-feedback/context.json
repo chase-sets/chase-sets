@@ -11,6 +11,7 @@
     "outcome-fact",
     "sampling-policy",
     "response-rate",
+    "csat-analytics-fact",
     "legacy-experience-rating"
   ],
   "streamPrefix": "customer-feedback.",
@@ -27,6 +28,13 @@
       "ownedTables": ["customer_feedback_csat_invitations"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "customer-feedback-csat-analytics-projection",
+      "sourceContextNames": ["customer-feedback"],
+      "ownedTables": ["customer_feedback_csat_analytics_facts"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [],
@@ -39,7 +47,7 @@
   "directoryIntent": {
     "csat": {
       "classification": "slice",
-      "purpose": "Own the versioned transactional-CSAT contract and invitation lifecycle: survey identity, the workflow/outcome allow-list, outcome-fact redemption, eligibility, sampling, suppression, expiry, single-use submission, the invitation query projection, metrics, and legacy classification.",
+      "purpose": "Own the versioned transactional-CSAT contract and invitation lifecycle: survey identity, the workflow/outcome allow-list, outcome-fact redemption, eligibility, sampling, suppression, expiry, single-use recording and submission, the invitation query projection, replayable analytics facts, metrics, and legacy classification.",
       "expectedConsumers": [
         "Internal customer-feedback module composition",
         "Customer Feedback invitation, recording, and analytics leaves"

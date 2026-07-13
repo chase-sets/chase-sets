@@ -139,4 +139,78 @@ describe("CSAT invitation runtime", () => {
       fact.subjectAccountId,
     ]);
   });
+
+  it("records presentation, dismissal, and submission from authoritative invitation data", async () => {
+    const store = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => ({
+        rows: sql.includes("SELECT stream_id")
+          ? [{ stream_id: csatInvitationStreamId(fact.sourceContext, fact.idempotencyKey) }]
+          : [
+              {
+                invitation_id: "csatinv_01",
+                public_reference: "csatref_123e4567-e89b-42d3-a456-426614174000",
+                state: "issued",
+                survey_kind: "transactional-csat",
+                survey_version: "csat.v1",
+                question_version: "csat.q.v1",
+              },
+            ],
+      })),
+    };
+    const runtime = createCsatInvitationRuntime({ eventStore: store.eventStore, db: db as never });
+    const issued = await runtime.issueFromOutcomeFact(
+      {
+        fact,
+        policy,
+        subjectEligible: true,
+        consentAllowed: true,
+        trafficKind: "customer",
+        evaluatedAt: "2026-07-13T12:00:00.000Z",
+      },
+      context,
+    );
+
+    await runtime.recordPresentation(
+      {
+        publicReference: issued.publicReference!,
+        subjectAccountId: fact.subjectAccountId,
+        presentedAt: "2026-07-14T00:00:00.000Z",
+      },
+      context,
+    );
+    await runtime.recordDismissal(
+      {
+        publicReference: issued.publicReference!,
+        subjectAccountId: fact.subjectAccountId,
+        dismissedAt: "2026-07-14T00:01:00.000Z",
+      },
+      context,
+    );
+    const submission = {
+      publicReference: issued.publicReference!,
+      subjectAccountId: fact.subjectAccountId,
+      rating: 5 as const,
+      comment: "Great checkout.",
+      followUpConsent: false,
+      followUpConsentVersion: "follow-up-consent.v1",
+      followUpConsentAt: null,
+      submissionIdempotencyKey: "submit-01",
+      submittedAt: "2026-07-14T00:02:00.000Z",
+    };
+    await runtime.recordSubmission(submission, context);
+    await runtime.recordSubmission(submission, context);
+
+    const stored = await store.eventStore.readStream({
+      streamId: csatInvitationStreamId(fact.sourceContext, fact.idempotencyKey),
+    });
+    expect(stored.map((item) => item.eventType)).toEqual([
+      "customer-feedback.invitation.eligible",
+      "customer-feedback.invitation.issued",
+      "customer-feedback.invitation.presented",
+      "customer-feedback.invitation.dismissed",
+      "customer-feedback.survey.submitted",
+    ]);
+    expect(db.query.mock.calls.filter(([sql]) => String(sql).includes("subject_account_id = $2"))).toHaveLength(8);
+  });
 });

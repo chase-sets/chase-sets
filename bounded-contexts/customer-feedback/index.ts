@@ -15,8 +15,9 @@ import {
  * Customer Feedback bounded-context module.
  *
  * The context is established as an event-sourced source context that owns the
- * versioned CSAT contract and the invitation aggregate/query projection. Survey
- * UI and aggregate CSAT analytics compose on this foundation separately.
+ * versioned CSAT contract, invitation aggregate, authoritative recording flow,
+ * and invitation-unique CSAT analytics projections. Survey UI composes on this
+ * foundation separately.
  */
 export const module = defineBoundedContextModule<
   CustomerFeedbackServices,
