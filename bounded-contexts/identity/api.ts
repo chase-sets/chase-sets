@@ -183,6 +183,7 @@ async function createPersonalIdentityForAuth(
         type: "OpenFoundersWindow",
         betaAccessStartedAt: betaAccessStartedAt.toISOString(),
         foundersWindowEndsAt: foundersWindowEndsAt.toISOString(),
+        recipientEmail: email,
       },
       context: params.context,
     });

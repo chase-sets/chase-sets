@@ -5,6 +5,7 @@ import {
   assert,
   assertNever,
   normalizeLabel,
+  normalizeEmail,
   type AccountStatus,
   type AccountType,
   type EmptyEventData,
@@ -61,6 +62,8 @@ export type OpenFoundersWindowCommand = Readonly<{
   type: "OpenFoundersWindow";
   betaAccessStartedAt: string;
   foundersWindowEndsAt: string;
+  /** Grant-time address published for downstream access notifications; not Account profile state. */
+  recipientEmail: string;
 }>;
 export type RemoveAccountBadgeCommand = Readonly<{
   type: "RemoveAccountBadge";
@@ -105,7 +108,7 @@ export type AccountBadgeAssignedEvent = DomainEvent<
 >;
 export type FoundersWindowOpenedEvent = DomainEvent<
   "identity.account.founders-window-opened",
-  Readonly<{ betaAccessStartedAt: string; foundersWindowEndsAt: string }>
+  Readonly<{ betaAccessStartedAt: string; foundersWindowEndsAt: string; recipientEmail?: string }>
 >;
 export type AccountBadgeRemovedEvent = DomainEvent<
   "identity.account.badge-removed",
@@ -168,11 +171,12 @@ export const decideAccount: AggregateDecider<AccountState, AccountCommand, Accou
       }
       const startedAt = normalizeIsoTimestamp(command.betaAccessStartedAt, "Beta access start");
       const endsAt = normalizeIsoTimestamp(command.foundersWindowEndsAt, "Founders window end");
+      const recipientEmail = normalizeEmail(command.recipientEmail);
       assert(Date.parse(endsAt) > Date.parse(startedAt), "Founders window must end after beta access starts.");
       return [
         {
           type: "identity.account.founders-window-opened",
-          data: { betaAccessStartedAt: startedAt, foundersWindowEndsAt: endsAt },
+          data: { betaAccessStartedAt: startedAt, foundersWindowEndsAt: endsAt, recipientEmail },
         },
       ];
     }

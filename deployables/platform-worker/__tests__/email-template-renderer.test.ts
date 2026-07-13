@@ -3,6 +3,65 @@ import type { TransactionalEmailMessage } from "@chase-sets/outbound-messaging";
 import { platformEmailTemplateRenderer } from "../src/email-template-renderer";
 
 describe("platform email template renderer", () => {
+  it.each([
+    "waitlist_nurture_welcome",
+    "waitlist_nurture_fee_lock",
+    "waitlist_nurture_open_offers",
+    "waitlist_nurture_wave_approaching",
+    "waitlist_nurture_wave_admitted",
+  ])("renders %s with its tracked content and referral links", (templateId) => {
+    const rendered = platformEmailTemplateRenderer.render(
+      message({
+        subject: "Your Chase Sets update",
+        templateId,
+        templateData: {
+          headline: "A plain-language update.",
+          intro: "The useful detail comes first.",
+          detailsLink:
+            "https://chasesets.com/sales-fees?utm_source=waitlist_email&utm_medium=email&utm_campaign=waitlist_nurture",
+          referralLink:
+            "https://chasesets.com/?ref=wls_collector&utm_source=referral&utm_medium=waitlist_email&utm_campaign=waitlist_nurture",
+        },
+      }),
+    );
+
+    expect(rendered.textBody).toContain("A plain-language update.");
+    expect(rendered.textBody).toContain("Open the next step:");
+    expect(rendered.textBody).toContain("Your referral link:");
+    expect(rendered.textBody).toContain("utm_campaign=waitlist_nurture");
+    expect(rendered.htmlBody).toContain("utm_source=waitlist_email");
+    expect(rendered.textBody).not.toContain("A Chase Sets account update is available.");
+  });
+
+  it("renders the welcome offer, Discord, referral, and admission preference links explicitly", () => {
+    const welcome = platformEmailTemplateRenderer.render(
+      message({
+        subject: "Welcome to Chase Sets early access",
+        templateId: "waitlist_nurture_welcome",
+        templateData: {
+          foundersTermsLink: "https://chasesets.com/founders?utm_source=waitlist_email",
+          discordInviteLink: "https://chasesets.com/welcome?utm_content=discord_invite_welcome",
+          referralLink: "https://chasesets.com/?ref=wls_test&utm_medium=waitlist_email",
+        },
+      }),
+    );
+    const admission = platformEmailTemplateRenderer.render(
+      message({
+        subject: "Your Chase Sets beta access is open",
+        templateId: "waitlist_nurture_wave_admitted",
+        templateData: {
+          preferencesLink: "https://marketplace.chasesets.com/?notifications=settings",
+        },
+      }),
+    );
+
+    expect(welcome.textBody).toContain("Read the founders offer terms:");
+    expect(welcome.textBody).toContain("Open your founders circle Discord invite:");
+    expect(welcome.textBody).toContain("Your referral link:");
+    expect(welcome.textBody).toContain("because you joined the Chase Sets waitlist");
+    expect(admission.textBody).toContain("Manage early-access email preferences:");
+  });
+
   it("renders the waitlist confirmation as early access marketing copy", () => {
     const rendered = platformEmailTemplateRenderer.render(
       message({

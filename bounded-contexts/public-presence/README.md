@@ -17,7 +17,7 @@ Public Presence owns Chase Sets public product pages, prelaunch policy surfaces,
 
 - Authenticated account, checkout, or marketplace transactions
 - Catalog product truth (referenced, never owned here)
-- Notification delivery
+- Notification delivery and preference enforcement
 
 ## Ubiquitous Language
 
@@ -31,10 +31,11 @@ Public Presence terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 - Public articles receive reviewed, field-level public policy values through the `publicPolicySources` host port. The platform API composes resolvers from each owning bounded context; Public Presence never queries another context's policy tables or accepts generic policy documents.
 - Internal waitlist review receives an authenticated actor at the deployable composition layer (`AuthenticatedApiEnv`) rather than importing Auth or Identity facts directly.
+- `identity.account.founders-window-opened` is the access-grant fact that completes the Waitlist Nurture Sequence. Its additive grant-time recipient address lets Public Presence correlate the admitted account to its deterministic Waitlist Signup without querying Identity storage.
 
 ## Outgoing Integration Events
 
-- None outside Public Presence. `public-presence.waitlist-signup.recorded`, `public-presence.waitlist-signup.updated`, and `public-presence.waitlist-signup.cohort-quality-provided` are consumed only by Public Presence's own waitlist and transactional-email projections today.
+- None outside Public Presence. `public-presence.waitlist-signup.recorded`, `public-presence.waitlist-signup.updated`, and `public-presence.waitlist-signup.cohort-quality-provided` are consumed by Public Presence's own waitlist and nurture-email projections.
 
 Public Presence does publish one build-time contract rather than an event: the Help Article compiler derives `@chase-sets/public-docs` article-to-policy citations from canonical frontmatter for Platform Operations' policy-revision review queue.
 
@@ -43,6 +44,7 @@ Public Presence does publish one build-time contract rather than an event: the H
 1. A Waitlist Signup id is derived deterministically from the normalized email address, so a repeat submission from the same email updates the existing signup instead of creating a duplicate.
 2. Early-access email consent is implied by joining the waitlist and is recorded automatically at signup time; it is never a required condition of joining. Consent to additional product updates beyond early-access notifications is a separate, optional opt-in.
 3. A Waitlist Signup must declare at least one interest.
+4. Each nurture touch has one stable idempotency key per Waitlist Signup (and per founders-window start for admission); replaying a source fact can update an unsent outbox row but cannot create or resend a sent delivery.
 
 ## Tests
 

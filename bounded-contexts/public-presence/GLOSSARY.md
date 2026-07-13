@@ -92,3 +92,13 @@ Notes:
 - Anti-gaming: self-referrals never record, duplicate emails collapse into one signup, and the cap keeps a late signup from leapfrogging genuine early signups entirely.
 - An invite-prioritization input, not guaranteed admission and not founder status -- wave placement still weighs Cohort Quality Signals and the Wave-1 Admission Bar.
 - Surfaced truthfully on the welcome page: the real position from the read model, or "updating" while the projection catches up, never a fake number.
+
+## Waitlist Nurture Sequence
+
+A **Waitlist Nurture Sequence** is the suppressible early-access email series anchored to a Waitlist Signup's recorded time and completed by an Identity-owned founders-window grant.
+
+Notes:
+
+- Signup age schedules the welcome, fee-lock, open-offers, and wave-approaching touches; no wall-clock polling re-derives eligibility.
+- The founders-window-opened fact triggers the wave-admission touch and starts the stated 60-day window.
+- Every touch carries the signup's tracked referral link. Stable per-touch idempotency keys and the durable notification outbox make projection replay safe.
