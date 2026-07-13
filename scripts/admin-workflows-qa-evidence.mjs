@@ -465,6 +465,63 @@ const CATALOG_INTEGRATIONS_COVERAGE_ALIASES = Object.freeze([
   "check",
 ]);
 
+export const ADMIN_WORKFLOWS_QA_AUTH_SHELL_RBAC_REQUIRED_COVERAGE = Object.freeze([
+  { key: "auth-shell-rbac:sign-in-password-access-host", description: "Password sign-in through /access/sign-in" },
+  { key: "auth-shell-rbac:sign-in-password-catalog-host", description: "Password sign-in through /catalog/sign-in" },
+  { key: "auth-shell-rbac:sign-in-phone-code", description: "Phone-code sign-in evidence" },
+  { key: "auth-shell-rbac:sign-in-magic-link", description: "Magic-link sign-in evidence" },
+  { key: "auth-shell-rbac:sign-in-passkey", description: "Passkey sign-in evidence" },
+  { key: "auth-shell-rbac:account-select-multi-account", description: "Account-select flow for a multi-account user" },
+  { key: "auth-shell-rbac:sign-out-clears-session", description: "Sign-out clears the session on both hosts" },
+  { key: "auth-shell-rbac:root-hub-one-section-redirect", description: "Root hub one-section actor redirect" },
+  { key: "auth-shell-rbac:root-hub-multi-section-listing", description: "Root hub multi-section actor listing" },
+  { key: "auth-shell-rbac:root-hub-no-access-state", description: "Root hub explicit no-access state" },
+  { key: "auth-shell-rbac:rbac-role-platform-admin", description: "platform-admin role fixture section matrix" },
+  { key: "auth-shell-rbac:rbac-role-owner", description: "owner role fixture section matrix" },
+  { key: "auth-shell-rbac:rbac-role-manager", description: "manager role fixture section matrix" },
+  { key: "auth-shell-rbac:rbac-role-fulfillment", description: "fulfillment role fixture section matrix" },
+  { key: "auth-shell-rbac:rbac-role-viewer", description: "viewer role fixture section matrix" },
+  {
+    key: "auth-shell-rbac:rbac-single-permission-actors",
+    description: "Single-permission actor-matrix rows from the admin shell smoke matrix",
+  },
+  {
+    key: "auth-shell-rbac:rbac-no-unauthorized-shortcuts",
+    description: "No route shortcuts into unauthorized sections resolve for a least-privilege actor",
+  },
+  {
+    key: "auth-shell-rbac:rbac-platform-admin-support-requests-decision",
+    description: "Explicit record of whether platform-admin sees Support Requests",
+  },
+  { key: "auth-shell-rbac:shell-desktop-top-app-bar", description: "Desktop shared top app bar parity" },
+  { key: "auth-shell-rbac:shell-desktop-section-local-nav", description: "Desktop section-local navigation parity" },
+  { key: "auth-shell-rbac:shell-mobile-top-app-bar", description: "Mobile shared top app bar parity" },
+  {
+    key: "auth-shell-rbac:shell-mobile-section-local-nav",
+    description: "Mobile section-local bottom/side navigation parity",
+  },
+  { key: "auth-shell-rbac:shell-account-session-actions", description: "Account and session action menu parity" },
+  { key: "auth-shell-rbac:shell-active-states", description: "Active navigation state parity" },
+  { key: "auth-shell-rbac:shell-overflow", description: "Navigation overflow behavior parity" },
+  { key: "auth-shell-rbac:shell-state-empty", description: "Representative empty-state coverage" },
+  { key: "auth-shell-rbac:shell-state-error", description: "Representative error-state coverage" },
+  { key: "auth-shell-rbac:shell-state-detail", description: "Representative detail-state coverage" },
+]);
+
+const AUTH_SHELL_RBAC_COVERAGE_LABELS = Object.freeze([
+  "Auth shell RBAC coverage",
+  "Auth/shell/RBAC coverage",
+  "Shell RBAC coverage",
+]);
+
+const AUTH_SHELL_RBAC_COVERAGE_ALIASES = Object.freeze([
+  "authShellRbacCoverage",
+  "shellRbacCoverage",
+  "coverage",
+  "coverageKey",
+  "check",
+]);
+
 const CATEGORY_PATTERNS = Object.freeze({
   email: [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi],
   cookie_or_session: [
@@ -514,6 +571,9 @@ export function parseAdminWorkflowsQaEvidenceArgs(argv, env = process.env) {
       argv.includes("--require-catalog-integrations-coverage") ||
       readEnv("ADMIN_WORKFLOWS_QA_REQUIRE_CATALOG_INTEGRATIONS_COVERAGE", env) === "true",
     scaffoldAccess: argv.includes("--scaffold-access") || readEnv("ADMIN_WORKFLOWS_QA_SCAFFOLD_ACCESS", env) === "true",
+    requireAuthShellRbacCoverage:
+      argv.includes("--require-auth-shell-rbac-coverage") ||
+      readEnv("ADMIN_WORKFLOWS_QA_REQUIRE_AUTH_SHELL_RBAC_COVERAGE", env) === "true",
   };
 }
 
@@ -561,6 +621,7 @@ export function buildAdminWorkflowsQaEvidence(input) {
   const projectionOperations = buildProjectionOperationsCompleteness(input);
   const access = buildAccessCompleteness(input);
   const catalogIntegrations = buildCatalogIntegrationsCompleteness(input);
+  const authShellRbac = buildAuthShellRbacCompleteness(input);
   const completenessFindings = input.requireCrossCuttingCoverage ? completeness.missingFields.length : 0;
   const actorMatrixFindings = input.requireActorMatrixCoverage
     ? actorMatrix.missingActors.length + actorMatrix.hostMismatches.length
@@ -573,6 +634,7 @@ export function buildAdminWorkflowsQaEvidence(input) {
   const catalogIntegrationsFindings = input.requireCatalogIntegrationsCoverage
     ? catalogIntegrations.missingCoverage.length
     : 0;
+  const authShellRbacFindings = input.requireAuthShellRbacCoverage ? authShellRbac.missingCoverage.length : 0;
   const totalBlockingFindings =
     totalFindings +
     completenessFindings +
@@ -580,7 +642,8 @@ export function buildAdminWorkflowsQaEvidence(input) {
     catalogModelingFindings +
     projectionOperationsFindings +
     accessFindings +
-    catalogIntegrationsFindings;
+    catalogIntegrationsFindings +
+    authShellRbacFindings;
 
   return {
     schemaVersion: ADMIN_WORKFLOWS_QA_EVIDENCE_VERSION,
@@ -596,6 +659,7 @@ export function buildAdminWorkflowsQaEvidence(input) {
     projectionOperations,
     access,
     catalogIntegrations,
+    authShellRbac,
     guidance:
       totalBlockingFindings === 0
         ? buildPassingGuidance(input)
@@ -607,6 +671,7 @@ export function buildAdminWorkflowsQaEvidence(input) {
             projectionOperationsFindings,
             accessFindings,
             catalogIntegrationsFindings,
+            authShellRbacFindings,
           ),
     redaction: {
       emails: "never-recorded",
@@ -716,6 +781,29 @@ function buildCatalogIntegrationsCompleteness(input) {
     mode: required ? "catalog-integrations-coverage" : "not-required",
     status: missingCoverage.length === 0 ? "pass" : "fail",
     requiredCoverage: required ? ADMIN_WORKFLOWS_QA_CATALOG_INTEGRATIONS_REQUIRED_COVERAGE : [],
+    coveredCoverage: required ? [...coveredCoverage].sort() : [],
+    missingCoverage,
+  };
+}
+
+function buildAuthShellRbacCompleteness(input) {
+  const required = Boolean(input.requireAuthShellRbacCoverage);
+  const coveredCoverage = required
+    ? collectChecklistCoverage(input.evidenceFiles, AUTH_SHELL_RBAC_COVERAGE_LABELS, AUTH_SHELL_RBAC_COVERAGE_ALIASES)
+    : new Set();
+  const missingCoverage = required
+    ? ADMIN_WORKFLOWS_QA_AUTH_SHELL_RBAC_REQUIRED_COVERAGE.filter((coverage) => !coveredCoverage.has(coverage.key)).map(
+        (coverage) => ({
+          ...coverage,
+          severity: "blocker",
+        }),
+      )
+    : [];
+
+  return {
+    mode: required ? "auth-shell-rbac-coverage" : "not-required",
+    status: missingCoverage.length === 0 ? "pass" : "fail",
+    requiredCoverage: required ? ADMIN_WORKFLOWS_QA_AUTH_SHELL_RBAC_REQUIRED_COVERAGE : [],
     coveredCoverage: required ? [...coveredCoverage].sort() : [],
     missingCoverage,
   };
@@ -1039,6 +1127,11 @@ function buildPassingGuidance(input) {
       "Catalog integrations evidence covers provider import/review/promote, recovery, alias, provider-profile, governance, health, SSE/fallback, Magic-disabled, and control-plane permission checks.",
     );
   }
+  if (input.requireAuthShellRbacCoverage) {
+    guidance.push(
+      "Auth shell RBAC evidence covers every sign-in method on both hosts, account-select and sign-out, root hub redirect/listing/no-access states, every role-fixture and single-permission actor RBAC row, the platform-admin Support Requests decision, and desktop/mobile shell parity.",
+    );
+  }
   return guidance;
 }
 
@@ -1050,6 +1143,7 @@ function buildFailingGuidance(
   projectionOperationsFindings,
   accessFindings,
   catalogIntegrationsFindings,
+  authShellRbacFindings,
 ) {
   const guidance = [];
   if (totalFindings > 0) {
@@ -1074,6 +1168,9 @@ function buildFailingGuidance(
   }
   if (catalogIntegrationsFindings > 0) {
     guidance.push("Add the missing catalog integrations coverage keys before using this packet to close #3022.");
+  }
+  if (authShellRbacFindings > 0) {
+    guidance.push("Add the missing auth shell RBAC coverage keys before using this packet to close #3019.");
   }
   return guidance;
 }
