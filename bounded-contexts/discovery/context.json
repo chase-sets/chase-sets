@@ -20,6 +20,7 @@
   "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [
     "@chase-sets/checkout",
+    "@chase-sets/customer-feedback",
     "@chase-sets/inventory",
     "@chase-sets/marketplace",
     "@chase-sets/outbound-messaging",
@@ -1102,7 +1103,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request parsing and context-local API client assets shared by discovery-owned features and composition seams.",
-      "expectedConsumers": ["Multiple discovery slices", "Deployable composition for discovery"],
+      "expectedConsumers": ["search"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {

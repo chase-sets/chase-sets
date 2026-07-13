@@ -114,6 +114,7 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
           rolePermissions: AUTH_ROLE_PERMISSIONS.owner,
         },
       ],
+      publishAuthenticationOutcome: true,
     });
 
     return jsonWithMutationReceipts(

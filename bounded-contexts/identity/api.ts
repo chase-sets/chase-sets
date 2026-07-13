@@ -29,6 +29,7 @@ import { userPreferencesRoutes } from "./features/preferences/api/route";
 import { shippingAddressRoutes } from "./features/shipping-addresses/api/route";
 import { createIdentityBootstrapContext } from "./support/runtime-support/bootstrap-context";
 import { buildCurrentActorDisplay } from "./support/shell-support/current-actor-display";
+import { publishIdentityCsatOutcomeFact } from "./support/request-support/csat-outcome-facts";
 
 export type IdentityApiEnv = {
   Variables: {
@@ -261,6 +262,16 @@ async function createPersonalIdentityForAuth(
   }
   snapshots.push(mutationSnapshot("user", userId, userResult));
 
+  if (services.eventStore) {
+    await publishIdentityCsatOutcomeFact(services.eventStore, params.context, {
+      outcomeCode: "registration.completed",
+      subjectAccountId: accountId,
+      subjectKind: "account",
+      subject: { entityType: "account", entityId: accountId },
+      idempotencyKey: `identity:registration:${accountId}`,
+    });
+  }
+
   return { userId, accountId, membershipId, snapshots };
 }
 
@@ -337,6 +348,16 @@ async function grantGuestAccountForAuth(
     },
     context: params.context,
   });
+
+  if (services.eventStore) {
+    await publishIdentityCsatOutcomeFact(services.eventStore, params.context, {
+      outcomeCode: "onboarding.completed",
+      subjectAccountId: params.accountId,
+      subjectKind: "account",
+      subject: { entityType: "account", entityId: params.accountId },
+      idempotencyKey: `identity:onboarding:guest-account:${params.accountId}:${params.userId}`,
+    });
+  }
 
   return { membershipId, snapshots: [mutationSnapshot("membership", membershipId, result)] };
 }
@@ -532,6 +553,15 @@ async function acceptInvitationForUserFromAuth(
     },
     context: params.context,
   });
+  if (services.eventStore) {
+    await publishIdentityCsatOutcomeFact(services.eventStore, params.context, {
+      outcomeCode: "onboarding.completed",
+      subjectAccountId: invitation.accountId,
+      subjectKind: "account",
+      subject: { entityType: "invitation", entityId: params.invitationId },
+      idempotencyKey: `identity:onboarding:invitation:${params.invitationId}:${params.userId}`,
+    });
+  }
   return {
     membershipId,
     snapshots: [

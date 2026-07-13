@@ -1,6 +1,7 @@
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
@@ -17,6 +18,7 @@ import { createUserRuntime } from "../../features/users/api/runtime";
 import { createLinkedPlatformAuthorizationStore } from "../ucp-support/linked-platform-authorizations";
 
 export type IdentityServices = Readonly<{
+  eventStore?: EventStore;
   accounts: ReturnType<typeof createAccountRuntime>;
   users: ReturnType<typeof createUserRuntime>;
   memberships: ReturnType<typeof createMembershipRuntime>;
@@ -67,6 +69,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   const shippingAddresses = createShippingAddressRuntime(deps);
 
   return {
+    eventStore,
     accounts,
     users,
     memberships,
