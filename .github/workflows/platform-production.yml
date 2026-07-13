@@ -903,7 +903,7 @@ jobs:
           echo "d1c98f59f6d3716b7a35aa540506764700a358448dd6a10e92381b7aa294d00b  ${binary}" | sha256sum --check
           chmod +x "$binary"
           echo "${RUNNER_TEMP}" >> "$GITHUB_PATH"
-          "$binary" version --client
+          "$binary" version >/dev/null 2>&1 || "$binary" --help >/dev/null
 
       - name: Export staging Kubernetes database URLs
         if: env.SHOULD_DEPLOY != 'false'
@@ -2443,7 +2443,7 @@ jobs:
           echo "d1c98f59f6d3716b7a35aa540506764700a358448dd6a10e92381b7aa294d00b  ${binary}" | sha256sum --check
           chmod +x "$binary"
           echo "${RUNNER_TEMP}" >> "$GITHUB_PATH"
-          "$binary" version --client
+          "$binary" version >/dev/null 2>&1 || "$binary" --help >/dev/null
 
       - name: Capture production rollback target
         if: env.SHOULD_DEPLOY != 'false'
