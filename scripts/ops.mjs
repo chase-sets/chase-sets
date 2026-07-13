@@ -36,6 +36,10 @@ export const SUBCOMMANDS = {
     script: "account-cart-consistency-probe.mjs",
     description: "Redacted account-cart post-write consistency probe evidence.",
   },
+  "campaign:start-gate": {
+    script: "campaign-start-gate.mjs",
+    description: "Campaign-start checklist gate for the beta-signup surface.",
+  },
   "emergency-recovery:guide": {
     script: "emergency-recovery-guide.mjs",
     description: "Emergency recovery guide record for platform incidents.",
