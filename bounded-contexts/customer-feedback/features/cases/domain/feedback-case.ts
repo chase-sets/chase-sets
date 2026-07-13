@@ -38,6 +38,20 @@ export type FeedbackCaseFollowUpStatus = (typeof feedbackCaseFollowUpStatuses)[n
 export const feedbackCaseFollowUpOutcomes = ["resolved", "unresolved", "no-response", "declined"] as const;
 export type FeedbackCaseFollowUpOutcome = (typeof feedbackCaseFollowUpOutcomes)[number];
 
+export const feedbackCaseFollowUpDeliveryStatuses = [
+  "not-requested",
+  "pending",
+  "sent",
+  "failed",
+  "suppressed",
+  "retry-exhausted",
+  "no-recipient",
+] as const;
+export type FeedbackCaseFollowUpDeliveryStatus = (typeof feedbackCaseFollowUpDeliveryStatuses)[number];
+
+export const feedbackCaseFollowUpChannels = ["web", "email", "sms", "rcs"] as const;
+export type FeedbackCaseFollowUpChannel = (typeof feedbackCaseFollowUpChannels)[number];
+
 export type FeedbackCaseConsent = Readonly<{
   status: "granted" | "not-granted" | "withdrawn";
   version: string;
@@ -65,7 +79,11 @@ export type FeedbackCase = Readonly<{
   workItems: readonly FeedbackCaseWorkItem[];
   consent: FeedbackCaseConsent;
   followUpStatus: FeedbackCaseFollowUpStatus;
+  followUpDeliveryStatus: FeedbackCaseFollowUpDeliveryStatus;
   followUpDeliveryReference: string | null;
+  followUpChannel: FeedbackCaseFollowUpChannel | null;
+  followUpTemplateVersion: number | null;
+  followUpSentAt: string | null;
   followUpOutcome: FeedbackCaseFollowUpOutcome | null;
   openedAt: string;
   triagedAt: string | null;
@@ -76,8 +94,22 @@ export type FeedbackCase = Readonly<{
 
 export type FeedbackCaseActor = Readonly<{
   actorId: string;
-  authority: "view-feedback-cases" | "manage-feedback-cases";
+  authority: "view-feedback-cases" | "manage-feedback-cases" | "notify-feedback-cases" | "export-feedback-cases";
 }>;
+
+export type FeedbackCaseCapability = "view" | "manage" | "notify" | "export";
+
+export function feedbackCaseActorCan(actor: FeedbackCaseActor, capability: FeedbackCaseCapability): boolean {
+  return (
+    (capability === "view" &&
+      ["view-feedback-cases", "manage-feedback-cases", "notify-feedback-cases", "export-feedback-cases"].includes(
+        actor.authority,
+      )) ||
+    (capability === "manage" && actor.authority === "manage-feedback-cases") ||
+    (capability === "notify" && ["notify-feedback-cases", "manage-feedback-cases"].includes(actor.authority)) ||
+    (capability === "export" && ["export-feedback-cases", "manage-feedback-cases"].includes(actor.authority))
+  );
+}
 
 type Attributed<T> = T & Readonly<{ eventSchemaVersion: 1; actorId: string; actedAt: string }>;
 
@@ -138,12 +170,51 @@ export type FeedbackCaseWorkItemUnlinkedEvent = DomainEvent<
 
 export type FeedbackCaseFollowUpRequestedEvent = DomainEvent<
   "customer-feedback.case.follow-up-requested",
-  Attributed<{ caseId: FeedbackCaseId; consentVersion: string }>
+  Attributed<{
+    caseId: FeedbackCaseId;
+    consentVersion: string;
+    recipientAccountId?: string | null;
+    channel?: FeedbackCaseFollowUpChannel;
+    templateVersion?: number;
+  }>
 >;
 
 export type FeedbackCaseFollowUpSentEvent = DomainEvent<
   "customer-feedback.case.follow-up-sent",
-  Attributed<{ caseId: FeedbackCaseId; deliveryReference: string }>
+  Attributed<{
+    caseId: FeedbackCaseId;
+    deliveryReference: string;
+    channel?: FeedbackCaseFollowUpChannel;
+    templateVersion?: number;
+  }>
+>;
+
+export type FeedbackCaseFollowUpDeliveryOutcome = "sent" | "failed" | "suppressed" | "retry-exhausted" | "no-recipient";
+
+export type FeedbackCaseFollowUpDeliveryOutcomeRecordedEvent = DomainEvent<
+  "customer-feedback.case.follow-up-delivery-outcome-recorded",
+  Attributed<{
+    caseId: FeedbackCaseId;
+    deliveryReference: string | null;
+    outcome: FeedbackCaseFollowUpDeliveryOutcome;
+    channel?: FeedbackCaseFollowUpChannel | null;
+    templateVersion?: number | null;
+  }>
+>;
+
+export type FeedbackCaseAttentionRequestedEvent = DomainEvent<
+  "customer-feedback.case.attention-requested",
+  Attributed<{
+    caseId: FeedbackCaseId;
+    attentionId: string;
+    reason: "low-score" | "reopened";
+    ruleVersion: string;
+    rating: number;
+    priority: FeedbackCasePriority;
+    ownerId: string | null;
+    dueAt: string | null;
+    adminHref: string;
+  }>
 >;
 
 export type FeedbackCaseFollowUpOutcomeRecordedEvent = DomainEvent<
@@ -178,10 +249,12 @@ export type FeedbackCaseEvent =
   | FeedbackCaseWorkItemUnlinkedEvent
   | FeedbackCaseFollowUpRequestedEvent
   | FeedbackCaseFollowUpSentEvent
+  | FeedbackCaseFollowUpDeliveryOutcomeRecordedEvent
   | FeedbackCaseFollowUpOutcomeRecordedEvent
   | FeedbackCaseFollowUpConsentWithdrawnEvent
   | FeedbackCaseClosedEvent
-  | FeedbackCaseReopenedEvent;
+  | FeedbackCaseReopenedEvent
+  | FeedbackCaseAttentionRequestedEvent;
 
 export const feedbackCaseEventTypes = [
   "customer-feedback.case.opened",
@@ -195,8 +268,10 @@ export const feedbackCaseEventTypes = [
   "customer-feedback.case.work-item-unlinked",
   "customer-feedback.case.follow-up-requested",
   "customer-feedback.case.follow-up-sent",
+  "customer-feedback.case.follow-up-delivery-outcome-recorded",
   "customer-feedback.case.follow-up-outcome-recorded",
   "customer-feedback.case.follow-up-consent-withdrawn",
   "customer-feedback.case.closed",
   "customer-feedback.case.reopened",
+  "customer-feedback.case.attention-requested",
 ] as const;

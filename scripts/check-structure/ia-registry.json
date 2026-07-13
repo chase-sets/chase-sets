@@ -285,6 +285,13 @@
     {
       "deployable": "admin-web",
       "section": "support",
+      "family": "customer-feedback",
+      "owningContext": "customer-feedback",
+      "purpose": "Operator low-score customer-feedback attention queue (customer-feedback)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "support",
       "family": "reference-lookup",
       "owningContext": "platform-operations",
       "purpose": "Operator cross-context reference lookup tool (platform-operations)."

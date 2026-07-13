@@ -37,6 +37,13 @@ export const notificationsEnglishTranslations = {
   "notifications.intents.sellerAvailabilityRestored.title": "Your listings are live again",
   "notifications.intents.sellerAvailabilityRestored.body":
     "Your away period ended, so your listings automatically resumed and are visible to buyers again.",
+  "notifications.intents.customerFeedbackAttention.title": "Customer feedback needs attention",
+  "notifications.intents.customerFeedbackAttention.body":
+    "A {priority}-priority CSAT response rated {rating} needs review.",
+  "notifications.intents.customerFeedbackFollowUp.title": "Support follow-up requested",
+  "notifications.intents.customerFeedbackFollowUp.body": "We are following up about your support experience.",
+  "notifications.intents.customerFeedbackDigest.title": "Customer feedback attention digest",
+  "notifications.intents.customerFeedbackDigest.body": "{count} feedback cases need attention.",
   "notifications.intents.stockCommitted.body": "{quantity} units across {lineCount} lines are committed to this sale.",
   "notifications.intents.stockCommitted.title": "Stock committed for order {orderReference}",
   "notifications.intents.stockReturned.body.orderCancelled":

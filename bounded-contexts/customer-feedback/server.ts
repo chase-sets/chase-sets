@@ -14,3 +14,5 @@ export * from "./features/csat/domain";
 export * from "./features/csat/api/analytics-contract";
 export type { CsatAdminReadPort } from "./features/csat/api/runtime";
 export * from "./features/cases/domain";
+export * from "./features/attention/domain";
+export * from "./features/attention/api";

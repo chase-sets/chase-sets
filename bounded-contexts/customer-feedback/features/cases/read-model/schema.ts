@@ -28,7 +28,13 @@ CREATE TABLE IF NOT EXISTS customer_feedback_feedback_cases (
   follow_up_status text NOT NULL CHECK (
     follow_up_status IN ('not-requested', 'requested', 'sent', 'completed', 'cancelled')
   ),
+  follow_up_delivery_status text NOT NULL DEFAULT 'not-requested' CHECK (
+    follow_up_delivery_status IN ('not-requested', 'pending', 'sent', 'failed', 'suppressed', 'retry-exhausted', 'no-recipient')
+  ),
   follow_up_delivery_reference text NULL,
+  follow_up_channel text NULL CHECK (follow_up_channel IS NULL OR follow_up_channel IN ('web', 'email', 'sms', 'rcs')),
+  follow_up_template_version integer NULL,
+  follow_up_sent_at timestamptz NULL,
   follow_up_outcome text NULL CHECK (
     follow_up_outcome IS NULL OR follow_up_outcome IN ('resolved', 'unresolved', 'no-response', 'declined')
   ),
@@ -41,6 +47,12 @@ CREATE TABLE IF NOT EXISTS customer_feedback_feedback_cases (
   updated_at timestamptz NOT NULL DEFAULT now(),
   last_stream_version bigint NOT NULL DEFAULT 0
 );
+
+ALTER TABLE customer_feedback_feedback_cases
+  ADD COLUMN IF NOT EXISTS follow_up_delivery_status text NOT NULL DEFAULT 'not-requested',
+  ADD COLUMN IF NOT EXISTS follow_up_channel text NULL,
+  ADD COLUMN IF NOT EXISTS follow_up_template_version integer NULL,
+  ADD COLUMN IF NOT EXISTS follow_up_sent_at timestamptz NULL;
 
 CREATE INDEX IF NOT EXISTS customer_feedback_feedback_cases_queue_idx
   ON customer_feedback_feedback_cases (status, priority, due_at, opened_at, case_id);

@@ -5,6 +5,7 @@ import {
   csatInvitationProjectionSchemaSql,
 } from "../../features/csat/read-model/schema";
 import { feedbackCaseProjectionSchemaSql } from "../../features/cases/read-model/schema";
+import { feedbackAttentionProjectionSchemaSql } from "../../features/attention/read-model/schema";
 
 /**
  * Customer Feedback owns the event store base schema so it is a first-class
@@ -18,4 +19,5 @@ export const customerFeedbackSchemaSql = [
   csatAnalyticsProjectionSchemaSql,
   csatAdminExportSchemaSql,
   feedbackCaseProjectionSchemaSql,
+  feedbackAttentionProjectionSchemaSql,
 ].join("\n\n");

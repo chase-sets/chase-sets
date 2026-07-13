@@ -129,6 +129,9 @@
       "@chase-sets/customer-feedback/context": [
         "./bounded-contexts/customer-feedback/context.json"
       ],
+      "@chase-sets/customer-feedback/routes/*": [
+        "./bounded-contexts/customer-feedback/routes/*.tsx"
+      ],
       "@chase-sets/customer-feedback/server": [
         "./bounded-contexts/customer-feedback/server.ts"
       ],

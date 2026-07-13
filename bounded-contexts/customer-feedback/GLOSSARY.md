@@ -87,6 +87,29 @@ Ratings from 1 through 3 open a case automatically. A manager may explicitly
 flag any submitted response. Both paths use the same per-invitation stream, so one
 response maps to one case by default.
 
+## Case
+
+**Case** is the short event noun for a Feedback Case. It is always scoped by the
+Customer Feedback context and never means a generic support ticket.
+
+## Feedback Attention
+
+**Feedback Attention** is the active, explainable operator signal for a low-score
+or reopened Feedback Case. Its rule version is recorded with the signal so later
+policy changes do not rewrite historical classification.
+
+## Triage SLA
+
+A **Triage SLA** is the bounded time from case opening to triage. Its due time is
+derived from the versioned attention policy and case priority; a case can also
+carry a separate operator due date.
+
+## Staff Attention Digest
+
+A **Staff Attention Digest** is a bounded, deduplicated time-window summary of
+Feedback Attention items grouped by operator team. It contains authorized case
+links and operational metadata, never customer comments.
+
 ## Feedback Case Disposition
 
 A **Feedback Case Disposition** records the operational outcome that makes a

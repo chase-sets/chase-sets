@@ -50,12 +50,20 @@
       "eventTypes": ["marketplace.seller-listing-availability.enabled"],
       "order": 60,
       "projectionHandlerSetNames": ["notifications-marketplace-facts-projection"]
+    },
+    {
+      "sourceContextName": "customer-feedback",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["customer-feedback.case.attention-requested", "customer-feedback.case.follow-up-requested"],
+      "order": 70,
+      "projectionHandlerSetNames": ["notifications-customer-feedback-facts-projection"]
     }
   ],
   "projectionGroups": [
     {
       "projectionName": "notifications-source-facts-outbox-projection",
-      "sourceContextNames": ["ordering", "fulfillment", "inventory", "settlement", "marketplace"],
+      "sourceContextNames": ["ordering", "fulfillment", "inventory", "settlement", "marketplace", "customer-feedback"],
       "ownedTables": ["notification_outbox"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "append-only-no-reset"

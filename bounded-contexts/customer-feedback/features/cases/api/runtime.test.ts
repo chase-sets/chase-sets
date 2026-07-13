@@ -40,8 +40,9 @@ describe("feedback case runtime", () => {
 
     expect(raced).toEqual(first);
     const stored = await store.eventStore.readStream({ streamId: feedbackCaseStreamId(submission.invitationId) });
-    expect(stored).toHaveLength(1);
+    expect(stored).toHaveLength(2);
     expect(stored[0]?.eventType).toBe("customer-feedback.case.opened");
+    expect(stored[1]?.eventType).toBe("customer-feedback.case.attention-requested");
     expect(JSON.stringify(stored[0]?.payload)).not.toContain(submission.comment);
   });
 

@@ -357,6 +357,10 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["admin_platform"],
   },
   {
+    pattern: /^bounded-contexts\/customer-feedback\/(?:routes\/admin\/|features\/attention\/(?:api|ui)\/)/,
+    suites: ["admin_support"],
+  },
+  {
     pattern: /^bounded-contexts\/catalog\/routes\/admin\/integrations\./,
     suites: ["catalog_admin_integrations"],
   },
