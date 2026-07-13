@@ -35,7 +35,7 @@ import type {
 } from "./contracts";
 
 function listingPhotoImage(
-  photo: MarketplaceListingDetail["listing_photos"][number],
+  photo: MarketplaceListingDetail["evidence"][number],
   role: "thumbnail" | "search-card" | "catalog-detail",
   sizes: string,
 ) {
@@ -64,7 +64,7 @@ function listingPhotoImage(
 }
 
 function listingPhotoImages(listing: MarketplaceListingDetail) {
-  return listing.listing_photos.map((photo, index) => {
+  return listing.evidence.map((photo, index) => {
     const detailImage = listingPhotoImage(photo, "catalog-detail", "(min-width: 768px) 480px, min(100vw, 276px)");
     const thumbnailImage = listingPhotoImage(photo, "thumbnail", "64px");
 
@@ -213,7 +213,7 @@ export function MarketplaceListingDetailPage({
         <Stack gap={4}>
           <Card>
             <Stack gap={4}>
-              {listing.listing_photos.length > 0 ? (
+              {listing.evidence.length > 0 ? (
                 <ImageGallery images={listingPhotoImages(listing)} aspectRatio="3/4" />
               ) : null}
               <Stack gap={2}>
@@ -403,7 +403,7 @@ export function MarketplaceListingDetailPage({
                 <FileDropzone
                   label={t("marketplace.features.listings.ui.listingDetailPage.listing.photos")}
                   description={t("marketplace.features.listings.ui.listingDetailPage.listing.photos.description")}
-                  name="listingPhotos"
+                  name="evidence"
                   accept="image/jpeg,image/png,image/webp"
                   multiple
                   dropLabel={t("marketplace.features.listings.ui.listingDetailPage.drop.listing.photos")}

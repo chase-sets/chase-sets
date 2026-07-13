@@ -47,6 +47,69 @@ const acceptedOfferMatch = {
   seller_listing_availability_status: "available",
 };
 
+const noEvidenceRequirementsEvaluation = {
+  policyId: "pol_evidence",
+  policyVersion: 1,
+  policyHash: "sha256:policy",
+  matchedRuleIds: [],
+  requirements: {
+    minimumPhotoCount: 0,
+    requiredSlots: [],
+    sellerTrustRequirements: [],
+    buyerAcknowledgment: "none",
+  },
+  effectiveInterval: { from: "2026-07-01T00:00:00.000Z", until: null },
+  explanationCodes: [],
+} as const;
+
+async function seedActiveListing(eventStore: EventStore, context: AppendToStreamInput["context"]) {
+  await eventStore.appendToStream({
+    streamId: "marketplace.listing-lst_1",
+    expectedVersion: 0,
+    context,
+    events: [
+      {
+        eventType: "marketplace.listing.created",
+        payload: {
+          listingId: "lst_1",
+          accountId: "acc_seller",
+          inventoryItemId: "inv_1",
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::",
+          itemLanguageCode: "en",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          productMeasureSnapshot: null,
+          gradedCard: null,
+          storageLocationName: "Warehouse",
+          shipFromCode: "CHI",
+          shipFromAddress: null,
+          priceAmount: "375.00",
+          marketplaceSalesFeeUnitAmount: "18.75",
+          sellerNetUnitAmount: "356.25",
+          shippingAllowancePercentageBps: 500,
+          termsScheduleId: "sch_standard",
+          termsAgreementId: null,
+          termsResolvedAt: "2026-03-31T00:00:00.000Z",
+          feeQuoteFingerprint: "listing-fee",
+          feeLocks: [],
+          quantityCap: 1,
+          purchaseLimits: {
+            maxUnitsPerOrder: null,
+            maxUnitsPerDay: null,
+            maxUnitsPerCustomerAccount: null,
+          },
+          evidenceRequirements: null,
+          evidence: [],
+        },
+      },
+      { eventType: "marketplace.listing.published", payload: {} },
+    ],
+  });
+}
+
 describe("marketplace offer runtime", () => {
   function createSubmitOfferServices(db: { query: ReturnType<typeof vi.fn> }) {
     const { eventStore } = createInMemoryEventStore();
@@ -430,6 +493,9 @@ describe("marketplace offer runtime", () => {
       eventStore,
       checkpointStore: {} as never,
       commercialTermsResolver: { resolveListingTerms } as never,
+      listingEvidencePolicyEvaluator: {
+        evaluate: vi.fn(async () => noEvidenceRequirementsEvaluation),
+      },
     });
     const context = {
       tenantId: "tnt_marketplace" as never,
@@ -438,6 +504,8 @@ describe("marketplace offer runtime", () => {
         forAccountId: "acc_seller" as never,
       },
     };
+
+    await seedActiveListing(eventStore, context);
 
     await services.commandHandler({
       streamId: "marketplace.offer-off_1",
@@ -479,5 +547,67 @@ describe("marketplace offer runtime", () => {
     expect(first).toEqual({ offerId: "off_1", version: 2 });
     expect(retry).toEqual({ offerId: "off_1", version: 2 });
     expect(resolveListingTerms).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks offer acceptance when the resolved evidence coverage is incomplete", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async () => ({ rows: [acceptedOfferMatch] })),
+    };
+    const resolveListingTerms = vi.fn();
+    const listingEvidencePolicyEvaluator = {
+      evaluate: vi.fn(async () => ({
+        ...noEvidenceRequirementsEvaluation,
+        matchedRuleIds: ["minimum-evidence"],
+        requirements: { ...noEvidenceRequirementsEvaluation.requirements, minimumPhotoCount: 1 },
+      })),
+    };
+    const services = createMarketplaceOfferRuntime({
+      db,
+      eventStore,
+      checkpointStore: {} as never,
+      commercialTermsResolver: { resolveListingTerms } as never,
+      listingEvidencePolicyEvaluator,
+    });
+    const context = {
+      tenantId: "tnt_marketplace" as never,
+      audit: {
+        performedByUserId: "usr_seller" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+
+    await seedActiveListing(eventStore, context);
+    await services.commandHandler({
+      streamId: "marketplace.offer-off_1",
+      command: {
+        type: "SubmitOffer",
+        offerId: "off_1",
+        buyerAccountId: "acc_buyer",
+        catalogItemId: "cat_charizard",
+        productId: "cat_charizard::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
+        priceAmount: "350.00",
+        quantityRequested: 1,
+      },
+      context,
+    } as never);
+
+    await expect(
+      services.acceptOffer(
+        {
+          offerId: "off_1" as never,
+          sellerAccountId: "acc_seller" as never,
+          feeQuoteFingerprint: "unused",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Listing evidence requirements are not met.");
+    expect(listingEvidencePolicyEvaluator.evaluate).toHaveBeenCalledOnce();
+    expect(resolveListingTerms).not.toHaveBeenCalled();
   });
 });

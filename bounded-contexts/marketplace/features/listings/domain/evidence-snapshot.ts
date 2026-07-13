@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 import { activeListingPhotos, type MarketplaceListingPhoto } from "./domain";
 
 /**
- * Immutable, compact Listing Evidence Snapshot (issue #4985).
+ * Immutable, compact Listing Evidence Snapshot.
  *
  * Produced at the moment a Listing becomes a commercial commitment so the
- * exact evidence-bearing state is preserved verbatim. #4987 embeds this in
- * `marketplace.offer.accepted`; Ordering (#4989) projects it into buyer order
+ * exact evidence-bearing state is preserved verbatim. Offer Acceptance embeds
+ * this in `marketplace.offer.accepted`; Ordering projects it into buyer order
  * review. The snapshot references retained asset revisions by storage key and
  * public URL rather than depending on mutable current Listing rows, so later
  * policy or photo edits never mutate a historical commitment.

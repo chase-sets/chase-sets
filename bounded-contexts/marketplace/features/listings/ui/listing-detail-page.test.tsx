@@ -37,7 +37,8 @@ const listing: MarketplaceListingDetail = {
   fee_quote_fingerprint: "stale-fingerprint",
   fee_locks: [],
   quantity_cap: 1,
-  listing_photos: [],
+  evidence_requirements: null,
+  evidence: [],
   status: "active",
   created_at: "2026-04-01T00:00:00.000Z",
   updated_at: "2026-04-01T00:00:00.000Z",
@@ -86,7 +87,7 @@ describe("MarketplaceListingDetailPage", () => {
       <MarketplaceListingDetailPage
         listing={{
           ...listing,
-          listing_photos: [
+          evidence: [
             {
               photoId: "lpho_1",
               originalFilename: "front.webp",

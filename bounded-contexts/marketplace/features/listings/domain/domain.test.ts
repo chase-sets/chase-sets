@@ -5,6 +5,7 @@ import {
   initialMarketplaceListingState,
   type CreateListingCommand,
   type MarketplaceListingFeeLock,
+  type PublishListingCommand,
 } from "./domain";
 
 const shipFromAddress = {
@@ -39,6 +40,38 @@ function feeLock(overrides: Partial<MarketplaceListingFeeLock> = {}): Marketplac
   };
 }
 
+const evidenceRequirements = {
+  policyId: null,
+  policyVersion: null,
+  policyHash: "sha256:policy",
+  evaluatedAt: "2026-07-13T00:00:00.000Z",
+  requirementHash: "sha256:requirements",
+  matchedRuleIds: [],
+  explanationCodes: [],
+  requirements: {
+    minimumPhotoCount: 0,
+    requiredSlots: [],
+    sellerTrustRequirements: [],
+    buyerAcknowledgment: "none",
+  },
+} as const;
+
+const publishListingCommand = {
+  type: "PublishListing",
+  readiness: {
+    ready: true,
+    requirementHash: evidenceRequirements.requirementHash,
+    unmetCodes: [],
+    coverage: {
+      complete: true,
+      unmetCodes: [],
+      slots: [],
+      activePhotoCount: 0,
+      minimumPhotoCount: 0,
+    },
+  },
+} satisfies PublishListingCommand;
+
 const createListingCommand = {
   type: "CreateListing",
   listingId: "lst_test" as never,
@@ -71,6 +104,7 @@ const createListingCommand = {
   priceAmount: "10.00",
   feeLock: feeLock(),
   quantityCap: 3,
+  evidenceRequirements,
 } satisfies CreateListingCommand;
 
 const listingPhoto = {
@@ -244,7 +278,7 @@ describe("marketplace listing no-op suppression", () => {
         type: "AddListingPhotos",
         photos: [listingPhoto],
       }).reduce(evolveMarketplaceListing, draft);
-      const active = decideMarketplaceListing(withPhoto, { type: "PublishListing" }).reduce(
+      const active = decideMarketplaceListing(withPhoto, publishListingCommand).reduce(
         evolveMarketplaceListing,
         withPhoto,
       );
@@ -252,10 +286,7 @@ describe("marketplace listing no-op suppression", () => {
         evolveMarketplaceListing,
         active,
       );
-      const resumed = decideMarketplaceListing(paused, { type: "PublishListing" }).reduce(
-        evolveMarketplaceListing,
-        paused,
-      );
+      const resumed = decideMarketplaceListing(paused, publishListingCommand).reduce(evolveMarketplaceListing, paused);
       const autoUnlisted = decideMarketplaceListing(resumed, {
         type: "AutoUnlistListing",
         reportId: "rpt_1",
@@ -276,7 +307,7 @@ describe("marketplace listing no-op suppression", () => {
         draft,
       );
 
-      expect(() => decideMarketplaceListing(withdrawn, { type: "PublishListing" })).toThrow(
+      expect(() => decideMarketplaceListing(withdrawn, publishListingCommand)).toThrow(
         "Withdrawn listings cannot be published",
       );
       expect(() =>
@@ -438,12 +469,12 @@ describe("marketplace listing photos", () => {
   it("stores normalized WebP listing photo asset sets on created listings", () => {
     const events = decideMarketplaceListing(initialMarketplaceListingState, {
       ...createListingCommand,
-      listingPhotos: [listingPhoto],
+      evidence: [listingPhoto],
     });
     const state = events.reduce(evolveMarketplaceListing, initialMarketplaceListingState);
 
     expect(events[0]?.data).toMatchObject({
-      listingPhotos: [
+      evidence: [
         {
           photoId: "lpho_1",
           assetSet: {
@@ -453,56 +484,29 @@ describe("marketplace listing photos", () => {
         },
       ],
     });
-    expect(state.listingPhotos[0]?.assetSet.variants[0]?.mediaType).toBe("image/webp");
+    expect(state.evidence[0]?.assetSet.variants[0]?.mediaType).toBe("image/webp");
   });
 
-  it("requires listing photos before publishing Mint, Pristine, or graded-card listings", () => {
-    const mintDraft = decideMarketplaceListing(initialMarketplaceListingState, {
+  it("publishes from generic readiness without interpreting product labels", () => {
+    const draft = decideMarketplaceListing(initialMarketplaceListingState, {
       ...createListingCommand,
-      selectedOptions: [{ dimensionId: "dim_condition", optionId: "mint" }],
-      productSummary: "Condition: Mint",
+      selectedOptions: [{ dimensionId: "localized-condition", optionId: "arbitrary-provider-value" }],
+      productSummary: "Mint Pristine wording is display-only",
     }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
 
+    expect(() => decideMarketplaceListing(draft, publishListingCommand)).not.toThrow();
     expect(() =>
-      decideMarketplaceListing(mintDraft, {
-        type: "PublishListing",
+      decideMarketplaceListing(draft, {
+        ...publishListingCommand,
+        readiness: { ...publishListingCommand.readiness, ready: false, unmetCodes: ["min-photo-count-unmet"] },
       }),
-    ).toThrow(
-      "Pristine, Mint, and graded-card listings require at least one listing photo before publication; graded-card listings must include a slab photo.",
-    );
-
-    const gradedDraft = decideMarketplaceListing(initialMarketplaceListingState, {
-      ...createListingCommand,
-      listingId: "lst_graded" as never,
-      gradedCard: {
-        gradingCompany: "PSA",
-        grade: "10",
-        certificationNumber: "12345678",
-        population: null,
-        conditionDescriptors: [],
-      },
-    }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
-
+    ).toThrow("Listing evidence requirements are not met.");
     expect(() =>
-      decideMarketplaceListing(gradedDraft, {
-        type: "PublishListing",
+      decideMarketplaceListing(draft, {
+        ...publishListingCommand,
+        readiness: { ...publishListingCommand.readiness, requirementHash: "sha256:stale" },
       }),
-    ).toThrow(
-      "Pristine, Mint, and graded-card listings require at least one listing photo before publication; graded-card listings must include a slab photo.",
-    );
-
-    const nearMintDraft = decideMarketplaceListing(initialMarketplaceListingState, {
-      ...createListingCommand,
-      listingId: "lst_near_mint" as never,
-      selectedOptions: [{ dimensionId: "dim_condition", optionId: "near_mint" }],
-      productSummary: "Condition: Near Mint",
-    }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
-
-    expect(() =>
-      decideMarketplaceListing(nearMintDraft, {
-        type: "PublishListing",
-      }),
-    ).not.toThrow();
+    ).toThrow("Listing evidence requirements changed.");
   });
 
   it("requires a resolved shipping measure before publishing", () => {
@@ -512,11 +516,9 @@ describe("marketplace listing photos", () => {
       productMeasureSnapshot: null,
     }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
 
-    expect(() =>
-      decideMarketplaceListing(draft, {
-        type: "PublishListing",
-      }),
-    ).toThrow("Listings require a resolved shipping measure before publication.");
+    expect(() => decideMarketplaceListing(draft, publishListingCommand)).toThrow(
+      "Listings require a resolved shipping measure before publication.",
+    );
   });
 });
 
@@ -524,7 +526,7 @@ describe("marketplace listing evidence lifecycle", () => {
   function draftWithPhotos(photos: Array<Record<string, unknown>>) {
     return decideMarketplaceListing(initialMarketplaceListingState, {
       ...createListingCommand,
-      listingPhotos: photos as never,
+      evidence: photos as never,
     }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
   }
 
@@ -536,7 +538,7 @@ describe("marketplace listing evidence lifecycle", () => {
 
   it("migrates legacy untyped photos into active, unclassified evidence with a derived revision", () => {
     const state = draftWithPhotos([listingPhoto]);
-    expect(state.listingPhotos[0]).toMatchObject({
+    expect(state.evidence[0]).toMatchObject({
       photoId: "lpho_1",
       status: "active",
       slotId: null,
@@ -554,7 +556,7 @@ describe("marketplace listing evidence lifecycle", () => {
       viewKind: "front",
       altText: "Front of the card",
     }).reduce(evolveMarketplaceListing, state);
-    expect(next.listingPhotos[0]).toMatchObject({ slotId: "front", viewKind: "front", altText: "Front of the card" });
+    expect(next.evidence[0]).toMatchObject({ slotId: "front", viewKind: "front", altText: "Front of the card" });
   });
 
   it("replaces an active entry, retaining the prior entry as replaced", () => {
@@ -565,8 +567,8 @@ describe("marketplace listing evidence lifecycle", () => {
       photo: secondPhoto as never,
     });
     const next = events.reduce(evolveMarketplaceListing, state);
-    expect(next.listingPhotos.find((photo) => photo.photoId === "lpho_1")?.status).toBe("replaced");
-    const replacement = next.listingPhotos.find((photo) => photo.photoId === "lpho_2");
+    expect(next.evidence.find((photo) => photo.photoId === "lpho_1")?.status).toBe("replaced");
+    const replacement = next.evidence.find((photo) => photo.photoId === "lpho_2");
     expect(replacement?.status).toBe("active");
     expect(replacement?.replacesPhotoId).toBe("lpho_1");
   });
@@ -577,7 +579,7 @@ describe("marketplace listing evidence lifecycle", () => {
       evolveMarketplaceListing,
       state,
     );
-    expect(next.listingPhotos[0]?.status).toBe("removed");
+    expect(next.evidence[0]?.status).toBe("removed");
   });
 
   it("reorders active evidence and rejects an incomplete id set", () => {
@@ -586,8 +588,8 @@ describe("marketplace listing evidence lifecycle", () => {
       type: "ReorderListingPhotos",
       orderedPhotoIds: ["lpho_2", "lpho_1"],
     }).reduce(evolveMarketplaceListing, state);
-    expect(next.listingPhotos.find((photo) => photo.photoId === "lpho_2")?.sortOrder).toBe(0);
-    expect(next.listingPhotos.find((photo) => photo.photoId === "lpho_1")?.sortOrder).toBe(1);
+    expect(next.evidence.find((photo) => photo.photoId === "lpho_2")?.sortOrder).toBe(0);
+    expect(next.evidence.find((photo) => photo.photoId === "lpho_1")?.sortOrder).toBe(1);
 
     expect(() =>
       decideMarketplaceListing(state, { type: "ReorderListingPhotos", orderedPhotoIds: ["lpho_1"] }),
@@ -597,9 +599,9 @@ describe("marketplace listing evidence lifecycle", () => {
   it("blocks evidence mutations once the listing is active", () => {
     const draft = decideMarketplaceListing(initialMarketplaceListingState, {
       ...createListingCommand,
-      listingPhotos: [listingPhoto] as never,
+      evidence: [listingPhoto] as never,
     }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
-    const active = decideMarketplaceListing(draft, { type: "PublishListing" }).reduce(evolveMarketplaceListing, draft);
+    const active = decideMarketplaceListing(draft, publishListingCommand).reduce(evolveMarketplaceListing, draft);
     expect(() => decideMarketplaceListing(active, { type: "RemoveListingPhoto", photoId: "lpho_1" })).toThrow(
       "Listing evidence can only be removed while the listing is a draft.",
     );
@@ -627,14 +629,14 @@ describe("marketplace listing evidence lifecycle", () => {
     const allEvents = [
       ...decideMarketplaceListing(initialMarketplaceListingState, {
         ...createListingCommand,
-        listingPhotos: [listingPhoto] as never,
+        evidence: [listingPhoto] as never,
       }),
     ];
     const rebuiltBase = allEvents.reduce(evolveMarketplaceListing, initialMarketplaceListingState);
     const rebuilt = [...events, ...replaceEvents].reduce(evolveMarketplaceListing, rebuiltBase);
-    expect(rebuilt.listingPhotos).toEqual(afterReplace.listingPhotos);
+    expect(rebuilt.evidence).toEqual(afterReplace.evidence);
     // The replacement inherits the classified slot when not overridden.
-    expect(rebuilt.listingPhotos.find((photo) => photo.photoId === "lpho_2")?.slotId).toBe("front");
+    expect(rebuilt.evidence.find((photo) => photo.photoId === "lpho_2")?.slotId).toBe("front");
   });
 });
 

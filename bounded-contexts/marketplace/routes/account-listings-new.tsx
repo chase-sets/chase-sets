@@ -103,7 +103,7 @@ function shipFromAddressFromForm(formData: FormData) {
 }
 
 function listingPhotoFilesFromForm(formData: FormData) {
-  return formData.getAll("listingPhotos").filter((entry): entry is File => entry instanceof File && entry.size > 0);
+  return formData.getAll("evidence").filter((entry): entry is File => entry instanceof File && entry.size > 0);
 }
 
 function createListingApiForm(listingBody: Record<string, unknown>, listingPhotoFiles: readonly File[]) {
@@ -112,7 +112,7 @@ function createListingApiForm(listingBody: Record<string, unknown>, listingPhoto
     apiForm.set(key, typeof value === "object" && value !== null ? JSON.stringify(value) : String(value ?? ""));
   }
   for (const file of listingPhotoFiles) {
-    apiForm.append("listingPhotos", file);
+    apiForm.append("evidence", file);
   }
 
   return apiForm;

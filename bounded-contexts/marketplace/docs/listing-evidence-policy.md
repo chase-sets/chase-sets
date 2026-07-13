@@ -32,4 +32,4 @@ Marketplace's existing Catalog projection subscription is versioned for Category
 
 ## Slice boundary
 
-This slice defines and administers policy. It does not snapshot requirements onto Listings, replace the current publication checks, capture typed evidence assets, add seller evidence UI, gate Offer acceptance or Sell List, or enforce Ordering handoff. Those behaviors belong to the later serial listing-evidence slices and consume this contract without moving policy ownership into a deployable.
+This slice defines and administers policy. The Listings slice resolves and records an immutable requirement snapshot at Listing creation and refreshes it before publication and Offer Acceptance. Those gates call the shared pure coverage evaluator with the recorded generic requirements and current typed evidence; they never infer policy from condition text. Seller evidence UI, Sell List behavior, and Ordering handoff consume the same contracts without moving policy ownership into a deployable.

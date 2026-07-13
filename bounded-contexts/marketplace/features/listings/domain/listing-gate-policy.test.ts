@@ -9,20 +9,16 @@ describe("marketplace listing-gate policy", () => {
   it("decodes a valid revised gate value", () => {
     expect(
       decodeMarketplaceListingGatePolicyValue({
-        highDollarListingAmount: "500.00",
-        minTrustedReputationReviews: 5,
         maxActiveAnonymousListingDrafts: 10,
         anonymousListingDraftTtlDays: 14,
-        maxListingPhotoUploadBytes: 5 * 1024 * 1024,
+        maxListingEvidenceUploadBytes: 5 * 1024 * 1024,
       }),
     ).toEqual({
-      highDollarListingAmount: "500.00",
-      minTrustedReputationReviews: 5,
       maxActiveAnonymousListingDrafts: 10,
       anonymousListingDraftTtlDays: 14,
-      maxListingPhotoUploadBytes: 5 * 1024 * 1024,
-      maxListingPhotoCount: 24,
-      maxListingPhotoTotalBytes: 60 * 1024 * 1024,
+      maxListingEvidenceUploadBytes: 5 * 1024 * 1024,
+      maxListingEvidenceCount: 24,
+      maxListingEvidenceTotalBytes: 60 * 1024 * 1024,
       evidenceGarbageCollectionSafeDelayHours: 24 * 7,
     });
   });
@@ -30,39 +26,13 @@ describe("marketplace listing-gate policy", () => {
   it("declares the launch value as the compiled default fallback", () => {
     expect(marketplaceListingGatePolicy.defaultValue).toEqual(MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE);
     expect(MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE).toEqual({
-      highDollarListingAmount: "250.00",
-      minTrustedReputationReviews: 3,
       maxActiveAnonymousListingDrafts: 20,
       anonymousListingDraftTtlDays: 30,
-      maxListingPhotoUploadBytes: 10 * 1024 * 1024,
-      maxListingPhotoCount: 24,
-      maxListingPhotoTotalBytes: 60 * 1024 * 1024,
+      maxListingEvidenceUploadBytes: 10 * 1024 * 1024,
+      maxListingEvidenceCount: 24,
+      maxListingEvidenceTotalBytes: 60 * 1024 * 1024,
       evidenceGarbageCollectionSafeDelayHours: 24 * 7,
     });
-  });
-
-  it("rejects a negative high-dollar listing amount", () => {
-    expect(() =>
-      decodeMarketplaceListingGatePolicyValue({
-        ...MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE,
-        highDollarListingAmount: "-1.00",
-      }),
-    ).toThrow(/non-negative/);
-  });
-
-  it("rejects a non-integer or negative trusted-review minimum", () => {
-    expect(() =>
-      decodeMarketplaceListingGatePolicyValue({
-        ...MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE,
-        minTrustedReputationReviews: -1,
-      }),
-    ).toThrow(/zero or a positive whole number/);
-    expect(() =>
-      decodeMarketplaceListingGatePolicyValue({
-        ...MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE,
-        minTrustedReputationReviews: 1.5,
-      }),
-    ).toThrow();
   });
 
   it("rejects a non-positive anonymous listing draft cap", () => {
@@ -83,11 +53,11 @@ describe("marketplace listing-gate policy", () => {
     ).toThrow(/cannot exceed 365/);
   });
 
-  it("rejects a photo upload cap above the 100 MB ceiling", () => {
+  it("rejects an evidence upload cap above the 100 MB ceiling", () => {
     expect(() =>
       decodeMarketplaceListingGatePolicyValue({
         ...MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE,
-        maxListingPhotoUploadBytes: 200 * 1024 * 1024,
+        maxListingEvidenceUploadBytes: 200 * 1024 * 1024,
       }),
     ).toThrow(/cannot exceed/);
   });

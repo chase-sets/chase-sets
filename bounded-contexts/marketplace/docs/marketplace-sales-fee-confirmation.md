@@ -15,7 +15,7 @@ Marketplace owns seller confirmation. Ordering consumes Marketplace snapshots an
 3. Price edits requote each Fee-Lock Tranche locally from its locked percentage, fixed amount, and cap.
 4. Quantity increases are restocks. The seller confirms a current quote, and only the added units receive a new Fee-Lock Tranche.
 5. Quantity reductions retire the newest tranche units first. A later increase is a new restock at current terms.
-6. Purchase-limit edits, Listing Photo additions, pause, automated unlisting, resume, partial sales, and availability changes preserve the lock.
+6. Purchase-limit edits, Listing Evidence additions, pause, automated unlisting, resume, partial sales, and availability changes preserve the lock.
 7. Withdrawal is terminal. Relist, delete-and-recreate, inventory-item substitution, Product substitution, and condition-selection substitution require a new Listing identity and current terms.
 
 ## Offer Flow

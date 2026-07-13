@@ -1,6 +1,7 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { MarketplaceListingFeeLock } from "../domain/fee-lock";
+import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
 
 export type MarketplaceListingPhotoAssetRole = "source" | "thumbnail" | "search-card" | "catalog-detail";
 
@@ -86,7 +87,8 @@ export interface MarketplaceListingListItem {
   max_units_per_order?: number | null;
   max_units_per_day?: number | null;
   max_units_per_customer_account?: number | null;
-  listing_photos: readonly MarketplaceListingPhoto[];
+  evidence_requirements: ListingEvidenceRequirementSnapshot | null;
+  evidence: readonly MarketplaceListingPhoto[];
   status: string;
   created_at: string;
   updated_at: string;
@@ -165,7 +167,7 @@ export interface MarketplaceMarketSummary {
 export interface MarketplaceItemListing extends MarketplaceListingListItem {
   seller_display_name: string | null;
   visible_quantity: number;
-  /** Buyer-safe evidence gallery; `listing_photos` is empty on public rows (#4985). */
+  /** Buyer-safe evidence gallery; `evidence` is empty on public rows. */
   public_gallery: readonly MarketplaceListingPublicGalleryImage[];
 }
 

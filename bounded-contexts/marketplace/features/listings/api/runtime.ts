@@ -36,13 +36,14 @@ import {
   decideMarketplaceListing,
   evolveMarketplaceListing,
   initialMarketplaceListingState,
-  requiresListingPhotoEvidence,
   type MarketplaceListingPhoto,
   type MarketplaceListingPurchaseLimits,
   type MarketplaceListingCommand,
   type MarketplaceListingEvent,
   type MarketplaceListingState,
 } from "../domain/domain";
+import { evaluateListingEvidenceReadiness } from "../domain/listing-evidence-readiness";
+import { resolveListingEvidenceRequirements } from "./evidence-requirement-resolver";
 import { assertEvidenceCountAndBytesWithinBudget } from "../domain/evidence-governance";
 import { buildListingEvidenceSnapshot, type ListingEvidenceSnapshot } from "../domain/evidence-snapshot";
 import {
@@ -98,7 +99,7 @@ const LISTING_PHOTO_UPLOAD_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "
  * snapshot with a different schema version is ignored -- load() falls back
  * to full replay, exactly as if no snapshot existed.
  */
-const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 3;
+const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 4;
 /**
  * Marketplace listings are m113's proven-hot aggregate: reprice-heavy
  * listings accumulate hundreds of `UpdateListingPrice` events, and every
@@ -251,9 +252,8 @@ export type MarketplaceListingServices = Readonly<{
   ) => Promise<{ listingId: string; version: number }>;
   /**
    * Builds the immutable Listing Evidence Snapshot for a listing's current
-   * active evidence. #4987 consumes this at Offer Acceptance to publish the
-   * committed evidence. `policyHash` is null until #4984 records the resolved
-   * requirement snapshot on the listing.
+   * active evidence. Offer Acceptance consumes this to publish the committed
+   * evidence, including the recorded requirement policy hash.
    */
   getListingEvidenceSnapshot: (
     params: Readonly<{ accountId: string; listingId: string }>,
@@ -442,6 +442,7 @@ export type MarketplaceListingServices = Readonly<{
   getMarketSummaryForItem: (itemId: string) => ReturnType<typeof getMarketSummaryForItem>;
   listItemListings: (itemId: string) => ReturnType<typeof listItemListings>;
   getInventoryItemSupply: (itemId: string, accountId?: string) => ReturnType<typeof getInventoryItemSupply>;
+  loadListingState: (listingId: string) => Promise<MarketplaceListingState>;
   reconcileInventoryCapacity: (inventoryItemId: string) => Promise<void>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
@@ -456,6 +457,9 @@ export type MarketplaceListingPhotoUpload = Readonly<{
   contentType: string;
   originalFilename: string | null;
   altText?: string | null;
+  slotId?: string | null;
+  viewKind?: string | null;
+  capturedAt?: string | null;
 }>;
 
 const LISTING_EVIDENCE_GC_DEFAULT_LISTING_SCAN_LIMIT = 500;
@@ -649,6 +653,48 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     return listing;
   }
 
+  async function resolveEvidenceRequirementsForListing(
+    listing: MarketplaceListingState,
+    evaluatedAt: string,
+    priceAmount = listing.priceAmount,
+  ) {
+    assert(listing.accountId, "Listing account is missing.");
+    assert(listing.catalogItemId, "Listing catalog item is missing.");
+    assert(listing.productId, "Listing product is missing.");
+    assert(priceAmount, "Listing price is missing.");
+    try {
+      return await resolveListingEvidenceRequirements(deps, {
+        accountId: listing.accountId,
+        catalogItemId: listing.catalogItemId,
+        productId: listing.productId,
+        selectedOptions: listing.selectedOptions,
+        gradedItem: listing.gradedCard !== null,
+        priceAmount,
+        evaluatedAt,
+      });
+    } catch {
+      throw new Error("Listing evidence requirements are unavailable.");
+    }
+  }
+
+  async function evaluateListingReadiness(
+    listing: MarketplaceListingState,
+    snapshot: NonNullable<MarketplaceListingState["evidenceRequirements"]>,
+    now: string,
+  ) {
+    const requiresSellerFacts = snapshot.requirements.sellerTrustRequirements.length > 0;
+    assert(!requiresSellerFacts || listing.accountId, "Listing account is missing.");
+    const accountRisk = requiresSellerFacts
+      ? await getMarketplaceAccountRisk(deps.db, listing.accountId!)
+      : { review_count: 0, badges: [] as readonly string[] };
+    return evaluateListingEvidenceReadiness({
+      snapshot,
+      evidence: listing.evidence,
+      seller: { reviewCount: accountRisk.review_count, badgeKeys: accountRisk.badges },
+      now,
+    });
+  }
+
   async function quoteListingTerms(accountId: string, priceAmount: string) {
     return quoteMarketplaceTerms(deps.commercialTermsResolver, {
       accountId,
@@ -669,31 +715,6 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     if (providedFingerprint !== currentQuote.fee_quote_fingerprint) {
       throw new MarketplaceSalesFeeQuoteStaleError(currentQuote);
     }
-  }
-
-  async function assertListingPublicationRiskAccepted(listing: MarketplaceListingState) {
-    const priceAmount = Number.parseFloat(listing.priceAmount ?? "0");
-    const gatePolicy = await resolveListingGatePolicy();
-    const highDollarListingAmount = Number.parseFloat(gatePolicy.highDollarListingAmount);
-    if (!Number.isFinite(priceAmount) || priceAmount < highDollarListingAmount) {
-      return;
-    }
-
-    assert(listing.accountId, "Listing account is missing.");
-    const accountRisk = await getMarketplaceAccountRisk(deps.db, listing.accountId);
-    const badges = new Set(accountRisk.badges);
-    const trusted =
-      badges.has("trusted-seller") ||
-      (accountRisk.review_count >= gatePolicy.minTrustedReputationReviews && !badges.has("manual-payout-review"));
-
-    assert(
-      activeListingPhotos(listing.listingPhotos).length > 0,
-      "High-dollar listings require at least one listing photo before publication.",
-    );
-    assert(
-      trusted,
-      "High-dollar listings require a trusted seller account or established account reputation before publication.",
-    );
   }
 
   async function expireAnonymousListingDraftIntents(anonymousOwnerId: string) {
@@ -908,24 +929,27 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     assert(deps.listingPhotoStorage, "Listing photo storage is not configured.");
 
     const gatePolicy = await resolveListingGatePolicy();
-    const maxListingPhotoUploadMb = gatePolicy.maxListingPhotoUploadBytes / (1024 * 1024);
+    const maxListingEvidenceUploadMb = gatePolicy.maxListingEvidenceUploadBytes / (1024 * 1024);
     const existingEvidence = params.existingEvidence ?? [];
     const existingActiveCount = activeListingPhotos(existingEvidence).length;
     // Bound the count up front so a large batch fails before doing expensive
     // image work; the byte budget is re-checked below once assets are sized.
     assert(
-      existingActiveCount + params.listingPhotoUploads.length <= gatePolicy.maxListingPhotoCount,
-      `A listing can carry at most ${gatePolicy.maxListingPhotoCount} evidence images.`,
+      existingActiveCount + params.listingPhotoUploads.length <= gatePolicy.maxListingEvidenceCount,
+      `A listing can carry at most ${gatePolicy.maxListingEvidenceCount} evidence images.`,
     );
     const generatedAt = new Date().toISOString();
     const photos: MarketplaceListingPhoto[] = [];
     for (const [index, upload] of params.listingPhotoUploads.entries()) {
       const contentType = upload.contentType.toLowerCase();
-      assert(LISTING_PHOTO_UPLOAD_CONTENT_TYPES.has(contentType), "Listing photos must be JPEG, PNG, or WebP images.");
+      assert(
+        LISTING_PHOTO_UPLOAD_CONTENT_TYPES.has(contentType),
+        "Listing evidence must be JPEG, PNG, or WebP images.",
+      );
       assert(upload.body.byteLength > 0, "Listing photo uploads cannot be empty.");
       assert(
-        upload.body.byteLength <= gatePolicy.maxListingPhotoUploadBytes,
-        `Listing photo uploads cannot exceed ${maxListingPhotoUploadMb} MB.`,
+        upload.body.byteLength <= gatePolicy.maxListingEvidenceUploadBytes,
+        `Listing photo uploads cannot exceed ${maxListingEvidenceUploadMb} MB.`,
       );
 
       const photoId = createId("lpho");
@@ -936,6 +960,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           photoId,
           originalFilename: upload.originalFilename,
           altText: upload.altText ?? null,
+          slotId: upload.slotId ?? null,
+          viewKind: upload.viewKind ?? null,
+          capturedAt: upload.capturedAt ?? null,
           sortOrder: existingActiveCount + index,
           generatedAt,
           photoStorage: deps.listingPhotoStorage,
@@ -946,8 +973,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     assertEvidenceCountAndBytesWithinBudget({
       existingEvidence,
       additions: photos,
-      maxEvidenceCount: gatePolicy.maxListingPhotoCount,
-      maxTotalStoredBytes: gatePolicy.maxListingPhotoTotalBytes,
+      maxEvidenceCount: gatePolicy.maxListingEvidenceCount,
+      maxTotalStoredBytes: gatePolicy.maxListingEvidenceTotalBytes,
     });
 
     return photos;
@@ -1116,11 +1143,26 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         feeQuoteFingerprint: existing.state.feeQuoteFingerprint ?? quote.fee_quote_fingerprint,
       };
     }
-    const listingPhotos = await normalizePhotoUploads({
+    const evidence = await normalizePhotoUploads({
       accountId: params.accountId,
       listingId,
       listingPhotoUploads: params.listingPhotoUploads ?? [],
     });
+    const evaluatedAt = new Date().toISOString();
+    let evidenceRequirements;
+    try {
+      evidenceRequirements = await resolveListingEvidenceRequirements(deps, {
+        accountId: params.accountId,
+        catalogItemId: supply.catalog_catalog_item_id,
+        productId: supply.product_id,
+        selectedOptions: supply.selected_options,
+        gradedItem: supply.graded_card !== null,
+        priceAmount: params.priceAmount,
+        evaluatedAt,
+      });
+    } catch {
+      throw new Error("Listing evidence requirements are unavailable.");
+    }
 
     const result = await commandHandler({
       streamId,
@@ -1145,7 +1187,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         feeLock: feeLockFromMarketplaceTermsQuote(params.quantityCap, quote),
         quantityCap: params.quantityCap,
         purchaseLimits: params.purchaseLimits,
-        listingPhotos,
+        evidenceRequirements,
+        evidence,
       },
       context,
     });
@@ -1162,18 +1205,18 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     context: EventStoreContext,
   ) {
     const listing = await loadOwnedListingState(params.listingId, params.accountId);
-    const listingPhotos = await normalizePhotoUploads({
+    const evidence = await normalizePhotoUploads({
       accountId: params.accountId,
       listingId: params.listingId,
       listingPhotoUploads: params.listingPhotoUploads,
-      existingEvidence: listing.listingPhotos,
+      existingEvidence: listing.evidence,
     });
 
     const result = await commandHandler({
       streamId: `marketplace.listing-${params.listingId}`,
       command: {
         type: "AddListingPhotos",
-        photos: listingPhotos,
+        photos: evidence,
       },
       context,
     });
@@ -1243,18 +1286,21 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     },
     replaceListingPhoto: async (params, context) => {
       const listing = await loadOwnedListingState(params.listingId, params.accountId);
-      const target = listing.listingPhotos.find(
+      const target = listing.evidence.find(
         (photo) => photo.photoId === params.replacedPhotoId && photo.status === "active",
       );
       assert(target, "Listing evidence entry was not found.");
       assert(deps.listingPhotoStorage, "Listing photo storage is not configured.");
       const gatePolicy = await resolveListingGatePolicy();
       const contentType = params.upload.contentType.toLowerCase();
-      assert(LISTING_PHOTO_UPLOAD_CONTENT_TYPES.has(contentType), "Listing photos must be JPEG, PNG, or WebP images.");
+      assert(
+        LISTING_PHOTO_UPLOAD_CONTENT_TYPES.has(contentType),
+        "Listing evidence must be JPEG, PNG, or WebP images.",
+      );
       assert(params.upload.body.byteLength > 0, "Listing photo uploads cannot be empty.");
       assert(
-        params.upload.body.byteLength <= gatePolicy.maxListingPhotoUploadBytes,
-        `Listing photo uploads cannot exceed ${gatePolicy.maxListingPhotoUploadBytes / (1024 * 1024)} MB.`,
+        params.upload.body.byteLength <= gatePolicy.maxListingEvidenceUploadBytes,
+        `Listing photo uploads cannot exceed ${gatePolicy.maxListingEvidenceUploadBytes / (1024 * 1024)} MB.`,
       );
 
       const photoId = createId("lpho");
@@ -1276,10 +1322,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       // Governance is evaluated against the post-replacement active set: the
       // demoted target no longer counts, the replacement does.
       assertEvidenceCountAndBytesWithinBudget({
-        existingEvidence: listing.listingPhotos.filter((photo) => photo.photoId !== target.photoId),
+        existingEvidence: listing.evidence.filter((photo) => photo.photoId !== target.photoId),
         additions: [replacement],
-        maxEvidenceCount: gatePolicy.maxListingPhotoCount,
-        maxTotalStoredBytes: gatePolicy.maxListingPhotoTotalBytes,
+        maxEvidenceCount: gatePolicy.maxListingEvidenceCount,
+        maxTotalStoredBytes: gatePolicy.maxListingEvidenceTotalBytes,
       });
 
       const result = await commandHandler({
@@ -1310,11 +1356,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     getListingEvidenceSnapshot: async (params) => {
       const listing = await loadOwnedListingState(params.listingId, params.accountId);
       return buildListingEvidenceSnapshot({
-        evidence: listing.listingPhotos,
-        // #4984 will record the resolved requirement snapshot (and its policy
-        // hash) on the listing; until then the commitment policy fingerprint
-        // is unknown here.
-        policyHash: null,
+        evidence: listing.evidence,
+        policyHash: listing.evidenceRequirements?.policyHash ?? null,
         createdAt: new Date().toISOString(),
       });
     },
@@ -1324,14 +1367,14 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       const now = params?.now ?? new Date().toISOString();
       const limit = Math.max(1, Math.min(params?.limit ?? LISTING_EVIDENCE_GC_DEFAULT_LISTING_SCAN_LIMIT, 5000));
 
-      // Scan listings that carry any non-active evidence. `listing_photos` is a
+      // Scan listings that carry any non-active evidence. `evidence` is a
       // JSONB array; a listing qualifies when at least one entry is not active.
-      const rows = await deps.db.query<{ listing_id: string; updated_at: string; listing_photos: unknown }>(
-        `SELECT listing_id, updated_at::text AS updated_at, listing_photos
+      const rows = await deps.db.query<{ listing_id: string; updated_at: string; evidence: unknown }>(
+        `SELECT listing_id, updated_at::text AS updated_at, evidence
          FROM marketplace_listing_pages
          WHERE EXISTS (
            SELECT 1
-           FROM jsonb_array_elements(COALESCE(listing_photos, '[]'::jsonb)) AS entry
+           FROM jsonb_array_elements(COALESCE(evidence, '[]'::jsonb)) AS entry
            WHERE COALESCE(entry->>'status', 'active') <> 'active'
          )
          ORDER BY updated_at ASC
@@ -1341,11 +1384,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
 
       // Referenced source hashes: every ACTIVE evidence entry across all
       // scanned listings must be retained (dedup safety). Commitment-snapshot
-      // references are added here once #4987 records them.
+      // references are added here once commitment snapshots record them.
       const referencedSourceHashes = new Set<string>();
       const entries: EvidenceGarbageCollectionEntry[] = [];
       for (const row of rows.rows) {
-        const photos = Array.isArray(row.listing_photos) ? (row.listing_photos as MarketplaceListingPhoto[]) : [];
+        const photos = Array.isArray(row.evidence) ? (row.evidence as MarketplaceListingPhoto[]) : [];
         for (const photo of photos) {
           const sourceHash = photo.assetSet?.sourceHash;
           if (!sourceHash) {
@@ -1364,7 +1407,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             // The read model does not carry a per-entry retirement timestamp;
             // the listing's updated_at is a safe coarse proxy — an asset is
             // only collected once the whole listing has been quiet for the
-            // safe delay. #4990's migration can add a precise timestamp.
+            // safe delay. A later migration can add a precise timestamp.
             retiredAt: row.updated_at,
             sourceHash,
             storageKeys,
@@ -1559,17 +1602,21 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       assert(listing.inventoryItemId, "Listing inventory item is missing.");
       assert(listing.priceAmount, "Listing price is missing.");
       assert(listing.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
-      assert(
-        !requiresListingPhotoEvidence(listing) || activeListingPhotos(listing.listingPhotos).length > 0,
-        "Pristine, Mint, and graded-card listings require at least one listing photo before publication; graded-card listings must include a slab photo.",
-      );
-      await assertListingPublicationRiskAccepted(listing);
+      const evaluatedAt = new Date().toISOString();
+      const evidenceRequirements = await resolveEvidenceRequirementsForListing(listing, evaluatedAt);
+      await commandHandler({
+        streamId: `marketplace.listing-${params.listingId}`,
+        command: { type: "RefreshListingEvidenceRequirements", evidenceRequirements },
+        context,
+      });
+      const readiness = await evaluateListingReadiness(listing, evidenceRequirements, evaluatedAt);
       await ensureActiveCapacity(listing.inventoryItemId, listing.quantityCap, params.listingId);
 
       const result = await commandHandler({
         streamId: `marketplace.listing-${params.listingId}`,
         command: {
           type: "PublishListing",
+          readiness,
         },
         context,
       });
@@ -1723,6 +1770,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     getMarketSummaryForItem: (itemId) => getMarketSummaryForItem(deps.db, itemId),
     listItemListings: (itemId) => listItemListings(deps.db, itemId),
     getInventoryItemSupply: (itemId, accountId) => getInventoryItemSupply(deps.db, itemId, accountId),
+    loadListingState: async (listingId) => (await repository.load(`marketplace.listing-${listingId}`)).state,
     reconcileInventoryCapacity,
     projectors: [
       createProjectionHandlerSet({

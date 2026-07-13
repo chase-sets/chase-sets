@@ -12,6 +12,8 @@ import {
   totalFeeLockedUnits,
   type MarketplaceListingFeeLock,
 } from "./fee-lock";
+import type { ListingEvidenceRequirementSnapshot } from "./evidence-requirement-snapshot";
+import type { ListingEvidenceReadinessResult } from "./listing-evidence-readiness";
 
 export type { MarketplaceListingFeeLock, MarketplaceListingFeeTermsSnapshot } from "./fee-lock";
 
@@ -138,9 +140,7 @@ export type MarketplaceListingPhotoAssetSet = Readonly<{
 export type MarketplaceListingPhotoStatus = "active" | "replaced" | "removed";
 
 /**
- * A typed Listing Evidence entry (issue #4985). The `listingPhotos` container
- * name is retained deliberately; #4984 owns the generic-terminology rename of
- * the container, DB column, and event keys. This slice enriches each entry
+ * A typed Listing Evidence entry. The generic `evidence` container enriches each entry
  * into typed evidence (configured slot/view kind, lifecycle status, immutable
  * asset revision, capture time) and adds the add-classify/replace/remove/
  * reorder lifecycle, coverage validation, and asset governance around it.
@@ -314,7 +314,8 @@ export type MarketplaceListingState = Readonly<{
   feeLocks: readonly MarketplaceListingFeeLock[];
   quantityCap: number;
   purchaseLimits: MarketplaceListingPurchaseLimits;
-  listingPhotos: readonly MarketplaceListingPhoto[];
+  evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
+  evidence: readonly MarketplaceListingPhoto[];
   status: ListingStatus;
 }>;
 
@@ -349,7 +350,8 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
     maxUnitsPerDay: null,
     maxUnitsPerCustomerAccount: null,
   },
-  listingPhotos: [],
+  evidenceRequirements: null,
+  evidence: [],
   status: "draft",
 };
 
@@ -374,7 +376,8 @@ export type CreateListingCommand = Readonly<{
   feeLock: MarketplaceListingFeeLock;
   quantityCap: number;
   purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-  listingPhotos?: readonly MarketplaceListingPhotoDraft[] | null;
+  evidenceRequirements: ListingEvidenceRequirementSnapshot;
+  evidence?: readonly MarketplaceListingPhotoDraft[] | null;
 }>;
 
 export type UpdateListingPriceCommand = Readonly<{
@@ -429,7 +432,15 @@ export type ReorderListingPhotosCommand = Readonly<{
   orderedPhotoIds: readonly string[];
 }>;
 
-export type PublishListingCommand = Readonly<{ type: "PublishListing" }>;
+export type RefreshListingEvidenceRequirementsCommand = Readonly<{
+  type: "RefreshListingEvidenceRequirements";
+  evidenceRequirements: ListingEvidenceRequirementSnapshot;
+}>;
+
+export type PublishListingCommand = Readonly<{
+  type: "PublishListing";
+  readiness: ListingEvidenceReadinessResult;
+}>;
 export type PauseListingCommand = Readonly<{ type: "PauseListing" }>;
 export type AutoUnlistListingCommand = Readonly<{
   type: "AutoUnlistListing";
@@ -450,6 +461,7 @@ export type MarketplaceListingCommand =
   | ReplaceListingPhotoCommand
   | RemoveListingPhotoCommand
   | ReorderListingPhotosCommand
+  | RefreshListingEvidenceRequirementsCommand
   | PublishListingCommand
   | PauseListingCommand
   | AutoUnlistListingCommand
@@ -484,7 +496,8 @@ export type ListingCreatedEvent = DomainEvent<
     feeLocks: MarketplaceListingFeeLock[];
     quantityCap: number;
     purchaseLimits: MarketplaceListingPurchaseLimits;
-    listingPhotos: MarketplaceListingPhoto[];
+    evidenceRequirements: ListingEvidenceRequirementSnapshot;
+    evidence: MarketplaceListingPhoto[];
   }>
 >;
 export type ListingPriceUpdatedEvent = DomainEvent<
@@ -525,7 +538,7 @@ export type ListingPurchaseLimitsUpdatedEvent = DomainEvent<
 export type ListingPhotosAddedEvent = DomainEvent<
   "marketplace.listing.photos-added",
   Readonly<{
-    listingPhotos: MarketplaceListingPhoto[];
+    evidence: MarketplaceListingPhoto[];
   }>
 >;
 export type ListingPhotoClassifiedEvent = DomainEvent<
@@ -557,6 +570,12 @@ export type ListingPhotosReorderedEvent = DomainEvent<
     orderedPhotoIds: string[];
   }>
 >;
+export type ListingEvidenceRequirementsRefreshedEvent = DomainEvent<
+  "marketplace.listing.evidence-requirements-refreshed",
+  Readonly<{
+    evidenceRequirements: ListingEvidenceRequirementSnapshot;
+  }>
+>;
 export type ListingPublishedEvent = DomainEvent<"marketplace.listing.published", Readonly<Record<string, never>>>;
 export type ListingPausedEvent = DomainEvent<"marketplace.listing.paused", Readonly<Record<string, never>>>;
 export type ListingAutoUnlistedEvent = DomainEvent<
@@ -580,6 +599,7 @@ export type MarketplaceListingEvent =
   | ListingPhotoReplacedEvent
   | ListingPhotoRemovedEvent
   | ListingPhotosReorderedEvent
+  | ListingEvidenceRequirementsRefreshedEvent
   | ListingPublishedEvent
   | ListingPausedEvent
   | ListingAutoUnlistedEvent
@@ -625,7 +645,8 @@ export const decideMarketplaceListing: AggregateDecider<
             ...feeLockProjectionFields([feeLock]),
             quantityCap,
             purchaseLimits: normalizePurchaseLimits(command.purchaseLimits, quantityCap),
-            listingPhotos: normalizeListingPhotos(command.listingPhotos ?? []),
+            evidenceRequirements: command.evidenceRequirements,
+            evidence: normalizeListingPhotos(command.evidence ?? []),
           },
         },
       ];
@@ -689,16 +710,14 @@ export const decideMarketplaceListing: AggregateDecider<
         {
           type: "marketplace.listing.photos-added",
           data: {
-            listingPhotos: mergeListingPhotos(state.listingPhotos, normalizeListingPhotos(command.photos)),
+            evidence: mergeListingPhotos(state.evidence, normalizeListingPhotos(command.photos)),
           },
         },
       ];
     case "ClassifyListingPhoto": {
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status === "draft", "Listing evidence can only be reclassified while the listing is a draft.");
-      const target = state.listingPhotos.find(
-        (photo) => photo.photoId === command.photoId && photo.status === "active",
-      );
+      const target = state.evidence.find((photo) => photo.photoId === command.photoId && photo.status === "active");
       assert(target, "Listing evidence entry was not found.");
       const slotId = normalizeSlotToken(command.slotId, "Listing evidence slot");
       const viewKind = normalizeSlotToken(command.viewKind, "Listing evidence view kind");
@@ -719,7 +738,7 @@ export const decideMarketplaceListing: AggregateDecider<
     case "ReplaceListingPhoto": {
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status === "draft", "Listing evidence can only be replaced while the listing is a draft.");
-      const target = state.listingPhotos.find(
+      const target = state.evidence.find(
         (photo) => photo.photoId === command.replacedPhotoId && photo.status === "active",
       );
       assert(target, "Listing evidence entry was not found.");
@@ -736,7 +755,7 @@ export const decideMarketplaceListing: AggregateDecider<
       assert(replacement, "Replacement listing evidence entry is required.");
       assert(replacement.photoId !== target.photoId, "Replacement listing evidence must use a new evidence id.");
       assert(
-        !state.listingPhotos.some((photo) => photo.photoId === replacement.photoId),
+        !state.evidence.some((photo) => photo.photoId === replacement.photoId),
         "Replacement listing evidence id is already in use.",
       );
       return [
@@ -749,16 +768,14 @@ export const decideMarketplaceListing: AggregateDecider<
     case "RemoveListingPhoto": {
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status === "draft", "Listing evidence can only be removed while the listing is a draft.");
-      const target = state.listingPhotos.find(
-        (photo) => photo.photoId === command.photoId && photo.status === "active",
-      );
+      const target = state.evidence.find((photo) => photo.photoId === command.photoId && photo.status === "active");
       assert(target, "Listing evidence entry was not found.");
       return [{ type: "marketplace.listing.photo-removed", data: { photoId: target.photoId } }];
     }
     case "ReorderListingPhotos": {
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status === "draft", "Listing evidence can only be reordered while the listing is a draft.");
-      const activeIds = activeListingPhotos(state.listingPhotos).map((photo) => photo.photoId);
+      const activeIds = activeListingPhotos(state.evidence).map((photo) => photo.photoId);
       const requested = command.orderedPhotoIds.map((id) => normalizeRequiredText(id, "Evidence id is required."));
       assert(requested.length === new Set(requested).size, "Reorder must not repeat an evidence id.");
       assert(
@@ -767,15 +784,26 @@ export const decideMarketplaceListing: AggregateDecider<
       );
       return [{ type: "marketplace.listing.photos-reordered", data: { orderedPhotoIds: requested } }];
     }
+    case "RefreshListingEvidenceRequirements":
+      assert(state.listingId !== null, "Listing must be created first.");
+      assert(state.status !== "withdrawn", "Withdrawn listings cannot refresh evidence requirements.");
+      return [
+        {
+          type: "marketplace.listing.evidence-requirements-refreshed",
+          data: { evidenceRequirements: command.evidenceRequirements },
+        },
+      ];
     case "PublishListing":
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be published.");
       assert(state.status !== "active", "Listing is already active.");
       assert(state.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
+      assert(state.evidenceRequirements, "Listing evidence requirements are unavailable.");
       assert(
-        !requiresListingPhotoEvidence(state) || activeListingPhotos(state.listingPhotos).length > 0,
-        "Pristine, Mint, and graded-card listings require at least one listing photo before publication; graded-card listings must include a slab photo.",
+        command.readiness.requirementHash === state.evidenceRequirements.requirementHash,
+        "Listing evidence requirements changed. Refresh readiness before publication.",
       );
+      assert(command.readiness.ready, "Listing evidence requirements are not met.");
       return [
         {
           type: "marketplace.listing.published",
@@ -850,7 +878,8 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         feeLocks: event.data.feeLocks,
         quantityCap: event.data.quantityCap,
         purchaseLimits: event.data.purchaseLimits ?? initialMarketplaceListingState.purchaseLimits,
-        listingPhotos: hydrateStoredListingPhotos(event.data.listingPhotos),
+        evidenceRequirements: event.data.evidenceRequirements ?? null,
+        evidence: hydrateStoredListingPhotos(event.data.evidence),
         status: "draft",
       };
     case "marketplace.listing.price-updated":
@@ -874,12 +903,12 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
     case "marketplace.listing.photos-added":
       return {
         ...state,
-        listingPhotos: hydrateStoredListingPhotos(event.data.listingPhotos),
+        evidence: hydrateStoredListingPhotos(event.data.evidence),
       };
     case "marketplace.listing.photo-classified":
       return {
         ...state,
-        listingPhotos: state.listingPhotos.map((photo) =>
+        evidence: state.evidence.map((photo) =>
           photo.photoId === event.data.photoId
             ? {
                 ...photo,
@@ -894,8 +923,8 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
     case "marketplace.listing.photo-replaced":
       return {
         ...state,
-        listingPhotos: [
-          ...state.listingPhotos.map((photo) =>
+        evidence: [
+          ...state.evidence.map((photo) =>
             photo.photoId === event.data.replacedPhotoId ? { ...photo, status: "replaced" as const } : photo,
           ),
           hydrateStoredListingPhoto(event.data.photo),
@@ -904,7 +933,7 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
     case "marketplace.listing.photo-removed":
       return {
         ...state,
-        listingPhotos: state.listingPhotos.map((photo) =>
+        evidence: state.evidence.map((photo) =>
           photo.photoId === event.data.photoId ? { ...photo, status: "removed" as const } : photo,
         ),
       };
@@ -912,11 +941,16 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
       const orderIndex = new Map(event.data.orderedPhotoIds.map((id, index) => [id, index]));
       return {
         ...state,
-        listingPhotos: state.listingPhotos.map((photo) =>
+        evidence: state.evidence.map((photo) =>
           orderIndex.has(photo.photoId) ? { ...photo, sortOrder: orderIndex.get(photo.photoId)! } : photo,
         ),
       };
     }
+    case "marketplace.listing.evidence-requirements-refreshed":
+      return {
+        ...state,
+        evidenceRequirements: event.data.evidenceRequirements,
+      };
     case "marketplace.listing.quantity-cap-updated":
       return {
         ...state,
@@ -949,25 +983,6 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
 function normalizeOptionalText(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;
-}
-
-export function requiresListingPhotoEvidence(
-  listing: Readonly<{
-    selectedOptions: MarketplaceListingState["selectedOptions"];
-    productSummary: MarketplaceListingState["productSummary"];
-    gradedCard?: MarketplaceListingState["gradedCard"];
-  }>,
-): boolean {
-  if (listing.gradedCard) {
-    return true;
-  }
-
-  const values = [
-    listing.productSummary ?? "",
-    ...listing.selectedOptions.flatMap((selection) => [selection.dimensionId, selection.optionId]),
-  ];
-
-  return values.some((value) => highConditionTokenRequiresPhoto(value));
 }
 
 function normalizeRequiredText(value: string, message: string): string {
@@ -1033,7 +1048,7 @@ const LISTING_PHOTO_SLOT_TOKEN_PATTERN = /^[a-z][a-z0-9-]{1,63}$/;
 
 /**
  * Validates a configured evidence slot/view-kind token. Slots are opaque
- * configured identifiers (issue #4985): the Listing aggregate never interprets
+ * configured identifiers: the Listing aggregate never interprets
  * their business meaning, it only enforces that classified entries carry a
  * well-formed token so coverage can match them to policy-resolved slots.
  */
@@ -1083,7 +1098,7 @@ function normalizeListingPhotos(photos: readonly MarketplaceListingPhotoDraft[])
 
 /**
  * Replay-safe defaulting for a single stored/legacy evidence entry. Legacy
- * untyped photos (recorded before #4985) lack the typed fields; this is the
+ * untyped photos lack the typed fields; this is the
  * explicit migration/reclassification behavior — they become `active`,
  * unclassified evidence with a hash-derived asset revision. Unlike
  * `normalizeListingPhotos` this never throws, so historical events always
@@ -1165,26 +1180,6 @@ function normalizeListingPhotoAssetVariant(
     byteSize: variant.byteSize,
     generatedAt: normalizeRequiredText(variant.generatedAt, "Listing photo generation timestamp is required."),
   };
-}
-
-function highConditionTokenRequiresPhoto(value: string): boolean {
-  const tokens = value
-    .toLowerCase()
-    .replaceAll(/[^a-z0-9]+/g, " ")
-    .split(" ")
-    .filter(Boolean);
-
-  return tokens.some((token, index) => {
-    if (token === "pristine") {
-      return true;
-    }
-
-    if (token !== "mint") {
-      return false;
-    }
-
-    return tokens[index - 1] !== "near";
-  });
 }
 
 function normalizeGradedCardDetails(details: MarketplaceGradedCardDetails | null): MarketplaceGradedCardDetails | null {

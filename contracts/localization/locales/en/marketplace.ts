@@ -103,10 +103,10 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingDetailPage.fee.history.recorded": "Version {version} recorded {recordedAt}",
   "marketplace.features.listings.ui.listingDetailPage.fee.lock.history": "Fee Lock History",
   "marketplace.features.listings.ui.listingDetailPage.inventory": "Inventory: ",
-  "marketplace.features.listings.ui.listingDetailPage.add.photos": "Add photos",
+  "marketplace.features.listings.ui.listingDetailPage.add.photos": "Add evidence images",
   "marketplace.features.listings.ui.listingDetailPage.choose.photos": "or choose JPEG, PNG, or WebP files",
-  "marketplace.features.listings.ui.listingDetailPage.drop.listing.photos": "Drop listing photos here",
-  "marketplace.features.listings.ui.listingDetailPage.listing.photos": "Listing photos",
+  "marketplace.features.listings.ui.listingDetailPage.drop.listing.photos": "Drop evidence images here",
+  "marketplace.features.listings.ui.listingDetailPage.listing.photos": "Listing evidence",
   "marketplace.features.listings.ui.listingDetailPage.listing.photos.description":
     "Uploads are normalized into WebP variants for listing evidence and buyer review.",
   "marketplace.features.listings.evidenceCoverage.min-photo-count-unmet":
@@ -203,7 +203,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.create.and.publish": "Create and publish",
   "marketplace.features.listings.ui.listingListPage.create.listing": "Create Listing",
   "marketplace.features.listings.ui.listingListPage.draft.listings": "Draft listings",
-  "marketplace.features.listings.ui.listingListPage.drop.listing.photos": "Drop listing photos here",
+  "marketplace.features.listings.ui.listingListPage.drop.listing.photos": "Drop evidence images here",
   "marketplace.features.listings.ui.listingListPage.create.publish.and.manage.seller.listings":
     "Create, publish, and manage seller listings.",
   "marketplace.features.listings.ui.listingListPage.current.listings": "Current Listings",
@@ -220,9 +220,9 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.listing": "Listing",
   "marketplace.features.listings.ui.listingListPage.listing.fee.preview": "Listing fee preview",
   "marketplace.features.listings.ui.listingListPage.listing.health": "Listing health",
-  "marketplace.features.listings.ui.listingListPage.listing.photos": "Listing photos",
+  "marketplace.features.listings.ui.listingListPage.listing.photos": "Listing evidence",
   "marketplace.features.listings.ui.listingListPage.listing.photos.description":
-    "Mint and Pristine listings require at least one photo. Uploaded images are stored as normalized WebP variants.",
+    "Evidence requirements come from the active Listing Evidence Policy. Uploaded images are stored as normalized WebP variants.",
   "marketplace.features.listings.ui.listingListPage.list.without.managing.inventory":
     "List without managing inventory first",
   "marketplace.features.listings.ui.listingListPage.listings": "Listings",
@@ -379,10 +379,10 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingCreatePage.ship.from.state": "State",
   "marketplace.features.listings.ui.listingCreatePage.ship.from.postal.code": "Postal code",
   "marketplace.features.listings.ui.listingCreatePage.ship.from.country": "Country",
-  "marketplace.features.listings.ui.listingCreatePage.listing.photos": "Listing photos",
+  "marketplace.features.listings.ui.listingCreatePage.listing.photos": "Listing evidence",
   "marketplace.features.listings.ui.listingCreatePage.listing.photos.description":
-    "Mint and Pristine listings require at least one photo. Uploaded images are stored as normalized WebP variants.",
-  "marketplace.features.listings.ui.listingCreatePage.drop.listing.photos": "Drop listing photos here",
+    "Evidence requirements come from the active Listing Evidence Policy. Uploaded images are stored as normalized WebP variants.",
+  "marketplace.features.listings.ui.listingCreatePage.drop.listing.photos": "Drop evidence images here",
   "marketplace.features.listings.ui.listingCreatePage.choose.photos": "or choose JPEG, PNG, or WebP files",
   "marketplace.features.listings.ui.listingCreatePage.advanced.inventory.and.limits": "Advanced inventory and limits",
   "marketplace.features.listings.ui.listingCreatePage.inventory": "Inventory",

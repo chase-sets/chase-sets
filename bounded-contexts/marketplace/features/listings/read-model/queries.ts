@@ -9,6 +9,7 @@ import {
   type MarketplaceListingPhotoDraft,
 } from "../domain/domain";
 import { toPublicListingGallery, type MarketplaceListingPublicGalleryImage } from "../domain/evidence-gallery";
+import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
 
 export type MarketplaceListingListRow = Readonly<{
   listing_id: string;
@@ -39,7 +40,8 @@ export type MarketplaceListingListRow = Readonly<{
   max_units_per_order: number | null;
   max_units_per_day: number | null;
   max_units_per_customer_account: number | null;
-  listing_photos: readonly MarketplaceListingPhoto[];
+  evidence_requirements: ListingEvidenceRequirementSnapshot | null;
+  evidence: readonly MarketplaceListingPhoto[];
   status: string;
   created_at: string;
   updated_at: string;
@@ -51,9 +53,9 @@ export type MarketplaceItemListingRow = MarketplaceListingListRow &
     visible_quantity: number;
     /**
      * Buyer-safe evidence gallery. Public item-listing reads expose only this
-     * sanitized view; `listing_photos` is emptied on public rows so storage
+     * sanitized view; `evidence` is emptied on public rows so storage
      * keys, source hashes, byte sizes, filenames, and non-active audit entries
-     * never leak (#4985).
+     * never leak.
      */
     public_gallery: readonly MarketplaceListingPublicGalleryImage[];
   }>;
@@ -141,7 +143,8 @@ type MarketplaceListingPageRow = Readonly<{
   max_units_per_order: number | null;
   max_units_per_day: number | null;
   max_units_per_customer_account: number | null;
-  listing_photos: unknown;
+  evidence_requirements: unknown;
+  evidence: unknown;
   status: string;
   created_at: string;
   updated_at: string;
@@ -188,7 +191,8 @@ const listingPageColumnSelectSql = `
        listing.max_units_per_order,
        listing.max_units_per_day,
        listing.max_units_per_customer_account,
-       listing.listing_photos,
+       listing.evidence_requirements,
+       listing.evidence,
        listing.status,
        listing.created_at,
        listing.updated_at`;
@@ -243,8 +247,12 @@ function mapListingRow(row: MarketplaceListingPageRow): MarketplaceListingListRo
       typeof row.graded_card === "object" && row.graded_card !== null
         ? (row.graded_card as MarketplaceGradedCardDetails)
         : null,
-    listing_photos: Array.isArray(row.listing_photos)
-      ? (row.listing_photos as MarketplaceListingPhotoDraft[]).map(hydrateStoredListingPhoto)
+    evidence_requirements:
+      typeof row.evidence_requirements === "object" && row.evidence_requirements !== null
+        ? (row.evidence_requirements as ListingEvidenceRequirementSnapshot)
+        : null,
+    evidence: Array.isArray(row.evidence)
+      ? (row.evidence as MarketplaceListingPhotoDraft[]).map(hydrateStoredListingPhoto)
       : [],
     fee_locks: Array.isArray(row.fee_locks) ? (row.fee_locks as MarketplaceListingFeeLock[]) : [],
   };
@@ -1007,8 +1015,8 @@ ${listingPageColumnSelectSql},
       ...mapped,
       // Public rows never carry the raw evidence set; buyers consume
       // `public_gallery` (buyer-safe metadata only).
-      listing_photos: [],
-      public_gallery: toPublicListingGallery(mapped.listing_photos),
+      evidence: [],
+      public_gallery: toPublicListingGallery(mapped.evidence),
       seller_display_name: row.seller_display_name,
       visible_quantity: row.visible_quantity,
     };

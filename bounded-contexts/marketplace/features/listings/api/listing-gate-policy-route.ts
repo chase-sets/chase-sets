@@ -62,16 +62,14 @@ function errorMessage(error: unknown) {
 
 function policyValueFromBody(body: Record<string, unknown>): MarketplaceListingGatePolicyValue {
   return {
-    highDollarListingAmount: String(body.highDollarListingAmount ?? "0.00"),
-    minTrustedReputationReviews: Number(body.minTrustedReputationReviews ?? 0),
     maxActiveAnonymousListingDrafts: Number(body.maxActiveAnonymousListingDrafts ?? 0),
     anonymousListingDraftTtlDays: Number(body.anonymousListingDraftTtlDays ?? 0),
-    maxListingPhotoUploadBytes: Number(body.maxListingPhotoUploadBytes ?? 0),
-    maxListingPhotoCount: Number(
-      body.maxListingPhotoCount ?? MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE.maxListingPhotoCount,
+    maxListingEvidenceUploadBytes: Number(body.maxListingEvidenceUploadBytes ?? 0),
+    maxListingEvidenceCount: Number(
+      body.maxListingEvidenceCount ?? MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE.maxListingEvidenceCount,
     ),
-    maxListingPhotoTotalBytes: Number(
-      body.maxListingPhotoTotalBytes ?? MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE.maxListingPhotoTotalBytes,
+    maxListingEvidenceTotalBytes: Number(
+      body.maxListingEvidenceTotalBytes ?? MARKETPLACE_LISTING_GATE_LAUNCH_POLICY_VALUE.maxListingEvidenceTotalBytes,
     ),
     evidenceGarbageCollectionSafeDelayHours: Number(
       body.evidenceGarbageCollectionSafeDelayHours ??
