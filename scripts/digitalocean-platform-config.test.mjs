@@ -3461,6 +3461,14 @@ describe("DigitalOcean platform configuration", () => {
     const stagingCriticalFlowStep = workflowStep(platformProductionWorkflow, "Staging marketplace critical flows");
     const stagingBuyNowProbesStep = workflowStep(platformProductionWorkflow, "Staging Buy Now freshness probes");
     const stagingBuyNowEvidenceStep = workflowStep(platformProductionWorkflow, "Upload staging Buy Now probe evidence");
+    const stagingAccountCartCanaryStep = workflowStep(
+      platformProductionWorkflow,
+      "Staging account-cart freshness canary",
+    );
+    const stagingAccountCartCanaryEvidenceStep = workflowStep(
+      platformProductionWorkflow,
+      "Upload staging account-cart canary evidence",
+    );
     const stagingMoneySmokeStep = workflowStep(platformProductionWorkflow, "Staging Stripe money smoke");
     const previewMoneySmokeStep = workflowStep(platformPrWorkflow, "Stripe money smoke");
     const markStagingDeployedIndex = platformProductionWorkflow.indexOf("- name: Mark staging applied");
@@ -3568,6 +3576,46 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain(
       "CANARY_PROMOTION_DECISION: ${{ needs.deploy-staging.outputs.buy_now_probe_promotion_decision || 'skipped' }}",
+    );
+
+    // #2516: account-cart-post-write-consistency promoted to a required
+    // migrated canary. It blocks staging promotion when a redacted
+    // observation is configured (STAGING_ACCOUNT_CART_CANARY_OBSERVATION_JSON)
+    // and the probe does not promote; otherwise it records an explicit
+    // warning instead of a silent pass.
+    expect(stagingAccountCartCanaryStep).toContain("id: account_cart_canary");
+    expect(stagingAccountCartCanaryStep).toContain(
+      "ACCOUNT_CART_CANARY_OBSERVATION_JSON: ${{ vars.STAGING_ACCOUNT_CART_CANARY_OBSERVATION_JSON || '' }}",
+    );
+    expect(stagingAccountCartCanaryStep).toContain("pnpm run ops account-cart:consistency-probe");
+    expect(stagingAccountCartCanaryStep).toContain("--observation-file");
+    expect(stagingAccountCartCanaryStep).toContain('echo "configured=false"');
+    expect(stagingAccountCartCanaryStep).toContain('echo "configured=true"');
+    expect(stagingAccountCartCanaryStep).toContain('echo "promotion_decision=not-configured"');
+    expect(stagingAccountCartCanaryStep).toContain(
+      "Staging account-cart freshness canary aborted promotion (exit ${probe_exit}).",
+    );
+    expect(stagingAccountCartCanaryEvidenceStep).toContain(
+      "if: always() && env.SHOULD_DEPLOY != 'false' && steps.account_cart_canary.outputs.configured == 'true'",
+    );
+    expect(stagingAccountCartCanaryEvidenceStep).toContain("staging-account-cart-freshness-canary");
+    expect(platformProductionWorkflow).toContain(
+      "account_cart_canary_result: ${{ steps.account_cart_canary.outputs.result || 'skipped' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "account_cart_canary_promotion_decision: ${{ steps.account_cart_canary.outputs.promotion_decision || 'skipped' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "account_cart_canary_configured: ${{ steps.account_cart_canary.outputs.configured || 'false' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "ACCOUNT_CART_CANARY_RESULT: ${{ needs.deploy-staging.outputs.account_cart_canary_result || 'skipped' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "ACCOUNT_CART_CANARY_PROMOTION_DECISION: ${{ needs.deploy-staging.outputs.account_cart_canary_promotion_decision || 'skipped' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "ACCOUNT_CART_CANARY_CONFIGURED: ${{ needs.deploy-staging.outputs.account_cart_canary_configured || 'false' }}",
     );
 
     expect(stagingMoneySmokeStep).toContain("AWS_ACCESS_KEY_ID");

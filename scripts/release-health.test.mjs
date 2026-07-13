@@ -132,9 +132,19 @@ describe("release health summary", () => {
         flakyFailureCount: 1,
         topFlakyJobs: [{ name: "Platform PR", retryCount: 1, flakyFailureCount: 1 }],
       },
+      accountCartCanary: {
+        startedAt: null,
+        completedAt: null,
+        result: "unknown",
+        configured: false,
+        promotionDecision: null,
+      },
       gateSummary: {
         blockingFailures: 0,
-        advisoryWarnings: 0,
+        // #2516: account-cart-critical-canary reports advisory/warn when no
+        // observation was configured for the release (the default here),
+        // which is the documented coverage-gap posture, not a failure.
+        advisoryWarnings: 1,
         deferredProof: 1,
       },
     });
@@ -159,6 +169,11 @@ describe("release health summary", () => {
           id: "exposure-posture-proof",
           severity: "deferred-proof",
           status: "pass",
+        }),
+        expect.objectContaining({
+          id: "account-cart-critical-canary",
+          severity: "advisory",
+          status: "warn",
         }),
       ]),
     );
@@ -253,7 +268,9 @@ describe("release health summary", () => {
     expect(result.passesReleaseHealthGate).toBe(true);
     expect(result.record.gateSummary).toMatchObject({
       blockingFailures: 0,
-      advisoryWarnings: 1,
+      // post-deploy-projection-readiness plus account-cart-critical-canary
+      // (unconfigured, so it warns rather than blocks; see #2516).
+      advisoryWarnings: 2,
     });
     expect(result.record.gates).toEqual(
       expect.arrayContaining([
@@ -262,6 +279,91 @@ describe("release health summary", () => {
           severity: "advisory",
           status: "warn",
           reason: "readiness outcome: budget-expired",
+        }),
+        expect.objectContaining({
+          id: "account-cart-critical-canary",
+          severity: "advisory",
+          status: "warn",
+        }),
+      ]),
+    );
+  });
+
+  it("blocks promotion when a configured account-cart canary aborts", () => {
+    const result = buildReleaseHealthRecord({
+      releaseCommit: "a".repeat(40),
+      workflowRunId: "123",
+      workflowRunAttempt: "1",
+      checkedAt: "2026-05-31T12:00:00.000Z",
+      deploymentRequired: true,
+      stagingResult: "success",
+      canaryResult: "success",
+      canaryPromotionDecision: "promote",
+      accountCartCanaryResult: "failure",
+      accountCartCanaryConfigured: true,
+      accountCartCanaryPromotionDecision: "abort",
+      accountCartCanaryStartedAt: "2026-05-31T11:57:00.000Z",
+      accountCartCanaryCompletedAt: "2026-05-31T11:58:00.000Z",
+      productionResult: "success",
+      mainToProductionDriftCommits: 0,
+      mainToProductionDriftSeconds: 0,
+      releaseLocked: false,
+      recoveryMode: "none",
+      productionRecoveryMode: "pitr",
+      rollbackReadinessResult: "skipped",
+      productionRestorePointResult: "skipped",
+    });
+
+    expect(result.record.accountCartCanary).toMatchObject({
+      startedAt: "2026-05-31T11:57:00.000Z",
+      completedAt: "2026-05-31T11:58:00.000Z",
+      result: "failure",
+      configured: true,
+      promotionDecision: "abort",
+    });
+    expect(result.record.gateSummary.blockingFailures).toBeGreaterThanOrEqual(1);
+    expect(result.record.gates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "account-cart-critical-canary",
+          severity: "blocking",
+          status: "fail",
+        }),
+      ]),
+    );
+  });
+
+  it("passes the account-cart critical canary gate when a configured probe promotes", () => {
+    const result = buildReleaseHealthRecord({
+      releaseCommit: "a".repeat(40),
+      workflowRunId: "123",
+      workflowRunAttempt: "1",
+      checkedAt: "2026-05-31T12:00:00.000Z",
+      deploymentRequired: true,
+      stagingResult: "success",
+      canaryResult: "success",
+      canaryPromotionDecision: "promote",
+      accountCartCanaryResult: "success",
+      accountCartCanaryConfigured: true,
+      accountCartCanaryPromotionDecision: "promote",
+      productionResult: "success",
+      mainToProductionDriftCommits: 0,
+      mainToProductionDriftSeconds: 0,
+      releaseLocked: false,
+      recoveryMode: "none",
+      productionRecoveryMode: "pitr",
+      rollbackReadinessResult: "skipped",
+      productionRestorePointResult: "skipped",
+    });
+
+    expect(result.record.gateSummary.blockingFailures).toBe(0);
+    expect(result.record.gateSummary.advisoryWarnings).toBe(0);
+    expect(result.record.gates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "account-cart-critical-canary",
+          severity: "blocking",
+          status: "pass",
         }),
       ]),
     );
@@ -488,6 +590,11 @@ describe("release health summary", () => {
       CANARY_COHORT_SUBJECT_TYPE: "operator",
       CANARY_COHORT_SIZE: "3",
       CANARY_PROMOTION_DECISION: "hold",
+      ACCOUNT_CART_CANARY_RESULT: "success",
+      ACCOUNT_CART_CANARY_STARTED_AT: "2026-05-31T11:12:00.000Z",
+      ACCOUNT_CART_CANARY_COMPLETED_AT: "2026-05-31T11:13:00.000Z",
+      ACCOUNT_CART_CANARY_PROMOTION_DECISION: "promote",
+      ACCOUNT_CART_CANARY_CONFIGURED: "true",
       PRODUCTION_READINESS_GATE_OUTCOME: "budget-expired",
       PRODUCTION_RESULT: "cancelled",
       PRODUCTION_STARTED_AT: "2026-05-31T11:21:00.000Z",
@@ -559,6 +666,11 @@ describe("release health summary", () => {
       canaryCohortSubjectType: "operator",
       canaryCohortSize: 3,
       canaryPromotionDecision: "hold",
+      accountCartCanaryResult: "success",
+      accountCartCanaryStartedAt: "2026-05-31T11:12:00.000Z",
+      accountCartCanaryCompletedAt: "2026-05-31T11:13:00.000Z",
+      accountCartCanaryPromotionDecision: "promote",
+      accountCartCanaryConfigured: true,
       productionReadinessGateOutcome: "budget-expired",
       mainToProductionDriftCommits: 2,
       mainToProductionDriftSeconds: 900,
