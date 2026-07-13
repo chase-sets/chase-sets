@@ -46,6 +46,7 @@ const envNames = [
   "GOOGLE_MERCHANT_CONTENT_LANGUAGE",
   "GOOGLE_MERCHANT_FEED_LABEL",
   "GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME",
+  "GOOGLE_MERCHANT_PRODUCTION_SYNC_APPROVAL_REFERENCE",
   "GOOGLE_SHOPPING_MAINTENANCE_INTERVAL_MS",
   "GOOGLE_SHOPPING_MAINTENANCE_BATCH_SIZE",
   "GOOGLE_SHOPPING_REFRESH_WINDOW_DAYS",
@@ -301,6 +302,65 @@ describe("platform worker config", () => {
       contentLanguage: "en",
       feedLabel: "US",
       credentialSecretName: "google-merchant-service-account",
+      productionSyncApprovalReference: null,
+    });
+  });
+
+  it("requires a production sync approval reference before enabling live Google Merchant writes", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.GOOGLE_MERCHANT_SYNC_ENABLED = "true";
+    process.env.GOOGLE_MERCHANT_DRY_RUN = "false";
+    process.env.GOOGLE_MERCHANT_ACCOUNT_ID = "123456";
+    process.env.GOOGLE_MERCHANT_API_DATA_SOURCE_ID = "7890";
+    process.env.GOOGLE_MERCHANT_TARGET_COUNTRY = "US";
+    process.env.GOOGLE_MERCHANT_CONTENT_LANGUAGE = "en";
+    process.env.GOOGLE_MERCHANT_FEED_LABEL = "US";
+    process.env.GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME = "google-merchant-service-account";
+
+    expect(() => loadConfig()).toThrow(
+      "GOOGLE_MERCHANT_PRODUCTION_SYNC_APPROVAL_REFERENCE is required when GOOGLE_MERCHANT_DRY_RUN=false.",
+    );
+  });
+
+  it("rejects placeholder production sync approval references for live Google Merchant writes", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.GOOGLE_MERCHANT_SYNC_ENABLED = "true";
+    process.env.GOOGLE_MERCHANT_DRY_RUN = "false";
+    process.env.GOOGLE_MERCHANT_ACCOUNT_ID = "123456";
+    process.env.GOOGLE_MERCHANT_API_DATA_SOURCE_ID = "7890";
+    process.env.GOOGLE_MERCHANT_TARGET_COUNTRY = "US";
+    process.env.GOOGLE_MERCHANT_CONTENT_LANGUAGE = "en";
+    process.env.GOOGLE_MERCHANT_FEED_LABEL = "US";
+    process.env.GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME = "google-merchant-service-account";
+    process.env.GOOGLE_MERCHANT_PRODUCTION_SYNC_APPROVAL_REFERENCE = "TBD";
+
+    expect(() => loadConfig()).toThrow(
+      "GOOGLE_MERCHANT_PRODUCTION_SYNC_APPROVAL_REFERENCE must point to a real external evidence record, not a placeholder.",
+    );
+  });
+
+  it("loads Google Merchant config for live sync with a recorded production sync approval reference", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.GOOGLE_MERCHANT_SYNC_ENABLED = "true";
+    process.env.GOOGLE_MERCHANT_DRY_RUN = "false";
+    process.env.GOOGLE_MERCHANT_ACCOUNT_ID = "123456";
+    process.env.GOOGLE_MERCHANT_API_DATA_SOURCE_ID = "7890";
+    process.env.GOOGLE_MERCHANT_TARGET_COUNTRY = "US";
+    process.env.GOOGLE_MERCHANT_CONTENT_LANGUAGE = "en";
+    process.env.GOOGLE_MERCHANT_FEED_LABEL = "US";
+    process.env.GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME = "google-merchant-service-account";
+    process.env.GOOGLE_MERCHANT_PRODUCTION_SYNC_APPROVAL_REFERENCE = "GOOGLE-SHOPPING-SYNC-APPROVAL-2026-06-04";
+
+    expect(loadConfig().googleMerchant).toEqual({
+      syncEnabled: true,
+      dryRun: false,
+      merchantAccountId: "123456",
+      apiDataSourceId: "7890",
+      targetCountry: "US",
+      contentLanguage: "en",
+      feedLabel: "US",
+      credentialSecretName: "google-merchant-service-account",
+      productionSyncApprovalReference: "GOOGLE-SHOPPING-SYNC-APPROVAL-2026-06-04",
     });
   });
 
@@ -372,6 +432,7 @@ describe("platform worker config", () => {
       contentLanguage: "en",
       feedLabel: "US",
       credentialSecretName: "google-merchant-service-account",
+      productionSyncApprovalReference: "GOOGLE-SHOPPING-SYNC-APPROVAL-2026-06-04",
     });
 
     expect(description).toEqual({
@@ -383,6 +444,7 @@ describe("platform worker config", () => {
       contentLanguage: "en",
       feedLabel: "US",
       credentialSecretName: "[configured]",
+      productionSyncApprovalReference: "GOOGLE-SHOPPING-SYNC-APPROVAL-2026-06-04",
     });
   });
 

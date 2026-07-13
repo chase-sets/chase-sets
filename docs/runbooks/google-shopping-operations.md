@@ -36,7 +36,7 @@ Complete these steps in order before live production Merchant writes:
 6. Refresh diagnostics in dry-run/live-read mode as appropriate, then capture `/google-shopping/diagnostics/snapshot?limit=500` with zero P0 disapproved submitted rows.
 7. Run `pnpm run ops google-shopping:launch-readiness-evidence --expected-mode dry-run` and store the passing output reference.
 8. Obtain production sync approval from Ops and policy owners, including the evidence reference that authorizes changing from dry-run to live writes.
-9. Change production to `GOOGLE_MERCHANT_DRY_RUN=false` only after the dry-run evidence, diagnostics snapshot, crawl posture, policy references, and production approval are complete.
+9. Change production to `GOOGLE_MERCHANT_DRY_RUN=false` only after the dry-run evidence, diagnostics snapshot, crawl posture, policy references, and production approval are complete. Deploy `GOOGLE_MERCHANT_PRODUCTION_SYNC_APPROVAL_REFERENCE` with the production sync approval reference in the same change; the worker refuses to start in live mode without it.
 10. Run `pnpm run ops google-shopping:launch-readiness-evidence --expected-mode live --production-sync-approval-reference <reference>` and do not launch if `passesGoogleShoppingLaunchReadinessGate` is false.
 11. Enqueue a small live sync batch first when possible, inspect provider responses and diagnostics, then scale to the normal full sync batch.
 12. Monitor the next scheduled maintenance and diagnostics windows before declaring launch complete.
@@ -55,6 +55,7 @@ Platform Worker reads these environment variables:
 | `GOOGLE_MERCHANT_CONTENT_LANGUAGE` | Yes | Language code, such as `en`. |
 | `GOOGLE_MERCHANT_FEED_LABEL` | Yes | Feed label aligned with Merchant Center setup. |
 | `GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME` | Yes | Secret reference name only; never inline JSON. The worker reads the service-account JSON from the environment variable named by this value. |
+| `GOOGLE_MERCHANT_PRODUCTION_SYNC_APPROVAL_REFERENCE` | Yes when `GOOGLE_MERCHANT_DRY_RUN=false` | Production sync approval evidence reference. The worker refuses to start with live Merchant writes unless this is a real, non-placeholder reference; keep it unset or empty while `GOOGLE_MERCHANT_DRY_RUN=true`. |
 | `GOOGLE_SHOPPING_MAINTENANCE_INTERVAL_MS` | No | Defaults to 24 hours. Set to `0` to disable scheduled refresh/cleanup scans. |
 | `GOOGLE_SHOPPING_MAINTENANCE_BATCH_SIZE` | No | Defaults to 100 rows per scheduled scan. |
 | `GOOGLE_SHOPPING_REFRESH_WINDOW_DAYS` | No | Defaults to 25 days so accepted/submitted products refresh before the 30-day Merchant freshness window. |
@@ -62,7 +63,7 @@ Platform Worker reads these environment variables:
 | `GOOGLE_SHOPPING_DIAGNOSTICS_BATCH_SIZE` | No | Defaults to 100 submitted rows per diagnostics refresh job. |
 | `GOOGLE_SHOPPING_DIAGNOSTICS_PREVIOUS_ISSUE_CHUNK_SIZE` | No | Defaults to 100 previous diagnostic issues per reconciliation chunk. |
 
-Startup fails when sync is enabled without complete required config.
+Startup fails when sync is enabled without complete required config. Startup also fails when `GOOGLE_MERCHANT_DRY_RUN=false` and `GOOGLE_MERCHANT_PRODUCTION_SYNC_APPROVAL_REFERENCE` is missing or a placeholder value: the worker will not boot into live Merchant writes on config alone, so flipping `GOOGLE_MERCHANT_DRY_RUN` to `false` without also deploying a real approval reference is a hard failure, not a silent live-write risk.
 
 Live sync uses a Google service-account JSON private key to exchange a signed JWT for an OAuth access token with the Merchant API content scope. The service account must be granted access to the Merchant Center account outside the repo. Dry-run sync does not request a token.
 

@@ -13,6 +13,7 @@ const enabledConfig: PlatformWorkerGoogleMerchantConfig = {
   contentLanguage: "en",
   feedLabel: "US",
   credentialSecretName: "google-merchant-service-account",
+  productionSyncApprovalReference: "GOOGLE-SHOPPING-SYNC-APPROVAL-2026-06-04",
 };
 
 const payload = {
