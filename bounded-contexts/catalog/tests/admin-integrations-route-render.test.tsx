@@ -4,7 +4,7 @@ import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CatalogApiError } from "../client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
-import { loader as providersLoader, action as providerSetupAction } from "../routes/admin/integrations-providers";
+import { loader as providersLoader, action as providerDetailAction } from "../routes/admin/catalog-provider-detail";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../features/source-observations/ui/primary-workbench-read-model";
@@ -30,7 +30,7 @@ import {
   runDailyAction,
   runDailyActionRedirect,
   runGovernanceAction,
-  runProviderSetupAction,
+  runProviderDetailAction,
   scrydexLorcanaImportPreview,
   scrydexLorcanaProfileReview,
   scrydexOnePieceImportPreview,
@@ -357,9 +357,13 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
+    // "readiness" (validation-readiness) is retired (#3832 — folded into the v2
+    // Provider detail page); "controls" (governance-controls) is a still-live
+    // ?section= workspace, so it now exercises the same generic detour-telemetry
+    // mechanism.
     await loader({
       request: new Request(
-        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=readiness",
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=controls",
       ),
       params: {},
       context: {},
@@ -381,7 +385,7 @@ describe("Catalog integrations route", () => {
     expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventName: "catalog_control_plane.supporting_workflow_detour_opened",
-        detourTarget: "validation-readiness",
+        detourTarget: "governance-controls",
         detourOutcome: "opened",
       }),
     );

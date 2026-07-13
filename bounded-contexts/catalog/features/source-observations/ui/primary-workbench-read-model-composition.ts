@@ -528,9 +528,11 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
   // Surfaces that fully render (or cite) each supporting slice. The daily surface
   // renders none of them, so it computes every supporting slice from the
   // empty-input defaults below — never iterating provider readiness, lifecycle,
-  // governance, health, or audit data. Providers cites nothing downstream;
-  // governance and health cite the upstream slices they fold into their evidence.
-  const wantsProviderSlices = surface === "providers" || surface === "governance" || surface === "health";
+  // governance, health, or audit data. The "providers" surface was retired
+  // (folded into the v2 Provider detail page's own loader, which composes
+  // from "health" — see provider-detail-loader.ts); governance and health cite
+  // the upstream slices they fold into their evidence.
+  const wantsProviderSlices = surface === "governance" || surface === "health";
   const wantsHealthTriage = surface === "governance" || surface === "health";
   const wantsGovernanceSlices = surface === "governance" || surface === "health";
   // The Settings page (the "governance" surface) embeds the Evidence drawer, so it

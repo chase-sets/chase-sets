@@ -12,7 +12,6 @@ const config = {
     // nav group; map each to its child key so the side nav highlights and expands
     // the active child (the base route is the Import child).
     integrations: "integrations-import",
-    "integrations/providers": "integrations-providers",
     // The Settings nav child is the canonical path; the pre-existing governance
     // path stays registered (old bookmarks/evidence links) and highlights the
     // same nav child since it renders the identical surface.

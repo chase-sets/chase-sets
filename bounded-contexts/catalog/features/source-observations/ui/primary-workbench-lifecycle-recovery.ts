@@ -13,6 +13,7 @@ import {
   catalogPrimaryWorkbenchReturnPath,
   catalogPrimaryWorkbenchSupportingHref,
 } from "./primary-workbench-route-context";
+import { catalogProviderDetailHref } from "./admin-control-plane/provider-detail/provider-detail-links";
 import { actionStateForBlockers } from "./primary-workbench-read-model-support";
 import type { ValidationReadiness } from "./primary-workbench-validation-readiness";
 
@@ -116,15 +117,7 @@ export function lifecycleRecoveryFor(input: {
       lifecycle: profile.lifecycle,
       active: profile.active,
       referenceCount: profile.referenceCount,
-      href: catalogPrimaryWorkbenchSupportingHref(
-        {
-          ...input.routeContext,
-          providerKey: profile.providerKey,
-          profileVersion: profile.profileVersion,
-          promotionPreviewId: null,
-        },
-        "lifecycle-recovery",
-      ),
+      href: catalogProviderDetailHref(profile.providerKey, { profileVersion: profile.profileVersion }),
     })),
     operations,
     recentAuditEvents,
@@ -195,14 +188,11 @@ function lifecycleOperationFor(input: {
 
   const blockerList = [...blockers];
   const commandKey = lifecycleCommandKey(input.operation);
-  const supportHref =
-    input.operation === "activation"
-      ? catalogPrimaryWorkbenchSupportingHref(input.routeContext, "validation-readiness")
-      : null;
-  const submitHref =
-    input.operation === "activation"
-      ? catalogPrimaryWorkbenchSupportingHref(input.routeContext, "validation-readiness")
-      : catalogPrimaryWorkbenchSupportingHref(input.routeContext, "lifecycle-recovery");
+  const operationHref = catalogProviderDetailHref(profile?.providerKey ?? input.routeContext.providerKey ?? null, {
+    profileVersion: profile?.profileVersion ?? input.routeContext.profileVersion,
+  });
+  const supportHref = input.operation === "activation" ? operationHref : null;
+  const submitHref = operationHref;
 
   return {
     operation: input.operation,

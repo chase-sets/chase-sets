@@ -91,21 +91,21 @@ Each supporting workflow exists for a specific operator job and must link back t
 
 ## Route map
 
-The control plane is composed of four real nested routes under `/admin/integrations`, one per audience surface, each built from a shared workbench shell. There is no `?section=` mini-app: the route path is the screen router.
+This deprecated `?section=`-carrying IA is being retired workspace-by-workspace as the m90 v2 blueprint's implementation slices land (see `catalog-control-plane-blueprint-v2.md` and `information-architecture-v2.ts`). #3832 retired the **providers** surface: profile authoring, validation readiness, and the profile lifecycle (rollback/deprecate/retire, formerly on governance) are now one v2 page, `/catalog/providers/:providerKey` (`features/source-observations/ui/admin-control-plane/provider-detail/`), reached by path param rather than `?section=` and carrying no `returnPath`. The remaining three real nested routes under `/admin/integrations` are still built from the shared workbench shell described below; there is still no `?section=` mini-app on them.
 
 | Route | Surface | Workspaces (in render order) | Loader entry point |
 | --- | --- | --- | --- |
 | `/admin/integrations` | daily | import-to-promotion | `support/route-support/admin-integrations/integrations-loader.ts` |
-| `/admin/integrations/providers` | providers | profile-authoring, validation-readiness | `support/route-support/admin-integrations/providers-loader.ts` |
-| `/admin/integrations/governance` | governance | conflict-resolution, lifecycle-recovery, governance-controls | `support/route-support/admin-integrations/governance-loader.ts` |
+| `/admin/integrations/governance` | governance | conflict-resolution, governance-controls | `support/route-support/admin-integrations/governance-loader.ts` |
 | `/admin/integrations/health` | health | audit-evidence, health-triage | `support/route-support/admin-integrations/health-loader.ts` |
+| `/catalog/providers/:providerKey` | — (v2 page, not a workspace-router surface) | profile authoring + validation readiness + profile lifecycle + credential/transport health, all inline | `support/route-support/admin-integrations/provider-detail-loader.ts` |
 
-The daily route is the default and renders only the primary import-to-promotion job. The other three routes render their grouped supporting workspaces stacked. The health surface is the **Integration Health** route: it answers "is import, review, or promotion safe right now?" through health triage, and traces who changed what through the audit timeline.
+The daily route is the default and renders only the primary import-to-promotion job. Governance and health render their grouped supporting workspaces stacked. The health surface is the **Integration Health** route: it answers "is import, review, or promotion safe right now?" through health triage, and traces who changed what through the audit timeline.
 
 ### Source of truth
 
 - The surfaces, their path segments, and their workspaces are declared in `features/source-observations/ui/admin-control-plane/information-architecture.ts` as `CATALOG_CONTROL_PLANE_ROUTE_SURFACES`. Each workspace also carries a `routeSurface` field, and the IA↔render parity test (`information-architecture.test.ts`) asserts that every workspace belongs to exactly one surface and that every surface workspace is renderable.
-- The routes are registered as thin composition roots in the catalog deployable contribution (`context.json`, `deployableContributions[].routes`) with route IDs `integrations`, `integrations-providers`, `integrations-governance`, `integrations-health`. The admin-web deployable resolves them through the established `resolveWebHostRouteConfigRecords` → `toRouteConfigEntry` framework (React Router v7), the same path each sibling catalog admin route uses.
+- The routes are registered as thin composition roots in the catalog deployable contribution (`context.json`, `deployableContributions[].routes`) with route IDs `integrations`, `integrations-governance`, `integrations-health`, and `provider-detail` (the v2 page, `providers/:providerKey`). The admin-web deployable resolves them through the established `resolveWebHostRouteConfigRecords` → `toRouteConfigEntry` framework (React Router v7), the same path each sibling catalog admin route uses.
 - The route files (`routes/admin/integrations*.tsx`) are thin roots: they re-export the loader/action and render `CatalogIntegrationsSurfaceRouteView` with their surface key. The shared shell lives in `features/source-observations/ui/workbench-shell.tsx`; the surface body composition lives in `integrations-surface-page.tsx`; the render registry lives in `workbench-workspace-renderers.tsx`.
 
 ### Section state vs route path

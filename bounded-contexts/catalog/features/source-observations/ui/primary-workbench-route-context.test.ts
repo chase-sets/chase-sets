@@ -184,7 +184,11 @@ describe("Catalog primary workbench route context", () => {
     expect(triageHref.searchParams.get("section")).toBe("triage");
 
     // The first workspace of a surface is its default and needs no ?section=.
-    const profileHref = new URL(
+    // profile-authoring/validation-readiness/lifecycle-recovery are retired
+    // (#3832 — folded into the v2 Provider detail page), so this now uses
+    // conflict-resolution, the first workspace remaining on the governance
+    // surface.
+    const conflictHref = new URL(
       catalogPrimaryWorkbenchHref(
         {
           section: "import-to-promotion",
@@ -200,12 +204,12 @@ describe("Catalog primary workbench route context", () => {
           promotionPreviewId: null,
           returnPath: null,
         },
-        "profile-authoring",
+        "conflict-resolution",
       ),
       "https://admin.example",
     );
-    expect(profileHref.pathname).toBe("/catalog/integrations/providers");
-    expect(profileHref.searchParams.has("section")).toBe(false);
+    expect(conflictHref.pathname).toBe("/catalog/integrations/governance");
+    expect(conflictHref.searchParams.has("section")).toBe(false);
   });
 
   it("preserves scope names that cannot be reconstructed from importScope", () => {
@@ -258,9 +262,6 @@ describe("Catalog primary workbench route context", () => {
 
   it("derives the active workspace from the surface route path when no section param is present", () => {
     expect(
-      parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/providers").section,
-    ).toBe("profile-authoring");
-    expect(
       parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/governance").section,
     ).toBe("lifecycle-recovery");
     expect(parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/health").section).toBe(
@@ -269,11 +270,22 @@ describe("Catalog primary workbench route context", () => {
     expect(parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations").section).toBe(
       "import-to-promotion",
     );
-    // ?section= still names the precise workspace within a surface (action redirects).
+    // The retired /catalog/integrations/providers path (#3832 — profile
+    // authoring, validation readiness, and lifecycle recovery moved to the v2
+    // Provider detail page) is no longer a known surface path: it safely falls
+    // back to the daily default instead of resolving a stale workspace.
     expect(
-      parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/providers?section=readiness")
-        .section,
-    ).toBe("validation-readiness");
+      parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/providers").section,
+    ).toBe("import-to-promotion");
+    // An unknown ?section= value falls back the same way. "validation-readiness"
+    // is the retired workspace key itself (not "readiness", which remains a
+    // distinct, still-valid primary daily section unrelated to the retired
+    // ?section= workspace router).
+    expect(
+      parseCatalogPrimaryWorkbenchRouteContext(
+        "https://admin.example/catalog/integrations?section=validation-readiness",
+      ).section,
+    ).toBe("import-to-promotion");
   });
 
   it("round-trips the durable review pager cursor (reviewOffset/reviewLimit) through the URL", () => {

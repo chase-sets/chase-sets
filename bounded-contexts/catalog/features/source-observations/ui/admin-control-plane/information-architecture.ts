@@ -24,9 +24,6 @@ export type CatalogControlPlaneContextKey =
 export type CatalogControlPlaneWorkspaceKey =
   | "import-to-promotion"
   | "health-triage"
-  | "profile-authoring"
-  | "validation-readiness"
-  | "lifecycle-recovery"
   | "governance-controls"
   | "audit-evidence";
 
@@ -36,7 +33,14 @@ export type CatalogControlPlaneNavigationGroupKey = "primary" | "unblock" | "gov
 // The route path is the screen router; the workspace key (carried as ?section=)
 // only identifies the precise workspace within a multi-workspace surface for
 // active-nav highlighting and detour telemetry.
-export type CatalogControlPlaneRouteSurfaceKey = "daily" | "providers" | "governance" | "health";
+//
+// "providers" is retired here: profile authoring, validation readiness,
+// and lifecycle recovery are no longer stacked ?section= workspaces on
+// /admin/integrations/providers. They are one v2 Provider detail page
+// (/catalog/providers/:providerKey, see information-architecture-v2.ts) with a
+// linear draft -> validate -> activate flow and version-history row actions —
+// not a detour surface this deprecated IA routes to.
+export type CatalogControlPlaneRouteSurfaceKey = "daily" | "governance" | "health";
 
 export type CatalogControlPlaneWorkspace = Readonly<{
   key: CatalogControlPlaneWorkspaceKey;
@@ -128,66 +132,6 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     linkBackContextKeys: ["section", "providerKey", "unitKey", "importScope", "jobId", "returnPath"],
   },
   {
-    key: "profile-authoring",
-    routeSegment: "profile-work",
-    routeSurface: "providers",
-    accessibleName: "Profile authoring",
-    group: "unblock",
-    keyboardOrder: 30,
-    operatorJob: "Inspect, draft, and edit provider profile sections that shape Source Observations.",
-    startsAt: "Selected provider profile version or missing-profile blocker.",
-    completesAt: "Saved draft, active profile snapshot, or section-level diagnostic result.",
-    evidenceScope: ["Profile overview", "Section diagnostics", "Dirty state", "Save outcome"],
-    primaryPathRole: "supporting-detour",
-    linkBackContextKeys: ["section", "providerKey", "unitKey", "profileVersion", "returnPath"],
-  },
-  {
-    key: "validation-readiness",
-    routeSegment: "readiness",
-    routeSurface: "providers",
-    accessibleName: "Validation readiness",
-    group: "unblock",
-    keyboardOrder: 40,
-    operatorJob:
-      "Prove profile changes with fixtures, dry runs, semantic compare, activation readiness, and provider credential and transport availability.",
-    startsAt: "Fixture, dry-run, compare, activation, credential, or provider transport blocker.",
-    completesAt: "Validation and provider readiness evidence attached to the blocked import or promotion action.",
-    evidenceScope: [
-      "Fixture result",
-      "Dry-run facts",
-      "Semantic diff",
-      "Activation readiness",
-      "Provider credential state",
-      "Provider transport limits",
-    ],
-    primaryPathRole: "supporting-detour",
-    linkBackContextKeys: ["section", "providerKey", "unitKey", "importScope", "profileVersion", "returnPath"],
-  },
-  {
-    key: "lifecycle-recovery",
-    routeSegment: "lifecycle",
-    routeSurface: "governance",
-    accessibleName: "Lifecycle recovery",
-    group: "govern",
-    keyboardOrder: 70,
-    operatorJob: "Rollback, retire, deprecate, replay, or reapply profile behavior that affects the primary path.",
-    startsAt: "Bad activation, stale preview, profile lifecycle, or reapply blocker.",
-    completesAt: "Recovery result with affected observations, jobs, profile versions, and audit evidence.",
-    evidenceScope: ["Affected references", "Replay impact", "Reapply impact", "Rollback or retirement plan"],
-    primaryPathRole: "supporting-detour",
-    linkBackContextKeys: [
-      "section",
-      "providerKey",
-      "unitKey",
-      "importScope",
-      "profileVersion",
-      "sourceObservationFilters",
-      "jobId",
-      "promotionPreviewId",
-      "returnPath",
-    ],
-  },
-  {
     key: "governance-controls",
     routeSegment: "controls",
     routeSurface: "governance",
@@ -237,12 +181,12 @@ export const CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS = [
   {
     key: "unblock",
     accessibleName: "Unblock provider data",
-    items: ["health-triage", "profile-authoring", "validation-readiness"],
+    items: ["health-triage"],
   },
   {
     key: "govern",
     accessibleName: "Govern and recover",
-    items: ["lifecycle-recovery", "governance-controls"],
+    items: ["governance-controls"],
   },
   {
     key: "verify",
@@ -251,9 +195,11 @@ export const CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS = [
   },
 ] as const satisfies readonly CatalogControlPlaneNavigationGroup[];
 
-// The four audience surfaces, each a real nested route under /admin/integrations.
-// The daily surface renders only the primary import-to-promotion job; the other
-// three render their grouped supporting workspaces stacked. Listed in nav order.
+// The three remaining audience surfaces, each a real nested route under
+// /admin/integrations. The daily surface renders only the primary
+// import-to-promotion job; the other two render their grouped supporting
+// workspaces stacked. Listed in nav order. "providers" is retired: see
+// the CatalogControlPlaneRouteSurfaceKey comment above.
 export const CATALOG_CONTROL_PLANE_ROUTE_SURFACES = [
   {
     key: "daily",
@@ -262,16 +208,10 @@ export const CATALOG_CONTROL_PLANE_ROUTE_SURFACES = [
     workspaces: ["import-to-promotion"],
   },
   {
-    key: "providers",
-    pathSegment: "providers",
-    accessibleName: "Provider profiles and readiness",
-    workspaces: ["profile-authoring", "validation-readiness"],
-  },
-  {
     key: "governance",
     pathSegment: "governance",
     accessibleName: "Govern and recover",
-    workspaces: ["lifecycle-recovery", "governance-controls"],
+    workspaces: ["governance-controls"],
   },
   {
     key: "health",
@@ -303,7 +243,7 @@ export const CATALOG_CONTROL_PLANE_WORKFLOW_MAP = [
     startsIn: "import-to-promotion",
     completesIn: "import-to-promotion",
     requiredEvidence: ["Import readiness", "Job progress", "Source Observation review", "Promotion preview"],
-    blockedBy: ["health-triage", "profile-authoring", "validation-readiness"],
+    blockedBy: ["health-triage"],
   },
   {
     workflow: "Health triage",
@@ -313,32 +253,18 @@ export const CATALOG_CONTROL_PLANE_WORKFLOW_MAP = [
     blockedBy: ["governance-controls"],
   },
   {
-    workflow: "Profile overview, drafting, and section editing",
-    startsIn: "profile-authoring",
-    completesIn: "import-to-promotion",
-    requiredEvidence: ["Profile version", "Section diagnostics", "Save outcome"],
-    blockedBy: ["validation-readiness", "governance-controls"],
-  },
-  {
-    workflow: "Validation, dry run, compare, and activation readiness",
-    startsIn: "validation-readiness",
-    completesIn: "import-to-promotion",
-    requiredEvidence: ["Fixture result", "Dry-run evidence", "Semantic compare", "Activation readiness"],
-    blockedBy: ["profile-authoring", "governance-controls"],
-  },
-  {
     workflow: "Imports, jobs, Source Observation review, promotion, reapply, replay",
     startsIn: "import-to-promotion",
     completesIn: "import-to-promotion",
     requiredEvidence: ["Durable job state", "Observation evidence", "Promotion command plan", "Recovery result"],
-    blockedBy: ["lifecycle-recovery", "governance-controls"],
+    blockedBy: ["governance-controls"],
   },
   {
     workflow: "Lifecycle, rollout, RBAC, observability, and audit evidence",
     startsIn: "governance-controls",
     completesIn: "audit-evidence",
     requiredEvidence: ["Permission result", "Rollout mode", "Operational metric", "Audit record"],
-    blockedBy: ["lifecycle-recovery"],
+    blockedBy: [],
   },
 ] as const satisfies readonly CatalogControlPlaneWorkflowMapEntry[];
 

@@ -16,6 +16,7 @@ import {
   catalogPrimaryWorkbenchReturnPath,
   catalogPrimaryWorkbenchSupportingHref,
 } from "./primary-workbench-route-context";
+import { catalogProviderDetailHref } from "./admin-control-plane/provider-detail/provider-detail-links";
 import {
   actionStateForBlockers,
   arrayValue,
@@ -679,7 +680,9 @@ function validationActivationDecisionFor(input: {
     saveEvidenceBlockers: saveEvidenceBlockerList,
     activationCommandKey: "activate-provider-profile",
     evidenceCommandKey: "update-provider-profile-section",
-    workspaceHref: catalogPrimaryWorkbenchSupportingHref(input.routeContext, "validation-readiness"),
+    workspaceHref: catalogProviderDetailHref(profile?.providerKey ?? input.routeContext.providerKey ?? null, {
+      profileVersion: profile?.profileVersion ?? input.routeContext.profileVersion,
+    }),
     providerKey: profile?.providerKey ?? input.routeContext.providerKey ?? null,
     profileVersion: profile?.profileVersion ?? input.routeContext.profileVersion ?? null,
     lifecycle: profile?.lifecycle ?? null,

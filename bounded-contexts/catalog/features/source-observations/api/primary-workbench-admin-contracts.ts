@@ -2973,10 +2973,16 @@ function assertPrimaryWorkbenchImportJobs(value: CatalogPrimaryWorkbenchReadMode
 // surface, so it never changes which route a link targets.
 const safePrimaryWorkbenchSurfacePaths = new Set<string>([
   "/catalog/integrations",
-  "/catalog/integrations/providers",
   "/catalog/integrations/governance",
   "/catalog/integrations/health",
+  // The v2 Provider detail page's own bare fallback when no provider is
+  // selected (catalogProviderDetailHref(null)).
+  "/catalog/providers",
 ]);
+// The v2 Provider detail page (/catalog/providers/:providerKey) is a
+// real path-param route, not a fixed workspace path, so it is recognized by
+// prefix rather than exact match.
+const safePrimaryWorkbenchDynamicSurfacePathPrefix = "/catalog/providers/";
 
 function isSafePrimaryWorkbenchReturnPath(path: string): boolean {
   if (path.startsWith("//")) {
@@ -2984,7 +2990,14 @@ function isSafePrimaryWorkbenchReturnPath(path: string): boolean {
   }
   try {
     const parsedUrl = new URL(path, "https://admin.example");
-    return parsedUrl.origin === "https://admin.example" && safePrimaryWorkbenchSurfacePaths.has(parsedUrl.pathname);
+    if (parsedUrl.origin !== "https://admin.example") {
+      return false;
+    }
+    return (
+      safePrimaryWorkbenchSurfacePaths.has(parsedUrl.pathname) ||
+      (parsedUrl.pathname.startsWith(safePrimaryWorkbenchDynamicSurfacePathPrefix) &&
+        parsedUrl.pathname.length > safePrimaryWorkbenchDynamicSurfacePathPrefix.length)
+    );
   } catch {
     return false;
   }

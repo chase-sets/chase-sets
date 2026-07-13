@@ -12,9 +12,6 @@ import { CatalogIntegrationAuditEvidenceWorkspace } from "./admin-control-plane/
 import { CatalogControlPlaneSettingsPage } from "./admin-control-plane/settings/catalog-control-plane-settings-page";
 import { CatalogIntegrationHealthTriageWorkspace } from "./admin-control-plane/health/integration-health-dashboard";
 import { CatalogIntegrationImportToPromotionWorkspace } from "./admin-control-plane/import-to-promotion/import-to-promotion-workspace";
-import { CatalogIntegrationLifecycleRecoveryWorkspace } from "./admin-control-plane/lifecycle/lifecycle-recovery-workspace";
-import { CatalogIntegrationProfileAuthoringWorkspace } from "./admin-control-plane/profiles/profile-authoring-workspace";
-import { CatalogIntegrationValidationReadinessWorkspace } from "./admin-control-plane/validation/validation-readiness-workspace";
 
 // Optional slots a route surface may supply to the workspaces it renders. Slots
 // are rendered nodes the composition root owns (e.g. the alias-review
@@ -51,9 +48,6 @@ export const CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS: Readonly<
     />
   ),
   "health-triage": (readModel) => <CatalogIntegrationHealthTriageWorkspace readModel={readModel} />,
-  "profile-authoring": (readModel) => <CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />,
-  "validation-readiness": (readModel) => <CatalogIntegrationValidationReadinessWorkspace readModel={readModel} />,
-  "lifecycle-recovery": (readModel) => <CatalogIntegrationLifecycleRecoveryWorkspace readModel={readModel} />,
   "governance-controls": (readModel) => <CatalogControlPlaneSettingsPage readModel={readModel} />,
   "audit-evidence": (readModel) => <CatalogIntegrationAuditEvidenceWorkspace readModel={readModel} />,
 };

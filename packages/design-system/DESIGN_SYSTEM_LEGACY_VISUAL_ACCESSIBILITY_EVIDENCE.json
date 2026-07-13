@@ -1,7 +1,7 @@
 {
   "schemaVersion": "design-system-legacy-visual-accessibility-evidence/v2",
   "milestone": 12,
-  "checkedAt": "2026-07-13T09:29:11.636Z",
+  "checkedAt": "2026-07-13T15:21:39.967Z",
   "generatedBy": "pnpm run ops design-system:legacy-evidence --write",
   "retainedArtifact": "packages/design-system/DESIGN_SYSTEM_LEGACY_VISUAL_ACCESSIBILITY_EVIDENCE.json",
   "summary": {
@@ -48,7 +48,12 @@
         "<table",
         "<th>"
       ],
-      "forbiddenSignals": ["UiTable", "UiButton", "<button", "<input key={shipmentId} type=\"hidden\""],
+      "forbiddenSignals": [
+        "UiTable",
+        "UiButton",
+        "<button",
+        "<input key={shipmentId} type=\"hidden\""
+      ],
       "discoverySignals": [
         "@media print",
         "PackingSlipPrintDocument",
@@ -61,7 +66,9 @@
         "<th>"
       ],
       "discoverySignalFiles": {
-        "@media print": ["packages/design-system/src/components/print/packing-slip.tsx"],
+        "@media print": [
+          "packages/design-system/src/components/print/packing-slip.tsx"
+        ],
         "PackingSlipPrintDocument": [
           "packages/design-system/src/components/print/index.ts",
           "packages/design-system/src/components/print/packing-slip.tsx"
@@ -70,15 +77,29 @@
           "packages/design-system/src/components/print/index.ts",
           "packages/design-system/src/components/print/packing-slip.tsx"
         ],
-        "<Button": ["packages/design-system/src/components/print/packing-slip.tsx"],
-        "<HiddenInput": ["packages/design-system/src/components/print/packing-slip.tsx"],
-        "<NativeSelect": ["packages/design-system/src/components/print/packing-slip.tsx"],
-        "<article": ["packages/design-system/src/components/print/packing-slip.tsx"],
-        "<table": ["packages/design-system/src/components/print/packing-slip.tsx"],
-        "<th>": ["packages/design-system/src/components/print/packing-slip.tsx"]
+        "<Button": [
+          "packages/design-system/src/components/print/packing-slip.tsx"
+        ],
+        "<HiddenInput": [
+          "packages/design-system/src/components/print/packing-slip.tsx"
+        ],
+        "<NativeSelect": [
+          "packages/design-system/src/components/print/packing-slip.tsx"
+        ],
+        "<article": [
+          "packages/design-system/src/components/print/packing-slip.tsx"
+        ],
+        "<table": [
+          "packages/design-system/src/components/print/packing-slip.tsx"
+        ],
+        "<th>": [
+          "packages/design-system/src/components/print/packing-slip.tsx"
+        ]
       },
       "requiredSignalFiles": {
-        "@media print": ["packages/design-system/src/components/print/packing-slip.tsx"],
+        "@media print": [
+          "packages/design-system/src/components/print/packing-slip.tsx"
+        ],
         "PackingSlipPrintDocument": [
           "packages/design-system/src/components/print/index.ts",
           "packages/design-system/src/components/print/packing-slip.tsx"
@@ -87,12 +108,24 @@
           "packages/design-system/src/components/print/index.ts",
           "packages/design-system/src/components/print/packing-slip.tsx"
         ],
-        "<Button": ["packages/design-system/src/components/print/packing-slip.tsx"],
-        "<HiddenInput": ["packages/design-system/src/components/print/packing-slip.tsx"],
-        "<NativeSelect": ["packages/design-system/src/components/print/packing-slip.tsx"],
-        "<article": ["packages/design-system/src/components/print/packing-slip.tsx"],
-        "<table": ["packages/design-system/src/components/print/packing-slip.tsx"],
-        "<th>": ["packages/design-system/src/components/print/packing-slip.tsx"]
+        "<Button": [
+          "packages/design-system/src/components/print/packing-slip.tsx"
+        ],
+        "<HiddenInput": [
+          "packages/design-system/src/components/print/packing-slip.tsx"
+        ],
+        "<NativeSelect": [
+          "packages/design-system/src/components/print/packing-slip.tsx"
+        ],
+        "<article": [
+          "packages/design-system/src/components/print/packing-slip.tsx"
+        ],
+        "<table": [
+          "packages/design-system/src/components/print/packing-slip.tsx"
+        ],
+        "<th>": [
+          "packages/design-system/src/components/print/packing-slip.tsx"
+        ]
       },
       "forbiddenSignalFiles": {
         "UiTable": [],
@@ -110,11 +143,27 @@
         "bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx",
         "bounded-contexts/platform-operations/features/support-requests/ui/support-request-list-page.tsx"
       ],
-      "visualEvidence": ["Support request lists render through DataTable instead of legacy responsive table markup."],
-      "accessibilityEvidence": ["Table headers and row identity are owned by DataTable column metadata and getRowId."],
-      "requiredSignals": ["DataTable", "getRowId", "columns"],
-      "forbiddenSignals": ["UiTable", "<table", "className="],
-      "discoverySignals": ["DataTable", "getRowId", "columns"],
+      "visualEvidence": [
+        "Support request lists render through DataTable instead of legacy responsive table markup."
+      ],
+      "accessibilityEvidence": [
+        "Table headers and row identity are owned by DataTable column metadata and getRowId."
+      ],
+      "requiredSignals": [
+        "DataTable",
+        "getRowId",
+        "columns"
+      ],
+      "forbiddenSignals": [
+        "UiTable",
+        "<table",
+        "className="
+      ],
+      "discoverySignals": [
+        "DataTable",
+        "getRowId",
+        "columns"
+      ],
       "discoverySignalFiles": {
         "DataTable": [
           "bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx",
@@ -157,6 +206,7 @@
       "discoveredFiles": [
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/alias-review/alias-review-workspace.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx",
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/source-observation-review/source-observation-review-module.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"
       ],
@@ -166,7 +216,11 @@
       "accessibilityEvidence": [
         "Workflow navigation and workspace selection preserve primary-path context through design-system shell components."
       ],
-      "requiredSignals": ["DenseAdminWorkbench", "DenseAdminWorkbenchLayout", "BulkActionSurface"],
+      "requiredSignals": [
+        "DenseAdminWorkbench",
+        "DenseAdminWorkbenchLayout",
+        "BulkActionSurface"
+      ],
       "forbiddenSignals": [
         "className=",
         "<div",
@@ -182,10 +236,15 @@
         "<li",
         "<Form"
       ],
-      "discoverySignals": ["DenseAdminWorkbench", "DenseAdminWorkbenchLayout", "BulkActionSurface"],
+      "discoverySignals": [
+        "DenseAdminWorkbench",
+        "DenseAdminWorkbenchLayout",
+        "BulkActionSurface"
+      ],
       "discoverySignalFiles": {
         "DenseAdminWorkbench": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"
         ],
         "DenseAdminWorkbenchLayout": [
@@ -200,6 +259,7 @@
       "requiredSignalFiles": {
         "DenseAdminWorkbench": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"
         ],
         "DenseAdminWorkbenchLayout": [
@@ -242,7 +302,10 @@
       "accessibilityEvidence": [
         "The ordered stage flow exposes step status and one-expanded-at-a-time disclosure structure via PageStepper and Accordion."
       ],
-      "requiredSignals": ["PageStepper", "Accordion"],
+      "requiredSignals": [
+        "PageStepper",
+        "Accordion"
+      ],
       "forbiddenSignals": [
         "className=",
         "<div",
@@ -258,7 +321,10 @@
         "<li",
         "<Form"
       ],
-      "discoverySignals": ["PageStepper", "Accordion"],
+      "discoverySignals": [
+        "PageStepper",
+        "Accordion"
+      ],
       "discoverySignalFiles": {
         "PageStepper": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/primary-steps-module.tsx"
@@ -306,8 +372,13 @@
       "visualEvidence": [
         "Workbench command actions render through shared WorkbenchForm controls with hidden command metadata."
       ],
-      "accessibilityEvidence": ["Command forms carry hidden inputs and design-system buttons with accessible labels."],
-      "requiredSignals": ["WorkbenchForm", "HiddenInput"],
+      "accessibilityEvidence": [
+        "Command forms carry hidden inputs and design-system buttons with accessible labels."
+      ],
+      "requiredSignals": [
+        "WorkbenchForm",
+        "HiddenInput"
+      ],
       "forbiddenSignals": [
         "className=",
         "<div",
@@ -323,7 +394,10 @@
         "<li",
         "<Form"
       ],
-      "discoverySignals": ["WorkbenchForm", "HiddenInput"],
+      "discoverySignals": [
+        "WorkbenchForm",
+        "HiddenInput"
+      ],
       "discoverySignalFiles": {
         "WorkbenchForm": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
@@ -380,9 +454,15 @@
       "discoveredFiles": [
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/workbench-formatting.tsx"
       ],
-      "visualEvidence": ["Blocker and status presentation uses the shared StatusReasonList primitive."],
-      "accessibilityEvidence": ["Status reasons render as structured lists owned by the design system."],
-      "requiredSignals": ["StatusReasonList"],
+      "visualEvidence": [
+        "Blocker and status presentation uses the shared StatusReasonList primitive."
+      ],
+      "accessibilityEvidence": [
+        "Status reasons render as structured lists owned by the design system."
+      ],
+      "requiredSignals": [
+        "StatusReasonList"
+      ],
       "forbiddenSignals": [
         "className=",
         "<div",
@@ -398,7 +478,9 @@
         "<li",
         "<Form"
       ],
-      "discoverySignals": ["StatusReasonList"],
+      "discoverySignals": [
+        "StatusReasonList"
+      ],
       "discoverySignalFiles": {
         "StatusReasonList": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/workbench-formatting.tsx"
@@ -439,7 +521,11 @@
       "accessibilityEvidence": [
         "Review tables and evidence drawers expose accessible names, including explicit aria-label usage."
       ],
-      "requiredSignals": ["DataTable", "SideSheet", "aria-label"],
+      "requiredSignals": [
+        "DataTable",
+        "SideSheet",
+        "aria-label"
+      ],
       "forbiddenSignals": [
         "className=",
         "<div",
@@ -455,7 +541,11 @@
         "<li",
         "<Form"
       ],
-      "discoverySignals": ["DataTable", "SideSheet", "aria-label"],
+      "discoverySignals": [
+        "DataTable",
+        "SideSheet",
+        "aria-label"
+      ],
       "discoverySignalFiles": {
         "DataTable": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/source-observation-review/source-observation-review-module.tsx"
@@ -500,7 +590,6 @@
       "owner": "Catalog",
       "scope": "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles",
       "discoveredFiles": [
-        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-hidden-inputs.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-import-scope-details.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-mapping-row-details.tsx",
@@ -562,11 +651,9 @@
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx"
         ],
         "WorkbenchForm": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx"
         ],
         "TextInput": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-field-control.tsx"
         ],
         "Textarea": [
@@ -579,7 +666,6 @@
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-field-control.tsx"
         ],
         "HiddenInput": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-hidden-inputs.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx"
         ]
@@ -596,11 +682,9 @@
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx"
         ],
         "WorkbenchForm": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx"
         ],
         "TextInput": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-field-control.tsx"
         ],
         "Textarea": [
@@ -613,7 +697,6 @@
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-field-control.tsx"
         ],
         "HiddenInput": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-hidden-inputs.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx"
         ]
@@ -750,7 +833,12 @@
       "accessibilityEvidence": [
         "Support workflow cells no longer recreate layout markup; row identity and status remain in DataTable and Badge metadata."
       ],
-      "requiredSignals": ["WorkbenchDataCell", "WorkbenchStack", "BadgeCluster", "DataTable"],
+      "requiredSignals": [
+        "WorkbenchDataCell",
+        "WorkbenchStack",
+        "BadgeCluster",
+        "DataTable"
+      ],
       "forbiddenSignals": [
         "className=",
         "<div",
@@ -766,7 +854,12 @@
         "<li",
         "<Form"
       ],
-      "discoverySignals": ["WorkbenchDataCell", "WorkbenchStack", "BadgeCluster", "DataTable"],
+      "discoverySignals": [
+        "WorkbenchDataCell",
+        "WorkbenchStack",
+        "BadgeCluster",
+        "DataTable"
+      ],
       "discoverySignalFiles": {
         "WorkbenchDataCell": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/health/integration-health-dashboard.tsx"
@@ -825,7 +918,12 @@
       "accessibilityEvidence": [
         "Evidence links use LinkText and blockers use StatusReasonList so link and status semantics stay centralized."
       ],
-      "requiredSignals": ["LinkText", "WorkbenchLinkList", "WorkbenchValueList", "StatusReasonList"],
+      "requiredSignals": [
+        "LinkText",
+        "WorkbenchLinkList",
+        "WorkbenchValueList",
+        "StatusReasonList"
+      ],
       "forbiddenSignals": [
         "className=",
         "<div",
@@ -841,7 +939,12 @@
         "<li",
         "<Form"
       ],
-      "discoverySignals": ["LinkText", "WorkbenchLinkList", "WorkbenchValueList", "StatusReasonList"],
+      "discoverySignals": [
+        "LinkText",
+        "WorkbenchLinkList",
+        "WorkbenchValueList",
+        "StatusReasonList"
+      ],
       "discoverySignalFiles": {
         "LinkText": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/settings/catalog-control-plane-settings-page.tsx"
@@ -907,7 +1010,12 @@
       "accessibilityEvidence": [
         "Conflict evidence, resolution choices, and reasons use RadioGroup/Textarea form primitives and StatusReasonList blockers."
       ],
-      "requiredSignals": ["WorkbenchGrid", "WorkbenchDataCell", "WorkbenchText", "StatusReasonList"],
+      "requiredSignals": [
+        "WorkbenchGrid",
+        "WorkbenchDataCell",
+        "WorkbenchText",
+        "StatusReasonList"
+      ],
       "forbiddenSignals": [
         "className=",
         "<div",
@@ -923,7 +1031,12 @@
         "<li",
         "<Form"
       ],
-      "discoverySignals": ["WorkbenchGrid", "WorkbenchDataCell", "WorkbenchText", "StatusReasonList"],
+      "discoverySignals": [
+        "WorkbenchGrid",
+        "WorkbenchDataCell",
+        "WorkbenchText",
+        "StatusReasonList"
+      ],
       "discoverySignalFiles": {
         "WorkbenchGrid": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
@@ -992,19 +1105,25 @@
       "status": "passed"
     },
     {
-      "id": "catalog-lifecycle-workspace-patterns",
+      "id": "catalog-provider-detail-lifecycle-patterns",
       "owner": "Catalog",
-      "scope": "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle",
+      "scope": "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail",
       "discoveredFiles": [
-        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
+        "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
       ],
       "visualEvidence": [
-        "Lifecycle recovery uses workbench grids, workbench forms, hidden inputs, evidence string lists, and shared blocker reasons."
+        "The Provider detail page's version history uses workbench grids, workbench forms, hidden inputs, evidence string lists, and shared blocker reasons for its row-level lifecycle actions."
       ],
       "accessibilityEvidence": [
         "Lifecycle command confirmation and hidden command metadata are owned by design-system form primitives."
       ],
-      "requiredSignals": ["WorkbenchForm", "HiddenInput", "EvidenceStringList", "StatusReasonList"],
+      "requiredSignals": [
+        "WorkbenchForm",
+        "HiddenInput",
+        "EvidenceStringList",
+        "StatusReasonList"
+      ],
       "forbiddenSignals": [
         "className=",
         "<div",
@@ -1020,33 +1139,42 @@
         "<li",
         "<Form"
       ],
-      "discoverySignals": ["WorkbenchForm", "HiddenInput", "EvidenceStringList", "StatusReasonList"],
+      "discoverySignals": [
+        "WorkbenchForm",
+        "HiddenInput",
+        "EvidenceStringList",
+        "StatusReasonList"
+      ],
       "discoverySignalFiles": {
         "WorkbenchForm": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ],
         "HiddenInput": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ],
         "EvidenceStringList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ],
         "StatusReasonList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ]
       },
       "requiredSignalFiles": {
         "WorkbenchForm": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ],
         "HiddenInput": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ],
         "EvidenceStringList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ],
         "StatusReasonList": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx"
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/provider-version-history.tsx"
         ]
       },
       "forbiddenSignalFiles": {
@@ -1080,7 +1208,12 @@
       "accessibilityEvidence": [
         "Evidence and proof links are centralized through LinkText and WorkbenchLinkList rather than raw anchors."
       ],
-      "requiredSignals": ["LinkText", "WorkbenchLinkList", "WorkbenchDataCell", "WorkbenchStack"],
+      "requiredSignals": [
+        "LinkText",
+        "WorkbenchLinkList",
+        "WorkbenchDataCell",
+        "WorkbenchStack"
+      ],
       "forbiddenSignals": [
         "className=",
         "<div",
@@ -1096,7 +1229,12 @@
         "<li",
         "<Form"
       ],
-      "discoverySignals": ["LinkText", "WorkbenchLinkList", "WorkbenchDataCell", "WorkbenchStack"],
+      "discoverySignals": [
+        "LinkText",
+        "WorkbenchLinkList",
+        "WorkbenchDataCell",
+        "WorkbenchStack"
+      ],
       "discoverySignalFiles": {
         "LinkText": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
@@ -1162,31 +1300,64 @@
       "visualEvidence": [
         "Listing and offer rows use design-system comparison-list primitives for responsive price/account/product/action layout."
       ],
-      "accessibilityEvidence": ["Selectable listing/offer rows and buttons carry aria-label and aria-pressed state."],
-      "requiredSignals": ["ComparisonList", "ComparisonListHeader", "ComparisonListRow", "aria-label", "aria-pressed"],
-      "forbiddenSignals": ["className={cx(", "grid-cols-[minmax(5.5rem"],
-      "discoverySignals": ["ComparisonList", "ComparisonListHeader", "ComparisonListRow", "aria-label", "aria-pressed"],
+      "accessibilityEvidence": [
+        "Selectable listing/offer rows and buttons carry aria-label and aria-pressed state."
+      ],
+      "requiredSignals": [
+        "ComparisonList",
+        "ComparisonListHeader",
+        "ComparisonListRow",
+        "aria-label",
+        "aria-pressed"
+      ],
+      "forbiddenSignals": [
+        "className={cx(",
+        "grid-cols-[minmax(5.5rem"
+      ],
+      "discoverySignals": [
+        "ComparisonList",
+        "ComparisonListHeader",
+        "ComparisonListRow",
+        "aria-label",
+        "aria-pressed"
+      ],
       "discoverySignalFiles": {
-        "ComparisonList": ["bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"],
-        "ComparisonListHeader": ["bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"],
-        "ComparisonListRow": ["bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"],
+        "ComparisonList": [
+          "bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"
+        ],
+        "ComparisonListHeader": [
+          "bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"
+        ],
+        "ComparisonListRow": [
+          "bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"
+        ],
         "aria-label": [
           "bounded-contexts/discovery/features/item-detail/ui/commerce/commerce-primitives.tsx",
           "bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx",
           "bounded-contexts/discovery/features/item-detail/ui/item-detail-references.tsx"
         ],
-        "aria-pressed": ["bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"]
+        "aria-pressed": [
+          "bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"
+        ]
       },
       "requiredSignalFiles": {
-        "ComparisonList": ["bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"],
-        "ComparisonListHeader": ["bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"],
-        "ComparisonListRow": ["bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"],
+        "ComparisonList": [
+          "bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"
+        ],
+        "ComparisonListHeader": [
+          "bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"
+        ],
+        "ComparisonListRow": [
+          "bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"
+        ],
         "aria-label": [
           "bounded-contexts/discovery/features/item-detail/ui/commerce/commerce-primitives.tsx",
           "bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx",
           "bounded-contexts/discovery/features/item-detail/ui/item-detail-references.tsx"
         ],
-        "aria-pressed": ["bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"]
+        "aria-pressed": [
+          "bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx"
+        ]
       },
       "forbiddenSignalFiles": {
         "className={cx(": [],
@@ -1198,7 +1369,9 @@
       "id": "public-waitlist-mobile-cta",
       "owner": "Public Presence",
       "scope": "bounded-contexts/public-presence/features/waitlist/ui",
-      "discoveredFiles": ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"],
+      "discoveredFiles": [
+        "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
+      ],
       "visualEvidence": [
         "Public waitlist uses design-system mobile sticky layout, discounted value, segmented control, and marketing sections."
       ],
@@ -1229,26 +1402,50 @@
         "HiddenInput"
       ],
       "discoverySignalFiles": {
-        "MobileStickyBar": ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"],
-        "MobileStickyInset": ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"],
-        "DiscountValue": ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"],
-        "SegmentedControl": ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"],
+        "MobileStickyBar": [
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
+        ],
+        "MobileStickyInset": [
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
+        ],
+        "DiscountValue": [
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
+        ],
+        "SegmentedControl": [
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
+        ],
         "aria-label={t(\"publicPresence.waitlist.heroIntent.label\")}": [
           "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
         ],
-        "HoneypotInput": ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"],
-        "HiddenInput": ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"]
+        "HoneypotInput": [
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
+        ],
+        "HiddenInput": [
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
+        ]
       },
       "requiredSignalFiles": {
-        "MobileStickyBar": ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"],
-        "MobileStickyInset": ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"],
-        "DiscountValue": ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"],
-        "SegmentedControl": ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"],
+        "MobileStickyBar": [
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
+        ],
+        "MobileStickyInset": [
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
+        ],
+        "DiscountValue": [
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
+        ],
+        "SegmentedControl": [
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
+        ],
         "aria-label={t(\"publicPresence.waitlist.heroIntent.label\")}": [
           "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
         ],
-        "HoneypotInput": ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"],
-        "HiddenInput": ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"]
+        "HoneypotInput": [
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
+        ],
+        "HiddenInput": [
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"
+        ]
       },
       "forbiddenSignalFiles": {
         "className=\"fixed inset-x-0 bottom-0": [],
@@ -1261,23 +1458,58 @@
       "id": "identity-account-badges",
       "owner": "Identity",
       "scope": "bounded-contexts/identity/features/accounts/ui",
-      "discoveredFiles": ["bounded-contexts/identity/features/accounts/ui/account-badges.tsx"],
-      "visualEvidence": ["Account badge icon sizing is owned by SVG attributes and Badge/Inline composition."],
-      "accessibilityEvidence": ["Compact badge labels use the shared VisuallyHidden primitive."],
-      "requiredSignals": ["VisuallyHidden", "height={16}", "width={16}", "aria-hidden=\"true\""],
-      "forbiddenSignals": ["className=\"h-4 w-4", "className=\"sr-only\""],
-      "discoverySignals": ["VisuallyHidden", "height={16}", "width={16}", "aria-hidden=\"true\""],
+      "discoveredFiles": [
+        "bounded-contexts/identity/features/accounts/ui/account-badges.tsx"
+      ],
+      "visualEvidence": [
+        "Account badge icon sizing is owned by SVG attributes and Badge/Inline composition."
+      ],
+      "accessibilityEvidence": [
+        "Compact badge labels use the shared VisuallyHidden primitive."
+      ],
+      "requiredSignals": [
+        "VisuallyHidden",
+        "height={16}",
+        "width={16}",
+        "aria-hidden=\"true\""
+      ],
+      "forbiddenSignals": [
+        "className=\"h-4 w-4",
+        "className=\"sr-only\""
+      ],
+      "discoverySignals": [
+        "VisuallyHidden",
+        "height={16}",
+        "width={16}",
+        "aria-hidden=\"true\""
+      ],
       "discoverySignalFiles": {
-        "VisuallyHidden": ["bounded-contexts/identity/features/accounts/ui/account-badges.tsx"],
-        "height={16}": ["bounded-contexts/identity/features/accounts/ui/account-badges.tsx"],
-        "width={16}": ["bounded-contexts/identity/features/accounts/ui/account-badges.tsx"],
-        "aria-hidden=\"true\"": ["bounded-contexts/identity/features/accounts/ui/account-badges.tsx"]
+        "VisuallyHidden": [
+          "bounded-contexts/identity/features/accounts/ui/account-badges.tsx"
+        ],
+        "height={16}": [
+          "bounded-contexts/identity/features/accounts/ui/account-badges.tsx"
+        ],
+        "width={16}": [
+          "bounded-contexts/identity/features/accounts/ui/account-badges.tsx"
+        ],
+        "aria-hidden=\"true\"": [
+          "bounded-contexts/identity/features/accounts/ui/account-badges.tsx"
+        ]
       },
       "requiredSignalFiles": {
-        "VisuallyHidden": ["bounded-contexts/identity/features/accounts/ui/account-badges.tsx"],
-        "height={16}": ["bounded-contexts/identity/features/accounts/ui/account-badges.tsx"],
-        "width={16}": ["bounded-contexts/identity/features/accounts/ui/account-badges.tsx"],
-        "aria-hidden=\"true\"": ["bounded-contexts/identity/features/accounts/ui/account-badges.tsx"]
+        "VisuallyHidden": [
+          "bounded-contexts/identity/features/accounts/ui/account-badges.tsx"
+        ],
+        "height={16}": [
+          "bounded-contexts/identity/features/accounts/ui/account-badges.tsx"
+        ],
+        "width={16}": [
+          "bounded-contexts/identity/features/accounts/ui/account-badges.tsx"
+        ],
+        "aria-hidden=\"true\"": [
+          "bounded-contexts/identity/features/accounts/ui/account-badges.tsx"
+        ]
       },
       "forbiddenSignalFiles": {
         "className=\"h-4 w-4": [],
@@ -1293,8 +1525,12 @@
         "packages/design-system/src/components/forms/index.ts",
         "packages/design-system/src/components/forms/validation-summary.tsx"
       ],
-      "visualEvidence": ["Validation message visuals are centralized under design-system form primitives."],
-      "accessibilityEvidence": ["ValidationSummary keeps role=alert, aria-live, and focusable error-link behavior."],
+      "visualEvidence": [
+        "Validation message visuals are centralized under design-system form primitives."
+      ],
+      "accessibilityEvidence": [
+        "ValidationSummary keeps role=alert, aria-live, and focusable error-link behavior."
+      ],
       "requiredSignals": [
         "ValidationMessageList",
         "role=\"alert\"",
@@ -1302,7 +1538,9 @@
         "focusValidationTarget"
       ],
       "forbiddenSignals": [],
-      "discoverySignals": ["ValidationMessageList"],
+      "discoverySignals": [
+        "ValidationMessageList"
+      ],
       "discoverySignalFiles": {
         "ValidationMessageList": [
           "packages/design-system/src/components/forms/index.ts",
@@ -1314,9 +1552,15 @@
           "packages/design-system/src/components/forms/index.ts",
           "packages/design-system/src/components/forms/validation-summary.tsx"
         ],
-        "role=\"alert\"": ["packages/design-system/src/components/forms/validation-summary.tsx"],
-        "aria-live=\"assertive\"": ["packages/design-system/src/components/forms/validation-summary.tsx"],
-        "focusValidationTarget": ["packages/design-system/src/components/forms/validation-summary.tsx"]
+        "role=\"alert\"": [
+          "packages/design-system/src/components/forms/validation-summary.tsx"
+        ],
+        "aria-live=\"assertive\"": [
+          "packages/design-system/src/components/forms/validation-summary.tsx"
+        ],
+        "focusValidationTarget": [
+          "packages/design-system/src/components/forms/validation-summary.tsx"
+        ]
       },
       "forbiddenSignalFiles": {},
       "status": "passed"
@@ -1329,7 +1573,9 @@
         "packages/design-system/src/components/forms/hidden-input.tsx",
         "packages/design-system/src/components/forms/index.ts"
       ],
-      "visualEvidence": ["Non-visible form metadata is centralized as a design-system form primitive."],
+      "visualEvidence": [
+        "Non-visible form metadata is centralized as a design-system form primitive."
+      ],
       "accessibilityEvidence": [
         "Honeypot inputs are aria-hidden, hidden, non-tabbable, and autocomplete off by default."
       ],
@@ -1341,8 +1587,14 @@
         "tabIndex = -1",
         "autoComplete = \"off\""
       ],
-      "forbiddenSignals": ["className=", "style="],
-      "discoverySignals": ["HiddenInput", "HoneypotInput"],
+      "forbiddenSignals": [
+        "className=",
+        "style="
+      ],
+      "discoverySignals": [
+        "HiddenInput",
+        "HoneypotInput"
+      ],
       "discoverySignalFiles": {
         "HiddenInput": [
           "packages/design-system/src/components/forms/hidden-input.tsx",
@@ -1362,13 +1614,19 @@
           "packages/design-system/src/components/forms/hidden-input.tsx",
           "packages/design-system/src/components/forms/index.ts"
         ],
-        "aria-hidden": ["packages/design-system/src/components/forms/hidden-input.tsx"],
+        "aria-hidden": [
+          "packages/design-system/src/components/forms/hidden-input.tsx"
+        ],
         "hidden": [
           "packages/design-system/src/components/forms/hidden-input.tsx",
           "packages/design-system/src/components/forms/index.ts"
         ],
-        "tabIndex = -1": ["packages/design-system/src/components/forms/hidden-input.tsx"],
-        "autoComplete = \"off\"": ["packages/design-system/src/components/forms/hidden-input.tsx"]
+        "tabIndex = -1": [
+          "packages/design-system/src/components/forms/hidden-input.tsx"
+        ],
+        "autoComplete = \"off\"": [
+          "packages/design-system/src/components/forms/hidden-input.tsx"
+        ]
       },
       "forbiddenSignalFiles": {
         "className=": [],
