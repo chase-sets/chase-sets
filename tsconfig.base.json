@@ -522,6 +522,9 @@
       "@chase-sets/payment-processing": [
         "./contracts/payment-processing/index.ts"
       ],
+      "@chase-sets/payment-processing/gateway-contract": [
+        "./contracts/payment-processing/gateway-contract.test-support.ts"
+      ],
       "@chase-sets/payment-processing/test-support": [
         "./contracts/payment-processing/test-support.ts"
       ],
