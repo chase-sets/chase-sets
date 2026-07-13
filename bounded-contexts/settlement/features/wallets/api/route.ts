@@ -8,11 +8,23 @@ import type { SettlementApiEnv } from "../../../api";
 import type { WalletServices } from "./runtime";
 import { normalizeCurrencyCode } from "../../../support/runtime-support/common";
 
+/**
+ * The dedicated platform authority required to post a cash-equivalent wallet
+ * ledger entry against an arbitrary target account through the operator
+ * mutation routes. It is deliberately distinct from the account-scoped
+ * `payouts.manage` permission that owners and managers hold: those actors must
+ * never be able to credit or debit an arbitrary wallet (including their own).
+ * No role grants this authority yet, so the legacy operator mutation routes
+ * fail closed for every marketplace actor until the typed Wallet Adjustment
+ * lifecycle replaces them.
+ */
+const WALLET_ADJUSTMENT_AUTHORITY = "wallet-adjustments.operate" as const;
+
 function requireWalletAccess(
   c: {
     get(key: "actor"): SettlementApiEnv["Variables"]["actor"];
   },
-  permission: "payouts.view" | "payouts.manage" | "payouts.reconcile",
+  permission: "payouts.view" | "payouts.manage" | "payouts.reconcile" | typeof WALLET_ADJUSTMENT_AUTHORITY,
 ) {
   const actor = c.get("actor");
   if (!actor) {
@@ -49,6 +61,35 @@ function requireWalletAccess(
   }
 
   return { actor, response: null };
+}
+
+/**
+ * Authorizes an operator wallet-mutation route (adjustment, refund-debit,
+ * dispute-hold, dispute-release). These routes post to an arbitrary target
+ * account supplied in the request body, so they require the platform
+ * wallet-adjustment authority rather than the account-scoped payout
+ * permission. A rejected call is recorded as a non-sensitive diagnostic
+ * (route, outcome, and caller role only -- never the target account, amount,
+ * or audit free text) so the legacy surface can be watched until it retires.
+ */
+function authorizeOperatorWalletMutation(
+  c: {
+    get(key: "actor"): SettlementApiEnv["Variables"]["actor"];
+  },
+  routeName: string,
+) {
+  const access = requireWalletAccess(c, WALLET_ADJUSTMENT_AUTHORITY);
+  if (access.response) {
+    console.warn(
+      JSON.stringify({
+        event: "settlement.wallet.legacy-operator-mutation-rejected",
+        route: routeName,
+        outcome: access.response.status === 401 ? "unauthenticated" : "forbidden",
+        actorRoleKey: c.get("actor")?.roleKey ?? null,
+      }),
+    );
+  }
+  return access;
 }
 
 function normalizeRequiredBodyText(body: Record<string, unknown>, fieldName: string, message: string) {
@@ -157,7 +198,7 @@ export function createWalletRoutes(services: WalletServices) {
   });
 
   app.post("/wallet/refund-debits", async (c) => {
-    const access = requireWalletAccess(c, "payouts.manage");
+    const access = authorizeOperatorWalletMutation(c, "POST /wallet/refund-debits");
     if (access.response) {
       return access.response;
     }
@@ -204,7 +245,7 @@ export function createWalletRoutes(services: WalletServices) {
   });
 
   app.post("/wallet/dispute-holds", async (c) => {
-    const access = requireWalletAccess(c, "payouts.manage");
+    const access = authorizeOperatorWalletMutation(c, "POST /wallet/dispute-holds");
     if (access.response) {
       return access.response;
     }
@@ -251,7 +292,7 @@ export function createWalletRoutes(services: WalletServices) {
   });
 
   app.post("/wallet/dispute-releases", async (c) => {
-    const access = requireWalletAccess(c, "payouts.manage");
+    const access = authorizeOperatorWalletMutation(c, "POST /wallet/dispute-releases");
     if (access.response) {
       return access.response;
     }

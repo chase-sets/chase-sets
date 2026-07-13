@@ -65,6 +65,20 @@ describe("identity role permissions", () => {
     expect(ROLE_PERMISSIONS.viewer).not.toContain("platform-policy.view");
   });
 
+  it("grants platform wallet-adjustment authority to no role, keeping it separate from account payout permissions", () => {
+    for (const roleKey of ROLE_KEYS) {
+      expect(ROLE_PERMISSIONS[roleKey]).not.toContain("wallet-adjustments.operate");
+    }
+    // Owner and manager hold payouts.manage, but that must never carry the
+    // authority to post a cash-equivalent ledger entry to an arbitrary wallet.
+    expect(ROLE_PERMISSIONS.owner).toContain("payouts.manage");
+    expect(ROLE_PERMISSIONS.owner).not.toContain("wallet-adjustments.operate");
+    expect(ROLE_PERMISSIONS.manager).toContain("payouts.manage");
+    expect(ROLE_PERMISSIONS.manager).not.toContain("wallet-adjustments.operate");
+    // Acquiring any payout permission does not grant the wallet-adjustment authority.
+    expect(ROLE_PERMISSIONS["platform-admin"]).not.toContain("wallet-adjustments.operate");
+  });
+
   it("keeps payout scheduling as an authority permission instead of an account capability", () => {
     expect(ROLE_PERMISSIONS.owner).toContain("payouts.manage");
     expect(ROLE_PERMISSIONS.owner).toContain("payouts.reconcile");

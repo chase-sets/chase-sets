@@ -39,7 +39,7 @@ function createApp(services: unknown, permissions: readonly string[] | null) {
 describe("settlement wallet routes", () => {
   it("requires explicit account, idempotency key, and audit reason for refund debits", async () => {
     const postEntry = vi.fn();
-    const app = createApp({ postEntry }, ["payouts.manage"]);
+    const app = createApp({ postEntry }, ["wallet-adjustments.operate"]);
 
     const response = await app.request("/wallet/refund-debits", {
       method: "POST",
@@ -81,7 +81,7 @@ describe("settlement wallet routes", () => {
         updated_at: params.postedAt,
       },
     }));
-    const app = createApp({ postEntry }, ["payouts.manage"]);
+    const app = createApp({ postEntry }, ["wallet-adjustments.operate"]);
     const body = {
       accountId: "acc_seller",
       amount: "4.00",
@@ -142,7 +142,7 @@ describe("settlement wallet routes", () => {
         },
       };
     });
-    const app = createApp({ postEntry }, ["payouts.manage"]);
+    const app = createApp({ postEntry }, ["wallet-adjustments.operate"]);
     const idempotencyKeys = Array.from(
       { length: 2048 },
       (_, index) => `operator-wallet-command:${index.toString(36).padStart(6, "0")}:refund:${index % 17}`,
@@ -173,7 +173,7 @@ describe("settlement wallet routes", () => {
       .fn(async (_params: unknown) => ({ accountId: "acc_seller" as never, version: 2 }))
       .mockResolvedValueOnce({ accountId: "acc_seller" as never, version: 2 })
       .mockRejectedValueOnce(new Error("Ledger entry has already been posted."));
-    const app = createApp({ postEntry }, ["payouts.manage"]);
+    const app = createApp({ postEntry }, ["wallet-adjustments.operate"]);
     const body = {
       accountId: "acc_seller",
       amount: "8.00",
@@ -206,7 +206,7 @@ describe("settlement wallet routes", () => {
 
   it("posts dispute releases as credits with required operator audit", async () => {
     const postEntry = vi.fn(async (_params: unknown) => ({ accountId: "acc_seller" as never, version: 3 }));
-    const app = createApp({ postEntry }, ["payouts.manage"]);
+    const app = createApp({ postEntry }, ["wallet-adjustments.operate"]);
 
     const response = await app.request("/wallet/dispute-releases", {
       method: "POST",
@@ -230,5 +230,159 @@ describe("settlement wallet routes", () => {
       }),
       context,
     );
+  });
+});
+
+const OPERATOR_WALLET_MUTATION_ROUTES = [
+  "/wallet/refund-debits",
+  "/wallet/dispute-holds",
+  "/wallet/dispute-releases",
+] as const;
+
+describe("settlement wallet operator-mutation authorization", () => {
+  it("rejects account-scoped payouts.manage actors on every operator wallet-mutation route", async () => {
+    // Owner and manager hold payouts.manage. The arbitrary-account self-credit
+    // and self-debit exploit is closed by requiring the separate platform
+    // wallet-adjustment authority, which payouts.manage does not grant. The
+    // loop covers the surviving credit route (/wallet/dispute-releases) and the
+    // debit routes (/wallet/refund-debits, /wallet/dispute-holds).
+    for (const route of OPERATOR_WALLET_MUTATION_ROUTES) {
+      const postEntry = vi.fn();
+      const app = createApp({ postEntry }, ["payouts.manage"]);
+
+      const response = await app.request(route, {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_operator",
+          amount: "1000.00",
+          idempotencyKey: `exploit:${route}`,
+          auditReason: "attempted self-mutation",
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: "authorization_forbidden" },
+      });
+      expect(postEntry).not.toHaveBeenCalled();
+    }
+  });
+
+  it("cannot mint credit to its own account through the surviving credit route", async () => {
+    const postEntry = vi.fn();
+    // Self-credit: the caller targets its own account on the credit route that
+    // replaced the retired workflow=dispute-release path.
+    const app = createApp({ postEntry }, ["payouts.manage"]);
+
+    const response = await app.request("/wallet/dispute-releases", {
+      method: "POST",
+      body: JSON.stringify({
+        accountId: "acc_operator",
+        amount: "500.00",
+        idempotencyKey: "self-credit:acc_operator",
+        auditReason: "self credit",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(403);
+    expect(postEntry).not.toHaveBeenCalled();
+  });
+
+  it("cannot debit an arbitrary account through the surviving refund-debit route", async () => {
+    const postEntry = vi.fn();
+    // Self/arbitrary debit: the caller targets an arbitrary account on the
+    // surviving debit route. Authorization is denied before the body is used.
+    const app = createApp({ postEntry }, ["payouts.manage"]);
+
+    const response = await app.request("/wallet/refund-debits", {
+      method: "POST",
+      body: JSON.stringify({
+        accountId: "acc_victim",
+        amount: "750.00",
+        idempotencyKey: "debit:acc_victim",
+        auditReason: "arbitrary debit",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(403);
+    expect(postEntry).not.toHaveBeenCalled();
+  });
+
+  it("rejects target-account substitution before the request body is read", async () => {
+    const postEntry = vi.fn();
+    // A payouts.manage actor substituting an arbitrary target account is denied
+    // at authorization, so the untrusted body is never used to post an entry.
+    const app = createApp({ postEntry }, ["payouts.manage"]);
+
+    const response = await app.request("/wallet/dispute-releases", {
+      method: "POST",
+      body: JSON.stringify({
+        accountId: "acc_victim",
+        amount: "9999.00",
+        idempotencyKey: "substitute:acc_victim",
+        auditReason: "cross-account substitution",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(403);
+    expect(postEntry).not.toHaveBeenCalled();
+  });
+
+  it("does not let platform payout viewers reach the operator wallet-mutation routes", async () => {
+    for (const route of OPERATOR_WALLET_MUTATION_ROUTES) {
+      const postEntry = vi.fn();
+      const app = createApp({ postEntry }, ["payouts.view", "payouts.reconcile"]);
+
+      const response = await app.request(route, {
+        method: "POST",
+        body: JSON.stringify({ accountId: "acc_seller", amount: "1.00" }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      expect(response.status).toBe(403);
+      expect(postEntry).not.toHaveBeenCalled();
+    }
+  });
+
+  it("keeps unauthenticated operator wallet-mutation requests at 401", async () => {
+    for (const route of OPERATOR_WALLET_MUTATION_ROUTES) {
+      const postEntry = vi.fn();
+      const app = createApp({ postEntry }, null);
+
+      const response = await app.request(route, {
+        method: "POST",
+        body: JSON.stringify({ accountId: "acc_seller", amount: "1.00" }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: "authentication_required" },
+      });
+      expect(postEntry).not.toHaveBeenCalled();
+    }
+  });
+
+  it("still admits an explicit wallet-adjustment authority holder", async () => {
+    const postEntry = vi.fn(async () => ({ accountId: "acc_seller" as never, version: 2 }));
+    const app = createApp({ postEntry }, ["wallet-adjustments.operate"]);
+
+    const response = await app.request("/wallet/dispute-releases", {
+      method: "POST",
+      body: JSON.stringify({
+        accountId: "acc_seller",
+        amount: "8.00",
+        idempotencyKey: "authorized:acc_seller",
+        auditReason: "authorized operator credit",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    expect(postEntry).toHaveBeenCalledTimes(1);
   });
 });
