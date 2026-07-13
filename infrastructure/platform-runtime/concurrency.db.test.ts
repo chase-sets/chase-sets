@@ -691,7 +691,76 @@ describe("platform runtime Postgres concurrency guards", () => {
     expect(reclaimedGhost?.claimedUntil).not.toBeNull();
   });
 
-  it("keeps the wake pipeline live when a wake-intent row is pinned by another transaction's row lock", async () => {
+  it("lets only one concurrent wake claimer process an eligible hot-lane intent", async () => {
+    await pools.platform.query(platformWorkSignalStoreSchemaSql);
+    const store = createPostgresWorkSignalStore(pools.platform);
+    const intent = await store.enqueueProjectionWakeIntent({
+      sourceContextName: "checkout",
+      targetContextName: "checkout",
+      projectionName: "checkout-session-projection",
+      checkpointKey: "checkout.session-projection:checkout:v1",
+      requiredPosition: 7n,
+      priorityLane: "hot",
+      origin: "relay",
+    });
+
+    // Hold two physical clients before starting either statement so both
+    // claim queries race the same eligible row instead of pool scheduling
+    // accidentally serializing the regression.
+    const clientA = await pools.platform.connect();
+    const clientB = await pools.platform.connect();
+    try {
+      const storeA = createPostgresWorkSignalStore(clientA);
+      const storeB = createPostgresWorkSignalStore(clientB);
+      const claims = await Promise.all([
+        storeA.claimNextProjectionWakeIntent({
+          claimOwnerId: "worker-a:projection-wake-scheduler.hot.lane-1",
+          claimTtlMs: 60_000,
+          priorityLanes: ["hot"],
+          targetContextNames: ["checkout"],
+        }),
+        storeB.claimNextProjectionWakeIntent({
+          claimOwnerId: "worker-b:projection-wake-scheduler.hot.lane-1",
+          claimTtlMs: 60_000,
+          priorityLanes: ["hot"],
+          targetContextNames: ["checkout"],
+        }),
+      ]);
+
+      const [claim] = claims.filter((candidate) => candidate !== null);
+      expect(claims.filter((candidate) => candidate !== null)).toHaveLength(1);
+      expect(claim?.wakeIntentId).toBe(intent.wakeIntentId);
+      expect(claim?.attemptCount).toBe(1);
+
+      await expect(
+        store.completeProjectionWakeIntent({
+          wakeIntentId: intent.wakeIntentId,
+          claimOwnerId: claim!.claimOwnerId!,
+          claimFencingToken: claim!.claimFencingToken!,
+        }),
+      ).resolves.toBe("completed");
+    } finally {
+      clientA.release();
+      clientB.release();
+    }
+
+    await expect(
+      store.claimNextProjectionWakeIntent({
+        claimOwnerId: "worker-c:projection-wake-scheduler.hot.lane-1",
+        claimTtlMs: 60_000,
+        priorityLanes: ["hot"],
+        targetContextNames: ["checkout"],
+      }),
+    ).resolves.toBeNull();
+
+    const persisted = await pools.platform.query(
+      "SELECT state, attempt_count FROM platform_projection_wake_intents WHERE wake_intent_id = $1",
+      [intent.wakeIntentId],
+    );
+    expect(persisted.rows[0]).toMatchObject({ state: "completed", attempt_count: 1 });
+  });
+
+  it("reclaims an expired wake-intent row pinned by an orphaned transaction", async () => {
     // Regression for issue #4649 (staging drill 28950995223): four identity
     // relay intents sat `queued` with attemptCount 0 through active claim and
     // cleanup passes because a hung transaction from the deploy-churn window
@@ -704,6 +773,7 @@ describe("platform runtime Postgres concurrency guards", () => {
     const enqueueEvents: ProjectionWakeIntentEnqueuedEvent[] = [];
     const store = createPostgresWorkSignalStore(pools.platform, {
       enqueueLockTimeoutMs: 250,
+      orphanedWakeTransactionMinAgeMs: 0,
       observer: { projectionWakeIntentEnqueued: (event) => enqueueEvents.push(event) },
     });
 
@@ -727,6 +797,7 @@ describe("platform runtime Postgres concurrency guards", () => {
     });
 
     const pinningClient = await pools.platform.connect();
+    let pinningClientWasTerminated = false;
     try {
       await pinningClient.query("BEGIN");
       await pinningClient.query(
@@ -780,31 +851,78 @@ describe("platform runtime Postgres concurrency guards", () => {
         claimFencingToken: claimed!.claimFencingToken!,
       });
 
-      // 3. The reaper cannot expire the pinned row (SKIP LOCKED again) — it
-      //    must surface the zombie as immortal instead of silently skipping
-      //    it, so operators can tell pinned rows from ordinary backlog.
+      // 3. The reaper identifies the exact expired tuple locker through
+      //    xmax/backend_xid, terminates only this old same-role idle
+      //    transaction, then expires and prunes the row through the normal
+      //    locked state transition. The completed healthy row is pruned too.
       const horizon = new Date(Date.now() + 30 * 60 * 1000);
-      const pinnedCleanup = await store.cleanupExpiredWorkSignals({ before: horizon });
-      expect(pinnedCleanup.expiredWakeIntents).toBe(0);
-      expect(pinnedCleanup.immortalWakeIntents).toBe(1);
-      expect(pinnedCleanup.prunedWakeIntents).toBe(1);
+      const reclaimedCleanup = await store.cleanupExpiredWorkSignals({ before: horizon });
+      pinningClientWasTerminated = true;
+      expect(reclaimedCleanup).toMatchObject({
+        reclaimedPinnedWakeIntents: 1,
+        reclaimedOrphanTransactions: 1,
+        expiredWakeIntents: 1,
+        remainingPinnedWakeIntents: 0,
+        prunedWakeIntents: 2,
+      });
+      await expect(pinningClient.query("SELECT 1")).rejects.toThrow();
     } finally {
-      await pinningClient.query("ROLLBACK");
-      pinningClient.release();
+      if (!pinningClientWasTerminated) {
+        await pinningClient.query("ROLLBACK").catch(() => undefined);
+      }
+      pinningClient.release(pinningClientWasTerminated ? new Error("backend terminated by cleanup test") : undefined);
     }
-
-    // 4. Once the pinning transaction dies (operator terminates the backend,
-    //    or the connection reaps), the next cleanup pass terminal-izes the
-    //    zombie promptly — no manual SQL.
-    const horizon = new Date(Date.now() + 30 * 60 * 1000);
-    const releasedCleanup = await store.cleanupExpiredWorkSignals({ before: horizon });
-    expect(releasedCleanup.expiredWakeIntents).toBe(1);
-    expect(releasedCleanup.immortalWakeIntents).toBe(0);
-    expect(releasedCleanup.prunedWakeIntents).toBe(1);
 
     const remaining = await pools.platform.query(
       "SELECT COUNT(*)::integer AS remaining FROM platform_projection_wake_intents",
     );
     expect(remaining.rows[0]).toMatchObject({ remaining: 0 });
+  });
+
+  it("observes but does not terminate a recently-idle wake-intent locker", async () => {
+    await pools.platform.query(platformWorkSignalStoreSchemaSql);
+    const store = createPostgresWorkSignalStore(pools.platform, {
+      orphanedWakeTransactionMinAgeMs: 60_000,
+    });
+    const intent = await store.enqueueProjectionWakeIntent({
+      sourceContextName: "identity",
+      targetContextName: "auth",
+      projectionName: "auth-session-projection",
+      checkpointKey: "auth-session-projection:identity:v1",
+      requiredPosition: 12n,
+      priorityLane: "standard",
+      origin: "relay",
+    });
+
+    const pinningClient = await pools.platform.connect();
+    try {
+      await pinningClient.query("BEGIN");
+      await pinningClient.query(
+        "SELECT wake_intent_id FROM platform_projection_wake_intents WHERE wake_intent_id = $1 FOR UPDATE",
+        [intent.wakeIntentId],
+      );
+
+      const result = await store.cleanupExpiredWorkSignals({
+        before: new Date(Date.now() + 30 * 60 * 1000),
+      });
+      expect(result).toMatchObject({
+        reclaimedPinnedWakeIntents: 0,
+        reclaimedOrphanTransactions: 0,
+        expiredWakeIntents: 0,
+        remainingPinnedWakeIntents: 1,
+      });
+      await expect(pinningClient.query("SELECT 1 AS still_connected")).resolves.toMatchObject({
+        rows: [{ still_connected: 1 }],
+      });
+    } finally {
+      await pinningClient.query("ROLLBACK").catch(() => undefined);
+      pinningClient.release();
+    }
+
+    const released = await store.cleanupExpiredWorkSignals({ before: new Date(Date.now() + 30 * 60 * 1000) });
+    expect(released).toMatchObject({
+      expiredWakeIntents: 1,
+      remainingPinnedWakeIntents: 0,
+    });
   });
 });
