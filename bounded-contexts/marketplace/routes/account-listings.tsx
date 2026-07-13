@@ -63,6 +63,9 @@ function accountAccessRequired(returnTo: string) {
       available_again_at: null,
       disabled_at: null,
       enabled_at: null,
+      away_window_starts_at: null,
+      away_window_ends_at: null,
+      away_window_reason_category: null,
       updated_at: "1970-01-01T00:00:00.000Z",
     },
     filters: { status: "all", search: "" },
@@ -115,6 +118,9 @@ function createFreshWriteRecoveryPageReads(
       available_again_at: null,
       disabled_at: null,
       enabled_at: null,
+      away_window_starts_at: null,
+      away_window_ends_at: null,
+      away_window_reason_category: null,
       updated_at: "1970-01-01T00:00:00.000Z",
     },
   };
@@ -254,6 +260,28 @@ export async function action({ request }: ActionFunctionArgs) {
           await api.enableSellerListingAvailability(),
           `/account/listings?${AVAILABILITY_ACTION_PARAM}=enabled`,
         ),
+      );
+    }
+
+    if (intent === "schedule-away-window") {
+      return redirect(
+        await navigateToAccountListingsAfterWrite(
+          await api.scheduleSellerAwayWindow({
+            reasonCategory: String(formData.get("awayWindowReasonCategory") ?? ""),
+            // Captured client-side (seller-local start-of-day for the
+            // chosen date, converted to an instant), same convention as
+            // the disable form's availableAgainAt.
+            startsAt: String(formData.get("awayWindowStartsAt") ?? ""),
+            endsAt: String(formData.get("awayWindowEndsAt") ?? ""),
+          }),
+          "/account/listings",
+        ),
+      );
+    }
+
+    if (intent === "cancel-away-window") {
+      return redirect(
+        await navigateToAccountListingsAfterWrite(await api.cancelScheduledAwayWindow(), "/account/listings"),
       );
     }
 

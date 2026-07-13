@@ -86,6 +86,10 @@ export type MarketplaceSellerListingAvailabilityRow = Readonly<{
   available_again_at: string | null;
   disabled_at: string | null;
   enabled_at: string | null;
+  /** The pending Away Window's start, or null when no window is scheduled. */
+  away_window_starts_at: string | null;
+  away_window_ends_at: string | null;
+  away_window_reason_category: string | null;
   updated_at: string;
 }>;
 
@@ -660,6 +664,9 @@ export async function getSellerListingAvailability(
        available_again_at::text AS available_again_at,
        disabled_at::text AS disabled_at,
        enabled_at::text AS enabled_at,
+       away_window_starts_at::text AS away_window_starts_at,
+       away_window_ends_at::text AS away_window_ends_at,
+       away_window_reason_category,
        updated_at::text AS updated_at
      FROM marketplace_seller_listing_availability_pages
      WHERE account_id = $1`,
@@ -675,6 +682,9 @@ export async function getSellerListingAvailability(
       available_again_at: null,
       disabled_at: null,
       enabled_at: null,
+      away_window_starts_at: null,
+      away_window_ends_at: null,
+      away_window_reason_category: null,
       updated_at: new Date(0).toISOString(),
     }
   );
@@ -735,6 +745,43 @@ export async function listDueSellerAvailabilityRestores(
        AND available_again_at IS NOT NULL
        AND available_again_at <= $1::timestamptz
      ORDER BY available_again_at ASC, account_id ASC
+     LIMIT $2`,
+    [params.now, limit],
+  );
+
+  return result.rows;
+}
+
+export type MarketplaceDueSellerAwayWindowStartRow = Readonly<{
+  account_id: string;
+  away_window_starts_at: string;
+  away_window_ends_at: string | null;
+  away_window_reason_category: string;
+}>;
+
+/**
+ * Away Window start sweep due index: accounts with a pending window whose
+ * `startsAt` has passed. Ordered by `away_window_starts_at` so the sweep
+ * processes the longest-overdue windows first within a batch. The window's
+ * end boundary is not queried here -- once the sweep disables the account
+ * with `availableAgainAt = away_window_ends_at`, the end rides the existing
+ * Resume Instant sweep (`listDueSellerAvailabilityRestores`) for free.
+ */
+export async function listDueSellerAwayWindowStarts(
+  db: PgQueryable,
+  params: Readonly<{ now: string; limit?: number }>,
+): Promise<readonly MarketplaceDueSellerAwayWindowStartRow[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
+  const result = await db.query<MarketplaceDueSellerAwayWindowStartRow>(
+    `SELECT
+       account_id,
+       away_window_starts_at::text AS away_window_starts_at,
+       away_window_ends_at::text AS away_window_ends_at,
+       away_window_reason_category
+     FROM marketplace_seller_listing_availability_pages
+     WHERE away_window_starts_at IS NOT NULL
+       AND away_window_starts_at <= $1::timestamptz
+     ORDER BY away_window_starts_at ASC, account_id ASC
      LIMIT $2`,
     [params.now, limit],
   );

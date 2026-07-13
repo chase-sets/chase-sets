@@ -130,6 +130,9 @@ function createServices(): MarketplaceListingServices {
       available_again_at: null,
       disabled_at: null,
       enabled_at: null,
+      away_window_starts_at: null,
+      away_window_ends_at: null,
+      away_window_reason_category: null,
       updated_at: "1970-01-01T00:00:00.000Z",
     })),
     disableSellerListingAvailability: vi.fn(async () => ({
@@ -156,6 +159,19 @@ function createServices(): MarketplaceListingServices {
       accountId: "acc_seller",
       version: 2,
       maxOpenOrders: null,
+    })),
+    scheduleSellerAwayWindow: vi.fn(async () => ({
+      accountId: "acc_seller",
+      version: 1,
+    })),
+    cancelScheduledAwayWindow: vi.fn(async () => ({
+      accountId: "acc_seller",
+      version: 2,
+    })),
+    sweepDueSellerAwayWindowStarts: vi.fn(async () => ({
+      checked: 0,
+      started: 0,
+      skipped: 0,
     })),
     listSellerListingFeeLockReport: vi.fn(async () => ({
       items: [
@@ -1075,5 +1091,120 @@ describe("marketplace listing routes", () => {
 
     expect(response.status).toBe(403);
     expect(services.setSellerOrderCapacity).not.toHaveBeenCalled();
+  });
+
+  it("schedules an away window for the acting account", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["listings.view", "listings.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listing-availability/away-window", {
+        method: "POST",
+        body: JSON.stringify({
+          reasonCategory: "travel",
+          startsAt: "2026-07-20T05:00:00.000Z",
+          endsAt: "2026-07-27T05:00:00.000Z",
+        }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      accountId: "acc_seller",
+      version: 1,
+    });
+    expect(services.scheduleSellerAwayWindow).toHaveBeenCalledWith(
+      {
+        accountId: "acc_seller",
+        reasonCategory: "travel",
+        startsAt: "2026-07-20T05:00:00.000Z",
+        endsAt: "2026-07-27T05:00:00.000Z",
+      },
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_seller",
+          performedByUserId: "usr_seller",
+        }),
+      }),
+    );
+  });
+
+  it("rejects scheduling an away window without a reason", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["listings.view", "listings.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listing-availability/away-window", {
+        method: "POST",
+        body: JSON.stringify({
+          startsAt: "2026-07-20T05:00:00.000Z",
+          endsAt: null,
+        }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(services.scheduleSellerAwayWindow).not.toHaveBeenCalled();
+  });
+
+  it("cancels the scheduled away window for the acting account", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["listings.view", "listings.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listing-availability/away-window", {
+        method: "DELETE",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      accountId: "acc_seller",
+      version: 2,
+    });
+    expect(services.cancelScheduledAwayWindow).toHaveBeenCalledWith(
+      { accountId: "acc_seller" },
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_seller",
+          performedByUserId: "usr_seller",
+        }),
+      }),
+    );
   });
 });

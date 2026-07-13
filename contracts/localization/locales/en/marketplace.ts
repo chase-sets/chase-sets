@@ -169,6 +169,17 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.availability.unavailable.description":
     "Active listings are hidden from buyer flows. Reason: {reason}. Planned return: {date}.",
   "marketplace.features.listings.ui.listingListPage.available.again.on": "Available again on",
+  "marketplace.features.listings.ui.listingListPage.away.window": "Away window",
+  "marketplace.features.listings.ui.listingListPage.away.window.description":
+    "Book time off in advance. Listings turn off automatically when the window starts and back on when it ends.",
+  "marketplace.features.listings.ui.listingListPage.away.window.ends.on": "Ends on",
+  "marketplace.features.listings.ui.listingListPage.away.window.scheduled.description":
+    "Scheduled away for {reason} starting {startDate}. Returning {endDate}.",
+  "marketplace.features.listings.ui.listingListPage.away.window.starts.on": "Starts on",
+  "marketplace.features.listings.ui.listingListPage.away.window.unavailable.while.away":
+    "Scheduling a new away window requires listings to currently be available. Update your away settings above instead.",
+  "marketplace.features.listings.ui.listingListPage.cancel.away.window": "Cancel scheduled away window",
+  "marketplace.features.listings.ui.listingListPage.schedule.away.window": "Schedule away window",
   "marketplace.features.listings.ui.listingListPage.agreement.override": "Agreement override: ",
   "marketplace.features.listings.ui.listingListPage.agreement.source": "Agreement {source}",
   "marketplace.features.listings.ui.listingListPage.advanced.import": "Advanced import",

@@ -134,6 +134,7 @@ Notes:
 - `availableAgainOn` is a display-only date derived from `availableAgainAt` for continuity. A bare `availableAgainOn` with no `availableAgainAt` -- including every event recorded before the Resume Instant existed -- is informational only and never triggers an automatic resume.
 - A seller may re-disable while already unavailable to change the reason or Resume Instant without an enable/disable flap; this emits a new disabled fact.
 - Enabling records `enabledBy`: `"seller"` for an explicit seller action, `"scheduled"` for an automated resume. Events recorded before this field existed read back as `"seller"`.
+- Disabling records `disabledBy`: `"seller"` for an explicit seller action, `"scheduled"` for the Away Window start sweep consuming its own pending window. Events recorded before this field existed read back as `"seller"`.
 
 ## Resume Instant
 
@@ -155,7 +156,7 @@ Notes:
 - A Scheduled Restore is owned by Marketplace.
 - The sweep is compare-and-swap protected: if the seller re-disables or pushes the Resume Instant forward between the sweep observing an account as due and its enable command reaching the aggregate, the command no-ops rather than overriding the seller's own concurrent action.
 - A Scheduled Restore emits a seller notification ("Your listings are live again") from the enabled fact itself, not from the sweep runner, so replays and read-model rebuilds never re-notify.
-- An **Away Window** (below, planned) will be a second trigger for a Scheduled Restore once shipped; today the Resume Instant sweep is the only trigger.
+- An **Away Window** (below) is a second trigger for a Scheduled Restore: once its start sweep disables the account with the window's `endsAt` as the Resume Instant, the end boundary rides this same sweep back to available.
 
 ## Seller Order Capacity
 
@@ -180,6 +181,19 @@ An **Open Order** is an order that has been created and is neither cancelled nor
 ## At Capacity
 
 **At Capacity** is the seller state when Open Order count meets or exceeds Order Capacity: new order intake pauses while everything already in flight proceeds unaffected. At Capacity is computed and enforced by Ordering, analogous to Seller Listing Availability but driven by order volume rather than a seller-declared away period.
+
+
+## Away Window
+
+An **Away Window** is a seller-scheduled future away period on Seller Listing Availability: a start instant and an optional end instant, set in advance so listings disable and resume automatically without a same-day manual action.
+
+Notes:
+
+- An Away Window is owned by Marketplace and lives on the Seller Listing Availability aggregate -- it is part of the same lifecycle, not a separate concept.
+- At most one pending window may exist per account at a time. Rescheduling is cancel-then-schedule; there is no amend command.
+- Scheduling requires the account to currently be `available`; `startsAt` must be in the future and, when present, `endsAt` must be strictly after `startsAt`. An indefinite window (`endsAt` absent) goes away and stays away until a manual enable.
+- The Away Window start sweep disables the account once `startsAt` has passed, carrying the window's `reasonCategory` and `endsAt` forward as the Resume Instant, with `disabledBy: "scheduled"`. The disable consumes the pending window.
+- A manual seller disable while a window is pending pre-empts it: the window is explicitly cancelled (a `.away-window-cancelled` fact), not silently dropped -- one source of away-state truth.
 
 ## Report
 
@@ -254,11 +268,7 @@ A **Review Summary** is the canonical aggregate snapshot for an account derived 
 
 ## Planned Seller Capacity And Time Away
 
-These planned terms pre-register upcoming seller time-away language (the m127 seller time-away & capacity milestone cluster). They are not shipped behavior until their owning milestone adds events, read models, APIs, and UI. Seller Listing Availability and its Resume Instant, defined above, are already shipped and are the foundation these planned terms build on. Order Capacity, Open Order, At Capacity, and Seller Order Capacity moved out of this Planned section: the seller-set cap setting and its events are shipped (defined above); Open Order counting and At Capacity enforcement remain owned by Ordering as a later slice.
-
-### Away Window
-
-An **Away Window** is the planned scheduled start and end pairing a seller sets in advance so Seller Listing Availability disables and resumes automatically without a same-day manual action. Once shipped, an Away Window's automated resume is a second trigger for a Scheduled Restore (see the main glossary body above), alongside the already-shipped Resume Instant sweep.
+These planned terms pre-register upcoming seller time-away language (the m127 seller time-away & capacity milestone cluster). They are not shipped behavior until their owning milestone adds events, read models, APIs, and UI. Seller Listing Availability, its Resume Instant, and Away Window, defined above, are already shipped and are the foundation these planned terms build on. Order Capacity, Open Order, At Capacity, and Seller Order Capacity moved out of this Planned section: the seller-set cap setting and its events are shipped (defined above); Open Order counting and At Capacity enforcement remain owned by Ordering as a later slice.
 
 ## Planned Reputation And Authenticity
 
@@ -334,6 +344,6 @@ An **Account Trust Signal** is the planned account-level input Marketplace may c
 
 Seller Reliability, On-Time Shipment Rate, Dispute Rate, and Cancellation Rate moved out of this Planned section (m108, #4271): they are shipped behavior now -- see the main glossary body above.
 
-Scheduled Restore moved out of this Planned section (m127 seller time-away audit's auto-resume sweep): it is shipped behavior now -- see the main glossary body above. Away Window, above, remains planned.
+Scheduled Restore moved out of this Planned section (m127 seller time-away audit's auto-resume sweep): it is shipped behavior now -- see the main glossary body above. Away Window also moved out of this Planned section (m127 seller time-away audit's scheduled-window feature): it is shipped behavior now -- see the main glossary body above.
 
 Authenticity terminology (Authenticity Case, Authenticity Verdict, Verdict Reason Code, and related concepts) moved to the [Authenticity](../authenticity/GLOSSARY.md) bounded context ahead of the m109 Authenticity Check milestone (epic #4284); Marketplace does not own that vocabulary.

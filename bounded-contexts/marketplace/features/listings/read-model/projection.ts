@@ -485,6 +485,9 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         disabledAt: string;
       };
 
+      // A disable (manual or scheduled) consumes any pending Away Window --
+      // the columns are cleared here unconditionally, mirroring the
+      // aggregate evolver.
       await db.query(
         `INSERT INTO marketplace_seller_listing_availability_pages (
            account_id,
@@ -494,8 +497,11 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
            available_again_at,
            disabled_at,
            enabled_at,
+           away_window_starts_at,
+           away_window_ends_at,
+           away_window_reason_category,
            updated_at
-         ) VALUES ($1, 'unavailable', $2, $3, $4, $5, NULL, $6)
+         ) VALUES ($1, 'unavailable', $2, $3, $4, $5, NULL, NULL, NULL, NULL, $6)
          ON CONFLICT (account_id) DO UPDATE SET
            status = EXCLUDED.status,
            disabled_reason_category = EXCLUDED.disabled_reason_category,
@@ -503,6 +509,9 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
            available_again_at = EXCLUDED.available_again_at,
            disabled_at = EXCLUDED.disabled_at,
            enabled_at = EXCLUDED.enabled_at,
+           away_window_starts_at = EXCLUDED.away_window_starts_at,
+           away_window_ends_at = EXCLUDED.away_window_ends_at,
+           away_window_reason_category = EXCLUDED.away_window_reason_category,
            updated_at = EXCLUDED.updated_at`,
         [
           data.accountId,
@@ -572,6 +581,52 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
          ) VALUES ($1, NULL, $2)
          ON CONFLICT (account_id) DO UPDATE SET
            max_open_orders = EXCLUDED.max_open_orders,
+           updated_at = EXCLUDED.updated_at`,
+        [data.accountId, event.timing.recordedAt],
+      );
+    },
+    "marketplace.seller-listing-availability.away-window-scheduled": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        startsAt: string;
+        endsAt: string | null;
+        reasonCategory: string;
+      };
+
+      await db.query(
+        `INSERT INTO marketplace_seller_listing_availability_pages (
+           account_id,
+           away_window_starts_at,
+           away_window_ends_at,
+           away_window_reason_category,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (account_id) DO UPDATE SET
+           away_window_starts_at = EXCLUDED.away_window_starts_at,
+           away_window_ends_at = EXCLUDED.away_window_ends_at,
+           away_window_reason_category = EXCLUDED.away_window_reason_category,
+           updated_at = EXCLUDED.updated_at`,
+        [data.accountId, data.startsAt, data.endsAt, data.reasonCategory, event.timing.recordedAt],
+      );
+    },
+    "marketplace.seller-listing-availability.away-window-cancelled": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        cancelledAt: string;
+      };
+
+      await db.query(
+        `INSERT INTO marketplace_seller_listing_availability_pages (
+           account_id,
+           away_window_starts_at,
+           away_window_ends_at,
+           away_window_reason_category,
+           updated_at
+         ) VALUES ($1, NULL, NULL, NULL, $2)
+         ON CONFLICT (account_id) DO UPDATE SET
+           away_window_starts_at = EXCLUDED.away_window_starts_at,
+           away_window_ends_at = EXCLUDED.away_window_ends_at,
+           away_window_reason_category = EXCLUDED.away_window_reason_category,
            updated_at = EXCLUDED.updated_at`,
         [data.accountId, event.timing.recordedAt],
       );

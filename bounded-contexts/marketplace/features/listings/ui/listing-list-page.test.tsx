@@ -13,6 +13,9 @@ const availableListings = {
   available_again_at: null,
   disabled_at: null,
   enabled_at: "2026-06-01T00:00:00.000Z",
+  away_window_starts_at: null,
+  away_window_ends_at: null,
+  away_window_reason_category: null,
   updated_at: "2026-06-01T00:00:00.000Z",
 } satisfies MarketplaceSellerListingAvailability;
 
@@ -24,6 +27,9 @@ const unavailableListings = {
   available_again_at: "2026-07-20T05:00:00.000Z",
   disabled_at: "2026-07-13T12:00:00.000Z",
   enabled_at: null,
+  away_window_starts_at: null,
+  away_window_ends_at: null,
+  away_window_reason_category: null,
   updated_at: "2026-07-13T12:00:00.000Z",
 } satisfies MarketplaceSellerListingAvailability;
 

@@ -253,6 +253,31 @@ function parseSellerListingAvailabilityReason(value: unknown) {
   throw new Error("Seller listing availability reason is invalid.");
 }
 
+// Away Window scheduling requires a reason -- unlike a manual disable,
+// where a reason is optional.
+function parseRequiredSellerListingAvailabilityReason(value: unknown) {
+  const reason = parseSellerListingAvailabilityReason(value);
+  if (reason === null) {
+    throw new Error("Away window reason is required.");
+  }
+
+  return reason;
+}
+
+function parseAwayWindowInstant(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized) {
+    throw new Error("Away window instant is required.");
+  }
+
+  return normalized;
+}
+
+function parseAwayWindowEndInstant(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized ? normalized : null;
+}
+
 function parseAvailableAgainOn(value: unknown) {
   const normalized = typeof value === "string" ? value.trim() : "";
   return normalized ? normalized : null;
@@ -539,6 +564,72 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     try {
       const result = await services.clearSellerOrderCapacity({ accountId: access.actor.accountId }, context);
+
+      return c.json(result);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/listing-availability/away-window", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+
+    try {
+      const result = await services.scheduleSellerAwayWindow(
+        {
+          accountId: access.actor.accountId,
+          startsAt: parseAwayWindowInstant(body.startsAt),
+          endsAt: parseAwayWindowEndInstant(body.endsAt),
+          reasonCategory: parseRequiredSellerListingAvailabilityReason(body.reasonCategory),
+        },
+        context,
+      );
+
+      return c.json(result);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.delete("/listing-availability/away-window", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      const result = await services.cancelScheduledAwayWindow({ accountId: access.actor.accountId }, context);
 
       return c.json(result);
     } catch (error) {

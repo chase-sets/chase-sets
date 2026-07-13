@@ -1280,6 +1280,7 @@ function createScheduledJobRunners(
     | "reviewWindowSweepIntervalMs"
     | "reviewOpportunityReminderSweepIntervalMs"
     | "sellerAvailabilityRestoreSweepIntervalMs"
+    | "sellerAwayWindowStartSweepIntervalMs"
     | "sellerFundsReleaseIntervalMs"
     | "payoutReconciliationIntervalMs"
     | "marketRollupsCloserIntervalMs"
@@ -1350,6 +1351,10 @@ function createScheduledJobRunners(
           params: { now?: string; limit?: number } | undefined,
           context: typeof SYSTEM_CONTEXT,
         ) => Promise<{ checked: number; restored: number; skipped: number }>;
+        sweepDueSellerAwayWindowStarts?: (
+          params: { now?: string; limit?: number } | undefined,
+          context: typeof SYSTEM_CONTEXT,
+        ) => Promise<{ checked: number; started: number; skipped: number }>;
       }
     | undefined;
   const pricing = services.pricing as
@@ -1531,6 +1536,25 @@ function createScheduledJobRunners(
             result,
           });
           return result.restored + result.skipped;
+        },
+      ),
+    );
+  }
+
+  const sweepDueSellerAwayWindowStarts = marketplaceListings?.sweepDueSellerAwayWindowStarts;
+  if (sweepDueSellerAwayWindowStarts && input.sellerAwayWindowStartSweepIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        "marketplace.seller-away-window-start-sweep",
+        input.sellerAwayWindowStartSweepIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await sweepDueSellerAwayWindowStarts({ limit: 100 }, SYSTEM_CONTEXT);
+          logger.info("Marketplace seller away-window start sweep completed.", {
+            type: "marketplace.seller-away-window-start-sweep",
+            result,
+          });
+          return result.started + result.skipped;
         },
       ),
     );
