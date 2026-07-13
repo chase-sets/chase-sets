@@ -142,6 +142,57 @@ describe("settlement admin wallet workbench route action", () => {
     vi.resetAllMocks();
   });
 
+  it("previews a proposed adjustment and returns the authoritative balance-impact snapshot", async () => {
+    const previewWalletAdjustment = vi.fn(async () => ({
+      target_account_id: "acc_test",
+      direction: "credit",
+      amount: "25.00",
+      currency_code: "usd",
+      reason_code: "goodwill-cash-credit",
+      balance_revision: "wbr_1",
+      available_balance_before: "100.00",
+      available_balance_after: "125.00",
+      pending_balance_amount: "0.00",
+      cash_equivalent: true,
+      spendable: true,
+      payoutable: true,
+      negative_balance_status: "in-good-standing",
+      creates_or_increases_negative_balance: false,
+      high_value: false,
+      self_benefiting: false,
+      blocked_reason: null,
+      requires_second_approval: false,
+      elevation_reasons: [],
+      controls: {
+        high_value_credit_threshold_amount: "500.00",
+        high_value_debit_threshold_amount: "500.00",
+        recent_auth_max_age_minutes: 15,
+      },
+    }));
+    mockCreateSettlementRequestApiClient.mockReturnValue({ previewWalletAdjustment });
+
+    const form = new URLSearchParams({
+      intent: "preview-adjustment",
+      direction: "credit",
+      amount: "25.00",
+      reasonCode: "goodwill-cash-credit",
+    });
+    const result = await walletWorkbenchAction({
+      request: formRequest("acc_test", form),
+      params: { accountId: "acc_test" },
+      context: undefined,
+    } as never);
+
+    expect(previewWalletAdjustment).toHaveBeenCalledWith(
+      expect.objectContaining({ targetAccountId: "acc_test", direction: "credit", amount: "25.00" }),
+    );
+    expect(result).toMatchObject({
+      intent: "preview-adjustment",
+      preview: { available_balance_after: "125.00" },
+      values: { direction: "credit", amount: "25.00", reasonCode: "goodwill-cash-credit" },
+    });
+  });
+
   it("requests a wallet adjustment and returns the command-owned snapshot", async () => {
     const requestWalletAdjustment = vi.fn(async () => ({ adjustment_id: "wad_new", status: "requested" }));
     mockCreateSettlementRequestApiClient.mockReturnValue({ requestWalletAdjustment });
@@ -152,8 +203,10 @@ describe("settlement admin wallet workbench route action", () => {
       amount: "12.50",
       reasonCode: "support-resolution",
       explanation: "Goodwill for shipping delay",
-      evidenceReferences: "TCK-1, TCK-2",
+      evidenceReferences: "TCK-1",
+      expectedBalanceRevision: "wbr_1",
     });
+    form.append("evidenceReferences", "TCK-2");
 
     const result = await walletWorkbenchAction({
       request: formRequest("acc_test", form),
@@ -168,9 +221,42 @@ describe("settlement admin wallet workbench route action", () => {
         amount: "12.50",
         reasonCode: "support-resolution",
         evidenceReferences: ["TCK-1", "TCK-2"],
+        expectedBalanceRevision: "wbr_1",
       }),
     );
     expect(result).toMatchObject({ intent: "request-adjustment", snapshot: { adjustment_id: "wad_new" } });
+  });
+
+  it("classifies a stale-balance conflict on request and preserves submitted values", async () => {
+    const requestWalletAdjustment = vi.fn(async () => {
+      throw new SettlementApiError(409, {
+        error: {
+          code: "conflict",
+          message: "Wallet balance changed since preview; re-preview before confirming this adjustment.",
+          details: [{ code: "stale_balance_revision", message: "stale" }],
+        },
+      });
+    });
+    mockCreateSettlementRequestApiClient.mockReturnValue({ requestWalletAdjustment });
+
+    const form = new URLSearchParams({
+      intent: "request-adjustment",
+      direction: "credit",
+      amount: "25.00",
+      reasonCode: "goodwill-cash-credit",
+      expectedBalanceRevision: "wbr_stale",
+    });
+    const result = await walletWorkbenchAction({
+      request: formRequest("acc_test", form),
+      params: { accountId: "acc_test" },
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({
+      intent: "request-adjustment",
+      error: { kind: "stale-preview" },
+      values: { direction: "credit", amount: "25.00" },
+    });
   });
 
   it("approves an adjustment", async () => {
@@ -185,7 +271,52 @@ describe("settlement admin wallet workbench route action", () => {
     } as never);
 
     expect(approveWalletAdjustment).toHaveBeenCalledWith("wad_1", {});
-    expect(result).toMatchObject({ intent: "approve-adjustment", snapshot: { status: "posted" } });
+    expect(result).toMatchObject({
+      intent: "approve-adjustment",
+      adjustmentId: "wad_1",
+      snapshot: { status: "posted" },
+    });
+  });
+
+  it("classifies the elevated-approval domain conflict without losing the adjustment id", async () => {
+    const approveWalletAdjustment = vi.fn(async () => {
+      throw new SettlementApiError(409, {
+        error: { code: "conflict", message: "This Wallet Adjustment requires a second, elevated approval." },
+      });
+    });
+    mockCreateSettlementRequestApiClient.mockReturnValue({ approveWalletAdjustment });
+
+    const form = new URLSearchParams({ intent: "approve-adjustment", adjustmentId: "wad_1" });
+    const result = await walletWorkbenchAction({
+      request: formRequest("acc_test", form),
+      params: { accountId: "acc_test" },
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({
+      intent: "approve-adjustment",
+      adjustmentId: "wad_1",
+      error: { kind: "requires-elevated-approval" },
+    });
+  });
+
+  it("retries approval with the supplied elevated approver", async () => {
+    const approveWalletAdjustment = vi.fn(async () => ({ adjustment_id: "wad_1", status: "posted" }));
+    mockCreateSettlementRequestApiClient.mockReturnValue({ approveWalletAdjustment });
+
+    const form = new URLSearchParams({
+      intent: "approve-adjustment",
+      adjustmentId: "wad_1",
+      elevationApprovedByUserId: "usr_elevated",
+    });
+    const result = await walletWorkbenchAction({
+      request: formRequest("acc_test", form),
+      params: { accountId: "acc_test" },
+      context: undefined,
+    } as never);
+
+    expect(approveWalletAdjustment).toHaveBeenCalledWith("wad_1", { elevationApprovedByUserId: "usr_elevated" });
+    expect(result).toMatchObject({ intent: "approve-adjustment" });
   });
 
   it("rejects an adjustment with a reason", async () => {
@@ -204,7 +335,11 @@ describe("settlement admin wallet workbench route action", () => {
     } as never);
 
     expect(rejectWalletAdjustment).toHaveBeenCalledWith("wad_1", { rejectionReason: "Duplicate request" });
-    expect(result).toMatchObject({ intent: "reject-adjustment", snapshot: { status: "rejected" } });
+    expect(result).toMatchObject({
+      intent: "reject-adjustment",
+      adjustmentId: "wad_1",
+      snapshot: { status: "rejected" },
+    });
   });
 
   it("reverses a posted adjustment", async () => {
@@ -232,15 +367,16 @@ describe("settlement admin wallet workbench route action", () => {
     );
     expect(result).toMatchObject({
       intent: "reverse-adjustment",
+      adjustmentId: "wad_1",
       snapshot: { status: "reversed" },
       reversal: { status: "posted" },
     });
   });
 
-  it("surfaces a conflict error message instead of throwing", async () => {
+  it("classifies an insufficient-permission response as forbidden instead of throwing", async () => {
     mockCreateSettlementRequestApiClient.mockReturnValue({
       approveWalletAdjustment: vi.fn(async () => {
-        throw new SettlementApiError(409, { error: "Wallet balance changed since preview." });
+        throw new SettlementApiError(403, { error: { code: "authorization_forbidden", message: "Forbidden." } });
       }),
     });
 
@@ -253,7 +389,8 @@ describe("settlement admin wallet workbench route action", () => {
 
     expect(result).toMatchObject({
       intent: "approve-adjustment",
-      errorMessage: "Wallet balance changed since preview.",
+      adjustmentId: "wad_1",
+      error: { kind: "forbidden" },
     });
   });
 

@@ -431,7 +431,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by settlement-owned features and composition seams.",
-      "expectedConsumers": ["Multiple settlement slices", "Deployable composition for settlement"],
+      "expectedConsumers": ["wallets"],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
@@ -531,17 +531,25 @@
         "api-route:bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.ts:POST /wallet-adjustments/preview",
         "api-route:bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.ts:POST /wallet-adjustments/:adjustmentId/approve",
         "api-route:bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.ts:POST /wallet-adjustments/:adjustmentId/reject",
-        "api-route:bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.ts:POST /wallet-adjustments/:adjustmentId/reverse"
+        "api-route:bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.ts:POST /wallet-adjustments/:adjustmentId/reverse",
+        "post-form:bounded-contexts/settlement/features/wallets/ui/wallet-adjustment-guided-flow.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/settlement/features/wallets/ui/wallet-adjustment-guided-flow.tsx:Hf2938877c83d#1",
+        "post-form:bounded-contexts/settlement/features/wallets/ui/wallet-adjustment-approval-actions.tsx:Hc53adab6f6c1#1",
+        "post-form:bounded-contexts/settlement/features/wallets/ui/wallet-adjustment-approval-actions.tsx:He25d11db7d18#1",
+        "post-form:bounded-contexts/settlement/features/wallets/ui/wallet-adjustment-reversal-actions.tsx:H6fccfeb32871#1"
       ],
       "visibleDestination": {
-        "description": "Typed wallet-adjustment preview, request, approve, reject, and reverse commands return the command-owned adjustment snapshot (or the authoritative preview) built from the just-committed aggregate state, so the operator surface never depends on the wallet-adjustment read-model projection converging."
+        "routeId": "settlement-wallet-workbench",
+        "description": "Typed wallet-adjustment preview, request, approve, reject, and reverse commands return the command-owned adjustment snapshot (or the authoritative preview) built from the just-committed aggregate state, so the operator surface never depends on the wallet-adjustment read-model projection converging. The guided credit/debit preview -> confirmation -> approval -> reversal flow components (mounted inside the wallet-workbench admin route, classified in settlement.wallet-workbench-route-snapshot-correction) render every command's actionData snapshot inline (preview, receipt, or classified error) without a redirect, so the operator never trusts a lagging projection either."
       },
       "proof": {
-        "authoritativeResponse": "createWalletAdjustmentRuntime returns snapshotFromState built from the WalletAdjustment aggregate state produced by the request/approve/reject/reverse command; preview returns buildWalletAdjustmentPreview computed from the authoritative wallet aggregate balance rather than a projection; a stale previewed balance revision is rejected with a 409 before any posting, and deterministic server-scoped ids make retries return the original adjustment.",
+        "authoritativeResponse": "createWalletAdjustmentRuntime returns snapshotFromState built from the WalletAdjustment aggregate state produced by the request/approve/reject/reverse command; preview returns buildWalletAdjustmentPreview computed from the authoritative wallet aggregate balance rather than a projection; a stale previewed balance revision is rejected with a 409 before any posting, and deterministic server-scoped ids make retries return the original adjustment. The wallet-workbench admin route action returns the same command-owned snapshot as actionData for every intent (preview/request/approve/reject/reverse) without redirecting, and the guided-flow components render it immediately.",
         "tests": [
           "bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.test.ts",
           "bounded-contexts/settlement/features/wallets/api/wallet-adjustment-preview.test.ts",
-          "bounded-contexts/settlement/features/wallets/api/wallet-adjustment-runtime.test.ts"
+          "bounded-contexts/settlement/features/wallets/api/wallet-adjustment-runtime.test.ts",
+          "bounded-contexts/settlement/routes/admin/wallet-workbench-route.test.ts",
+          "bounded-contexts/settlement/features/wallets/ui/wallet-workbench-page.test.tsx"
         ]
       }
     },
@@ -550,19 +558,13 @@
       "owner": "settlement",
       "risk": "critical",
       "strategy": "snapshot-return",
-      "surfaces": [
-        "post-form:bounded-contexts/settlement/features/wallets/ui/wallet-workbench-page.tsx:H901edc92b88e#1",
-        "post-form:bounded-contexts/settlement/features/wallets/ui/wallet-workbench-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/settlement/features/wallets/ui/wallet-workbench-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/settlement/features/wallets/ui/wallet-workbench-page.tsx:H2df726441e2a#3",
-        "route-action:bounded-contexts/settlement/routes/admin/wallet-workbench.tsx"
-      ],
+      "surfaces": ["route-action:bounded-contexts/settlement/routes/admin/wallet-workbench.tsx"],
       "visibleDestination": {
         "routeId": "settlement-wallet-workbench",
-        "description": "The wallet workbench's request/approve/reject/reverse forms return the command-owned Wallet Adjustment snapshot(s) from the route action and render them immediately (including as a projection-catching-up notice merged ahead of the adjustment-history table), matching the wallet-adjustment API's own snapshot-return contract instead of waiting on the wallet-adjustment or ledger read models to converge."
+        "description": "The wallet workbench's request/approve/reject/reverse forms return the command-owned Wallet Adjustment snapshot(s) from the route action and render them immediately (including as a projection-catching-up notice merged ahead of the adjustment-history table), matching the wallet-adjustment API's own snapshot-return contract instead of waiting on the wallet-adjustment or ledger read models to converge. The forms themselves are the guided credit/debit preview/confirm/approve/reverse flow components classified in settlement.wallet-adjustment-api-command-snapshots."
       },
       "proof": {
-        "authoritativeResponse": "The wallet-workbench action forwards to requestWalletAdjustment/approveWalletAdjustment/rejectWalletAdjustment/reverseWalletAdjustment, each of which already returns the command-owned snapshot per settlement.wallet-adjustment-api-command-snapshots; the route action passes that snapshot straight back as actionData, and the page merges any snapshot not yet present in the loaded adjustment-history page into the table with an explicit catching-up notice.",
+        "authoritativeResponse": "The wallet-workbench action forwards to previewWalletAdjustment/requestWalletAdjustment/approveWalletAdjustment/rejectWalletAdjustment/reverseWalletAdjustment, each of which already returns the command-owned snapshot per settlement.wallet-adjustment-api-command-snapshots; the route action passes that snapshot straight back as actionData, and the page merges any snapshot not yet present in the loaded adjustment-history page into the table with an explicit catching-up notice.",
         "tests": [
           "bounded-contexts/settlement/routes/admin/wallet-workbench-route.test.ts",
           "bounded-contexts/settlement/features/wallets/ui/wallet-workbench-page.test.tsx",
