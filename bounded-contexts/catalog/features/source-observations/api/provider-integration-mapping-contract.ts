@@ -201,6 +201,7 @@ export type CatalogProviderMappingValueExpression = Readonly<{
 export type CatalogProviderNormalizedObservationContract = Readonly<{
   outputKind:
     | "pokemon-card"
+    | "pokemon-sealed-product"
     | "provider-product"
     | "magic-card-print"
     | "magic-set-reference"

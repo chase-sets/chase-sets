@@ -16,6 +16,7 @@ import {
   TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION,
   TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION,
   TCGPLAYER_POKEMON_SINGLE_CARD_PROFILE_VERSION,
+  TCGPLAYER_POKEMON_SEALED_PRODUCT_PROFILE_VERSION,
   TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION,
 } from "../tcgplayer-executable-mapping-contract";
 import type {
@@ -91,6 +92,13 @@ export const TCGPLAYER_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
 export const TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
   providerKey: "tcgplayer",
   productDomain: "mtg",
+  productForm: "sealed-product",
+  ingestionPurpose: "source-observation-import",
+});
+
+export const TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
+  providerKey: "tcgplayer",
+  productDomain: "pokemon",
   productForm: "sealed-product",
   ingestionPurpose: "source-observation-import",
 });
@@ -418,6 +426,15 @@ export async function runTcgplayerPokemonSingleCardSourceObservationImportProofD
     profileVersion: TCGPLAYER_POKEMON_SINGLE_CARD_PROFILE_VERSION,
     detail: tcgplayerPokemonSingleCardProofDetail,
     fetchedAt: "2026-06-03T00:00:00.000Z",
+  });
+}
+
+export async function runTcgplayerPokemonSealedProductSourceObservationImportProofDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  return runTcgplayerProviderProductSourceObservationImportProofDryRun({
+    unitKey: TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    profileVersion: TCGPLAYER_POKEMON_SEALED_PRODUCT_PROFILE_VERSION,
+    detail: tcgplayerPokemonSealedProductProofDetail,
+    fetchedAt: "2026-07-13T00:00:00.000Z",
   });
 }
 
@@ -939,6 +956,24 @@ const tcgplayerLorcanaSealedProductProofDetail: TcgplayerAutomationProductDetail
   skus: [{ sku: 91005020, condition: "Sealed", variant: "Sealed", language: "English" }],
 };
 
+const tcgplayerPokemonSealedProductProofDetail: TcgplayerAutomationProductDetail = {
+  productTypeName: "Sealed Products",
+  rarityName: "Sealed",
+  sealed: true,
+  productName: "Scarlet & Violet Elite Trainer Box",
+  setId: 10001,
+  setCode: "SVI",
+  productId: 497105,
+  setName: "Scarlet & Violet",
+  productLineId: 3,
+  productStatusId: 1,
+  productLineName: "Pokemon",
+  customAttributes: { number: "ETB", releaseDate: "2023-03-31", cardType: ["Sealed"] },
+  barcode: "0820650851234",
+  formattedAttributes: {},
+  skus: [{ sku: 15501001, condition: "Sealed", variant: "Sealed", language: "English" }],
+};
+
 function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints {
   if (unitKey === TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
     return {
@@ -1010,6 +1045,15 @@ function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints 
       productLineUrlNames: ["pokemon", "pokemon-tcg"],
       defaultProductLineName: "Pokemon",
       productForm: "single-card",
+    };
+  }
+  if (unitKey === TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
+    return {
+      unitKey,
+      productLineNames: ["pokemon", "pokemon trading card game", "pokemon tcg"],
+      productLineUrlNames: ["pokemon", "pokemon-tcg"],
+      defaultProductLineName: "Pokemon",
+      productForm: "sealed-product",
     };
   }
   throw new Error(`TCGplayer adapter does not support Catalog integration unit '${unitKey}'.`);

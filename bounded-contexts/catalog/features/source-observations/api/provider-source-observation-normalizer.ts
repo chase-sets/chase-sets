@@ -161,6 +161,14 @@ function validateNormalizedObservationContract(
     case "pokemon-card":
     case "provider-product":
       return;
+    case "pokemon-sealed-product":
+      requireNormalizedString(normalized, "name", diagnostics);
+      requireNormalizedString(normalized, "setName", diagnostics);
+      requireNormalizedString(normalized, "sealedProductForm", diagnostics);
+      requireNormalizedNumber(normalized, "packCount", diagnostics);
+      requireNormalizedLiteral(normalized, "tcg", "pokemon", diagnostics);
+      requireNormalizedArray(normalized, "imageUrls", diagnostics, { allowEmpty: true });
+      return;
     case "magic-card-print":
       requireNormalizedString(normalized, "name", diagnostics);
       requireNormalizedString(normalized, "cardNumber", diagnostics);

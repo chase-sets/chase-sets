@@ -1,0 +1,71 @@
+{
+  "observationId": "tcgplayer_pokemon_sealed_product_497105",
+  "externalKey": "497105",
+  "sourceUrl": "https://www.tcgplayer.com/product/497105",
+  "sourceUpdatedAt": "2026-07-01T00:00:00.000Z",
+  "productId": 497105,
+  "productName": "Scarlet & Violet Elite Trainer Box",
+  "setCode": "SVI",
+  "setId": 10001,
+  "setName": "Scarlet & Violet",
+  "productLineId": 3,
+  "productLineName": "Pokemon",
+  "productTypeName": "Sealed Products",
+  "customAttributes": {
+    "number": "ETB",
+    "releaseDate": "2023-03-31"
+  },
+  "releaseYear": 2023,
+  "productForm": "sealed",
+  "sealedProductForm": "elite-trainer-box",
+  "packCount": 9,
+  "barcode": "0820650851234",
+  "imageUrls": [],
+  "skuReferences": ["sku:15501001"],
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:497105"
+    }
+  ],
+  "externalProductReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "sku:15501001",
+      "selectedOptions": [
+        {
+          "dimensionKey": "product-form",
+          "optionKey": "unopened",
+          "providerValue": "Sealed"
+        }
+      ]
+    }
+  ],
+  "mergeIdentity": {
+    "tcg": "pokemon",
+    "productLineName": "Pokemon",
+    "setName": "Scarlet & Violet",
+    "printedProductName": "Scarlet & Violet Elite Trainer Box",
+    "collectorNumber": "ETB",
+    "languageCode": "en",
+    "productForm": "sealed",
+    "barcode": "0820650851234"
+  },
+  "catalogHashMaterial": {
+    "productId": 497105,
+    "productName": "Scarlet & Violet Elite Trainer Box",
+    "setCode": "SVI",
+    "setName": "Scarlet & Violet",
+    "productLineName": "Pokemon",
+    "productForm": "sealed",
+    "sealedProductForm": "elite-trainer-box",
+    "packCount": 9,
+    "barcode": "0820650851234",
+    "skuIds": [15501001]
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "replay"
+  }
+}

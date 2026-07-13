@@ -54,6 +54,7 @@ describe("Catalog provider profile contract harness", () => {
       "tcgplayer@2026.06.23",
       "tcgplayer@2026.06.23",
       "tcgplayer@2026.06.05",
+      "tcgplayer@2026.07.13",
     ]);
   });
 
@@ -83,6 +84,7 @@ describe("Catalog provider profile contract harness", () => {
       { providerKey: "tcgplayer", profileKey: "lorcana-single-card-product-sku", profileVersion: "2026.06.23" },
       { providerKey: "tcgplayer", profileKey: "lorcana-sealed-product-sku", profileVersion: "2026.06.23" },
       { providerKey: "tcgplayer", profileKey: "pokemon-single-card-product-sku", profileVersion: "2026.06.05" },
+      { providerKey: "tcgplayer", profileKey: "pokemon-sealed-product-sku", profileVersion: "2026.07.13" },
     ];
     const results = await Promise.all(
       identities.map(async (identity) => {
@@ -158,6 +160,57 @@ describe("Catalog provider profile contract harness", () => {
         expect.objectContaining({ ruleKey: "sealed-product-deterministic-fields", candidatePolicy: "review-only" }),
         expect.objectContaining({ ruleKey: "barcode-gtin-review", candidatePolicy: "review-only" }),
       ]),
+    );
+    expect(promotableSealed.promotionCommandPlan.commands.map((command) => command.commandName)).toEqual([
+      "CreateCatalogItem",
+      "AssignBlueprintToCatalogItem",
+      "SetCatalogItemFieldValue",
+      "AssignCatalogItemToCategory",
+      "LinkExternalCatalogItemReference",
+    ]);
+    expect(
+      promotableSealed.promotionCommandPlan.commands.flatMap((command) => command.inputs.map((input) => input.path)),
+    ).toEqual(
+      expect.arrayContaining([
+        "CreateCatalogItem.title",
+        "AssignBlueprintToCatalogItem.blueprintKey",
+        "SetCatalogItemFieldValue.value",
+        "LinkExternalCatalogItemReference.references",
+      ]),
+    );
+  });
+
+  it("classifies Pokemon sealed-product dry-runs as blocked, ambiguous, promotable, and replay-safe", async () => {
+    const [blockedPartial, ambiguousSealed, promotableSealed, replaySealed] = await Promise.all([
+      dryRunFixture(
+        { providerKey: "tcgplayer", profileKey: "pokemon-sealed-product-sku", profileVersion: "2026.07.13" },
+        "partial",
+      ),
+      dryRunFixture(
+        { providerKey: "tcgplayer", profileKey: "pokemon-sealed-product-sku", profileVersion: "2026.07.13" },
+        "ambiguous",
+      ),
+      dryRunFixture(
+        { providerKey: "tcgplayer", profileKey: "pokemon-sealed-product-sku", profileVersion: "2026.07.13" },
+        "normal",
+      ),
+      dryRunFixture(
+        { providerKey: "tcgplayer", profileKey: "pokemon-sealed-product-sku", profileVersion: "2026.07.13" },
+        "replay",
+      ),
+    ]);
+
+    expect(blockedPartial.status).toBe("blocked");
+    expect(ambiguousSealed).toMatchObject({
+      status: "completed",
+      duplicatePreventionPolicy: {
+        ambiguousCandidatePolicy: "block-promotion",
+        replayPolicy: "same-profile-version",
+      },
+    });
+    expect(promotableSealed.observation?.sourceRecordHash).toBe(replaySealed.observation?.sourceRecordHash);
+    expect(promotableSealed.observation?.sourceMappingFingerprint).toBe(
+      replaySealed.observation?.sourceMappingFingerprint,
     );
     expect(promotableSealed.promotionCommandPlan.commands.map((command) => command.commandName)).toEqual([
       "CreateCatalogItem",
