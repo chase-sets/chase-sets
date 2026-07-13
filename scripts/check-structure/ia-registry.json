@@ -1,0 +1,500 @@
+{
+  "issue": "#4427",
+  "description": "Surface & IA registry: every route family a bounded context contributes to a deployable, and the admin-web console/desk section it lives under, must be declared here before scripts/check-structure/ia-registry-guard.mjs will let the guard pass. A family is the top-level path segment of a contributed route (deployableContributions[].routes[].routePath in a context context.json, before any admin-web section prefix is applied). Once a family is registered, any context may attach a nested panel/tab/drawer under it (a route whose routePath starts with the same top-level segment) without a new entry — grafts stay cheap. A brand-new top-level segment for a deployable (or, for admin-web, a deployable+section pair) needs a new entry, which is a reviewed, deliberate act.",
+  "guide": [
+    "deployable: one of admin-web, marketplace-web, public-web.",
+    "section: required for admin-web entries only, one of the WebHostSection values (access, catalog, commerce, growth, support, platform) from infrastructure/platform-runtime/web.ts; omit for marketplace-web/public-web.",
+    "family: the top-level path segment (e.g. \"sessions\" for routePath \"sessions/:id\"); use an empty string only for a deployable root route (public-web welcome page).",
+    "owningContext: the bounded context that established the family (informational provenance, validated only for existing as a real context name — not re-derived by the guard).",
+    "purpose: a short, present-tense description of what the family is for."
+  ],
+  "families": [
+    {
+      "deployable": "admin-web",
+      "section": "access",
+      "family": "account-select",
+      "owningContext": "auth",
+      "purpose": "Operator account-selection family (auth)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "access",
+      "family": "accounts",
+      "owningContext": "identity",
+      "purpose": "Operator account directory (identity)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "access",
+      "family": "api-keys",
+      "owningContext": "identity",
+      "purpose": "Operator API-key management (identity)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "access",
+      "family": "invitations",
+      "owningContext": "identity",
+      "purpose": "Operator invitation management (identity)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "access",
+      "family": "memberships",
+      "owningContext": "identity",
+      "purpose": "Operator membership management (identity)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "access",
+      "family": "sessions",
+      "owningContext": "auth",
+      "purpose": "Operator session management (auth)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "access",
+      "family": "sign-in",
+      "owningContext": "auth",
+      "purpose": "Operator sign-in family (auth, access section)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "access",
+      "family": "sign-out",
+      "owningContext": "auth",
+      "purpose": "Operator sign-out family (auth)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "access",
+      "family": "users",
+      "owningContext": "identity",
+      "purpose": "Operator user directory (identity)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
+      "family": "blueprints",
+      "owningContext": "catalog",
+      "purpose": "Blueprints surface (catalog)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
+      "family": "catalog-items",
+      "owningContext": "catalog",
+      "purpose": "Catalog Items surface (catalog)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
+      "family": "categories",
+      "owningContext": "catalog",
+      "purpose": "Categories surface (catalog)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
+      "family": "components",
+      "owningContext": "catalog",
+      "purpose": "Components surface (catalog)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
+      "family": "dimensions",
+      "owningContext": "catalog",
+      "purpose": "Dimensions surface (catalog)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
+      "family": "display-templates",
+      "owningContext": "catalog",
+      "purpose": "Display Templates surface (catalog)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
+      "family": "fields",
+      "owningContext": "catalog",
+      "purpose": "Fields surface (catalog)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
+      "family": "integrations",
+      "owningContext": "catalog",
+      "purpose": "Integrations surface (catalog)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
+      "family": "reference-records",
+      "owningContext": "catalog",
+      "purpose": "Reference Records surface (catalog)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
+      "family": "reference-types",
+      "owningContext": "catalog",
+      "purpose": "Reference Types surface (catalog)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
+      "family": "scope-coverage",
+      "owningContext": "catalog",
+      "purpose": "Scope Coverage surface (catalog)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
+      "family": "scopes",
+      "owningContext": "catalog",
+      "purpose": "Scopes surface (catalog)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
+      "family": "sign-in",
+      "owningContext": "auth",
+      "purpose": "Catalog-admin sign-in family (auth, catalog section — a dedicated auth boundary from the access section)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "catalog",
+      "family": "source-observations",
+      "owningContext": "catalog",
+      "purpose": "Source Observations surface (catalog)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "commerce",
+      "family": "money-health",
+      "owningContext": "settlement",
+      "purpose": "Operator money-health dashboard (settlement, m81 money-contexts hardening)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "commerce",
+      "family": "payout-operations",
+      "owningContext": "settlement",
+      "purpose": "Operator payout-operations console (settlement)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "commerce",
+      "family": "postage-policies",
+      "owningContext": "ordering",
+      "purpose": "Operator postage-policy console (ordering)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "commerce",
+      "family": "terms",
+      "owningContext": "commercial-terms",
+      "purpose": "Operator commercial-terms authoring surface (commercial-terms)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "commerce",
+      "family": "wallet-workbench",
+      "owningContext": "settlement",
+      "purpose": "Operator wallet workbench (settlement, m128 capability monetization dormant surface)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "growth",
+      "family": "campaign-analytics",
+      "owningContext": "public-presence",
+      "purpose": "Operator campaign-analytics console (public-presence, m97 landing conversion)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "growth",
+      "family": "google-shopping",
+      "owningContext": "discovery",
+      "purpose": "Operator Google Shopping feed console (discovery)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "growth",
+      "family": "promo-bar",
+      "owningContext": "public-presence",
+      "purpose": "Operator promo-bar authoring surface (public-presence)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "growth",
+      "family": "waitlist",
+      "owningContext": "public-presence",
+      "purpose": "Operator waitlist console (public-presence)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "platform",
+      "family": "insights",
+      "owningContext": "platform-operations",
+      "purpose": "Operator insights surface (platform-operations): cross-context operator-facing metrics and health signals."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "platform",
+      "family": "listing-evidence-policy",
+      "owningContext": "marketplace",
+      "purpose": "Operator listing-evidence-policy console (marketplace): versioned marketplace listing evidence policy administration."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "platform",
+      "family": "policy-console",
+      "owningContext": "platform-operations",
+      "purpose": "Operator policy console (m110 platform policy): the reviewed home for commercial-terms-pattern policy administration."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "platform",
+      "family": "projections",
+      "owningContext": "platform-operations",
+      "purpose": "Operator projection-health console (platform-operations): catch-up state and replay controls for read models."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "support",
+      "family": "platform-feedback",
+      "owningContext": "platform-operations",
+      "purpose": "Operator platform-feedback intake (platform-operations)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "support",
+      "family": "reference-lookup",
+      "owningContext": "platform-operations",
+      "purpose": "Operator cross-context reference lookup tool (platform-operations)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "support",
+      "family": "reported-content",
+      "owningContext": "platform-operations",
+      "purpose": "Operator reported-content review queue (platform-operations)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "support",
+      "family": "requests",
+      "owningContext": "platform-operations",
+      "purpose": "Operator support-request queue (platform-operations)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "support",
+      "family": "risk-alerts",
+      "owningContext": "platform-operations",
+      "purpose": "Operator risk-alert queue (platform-operations, m107 trust & safety)."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "account",
+      "owningContext": "identity",
+      "purpose": "Account settings family: the single account surface every context (auth, checkout, discovery, fulfillment, identity, inventory, marketplace, notifications, ordering, payments, platform-operations, pricing, settlement) attaches a tab or panel to; identity owns the /account root route."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "accounts",
+      "owningContext": "discovery",
+      "purpose": "Accounts surface (discovery)."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "categories",
+      "owningContext": "discovery",
+      "purpose": "Categories surface (discovery)."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "checkout",
+      "owningContext": "checkout",
+      "purpose": "Checkout family: checkout owns the buy-flow surface; payments attaches its payment-step panel to the same family."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "guest-checkout",
+      "owningContext": "auth",
+      "purpose": "Guest checkout exit/claim family (auth): lets a guest-checkout buyer leave guest mode without a full account family detour."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "items",
+      "owningContext": "discovery",
+      "purpose": "Items surface (discovery)."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "listings",
+      "owningContext": "discovery",
+      "purpose": "Listings surface (discovery)."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "register",
+      "owningContext": "auth",
+      "purpose": "Marketplace registration family (auth). Also the landing surface for the m119 register-PWA deployable decision — that decision lands as one registered family here, however it is implemented."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "search",
+      "owningContext": "discovery",
+      "purpose": "Search surface (discovery)."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "sets",
+      "owningContext": "discovery",
+      "purpose": "Sets surface (discovery)."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "sign-in",
+      "owningContext": "auth",
+      "purpose": "Sign In surface (auth)."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "sign-out",
+      "owningContext": "auth",
+      "purpose": "Sign Out surface (auth)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "",
+      "owningContext": "public-presence",
+      "purpose": "Public marketing site root (welcome page, public-presence)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "compare",
+      "owningContext": "public-presence",
+      "purpose": "Compare surface (public-presence)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "contact",
+      "owningContext": "public-presence",
+      "purpose": "Contact surface (public-presence)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "faq",
+      "owningContext": "public-presence",
+      "purpose": "FAQ surface (public-presence)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "founders",
+      "owningContext": "public-presence",
+      "purpose": "Founders surface (public-presence)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "help",
+      "owningContext": "public-presence",
+      "purpose": "Help surface (public-presence)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "market",
+      "owningContext": "pricing",
+      "purpose": "Market surface (pricing)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "order-protection",
+      "owningContext": "public-presence",
+      "purpose": "Order Protection surface (public-presence)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "press",
+      "owningContext": "public-presence",
+      "purpose": "Press surface (public-presence)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "privacy",
+      "owningContext": "public-presence",
+      "purpose": "Privacy surface (public-presence)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "refunds-and-returns",
+      "owningContext": "public-presence",
+      "purpose": "Refunds And Returns surface (public-presence)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "sales-fees",
+      "owningContext": "commercial-terms",
+      "purpose": "Sales Fees surface (commercial-terms)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "terms",
+      "owningContext": "public-presence",
+      "purpose": "Terms surface (public-presence)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "welcome",
+      "owningContext": "public-presence",
+      "purpose": "Welcome surface (public-presence)."
+    }
+  ],
+  "infrastructureRoutes": {
+    "admin-web": [
+      "manifest.webmanifest",
+      "service-worker.js",
+      "favicon.svg",
+      "favicon.ico",
+      "health/ready",
+      "health/live",
+      "offline",
+      "/",
+      "access",
+      "catalog",
+      "commerce",
+      "growth",
+      "support",
+      "platform"
+    ],
+    "marketplace-web": [
+      "manifest.webmanifest",
+      "service-worker.js",
+      "favicon.svg",
+      "favicon.ico",
+      ".well-known/appspecific/com.chrome.devtools.json",
+      "robots.txt",
+      "sitemap.xml",
+      "sitemap/:kind/:page.xml",
+      "health/ready",
+      "health/live",
+      "analytics/item-detail-rail",
+      "offline",
+      "*"
+    ],
+    "public-web": [
+      "manifest.webmanifest",
+      "favicon.svg",
+      "favicon.ico",
+      ".well-known/appspecific/com.chrome.devtools.json",
+      "robots.txt",
+      "sitemap.xml",
+      "health/ready",
+      "health/live",
+      "*"
+    ]
+  }
+}
