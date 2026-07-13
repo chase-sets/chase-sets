@@ -104,6 +104,10 @@ export interface MarketplaceSellerListingAvailability {
   available_again_at: string | null;
   disabled_at: string | null;
   enabled_at: string | null;
+  /** The pending Away Window's start, or null when no window is scheduled. */
+  away_window_starts_at: string | null;
+  away_window_ends_at: string | null;
+  away_window_reason_category: string | null;
   updated_at: string;
 }
 

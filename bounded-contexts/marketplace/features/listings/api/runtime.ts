@@ -50,6 +50,7 @@ import {
   evolveSellerListingAvailability,
   initialSellerListingAvailabilityState,
   type SellerListingAvailabilityCommand,
+  type SellerListingAvailabilityDisabledBy,
   type SellerListingAvailabilityEnabledBy,
   type SellerListingAvailabilityEvent,
   type SellerListingAvailabilityReasonCategory,
@@ -76,6 +77,7 @@ import {
   hasSellerSupplyLocationNamed,
   listActiveListingsForInventoryItem,
   listDueSellerAvailabilityRestores,
+  listDueSellerAwayWindowStarts,
   listItemListings,
   listSellerListingFeeLockReport,
   listSellerInventoryItemSupply,
@@ -364,6 +366,43 @@ export type MarketplaceListingServices = Readonly<{
     params: Readonly<{ now?: string; limit?: number }> | undefined,
     context: EventStoreContext,
   ) => Promise<{ checked: number; restored: number; skipped: number }>;
+  /**
+   * Books a future away period: Seller Listing Availability will
+   * auto-disable at `startsAt` (Away Window start sweep) and, once away,
+   * ride the existing Resume Instant sweep back to available at `endsAt`.
+   * At most one pending window may exist -- cancel the existing one first
+   * to reschedule.
+   */
+  scheduleSellerAwayWindow: (
+    params: Readonly<{
+      accountId: string;
+      startsAt: string;
+      endsAt: string | null;
+      reasonCategory: SellerListingAvailabilityReasonCategory;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ accountId: string; version: number }>;
+  /** Cancels the pending Away Window, if any; no-ops when none exists. */
+  cancelScheduledAwayWindow: (
+    params: Readonly<{ accountId: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ accountId: string; version: number }>;
+  /**
+   * Away Window start sweep: finds pending windows whose `startsAt` has
+   * passed and disables the account with `disabledBy: "scheduled"`,
+   * `reasonCategory` and `availableAgainAt` taken from the window itself.
+   * The window's end boundary then rides the existing Resume Instant sweep
+   * (`sweepDueSellerAvailabilityRestores`) for free -- this sweep only ever
+   * handles the start. Each disable is compare-and-swap protected (see
+   * `DisableSellerListingAvailabilityCommand.dueBy`): a seller who
+   * cancelled the window between this sweep's read and its command is
+   * never overridden, and that lost race counts as `skipped`, never
+   * `failed`.
+   */
+  sweepDueSellerAwayWindowStarts: (
+    params: Readonly<{ now?: string; limit?: number }> | undefined,
+    context: EventStoreContext,
+  ) => Promise<{ checked: number; started: number; skipped: number }>;
   listSellerListings: (params: Parameters<typeof listSellerListings>[1]) => ReturnType<typeof listSellerListings>;
   getSellerListingStatusCounts: (accountId: string) => ReturnType<typeof getSellerListingStatusCounts>;
   listSellerInventoryItemSupply: (
@@ -1351,6 +1390,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           availableAgainOn: params.availableAgainOn,
           availableAgainAt: params.availableAgainAt ?? null,
           disabledAt: new Date().toISOString(),
+          // A manual (seller-facing) disable; the Away Window start sweep
+          // calls the command handler directly with "scheduled" instead of
+          // routing through this public method.
+          disabledBy: "seller",
         },
         context,
       });
@@ -1444,6 +1487,74 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       }
 
       return { checked: candidates.length, restored, skipped };
+    },
+    scheduleSellerAwayWindow: async (params, context) => {
+      const result = await sellerAvailabilityCommandHandler({
+        streamId: `marketplace.seller-listing-availability-${params.accountId}`,
+        command: {
+          type: "ScheduleSellerAwayWindow",
+          accountId: params.accountId,
+          startsAt: params.startsAt,
+          endsAt: params.endsAt,
+          reasonCategory: params.reasonCategory,
+          scheduledAt: new Date().toISOString(),
+        },
+        context,
+      });
+
+      return { accountId: params.accountId, version: result.version };
+    },
+    cancelScheduledAwayWindow: async (params, context) => {
+      const result = await sellerAvailabilityCommandHandler({
+        streamId: `marketplace.seller-listing-availability-${params.accountId}`,
+        command: {
+          type: "CancelScheduledAwayWindow",
+          accountId: params.accountId,
+          cancelledAt: new Date().toISOString(),
+        },
+        context,
+      });
+
+      return { accountId: params.accountId, version: result.version };
+    },
+    sweepDueSellerAwayWindowStarts: async (params, context) => {
+      const now = params?.now ?? new Date().toISOString();
+      const candidates = await listDueSellerAwayWindowStarts(deps.db, { now, limit: params?.limit });
+      let started = 0;
+      let skipped = 0;
+
+      for (const candidate of candidates) {
+        const result = await sellerAvailabilityCommandHandler({
+          streamId: `marketplace.seller-listing-availability-${candidate.account_id}`,
+          command: {
+            type: "DisableSellerListingAvailability",
+            accountId: candidate.account_id,
+            reasonCategory: candidate.away_window_reason_category as SellerListingAvailabilityReasonCategory,
+            availableAgainOn: null,
+            availableAgainAt: candidate.away_window_ends_at,
+            // The away period is dated from the window's own scheduled
+            // start, not from whenever this tick of the sweep happens to
+            // run -- a late-running sweep (e.g. after a missed interval)
+            // must not retroactively violate "available again after
+            // disable" for a window whose endsAt has since also elapsed.
+            disabledAt: candidate.away_window_starts_at,
+            disabledBy: "scheduled" satisfies SellerListingAvailabilityDisabledBy,
+            dueBy: candidate.away_window_starts_at,
+          },
+          context,
+        });
+
+        if (result.newEvents.length > 0) {
+          started += 1;
+        } else {
+          // The seller cancelled the window (or it no longer matches)
+          // between the due-query read above and this command -- the
+          // decider's compare-and-swap already no-opped it cleanly.
+          skipped += 1;
+        }
+      }
+
+      return { checked: candidates.length, started, skipped };
     },
     listSellerListings: (params) => listSellerListings(deps.db, params),
     getSellerListingStatusCounts: (accountId) => getSellerListingStatusCounts(deps.db, accountId),

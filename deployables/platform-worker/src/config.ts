@@ -84,6 +84,7 @@ export type PlatformWorkerConfig = Readonly<{
   reviewWindowSweepIntervalMs: number | null;
   reviewOpportunityReminderSweepIntervalMs: number | null;
   sellerAvailabilityRestoreSweepIntervalMs: number | null;
+  sellerAwayWindowStartSweepIntervalMs: number | null;
   sellerFundsReleaseIntervalMs: number | null;
   payoutReconciliationIntervalMs: number | null;
   marketRollupsCloserIntervalMs: number | null;
@@ -468,6 +469,15 @@ export function loadConfig(): PlatformWorkerConfig {
     // bounded due-index query) to run every minute by default.
     sellerAvailabilityRestoreSweepIntervalMs: getOptionalPositiveNumberEnv(
       "SELLER_AVAILABILITY_RESTORE_SWEEP_INTERVAL_MS",
+      60_000,
+    ),
+    // Away Window start sweep: books a future away period into effect. A
+    // late start is a minor inconvenience (listings stay visible a bit
+    // longer than the seller planned), not a failure mode as severe as a
+    // missed restore, but the query is just as cheap -- same one-minute
+    // cadence as the restore sweep it rides back on.
+    sellerAwayWindowStartSweepIntervalMs: getOptionalPositiveNumberEnv(
+      "SELLER_AWAY_WINDOW_START_SWEEP_INTERVAL_MS",
       60_000,
     ),
     sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),

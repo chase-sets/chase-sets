@@ -288,6 +288,21 @@ export function createMarketplaceApiClient({
         }),
       );
     },
+    async scheduleSellerAwayWindow(body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.account["listing-availability"]["away-window"].$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async cancelScheduledAwayWindow() {
+      return parseJsonResponse(
+        await client.account["listing-availability"]["away-window"].$delete({
+          header: headers,
+        }),
+      );
+    },
     async claimAnonymousListingDraftIntent(
       anonymousOwnerId: string,
       intentId: string,

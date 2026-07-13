@@ -96,6 +96,9 @@ CREATE TABLE IF NOT EXISTS marketplace_seller_listing_availability_pages (
   available_again_at timestamptz NULL,
   disabled_at timestamptz NULL,
   enabled_at timestamptz NULL,
+  away_window_starts_at timestamptz NULL,
+  away_window_ends_at timestamptz NULL,
+  away_window_reason_category text NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -104,6 +107,17 @@ CREATE INDEX IF NOT EXISTS marketplace_seller_listing_availability_status_idx
 
 ALTER TABLE marketplace_seller_listing_availability_pages
   ADD COLUMN IF NOT EXISTS available_again_at timestamptz NULL;
+
+-- Away Window: a seller-scheduled future away period. At most one pending
+-- window per account (enforced by the aggregate, not the schema). The
+-- partial due-indexes for the auto-resume sweep and the away-window start
+-- sweep live in marketplaceListingReadModelSchemaMigrations (boot-time
+-- indexes on migration-added columns are forbidden -- see
+-- boot-schema-ddl-discipline).
+ALTER TABLE marketplace_seller_listing_availability_pages
+  ADD COLUMN IF NOT EXISTS away_window_starts_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS away_window_ends_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS away_window_reason_category text NULL;
 
 -- Order Capacity is the seller-set cap on concurrently Open Orders. Absent
 -- row (or a NULL max_open_orders) means unlimited, the default. Inert until
@@ -130,6 +144,20 @@ export const marketplaceListingSchemaMigrations: readonly BcSchemaMigration[] = 
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_seller_listing_availability_due_restore_idx
   ON marketplace_seller_listing_availability_pages (available_again_at)
   WHERE status = 'unavailable' AND available_again_at IS NOT NULL`,
+    ],
+  },
+];
+
+export const marketplaceListingReadModelSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260713_marketplace_seller_away_window_due_start_index",
+    description:
+      "Away Window start sweep due-index: a partial index so the sweep's due query scans only accounts with a pending window whose start has arrived (#4880).",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_seller_listing_availability_due_away_window_idx
+  ON marketplace_seller_listing_availability_pages (away_window_starts_at)
+  WHERE away_window_starts_at IS NOT NULL`,
     ],
   },
 ];

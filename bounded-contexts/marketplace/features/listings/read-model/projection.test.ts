@@ -47,6 +47,9 @@ type SellerListingAvailabilityPageRow = {
   available_again_at: string | null;
   disabled_at: string | null;
   enabled_at: string | null;
+  away_window_starts_at: string | null;
+  away_window_ends_at: string | null;
+  away_window_reason_category: string | null;
   updated_at: string;
 };
 
@@ -148,6 +151,10 @@ class ProjectionDb implements PgQueryable {
         available_again_at: values[3] === null ? null : String(values[3]),
         disabled_at: String(values[4]),
         enabled_at: null,
+        // A disable (manual or scheduled) consumes any pending Away Window.
+        away_window_starts_at: null,
+        away_window_ends_at: null,
+        away_window_reason_category: null,
         updated_at: String(values[5]),
       };
       this.sellerListingAvailability.set(row.account_id, row);
@@ -163,6 +170,9 @@ class ProjectionDb implements PgQueryable {
         available_again_at: null,
         disabled_at: null,
         enabled_at: String(values[1]),
+        away_window_starts_at: null,
+        away_window_ends_at: null,
+        away_window_reason_category: null,
         updated_at: String(values[2]),
       };
       this.sellerListingAvailability.set(row.account_id, row);
@@ -189,6 +199,35 @@ class ProjectionDb implements PgQueryable {
         updated_at: String(values[1]),
       };
       this.sellerOrderCapacity.set(row.account_id, row);
+      return { rows: [], rowCount: 1 };
+    }
+
+    // The Away Window scheduled/cancelled handlers issue a partial upsert
+    // that only ever touches the away_window_* columns and never mentions
+    // a status literal -- distinct from the disable/enable branches above.
+    if (
+      sql.includes("INSERT INTO marketplace_seller_listing_availability_pages (") &&
+      sql.includes("away_window_starts_at") &&
+      !sql.includes("'unavailable'") &&
+      !sql.includes("'available'")
+    ) {
+      const accountId = String(values[0]);
+      const existing = this.sellerListingAvailability.get(accountId);
+      const isCancel = sql.includes("VALUES ($1, NULL, NULL, NULL, $2)");
+      const row: SellerListingAvailabilityPageRow = {
+        account_id: accountId,
+        status: existing?.status ?? "available",
+        disabled_reason_category: existing?.disabled_reason_category ?? null,
+        available_again_on: existing?.available_again_on ?? null,
+        available_again_at: existing?.available_again_at ?? null,
+        disabled_at: existing?.disabled_at ?? null,
+        enabled_at: existing?.enabled_at ?? null,
+        away_window_starts_at: isCancel ? null : values[1] === null ? null : String(values[1]),
+        away_window_ends_at: isCancel ? null : values[2] === null ? null : String(values[2]),
+        away_window_reason_category: isCancel ? null : values[3] === null ? null : String(values[3]),
+        updated_at: String(isCancel ? values[1] : values[4]),
+      };
+      this.sellerListingAvailability.set(row.account_id, row);
       return { rows: [], rowCount: 1 };
     }
 
@@ -578,6 +617,109 @@ describe("marketplace listing projection", () => {
     expect(db.sellerOrderCapacity.get("acc_seller")).toMatchObject({
       account_id: "acc_seller",
       max_open_orders: null,
+    });
+  });
+
+  it("projects a scheduled away window onto the seller listing availability page", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.seller-listing-availability.away-window-scheduled"]!(
+      event(
+        "marketplace.seller-listing-availability.away-window-scheduled",
+        {
+          accountId: "acc_seller",
+          startsAt: "2026-07-20T05:00:00.000Z",
+          endsAt: "2026-07-27T05:00:00.000Z",
+          reasonCategory: "travel",
+          scheduledAt: "2026-07-13T12:00:00.000Z",
+        },
+        "marketplace.seller-listing-availability-acc_seller",
+      ),
+    );
+
+    expect(db.sellerListingAvailability.get("acc_seller")).toMatchObject({
+      account_id: "acc_seller",
+      status: "available",
+      away_window_starts_at: "2026-07-20T05:00:00.000Z",
+      away_window_ends_at: "2026-07-27T05:00:00.000Z",
+      away_window_reason_category: "travel",
+    });
+  });
+
+  it("clears the pending away window when it is cancelled", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.seller-listing-availability.away-window-scheduled"]!(
+      event(
+        "marketplace.seller-listing-availability.away-window-scheduled",
+        {
+          accountId: "acc_seller",
+          startsAt: "2026-07-20T05:00:00.000Z",
+          endsAt: "2026-07-27T05:00:00.000Z",
+          reasonCategory: "travel",
+          scheduledAt: "2026-07-13T12:00:00.000Z",
+        },
+        "marketplace.seller-listing-availability-acc_seller",
+      ),
+    );
+    await handlers["marketplace.seller-listing-availability.away-window-cancelled"]!(
+      event(
+        "marketplace.seller-listing-availability.away-window-cancelled",
+        {
+          accountId: "acc_seller",
+          cancelledAt: "2026-07-14T12:00:00.000Z",
+        },
+        "marketplace.seller-listing-availability-acc_seller",
+      ),
+    );
+
+    expect(db.sellerListingAvailability.get("acc_seller")).toMatchObject({
+      status: "available",
+      away_window_starts_at: null,
+      away_window_ends_at: null,
+      away_window_reason_category: null,
+    });
+  });
+
+  it("clears the pending away window's columns when the disable that consumes it is projected", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.seller-listing-availability.away-window-scheduled"]!(
+      event(
+        "marketplace.seller-listing-availability.away-window-scheduled",
+        {
+          accountId: "acc_seller",
+          startsAt: "2026-07-20T05:00:00.000Z",
+          endsAt: "2026-07-27T05:00:00.000Z",
+          reasonCategory: "travel",
+          scheduledAt: "2026-07-13T12:00:00.000Z",
+        },
+        "marketplace.seller-listing-availability-acc_seller",
+      ),
+    );
+    await handlers["marketplace.seller-listing-availability.disabled"]!(
+      event(
+        "marketplace.seller-listing-availability.disabled",
+        {
+          accountId: "acc_seller",
+          reasonCategory: "travel",
+          availableAgainOn: "2026-07-27",
+          availableAgainAt: "2026-07-27T05:00:00.000Z",
+          disabledAt: "2026-07-20T05:00:00.000Z",
+          disabledBy: "scheduled",
+        },
+        "marketplace.seller-listing-availability-acc_seller",
+      ),
+    );
+
+    expect(db.sellerListingAvailability.get("acc_seller")).toMatchObject({
+      status: "unavailable",
+      away_window_starts_at: null,
+      away_window_ends_at: null,
+      away_window_reason_category: null,
     });
   });
 });

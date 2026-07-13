@@ -222,6 +222,8 @@ export function MarketplaceListingListPage({
 }) {
   const [selectedListingIds, setSelectedListingIds] = useState<Set<string>>(new Set());
   const [availableAgainAt, setAvailableAgainAt] = useState("");
+  const [awayWindowStartsAt, setAwayWindowStartsAt] = useState("");
+  const [awayWindowEndsAt, setAwayWindowEndsAt] = useState("");
   const activeListings = statusCounts
     ? statusCounts.active
     : data.items.filter((item) => item.status === "active").length;
@@ -335,6 +337,77 @@ export function MarketplaceListingListPage({
               </Stack>
             </Form>
           </Grid>
+        </Card>
+      </PageSection>
+
+      <PageSection title={t("marketplace.features.listings.ui.listingListPage.away.window")}>
+        <Card>
+          {listingAvailability.away_window_starts_at ? (
+            <Stack gap={3}>
+              <Text tone="secondary">
+                {t("marketplace.features.listings.ui.listingListPage.away.window.scheduled.description", {
+                  reason: availabilityReasonLabel(listingAvailability.away_window_reason_category),
+                  startDate: formatDateTime(listingAvailability.away_window_starts_at),
+                  endDate: listingAvailability.away_window_ends_at
+                    ? formatDateTime(listingAvailability.away_window_ends_at)
+                    : t("marketplace.features.listings.ui.listingListPage.no.return.date"),
+                })}
+              </Text>
+              <Form spacing="none" method="post">
+                <Button type="submit" name="intent" value="cancel-away-window" tone="secondary">
+                  {t("marketplace.features.listings.ui.listingListPage.cancel.away.window")}
+                </Button>
+              </Form>
+            </Stack>
+          ) : listingAvailability.status === "available" ? (
+            <Form spacing="none" method="post">
+              <Stack gap={3}>
+                <Text tone="secondary">
+                  {t("marketplace.features.listings.ui.listingListPage.away.window.description")}
+                </Text>
+                <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                  <NativeSelect
+                    label={t("marketplace.features.listings.ui.listingListPage.reason")}
+                    name="awayWindowReasonCategory"
+                    defaultValue=""
+                    items={[
+                      { value: "", label: t("marketplace.features.listings.ui.listingListPage.reason.not.set") },
+                      { value: "travel", label: t("marketplace.features.listings.ui.listingListPage.reason.travel") },
+                      { value: "audit", label: t("marketplace.features.listings.ui.listingListPage.reason.audit") },
+                      {
+                        value: "operations",
+                        label: t("marketplace.features.listings.ui.listingListPage.reason.operations"),
+                      },
+                      { value: "other", label: t("marketplace.features.listings.ui.listingListPage.reason.other") },
+                    ]}
+                  />
+                  <TextInput
+                    label={t("marketplace.features.listings.ui.listingListPage.away.window.starts.on")}
+                    name="awayWindowStartsOn"
+                    type="date"
+                    onChange={(changeEvent) => setAwayWindowStartsAt(localDateInputToInstant(changeEvent.target.value))}
+                  />
+                  <TextInput
+                    label={t("marketplace.features.listings.ui.listingListPage.away.window.ends.on")}
+                    name="awayWindowEndsOn"
+                    type="date"
+                    onChange={(changeEvent) => setAwayWindowEndsAt(localDateInputToInstant(changeEvent.target.value))}
+                  />
+                </Grid>
+                <HiddenInput type="hidden" name="awayWindowStartsAt" value={awayWindowStartsAt} />
+                <HiddenInput type="hidden" name="awayWindowEndsAt" value={awayWindowEndsAt} />
+                <Inline>
+                  <Button type="submit" name="intent" value="schedule-away-window" tone="secondary">
+                    {t("marketplace.features.listings.ui.listingListPage.schedule.away.window")}
+                  </Button>
+                </Inline>
+              </Stack>
+            </Form>
+          ) : (
+            <Text tone="secondary">
+              {t("marketplace.features.listings.ui.listingListPage.away.window.unavailable.while.away")}
+            </Text>
+          )}
         </Card>
       </PageSection>
 

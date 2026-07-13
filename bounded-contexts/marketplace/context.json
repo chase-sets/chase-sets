@@ -103,6 +103,8 @@
         "marketplace.listing.withdrawn",
         "marketplace.seller-listing-availability.disabled",
         "marketplace.seller-listing-availability.enabled",
+        "marketplace.seller-listing-availability.away-window-scheduled",
+        "marketplace.seller-listing-availability.away-window-cancelled",
         "marketplace.seller-order-capacity.set",
         "marketplace.seller-order-capacity.cleared"
       ],
@@ -1015,6 +1017,8 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /guest/listing-draft-intents",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:DELETE /listing-availability/away-window",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listing-availability/away-window",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listing-availability/disable",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listing-availability/enable",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listing-draft-intents/:id/claim",
@@ -1218,6 +1222,8 @@
       "surfaces": [
         "post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#4",
         "route-action:bounded-contexts/marketplace/routes/account-listings.tsx"
       ],
       "visibleDestination": {
@@ -1227,7 +1233,7 @@
         "readModelTables": ["marketplace_seller_listing_availability_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Seller Listing Availability toggles redirect to Account Listings with a Marketplace receipt; the destination loader forwards it to availability and list reads before rendering the account-wide status control."
+          "behavior": "Seller Listing Availability toggles and Away Window schedule/cancel redirect to Account Listings with a Marketplace receipt; the destination loader forwards it to availability and list reads before rendering the account-wide status control and away-window section."
         }
       },
       "proof": {
@@ -1271,7 +1277,7 @@
       "owner": "marketplace",
       "risk": "important",
       "strategy": "optimistic-with-correction",
-      "surfaces": ["post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#3"],
+      "surfaces": ["post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#5"],
       "visibleDestination": {
         "description": "Bulk pause/withdraw submits the selected listing ids to the Account Listings route action, which batches the existing per-listing pause/withdraw commands and returns a per-row outcome list without redirecting; React Router revalidates the Account Listings loader on the same response, refreshing the table, status badges, and status counts from the Marketplace listings read model."
       },
