@@ -1,8 +1,11 @@
 resource "digitalocean_volume" "observability_data" {
-  region                  = var.region
-  name                    = local.volume_name
-  size                    = var.volume_size_gib
-  description             = "Persistent shared pre-launch observability data for Chase Sets staging and production."
+  region = var.region
+  name   = local.volume_name
+  size   = var.volume_size_gib
+  # DigitalOcean treats description changes as ForceNew. Preserve the live
+  # production-era description so shared-state adoption cannot replace the
+  # durable telemetry volume; tags carry the current shared ownership model.
+  description             = "Persistent production observability data for Chase Sets."
   initial_filesystem_type = "ext4"
   tags                    = local.tags
 
