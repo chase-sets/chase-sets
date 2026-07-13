@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
   ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE,
+  ADMIN_WORKFLOWS_QA_AUTH_SHELL_RBAC_REQUIRED_COVERAGE,
   ADMIN_WORKFLOWS_QA_CATALOG_INTEGRATIONS_REQUIRED_COVERAGE,
   ADMIN_WORKFLOWS_QA_CATALOG_MODELING_REQUIRED_COVERAGE,
   ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS,
@@ -799,6 +800,114 @@ describe("admin workflows QA evidence", () => {
     );
   });
 
+  it("passes complete auth shell RBAC coverage evidence", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3019.md");
+    await writeFile(
+      evidenceFile,
+      [
+        "Environment: staging admin-web",
+        "Actor alias: admin-qa-platform-admin",
+        "Sign-in host: /access/sign-in",
+        "Route or workflow: Auth shell RBAC checklist",
+        "Expected: Auth, shell, and RBAC checks use approved staging fixtures.",
+        "Observed: evidence packet captured with support-safe aliases only.",
+        "Evidence artifact: artifacts/admin-qa/3019/auth-shell-rbac",
+        "Redaction review: passed",
+        ...ADMIN_WORKFLOWS_QA_AUTH_SHELL_RBAC_REQUIRED_COVERAGE.map(({ key }) => `Auth shell RBAC coverage: ${key}`),
+      ].join("\n"),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      environment: "staging",
+      issue: "3019",
+      checkedAt,
+      requireAuthShellRbacCoverage: true,
+    });
+
+    expect(evidence).toMatchObject({
+      verdict: "pass",
+      authShellRbac: {
+        mode: "auth-shell-rbac-coverage",
+        status: "pass",
+        requiredCoverage: ADMIN_WORKFLOWS_QA_AUTH_SHELL_RBAC_REQUIRED_COVERAGE,
+        coveredCoverage: ADMIN_WORKFLOWS_QA_AUTH_SHELL_RBAC_REQUIRED_COVERAGE.map(({ key }) => key).sort(),
+        missingCoverage: [],
+      },
+    });
+  });
+
+  it("accepts structured auth shell RBAC coverage packets", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3019.json");
+    await writeFile(
+      evidenceFile,
+      JSON.stringify(
+        {
+          environment: "staging admin-web",
+          actorAlias: "admin-qa-platform-admin",
+          signInHost: "/access/sign-in",
+          records: [
+            {
+              routeTemplate: "/",
+              authShellRbacCoverage: ADMIN_WORKFLOWS_QA_AUTH_SHELL_RBAC_REQUIRED_COVERAGE.map(({ key }) => key),
+              artifactFolder: "artifacts/admin-qa/3019/auth-shell-rbac",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      checkedAt,
+      requireAuthShellRbacCoverage: true,
+    });
+
+    expect(evidence.verdict).toBe("pass");
+    expect(evidence.authShellRbac.missingCoverage).toEqual([]);
+  });
+
+  it("fails auth shell RBAC evidence when sign-in method or RBAC role coverage is incomplete", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3019.md");
+    await writeFile(
+      evidenceFile,
+      [
+        "Environment: staging admin-web",
+        "Actor alias: admin-qa-platform-admin",
+        "Sign-in host: /access/sign-in",
+        "Auth shell RBAC coverage: auth-shell-rbac:sign-in-password-access-host",
+        "Auth shell RBAC coverage: auth-shell-rbac:rbac-role-platform-admin",
+      ].join("\n"),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      checkedAt,
+      requireAuthShellRbacCoverage: true,
+    });
+
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.authShellRbac).toMatchObject({
+      mode: "auth-shell-rbac-coverage",
+      status: "fail",
+      missingCoverage: ADMIN_WORKFLOWS_QA_AUTH_SHELL_RBAC_REQUIRED_COVERAGE.filter(
+        ({ key }) =>
+          !["auth-shell-rbac:sign-in-password-access-host", "auth-shell-rbac:rbac-role-platform-admin"].includes(key),
+      ).map((coverage) => ({
+        ...coverage,
+        severity: "blocker",
+      })),
+    });
+    expect(evidence.guidance).toContain(
+      "Add the missing auth shell RBAC coverage keys before using this packet to close #3019.",
+    );
+  });
+
   it("finds sensitive evidence categories without returning raw matched values", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
     const evidenceFile = join(directory, "unsafe.md");
@@ -879,6 +988,7 @@ describe("admin workflows QA evidence", () => {
       ADMIN_WORKFLOWS_QA_REQUIRE_PROJECTION_OPERATIONS_COVERAGE: "true",
       ADMIN_WORKFLOWS_QA_REQUIRE_ACCESS_COVERAGE: "true",
       ADMIN_WORKFLOWS_QA_REQUIRE_CATALOG_INTEGRATIONS_COVERAGE: "true",
+      ADMIN_WORKFLOWS_QA_REQUIRE_AUTH_SHELL_RBAC_COVERAGE: "true",
     });
 
     expect(parsed).toMatchObject({
@@ -892,6 +1002,7 @@ describe("admin workflows QA evidence", () => {
       requireProjectionOperationsCoverage: true,
       requireAccessCoverage: true,
       requireCatalogIntegrationsCoverage: true,
+      requireAuthShellRbacCoverage: true,
     });
   });
 

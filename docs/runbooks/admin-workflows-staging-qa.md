@@ -225,6 +225,49 @@ Catalog integrations coverage: catalog-integrations:control-plane-permissions
 
 The #3022 public packet may name only route templates, actor aliases, provider/unit/profile aliases, expected vs observed behavior, and artifact folders. Keep provider raw payloads, provider account or data-source ids, job ids, observation ids, profile version ids when private, event ids, full URLs, tokens, credentials, and private seller/account data out of GitHub.
 
+For final #3019 auth, shell, and RBAC matrix evidence, run the auth shell RBAC gate:
+
+```bash
+pnpm run ops admin-workflows:qa-evidence -- --require-auth-shell-rbac-coverage --evidence-file artifacts/admin-qa/issue-3019.md --out artifacts/admin-qa/issue-3019-redaction.json
+```
+
+That mode still applies the redaction scan, and also requires the public packet to list every required coverage key with the `Auth shell RBAC coverage:` label. Structured JSON packets can provide the same keys with `authShellRbacCoverage`, `shellRbacCoverage`, `coverage`, `coverageKey`, or `check` fields at the top level or inside nested evidence rows.
+
+Use these coverage keys for #3019:
+
+```text
+Auth shell RBAC coverage: auth-shell-rbac:sign-in-password-access-host
+Auth shell RBAC coverage: auth-shell-rbac:sign-in-password-catalog-host
+Auth shell RBAC coverage: auth-shell-rbac:sign-in-phone-code
+Auth shell RBAC coverage: auth-shell-rbac:sign-in-magic-link
+Auth shell RBAC coverage: auth-shell-rbac:sign-in-passkey
+Auth shell RBAC coverage: auth-shell-rbac:account-select-multi-account
+Auth shell RBAC coverage: auth-shell-rbac:sign-out-clears-session
+Auth shell RBAC coverage: auth-shell-rbac:root-hub-one-section-redirect
+Auth shell RBAC coverage: auth-shell-rbac:root-hub-multi-section-listing
+Auth shell RBAC coverage: auth-shell-rbac:root-hub-no-access-state
+Auth shell RBAC coverage: auth-shell-rbac:rbac-role-platform-admin
+Auth shell RBAC coverage: auth-shell-rbac:rbac-role-owner
+Auth shell RBAC coverage: auth-shell-rbac:rbac-role-manager
+Auth shell RBAC coverage: auth-shell-rbac:rbac-role-fulfillment
+Auth shell RBAC coverage: auth-shell-rbac:rbac-role-viewer
+Auth shell RBAC coverage: auth-shell-rbac:rbac-single-permission-actors
+Auth shell RBAC coverage: auth-shell-rbac:rbac-no-unauthorized-shortcuts
+Auth shell RBAC coverage: auth-shell-rbac:rbac-platform-admin-support-requests-decision
+Auth shell RBAC coverage: auth-shell-rbac:shell-desktop-top-app-bar
+Auth shell RBAC coverage: auth-shell-rbac:shell-desktop-section-local-nav
+Auth shell RBAC coverage: auth-shell-rbac:shell-mobile-top-app-bar
+Auth shell RBAC coverage: auth-shell-rbac:shell-mobile-section-local-nav
+Auth shell RBAC coverage: auth-shell-rbac:shell-account-session-actions
+Auth shell RBAC coverage: auth-shell-rbac:shell-active-states
+Auth shell RBAC coverage: auth-shell-rbac:shell-overflow
+Auth shell RBAC coverage: auth-shell-rbac:shell-state-empty
+Auth shell RBAC coverage: auth-shell-rbac:shell-state-error
+Auth shell RBAC coverage: auth-shell-rbac:shell-state-detail
+```
+
+The role-fixture rows (`rbac-role-platform-admin`, `rbac-role-owner`, `rbac-role-manager`, `rbac-role-fulfillment`, `rbac-role-viewer`) and the platform-admin Support Requests decision row have deterministic local regression evidence in `deployables/admin-web/app/admin-role-matrix.test.ts` (`pnpm --filter @chase-sets/app-admin-web run test -- admin-role-matrix`); that suite locks in exactly which admin sections and routes each role's granted permissions unlock, and confirms platform-admin (and owner, manager, and fulfillment) see Support Requests while viewer does not. The single-permission actor rows continue to rely on the Admin Shell Smoke Matrix's Partial-Actor Local Evidence Rows. Deployed staging evidence is still required to close #3019: every sign-in method on both hosts, account-select with a multi-account user, sign-out, root-hub states, and desktop/mobile shell parity (top-app-bar, section-local nav, account/session actions, active states, overflow, and representative empty/error/detail states) do not have automated staging coverage and need manual QA following the Verification Sequence below.
+
 For final #3021 catalog modeling evidence, run the catalog modeling gate:
 
 ```bash
@@ -340,3 +383,4 @@ For commerce marketplace data, prefer the [Staging Representative Commerce State
 5. Run each section checklist issue with the least-privilege actor that proves the behavior.
 6. File a narrower bug under milestone #65 for any unexpected route error, permission leak, stale state, or missing fixture.
 7. Close #3016 only after all six provisionable actor aliases have deployed staging evidence, the five single-permission rows are recorded `controlled-unavailable` per the note above, and representative state gaps are either resolved or tracked in narrower milestone issues.
+8. Close #3019 only after the role-fixture and single-permission actor RBAC rows pass locally (`admin-role-matrix.test.ts` plus the Admin Shell Smoke Matrix's Partial-Actor Local Evidence Rows), the auth shell RBAC evidence gate passes, and deployed staging evidence covers every sign-in method on both hosts, account-select, sign-out, root-hub states, and desktop/mobile shell parity.
