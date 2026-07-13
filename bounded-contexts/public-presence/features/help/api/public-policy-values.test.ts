@@ -21,6 +21,12 @@ const currentValues: Record<string, unknown> = {
   "settlement.clearance-window": { baseClearanceDays: 2, extendedClearanceDays: 7, highValueThresholdAmount: "250.00" },
   "settlement.payout-bounds": { currencyCode: "usd", minimumAmount: "5.00", maximumAmount: "10000.00" },
   "platform-operations.rate-limits": { incidentMultiplier: 1, surfaces: { "internal.admin": { disabled: true } } },
+  "platform-operations.support-deadlines": {
+    "product-not-received": { sellerResponseHours: 48, supportReviewHours: 24 },
+    "return-request": { sellerResponseHours: 48, supportReviewHours: 24 },
+    "buyer-cancel-request": { sellerResponseHours: 24, supportReviewHours: 24 },
+    "seller-cannot-fulfill": { sellerResponseHours: null, supportReviewHours: 12 },
+  },
 };
 
 function sources(upcoming: Readonly<Record<string, unknown>> = {}): PublicPolicySource[] {
@@ -47,6 +53,11 @@ describe("public policy values", () => {
     expect(result.values["settlement.payout.maximum"].value).toBe("10000.00");
     expect(result.values["rate-limits.waitlist.maximum-requests"].value).toBe(20);
     expect(result.values["rate-limits.waitlist.window"].value).toBe(600000);
+    expect(result.values["support-deadlines.product-not-received.seller-response.hours"]).toMatchObject({
+      type: "hours",
+      value: 48,
+    });
+    expect(result.values["support-deadlines.buyer-cancel-request.seller-response.hours"].value).toBe(24);
   });
 
   it("never exposes non-whitelisted policy fields or policy documents", async () => {

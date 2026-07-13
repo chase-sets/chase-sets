@@ -4,11 +4,32 @@ import type { PublicHelpArticlePolicyCitation } from "../index";
 
 export const publicHelpArticlePolicyCitations = [
   {
+    slug: "order-protection",
+    locale: "en",
+    title: "Order protection",
+    href: "/help/buying/order-protection",
+    citedPolicies: ["platform-operations.support-deadlines"],
+  },
+  {
+    slug: "refunds-and-returns",
+    locale: "en",
+    title: "Refunds and returns",
+    href: "/help/buying/refunds-and-returns",
+    citedPolicies: ["platform-operations.support-deadlines"],
+  },
+  {
     slug: "frequently-asked-questions",
     locale: "en",
     title: "Frequently asked questions",
     href: "/help/getting-started/frequently-asked-questions",
-    citedPolicies: ["commercial-terms.checkout-processing-fee"],
+    citedPolicies: ["commercial-terms.checkout-processing-fee", "settlement.clearance-window"],
+  },
+  {
+    slug: "getting-paid",
+    locale: "en",
+    title: "Getting paid",
+    href: "/help/selling/getting-paid",
+    citedPolicies: ["settlement.clearance-window", "settlement.payout-bounds"],
   },
   {
     slug: "sales-fees",

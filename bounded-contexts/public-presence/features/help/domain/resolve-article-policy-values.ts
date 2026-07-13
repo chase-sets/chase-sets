@@ -58,6 +58,7 @@ function formatPublicPolicyValue(value: PublicPolicyValue) {
   if (value.type === "bps") return formatBpsPercent(Number(value.value));
   if (value.type === "money") return formatMoney(String(value.value), value.currency ?? "USD");
   if (value.type === "days") return `${value.value} ${Number(value.value) === 1 ? "day" : "days"}`;
+  if (value.type === "hours") return `${value.value} ${Number(value.value) === 1 ? "hour" : "hours"}`;
   if (value.type === "minutes") {
     const minutes = Number(value.value) / 60_000;
     return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;

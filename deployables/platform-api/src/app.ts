@@ -57,6 +57,7 @@ import {
   type PolicyConsoleWritePort,
   type SupportReferenceLookupCrossContextPort,
   type SupportReferenceLookupResult,
+  supportDeadlinePolicy,
 } from "@chase-sets/platform-operations/server";
 import type { PublicPolicySource } from "@chase-sets/public-presence/server";
 import {
@@ -311,7 +312,10 @@ export function createPlatformApiHost(
     );
   }
   if (platformOperationsPool) {
-    publicPolicySources.push(createPublicPolicySource(platformOperationsPool, rateLimitPolicy));
+    publicPolicySources.push(
+      createPublicPolicySource(platformOperationsPool, rateLimitPolicy),
+      createPublicPolicySource(platformOperationsPool, supportDeadlinePolicy),
+    );
   }
   const supportReferenceLookupCrossContextSources: SupportReferenceLookupCrossContextPort["sources"][number][] = [];
   if (orderingPool) {

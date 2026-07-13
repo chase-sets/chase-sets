@@ -6,9 +6,11 @@ import { publicHelpArticles } from "./article-catalog";
 
 const launchCriticalArticles = [
   "frequently-asked-questions",
+  "getting-paid",
   "order-protection",
   "refunds-and-returns",
   "sales-fees",
+  "shipping-requirements",
 ] as const;
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..");
 

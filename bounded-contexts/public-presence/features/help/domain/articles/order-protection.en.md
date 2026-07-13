@@ -5,10 +5,13 @@ description: How Chase Sets applies buyer and seller safeguards around payment, 
 audience: buyer
 category: buying
 reviewedAt: "2026-07-12"
-citedPolicies: []
-relatedFlows: []
+citedPolicies: ["platform-operations.support-deadlines"]
+relatedFlows: ["product-not-received", "product-not-as-described", "authenticity-concern"]
 claimCategories: ["protection", "payouts", "shipping"]
 promiseTable:
+  - claim: Order problems open structured support cases that stamp response deadlines at open time and apply default remedies on seller silence.
+    issues: ["#3722", "#4288"]
+    tests: ["bounded-contexts/platform-operations/features/support-requests/domain/domain.test.ts", "bounded-contexts/platform-operations/features/support-requests/api/runtime.test.ts"]
   - claim: Every order includes a 1% Order Protection reserve contribution without a separate buyer fee line.
     issues: ["#4098"]
     tests: ["bounded-contexts/ordering/features/orders/domain/policies.test.ts", "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.test.ts"]
@@ -32,6 +35,10 @@ Checkout and order views keep product, seller, item price, one Shipping amount, 
 ## Fraud signals
 
 Early fraud warnings and processor fraud reviews are recorded against the Payment. If an early fraud warning arrives on a captured payment that is not already disputed, the current runtime attempts a refund for the remaining refundable amount when the refund service is configured.
+
+## Getting help with an order
+
+If an order never arrives or the item is not as described, damaged, wrong, or missing, you open a structured support case directly from the order. Each case captures the evidence support needs — photos, condition notes, quantities — and stamps the seller's response deadline the moment it opens; for most flows that deadline is {{policy:support-deadlines.product-not-received.seller-response.hours}}. If the seller does not respond in time, the flow's default remedy applies automatically: when delivery cannot be proven on a product-not-received case, that remedy is a full refund. Cases that need review go to support with a stamped deadline of their own, and authenticity concerns route to support immediately as urgent. See [Refunds and returns](/help/buying/refunds-and-returns) for each flow in detail.
 
 ## Chargebacks and disputes
 
