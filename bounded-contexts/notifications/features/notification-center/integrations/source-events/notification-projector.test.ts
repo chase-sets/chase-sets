@@ -285,4 +285,80 @@ describe("notifications source event projector", () => {
       }),
     );
   });
+
+  it("notifies once for a ready-to-blocked payout readiness transition with reason and deadline", async () => {
+    const outbox = { enqueueNotification: vi.fn(async (_input: EnqueueNotificationInput) => undefined) };
+
+    await projectSourceEventToNotification(
+      outbox,
+      {
+        ...baseEvent,
+        id: "evt_readiness_regression",
+        type: "settlement.payout-readiness.recorded",
+        data: {
+          accountId: "acc_seller" as never,
+          previousStatus: "ready",
+          status: "restricted",
+          missingRequirements: ["individual.verification.document"],
+          disabledReason: "requirements.past_due",
+          requirementsDeadline: "2026-07-15T00:00:00.000Z",
+          contactEmail: "seller@example.test",
+        },
+      },
+      NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
+    );
+
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
+    expect(outbox.enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          category: "order-critical",
+          idempotencyKey: "notifications:settlement:payout_readiness_regression:acc_seller:evt_readiness_regression",
+          body: expect.stringContaining("requirements.past_due"),
+          channels: expect.arrayContaining([
+            expect.objectContaining({ channel: "email", to: [{ email: "seller@example.test" }] }),
+          ]),
+          templateData: expect.objectContaining({ deadline: "2026-07-15T00:00:00.000Z" }),
+        }),
+      }),
+    );
+  });
+
+  it("does not notify for unchanged, improving, or non-blocking readiness states", async () => {
+    const outbox = { enqueueNotification: vi.fn(async (_input: EnqueueNotificationInput) => undefined) };
+    const event = {
+      ...baseEvent,
+      type: "settlement.payout-readiness.recorded" as const,
+      data: {
+        accountId: "acc_seller" as never,
+        previousStatus: "restricted",
+        status: "restricted",
+        missingRequirements: ["external_account"],
+        disabledReason: "requirements.past_due",
+      },
+    };
+
+    await projectSourceEventToNotification(outbox, event, NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION);
+    await projectSourceEventToNotification(
+      outbox,
+      { ...event, data: { ...event.data, previousStatus: "restricted", status: "ready", missingRequirements: [] } },
+      NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
+    );
+    await projectSourceEventToNotification(
+      outbox,
+      {
+        ...event,
+        data: {
+          ...event.data,
+          previousStatus: "ready",
+          status: "pending",
+          missingRequirements: [],
+          disabledReason: null,
+        },
+      },
+      NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
+    );
+
+    expect(outbox.enqueueNotification).not.toHaveBeenCalled();
+  });
 });

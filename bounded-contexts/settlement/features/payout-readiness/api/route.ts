@@ -177,6 +177,22 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
     }
   });
 
+  app.post("/payout-setup/notification-banner-session", async (c) => {
+    const access = requirePayoutReadinessAccess(c, "payouts.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    try {
+      const result = await services.createPayoutNotificationBannerSession({
+        accountId: access.actor.accountId as AccountId,
+      });
+      return c.json(result, 201);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/payout-setup/refresh", async (c) => {
     const access = requirePayoutReadinessAccess(c, "payouts.setup");
     if (access.response) {

@@ -844,11 +844,22 @@ export function createStripeConnectMoneyMovementGateway(
 
   async function createEmbeddedAccountSession(
     providerReference: string,
-    component: "account_onboarding" | "account_management",
+    component: "account_onboarding" | "account_management" | "notification_banner",
     idempotencyKey: string,
-    readiness: ProviderPayoutReadiness,
+    readiness?: ProviderPayoutReadiness,
   ) {
-    const disableStripeUserAuthentication = readiness.requirementsCollector === "application";
+    const disableStripeUserAuthentication = readiness?.requirementsCollector === "application";
+    const componentFeatures =
+      component === "notification_banner"
+        ? {}
+        : {
+            [`components[${component}][features][external_account_collection]`]: "true",
+            [`components[${component}][features][disable_stripe_user_authentication]`]: disableStripeUserAuthentication
+              ? "true"
+              : "false",
+          };
+    const notificationBannerComponent =
+      component === "notification_banner" ? {} : { "components[notification_banner][enabled]": "true" };
     const accountSession = await stripeRequest<StripeAccountSessionResponse>("/v1/account_sessions", {
       method: "POST",
       headers: {
@@ -857,10 +868,8 @@ export function createStripeConnectMoneyMovementGateway(
       body: toFormBody({
         account: providerReference,
         [`components[${component}][enabled]`]: "true",
-        [`components[${component}][features][external_account_collection]`]: "true",
-        [`components[${component}][features][disable_stripe_user_authentication]`]: disableStripeUserAuthentication
-          ? "true"
-          : "false",
+        ...notificationBannerComponent,
+        ...componentFeatures,
       }),
       idempotencyKey,
     });
@@ -919,6 +928,20 @@ export function createStripeConnectMoneyMovementGateway(
         clientSecret: session.clientSecret,
         expiresAt: session.expiresAt,
         components: ["payout-account-management"],
+      };
+    },
+    async createPayoutNotificationBannerSession(input) {
+      const session = await createEmbeddedAccountSession(
+        input.providerReference,
+        "notification_banner",
+        input.idempotencyKey,
+      );
+
+      return {
+        providerReference: input.providerReference,
+        clientSecret: session.clientSecret,
+        expiresAt: session.expiresAt,
+        components: ["notification-banner"],
       };
     },
     async createPayoutSetupLink(input) {

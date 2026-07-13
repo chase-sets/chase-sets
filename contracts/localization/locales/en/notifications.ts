@@ -28,6 +28,10 @@ export const notificationsEnglishTranslations = {
   "notifications.intents.restockDecisionPending.body":
     "{quantity} returned units need a restock or write-off decision.",
   "notifications.intents.restockDecisionPending.title": "Restock decision pending for order {orderReference}",
+  "notifications.intents.payoutReadinessRegression.title": "Action needed to keep payouts flowing",
+  "notifications.intents.payoutReadinessRegression.body":
+    "Payouts are blocked until you resolve {reason}. Deadline: {deadline}.",
+  "notifications.intents.payoutReadinessRegression.noDeadline": "no deadline provided",
   "notifications.intents.saleRecorded.body": "{quantity} units across {lineCount} lines were recorded as sold.",
   "notifications.intents.saleRecorded.title": "Sale recorded for order {orderReference}",
   "notifications.intents.stockCommitted.body": "{quantity} units across {lineCount} lines are committed to this sale.",

@@ -68,7 +68,7 @@ export type SettlementPayoutEmbeddedSession = Readonly<{
   clientSecret: string;
   providerReference: string;
   expiresAt: string | null;
-  components: readonly ("payout-setup" | "payout-account-management")[];
+  components: readonly ("payout-setup" | "payout-account-management" | "notification-banner")[];
   readiness?: SettlementPayoutReadinessRow;
 }>;
 
@@ -179,6 +179,14 @@ export function createSettlementApiClient({
     async createPayoutAccountManagementEmbeddedSession(): Promise<SettlementPayoutEmbeddedSession> {
       return parseJsonResponse(
         await client["payout-setup"]["account-management-embedded-session"].$post({
+          json: {},
+          header: headers,
+        }),
+      );
+    },
+    async createPayoutNotificationBannerSession(): Promise<SettlementPayoutEmbeddedSession> {
+      return parseJsonResponse(
+        await client["payout-setup"]["notification-banner-session"].$post({
           json: {},
           header: headers,
         }),

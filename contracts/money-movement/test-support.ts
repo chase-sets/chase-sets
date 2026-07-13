@@ -131,6 +131,15 @@ export function createFakeMoneyMovementGateway(
         components: ["payout-account-management"],
       };
     },
+    async createPayoutNotificationBannerSession(input) {
+      usedIdempotencyKeys.push(input.idempotencyKey);
+      return {
+        providerReference: input.providerReference,
+        clientSecret: `fake_payout_notification_banner_secret_${input.providerReference}`,
+        expiresAt: null,
+        components: ["notification-banner"],
+      };
+    },
     async createPayoutSetupLink(input): Promise<CreatedPayoutSetupLink> {
       usedIdempotencyKeys.push(input.idempotencyKey);
       const readiness = pendingReadiness(input.providerReference);

@@ -555,6 +555,7 @@ export type PaymentsEventPayloads = Readonly<{
 
 export type PayoutReadinessRecordedPayload = Readonly<{
   accountId: AccountId;
+  previousStatus?: string;
   status: string;
   missingRequirements: readonly string[];
   advisoryRequirements?: readonly string[];

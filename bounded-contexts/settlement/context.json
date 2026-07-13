@@ -447,13 +447,14 @@
       "surfaces": [
         "api-route:bounded-contexts/settlement/features/payout-readiness/api/route.ts:POST /payout-setup/account-management-embedded-session",
         "api-route:bounded-contexts/settlement/features/payout-readiness/api/route.ts:POST /payout-setup/embedded-session",
+        "api-route:bounded-contexts/settlement/features/payout-readiness/api/route.ts:POST /payout-setup/notification-banner-session",
         "api-route:bounded-contexts/settlement/features/payout-readiness/api/route.ts:POST /payout-setup/refresh"
       ],
       "visibleDestination": {
         "description": "Payout setup API mutations return the provider session or provider-neutral readiness snapshot produced by the Settlement command path, so setup pages do not need to trust a lagging payout-readiness projection for immediate status."
       },
       "proof": {
-        "authoritativeResponse": "createPayoutSetupSession returns the embedded session plus the readiness row created from provider readiness recorded by the command; refreshProviderReadiness returns the provider-neutral readiness row built from the same provider response and recorded timestamp; account-management sessions return the provider session needed by the embedded management component without a projection read.",
+        "authoritativeResponse": "createPayoutSetupSession returns the embedded session plus the readiness row created from provider readiness recorded by the command; refreshProviderReadiness returns the provider-neutral readiness row built from the same provider response and recorded timestamp; account-management sessions return the provider session needed by the embedded management component without a projection read; notification-banner sessions return the provider session needed by the read-only Stripe banner without changing Settlement readiness.",
         "tests": [
           "bounded-contexts/settlement/features/payout-readiness/api/runtime.test.ts",
           "bounded-contexts/settlement/features/payout-readiness/api/route.test.ts",

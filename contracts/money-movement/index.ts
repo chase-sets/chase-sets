@@ -7,7 +7,10 @@ export type ProviderCapabilityStatus = "inactive" | "pending" | "active";
 export type ProviderPayoutDestinationStatus = "missing" | "pending" | "ready";
 export type ProviderPayoutAccountDashboard = "none" | "express" | "full" | "unknown";
 export type ProviderPayoutAccountResponsibility = "application" | "stripe" | "unknown";
-export type ProviderPayoutAccountSessionComponent = "payout-setup" | "payout-account-management";
+export type ProviderPayoutAccountSessionComponent =
+  | "payout-setup"
+  | "payout-account-management"
+  | "notification-banner";
 
 export type ProviderPayoutReadiness = Readonly<{
   providerReference: string;
@@ -45,6 +48,13 @@ export type CreatedPayoutAccountManagementSession = Readonly<{
   clientSecret: string;
   expiresAt: string | null;
   components: readonly ["payout-account-management"];
+}>;
+
+export type CreatedPayoutNotificationBannerSession = Readonly<{
+  providerReference: string;
+  clientSecret: string;
+  expiresAt: string | null;
+  components: readonly ["notification-banner"];
 }>;
 
 export type CreatedPayoutSetupLink = Readonly<{
@@ -124,6 +134,13 @@ export type MoneyMovementGateway = Readonly<{
       idempotencyKey: string;
     }>,
   ) => Promise<CreatedPayoutAccountManagementSession>;
+  createPayoutNotificationBannerSession: (
+    input: Readonly<{
+      accountId: AccountId;
+      providerReference: string;
+      idempotencyKey: string;
+    }>,
+  ) => Promise<CreatedPayoutNotificationBannerSession>;
   createPayoutSetupLink: (
     input: Readonly<{
       accountId: AccountId;

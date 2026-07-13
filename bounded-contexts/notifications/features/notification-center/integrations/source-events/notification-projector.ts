@@ -4,6 +4,7 @@ import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   mapOrderCreatedToNotification,
+  mapPayoutReadinessRegressionToNotification,
   mapRestockDecisionPendingToNotification,
   mapSaleRecordedToNotification,
   mapShipmentDeliveredToNotification,
@@ -81,6 +82,20 @@ type RestockDecisionPendingEvent = TransportEvent &
       orderId?: string | null;
       itemId?: string | null;
       quantity?: number | null;
+    }>;
+  }>;
+
+type PayoutReadinessRecordedEvent = TransportEvent &
+  Readonly<{
+    type: "settlement.payout-readiness.recorded";
+    data: Readonly<{
+      accountId: AccountId;
+      previousStatus?: string;
+      status: string;
+      missingRequirements?: readonly string[];
+      disabledReason?: string | null;
+      requirementsDeadline?: string | null;
+      contactEmail?: string | null;
     }>;
   }>;
 
@@ -195,6 +210,32 @@ export async function projectSourceEventToNotification(
       }),
       source,
     });
+    return;
+  }
+
+  if (event.type === "settlement.payout-readiness.recorded") {
+    const data = event.data as PayoutReadinessRecordedEvent["data"];
+    const blockingRequirements = (data.missingRequirements ?? []).filter(Boolean);
+    const isRegression =
+      data.previousStatus === "ready" &&
+      data.status !== "ready" &&
+      (blockingRequirements.length > 0 || Boolean(data.disabledReason?.trim()));
+    if (!isRegression) {
+      return;
+    }
+
+    const reason = data.disabledReason?.trim() || `Required information: ${blockingRequirements.join(", ")}`;
+    await outbox.enqueueNotification({
+      message: mapPayoutReadinessRegressionToNotification({
+        sellerAccountId: data.accountId,
+        sellerEmail: data.contactEmail,
+        reason,
+        deadline: data.requirementsDeadline,
+        transitionId: event.id,
+        correlationId: correlationIdFromEvent(event),
+      }),
+      source,
+    });
   }
 }
 
@@ -224,6 +265,15 @@ export function buildNotificationsInventoryProjectionHandlers(
   return {
     "inventory.hold.consumed": (event) => projectSourceEventToNotification(outbox, event, projectionName),
     "inventory.restock-decision.pending": (event) => projectSourceEventToNotification(outbox, event, projectionName),
+  };
+}
+
+export function buildNotificationsSettlementProjectionHandlers(
+  outbox: NotificationOutbox,
+  projectionName = NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
+): ProjectorHandlerMap {
+  return {
+    "settlement.payout-readiness.recorded": (event) => projectSourceEventToNotification(outbox, event, projectionName),
   };
 }
 
