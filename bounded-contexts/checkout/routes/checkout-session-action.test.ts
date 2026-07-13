@@ -1876,10 +1876,7 @@ describe("checkout web routes: checkout session action", () => {
     );
     expect(response.status).toBe(302);
     const location = response.headers.get("Location") ?? "";
-    expectCompactPostWriteLocation(
-      location,
-      "/account/offers/submitted/off_chk_1?feedbackWorkflow=offer-submit&postWriteToken=",
-    );
+    expectCompactPostWriteLocation(location, "/account/offers/submitted/off_chk_1?postWriteToken=");
     expect((await readResolvedFreshWriteToken(location))?.sources).toEqual([
       {
         sourceContextName: "checkout",
@@ -1942,10 +1939,7 @@ describe("checkout web routes: checkout session action", () => {
 
     expect(response.status).toBe(302);
     const location = response.headers.get("Location") ?? "";
-    expectCompactPostWriteLocation(
-      location,
-      "/account/offers/submitted/off_chk_1?feedbackWorkflow=offer-submit&postWriteToken=",
-    );
+    expectCompactPostWriteLocation(location, "/account/offers/submitted/off_chk_1?postWriteToken=");
     expect((await readResolvedFreshWriteToken(location))?.sources).toEqual([
       {
         sourceContextName: "marketplace",
@@ -2001,7 +1995,7 @@ describe("checkout web routes: checkout session action", () => {
     } as never)) as Response;
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/offers/submitted/off_chk_1?feedbackWorkflow=offer-submit");
+    expect(response.headers.get("Location")).toBe("/account/offers/submitted/off_chk_1");
     expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
       "chk_1",
       expect.objectContaining({

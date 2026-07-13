@@ -4,6 +4,7 @@ import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import { moneyToCents } from "@chase-sets/primitives/money";
 import type { AccountId, CatalogItemId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import {
   assertFeeLockTermsPreserved,
   currentMarketplaceListingFeeLock,
@@ -440,6 +441,7 @@ export type RefreshListingEvidenceRequirementsCommand = Readonly<{
 export type PublishListingCommand = Readonly<{
   type: "PublishListing";
   readiness: ListingEvidenceReadinessResult;
+  csatOutcomeFact?: JsonObject;
 }>;
 export type PauseListingCommand = Readonly<{ type: "PauseListing" }>;
 export type AutoUnlistListingCommand = Readonly<{
@@ -576,7 +578,10 @@ export type ListingEvidenceRequirementsRefreshedEvent = DomainEvent<
     evidenceRequirements: ListingEvidenceRequirementSnapshot;
   }>
 >;
-export type ListingPublishedEvent = DomainEvent<"marketplace.listing.published", Readonly<Record<string, never>>>;
+export type ListingPublishedEvent = DomainEvent<
+  "marketplace.listing.published",
+  Readonly<{ csatOutcomeFact?: JsonObject }>
+>;
 export type ListingPausedEvent = DomainEvent<"marketplace.listing.paused", Readonly<Record<string, never>>>;
 export type ListingAutoUnlistedEvent = DomainEvent<
   "marketplace.listing.auto-unlisted",
@@ -807,7 +812,7 @@ export const decideMarketplaceListing: AggregateDecider<
       return [
         {
           type: "marketplace.listing.published",
-          data: {},
+          data: command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {},
         },
       ];
     case "PauseListing":

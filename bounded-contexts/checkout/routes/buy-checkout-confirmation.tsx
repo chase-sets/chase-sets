@@ -75,7 +75,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   });
 
   if (session.submitted_offer_id) {
-    throw redirect(`/account/offers/submitted/${session.submitted_offer_id}?feedbackWorkflow=offer-submit`);
+    throw redirect(`/account/offers/submitted/${session.submitted_offer_id}`);
   }
 
   if (!session.payment_id) {

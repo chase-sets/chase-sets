@@ -589,7 +589,7 @@ describe("marketplace offer routes", () => {
 
     expect(response).toBeInstanceOf(Response);
     const location = (response as Response).headers.get("Location") ?? "";
-    expect(location).toMatch(/^\/account\/offers\/matches\/off_1\?feedbackWorkflow=offer-accept&afterWrite=/);
+    expect(location).toMatch(/^\/account\/offers\/matches\/off_1\?afterWrite=/);
     expect(readFreshWriteToken(location)?.sources).toEqual([
       {
         sourceContextName: "marketplace",

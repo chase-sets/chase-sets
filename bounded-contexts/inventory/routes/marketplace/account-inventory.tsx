@@ -1,12 +1,10 @@
-import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/web";
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
 import { type ListResponse } from "@chase-sets/http/responses";
 import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { platformFeedbackWorkflowFromSearchParams } from "@chase-sets/platform-operations/server";
 import {
   InventoryApiError,
   type InventoryItemListItem,
@@ -60,18 +58,6 @@ function safeAccountReturnTo(value: FormDataEntryValue | string | null | undefin
   } catch {
     return null;
   }
-}
-
-function appendFeedback(destination: string, feedback: URLSearchParams) {
-  const [pathAndSearch, hash = ""] = destination.split("#", 2);
-  const [path, search = ""] = pathAndSearch.split("?", 2);
-  const params = new URLSearchParams(search);
-  for (const [key, value] of feedback) {
-    params.set(key, value);
-  }
-
-  const query = params.toString();
-  return `${path}${query ? `?${query}` : ""}${hash ? `#${hash}` : ""}`;
 }
 
 function emptyListResponse<T>(): ListResponse<T> {
@@ -170,20 +156,14 @@ export async function action({ request }: ActionFunctionArgs) {
         totalQuantity: Number(formData.get("totalQuantity") ?? 0),
         acquisitionCostAmount: String(formData.get("acquisitionCostAmount") ?? "").trim() || null,
       })) as { id?: string };
-      const feedback = new URLSearchParams({
-        feedbackWorkflow: "inventory-create",
-      });
       if (result.id) {
-        feedback.set("feedbackEntityId", result.id);
         const returnTo = safeAccountReturnTo(formData.get("returnTo"));
         if (returnTo) {
-          return redirect(navigateAfterWrite(result, appendFeedback(returnTo, feedback)));
+          return redirect(navigateAfterWrite(result, returnTo));
         }
-        return redirect(
-          navigateAfterWrite(result, `/account/inventory/items/${encodeURIComponent(result.id)}?${feedback}`),
-        );
+        return redirect(navigateAfterWrite(result, `/account/inventory/items/${encodeURIComponent(result.id)}`));
       }
-      return redirect(`/account/inventory?${feedback}`);
+      return redirect("/account/inventory");
     }
 
     return redirect("/account/inventory");
@@ -208,9 +188,6 @@ export default function MarketplaceInventoryRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
-  const feedbackWorkflow = platformFeedbackWorkflowFromSearchParams("inventory-list", searchParams);
-  const feedbackEntityId = searchParams.get("feedbackEntityId");
 
   const items = data.items as ListResponse<InventoryItemListItem> & { limit: number; offset: number };
 
@@ -222,17 +199,6 @@ export default function MarketplaceInventoryRoute() {
       createItemDraft={data.createItemDraft}
       currentPath={`${location.pathname}${location.search}`}
       errorMessage={actionData?.error ?? data.loadError ?? null}
-      feedbackPrompt={
-        feedbackWorkflow ? (
-          <PlatformFeedbackPrompt
-            workflow={feedbackWorkflow}
-            sourceRoutePath="/account/inventory"
-            relatedEntities={feedbackEntityId ? [{ type: "inventory-item", id: feedbackEntityId }] : []}
-            title={t("inventory.routes.marketplace.accountInventory.feedback.title")}
-            description={t("inventory.routes.marketplace.accountInventory.feedback.description")}
-          />
-        ) : null
-      }
     />
   );
 }

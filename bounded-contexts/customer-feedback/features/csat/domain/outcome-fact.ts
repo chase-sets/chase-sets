@@ -11,7 +11,7 @@
  * start gate, so the journey leaves (//) publish exactly this
  * shape and/ consume it without renegotiation.
  */
-import type { CsatWorkflowOutcomeCode } from "./workflow-outcomes";
+import { isProvenanceAuthoritative, type CsatWorkflowOutcomeCode } from "./workflow-outcomes";
 
 /** A reference to the source-context entity whose completion the outcome describes. */
 export type OutcomeSubjectRef = Readonly<{
@@ -26,6 +26,16 @@ export type OutcomeSubjectKind = "buyer" | "seller" | "account" | "visitor";
 
 /** Current outcome-fact schema version. Bump on any breaking payload change. */
 export const csatOutcomeFactSchemaVersion = 1 as const;
+
+/**
+ * Raw publisher input. Source contexts may only supply server-derived values;
+ * the factory below is the single runtime guard for the shared allow-list and
+ * provenance ownership map.
+ */
+export type CsatOutcomeFactDraft = Omit<CsatOutcomeFactV1, "factSchemaVersion" | "outcomeCode"> &
+  Readonly<{
+    outcomeCode: string;
+  }>;
 
 /**
  * Versioned, server-authoritative outcome fact published by a source context.
@@ -54,6 +64,22 @@ export type CsatOutcomeFactV1 = Readonly<{
   /** Optional correlation id for cross-context tracing. */
   correlationId?: string | null;
 }>;
+
+/** Build a versioned fact without permitting an unregistered or mis-owned code. */
+export function createCsatOutcomeFactV1(input: CsatOutcomeFactDraft): CsatOutcomeFactV1 {
+  const outcomeCode = input.outcomeCode;
+  if (!isProvenanceAuthoritative(outcomeCode, input.sourceContext)) {
+    throw new Error(
+      `CSAT outcome fact provenance is not authoritative for '${input.outcomeCode}' from '${input.sourceContext}'.`,
+    );
+  }
+
+  return {
+    factSchemaVersion: csatOutcomeFactSchemaVersion,
+    ...input,
+    outcomeCode,
+  };
+}
 
 /** The current outcome-fact type. Aliased so leaves import a version-neutral name. */
 export type CsatOutcomeFact = CsatOutcomeFactV1;

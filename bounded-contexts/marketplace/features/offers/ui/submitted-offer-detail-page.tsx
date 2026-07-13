@@ -1,5 +1,4 @@
 import { formatMoney, t } from "@chase-sets/localization";
-import type { ReactNode } from "react";
 import {
   AccountReputationSummary,
   Badge,
@@ -31,11 +30,9 @@ function statusTone(status: string) {
 export function MarketplaceSubmittedOfferDetailPage({
   offer,
   errorMessage,
-  feedbackPrompt,
 }: {
   offer: SubmittedOfferDetail;
   errorMessage?: string | null;
-  feedbackPrompt?: ReactNode;
 }) {
   const showAcceptedSellerReputation = offer.accepted_seller_account_id !== null && offer.status === "accepted";
 
@@ -59,8 +56,6 @@ export function MarketplaceSubmittedOfferDetailPage({
           description={errorMessage}
         />
       ) : null}
-
-      {feedbackPrompt}
 
       <PageSection title={t("marketplace.features.offers.ui.submittedOfferDetailPage.submitted.offer.overview")}>
         <Stack gap={4}>

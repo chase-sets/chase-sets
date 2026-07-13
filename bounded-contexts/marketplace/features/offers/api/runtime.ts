@@ -26,6 +26,7 @@ import {
   type MarketplaceOfferEvent,
   type MarketplaceOfferState,
 } from "../domain/domain";
+import { createOfferAcceptedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import {
   assertOfferSubmissionAllowed,
   DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY,
@@ -491,13 +492,19 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         priceAmount: offer.price_amount,
       });
       assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
+      const acceptedAt = new Date().toISOString();
 
       const result = await commandHandler({
         streamId: `marketplace.offer-${params.offerId}`,
         command: {
           type: "AcceptOffer",
           sellerAccountId: params.sellerAccountId,
-          acceptedAt: new Date().toISOString(),
+          acceptedAt,
+          csatOutcomeFact: createOfferAcceptedCsatOutcomeFact({
+            sellerAccountId: params.sellerAccountId,
+            offerId: params.offerId,
+            acceptedAt,
+          }),
           marketplaceSalesFeePercentageBps: quote.marketplace_sales_fee_percentage_bps,
           marketplaceSalesFeeFixedAmount: quote.marketplace_sales_fee_fixed_amount,
           marketplaceSalesFeeCapAmount: quote.marketplace_sales_fee_cap_amount,

@@ -694,7 +694,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw error;
   });
   if (session.submitted_offer_id) {
-    throw redirect(`/account/offers/submitted/${session.submitted_offer_id}?feedbackWorkflow=offer-submit`);
+    throw redirect(`/account/offers/submitted/${session.submitted_offer_id}`);
   }
 
   const ancillaryRequest = requestWithoutReadAfterWrite(resolvedRequest);
@@ -951,7 +951,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         return redirect(
           await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
             [result, visibleFreshWriteSource(result)],
-            `/account/offers/submitted/${result.offer_id}?feedbackWorkflow=offer-submit`,
+            `/account/offers/submitted/${result.offer_id}`,
           ),
         );
       }

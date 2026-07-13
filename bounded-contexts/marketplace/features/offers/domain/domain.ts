@@ -2,6 +2,7 @@ import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-set
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId, OfferId } from "@chase-sets/primitives/typed-ids";
+import type { JsonObject } from "@chase-sets/primitives/json";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -142,6 +143,7 @@ export type SubmitOfferCommand = Readonly<{
 
 export type AcceptOfferCommand = Readonly<{
   type: "AcceptOffer";
+  csatOutcomeFact?: JsonObject;
   sellerAccountId: AccountId;
   acceptedAt: string;
   marketplaceSalesFeePercentageBps: number;
@@ -205,6 +207,7 @@ export type OfferAcceptedEvent = DomainEvent<
     feeQuoteFingerprint: string;
     acceptanceBatchId: string | null;
     acceptanceBatchSize: number | null;
+    csatOutcomeFact?: JsonObject;
   }>
 >;
 
@@ -313,6 +316,7 @@ export const decideMarketplaceOffer: AggregateDecider<
                     command.acceptanceBatchSize ?? 1,
                     "Offer acceptance batch size must be a positive whole number.",
                   ),
+            ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
           },
         },
       ];

@@ -25,6 +25,7 @@
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [
     "@chase-sets/commercial-terms",
+    "@chase-sets/customer-feedback",
     "@chase-sets/identity",
     "@chase-sets/inventory",
     "@chase-sets/platform-operations"

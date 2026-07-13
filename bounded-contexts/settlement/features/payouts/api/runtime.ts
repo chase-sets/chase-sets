@@ -60,6 +60,7 @@ import {
   settlementPayoutBoundsPolicy,
   type SettlementPayoutBoundsPolicyValue,
 } from "../domain/payout-policy";
+import { createPayoutCompletedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { buildPayoutProjectionHandlers } from "../read-model/projection";
 import {
   SETTLEMENT_PAYOUT_TRANSACTIONAL_EMAIL_PROJECTION,
@@ -783,6 +784,11 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             type: "CompletePayout",
             providerStatus: event.providerStatus,
             completedAt: event.occurredAt,
+            csatOutcomeFact: createPayoutCompletedCsatOutcomeFact({
+              accountId: payout.account_id,
+              payoutId: payout.payout_id,
+              completedAt: event.occurredAt,
+            }),
           },
           context,
         });
@@ -904,12 +910,18 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         });
         return { received: true, ignored: true };
       }
+      const completedAt = new Date().toISOString();
       const result = await commandHandler({
         streamId: `settlement.payout-${payout.payout_id}`,
         command: {
           type: "CompletePayout",
           providerStatus: providerPayout.providerStatus,
-          completedAt: new Date().toISOString(),
+          completedAt,
+          csatOutcomeFact: createPayoutCompletedCsatOutcomeFact({
+            accountId: payout.account_id,
+            payoutId: payout.payout_id,
+            completedAt,
+          }),
         },
         context,
       });
@@ -1129,12 +1141,18 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       );
 
       if (["paid", "succeeded", "completed"].includes(providerPayout.providerStatus)) {
+        const completedAt = new Date().toISOString();
         const result = await commandHandler({
           streamId: `settlement.payout-${payout.payout_id}`,
           command: {
             type: "CompletePayout",
             providerStatus: providerPayout.providerStatus,
-            completedAt: new Date().toISOString(),
+            completedAt,
+            csatOutcomeFact: createPayoutCompletedCsatOutcomeFact({
+              accountId: payout.account_id,
+              payoutId: payout.payout_id,
+              completedAt,
+            }),
           },
           context,
         });
@@ -1889,12 +1907,18 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
     },
     async completePayout(params, context) {
       await requireExistingPayout(deps.db, params.payoutId, params.accountId);
+      const completedAt = params.completedAt ?? new Date().toISOString();
       const result = await commandHandler({
         streamId: `settlement.payout-${params.payoutId}`,
         command: {
           type: "CompletePayout",
           providerStatus: null,
-          completedAt: params.completedAt ?? new Date().toISOString(),
+          completedAt,
+          csatOutcomeFact: createPayoutCompletedCsatOutcomeFact({
+            accountId: params.accountId,
+            payoutId: params.payoutId,
+            completedAt,
+          }),
         },
         context,
       });

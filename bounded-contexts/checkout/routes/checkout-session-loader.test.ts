@@ -1664,9 +1664,7 @@ describe("checkout web routes: checkout session loader", () => {
     }
 
     expect(redirectResponse?.status).toBe(302);
-    expect(redirectResponse?.headers.get("Location")).toBe(
-      "/account/offers/submitted/off_chk_1?feedbackWorkflow=offer-submit",
-    );
+    expect(redirectResponse?.headers.get("Location")).toBe("/account/offers/submitted/off_chk_1");
   });
 
   it("loads a prepared payment inline for guest checkout", async () => {

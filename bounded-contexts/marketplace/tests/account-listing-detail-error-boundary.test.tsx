@@ -14,7 +14,7 @@ afterEach(() => {
 
 function freshListingPath(nowMs = Date.now()) {
   return appendFreshWriteToken(
-    "/account/listings/lst_pending?feedbackWorkflow=listing-publish",
+    "/account/listings/lst_pending",
     {
       commitPositions: [
         {

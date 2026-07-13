@@ -1,4 +1,3 @@
-import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/web";
 import { t } from "@chase-sets/localization";
 import { useRef, useState, type FormEvent } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
@@ -33,7 +32,6 @@ import {
 } from "@chase-sets/auth/server";
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "@chase-sets/auth/web";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { shouldShowCheckoutPaymentFeedbackPrompt } from "@chase-sets/platform-operations/server";
 import { createPaymentsRequestApiClient, PaymentsApiError } from "../../support/request-support/api-client";
 import type { PaymentsAccountOrderInput } from "../../support/request-support/api-client";
 import type {
@@ -521,22 +519,6 @@ export default function MarketplaceAccountPaymentRoute() {
   const actionData = useActionData<typeof action>();
   const retryActionError =
     actionData && "error" in actionData && actionData.scope === "retry" ? actionData.error : null;
-  const feedbackPrompt = shouldShowCheckoutPaymentFeedbackPrompt(data.payment) ? (
-    <PlatformFeedbackPrompt
-      workflow="checkout-payment"
-      sourceRoutePath={
-        data.isGuestCheckoutPayment
-          ? `/checkout/payments/${data.payment.payment_id}`
-          : `/account/payments/${data.payment.payment_id}`
-      }
-      relatedEntities={[
-        { type: "payment", id: data.payment.payment_id },
-        ...data.payment.order_ids.map((orderId) => ({ type: "order", id: orderId })),
-      ]}
-      title={t("payments.routes.marketplace.accountPayment.feedback.title")}
-      description={t("payments.routes.marketplace.accountPayment.feedback.description")}
-    />
-  ) : null;
   const guestClaimSection =
     data.isGuestCheckoutPayment && data.guestClaimContext ? (
       <GuestClaimPrompt actionData={actionData ?? undefined} claimContext={data.guestClaimContext} />
@@ -549,7 +531,6 @@ export default function MarketplaceAccountPaymentRoute() {
       showSupportDetails={data.showSupportDetails}
       paymentElementDefaultValues={data.paymentElementDefaultValues}
       retryActionError={retryActionError}
-      feedbackPrompt={feedbackPrompt}
       guestClaimSection={guestClaimSection}
     />
   );

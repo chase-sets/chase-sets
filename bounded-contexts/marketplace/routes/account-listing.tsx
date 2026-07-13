@@ -1,7 +1,6 @@
-import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/web";
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
 import {
   loadAfterWrite,
   navigateAfterWriteWithCompactToken,
@@ -9,7 +8,6 @@ import {
 } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { platformFeedbackWorkflowFromSearchParams } from "@chase-sets/platform-operations/server";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
@@ -151,7 +149,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
               priceAmount: priceDraftAmount,
               feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
             }),
-            `${pathname}?feedbackWorkflow=listing-update`,
+            pathname,
           ),
         );
       case "update-quantity-cap":
@@ -161,7 +159,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
               quantityCap: Number(formData.get("quantityCap") ?? 0),
               feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
             }),
-            `${pathname}?feedbackWorkflow=listing-update`,
+            pathname,
           ),
         );
       case "update-purchase-limits":
@@ -174,14 +172,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
                 maxUnitsPerCustomerAccount: optionalLimit(formData.get("maxUnitsPerCustomerAccount")),
               },
             }),
-            `${pathname}?feedbackWorkflow=listing-update`,
+            pathname,
           ),
         );
       case "add-photos":
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.addListingPhotos(params.listingId!, listingPhotoFormData(formData)),
-            `${pathname}?feedbackWorkflow=listing-update`,
+            pathname,
           ),
         );
       case "publish":
@@ -190,7 +188,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
             await api.publishListing(params.listingId!, {
               feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
             }),
-            `${pathname}?feedbackWorkflow=listing-publish`,
+            pathname,
           ),
         );
       case "pause":
@@ -228,13 +226,10 @@ export default function MarketplaceAccountListingRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
 
   if (!data.listing) {
     return <ListingDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />;
   }
-
-  const listingFeedbackWorkflow = platformFeedbackWorkflowFromSearchParams("seller-listing-detail", searchParams);
 
   return (
     <MarketplaceListingDetailPage
@@ -243,20 +238,6 @@ export default function MarketplaceAccountListingRoute() {
       priceDraftAmount={actionData?.priceDraftAmount ?? null}
       pricePreview={actionData?.pricePreview as MarketplaceListingTermsPreview | null | undefined}
       errorMessage={actionData?.error ?? null}
-      feedbackPrompt={
-        listingFeedbackWorkflow ? (
-          <PlatformFeedbackPrompt
-            workflow={listingFeedbackWorkflow}
-            sourceRoutePath={`/account/listings/${data.listing.listing_id}`}
-            relatedEntities={[
-              { type: "listing", id: data.listing.listing_id },
-              { type: "inventory-item", id: data.listing.inventory_item_id },
-            ]}
-            title={t("marketplace.routes.accountListing.feedback.title")}
-            description={t("marketplace.routes.accountListing.feedback.description")}
-          />
-        ) : null
-      }
     />
   );
 }

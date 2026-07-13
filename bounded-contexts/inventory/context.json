@@ -7,7 +7,7 @@
   "slices": ["inventory-items", "import-batches", "holds", "reservations", "restock-decisions", "storage-locations"],
   "allowedSupportDirectories": ["catalog-item-support", "request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
-  "allowedContextDependencies": ["@chase-sets/platform-operations"],
+  "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/platform-operations"],
   "seedRequirements": ["catalog", "identity"],
   "eventSubscriptions": [
     {
