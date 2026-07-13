@@ -2959,7 +2959,23 @@ describe("DigitalOcean platform configuration", () => {
       "Missing required staging route-matrix evidence configuration",
     );
     expect(platformStagingRouteMatrixEvidenceWorkflow).toContain('--prometheus-token "${PROMETHEUS_QUERY_TOKEN}"');
-    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("path: artifacts/wake-drills/*.json");
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("artifacts/wake-drills/*.json");
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("artifacts/wake-drills/*.md");
+  });
+
+  it("gates route-matrix evidence generation on the segment-level projection lag SLO regression gate", () => {
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
+      "Evaluate segment-level projection lag SLO regression gate",
+    );
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
+      "pnpm run ops release-health:report -- \\\n            --dir artifacts/wake-drills \\\n            --gate \\",
+    );
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
+      "artifacts/wake-drills/release-health-segment-slo-gate.md",
+    );
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
+      "Segment-level projection lag SLO regression gate failed",
+    );
   });
 
   it("uses one checked-in script for Terraform-state database URL exports in operational workflows", () => {
