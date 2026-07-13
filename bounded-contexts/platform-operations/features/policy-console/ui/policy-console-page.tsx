@@ -1,8 +1,11 @@
 import { t } from "@chase-sets/localization";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
   Badge,
+  Button,
   Card,
   DataTable,
+  HiddenInput,
   Inset,
   LinkButton,
   Page,
@@ -12,6 +15,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { PolicyConsoleRegistryItem } from "../api/contracts";
+import type { PublicDocReviewQueueItem } from "../../public-doc-reviews/read-model/queries";
 
 const routeKey = "platformOperations.policyConsole";
 
@@ -45,9 +49,11 @@ function statusLabel(status: string): string {
 export function PolicyConsolePage({
   items,
   commercialTermsSchedulesHref,
+  reviewItems = [],
 }: Readonly<{
   items: readonly PolicyConsoleRegistryItem[];
   commercialTermsSchedulesHref: string;
+  reviewItems?: readonly PublicDocReviewQueueItem[];
 }>) {
   const groups = groupByContext(items);
 
@@ -70,6 +76,48 @@ export function PolicyConsolePage({
             </Stack>
           </Inset>
         </Card>
+      </PageSection>
+
+      <PageSection title={t(`${routeKey}.reviewQueue.title`)} description={t(`${routeKey}.reviewQueue.description`)}>
+        {reviewItems.length === 0 ? (
+          <Text tone="secondary">{t(`${routeKey}.reviewQueue.empty`)}</Text>
+        ) : (
+          <DataTable<PublicDocReviewQueueItem>
+            rows={[...reviewItems]}
+            getRowId={(item) => `${item.locale}:${item.articleSlug}:${item.policyKey}`}
+            columns={[
+              {
+                key: "article",
+                header: t(`${routeKey}.reviewQueue.article`),
+                cell: (item) => <LinkButton href={item.articleHref}>{item.articleTitle}</LinkButton>,
+              },
+              {
+                key: "policyKey",
+                header: t(`${routeKey}.reviewQueue.policy`),
+                cell: (item) => item.policyKey,
+              },
+              {
+                key: "age",
+                header: t(`${routeKey}.reviewQueue.age`),
+                cell: (item) => t(`${routeKey}.reviewQueue.ageDays`, { count: item.ageDays }),
+              },
+              {
+                key: "action",
+                header: t(`${routeKey}.reviewQueue.action`),
+                cell: (item) => (
+                  <RouterForm method="post" spacing="none">
+                    <HiddenInput name="locale" value={item.locale} />
+                    <HiddenInput name="articleSlug" value={item.articleSlug} />
+                    <HiddenInput name="policyKey" value={item.policyKey} />
+                    <Button type="submit" tone="secondary">
+                      {t(`${routeKey}.reviewQueue.confirm`)}
+                    </Button>
+                  </RouterForm>
+                ),
+              },
+            ]}
+          />
+        )}
       </PageSection>
 
       {groups.map(([contextName, contextItems]) => (

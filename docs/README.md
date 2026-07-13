@@ -28,6 +28,10 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 - [Offer Economics Claims Substantiation](./campaigns/offer-economics-claims-substantiation.md): the truth gate for beta campaign copy — every public claim about fees, protections, or graded-card support marked substantiated, softened, or dropped against shipped code, backed by the offer-economics monitor (#4075).
 
+### Contributing
+
+- [Public Knowledge Base Change Convention](./contributing/public-knowledge-base.md): the `KB:` pull-request/issue marker, warning-only feature-slice ratchet, and documented post-launch block-mode transition.
+
 ### Bounded contexts and structure
 
 - [Bounded Context Map](../bounded-contexts/README.md): strategic ownership and integration relationships.

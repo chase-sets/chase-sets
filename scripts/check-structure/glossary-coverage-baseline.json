@@ -5,6 +5,12 @@
   "reason": "Initial glossary-coverage ratchet. Existing gaps are explicit here and must be removed when the glossary catches up; net-new gaps fail check:structure.",
   "aliases": [
     {
+      "contextName": "commercial-terms",
+      "noun": "document",
+      "terms": ["Policy Document"],
+      "reason": "Commercial Terms policy streams use the shared platform-policy.document namespace while the ubiquitous local term is Policy Document."
+    },
+    {
       "contextName": "auth",
       "noun": "session-journey",
       "terms": ["Session"],
@@ -187,12 +193,6 @@
       "justification": "Platform Operations currently has a placeholder glossary and must promote KPI nouns to term headings before this row is removed."
     },
     {
-      "id": "owned-noun:platform-operations:support-request",
-      "kind": "owned-noun",
-      "issue": "#4419",
-      "justification": "Support Request is currently modeled through Platform Operations but lacks a local term heading; remove when the ownership language is reconciled."
-    },
-    {
       "id": "owned-noun:settlement:payout-readiness",
       "kind": "owned-noun",
       "issue": "#4419",
@@ -257,12 +257,6 @@
       "kind": "event-noun",
       "issue": "#4419",
       "justification": "Settlement payout-readiness events are declared, but Payout Readiness is not yet a dedicated local glossary heading."
-    },
-    {
-      "id": "event-noun:support:support-request",
-      "kind": "event-noun",
-      "issue": "#4419",
-      "justification": "Retired Support context events remain in manifests; remove when support-request ownership is migrated or a current owner publishes the event vocabulary."
     }
   ]
 }

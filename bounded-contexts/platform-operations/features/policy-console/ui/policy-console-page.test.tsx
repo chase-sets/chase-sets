@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import type { PolicyConsoleRegistryItem } from "../api/contracts";
 import { PolicyConsolePage } from "./policy-console-page";
 
@@ -43,5 +44,40 @@ describe("policy console list page", () => {
       "href",
       expect.stringContaining("/terms/schedules"),
     );
+  });
+
+  it("keeps aged public article reviews in the policy console attention surface", () => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/platform/policy-console",
+          element: (
+            <PolicyConsolePage
+              items={items}
+              commercialTermsSchedulesHref="/terms/schedules"
+              reviewItems={[
+                {
+                  locale: "en",
+                  articleSlug: "sales-fees",
+                  articleTitle: "Marketplace sales and checkout fees",
+                  articleHref: "/sales-fees",
+                  policyKey: "commercial-terms.marketplace-sales-fee-schedule",
+                  policyDocumentId: "pol_1",
+                  policyRevisionEventId: "evt_2",
+                  flaggedAt: "2026-07-01T00:00:00.000Z",
+                  ageDays: 11,
+                },
+              ]}
+            />
+          ),
+        },
+      ],
+      { initialEntries: ["/platform/policy-console"] },
+    );
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByRole("heading", { name: "Public article reviews" })).toBeTruthy();
+    expect(screen.getAllByText("11 days")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Confirm current" })).toHaveLength(2);
   });
 });

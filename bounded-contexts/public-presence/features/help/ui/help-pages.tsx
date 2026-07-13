@@ -195,14 +195,14 @@ export function HelpArticlePage({ article, related }: { article: HelpArticle; re
           description={article.description}
         />
         <Text size="sm" tone="tertiary">
-          {t("publicPresence.help.lastReviewed", { date: formatRevisionDate(article.revisionDate, article.locale) })}
+          {t("publicPresence.help.lastReviewed", { date: formatReviewedAt(article.reviewedAt, article.locale) })}
         </Text>
         {article.policyChanges?.map((change) => (
           <Banner
             key={change.effectiveFrom}
             tone="info"
             title={t("publicPresence.help.changingOn", {
-              date: formatRevisionDate(change.effectiveFrom.slice(0, 10), article.locale),
+              date: formatReviewedAt(change.effectiveFrom.slice(0, 10), article.locale),
             })}
             description={change.description}
           />
@@ -272,8 +272,8 @@ function InlineContent({ content }: { content: readonly HelpArticleInline[] }) {
   });
 }
 
-function formatRevisionDate(revisionDate: string, locale: string) {
+function formatReviewedAt(reviewedAt: string, locale: string) {
   return new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(
-    new Date(`${revisionDate}T00:00:00Z`),
+    new Date(`${reviewedAt}T00:00:00Z`),
   );
 }

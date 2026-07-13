@@ -4,9 +4,10 @@ title: Refunds and returns
 description: How refund and return handling relates to order status, payment outcome, shipment progress, and support review.
 audience: buyer
 category: buying
-revisionDate: "2026-07-12"
+reviewedAt: "2026-07-12"
 citedPolicies: []
 relatedFlows: []
+claimCategories: ["protection", "shipping"]
 promiseTable:
   - claim: Refund and return outcomes are tied to durable payment and shipment behavior.
     issues: ["#4352"]

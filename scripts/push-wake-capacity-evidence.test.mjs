@@ -31,6 +31,7 @@ describe("push wake capacity evidence", () => {
     expect(evidence.terraformDefaults.activeRegistryRelayContexts).toEqual([
       "catalog",
       "checkout",
+      "commercial-terms",
       "identity",
       "inventory",
       "marketplace",
@@ -104,18 +105,20 @@ describe("push wake capacity evidence", () => {
 
     expect(evidence.registryToInfrastructureGap.activeRelayContextsWithoutDirectListenerUrls).toEqual([
       "catalog",
+      "commercial-terms",
       "platform-operations",
       "settlement",
     ]);
     expect(evidence.registryToInfrastructureGap.wave2ContextsWithoutDirectListenerUrls).toEqual([
       "catalog",
+      "commercial-terms",
       "fulfillment",
     ]);
     expect(evidence.expansionDecision.posture).toBe("wave-2-direct-listeners-fit-current-tier");
     expect(evidence.expansionDecision.wave2DirectListenerExpansion).toMatchObject({
-      additionalListenerContextCount: 2,
-      additionalOverlapDemand: 4,
-      expandedOverlapDemand: 68,
+      additionalListenerContextCount: 3,
+      additionalOverlapDemand: 6,
+      expandedOverlapDemand: 70,
       fitsCurrentTier: true,
       requiredDatabaseSize: null,
     });

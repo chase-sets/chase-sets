@@ -36,6 +36,8 @@ Public Presence terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 - None outside Public Presence. `public-presence.waitlist-signup.recorded`, `public-presence.waitlist-signup.updated`, and `public-presence.waitlist-signup.cohort-quality-provided` are consumed only by Public Presence's own waitlist and transactional-email projections today.
 
+Public Presence does publish one build-time contract rather than an event: the Help Article compiler derives `@chase-sets/public-docs` article-to-policy citations from canonical frontmatter for Platform Operations' policy-revision review queue.
+
 ## Invariants
 
 1. A Waitlist Signup id is derived deterministically from the normalized email address, so a repeat submission from the same email updates the existing signup instead of creating a duplicate.

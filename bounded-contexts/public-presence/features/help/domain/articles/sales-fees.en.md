@@ -5,9 +5,10 @@ title: Marketplace sales and checkout fees
 description: See the live standard sales-fee schedule and buyer checkout processing fees before you transact.
 audience: seller
 category: selling
-revisionDate: "2026-07-12"
+reviewedAt: "2026-07-12"
 citedPolicies: ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"]
 relatedFlows: ["listing-confirmation", "checkout-price-breakdown"]
+claimCategories: ["fees"]
 promiseTable:
   - claim: Published fee figures resolve from the current ratified policy documents.
     issues: ["#4353"]

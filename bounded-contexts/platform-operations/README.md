@@ -13,6 +13,7 @@ Platform Operations owns internal operator workflows for cross-context platform 
 - Platform operation workflow tests
 - Cross-context analytical KPI dashboard-read-model contracts and dashboard query language (`features/insights-dashboards`)
 - Platform feedback submission, prompt dismissal, review queue status, reporting read models, and internal admin review surfaces (`features/platform-feedback`)
+- Public Help Article policy-revision review queue, visible aging, and confirmation workflow inside Policy Console (`features/public-doc-reviews`)
 - Reported content moderation queue read models and internal Trust & Safety surfaces (`features/reported-content`)
 - Risk alert operator queue read models and internal Trust & Safety surfaces for account velocity signals (`features/risk-alerts`)
 - Structured marketplace support requests, support flows, evidence, and resolutions (`features/support-requests`)
@@ -44,6 +45,8 @@ Platform Operations terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - Payments for payment and dispute facts that feed insights dashboards and risk alerts.
 - Ordering for order lifecycle facts that feed insights dashboards and guide support-request flows.
 - Fulfillment for shipment lifecycle facts that feed insights dashboards and guide support-request flows.
+- Commercial Terms for shared `platform-policy.document.revised` facts that reopen reviews for articles citing those policies. The source is optional and consumed only when Commercial Terms is mounted.
+- The generated `@chase-sets/public-docs` citation contract published from Public Presence frontmatter; Platform Operations never imports Public Presence behavior.
 
 ## Outgoing Integration Events
 
@@ -52,6 +55,7 @@ Platform Operations terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - `support.support-request.resolved`
 - `support.support-request.closed`
 - `support.support-request.cancelled`
+- `platform-operations.public-doc-article-review.confirmed`
 
 Marketplace, Ordering, Payments, and Settlement subscribe to these `support.*` facts. Other `support.*` streams (`.affected-line-items-recorded`, `.evidence-submitted`, `.offer-accepted`, `.offer-declined`, `.response-recorded`) and the `platform-operations.reported-content.action-recorded` / `platform-operations.risk-alert.action-recorded` facts stay internal to Platform Operations today; only its own projections subscribe to them.
 

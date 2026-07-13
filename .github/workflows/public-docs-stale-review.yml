@@ -1,0 +1,64 @@
+name: Public Docs Stale Review
+
+on:
+  schedule:
+    # Weekly, Monday 15:00 UTC (morning US Central), after the review-cadence digest.
+    - cron: "0 15 * * 1"
+  workflow_dispatch:
+    inputs:
+      max_age_days:
+        description: Flag articles last reviewed more than this many days ago.
+        required: false
+        default: "90"
+        type: string
+      reporter_dry_run:
+        description: Exercise alert reporting without creating, commenting on, or closing issues.
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-docs-stale-review
+  cancel-in-progress: false
+
+jobs:
+  report:
+    name: Public Docs Stale Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Build stale-review report
+        env:
+          PUBLIC_DOC_REVIEW_MAX_AGE_DAYS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_age_days || '90' }}
+        run: node ./scripts/public-docs-stale-review.mjs
+
+      - name: Report stale public docs alert
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Public Docs Stale Review
+          alert-status: failure
+          alert-summary: One or more public Help Articles exceeded the review window, or the report failed.
+          alert-details: See the workflow summary for the dated stale-article list.
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.reporter_dry_run == 'true' && 'true' || 'false' }}
+
+      - name: Report stale public docs recovery
+        if: ${{ success() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Public Docs Stale Review
+          alert-status: success
+          alert-summary: All public Help Articles are within the review window.
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.reporter_dry_run == 'true' && 'true' || 'false' }}

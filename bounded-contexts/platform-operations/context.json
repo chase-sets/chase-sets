@@ -13,6 +13,7 @@
     "offer-economics-summary",
     "platform-feedback",
     "platform-feedback-prompt",
+    "public-doc-article-review",
     "rate-limit-policy",
     "reported-content",
     "risk-alert",
@@ -26,6 +27,7 @@
     "offer-economics",
     "platform-feedback",
     "policy-console",
+    "public-doc-reviews",
     "rate-limit-policy",
     "reported-content",
     "risk-alerts",
@@ -37,6 +39,23 @@
   "allowedContextDependencies": [],
   "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
   "eventSubscriptions": [
+    {
+      "sourceContextName": "commercial-terms",
+      "projectionName": "public-doc-review-queue-projection",
+      "subscriptionVersion": 1,
+      "sourceContextMount": "when-mounted",
+      "eventTypes": ["platform-policy.document.revised"],
+      "order": 56,
+      "projectionHandlerSetNames": ["public-doc-review-queue-projection"]
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "projectionName": "public-doc-review-queue-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["platform-operations.public-doc-article-review.confirmed"],
+      "order": 57,
+      "projectionHandlerSetNames": ["public-doc-review-queue-projection"]
+    },
     {
       "sourceContextName": "marketplace",
       "projectionName": "reported-content-queue-projection",
@@ -145,6 +164,14 @@
       "sourceContextNames": ["marketplace", "platform-operations"],
       "optionalSourceContextNames": ["marketplace"],
       "ownedTables": ["platform_operations_reported_content_queue_pages"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "public-doc-review-queue-projection",
+      "sourceContextNames": ["commercial-terms", "platform-operations"],
+      "optionalSourceContextNames": ["commercial-terms"],
+      "ownedTables": ["platform_operations_public_doc_review_queue_pages"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
@@ -549,6 +576,28 @@
       }
     },
     {
+      "id": "platform-operations.public-doc-review-confirmation-snapshots",
+      "owner": "platform-operations",
+      "risk": "internal",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/platform-operations/support/request-support/policy-console-client.ts:POST Hb0f636001602#1",
+        "api-route:bounded-contexts/platform-operations/features/public-doc-reviews/api/routes.ts:POST /:locale/:articleSlug/:policyKey/confirm",
+        "post-form:bounded-contexts/platform-operations/features/policy-console/ui/policy-console-page.tsx:Hb08a81ecfd73#1",
+        "route-action:bounded-contexts/platform-operations/routes/admin/policy-console.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Policy Console confirmation returns an authoritative event-append acknowledgement, then redirects to the queue; the revision-pinned projection clears only the reviewed policy revision and a newer revision safely reopens the row."
+      },
+      "proof": {
+        "authoritativeResponse": "confirm returns true only after appending a confirmation carrying the queue row's current policyRevisionEventId; the projection conditions its update on that same revision id.",
+        "tests": [
+          "bounded-contexts/platform-operations/features/public-doc-reviews/api/runtime.test.ts",
+          "bounded-contexts/platform-operations/features/public-doc-reviews/read-model/projection.test.ts"
+        ]
+      }
+    },
+    {
       "id": "platform-operations.policy-console-revision-snapshots",
       "owner": "platform-operations",
       "risk": "important",
@@ -863,6 +912,11 @@
       "classification": "slice",
       "purpose": "Own the policy-console slice for platform-operations (#4291): lists every policy declared with definePolicy across the contexts that have migrated onto the shared platform-policy machinery, grouped by owning context, with history and scheduled-revision support. Reads query each owning context's own platform_policy_documents table directly; writes delegate to that context's own PolicyRuntime via the policyConsoleCrossContext host port.",
       "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
+    },
+    "public-doc-reviews": {
+      "classification": "slice",
+      "purpose": "Own public-doc-reviews: the policy-revision-driven public article review queue, confirmation events, aging, and Policy Console attention surface.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Policy Console admin route"]
     },
     "rate-limit-policy": {
       "classification": "slice",

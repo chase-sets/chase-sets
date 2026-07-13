@@ -2,9 +2,23 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { validateGlossaryCoverage } from "./glossary-coverage.mjs";
+import { glossaryCoverageInternals, validateGlossaryCoverage } from "./glossary-coverage.mjs";
 
 const tempRoots = [];
+
+it("attributes shared infrastructure event namespaces to the mounted source context", () => {
+  const contexts = new Map([
+    ["commercial-terms", {}],
+    ["platform-operations", {}],
+  ]);
+  expect(
+    glossaryCoverageInternals.eventNounFromEventType("platform-policy.document.revised", contexts, "commercial-terms"),
+  ).toEqual({
+    sourceContextName: "commercial-terms",
+    noun: "document",
+    eventType: "platform-policy.document.revised",
+  });
+});
 
 function createTempRepo() {
   const root = mkdtempSync(path.join(tmpdir(), "cs-glossary-coverage-"));

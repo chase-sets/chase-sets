@@ -4,6 +4,7 @@ import type {
   PolicyConsoleOverview,
   PolicyConsoleRegistryItem,
 } from "../../features/policy-console/api/contracts";
+import type { PublicDocReviewQueueItem } from "../../features/public-doc-reviews/read-model/queries";
 
 export type { CreatePolicyConsoleRevisionRequest, PolicyConsoleOverview, PolicyConsoleRegistryItem };
 
@@ -11,6 +12,8 @@ export type PolicyConsoleRegistryResponse = Readonly<{
   items: readonly PolicyConsoleRegistryItem[];
   commercialTermsSchedulesHref: string;
 }>;
+
+export type PublicDocReviewQueueResponse = Readonly<{ items: readonly PublicDocReviewQueueItem[] }>;
 
 export type PolicyConsoleDocumentHistoryRow = Readonly<{
   history_id: string;
@@ -48,6 +51,28 @@ export async function loadPolicyConsoleRegistry(request: Request): Promise<Polic
   }
 
   return (await response.json()) as PolicyConsoleRegistryResponse;
+}
+
+export async function loadPublicDocReviewQueue(request: Request): Promise<PublicDocReviewQueueResponse> {
+  const response = await fetch(resolveRequestApiBaseUrl(request, "/api/platform/public-doc-reviews"), {
+    headers: createForwardedAuthHeaders(request),
+  });
+  if (!response.ok) throw new Response(await response.text(), { status: response.status });
+  return (await response.json()) as PublicDocReviewQueueResponse;
+}
+
+export async function confirmPublicDocReview(
+  request: Request,
+  identity: Readonly<{ locale: string; articleSlug: string; policyKey: string }>,
+) {
+  const base = new URL(resolveRequestApiBaseUrl(request, "/api/platform/public-doc-reviews"));
+  base.pathname = `${base.pathname.replace(/\/$/, "")}/${encodeURIComponent(identity.locale)}/${encodeURIComponent(identity.articleSlug)}/${encodeURIComponent(identity.policyKey)}/confirm`;
+  const response = await fetch(base, {
+    method: "POST",
+    headers: createForwardedAuthHeaders(request),
+  });
+  if (!response.ok) throw new Response(await response.text(), { status: response.status });
+  return (await response.json()) as Readonly<{ confirmed: true }>;
 }
 
 export async function loadPolicyConsoleOverview(request: Request, policyKey: string): Promise<PolicyConsoleOverview> {

@@ -251,12 +251,15 @@ function issueForMissingOwnedNoun(context, noun) {
   };
 }
 
-function eventNounFromEventType(eventType, contextNames) {
+function eventNounFromEventType(eventType, contextNames, sourceContextNameOverride = null) {
   if (!isNonEmptyString(eventType)) {
     return null;
   }
 
   const parts = eventType.split(".");
+  if (parts.length >= 3 && sourceContextNameOverride && contextNames.has(sourceContextNameOverride)) {
+    return { sourceContextName: sourceContextNameOverride, noun: parts[1], eventType };
+  }
   if (parts.length >= 3 && contextNames.has(parts[0])) {
     return { sourceContextName: parts[0], noun: parts[1], eventType };
   }
@@ -491,32 +494,47 @@ export function collectGlossaryCoverageIssues(options) {
   }
 
   const eventConsumers = new Map();
+  const eventSourceContextOverrides = new Map();
   for (const context of contextManifests.values()) {
     for (const eventType of collectEventTypes(context.manifest)) {
       const consumers = eventConsumers.get(eventType) ?? new Set();
       consumers.add(context.manifest.contextName);
       eventConsumers.set(eventType, consumers);
     }
+    for (const subscription of context.manifest.eventSubscriptions ?? []) {
+      if (!isPlainObject(subscription) || !isNonEmptyString(subscription.sourceContextName)) continue;
+      for (const eventType of subscription.eventTypes ?? []) {
+        if (!isNonEmptyString(eventType) || contextsByName.has(eventType.split(".")[0])) continue;
+        const sourceContexts = eventSourceContextOverrides.get(eventType) ?? new Set();
+        sourceContexts.add(subscription.sourceContextName);
+        eventSourceContextOverrides.set(eventType, sourceContexts);
+      }
+    }
   }
 
   const eventNounReferences = new Map();
   for (const [eventType, consumerContextNames] of eventConsumers.entries()) {
-    const parsed = eventNounFromEventType(eventType, contextsByName);
-    if (!parsed) {
-      continue;
+    const sourceOverrides = eventSourceContextOverrides.get(eventType);
+    const parsedReferences = sourceOverrides?.size
+      ? [...sourceOverrides].map((sourceContextName) =>
+          eventNounFromEventType(eventType, contextsByName, sourceContextName),
+        )
+      : [eventNounFromEventType(eventType, contextsByName)];
+    for (const parsed of parsedReferences) {
+      if (!parsed) continue;
+      const key = `${parsed.sourceContextName}:${normalizeTerm(parsed.noun)}`;
+      const reference = eventNounReferences.get(key) ?? {
+        sourceContextName: parsed.sourceContextName,
+        noun: parsed.noun,
+        eventTypes: new Set(),
+        consumerContextNames: new Set(),
+      };
+      reference.eventTypes.add(eventType);
+      for (const consumerContextName of consumerContextNames) {
+        reference.consumerContextNames.add(consumerContextName);
+      }
+      eventNounReferences.set(key, reference);
     }
-    const key = `${parsed.sourceContextName}:${normalizeTerm(parsed.noun)}`;
-    const reference = eventNounReferences.get(key) ?? {
-      sourceContextName: parsed.sourceContextName,
-      noun: parsed.noun,
-      eventTypes: new Set(),
-      consumerContextNames: new Set(),
-    };
-    reference.eventTypes.add(eventType);
-    for (const consumerContextName of consumerContextNames) {
-      reference.consumerContextNames.add(consumerContextName);
-    }
-    eventNounReferences.set(key, reference);
   }
 
   for (const reference of eventNounReferences.values()) {

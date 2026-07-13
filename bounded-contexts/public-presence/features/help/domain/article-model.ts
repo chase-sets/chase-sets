@@ -4,6 +4,9 @@ export type HelpAudience = (typeof helpAudiences)[number];
 export const helpCategories = ["getting-started", "buying", "selling"] as const;
 export type HelpCategory = (typeof helpCategories)[number];
 
+export const helpClaimCategories = ["protection", "fees", "payouts", "shipping"] as const;
+export type HelpClaimCategory = (typeof helpClaimCategories)[number];
+
 export type HelpArticleInline =
   | Readonly<{ type: "text"; value: string }>
   | Readonly<{ type: "emphasis"; value: string }>
@@ -30,9 +33,10 @@ export type HelpArticle = Readonly<{
   description: string;
   audience: HelpAudience;
   category: HelpCategory;
-  revisionDate: string;
+  reviewedAt: string;
   citedPolicies: readonly string[];
   relatedFlows: readonly string[];
+  claimCategories: readonly HelpClaimCategory[];
   promiseTable: readonly HelpArticlePromise[];
   href: string;
   headings: readonly Readonly<{ level: 2 | 3; id: string; text: string }>[];

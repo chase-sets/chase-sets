@@ -4,9 +4,10 @@ title: Order protection
 description: How Chase Sets applies buyer and seller safeguards around payment, fulfillment, disputes, returns, payout release, and negative balances.
 audience: buyer
 category: buying
-revisionDate: "2026-07-12"
+reviewedAt: "2026-07-12"
 citedPolicies: []
 relatedFlows: []
+claimCategories: ["protection", "payouts", "shipping"]
 promiseTable:
   - claim: Every order includes a 1% Order Protection reserve contribution without a separate buyer fee line.
     issues: ["#4098"]

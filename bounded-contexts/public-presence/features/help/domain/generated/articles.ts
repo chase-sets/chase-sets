@@ -11,9 +11,10 @@ export const helpArticles = [
       "How Chase Sets applies buyer and seller safeguards around payment, fulfillment, disputes, returns, payout release, and negative balances.",
     audience: "buyer",
     category: "buying",
-    revisionDate: "2026-07-12",
+    reviewedAt: "2026-07-12",
     citedPolicies: [],
     relatedFlows: [],
+    claimCategories: ["protection", "payouts", "shipping"],
     promiseTable: [
       {
         claim: "Every order includes a 1% Order Protection reserve contribution without a separate buyer fee line.",
@@ -281,9 +282,10 @@ export const helpArticles = [
       "How refund and return handling relates to order status, payment outcome, shipment progress, and support review.",
     audience: "buyer",
     category: "buying",
-    revisionDate: "2026-07-12",
+    reviewedAt: "2026-07-12",
     citedPolicies: [],
     relatedFlows: [],
+    claimCategories: ["protection", "shipping"],
     promiseTable: [
       {
         claim: "Refund and return outcomes are tied to durable payment and shipment behavior.",
@@ -388,9 +390,10 @@ export const helpArticles = [
     description: "Short answers about marketplace availability, seller fees, shipping, and order protection.",
     audience: "buyer",
     category: "getting-started",
-    revisionDate: "2026-07-12",
+    reviewedAt: "2026-07-12",
     citedPolicies: ["commercial-terms.checkout-processing-fee"],
     relatedFlows: [],
+    claimCategories: ["protection", "fees", "payouts", "shipping"],
     promiseTable: [
       {
         claim: "Marketplace checkout is not open during prelaunch.",
@@ -598,9 +601,10 @@ export const helpArticles = [
     description: "See the live standard sales-fee schedule and buyer checkout processing fees before you transact.",
     audience: "seller",
     category: "selling",
-    revisionDate: "2026-07-12",
+    reviewedAt: "2026-07-12",
     citedPolicies: ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
     relatedFlows: ["listing-confirmation", "checkout-price-breakdown"],
+    claimCategories: ["fees"],
     promiseTable: [
       {
         claim: "Published fee figures resolve from the current ratified policy documents.",
