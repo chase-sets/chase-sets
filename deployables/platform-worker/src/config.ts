@@ -87,6 +87,7 @@ export type PlatformWorkerConfig = Readonly<{
   payoutReconciliationIntervalMs: number | null;
   marketRollupsCloserIntervalMs: number | null;
   gmvReconciliationIntervalMs: number | null;
+  catalogProviderScopeRefreshIntervalMs: number | null;
   googleShoppingMaintenanceIntervalMs: number | null;
   googleShoppingMaintenanceBatchSize: number;
   googleShoppingRefreshWindowDays: number;
@@ -471,6 +472,14 @@ export function loadConfig(): PlatformWorkerConfig {
     // often enough for an operator to notice drift without accumulating an
     // excessive number of audit rows for the same month.
     gmvReconciliationIntervalMs: getOptionalPositiveNumberEnv("GMV_RECONCILIATION_INTERVAL_MS", 86_400_000),
+    // Catalog provider scope refresh sweep: the sweep itself is cheap
+    // (one claim query); per-provider work only happens when a provider's own
+    // config-driven cadence says it is due, so a 15-minute sweep keeps due
+    // providers timely without hammering anything.
+    catalogProviderScopeRefreshIntervalMs: getOptionalPositiveNumberEnv(
+      "CATALOG_PROVIDER_SCOPE_REFRESH_INTERVAL_MS",
+      900_000,
+    ),
     googleShoppingMaintenanceIntervalMs: getOptionalPositiveNumberEnv(
       "GOOGLE_SHOPPING_MAINTENANCE_INTERVAL_MS",
       86_400_000,

@@ -40,6 +40,10 @@ export const SUBCOMMANDS = {
     script: "campaign-start-gate.mjs",
     description: "Campaign-start checklist gate for the beta-signup surface.",
   },
+  "catalog:provider-refresh-status": {
+    script: "catalog-provider-refresh-status.mjs",
+    description: "Support-safe scheduled provider scope refresh health check for the catalog context.",
+  },
   "emergency-recovery:guide": {
     script: "emergency-recovery-guide.mjs",
     description: "Emergency recovery guide record for platform incidents.",

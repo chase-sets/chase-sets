@@ -104,6 +104,7 @@ function createServices(overrides: Partial<CatalogAuthoringBulkJobServices> = {}
     productMeasures: {} as never,
     scopeRegistry: {} as never,
     providerScopeMappings: {} as never,
+    providerScopeDiscovery: {} as never,
     providerIntegrationProfiles: {} as never,
     sourceObservations: {} as never,
     catalogAliases: {} as never,
