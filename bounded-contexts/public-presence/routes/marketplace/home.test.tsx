@@ -55,9 +55,7 @@ describe("public presence home route SEO", () => {
       (descriptor) => "property" in descriptor && descriptor.property === "og:image",
     ) as { content: string };
     expect(ogImage.content).toContain("chase-sets-og-yu-gi-oh");
-    const description = descriptors.find(
-      (descriptor) => "name" in descriptor && descriptor.name === "description",
-    ) as {
+    const description = descriptors.find((descriptor) => "name" in descriptor && descriptor.name === "description") as {
       content: string;
     };
     expect(description.content).toContain("Yu-Gi-Oh!");
