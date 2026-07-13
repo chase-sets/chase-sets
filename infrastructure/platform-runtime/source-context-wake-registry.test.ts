@@ -32,6 +32,7 @@ describe("source-context wake registry", () => {
     expect(listEventStoreWakeNotificationSourceContexts().map((entry) => entry.sourceContextName)).toEqual([
       "catalog",
       "checkout",
+      "commercial-terms",
       "identity",
       "inventory",
       "marketplace",
@@ -55,6 +56,13 @@ describe("source-context wake registry", () => {
         rolloutWave: "wave-1-checkout-hot-path",
         relayFanOutEnabled: true,
         priorityLane: "hot",
+      },
+      {
+        sourceContextName: "commercial-terms",
+        rolloutState: "staging-enabled",
+        rolloutWave: "wave-3-platform-expansion",
+        relayFanOutEnabled: true,
+        priorityLane: "bulk",
       },
       {
         sourceContextName: "identity",
@@ -103,9 +111,9 @@ describe("source-context wake registry", () => {
 
     expect(summarizeSourceContextWakeRegistry()).toMatchObject({
       entryCount: inventory.contextNames.length,
-      activeEntryCount: 10,
-      enabledEventStoreWakeContextCount: 10,
-      enabledRelayFanOutContextCount: 10,
+      activeEntryCount: 11,
+      enabledEventStoreWakeContextCount: 11,
+      enabledRelayFanOutContextCount: 11,
     });
   });
 
@@ -163,6 +171,11 @@ describe("source-context wake registry", () => {
         sourceContextName: "checkout",
         relayFanOutEnabled: true,
         priorityLane: "hot",
+      },
+      {
+        sourceContextName: "commercial-terms",
+        relayFanOutEnabled: true,
+        priorityLane: "bulk",
       },
       {
         sourceContextName: "identity",

@@ -81,6 +81,14 @@ describe("projection push migration inventory", () => {
       consumesDurableWakeIntents: true,
     });
 
+    expect(byKey.get("platform-operations:public-doc-review-queue-projection")).toMatchObject({
+      status: "push-enabled",
+      owner: "Platform Operations",
+      enabledSourceContextCount: 2,
+      sourceContextCount: 2,
+      consumesDurableWakeIntents: true,
+    });
+
     // Catalog is enabled, so Catalog-sourced projections receive wake-intent delivery.
     expect(byKey.get("pricing:pricing-catalog-input-projection")).toMatchObject({
       status: "push-enabled",

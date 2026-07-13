@@ -230,13 +230,20 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "commercial-terms",
     owner: "Commercial Terms",
-    rolloutState: "not-eligible",
+    rolloutState: "staging-enabled",
+    enablement: {
+      eventStoreWakeNotifications: true,
+      relayFanOut: true,
+    },
     phase: "phase-3-expansion",
-    rolloutWave: "wave-4-deferred-or-not-eligible",
+    rolloutWave: "wave-3-platform-expansion",
     priorityLane: "bulk",
     expectedEventVolume: "low",
-    wakeStoreLoadEstimate: "none",
-    affectedProjectionNames: ["commercial-terms:platform-policy-document-projection"],
+    wakeStoreLoadEstimate: "low",
+    affectedProjectionNames: [
+      "commercial-terms:platform-policy-document-projection",
+      "platform-operations:public-doc-review-queue-projection",
+    ],
     routeDependencyIds: [
       "commercial-terms.account-agreement-create-to-list",
       "commercial-terms.agreement-create-to-list",
@@ -550,6 +557,7 @@ export const sourceContextWakeRegistry = [
     affectedProjectionNames: [
       "platform-operations:experience-platform-feedback-projection",
       "platform-operations:platform-policy-document-projection",
+      "platform-operations:public-doc-review-queue-projection",
       "platform-operations:reported-content-queue-projection",
       "platform-operations:risk-alert-queue-projection",
       "payments:payments-support-refund-effect",
