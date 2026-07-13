@@ -5,7 +5,7 @@ import type { SourceObservationIntegrationImportPreview } from "../../contracts"
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../primary-workbench-command-feedback";
 import { CatalogIntegrationImportJobsModule } from "../import-jobs/import-jobs-module";
 import { CatalogIntegrationSourceObservationReviewModule } from "../source-observation-review/source-observation-review-module";
-import type { CatalogSyncRun } from "../../contracts";
+import type { CatalogScopeSyncUnitStateReadModel, CatalogSyncRun } from "../../contracts";
 import { CatalogSyncScopeModule } from "./catalog-sync-scope-module";
 import { CatalogIntegrationCreateItemsStage } from "./create-items-stage";
 import { CatalogIntegrationMergeCandidateReviewModule } from "./merge-candidate-review-module";
@@ -31,6 +31,7 @@ export function CatalogIntegrationImportToPromotionWorkspace({
   deferredSourceOptions = null,
   deferredImportPreview = null,
   deferredCatalogSyncRun = null,
+  deferredScopeSyncState = null,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   // Optional alias-review visibility slot: the composition root supplies
@@ -42,6 +43,7 @@ export function CatalogIntegrationImportToPromotionWorkspace({
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
   deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
   deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
+  deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
 }>) {
   const {
     activeStage,
@@ -60,7 +62,11 @@ export function CatalogIntegrationImportToPromotionWorkspace({
         <WorkbenchText size="sm" tone="secondary">
           {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.runSync.description")}
         </WorkbenchText>
-        <CatalogSyncScopeModule readModel={readModel} deferredCatalogSyncRun={deferredCatalogSyncRun} />
+        <CatalogSyncScopeModule
+          readModel={readModel}
+          deferredCatalogSyncRun={deferredCatalogSyncRun}
+          deferredScopeSyncState={deferredScopeSyncState}
+        />
         <ProgressiveDisclosure
           title={t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.supporting.jobs")}
           icon="inbox"

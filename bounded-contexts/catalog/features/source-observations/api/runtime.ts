@@ -41,6 +41,18 @@ import type { ProductContentServices } from "../../product-contents/api/runtime"
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import type { ReferenceRelationship } from "../../reference-data/domain/domain";
 import {
+  catalogScopeSyncUnitIsFastForwardable,
+  computeCatalogSyncScopeKey,
+  type CatalogScopeSyncScopeDescriptor,
+  type CatalogScopeSyncUnitObservedStatus,
+  type CatalogScopeSyncUnitState,
+} from "../../scope-sync-state/domain/state";
+import {
+  listCatalogScopeSyncState,
+  readCatalogScopeSyncUnitState,
+  upsertCatalogScopeSyncUnitState,
+} from "../../scope-sync-state/read-model/queries";
+import {
   decideSourceObservation,
   evolveSourceObservation,
   initialSourceObservationState,
@@ -171,6 +183,7 @@ import {
   type CatalogIntegrationImpactJobSample,
 } from "./catalog-integration-impact-analysis";
 import {
+  normalizeCatalogSyncScope,
   previewCatalogSyncProviderParticipation,
   type CatalogSyncProviderParticipationPreview,
   type CatalogSyncScope,
@@ -638,7 +651,16 @@ export type CatalogSyncRunChildJobLink = Readonly<{
   displayName: string;
   childExecutionScope: SourceObservationIntegrationJobScope;
   childJobId: string | null;
-  syncRunLinkState: "attached-to-child-payload" | "reused-active-child-job" | "child-enqueue-failed";
+  // "reused-settled-child-job": the durable per-scope sync state showed this
+  // unit already settled with an unchanged child execution scope, so the
+  // fan-out skipped a new provider call and pointed the child link at the
+  // prior completed job — the "Sync scope on a settled scope is a fast
+  // no-op" behavior.
+  syncRunLinkState:
+    | "attached-to-child-payload"
+    | "reused-active-child-job"
+    | "reused-settled-child-job"
+    | "child-enqueue-failed";
   errorMessage: string | null;
 }>;
 
@@ -976,6 +998,33 @@ export type BulkReviewJobServices = Readonly<{
   getBulkReviewWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
 }>;
 
+// One provider unit's durable sync state within a Catalog sync scope, read
+// back across runs. This is what the scope page renders instead of the
+// transient per-run child-job list: state survives after the run that
+// produced it is gone, so a failed provider can be retried (via
+// `lastJobId` + the existing `retryIntegrationJob`) without re-running the
+// whole scope, and a settled provider stays visibly settled until something
+// changes.
+export type CatalogScopeSyncUnitStateReadModel = Readonly<{
+  providerKey: string;
+  unitKey: string;
+  displayName: string;
+  role: string;
+  requirement: string;
+  state: CatalogScopeSyncUnitState;
+  lastSyncRunId: string | null;
+  lastJobId: string | null;
+  lastOperatorStatus: string | null;
+  observedCount: number | null;
+  changedCount: number | null;
+  requestedCount: number | null;
+  failedCount: number | null;
+  errorMessage: string | null;
+  lastStartedAt: string | null;
+  lastCompletedAt: string | null;
+  updatedAt: string;
+}>;
+
 export type IntegrationJobServices = Readonly<{
   previewCatalogSyncScope: (input: {
     scope: CatalogSyncScope;
@@ -983,6 +1032,10 @@ export type IntegrationJobServices = Readonly<{
   }) => Promise<CatalogSyncProviderParticipationPreview>;
   enqueueCatalogSyncRun: (input: { scope: CatalogSyncScope; context: EventStoreContext }) => Promise<CatalogSyncRun>;
   getCatalogSyncRun: (input: { syncRunId: string; context: EventStoreContext }) => Promise<CatalogSyncRun | null>;
+  getCatalogScopeSyncState: (input: {
+    scope: CatalogSyncScope;
+    context: EventStoreContext;
+  }) => Promise<readonly CatalogScopeSyncUnitStateReadModel[]>;
   previewIntegrationImport: (input: {
     scope: SourceObservationIntegrationJobScope;
     context: EventStoreContext;
@@ -2943,8 +2996,31 @@ export function createSourceObservationRuntime(
       throw error;
     }
 
+    // Idempotent re-sync converges: a unit whose durable scope-state already
+    // shows "settled" for this exact child execution scope is fast-forwarded
+    // onto its prior completed job instead of enqueuing a new provider call.
+    // When every selected unit fast-forwards, the whole "Sync scope" action
+    // is a no-op sync run that completes immediately without touching any
+    // provider — the settled-scope re-run acceptance criterion.
+    const scopeKey = computeCatalogSyncScopeKey(catalogScopeSyncStateDescriptor(preview.scope));
     const childJobs: CatalogSyncRunChildJobLink[] = [];
     for (const unit of selectedUnits) {
+      const fastForwardJobId = await resolveCatalogScopeSyncFastForwardJobId(scopeKey, unit);
+      if (fastForwardJobId) {
+        childJobs.push({
+          providerKey: unit.providerKey,
+          unitKey: unit.unitKey,
+          profileKey: unit.profileKey,
+          profileVersion: unit.profileVersion,
+          displayName: unit.displayName,
+          childExecutionScope: unit.childExecutionScope,
+          childJobId: fastForwardJobId,
+          syncRunLinkState: "reused-settled-child-job",
+          errorMessage: null,
+        });
+        continue;
+      }
+
       try {
         const childJob = await enqueueIntegrationJob({
           action: "import",
@@ -2979,7 +3055,174 @@ export function createSourceObservationRuntime(
     }
 
     parentRecord = await completeCatalogSyncRunFanout(parentRecord, childJobs);
-    return toCatalogSyncRun(parentRecord);
+    const run = await toCatalogSyncRun(parentRecord);
+    await recordCatalogScopeSyncStateForRun(run, new Date().toISOString());
+    return run;
+  }
+
+  // A unit fast-forwards only when its durable state is "settled" for the
+  // CURRENT child execution scope (a mapping change, language edit, or
+  // provider re-point invalidates it automatically because the stored child
+  // execution scope no longer matches) and the referenced job record still
+  // exists and completed — defensive against retention pruning removing the
+  // job the durable row still points at.
+  async function resolveCatalogScopeSyncFastForwardJobId(
+    scopeKey: string,
+    unit: CatalogSyncRunSelectedUnitSnapshot,
+  ): Promise<string | null> {
+    const currentChildExecutionScope = compactStringRecord(unit.childExecutionScope);
+    const state = await readCatalogScopeSyncUnitState(deps.db, {
+      scopeKey,
+      providerKey: unit.providerKey,
+      unitKey: unit.unitKey,
+    });
+    if (!state || !state.last_job_id) {
+      return null;
+    }
+    const fastForwardable = catalogScopeSyncUnitIsFastForwardable({
+      state: state.state as CatalogScopeSyncUnitState,
+      storedChildExecutionScope: recordFromUnknownStringRecord(state.child_execution_scope),
+      currentChildExecutionScope,
+    });
+    if (!fastForwardable) {
+      return null;
+    }
+
+    const priorJob = await integrationJobStore.get(state.last_job_id);
+    return priorJob && priorJob.status === "completed" ? state.last_job_id : null;
+  }
+
+  // Records the initial durable state for every selected unit right after a
+  // sync run's fan-out completes (or fast-forwards). One row write per unit;
+  // safe to call for every run because the upsert is keyed on
+  // (scope, provider, unit) and always reflects the latest known status.
+  async function recordCatalogScopeSyncStateForRun(run: CatalogSyncRun, recordedAt: string): Promise<void> {
+    const scopeKey = computeCatalogSyncScopeKey(catalogScopeSyncStateDescriptor(run.scope));
+    await Promise.all(
+      run.childJobs.map((child) => {
+        const selectedUnit = run.selectedUnits.find(
+          (unit) => unit.providerKey === child.providerKey && unit.unitKey === child.unitKey,
+        );
+        return upsertCatalogScopeSyncUnitState(deps.db, {
+          scopeKey,
+          providerKey: child.providerKey,
+          unitKey: child.unitKey,
+          productDomain: run.scope.productDomain,
+          productForm: run.scope.productForm ?? null,
+          languageCode: run.scope.languageCode ?? null,
+          referenceKind: run.scope.reference.kind,
+          referenceId: run.scope.reference.id ?? null,
+          referenceName: run.scope.reference.name ?? null,
+          displayName: child.displayName,
+          role: selectedUnit?.role ?? "supplemental-marketplace-reference",
+          requirement: selectedUnit?.requirement ?? "optional",
+          childExecutionScope: compactStringRecord(child.childExecutionScope),
+          status: catalogScopeSyncObservedStatusFromChildLink(child, child.job),
+          syncRunId: run.syncRunId,
+          jobId: child.childJobId,
+          operatorStatus: child.status,
+          observedCount: child.job?.result?.observed ?? null,
+          // The job result does not decompose "observed" into changed/unchanged
+          // per record; `imported` (a fresh source-observation write) is the
+          // closest available proxy for "changed" without an extra read against
+          // the source-observation scope summary, which can lag a completed
+          // job by a projection tick.
+          changedCount: child.job?.result?.imported ?? null,
+          requestedCount: child.job?.result?.requested ?? null,
+          failedCount: child.job?.result?.failed ?? null,
+          errorMessage: child.errorMessage ?? child.job?.errorMessage ?? null,
+          startedAt: child.job?.startedAt ?? null,
+          completedAt: child.job?.completedAt ?? null,
+          updatedAt: recordedAt,
+        });
+      }),
+    );
+  }
+
+  // Records a single child job's terminal (or retried) status against the
+  // durable per-scope state, resolving which unit it belongs to through its
+  // parent sync run's selected-unit snapshot. No-ops for jobs that were never
+  // part of a "Sync scope" fan-out (reapply jobs, or standalone provider
+  // imports started outside a sync run).
+  async function recordCatalogScopeSyncStateForChildJob(input: {
+    job: SourceObservationIntegrationJob;
+    status: CatalogScopeSyncUnitObservedStatus;
+    errorMessage: string | null;
+    recordedAt: string;
+  }): Promise<void> {
+    if (input.job.action !== "import" || !input.job.syncRunId) {
+      return;
+    }
+    const parent = await catalogSyncRunStore.get(input.job.syncRunId);
+    if (!parent || parent.jobKind !== "catalog-sync-scope") {
+      return;
+    }
+    const unit = parent.payload.selectedUnits.find((candidate) =>
+      childExecutionScopesMatch(candidate.childExecutionScope, input.job.scope),
+    );
+    if (!unit) {
+      return;
+    }
+
+    const scopeKey = computeCatalogSyncScopeKey(catalogScopeSyncStateDescriptor(parent.payload.scope));
+    await upsertCatalogScopeSyncUnitState(deps.db, {
+      scopeKey,
+      providerKey: unit.providerKey,
+      unitKey: unit.unitKey,
+      productDomain: parent.payload.scope.productDomain,
+      productForm: parent.payload.scope.productForm ?? null,
+      languageCode: parent.payload.scope.languageCode ?? null,
+      referenceKind: parent.payload.scope.reference.kind,
+      referenceId: parent.payload.scope.reference.id ?? null,
+      referenceName: parent.payload.scope.reference.name ?? null,
+      displayName: unit.displayName,
+      role: unit.role,
+      requirement: unit.requirement,
+      childExecutionScope: compactStringRecord(unit.childExecutionScope),
+      status: input.status,
+      syncRunId: input.job.syncRunId,
+      jobId: input.job.jobId,
+      operatorStatus: input.status === "reused-settled-job" ? "completed" : input.status,
+      observedCount: input.job.result?.observed ?? null,
+      changedCount: input.job.result?.imported ?? null,
+      requestedCount: input.job.result?.requested ?? null,
+      failedCount: input.job.result?.failed ?? null,
+      errorMessage: input.errorMessage,
+      startedAt: input.job.startedAt,
+      completedAt: input.job.completedAt,
+      updatedAt: input.recordedAt,
+    });
+  }
+
+  async function getCatalogScopeSyncState(input: {
+    scope: CatalogSyncScope;
+    context: EventStoreContext;
+  }): Promise<readonly CatalogScopeSyncUnitStateReadModel[]> {
+    void input.context;
+    const scopeKey = computeCatalogSyncScopeKey(
+      catalogScopeSyncStateDescriptor(normalizeCatalogSyncScope(input.scope)),
+    );
+    const rows = await listCatalogScopeSyncState(deps.db, scopeKey);
+
+    return rows.map((row) => ({
+      providerKey: row.provider_key,
+      unitKey: row.unit_key,
+      displayName: row.display_name,
+      role: row.role,
+      requirement: row.requirement,
+      state: row.state as CatalogScopeSyncUnitState,
+      lastSyncRunId: row.last_sync_run_id,
+      lastJobId: row.last_job_id,
+      lastOperatorStatus: row.last_operator_status,
+      observedCount: row.observed_count,
+      changedCount: row.changed_count,
+      requestedCount: row.requested_count,
+      failedCount: row.failed_count,
+      errorMessage: row.error_message,
+      lastStartedAt: row.last_started_at,
+      lastCompletedAt: row.last_completed_at,
+      updatedAt: row.updated_at,
+    }));
   }
 
   async function getCatalogSyncRun(input: {
@@ -3222,7 +3465,18 @@ export function createSourceObservationRuntime(
       );
     }
 
-    return toSourceObservationIntegrationJob(requeued);
+    const retriedJob = toSourceObservationIntegrationJob(requeued);
+    // "Per-provider retry from the scope page without touching the settled
+    // providers": this only ever touches the ONE unit whose job was just
+    // requeued, keyed through its parent sync run — every other unit's
+    // durable state is untouched.
+    await recordCatalogScopeSyncStateForChildJob({
+      job: retriedJob,
+      status: "queued",
+      errorMessage: null,
+      recordedAt: new Date().toISOString(),
+    });
+    return retriedJob;
   }
 
   async function resumeIntegrationJob(input: {
@@ -3259,7 +3513,14 @@ export function createSourceObservationRuntime(
       return toSourceObservationIntegrationJob(await requireImportIntegrationLifecycleJob(input.jobId, input.context));
     }
 
-    return toSourceObservationIntegrationJob(requeued);
+    const resumedJob = toSourceObservationIntegrationJob(requeued);
+    await recordCatalogScopeSyncStateForChildJob({
+      job: resumedJob,
+      status: "queued",
+      errorMessage: null,
+      recordedAt: new Date().toISOString(),
+    });
+    return resumedJob;
   }
 
   async function cancelIntegrationJob(input: {
@@ -3395,6 +3656,17 @@ export function createSourceObservationRuntime(
           sourceObservationIntegrationJobTelemetryResult(turnResult.result),
         );
         recordIntegrationJobControlPlaneTelemetry(deps.sourceObservationTelemetry, claimed, turnResult.result);
+        await recordCatalogScopeSyncStateForChildJob({
+          job: {
+            ...claimed,
+            status: "completed",
+            result: turnResult.result,
+            completedAt: new Date().toISOString(),
+          },
+          status: turnResult.result.failed > 0 ? "partial" : "completed",
+          errorMessage: null,
+          recordedAt: new Date().toISOString(),
+        });
       } else {
         await requireSourceObservationJobClaim(
           integrationJobStore.releaseClaim({
@@ -3417,16 +3689,23 @@ export function createSourceObservationRuntime(
         return 0;
       }
 
+      const failureMessage = error instanceof Error ? error.message : "Integration job failed.";
       await requireSourceObservationJobClaim(
         integrationJobStore.fail({
           jobId: claimed.jobId,
           claimOwnerId: input.claimOwnerId,
           progress: { ...claimed.progress, phase: "failed" },
-          errorMessage: error instanceof Error ? error.message : "Integration job failed.",
+          errorMessage: failureMessage,
         }),
       );
       recordIntegrationJobTelemetry(deps.sourceObservationTelemetry, claimed.action, "failed");
       recordIntegrationJobControlPlaneTelemetry(deps.sourceObservationTelemetry, claimed, null, "failed");
+      await recordCatalogScopeSyncStateForChildJob({
+        job: { ...claimed, status: "failed", completedAt: new Date().toISOString() },
+        status: "failed",
+        errorMessage: failureMessage,
+        recordedAt: new Date().toISOString(),
+      });
       return 1;
     }
   }
@@ -4637,6 +4916,7 @@ export function createSourceObservationRuntime(
     previewCatalogSyncScope,
     enqueueCatalogSyncRun,
     getCatalogSyncRun,
+    getCatalogScopeSyncState,
     previewIntegrationImport,
     enqueueIntegrationJob,
     retryIntegrationJob,
@@ -7888,6 +8168,9 @@ function catalogSyncRunChildStatus(
   link: CatalogSyncRunChildJobLink,
   job: SourceObservationIntegrationJob | null,
 ): CatalogSyncRunChildStatus {
+  if (link.syncRunLinkState === "reused-settled-child-job") {
+    return "completed";
+  }
   if (!job) {
     return link.syncRunLinkState === "child-enqueue-failed" ? "failed" : "queued";
   }
@@ -7895,6 +8178,81 @@ function catalogSyncRunChildStatus(
     return "reused-active-job";
   }
   return job.operatorStatus;
+}
+
+// --- Durable per-scope sync state -----------------------------------------
+//
+// CatalogSyncRun/SourceObservationIntegrationJob are transient per-run durable
+// jobs: once a run's rows are pruned by retention, its cross-provider history
+// is gone. `catalog_scope_sync_state` is the durable read model that survives
+// across runs — one row per (scope, provider unit) — updated at two points:
+// right after a run's fan-out (`recordCatalogScopeSyncStateForRun`, covering
+// the never-synced -> pending/settled/failed transition for every selected
+// unit in one shot) and when an individual child job reaches a terminal
+// status or is retried (`recordCatalogScopeSyncStateForChildJob`, covering
+// pending/running -> settled/failed and failed -> pending on retry). CatalogSyncScope
+// is still v1 (provider hints, no canonical scope record id yet), so the
+// durable row is keyed on a hash of the v1 scope descriptor
+// (`computeCatalogSyncScopeKey`) rather than a scope record id; once
+// CatalogSyncScope v2 lands this key derivation is the only place that needs
+// to change.
+
+function catalogScopeSyncStateDescriptor(scope: CatalogSyncScope): CatalogScopeSyncScopeDescriptor {
+  return {
+    productDomain: scope.productDomain,
+    productForm: scope.productForm ?? null,
+    languageCode: scope.languageCode ?? null,
+    referenceKind: scope.reference.kind,
+    referenceId: scope.reference.id ?? null,
+    referenceName: scope.reference.name ?? null,
+  };
+}
+
+function compactStringRecord(
+  scope: Readonly<Record<string, string | null | undefined>> | null | undefined,
+): Readonly<Record<string, string>> {
+  if (!scope) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(scope).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0,
+    ),
+  );
+}
+
+function recordFromUnknownStringRecord(value: unknown): Readonly<Record<string, string>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+}
+
+function catalogScopeSyncObservedStatusFromChildLink(
+  link: CatalogSyncRunChildJobLink,
+  job: SourceObservationIntegrationJob | null,
+): CatalogScopeSyncUnitObservedStatus {
+  if (link.syncRunLinkState === "reused-settled-child-job") {
+    return "reused-settled-job";
+  }
+  if (!job) {
+    return link.syncRunLinkState === "child-enqueue-failed" ? "enqueue-failed" : "queued";
+  }
+  if (link.syncRunLinkState === "reused-active-child-job" && job.status === "queued") {
+    return "queued";
+  }
+  return job.operatorStatus;
+}
+
+function childExecutionScopesMatch(
+  a: SourceObservationIntegrationJobScope,
+  b: SourceObservationIntegrationJobScope,
+): boolean {
+  return JSON.stringify(normalizeIntegrationJobScope(a)) === JSON.stringify(normalizeIntegrationJobScope(b));
 }
 
 function catalogSyncRunProgress(

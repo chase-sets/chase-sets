@@ -24,6 +24,16 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.status": "Status",
   "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.selected": "{value} selected",
   "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.start": "Start Catalog sync",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.column.counts": "Observed / changed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.column.lastRun": "Last run",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.column.state": "State",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.description":
+    "Durable per-provider sync state, kept across runs. A settled provider fast-forwards on the next Sync scope; a failed or stale provider can be retried on its own.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.loading":
+    "Loading Catalog scope sync state...",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.neverCompleted": "Never completed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.retry": "Retry provider",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.title": "Scope sync state",
   "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.table.childScope": "Child scope",
   "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.table.providerUnit": "Provider unit",
   "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.table.readiness": "Readiness",

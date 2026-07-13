@@ -40,6 +40,10 @@ export const retentionCoverageExemptions = new Map([
     "platform_operations_gmv_reconciliation_runs",
     "Tape-vs-ledger reconciliation results are a permanent ops audit trail over forever-retained source data; never age-swept.",
   ],
+  [
+    "catalog_scope_sync_state",
+    "Durable per-(scope, provider-unit) current-state read model, upserted in place on every job-lifecycle transition — not disposable event/job history. Mirrors catalog_provider_scope_mappings (also a permanent current-state table); never age-swept.",
+  ],
 ]);
 
 export async function validateRetentionSweepCoverage({ repoRoot }) {

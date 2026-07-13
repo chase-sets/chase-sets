@@ -245,6 +245,63 @@ describe("source observation routes: integration and bulk review jobs", () => {
     });
   });
 
+  it("returns durable per-scope sync state for every provider unit", async () => {
+    const units = [
+      {
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+        displayName: "tcgdex Pokemon card import",
+        role: "primary-source-observation",
+        requirement: "required",
+        state: "settled",
+        lastSyncRunId: "job_catalog_sync_run",
+        lastJobId: "job_integration",
+        lastOperatorStatus: "completed",
+        observedCount: 42,
+        changedCount: 3,
+        requestedCount: 42,
+        failedCount: 0,
+        errorMessage: null,
+        lastStartedAt: "2026-07-13T00:00:00.000Z",
+        lastCompletedAt: "2026-07-13T00:01:00.000Z",
+        updatedAt: "2026-07-13T00:01:00.000Z",
+      },
+    ];
+    const getCatalogScopeSyncState = vi.fn(async () => units);
+    const services = {
+      getCatalogScopeSyncState,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/catalog-sync-scope/state", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: {
+          productDomain: "pokemon",
+          productForm: "single-card",
+          languageCode: "en",
+          reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+        },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ items: units, total: 1, count: 1 });
+    expect(getCatalogScopeSyncState).toHaveBeenCalledWith({
+      scope: {
+        scopeVersion: "catalog-sync-scope-v1",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base", seriesName: undefined },
+        providerHints: [],
+        providerParticipation: null,
+      },
+      context,
+    });
+  });
+
   it("enqueues a Catalog sync scope parent run with selected provider fan-out", async () => {
     const run = {
       syncRunId: "job_catalog_sync_run",

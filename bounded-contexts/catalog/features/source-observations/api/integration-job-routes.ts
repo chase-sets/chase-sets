@@ -161,6 +161,39 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
     }
   });
 
+  app.post("/catalog-sync-scope/state", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as {
+      scope?: unknown;
+    };
+
+    try {
+      const units = await services.getCatalogScopeSyncState({
+        scope: parseCatalogSyncScope(body.scope),
+        context: c.get("context"),
+      });
+      return c.json({ items: units, total: units.length, count: units.length });
+    } catch (error) {
+      if (!isCatalogSyncScopeValidationError(error)) {
+        throw error;
+      }
+
+      return c.json(
+        {
+          error: {
+            code: "invalid_scope",
+            message: error instanceof Error ? error.message : "Catalog sync scope is invalid.",
+          },
+        },
+        400,
+      );
+    }
+  });
+
   app.post("/catalog-sync-scope/runs", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-write");
     if (permissionError) {

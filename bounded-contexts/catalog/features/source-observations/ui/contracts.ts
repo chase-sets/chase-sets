@@ -912,7 +912,11 @@ export interface CatalogSyncRun {
     displayName: string;
     childExecutionScope: SourceObservationIntegrationJobScope;
     childJobId: string | null;
-    syncRunLinkState: "attached-to-child-payload" | "reused-active-child-job" | "child-enqueue-failed";
+    syncRunLinkState:
+      | "attached-to-child-payload"
+      | "reused-active-child-job"
+      | "reused-settled-child-job"
+      | "child-enqueue-failed";
     errorMessage: string | null;
     status: string;
     job: SourceObservationIntegrationJob | null;
@@ -920,6 +924,32 @@ export interface CatalogSyncRun {
   preview: CatalogSyncProviderParticipationPreview;
   errorMessage: string | null;
   createdAt: string;
+  updatedAt: string;
+}
+
+// Durable per-scope sync state: one row per (scope, provider unit), surviving
+// across runs. This is what the scope page renders so a provider that
+// settled two runs ago still shows as settled, and a failed provider can be
+// retried individually via `lastJobId`.
+export type CatalogScopeSyncUnitState = "never-synced" | "pending" | "running" | "settled" | "failed" | "stale";
+
+export interface CatalogScopeSyncUnitStateReadModel {
+  providerKey: string;
+  unitKey: string;
+  displayName: string;
+  role: string;
+  requirement: string;
+  state: CatalogScopeSyncUnitState;
+  lastSyncRunId: string | null;
+  lastJobId: string | null;
+  lastOperatorStatus: string | null;
+  observedCount: number | null;
+  changedCount: number | null;
+  requestedCount: number | null;
+  failedCount: number | null;
+  errorMessage: string | null;
+  lastStartedAt: string | null;
+  lastCompletedAt: string | null;
   updatedAt: string;
 }
 
