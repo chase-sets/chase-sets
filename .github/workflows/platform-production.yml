@@ -1027,6 +1027,7 @@ jobs:
             --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
             --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
+            --runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${TF_VAR_admin_google_workspace_hosted_domains:-}" \
             --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}" \
             --runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}" \
             --runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}" \
@@ -2746,6 +2747,7 @@ jobs:
             --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=${TF_VAR_production_runtime_profile:-landing}" \
             --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
+            --runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${TF_VAR_admin_google_workspace_hosted_domains:-}" \
             --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}" \
             --runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}" \
             --runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}" \
