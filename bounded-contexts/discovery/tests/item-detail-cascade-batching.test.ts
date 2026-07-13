@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildDiscoveryItemDetailProjectionHandlers } from "../features/item-detail/read-model/projection";
 
@@ -128,16 +129,17 @@ class CascadeProjectionDb implements PgQueryable {
 }
 
 function blueprintPublishedEvent(blueprintId: string): TransportEvent {
-  return {
-    id: "evt_blueprint_published",
-    type: "catalog.blueprint.published",
-    streamId: `catalog.blueprint-${blueprintId}`,
-    streamVersion: 3,
-    globalPosition: "42" as never,
-    data: {},
-    metadata: {},
-    timing: { recordedAt: "2026-07-09T12:00:00.000Z" },
-  } as unknown as TransportEvent;
+  return buildTransportEvent(
+    "catalog.blueprint.published",
+    {},
+    {
+      id: "evt_blueprint_published",
+      streamId: `catalog.blueprint-${blueprintId}`,
+      streamVersion: 3,
+      globalPosition: "42",
+      timing: { occurredAt: "2026-07-09T12:00:00.000Z", recordedAt: "2026-07-09T12:00:00.000Z" },
+    },
+  );
 }
 
 describe("discovery item-detail cascade batching (issue #4751)", () => {
@@ -178,16 +180,17 @@ describe("discovery item-detail cascade batching (issue #4751)", () => {
     // catalog-item events refresh exactly one page; a missing item prunes its
     // page with a single set-based delete.
     await handlers["catalog.catalog-item.published"]!(
-      {
-        id: "evt_item_published",
-        type: "catalog.catalog-item.published",
-        streamId: "catalog.item-cat_missing",
-        streamVersion: 2,
-        globalPosition: "43" as never,
-        data: {},
-        metadata: {},
-        timing: { recordedAt: "2026-07-09T12:00:00.000Z" },
-      } as unknown as TransportEvent,
+      buildTransportEvent(
+        "catalog.catalog-item.published",
+        {},
+        {
+          id: "evt_item_published",
+          streamId: "catalog.item-cat_missing",
+          streamVersion: 2,
+          globalPosition: "43",
+          timing: { occurredAt: "2026-07-09T12:00:00.000Z", recordedAt: "2026-07-09T12:00:00.000Z" },
+        },
+      ),
       {},
     );
 

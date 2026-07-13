@@ -1,27 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { buildInventoryItemLedgerProjectionHandlers } from "./ledger-projection";
 
 function event(type: string, data: Record<string, unknown>, streamVersion = 1): TransportEvent {
-  return {
-    id: `evt_${type}_${streamVersion}` as never,
-    type,
-    streamId: `${type.startsWith("inventory.item.") ? "inventory.item-inv_1" : "inventory.hold-hld_1"}` as never,
-    streamVersion: streamVersion as never,
-    globalPosition: streamVersion as never,
-    tenantId: "tnt_1" as never,
-    data: data as never,
-    metadata: {},
+  return buildTransportEvent(type, data, {
+    id: `evt_${type}_${streamVersion}`,
+    streamId: type.startsWith("inventory.item.") ? "inventory.item-inv_1" : "inventory.hold-hld_1",
+    streamVersion,
+    globalPosition: String(streamVersion),
+    tenantId: "tnt_1",
     audit: {
-      performedByUserId: (type === "inventory.item.adjusted" ? "usr_seller" : "usr_inventory_system") as never,
-      forAccountId: "acc_seller" as never,
+      performedByUserId: type === "inventory.item.adjusted" ? "usr_seller" : "usr_inventory_system",
+      forAccountId: "acc_seller",
     },
-    trace: {},
-    timing: {
-      occurredAt: "2026-07-06T01:00:00.000Z" as never,
-      recordedAt: "2026-07-06T01:00:01.000Z" as never,
-    },
-  };
+    timing: { occurredAt: "2026-07-06T01:00:00.000Z", recordedAt: "2026-07-06T01:00:01.000Z" },
+  });
 }
 
 const orderSourceRef = {

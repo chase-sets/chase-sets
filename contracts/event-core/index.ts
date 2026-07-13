@@ -9,5 +9,6 @@ export * from "./event-store";
 export * from "./projector";
 export * from "./public-event-payloads";
 export * from "./storage";
+export * from "./test-support";
 export * from "./stream-id";
 export * from "./transport";

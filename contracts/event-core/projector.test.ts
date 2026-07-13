@@ -1,26 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import { createTransactionalProjectorHandlerMap } from "./projector";
+import { buildTransportEvent } from "./test-support";
 import type { TransportEvent } from "./transport";
 
-const event: TransportEvent = {
-  id: "evt_test" as never,
-  type: "catalog.catalog-item.published",
-  streamId: "catalog.item-cat_test" as never,
-  streamVersion: 1 as never,
-  globalPosition: "1" as never,
-  tenantId: "tenant_test" as never,
-  data: {},
-  metadata: {},
-  audit: {
-    performedByUserId: "user_test" as never,
-    forAccountId: "account_test" as never,
+const event: TransportEvent = buildTransportEvent(
+  "catalog.catalog-item.published",
+  {},
+  {
+    id: "evt_test",
+    streamId: "catalog.item-cat_test",
+    tenantId: "tnt_test",
+    audit: { performedByUserId: "user_test", forAccountId: "account_test" },
+    timing: { occurredAt: "2026-05-26T00:00:00.000Z", recordedAt: "2026-05-26T00:00:00.000Z" },
   },
-  trace: {},
-  timing: {
-    occurredAt: "2026-05-26T00:00:00.000Z" as never,
-    recordedAt: "2026-05-26T00:00:00.000Z" as never,
-  },
-};
+);
 
 describe("transactional projection handlers", () => {
   it("requires the transaction-scoped projection database", async () => {

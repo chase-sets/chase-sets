@@ -1,6 +1,6 @@
 import type { TransportEvent } from "@chase-sets/event-core";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { UserId } from "@chase-sets/primitives/typed-ids";
 import { describe, expect, it } from "vitest";
 import { defaultUserPresentationPreferences } from "../domain/domain";
 import { getUserPreferences, type UserPreferencesRow } from "./queries";
@@ -52,14 +52,9 @@ function preferencesEvent(
   recordedAt = "2026-06-26T15:00:00.000Z",
 ): TransportEvent {
   const userId = data.userId ?? "usr_preferences";
-  return {
-    id: "evt_preferences",
-    type: "identity.user-preferences.updated",
-    streamId: `identity.user-preferences-${userId}`,
-    streamVersion: 1,
-    globalPosition: "1",
-    tenantId: "tenant_test",
-    data: {
+  return buildTransportEvent(
+    "identity.user-preferences.updated",
+    {
       userId,
       colorMode: data.colorMode ?? "dark",
       density: data.density ?? "comfortable",
@@ -67,17 +62,15 @@ function preferencesEvent(
       locale: data.locale ?? "en-US",
       timeZone: data.timeZone ?? "America/Chicago",
     },
-    metadata: {},
-    audit: {
-      performedByUserId: userId as UserId,
-      forAccountId: "acc_test",
+    {
+      id: "evt_preferences",
+      streamId: `identity.user-preferences-${userId}`,
+      globalPosition: "1",
+      tenantId: "tnt_test",
+      audit: { performedByUserId: userId, forAccountId: "acc_test" },
+      timing: { occurredAt: recordedAt, recordedAt },
     },
-    trace: {},
-    timing: {
-      occurredAt: recordedAt,
-      recordedAt,
-    },
-  } as unknown as TransportEvent;
+  );
 }
 
 describe("user preferences projection", () => {

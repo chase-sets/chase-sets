@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type {
   AgentWebhookOutbox,
   ClaimedAgentWebhookDelivery,
@@ -111,17 +112,13 @@ function createInProcessOutbox(enqueued: EnqueueAgentWebhookDeliveryInput[]): Ag
 }
 
 function fixtureEvent(type: string, data: Record<string, unknown>, id: string): TransportEvent {
-  return {
+  return buildTransportEvent(type, data, {
     id,
-    type,
     streamId: "order-stream-1",
-    streamVersion: 1,
     globalPosition: id,
-    tenantId: "tenant_1",
-    data,
-    metadata: {},
+    tenantId: "tnt_1",
     audit: { performedByUserId: "user_1", forAccountId: "acc_buyer" },
     trace: { traceId: `trace-${id}` },
     timing: { occurredAt: "2026-07-12T00:00:00.000Z", recordedAt: "2026-07-12T00:00:00.000Z" },
-  } as unknown as TransportEvent;
+  });
 }

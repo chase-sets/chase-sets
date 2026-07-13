@@ -1,27 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { buildInventoryHoldProjectionHandlers } from "./projection";
 
 function event(type: string, data: Record<string, unknown>, streamVersion = 1): TransportEvent {
-  return {
-    id: `evt_${streamVersion}` as never,
-    type,
-    streamId: "inventory.hold-hld_1" as never,
-    streamVersion: streamVersion as never,
-    globalPosition: streamVersion as never,
-    tenantId: "tnt_1" as never,
-    data: data as never,
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_1" as never,
-      forAccountId: "acc_seller" as never,
-    },
-    trace: {},
-    timing: {
-      occurredAt: "2026-07-06T00:00:00.000Z" as never,
-      recordedAt: "2026-07-06T00:00:00.000Z" as never,
-    },
-  };
+  return buildTransportEvent(type, data, {
+    id: `evt_${streamVersion}`,
+    streamId: "inventory.hold-hld_1",
+    streamVersion,
+    globalPosition: String(streamVersion),
+    tenantId: "tnt_1",
+    audit: { performedByUserId: "usr_1", forAccountId: "acc_seller" },
+    timing: { occurredAt: "2026-07-06T00:00:00.000Z", recordedAt: "2026-07-06T00:00:00.000Z" },
+  });
 }
 
 describe("inventory hold projection", () => {

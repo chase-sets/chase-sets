@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -24,51 +25,45 @@ function reviewSubmittedEvent(data: {
   rating: number;
   submittedAt: string;
 }): TransportEvent {
-  return {
-    id: "evt_1" as never,
-    type: "marketplace.review.submitted",
-    streamId: `marketplace.review-${data.reviewId}` as never,
-    streamVersion: 1 as never,
-    globalPosition: 1 as never,
-    tenantId: "tnt_test" as never,
-    data: data as never,
-    metadata: {},
-    audit: { performedByUserId: "usr_test" as never, forAccountId: data.authorAccountId as never },
-    trace: {},
-    timing: { occurredAt: data.submittedAt as never, recordedAt: data.submittedAt as never },
-  };
+  return buildTransportEvent("marketplace.review.submitted", data, {
+    id: "evt_1",
+    streamId: `marketplace.review-${data.reviewId}`,
+    tenantId: "tnt_test",
+    audit: { performedByUserId: "usr_test", forAccountId: data.authorAccountId },
+    timing: { occurredAt: data.submittedAt, recordedAt: data.submittedAt },
+  });
 }
 
 function reviewWithdrawnEvent(data: { reviewId: string; withdrawnAt: string }): TransportEvent {
-  return {
-    id: "evt_2" as never,
-    type: "marketplace.review.withdrawn",
-    streamId: `marketplace.review-${data.reviewId}` as never,
-    streamVersion: 2 as never,
-    globalPosition: 2 as never,
-    tenantId: "tnt_test" as never,
-    data: data as never,
-    metadata: {},
-    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
-    trace: {},
-    timing: { occurredAt: data.withdrawnAt as never, recordedAt: data.withdrawnAt as never },
-  };
+  return buildTransportEvent("marketplace.review.withdrawn", data, {
+    id: "evt_2",
+    streamId: `marketplace.review-${data.reviewId}`,
+    streamVersion: 2,
+    globalPosition: "2",
+    tenantId: "tnt_test",
+    audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
+    timing: { occurredAt: data.withdrawnAt, recordedAt: data.withdrawnAt },
+  });
 }
 
 function reviewRevealedEvent(data: { reviewId: string; revealedAt: string }): TransportEvent {
-  return {
-    id: "evt_3" as never,
-    type: "marketplace.review.revealed",
-    streamId: `marketplace.review-${data.reviewId}` as never,
-    streamVersion: 2 as never,
-    globalPosition: 2 as never,
-    tenantId: "tnt_test" as never,
-    data: { reviewId: data.reviewId, revealedAt: data.revealedAt, reason: "counterpart-submitted" } as never,
-    metadata: {},
-    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
-    trace: {},
-    timing: { occurredAt: data.revealedAt as never, recordedAt: data.revealedAt as never },
-  };
+  return buildTransportEvent(
+    "marketplace.review.revealed",
+    {
+      reviewId: data.reviewId,
+      revealedAt: data.revealedAt,
+      reason: "counterpart-submitted",
+    },
+    {
+      id: "evt_3",
+      streamId: `marketplace.review-${data.reviewId}`,
+      streamVersion: 2,
+      globalPosition: "2",
+      tenantId: "tnt_test",
+      audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
+      timing: { occurredAt: data.revealedAt, recordedAt: data.revealedAt },
+    },
+  );
 }
 
 describeDb("settlement account risk source review-role SQL persistence boundary", () => {

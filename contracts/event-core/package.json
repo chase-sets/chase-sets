@@ -21,6 +21,7 @@
     "./public-event-payloads": "./public-event-payloads.ts",
     "./storage": "./storage.ts",
     "./stream-id": "./stream-id.ts",
+    "./test-support": "./test-support.ts",
     "./transport": "./transport.ts"
   },
   "types": "./index.ts"

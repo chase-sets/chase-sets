@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { module as orderingModule } from "../index";
 import type { OrderingServices } from "../support/runtime-support/services";
@@ -77,106 +78,87 @@ function getPaymentCaptureSubscription(services: OrderingServices) {
 function createPaymentCapturedEvent(orderIds: readonly string[]): TransportEvent {
   const capturedAt = "2026-06-12T10:30:00.000Z";
 
-  return {
-    id: "evt_payment_captured",
-    type: "payments.payment-captured",
-    streamId: "payments.payment-pay_1",
-    streamVersion: 1,
-    globalPosition: "1",
-    tenantId: "tenant_1",
-    data: {
+  return buildTransportEvent(
+    "payments.payment-captured",
+    {
       paymentId: "pay_1",
       orderIds: [...orderIds],
-      buyerAccountId: "acct_buyer",
+      buyerAccountId: "acc_buyer",
       amount: "42.00",
-      currencyCode: "USD",
+      currencyCode: "usd",
       processorName: "stripe",
       processorPaymentReference: "pi_1",
       processorStatus: "succeeded",
       capturedAt,
     },
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_system",
-      forAccountId: "acct_buyer",
+    {
+      id: "evt_payment_captured",
+      streamId: "payments.payment-pay_1",
+      tenantId: "tnt_1",
+      audit: { performedByUserId: "usr_system", forAccountId: "acc_buyer" },
+      trace: { traceId: "trace_1" },
+      timing: { occurredAt: capturedAt, recordedAt: capturedAt },
     },
-    trace: {
-      traceId: "trace_1",
-    },
-    timing: {
-      occurredAt: capturedAt,
-      recordedAt: capturedAt,
-    },
-  } as unknown as TransportEvent;
+  );
 }
 
 function createPaymentCreatedEvent(orderIds: readonly string[]): TransportEvent {
   const createdAt = "2026-06-12T10:00:00.000Z";
 
-  return {
-    id: "evt_payment_created",
-    type: "payments.payment-created",
-    streamId: "payments.payment-pay_1",
-    streamVersion: 1,
-    globalPosition: "1",
-    tenantId: "tenant_1",
-    data: {
+  return buildTransportEvent(
+    "payments.payment-created",
+    {
       paymentId: "pay_1",
       orderIds: [...orderIds],
-      buyerAccountId: "acct_buyer",
+      buyerAccountId: "acc_buyer",
       amount: "42.00",
-      currencyCode: "USD",
+      currencyCode: "usd",
       paymentMethodCategory: "bank-account",
       processorName: "stripe",
       processorPaymentReference: "pi_1",
       processorStatus: "requires_action",
       createdAt,
     },
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_system",
-      forAccountId: "acct_buyer",
+    {
+      id: "evt_payment_created",
+      streamId: "payments.payment-pay_1",
+      tenantId: "tnt_1",
+      audit: { performedByUserId: "usr_system", forAccountId: "acc_buyer" },
+      trace: { traceId: "trace_1" },
+      timing: { occurredAt: createdAt, recordedAt: createdAt },
     },
-    trace: {
-      traceId: "trace_1",
-    },
-    timing: {
-      occurredAt: createdAt,
-      recordedAt: createdAt,
-    },
-  } as unknown as TransportEvent;
+  );
 }
 
 function createPaymentFailedEvent(orderIds: readonly string[]): TransportEvent {
   const failedAt = "2026-06-12T10:05:00.000Z";
 
-  return {
-    id: "evt_payment_failed",
-    type: "payments.payment-failed",
-    streamId: "payments.payment-pay_1",
-    streamVersion: 2,
-    globalPosition: "2",
-    tenantId: "tenant_1",
-    data: {
+  return buildTransportEvent(
+    "payments.payment-failed",
+    {
       paymentId: "pay_1",
       orderIds: [...orderIds],
+      buyerAccountId: "acc_buyer",
+      amount: "42.00",
+      currencyCode: "usd",
+      processorName: "stripe",
+      processorPaymentReference: "pi_1",
+      processorStatus: "failed",
       failureCode: "requires_payment_method",
       failureMessage: null,
       failedAt,
     },
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_system",
-      forAccountId: "acct_buyer",
+    {
+      id: "evt_payment_failed",
+      streamId: "payments.payment-pay_1",
+      streamVersion: 2,
+      globalPosition: "2",
+      tenantId: "tnt_1",
+      audit: { performedByUserId: "usr_system", forAccountId: "acc_buyer" },
+      trace: { traceId: "trace_1" },
+      timing: { occurredAt: failedAt, recordedAt: failedAt },
     },
-    trace: {
-      traceId: "trace_1",
-    },
-    timing: {
-      occurredAt: failedAt,
-      recordedAt: failedAt,
-    },
-  } as unknown as TransportEvent;
+  );
 }
 
 describe("ordering payment-capture subscription", () => {

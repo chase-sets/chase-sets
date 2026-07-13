@@ -1,4 +1,5 @@
 import type { TransportEvent } from "@chase-sets/event-core";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
 import { buildShippingAddressProjectionHandlers } from "./projection";
@@ -24,25 +25,13 @@ function shippingAddressEvent(
   data: Readonly<Record<string, unknown>>,
   recordedAt = "2026-07-03T12:00:00.000Z",
 ): TransportEvent {
-  return {
+  return buildTransportEvent(type, data, {
     id: `evt_${type}`,
-    type,
     streamId: "identity.shipping-address-book-acc_1",
-    streamVersion: 1,
-    globalPosition: "1",
-    tenantId: "tenant_test",
-    data,
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_1",
-      forAccountId: "acc_1",
-    },
-    trace: {},
-    timing: {
-      occurredAt: recordedAt,
-      recordedAt,
-    },
-  } as unknown as TransportEvent;
+    tenantId: "tnt_test",
+    audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
+    timing: { occurredAt: recordedAt, recordedAt },
+  });
 }
 
 const address = {

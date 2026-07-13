@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import { buildCheckoutPaymentAffordanceProjectionHandlers } from "./payment-affordance-projection";
 
@@ -79,25 +80,15 @@ class PaymentAffordanceProjectionDb implements PgQueryable {
 }
 
 function event(streamVersion: number, data: Record<string, unknown>): TransportEvent {
-  return {
-    id: `evt_${streamVersion}` as never,
-    type: "payments.checkout-affordances-published",
-    streamId: "payments.checkout-affordances-acc_buyer" as never,
-    streamVersion: streamVersion as never,
-    globalPosition: streamVersion as never,
-    tenantId: "tnt_1" as never,
-    data: data as never,
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_1" as never,
-      forAccountId: "acc_buyer" as never,
-    },
-    trace: {},
-    timing: {
-      occurredAt: "2026-06-29T00:00:00.000Z" as never,
-      recordedAt: "2026-06-29T00:00:00.000Z" as never,
-    },
-  };
+  return buildTransportEvent("payments.checkout-affordances-published", data, {
+    id: `evt_${streamVersion}`,
+    streamId: "payments.checkout-affordances-acc_buyer",
+    streamVersion,
+    globalPosition: String(streamVersion),
+    tenantId: "tnt_1",
+    audit: { performedByUserId: "usr_1", forAccountId: "acc_buyer" },
+    timing: { occurredAt: "2026-06-29T00:00:00.000Z", recordedAt: "2026-06-29T00:00:00.000Z" },
+  });
 }
 
 describe("checkout payment affordance projection", () => {

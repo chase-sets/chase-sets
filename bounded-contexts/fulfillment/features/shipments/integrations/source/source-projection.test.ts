@@ -1,27 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildFulfillmentOrderProjectionHandlers } from "./source-projection";
 
 function event(type: string, data: Record<string, unknown>, streamVersion = 1): TransportEvent {
-  return {
-    id: `evt_${streamVersion}` as never,
-    type,
-    streamId: "payments.payment-pay_123" as never,
-    streamVersion: streamVersion as never,
-    globalPosition: streamVersion as never,
-    tenantId: "tnt_test" as never,
-    data: data as never,
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_test" as never,
-      forAccountId: "acc_buyer" as never,
-    },
-    trace: {},
-    timing: {
-      occurredAt: "2026-07-06T12:00:00.000Z" as never,
-      recordedAt: "2026-07-06T12:00:00.000Z" as never,
-    },
-  };
+  return buildTransportEvent(type, data, {
+    id: `evt_${streamVersion}`,
+    streamId: "payments.payment-pay_123",
+    streamVersion,
+    globalPosition: String(streamVersion),
+    tenantId: "tnt_test",
+    audit: { performedByUserId: "usr_test", forAccountId: "acc_buyer" },
+    timing: { occurredAt: "2026-07-06T12:00:00.000Z", recordedAt: "2026-07-06T12:00:00.000Z" },
+  });
 }
 
 describe("fulfillment payment fraud source projection", () => {

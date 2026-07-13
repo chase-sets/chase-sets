@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -24,22 +25,14 @@ let sequence = 0;
 
 function event(type: string, data: Record<string, unknown>): TransportEvent {
   sequence += 1;
-  return {
-    id: `evt_${sequence}` as never,
-    type,
-    streamId: `stream_${sequence}` as never,
-    streamVersion: 1 as never,
-    globalPosition: sequence as never,
-    tenantId: "tnt_test" as never,
-    data: data as never,
-    metadata: {},
-    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_buyer" as never },
-    trace: {},
-    timing: {
-      occurredAt: "2026-07-01T00:00:00.000Z" as never,
-      recordedAt: "2026-07-01T00:00:00.000Z" as never,
-    },
-  };
+  return buildTransportEvent(type, data, {
+    id: `evt_${sequence}`,
+    streamId: `stream_${sequence}`,
+    globalPosition: String(sequence),
+    tenantId: "tnt_test",
+    audit: { performedByUserId: "usr_test", forAccountId: "acc_buyer" },
+    timing: { occurredAt: "2026-07-01T00:00:00.000Z", recordedAt: "2026-07-01T00:00:00.000Z" },
+  });
 }
 
 describeDb("marketplace seller behavioral-metrics SQL persistence boundary", () => {

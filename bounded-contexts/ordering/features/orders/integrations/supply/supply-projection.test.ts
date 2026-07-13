@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import { buildOrderingMarketplaceSupplyProjectionHandlers } from "./supply-projection";
 
@@ -172,25 +173,13 @@ class ProjectionDb implements PgQueryable {
 }
 
 function event(type: string, streamId: string, data: Record<string, unknown>): TransportEvent {
-  return {
-    id: "evt_1" as never,
-    type,
-    streamId: streamId as never,
-    streamVersion: 1 as never,
-    globalPosition: 1 as never,
-    tenantId: "tnt_1" as never,
-    data: data as never,
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_1" as never,
-      forAccountId: "acc_1" as never,
-    },
-    trace: {},
-    timing: {
-      occurredAt: "2026-05-09T00:00:00.000Z" as never,
-      recordedAt: "2026-05-09T00:00:00.000Z" as never,
-    },
-  };
+  return buildTransportEvent(type, data, {
+    id: "evt_1",
+    streamId,
+    tenantId: "tnt_1",
+    audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
+    timing: { occurredAt: "2026-05-09T00:00:00.000Z", recordedAt: "2026-05-09T00:00:00.000Z" },
+  });
 }
 
 function createdEvent(overrides: Partial<Record<string, unknown>> = {}) {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildDiscoverySearchItemProjectionHandlers } from "../../../../discovery/features/search/read-model/projection";
 import type { CatalogItemCommand } from "../domain/domain";
@@ -283,14 +284,9 @@ function displayIdentityEventFromCommand(command: CatalogItemCommand): Transport
     throw new Error(`Expected display identity command, received ${command.type}`);
   }
 
-  return {
-    id: "evt_display_identity" as never,
-    type: "catalog.catalog-item.display-identity-resolved",
-    streamId: `catalog.item-${command.catalogItemId}` as never,
-    streamVersion: 2 as never,
-    globalPosition: 2 as never,
-    tenantId: "tnt_1" as never,
-    data: {
+  return buildTransportEvent(
+    "catalog.catalog-item.display-identity-resolved",
+    {
       catalogItemId: command.catalogItemId,
       languageCode: command.languageCode ?? "en",
       title: command.title,
@@ -301,18 +297,17 @@ function displayIdentityEventFromCommand(command: CatalogItemCommand): Transport
       displayIdentityHash: command.displayIdentityHash,
       resolverVersion: command.resolverVersion,
       resolvedAt: command.resolvedAt,
-    } as never,
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_1" as never,
-      forAccountId: "acc_1" as never,
     },
-    trace: {},
-    timing: {
-      occurredAt: command.resolvedAt as never,
-      recordedAt: command.resolvedAt as never,
+    {
+      id: "evt_display_identity",
+      streamId: `catalog.item-${command.catalogItemId}`,
+      streamVersion: 2,
+      globalPosition: "2",
+      tenantId: "tnt_1",
+      audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
+      timing: { occurredAt: command.resolvedAt, recordedAt: command.resolvedAt },
     },
-  };
+  );
 }
 
 function recomputeDb(options: {

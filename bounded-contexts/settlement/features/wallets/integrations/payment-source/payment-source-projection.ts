@@ -1,5 +1,11 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { MarketplaceSalesFeeLineSnapshotPayload } from "@chase-sets/event-core";
+import type {
+  MarketplaceSalesFeeLineSnapshotPayload,
+  PaymentCapturedPayload,
+  PaymentCancelledPayload,
+  PaymentCreatedPayload,
+  PaymentFailedPayload,
+} from "@chase-sets/event-core";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId, LedgerEntryId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
@@ -703,21 +709,7 @@ export function buildSettlementPaymentInputProjectionHandlers(
 ): ProjectorHandlerMap {
   return {
     "payments.payment-created": async (event) => {
-      const data = event.data as {
-        paymentId: string;
-        buyerAccountId: string;
-        orderIds: string[];
-        sellerPayouts?: unknown;
-        amount: string;
-        balanceCreditAmount?: string;
-        processorAmount?: string;
-        marketplaceSalesFeeAmount?: string;
-        currencyCode: string;
-        processorName: string;
-        processorPaymentReference: string;
-        processorStatus: string;
-        createdAt: string;
-      };
+      const data = event.data as PaymentCreatedPayload;
 
       const sellerPayouts = normalizeSellerPayoutComponents(data.sellerPayouts);
 
@@ -809,16 +801,7 @@ export function buildSettlementPaymentInputProjectionHandlers(
       );
     },
     "payments.payment-captured": async (event) => {
-      const data = event.data as {
-        paymentId: string;
-        buyerAccountId: string;
-        balanceCreditAmount?: string;
-        currencyCode?: string;
-        sellerPayouts?: unknown;
-        authenticityFeeAmount?: string;
-        processorStatus: string;
-        capturedAt: string;
-      };
+      const data = event.data as PaymentCapturedPayload;
 
       await db.query(
         `UPDATE settlement_payment_sources
@@ -873,13 +856,7 @@ export function buildSettlementPaymentInputProjectionHandlers(
       );
     },
     "payments.payment-failed": async (event) => {
-      const data = event.data as {
-        paymentId: string;
-        processorStatus: string;
-        failureCode: string | null;
-        failureMessage: string | null;
-        failedAt: string;
-      };
+      const data = event.data as PaymentFailedPayload;
 
       await db.query(
         `UPDATE settlement_payment_sources
@@ -903,10 +880,7 @@ export function buildSettlementPaymentInputProjectionHandlers(
       );
     },
     "payments.payment-cancelled": async (event) => {
-      const data = event.data as {
-        paymentId: string;
-        cancelledAt: string;
-      };
+      const data = event.data as PaymentCancelledPayload;
 
       await db.query(
         `UPDATE settlement_payment_sources
