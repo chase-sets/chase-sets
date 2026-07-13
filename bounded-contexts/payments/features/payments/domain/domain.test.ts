@@ -249,15 +249,58 @@ describe("payments payment domain", () => {
       createdAt: "2026-04-01T00:00:00.000Z",
     });
     const createdState = created.reduce(evolvePayment, initialPaymentState);
-    const captured = decidePayment(createdState, {
+    const captureEvents = decidePayment(createdState, {
       type: "RecordPaymentCapture",
       processorStatus: "succeeded",
       capturedAt: "2026-04-01T00:01:00.000Z",
-    }).reduce(evolvePayment, createdState);
+    });
+    expect(captureEvents).toHaveLength(2);
+    expect(captureEvents[1]).toMatchObject({
+      type: "payments.csat-outcome-fact.v1",
+      data: { outcomeCode: "checkout.completed", sourceContext: "checkout" },
+    });
+    const captured = captureEvents.reduce(evolvePayment, createdState);
 
     expect(captured.status).toBe("captured");
     expect(captured.capturedAt).toBe("2026-04-01T00:01:00.000Z");
     expect(captured.orderIds).toEqual(["ord_1", "ord_2"]);
+  });
+
+  it("publishes recovery rather than completion after a server-owned checkout recovery", () => {
+    const createdState = decidePayment(initialPaymentState, {
+      type: "CreatePayment",
+      paymentId: "pay_recovery" as never,
+      buyerAccountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      amount: "10.00",
+      marketplaceSalesFeeAmount: "1.00",
+      marketplaceCheckoutFeeAmount: "0.50",
+      sellerNetAmount: "8.50",
+      currencyCode: "usd",
+      processorName: "stripe",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: "pi_recovery",
+      processorClientSecret: "pi_recovery_secret",
+      processorStatus: "requires_payment_method",
+      sourceContext: "checkout-recovery",
+      sourceReferenceId: "checkout-recovery-ref",
+      createdAt: "2026-04-01T00:03:00.000Z",
+    }).reduce(evolvePayment, initialPaymentState);
+
+    const captureEvents = decidePayment(createdState, {
+      type: "RecordPaymentCapture",
+      processorStatus: "succeeded",
+      capturedAt: "2026-04-01T00:04:00.000Z",
+    });
+
+    expect(captureEvents[1]).toMatchObject({
+      type: "payments.csat-outcome-fact.v1",
+      data: {
+        outcomeCode: "checkout.recovered",
+        sourceContext: "checkout",
+        idempotencyKey: "payment:pay_recovery:checkout.recovered",
+      },
+    });
   });
 
   it("records a failure once and remains idempotent on duplicate failure webhooks", () => {

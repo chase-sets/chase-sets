@@ -10,7 +10,6 @@
   "allowedContextDependencies": [
     "@chase-sets/auth",
     "@chase-sets/commercial-terms",
-    "@chase-sets/customer-feedback",
     "@chase-sets/identity",
     "@chase-sets/inventory",
     "@chase-sets/marketplace",

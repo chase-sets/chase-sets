@@ -5,7 +5,7 @@ import {
   type OutcomeSubjectKind,
 } from "@chase-sets/customer-feedback/server";
 
-export const checkoutCsatOutcomeFactEventType = "checkout.csat-outcome-fact.v1" as const;
+export const paymentsCsatOutcomeFactEventType = "payments.csat-outcome-fact.v1" as const;
 
 function normalizeRequiredText(value: string, message: string) {
   const normalized = value.trim();
@@ -15,7 +15,15 @@ function normalizeRequiredText(value: string, message: string) {
   return normalized;
 }
 
-export function createCheckoutCsatOutcomeFact(
+function ensureIsoTimestamp(value: string, message: string) {
+  const normalized = normalizeRequiredText(value, message);
+  if (Number.isNaN(Date.parse(normalized))) {
+    throw new Error(message);
+  }
+  return normalized;
+}
+
+export function createPaymentsCsatOutcomeFact(
   input: Readonly<{
     outcomeCode: string;
     subjectAccountId: string;
@@ -31,7 +39,7 @@ export function createCheckoutCsatOutcomeFact(
     throw new Error(`Unsupported CSAT workflow outcome code: ${input.outcomeCode}`);
   }
   if (sourceContextForOutcomeCode(input.outcomeCode) !== "checkout") {
-    throw new Error(`Checkout cannot publish CSAT outcome code: ${input.outcomeCode}`);
+    throw new Error(`Payments cannot publish CSAT outcome code: ${input.outcomeCode}`);
   }
 
   return {
@@ -44,7 +52,7 @@ export function createCheckoutCsatOutcomeFact(
       entityType: normalizeRequiredText(input.subjectEntityType, "CSAT outcome requires a subject type."),
       entityId: normalizeRequiredText(input.subjectEntityId, "CSAT outcome requires a subject id."),
     },
-    outcomeOccurredAt: normalizeRequiredText(input.outcomeOccurredAt, "CSAT outcome requires an occurrence timestamp."),
+    outcomeOccurredAt: ensureIsoTimestamp(input.outcomeOccurredAt, "CSAT outcome requires an occurrence timestamp."),
     idempotencyKey: normalizeRequiredText(input.idempotencyKey, "CSAT outcome requires an idempotency key."),
     correlationId: input.correlationId ?? null,
   };
