@@ -20,7 +20,7 @@ import type {
 import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
 import { CommandHiddenInputs } from "./command-controls";
 
-// Candidate edit form (#3800). Renders inline in the candidate review drawer. It
+// Candidate edit form. Renders inline in the candidate review drawer. It
 // submits the typed `update-merge-candidate` intent carrying the base snapshot
 // plus the operator's overrides; the command handler applies them onto the base
 // snapshot and calls UpdateCatalogMergeCandidate, so field corrections land as

@@ -1801,7 +1801,7 @@ export type CatalogPrimaryWorkbenchMergeCandidateReviewRow = Readonly<{
     reasonRequired: boolean;
     commandPreview: CatalogMergeCandidateReviewCommandPreview | null;
   }>[];
-  // The typed candidate edit surface (#3800). `state` gates the inline editor:
+  // The typed candidate edit surface. `state` gates the inline editor:
   // when it is not `available`, `baseSnapshotJson` is null and the drawer renders
   // the blockers instead of inputs. Operator field corrections submitted from this
   // surface are recorded as `manual` provenance and carried through promotion.

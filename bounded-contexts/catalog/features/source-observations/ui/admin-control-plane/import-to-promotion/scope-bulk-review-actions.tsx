@@ -24,7 +24,7 @@ export const catalogMergeCandidateReviewAnchorId = "catalog-merge-candidate-revi
 
 type MergeCandidateRow = CatalogPrimaryWorkbenchMergeCandidateReviewRow;
 
-// Scope-level bulk review actions (#3800). Operates on the whole scope's candidate
+// Scope-level bulk review actions. Operates on the whole scope's candidate
 // set at once: promote all ready, jump to the conflicts that still need
 // resolution, and defer the remainder with a reason. The candidate IDs are
 // partitioned by status from the durable, scope-filtered review set, so

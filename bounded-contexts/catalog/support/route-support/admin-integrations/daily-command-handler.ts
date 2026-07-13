@@ -255,7 +255,7 @@ export async function handleDailyCommand(input: {
         });
       }
 
-      // Edit-form path (#3800): the operator authored a typed candidate edit. The
+      // Edit-form path: the operator authored a typed candidate edit. The
       // embedded base snapshot plus overrides reconstruct the replacement snapshot
       // the UpdateCatalogMergeCandidate command carries, with a required reason.
       const editedSnapshot = editedSnapshotFromFormData(formData);
@@ -308,7 +308,7 @@ export async function handleDailyCommand(input: {
       });
     }
     case "bulk-promote-merge-candidates": {
-      // Scope-level promote-all-ready (#3800). Only the candidate IDs the read
+      // Scope-level promote-all-ready. Only the candidate IDs the read
       // model classified as ready reach this set, so blocking-conflict resolution
       // requirements stay intact: has-conflicts / stale / deferred candidates are
       // never bulk-promoted. Ready candidates carry no blocking conflicts, so no

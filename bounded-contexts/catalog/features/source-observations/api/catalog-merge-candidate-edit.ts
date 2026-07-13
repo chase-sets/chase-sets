@@ -7,7 +7,7 @@ import type {
 import type { CatalogMergeCandidateListRow } from "../read-model/queries";
 import { snapshotFromReviewRow } from "./catalog-merge-candidate-review-command-payloads";
 
-// Candidate edit slice (#3800). The domain already supports full candidate
+// Candidate edit slice. The domain already supports full candidate
 // editing: UpdateCatalogMergeCandidate replaces the review snapshot with audit,
 // and field provenance supports `manual` confidence. This module is the typed,
 // server-owned bridge between the trimmed workbench review row and that command.
@@ -97,7 +97,7 @@ export function catalogMergeCandidateEditFormFor(
     editableFacts: editableFactsFrom(base.proposedCatalogItemFacts),
     externalCatalogItemReferences: base.proposedExternalCatalogItemReferences.map((reference, index) => ({
       index,
-      label: `${reference.providerKey}:${reference.externalKey}`,
+      label: externalCatalogItemReferenceLabel(reference.providerKey, reference.externalKey),
     })),
     externalProductReferences: base.proposedExternalProductReferences.map((reference, index) => ({
       index,
@@ -252,8 +252,13 @@ function externalProductReferenceLabel(
   externalKey: string,
   selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[],
 ): string {
+  const referenceLabel = externalCatalogItemReferenceLabel(providerKey, externalKey);
   const options = selectedOptions.map((option) => `${option.dimensionId}:${option.optionId}`).join(", ");
-  return options ? `${providerKey}:${externalKey} -> ${options}` : `${providerKey}:${externalKey}`;
+  return options ? `${referenceLabel} -> ${options}` : referenceLabel;
+}
+
+function externalCatalogItemReferenceLabel(providerKey: string, externalKey: string): string {
+  return [providerKey, externalKey].join(":");
 }
 
 function promotionIntentFromFormData(

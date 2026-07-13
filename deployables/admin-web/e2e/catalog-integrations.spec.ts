@@ -329,7 +329,7 @@ test.describe.serial("catalog admin integrations", () => {
     if (await mergeCandidateReviewHeading.count()) {
       await expect(mergeCandidateReviewHeading.first()).toBeVisible({ timeout: 30_000 });
 
-      // #3800: the scope-level bulk review toolbar renders above the candidate
+      // The scope-level bulk review toolbar renders above the candidate
       // table whenever the review surface is present. It offers promote-all-ready,
       // jump-to-conflicts, and defer-remainder as scope-level actions; the
       // promote-all form only ever carries `ready` candidate IDs so has-conflicts /
@@ -360,7 +360,7 @@ test.describe.serial("catalog admin integrations", () => {
         });
         await expect(page.getByText(/raw JSON/i)).toHaveCount(0);
 
-        // #3800: the candidate edit form renders inline in the review drawer. When
+        // The candidate edit form renders inline in the review drawer. When
         // the candidate is editable it exposes typed inputs (promotion intent,
         // field-value overrides, references) submitted through
         // update-merge-candidate; when it is not, it explains why in place. Either

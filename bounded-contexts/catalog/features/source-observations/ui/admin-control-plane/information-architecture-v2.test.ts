@@ -27,7 +27,7 @@ const capabilityMap: readonly CatalogControlPlaneCapabilityMapEntry[] = CATALOG_
 //   provider-setup-command-handler(3)
 //   governance-command-handler    (3)
 // The 2026-07-03 review estimated ~31; the live handlers carry 29. Every one must
-// map to exactly one v2 action. The two scope-level bulk candidate intents (#3800)
+// map to exactly one v2 action. The two scope-level bulk candidate intents
 // fold into the same candidate.promote / candidate.defer entity verbs.
 const CURRENT_FORM_INTENTS = [
   // daily
