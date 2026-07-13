@@ -19,24 +19,46 @@ test.describe("commerce admin commercial terms", () => {
 
     await authenticateAdmin(page, "/commerce/terms/schedules", "/access/sign-in");
     const suffix = Date.now().toString(36);
-    await expectScheduleOverlapValidation(page);
+    await expectScheduleOverlapValidation(page, suffix);
     await createInactiveScheduleAndInspectHistory(page, suffix);
     await expectAgreementAccountValidation(page);
     await createInactiveAgreementAndInspectHistory(page, suffix);
   });
 });
 
-async function expectScheduleOverlapValidation(page: Page) {
+async function expectScheduleOverlapValidation(page: Page, suffix: string) {
   await expectPageOk(page, "/commerce/terms/schedules");
   await expectAdminPageReady(page, { heading: "Fee Schedules" });
 
+  const effectiveFrom = new Date(Date.now() + 365 * 24 * 60 * 60 * 1_000 + Math.random() * 10_000_000_000);
+  const effectiveUntil = new Date(effectiveFrom.getTime() + 1_000);
+  const activeLabel = `E2E overlap baseline ${suffix}`;
   const form = createScheduleForm(page);
-  await form.getByLabel("Label").fill(`E2E overlapping business schedule ${Date.now().toString(36)}`);
+  await form.getByLabel("Label").fill(activeLabel);
   await form.getByLabel("Account type").selectOption("business");
   await form.getByLabel("Status").selectOption("active");
-  await form.getByLabel("Effective from").fill("2026-06-01T00:00:00.000Z");
-  await form.getByLabel("Effective until").fill("");
+  await form.getByLabel("Effective from").fill(effectiveFrom.toISOString());
+  await form.getByLabel("Effective until").fill(effectiveUntil.toISOString());
   await form.getByRole("button", { name: "Create schedule" }).click();
+
+  await page.waitForURL((url) => url.pathname === "/commerce/terms/schedules" && url.search.includes("afterWrite"), {
+    timeout: 30_000,
+  });
+  const createUrl = new URL(page.url());
+  await waitForCommercialTermsProjection(page, createUrl, {
+    projectionName: "platform-policy-document-projection",
+    label: `create overlap baseline schedule ${activeLabel}`,
+  });
+  await page.goto(createUrl.pathname, { waitUntil: "domcontentloaded" });
+  await expectAdminPageReady(page, { heading: "Fee Schedules" });
+
+  const overlapForm = createScheduleForm(page);
+  await overlapForm.getByLabel("Label").fill(`E2E overlapping business schedule ${suffix}`);
+  await overlapForm.getByLabel("Account type").selectOption("business");
+  await overlapForm.getByLabel("Status").selectOption("active");
+  await overlapForm.getByLabel("Effective from").fill(effectiveFrom.toISOString());
+  await overlapForm.getByLabel("Effective until").fill(effectiveUntil.toISOString());
+  await overlapForm.getByRole("button", { name: "Create schedule" }).click();
 
   await expect(page.getByText(/already covers that account type and effective window/i)).toBeVisible();
 }
