@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   authIdentityProjectionSchemaSql,
@@ -22,25 +23,13 @@ function buildIdentityUserEvent(
   data: TransportEvent["data"],
   recordedAt = "2026-06-12T12:00:00.000Z",
 ): TransportEvent {
-  return {
-    id: "evt_contact_methods" as never,
-    type,
-    streamId: "identity.user-usr_contact" as never,
-    streamVersion: 1 as never,
-    globalPosition: 1 as never,
-    tenantId: "ten_test" as never,
-    data,
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_actor" as never,
-      forAccountId: "acc_actor" as never,
-    },
-    trace: {},
-    timing: {
-      occurredAt: recordedAt as never,
-      recordedAt: recordedAt as never,
-    },
-  };
+  return buildTransportEvent(type, data, {
+    id: "evt_contact_methods",
+    streamId: "identity.user-usr_contact",
+    tenantId: "tnt_test",
+    audit: { performedByUserId: "usr_actor", forAccountId: "acc_actor" },
+    timing: { occurredAt: recordedAt, recordedAt },
+  });
 }
 
 describe("auth identity membership reads", () => {

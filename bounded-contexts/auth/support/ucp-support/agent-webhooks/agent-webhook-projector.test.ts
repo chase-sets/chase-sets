@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { AgentWebhookOutbox, EnqueueAgentWebhookDeliveryInput } from "./agent-webhook-outbox";
 import type { AgentWebhookTarget } from "./agent-webhook-registration";
 import {
@@ -8,19 +9,15 @@ import {
 } from "./agent-webhook-projector";
 
 function event(type: string, data: Record<string, unknown>, id = "evt_1"): TransportEvent {
-  return {
+  return buildTransportEvent(type, data, {
     id,
-    type,
     streamId: "stream_1",
-    streamVersion: 1,
     globalPosition: "1",
-    tenantId: "tenant_1",
-    data,
-    metadata: {},
+    tenantId: "tnt_1",
     audit: { performedByUserId: "usr_1", forAccountId: "acc_actor" },
     trace: { traceId: "trace_1" },
     timing: { occurredAt: "2026-07-08T00:00:00.000Z", recordedAt: "2026-07-08T00:00:00.000Z" },
-  } as unknown as TransportEvent;
+  });
 }
 
 function collectingOutbox() {

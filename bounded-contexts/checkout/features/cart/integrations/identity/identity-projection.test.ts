@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import { buildCheckoutIdentitySellerAccountsProjectionHandlers, createSellerSlug } from "./identity-projection";
 
@@ -50,25 +51,15 @@ function event(
   data: Record<string, unknown>,
   streamId = "identity.account-acc_1",
 ): TransportEvent {
-  return {
-    id: "evt_1" as never,
-    type,
-    streamId: streamId as never,
-    streamVersion: streamVersion as never,
-    globalPosition: streamVersion as never,
-    tenantId: "tnt_1" as never,
-    data: data as never,
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_1" as never,
-      forAccountId: "acc_1" as never,
-    },
-    trace: {},
-    timing: {
-      occurredAt: "2026-06-17T00:00:00.000Z" as never,
-      recordedAt: "2026-06-17T00:00:00.000Z" as never,
-    },
-  };
+  return buildTransportEvent(type, data, {
+    id: "evt_1",
+    streamId,
+    streamVersion,
+    globalPosition: String(streamVersion),
+    tenantId: "tnt_1",
+    audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
+    timing: { occurredAt: "2026-06-17T00:00:00.000Z", recordedAt: "2026-06-17T00:00:00.000Z" },
+  });
 }
 
 describe("checkout identity seller-accounts projection", () => {

@@ -452,6 +452,7 @@ export type PaymentCapturedPayload = Readonly<{
   amount: string;
   balanceCreditAmount?: string;
   processorAmount?: string;
+  authenticityFeeAmount?: string;
   marketplaceSalesFeeAmount?: string;
   marketplaceCheckoutFeeAmount?: string;
   marketplaceCheckoutFeePolicyVersion?: string | null;

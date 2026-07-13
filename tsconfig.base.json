@@ -384,6 +384,9 @@
       "@chase-sets/event-core/stream-id": [
         "./contracts/event-core/stream-id.ts"
       ],
+      "@chase-sets/event-core/test-support": [
+        "./contracts/event-core/test-support.ts"
+      ],
       "@chase-sets/event-core/transport": [
         "./contracts/event-core/transport.ts"
       ],

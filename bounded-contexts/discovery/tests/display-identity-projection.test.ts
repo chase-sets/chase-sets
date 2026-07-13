@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildDiscoveryItemDetailProjectionHandlers } from "../features/item-detail/read-model/projection";
 import {
@@ -230,14 +231,9 @@ function catalogItemRow(slug: string): Record<string, unknown> {
 }
 
 function displayIdentityEvent(): TransportEvent {
-  return {
-    id: "evt_1" as never,
-    type: "catalog.catalog-item.display-identity-resolved",
-    streamId: "catalog.item-cat_1" as never,
-    streamVersion: 2 as never,
-    globalPosition: 2 as never,
-    tenantId: "tnt_1" as never,
-    data: {
+  return buildTransportEvent(
+    "catalog.catalog-item.display-identity-resolved",
+    {
       catalogItemId: "cat_1",
       languageCode: "en",
       title: "Charizard 4/102",
@@ -247,67 +243,54 @@ function displayIdentityEvent(): TransportEvent {
         { kind: "number", label: "4/102" },
         { kind: "rarity", label: "Rare Holo" },
       ],
-    } as never,
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_1" as never,
-      forAccountId: "acc_1" as never,
     },
-    trace: {},
-    timing: {
-      occurredAt: "2026-06-06T22:00:00.000Z" as never,
-      recordedAt: "2026-06-06T22:00:00.000Z" as never,
+    {
+      id: "evt_1",
+      streamId: "catalog.item-cat_1",
+      streamVersion: 2,
+      globalPosition: "2",
+      tenantId: "tnt_1",
+      audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
+      timing: { occurredAt: "2026-06-06T22:00:00.000Z", recordedAt: "2026-06-06T22:00:00.000Z" },
     },
-  };
+  );
 }
 
 function metadataRevisionEvent(): TransportEvent {
-  return {
-    id: "evt_2" as never,
-    type: "catalog.catalog-item.metadata-revised",
-    streamId: "catalog.item-cat_1" as never,
-    streamVersion: 3 as never,
-    globalPosition: 3 as never,
-    tenantId: "tnt_1" as never,
-    data: {
+  return buildTransportEvent(
+    "catalog.catalog-item.metadata-revised",
+    {
       languageCode: "en",
       title: { defaultLocale: "en", values: { en: "Fallback Title" } },
       subtitle: { defaultLocale: "en", values: { en: "Fallback Subtitle" } },
       description: { defaultLocale: "en", values: { en: "Revised description" } },
-    } as never,
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_1" as never,
-      forAccountId: "acc_1" as never,
     },
-    trace: {},
-    timing: {
-      occurredAt: "2026-06-06T23:00:00.000Z" as never,
-      recordedAt: "2026-06-06T23:00:00.000Z" as never,
+    {
+      id: "evt_2",
+      streamId: "catalog.item-cat_1",
+      streamVersion: 3,
+      globalPosition: "3",
+      tenantId: "tnt_1",
+      audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
+      timing: { occurredAt: "2026-06-06T23:00:00.000Z", recordedAt: "2026-06-06T23:00:00.000Z" },
     },
-  };
+  );
 }
 
 function dimensionOptionsReorderedEvent(): TransportEvent {
-  return {
-    id: "evt_dimension_options" as never,
-    type: "catalog.dimension.options-reordered",
-    streamId: "catalog.dimension-dim_condition" as never,
-    streamVersion: 4 as never,
-    globalPosition: 4 as never,
-    tenantId: "tnt_1" as never,
-    data: { optionIds: ["opt_lp", "opt_nm"] } as never,
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_1" as never,
-      forAccountId: "acc_1" as never,
+  return buildTransportEvent(
+    "catalog.dimension.options-reordered",
+    { optionIds: ["opt_lp", "opt_nm"] },
+    {
+      id: "evt_dimension_options",
+      streamId: "catalog.dimension-dim_condition",
+      streamVersion: 4,
+      globalPosition: "4",
+      tenantId: "tnt_1",
+      audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
+      timing: { occurredAt: "2026-06-06T23:30:00.000Z", recordedAt: "2026-06-06T23:30:00.000Z" },
     },
-    trace: {},
-    timing: {
-      occurredAt: "2026-06-06T23:30:00.000Z" as never,
-      recordedAt: "2026-06-06T23:30:00.000Z" as never,
-    },
-  };
+  );
 }
 
 describe("Discovery display identity projection", () => {

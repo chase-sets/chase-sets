@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   closeMultiContextTestPools,
@@ -1163,25 +1164,15 @@ function event(type: string, streamId: string, data: TransportEvent["data"]): Tr
   nextGlobalPosition += 1;
   const recordedAt = new Date(Date.UTC(2026, 5, 12, 12, nextGlobalPosition, 0)).toISOString();
 
-  return {
-    id: `evt_${nextGlobalPosition}` as never,
-    type,
-    streamId: streamId as never,
-    streamVersion: nextGlobalPosition as never,
-    globalPosition: nextGlobalPosition as never,
-    tenantId: "ten_test" as never,
-    data,
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_actor" as never,
-      forAccountId: "acc_actor" as never,
-    },
-    trace: {},
-    timing: {
-      occurredAt: recordedAt as never,
-      recordedAt: recordedAt as never,
-    },
-  };
+  return buildTransportEvent(type, data, {
+    id: `evt_${nextGlobalPosition}`,
+    streamId,
+    streamVersion: nextGlobalPosition,
+    globalPosition: String(nextGlobalPosition),
+    tenantId: "tnt_test",
+    audit: { performedByUserId: "usr_actor", forAccountId: "acc_actor" },
+    timing: { occurredAt: recordedAt, recordedAt },
+  });
 }
 
 async function projectAll(handlers: readonly ProjectorHandlerMap[], projectedEvent: TransportEvent): Promise<void> {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import contextManifest from "../context.json";
 import { module as orderingModule } from "../index";
 import {
@@ -128,14 +129,9 @@ function pendingReservationOrderState() {
 
 function createReservationConfirmedEvent(): TransportEvent {
   const confirmedAt = "2026-06-24T14:00:00.000Z";
-  return {
-    id: "evt_reservation_confirmed",
-    type: "inventory.reservation.confirmed",
-    streamId: "inventory.reservation-rsv_order_1",
-    streamVersion: 1,
-    globalPosition: "42",
-    tenantId: "tenant_1",
-    data: {
+  return buildTransportEvent(
+    "inventory.reservation.confirmed",
+    {
       reservationRequestId: "rsv_order_1",
       orderId: "ord_1",
       sellerAccountId: "acc_seller",
@@ -143,19 +139,17 @@ function createReservationConfirmedEvent(): TransportEvent {
       quantity: 1,
       holdId: "hld_order_reservation_rsv_order_1",
     },
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_system",
-      forAccountId: "acc_buyer",
+    {
+      id: "evt_reservation_confirmed",
+      streamId: "inventory.reservation-rsv_order_1",
+      streamVersion: 1,
+      globalPosition: "42",
+      tenantId: "tnt_1",
+      audit: { performedByUserId: "usr_system", forAccountId: "acc_buyer" },
+      trace: { traceId: "trace_1" },
+      timing: { occurredAt: confirmedAt, recordedAt: confirmedAt },
     },
-    trace: {
-      traceId: "trace_1",
-    },
-    timing: {
-      occurredAt: confirmedAt,
-      recordedAt: confirmedAt,
-    },
-  } as unknown as TransportEvent;
+  );
 }
 
 describe("ordering inventory reservation subscription", () => {

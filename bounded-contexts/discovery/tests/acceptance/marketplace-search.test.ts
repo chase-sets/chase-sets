@@ -13,6 +13,7 @@ import {
   resolveModuleSubscriptions,
 } from "@chase-sets/bounded-context-runtime";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -1353,14 +1354,9 @@ function productContentsResolvedEvent(input: {
   containerCatalogItemId: string;
   containedCatalogItemId: string;
 }): TransportEvent {
-  return {
-    id: "evt_contents" as never,
-    type: "catalog.product-contents.resolved",
-    streamId: `catalog.product-contents-${input.containerCatalogItemId}` as never,
-    streamVersion: 1 as never,
-    globalPosition: 1 as never,
-    tenantId: "tnt_test" as never,
-    data: {
+  return buildTransportEvent(
+    "catalog.product-contents.resolved",
+    {
       containerCatalogItemId: input.containerCatalogItemId,
       containerProductId: null,
       lines: [
@@ -1378,32 +1374,29 @@ function productContentsResolvedEvent(input: {
       resolvedFactHash: "hash",
       resolverVersion: 1,
       resolvedAt: "2026-07-02T00:00:00.000Z",
-    } as never,
-    metadata: {},
-    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
-    trace: {},
-    timing: {
-      occurredAt: "2026-07-02T00:00:00.000Z" as never,
-      recordedAt: "2026-07-02T00:00:00.000Z" as never,
     },
-  };
+    {
+      id: "evt_contents",
+      streamId: `catalog.product-contents-${input.containerCatalogItemId}`,
+      tenantId: "tnt_test",
+      audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
+      timing: { occurredAt: "2026-07-02T00:00:00.000Z", recordedAt: "2026-07-02T00:00:00.000Z" },
+    },
+  );
 }
 
 function catalogItemPublishedEvent(catalogItemId: string): TransportEvent {
-  return {
-    id: `evt_publish_${catalogItemId}` as never,
-    type: "catalog.catalog-item.published",
-    streamId: `catalog.item-${catalogItemId}` as never,
-    streamVersion: 2 as never,
-    globalPosition: 2 as never,
-    tenantId: "tnt_test" as never,
-    data: { blueprintId: null } as never,
-    metadata: {},
-    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
-    trace: {},
-    timing: {
-      occurredAt: "2026-07-02T00:00:00.000Z" as never,
-      recordedAt: "2026-07-02T00:00:00.000Z" as never,
+  return buildTransportEvent(
+    "catalog.catalog-item.published",
+    { blueprintId: null },
+    {
+      id: `evt_publish_${catalogItemId}`,
+      streamId: `catalog.item-${catalogItemId}`,
+      streamVersion: 2,
+      globalPosition: "2",
+      tenantId: "tnt_test",
+      audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
+      timing: { occurredAt: "2026-07-02T00:00:00.000Z", recordedAt: "2026-07-02T00:00:00.000Z" },
     },
-  };
+  );
 }

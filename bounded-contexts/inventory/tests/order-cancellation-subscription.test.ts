@@ -1,17 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { module as inventoryModule } from "../index";
 import type { InventoryServices } from "../support/runtime-support/services";
 
 function createCancellationEvent(reason: string): TransportEvent {
-  return {
-    id: "evt_order_cancelled",
-    type: "ordering.order.cancelled",
-    streamId: "ordering.order-ord_1",
-    streamVersion: 3,
-    globalPosition: "3",
-    tenantId: "tenant_1",
-    data: {
+  return buildTransportEvent(
+    "ordering.order.cancelled",
+    {
       orderId: "ord_1",
       cancelledAt: "2026-03-31T01:00:00.000Z",
       reason,
@@ -27,19 +23,17 @@ function createCancellationEvent(reason: string): TransportEvent {
         },
       ],
     },
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_system",
-      forAccountId: null,
+    {
+      id: "evt_order_cancelled",
+      streamId: "ordering.order-ord_1",
+      streamVersion: 3,
+      globalPosition: "3",
+      tenantId: "tenant_1",
+      audit: { performedByUserId: "usr_system", forAccountId: null },
+      trace: { traceId: "trace_1" },
+      timing: { occurredAt: "2026-03-31T01:00:00.000Z", recordedAt: "2026-03-31T01:00:00.000Z" },
     },
-    trace: {
-      traceId: "trace_1",
-    },
-    timing: {
-      occurredAt: "2026-03-31T01:00:00.000Z",
-      recordedAt: "2026-03-31T01:00:00.000Z",
-    },
-  } as unknown as TransportEvent;
+  );
 }
 
 function getOrderingCancellationHandler(services: InventoryServices) {

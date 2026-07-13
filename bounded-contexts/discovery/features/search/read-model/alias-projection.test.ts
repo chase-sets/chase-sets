@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
 import { DISCOVERY_ALIAS_SEARCH_ENV_VAR } from "../domain/alias-rollout";
 import type { ResolvedAlias } from "../domain/alias-weighting";
@@ -91,29 +92,26 @@ function catalogItemRow(overrides: Record<string, unknown>): Record<string, unkn
 }
 
 function aliasesResolvedEvent(aliases: readonly ResolvedAlias[], aliasLanguageCode = "fr"): TransportEvent {
-  return {
-    id: "evt_alias" as never,
-    type: "catalog.catalog-item.aliases-resolved",
-    streamId: "catalog.item-cat_1" as never,
-    streamVersion: 5 as never,
-    globalPosition: 5 as never,
-    tenantId: "tnt_1" as never,
-    data: {
+  return buildTransportEvent(
+    "catalog.catalog-item.aliases-resolved",
+    {
       catalogItemId: "cat_1",
       aliasLanguageCode,
       aliases,
       resolvedAliasHash: "resolved-1",
       resolverVersion: 1,
       resolvedAt: "2026-06-16T00:00:00.000Z",
-    } as never,
-    metadata: {},
-    audit: { performedByUserId: "usr_1" as never, forAccountId: "acc_1" as never },
-    trace: {},
-    timing: {
-      occurredAt: "2026-06-16T00:00:00.000Z" as never,
-      recordedAt: "2026-06-16T00:00:00.000Z" as never,
     },
-  };
+    {
+      id: "evt_alias",
+      streamId: "catalog.item-cat_1",
+      streamVersion: 5,
+      globalPosition: "5",
+      tenantId: "tnt_1",
+      audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
+      timing: { occurredAt: "2026-06-16T00:00:00.000Z", recordedAt: "2026-06-16T00:00:00.000Z" },
+    },
+  );
 }
 
 function alias(overrides: Partial<ResolvedAlias> & Pick<ResolvedAlias, "aliasText" | "aliasType">): ResolvedAlias {

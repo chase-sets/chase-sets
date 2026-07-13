@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import { buildCheckoutInventorySupplyProjectionHandlers } from "./inventory-projection";
 
@@ -126,25 +127,15 @@ class InventoryProjectionDb implements PgQueryable {
 }
 
 function event(type: string, streamVersion: number, data: Record<string, unknown>): TransportEvent {
-  return {
-    id: "evt_1" as never,
-    type,
-    streamId: "inventory.item-inv_1" as never,
-    streamVersion: streamVersion as never,
-    globalPosition: streamVersion as never,
-    tenantId: "tnt_1" as never,
-    data: data as never,
-    metadata: {},
-    audit: {
-      performedByUserId: "usr_1" as never,
-      forAccountId: "acc_1" as never,
-    },
-    trace: {},
-    timing: {
-      occurredAt: "2026-06-17T00:00:00.000Z" as never,
-      recordedAt: "2026-06-17T00:00:00.000Z" as never,
-    },
-  };
+  return buildTransportEvent(type, data, {
+    id: "evt_1",
+    streamId: "inventory.item-inv_1",
+    streamVersion,
+    globalPosition: String(streamVersion),
+    tenantId: "tnt_1",
+    audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
+    timing: { occurredAt: "2026-06-17T00:00:00.000Z", recordedAt: "2026-06-17T00:00:00.000Z" },
+  });
 }
 
 function seededDb(): InventoryProjectionDb {

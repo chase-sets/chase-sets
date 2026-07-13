@@ -1,4 +1,12 @@
-import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type {
+  AggregateDecider,
+  AggregateEvolver,
+  DomainEvent,
+  PaymentCancelledPayload,
+  PaymentCapturedPayload,
+  PaymentCreatedPayload,
+  PaymentFailedPayload,
+} from "@chase-sets/event-core";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceSalesFeeLineSnapshotPayload } from "@chase-sets/event-core";
 import {
@@ -364,37 +372,36 @@ export type PaymentCommand =
 
 export type PaymentCreatedEvent = DomainEvent<
   "payments.payment-created",
-  Readonly<{
-    paymentId: PaymentId;
-    buyerAccountId: AccountId;
-    orderIds: OrderId[];
-    amount: string;
-    balanceCreditAmount: string;
-    processorAmount: string;
-    marketplaceSalesFeeAmount: string;
-    authenticityFeeAmount: string;
-    marketplaceCheckoutFeeAmount: string;
-    marketplaceCheckoutFeePolicyVersion: string | null;
-    marketplaceCheckoutFeeQuoteFingerprint: string | null;
-    paymentMethodCategory: string | null;
-    savedCheckoutInstrumentId: string | null;
-    sellerNetAmount: string;
-    sellerPayoutAmount: string;
-    sellerPayouts: SellerPayoutComponent[];
-    orderRefundCaps: OrderMoneyAmount[];
-    currencyCode: CurrencyCode;
-    processorName: PaymentProcessorName;
-    processorPaymentKind: "checkout-session" | "payment-intent" | "balance-credit";
-    processorPaymentReference: string;
-    processorClientSecret: string | null;
-    processorRedirectUrl: string | null;
-    processorStatus: string;
-    sourceContext: string | null;
-    sourceReferenceId: string | null;
-    threeDSecureRequest: ThreeDSecureRequest | null;
-    threeDSecureReasonCodes: string[];
-    createdAt: string;
-  }>
+  PaymentCreatedPayload &
+    Readonly<{
+      paymentId: PaymentId;
+      buyerAccountId: AccountId;
+      orderIds: OrderId[];
+      balanceCreditAmount: string;
+      processorAmount: string;
+      marketplaceSalesFeeAmount: string;
+      authenticityFeeAmount: string;
+      marketplaceCheckoutFeeAmount: string;
+      marketplaceCheckoutFeePolicyVersion: string | null;
+      marketplaceCheckoutFeeQuoteFingerprint: string | null;
+      paymentMethodCategory: string | null;
+      savedCheckoutInstrumentId: string | null;
+      sellerNetAmount: string;
+      sellerPayoutAmount: string;
+      sellerPayouts: SellerPayoutComponent[];
+      orderRefundCaps: OrderMoneyAmount[];
+      currencyCode: CurrencyCode;
+      processorName: PaymentProcessorName;
+      processorPaymentKind: "checkout-session" | "payment-intent" | "balance-credit";
+      processorPaymentReference: string;
+      processorClientSecret: string | null;
+      processorRedirectUrl: string | null;
+      processorStatus: string;
+      sourceContext: string | null;
+      sourceReferenceId: string | null;
+      threeDSecureRequest: ThreeDSecureRequest | null;
+      threeDSecureReasonCodes: string[];
+    }>
 >;
 
 export type PaymentAuthorizedEvent = DomainEvent<
@@ -408,64 +415,56 @@ export type PaymentAuthorizedEvent = DomainEvent<
 
 export type PaymentCapturedEvent = DomainEvent<
   "payments.payment-captured",
-  Readonly<{
-    paymentId: PaymentId;
-    orderIds: OrderId[];
-    buyerAccountId: AccountId;
-    amount: string;
-    balanceCreditAmount: string;
-    processorAmount: string;
-    marketplaceSalesFeeAmount: string;
-    authenticityFeeAmount: string;
-    marketplaceCheckoutFeeAmount: string;
-    marketplaceCheckoutFeePolicyVersion: string | null;
-    marketplaceCheckoutFeeQuoteFingerprint: string | null;
-    paymentMethodCategory: string | null;
-    sellerNetAmount: string;
-    sellerPayoutAmount: string;
-    sellerPayouts: SellerPayoutComponent[];
-    currencyCode: CurrencyCode;
-    processorName: PaymentProcessorName;
-    processorPaymentReference: string;
-    processorStatus: string;
-    capturedAt: string;
-  }>
+  PaymentCapturedPayload &
+    Readonly<{
+      paymentId: PaymentId;
+      buyerAccountId: AccountId;
+      orderIds: OrderId[];
+      balanceCreditAmount: string;
+      processorAmount: string;
+      marketplaceSalesFeeAmount: string;
+      authenticityFeeAmount: string;
+      marketplaceCheckoutFeeAmount: string;
+      marketplaceCheckoutFeePolicyVersion: string | null;
+      marketplaceCheckoutFeeQuoteFingerprint: string | null;
+      paymentMethodCategory: string | null;
+      sellerNetAmount: string;
+      sellerPayoutAmount: string;
+      sellerPayouts: SellerPayoutComponent[];
+      currencyCode: CurrencyCode;
+      processorName: PaymentProcessorName;
+      processorPaymentReference: string;
+      processorStatus: string;
+    }>
 >;
 
 export type PaymentFailedEvent = DomainEvent<
   "payments.payment-failed",
-  Readonly<{
-    paymentId: PaymentId;
-    orderIds: OrderId[];
-    buyerAccountId: AccountId;
-    amount: string;
-    balanceCreditAmount: string;
-    processorAmount: string;
-    marketplaceSalesFeeAmount: string;
-    marketplaceCheckoutFeeAmount: string;
-    marketplaceCheckoutFeePolicyVersion: string | null;
-    marketplaceCheckoutFeeQuoteFingerprint: string | null;
-    paymentMethodCategory: string | null;
-    sellerNetAmount: string;
-    sellerPayoutAmount: string;
-    sellerPayouts: SellerPayoutComponent[];
-    currencyCode: CurrencyCode;
-    processorName: PaymentProcessorName;
-    processorPaymentReference: string;
-    processorStatus: string;
-    failureCode: string | null;
-    failureMessage: string | null;
-    failedAt: string;
-  }>
+  PaymentFailedPayload &
+    Readonly<{
+      paymentId: PaymentId;
+      buyerAccountId: AccountId;
+      orderIds: OrderId[];
+      balanceCreditAmount: string;
+      processorAmount: string;
+      marketplaceSalesFeeAmount: string;
+      marketplaceCheckoutFeeAmount: string;
+      marketplaceCheckoutFeePolicyVersion: string | null;
+      marketplaceCheckoutFeeQuoteFingerprint: string | null;
+      paymentMethodCategory: string | null;
+      sellerNetAmount: string;
+      sellerPayoutAmount: string;
+      sellerPayouts: SellerPayoutComponent[];
+      currencyCode: CurrencyCode;
+      processorName: PaymentProcessorName;
+      processorPaymentReference: string;
+      processorStatus: string;
+      failureCode: string | null;
+      failureMessage: string | null;
+    }>
 >;
 
-export type PaymentCancelledEvent = DomainEvent<
-  "payments.payment-cancelled",
-  Readonly<{
-    paymentId: PaymentId;
-    cancelledAt: string;
-  }>
->;
+export type PaymentCancelledEvent = DomainEvent<"payments.payment-cancelled", PaymentCancelledPayload>;
 
 export type PaymentRefundRequestedEvent = DomainEvent<
   "payments.payment-refund-requested",

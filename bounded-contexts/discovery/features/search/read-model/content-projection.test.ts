@@ -1,4 +1,5 @@
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
 import { buildDiscoverySearchItemProjectionHandlers } from "./projection";
@@ -252,48 +253,40 @@ function catalogItemRow(
 }
 
 function catalogItemPublishedEvent(catalogItemId: string): TransportEvent {
-  return {
-    id: `evt_publish_${catalogItemId}` as never,
-    type: "catalog.catalog-item.published",
-    streamId: `catalog.item-${catalogItemId}` as never,
-    streamVersion: 2 as never,
-    globalPosition: 2 as never,
-    tenantId: "tnt_test" as never,
-    data: { blueprintId: "bpr_card" } as never,
-    metadata: {},
-    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
-    trace: {},
-    timing: {
-      occurredAt: "2026-07-02T00:00:00.000Z" as never,
-      recordedAt: "2026-07-02T00:00:00.000Z" as never,
+  return buildTransportEvent(
+    "catalog.catalog-item.published",
+    { blueprintId: "bpr_card" },
+    {
+      id: `evt_publish_${catalogItemId}`,
+      streamId: `catalog.item-${catalogItemId}`,
+      streamVersion: 2,
+      globalPosition: "2",
+      tenantId: "tnt_test",
+      audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
+      timing: { occurredAt: "2026-07-02T00:00:00.000Z", recordedAt: "2026-07-02T00:00:00.000Z" },
     },
-  };
+  );
 }
 
 function productContentsResolvedEvent(input: { lines: readonly ProductContentLine[] }): TransportEvent {
-  return {
-    id: "evt_contents" as never,
-    type: "catalog.product-contents.resolved",
-    streamId: "catalog.product-contents-cat_box" as never,
-    streamVersion: 1 as never,
-    globalPosition: 1 as never,
-    tenantId: "tnt_test" as never,
-    data: {
+  return buildTransportEvent(
+    "catalog.product-contents.resolved",
+    {
       containerCatalogItemId: "cat_box",
       containerProductId: "cat_box::",
       lines: input.lines,
       resolvedFactHash: "hash",
       resolverVersion: 1,
       resolvedAt: "2026-07-02T00:00:00.000Z",
-    } as never,
-    metadata: {},
-    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
-    trace: {},
-    timing: {
-      occurredAt: "2026-07-02T00:00:00.000Z" as never,
-      recordedAt: "2026-07-02T00:00:00.000Z" as never,
     },
-  };
+    {
+      id: "evt_contents",
+      streamId: "catalog.product-contents-cat_box",
+      tenantId: "tnt_test",
+      audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
+      timing: { occurredAt: "2026-07-02T00:00:00.000Z", recordedAt: "2026-07-02T00:00:00.000Z" },
+    },
+  );
 }
 
 function contentLine(overrides: Partial<ProductContentLine> = {}): ProductContentLine {
@@ -315,25 +308,22 @@ function displayIdentityResolvedEvent(input: {
   title: string;
   subtitle: string | null;
 }): TransportEvent {
-  return {
-    id: "evt_identity" as never,
-    type: "catalog.catalog-item.display-identity-resolved",
-    streamId: `catalog.item-${input.catalogItemId}` as never,
-    streamVersion: 2 as never,
-    globalPosition: 2 as never,
-    tenantId: "tnt_test" as never,
-    data: {
+  return buildTransportEvent(
+    "catalog.catalog-item.display-identity-resolved",
+    {
       catalogItemId: input.catalogItemId,
       languageCode: "en",
       title: input.title,
       subtitle: input.subtitle,
-    } as never,
-    metadata: {},
-    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
-    trace: {},
-    timing: {
-      occurredAt: "2026-07-02T00:00:00.000Z" as never,
-      recordedAt: "2026-07-02T00:00:00.000Z" as never,
     },
-  };
+    {
+      id: "evt_identity",
+      streamId: `catalog.item-${input.catalogItemId}`,
+      streamVersion: 2,
+      globalPosition: "2",
+      tenantId: "tnt_test",
+      audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
+      timing: { occurredAt: "2026-07-02T00:00:00.000Z", recordedAt: "2026-07-02T00:00:00.000Z" },
+    },
+  );
 }
