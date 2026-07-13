@@ -66,6 +66,65 @@ describe("buildWalletAdjustmentPreview", () => {
     expect(preview.elevation_reasons).toEqual(["high-value"]);
   });
 
+  it("does not flag a credit strictly below the high-value credit threshold", () => {
+    const preview = buildWalletAdjustmentPreview(walletState({ availableBalanceAmount: "0.00" }), {
+      direction: "credit",
+      amount: "499.99",
+      currencyCode: "usd",
+      reasonCode: "dispute-resolution",
+      selfBenefiting: false,
+      reversalAfterFundsSettled: false,
+    });
+
+    expect(preview.high_value).toBe(false);
+    expect(preview.requires_second_approval).toBe(false);
+    expect(preview.elevation_reasons).toEqual([]);
+  });
+
+  it("flags a credit above the high-value credit threshold", () => {
+    const preview = buildWalletAdjustmentPreview(walletState({ availableBalanceAmount: "0.00" }), {
+      direction: "credit",
+      amount: "500.01",
+      currencyCode: "usd",
+      reasonCode: "dispute-resolution",
+      selfBenefiting: false,
+      reversalAfterFundsSettled: false,
+    });
+
+    expect(preview.high_value).toBe(true);
+    expect(preview.elevation_reasons).toEqual(["high-value"]);
+  });
+
+  it("resolves the high-value debit threshold independently, at its own boundary", () => {
+    const controls = {
+      highValueCreditThresholdAmount: "500.00",
+      highValueDebitThresholdAmount: "100.00",
+      recentAuthMaxAgeMinutes: 15,
+    };
+    const below = buildWalletAdjustmentPreview(walletState({ availableBalanceAmount: "1000.00" }), {
+      direction: "debit",
+      amount: "99.99",
+      currencyCode: "usd",
+      reasonCode: "operational-error",
+      selfBenefiting: false,
+      reversalAfterFundsSettled: false,
+      controls,
+    });
+    const atThreshold = buildWalletAdjustmentPreview(walletState({ availableBalanceAmount: "1000.00" }), {
+      direction: "debit",
+      amount: "100.00",
+      currencyCode: "usd",
+      reasonCode: "operational-error",
+      selfBenefiting: false,
+      reversalAfterFundsSettled: false,
+      controls,
+    });
+
+    expect(below.high_value).toBe(false);
+    expect(atThreshold.high_value).toBe(true);
+    expect(atThreshold.controls.high_value_debit_threshold_amount).toBe("100.00");
+  });
+
   it("surfaces the self-benefiting outright block", () => {
     const preview = buildWalletAdjustmentPreview(walletState({ availableBalanceAmount: "0.00" }), {
       direction: "credit",

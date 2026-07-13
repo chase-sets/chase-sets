@@ -14,8 +14,15 @@ CREATE TABLE IF NOT EXISTS identity_sessions (
   authentication_method text NOT NULL,
   status text NOT NULL,
   expires_at timestamptz NOT NULL,
+  started_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- The moment-of-authentication fact recent-auth ("step-up") checks rely on.
+-- Set once from the session's started event and never overwritten by later
+-- account-switch/revoke/expire mutations -- see buildSessionProjectionHandlers.
+ALTER TABLE identity_sessions
+  ADD COLUMN IF NOT EXISTS started_at timestamptz NOT NULL DEFAULT now();
 
 CREATE TABLE IF NOT EXISTS identity_session_lookup (
   token_hash text PRIMARY KEY,

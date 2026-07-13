@@ -330,6 +330,11 @@ describeDb("auth projection row identity", () => {
           authentication_method: "password",
           status: "expired",
           expires_at: "2026-06-13T00:00:00.000Z",
+          // Set once from the started event and left untouched by the
+          // subsequent account-switch/revoke/expire mutations below, unlike
+          // updated_at -- the recent-auth ("step-up") fact this row exists to
+          // preserve.
+          started_at: "2026-06-12T12:22:00.000Z",
           updated_at: "2026-06-12T12:25:00.000Z",
         },
       ],

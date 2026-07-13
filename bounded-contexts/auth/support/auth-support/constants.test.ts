@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { AUTH_ROLE_PERMISSIONS } from "./constants";
 
 describe("auth role permissions", () => {
-  it("grants platform wallet-adjustment authority to no live actor role", () => {
-    // The legacy operator wallet-mutation routes now require this dedicated
+  it("grants the legacy operator wallet-mutation authority to no live actor role", () => {
+    // The legacy operator wallet-mutation routes still require this dedicated
     // authority. It must never be resolved onto a live actor via a role until
-    // the typed Wallet Adjustment lifecycle grants it deliberately, so no
-    // owner/manager (or any other role) can post to an arbitrary wallet.
+    // those routes retire in favor of the typed Wallet Adjustment lifecycle, so
+    // no owner/manager (or any other role) can post to an arbitrary wallet.
     for (const permissions of Object.values(AUTH_ROLE_PERMISSIONS)) {
       expect(permissions).not.toContain("wallet-adjustments.operate");
     }
@@ -41,6 +41,34 @@ describe("auth role permissions", () => {
         "support.view",
       ]),
     );
+  });
+
+  it("grants the platform Wallet Adjustment authority (ADR 0020) to platform-admin only", () => {
+    // Must stay identical to Identity's ROLE_PERMISSIONS platform-admin entry
+    // -- see the mirrored assertion in
+    // bounded-contexts/identity/features/memberships/read-model/constants.test.ts
+    // -- so Auth's cached role-permission snapshot never grants this authority
+    // to a role Identity's canonical map withholds it from, or vice versa.
+    const walletAdjustmentPermissions = [
+      "wallet-adjustments.approve",
+      "wallet-adjustments.create",
+      "wallet-adjustments.reverse",
+      "wallet-adjustments.view",
+    ] as const;
+
+    for (const permission of walletAdjustmentPermissions) {
+      expect(AUTH_ROLE_PERMISSIONS["platform-admin"]).toContain(permission);
+    }
+    for (const [roleKey, permissions] of Object.entries(AUTH_ROLE_PERMISSIONS)) {
+      if (roleKey === "platform-admin") {
+        continue;
+      }
+      for (const permission of walletAdjustmentPermissions) {
+        expect(permissions).not.toContain(permission);
+      }
+    }
+    expect(AUTH_ROLE_PERMISSIONS.owner).toContain("payouts.manage");
+    expect(AUTH_ROLE_PERMISSIONS.manager).toContain("payouts.manage");
   });
 
   it("mirrors commercial terms authority for live actor permissions", () => {

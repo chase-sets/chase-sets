@@ -85,7 +85,7 @@ export function createSettlementServices(
     policies,
     ...(ports.negativeBalancePolicy ? { negativeBalancePolicy: ports.negativeBalancePolicy } : {}),
   });
-  const walletAdjustments = createWalletAdjustmentRuntime({ eventStore, db, wallets });
+  const walletAdjustments = createWalletAdjustmentRuntime({ eventStore, db, wallets, policies });
   const payoutReadiness = createPayoutReadinessRuntime({
     eventStore,
     checkpointStore,
