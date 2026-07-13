@@ -115,16 +115,16 @@ Symptoms: `work-signals.cleanup.completed` absent or pruned counts pinned at the
 1. The cleanup runner deletes in bounded batches (default 500 per table per run, every `WORK_SIGNAL_CLEANUP_INTERVAL_MS`, default 60s). Sustained max-batch runs mean production of expired rows exceeds reaping — usually a disabled lane/scheduler quietly accumulating intents. Turn off the producer (emission/relay/api-wait switches) rather than tuning cleanup first.
 2. Table bloat from expired rows is an operational nuisance, not a correctness risk; the claim indexes are partial on live states.
 
-### Zombie wake intents (pinned rows: queued forever at attempt count 0, cleanup reports immortal)
+### Pinned wake intents (queued past TTL at attempt count 0)
 
-Symptoms: intents stuck `queued` with `maxAttemptCount 0` for many minutes while claims complete newer intents around them; drill verdicts fail `wake-queue-age-after-load-exceeded-budget` on the same rows run after run; cleanup results report `immortalWakeIntents > 0` across consecutive passes (issue #4649 pattern, born in deploy-churn windows).
+Symptoms: intents stuck `queued` with `maxAttemptCount 0` for many minutes while claims complete newer intents around them, or drill verdicts fail `wake-queue-age-after-load-exceeded-budget` on the same rows run after run (issue #4649 pattern, born in deploy-churn windows).
 
-1. This is not backlog and not a scheduler bug: a hung or orphaned transaction (killed pod with a half-open connection, wedged client) holds row locks on those wake-intent rows. Every mutating scan — claims and the cleanup expire pass — uses `FOR UPDATE SKIP LOCKED` and silently skips locked rows forever, while non-locking status reads still count them as queued.
-2. Confirm and identify the holder on the control database:
+1. This is not ordinary backlog: a transaction holds row locks on those wake-intent rows. Claims and the cleanup expiry pass use `FOR UPDATE SKIP LOCKED`, while non-locking status reads still count locked rows as queued.
+2. Cleanup automatically recovers the safe orphan class. It joins an expired tuple's lock transaction id (`xmax`) to `pg_stat_activity.backend_xid` and terminates the holder only when it uses the same database role, is `idle in transaction`, and is older than the orphan threshold (default 60 seconds). The row is then expired through the normal locked update, so concurrent cleanup passes and claimers cannot double-process it. Logs report `reclaimedPinnedWakeIntents`, `reclaimedOrphanTransactions`, and `remainingPinnedWakeIntents`.
+3. A nonzero `remainingPinnedWakeIntents` needs inspection because the holder is active, recent, or owned by another role. Confirm and identify it on the control database:
    `SELECT l.pid, a.state, a.xact_start, a.application_name, a.client_addr FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE l.relation = 'platform_projection_wake_intents'::regclass AND l.granted;`
-   A holder whose `xact_start` is minutes-to-hours old (typically `idle in transaction`) is the zombie's pin.
-3. Terminate it: `SELECT pg_terminate_backend(<pid>);`. The next cleanup pass (≤60s) expires and prunes the rows; `immortalWakeIntents` returns to 0. Freshness was never at risk — fallback polling drains the projections throughout — but relay enqueues for the pinned coalescing keys were being skipped with `blocked` outcomes until the pin cleared.
-4. Bounded guards in the store keep this contained: enqueues wait at most the enqueue lock timeout (default 2s) before yielding a `blocked` outcome instead of wedging the relay fan-out loop, and app pools cap `idle_in_transaction_session_timeout`, so long-lived pins come from connections outside the app pools (ops sessions, CI runners, orphaned sockets awaiting TCP keepalive).
+   Validate the holder is abandoned before terminating it: `SELECT pg_terminate_backend(<pid>);`. The next cleanup pass (≤60 seconds) expires and prunes the row. Freshness remains safe because fallback polling drains projections, but relay enqueues for the pinned coalescing key return `blocked` until the pin clears.
+4. Enqueues wait at most the enqueue lock timeout (default 2 seconds) before yielding a `blocked` outcome instead of wedging relay fan-out. App pools also cap `idle_in_transaction_session_timeout`; long-lived residual pins generally come from another-role ops/CI sessions or active queries, which automatic cleanup deliberately does not terminate.
 
 ### api-wait 503 spikes / route freshness timeouts
 

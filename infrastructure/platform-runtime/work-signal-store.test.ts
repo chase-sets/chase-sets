@@ -926,8 +926,14 @@ describe("work signal store", () => {
             rowCount: 1,
           };
         }
-        if (sql.includes("immortal_count")) {
-          return { rows: [{ immortal_count: 1 }], rowCount: 1 };
+        if (sql.includes("reclaimed_intent_count")) {
+          return {
+            rows: [{ reclaimed_intent_count: 2, terminated_transaction_count: 1 }],
+            rowCount: 1,
+          };
+        }
+        if (sql.includes("pinned_count")) {
+          return { rows: [{ pinned_count: 1 }], rowCount: 1 };
         }
         return { rows: [], rowCount: 2 };
       },
@@ -943,10 +949,9 @@ describe("work signal store", () => {
       prunedWakeIntents: 2,
       prunedCheckpointReadiness: 2,
       prunedCheckpointWaiters: 2,
-      // Served by the fake as 1: the expiry-predicate rows that survived the
-      // expire pass (pinned by another transaction's row lock) are surfaced
-      // instead of silently skipped.
-      immortalWakeIntents: 1,
+      reclaimedPinnedWakeIntents: 2,
+      reclaimedOrphanTransactions: 1,
+      remainingPinnedWakeIntents: 1,
     });
     await expect(store.summarizeProjectionWakeIntents()).resolves.toEqual({
       queuedCount: 2,
@@ -958,17 +963,22 @@ describe("work signal store", () => {
       oldestClaimedAt: new Date("2026-06-10T11:59:30.000Z"),
     });
 
-    expect(calls[0].sql).toContain("FOR UPDATE SKIP LOCKED");
-    expect(calls[0].sql).toContain("AND (state <> 'claimed' OR claimed_until <= $1::timestamptz)");
-    expect(calls[0].values[1]).toBe(25);
-    // The immortal probe runs right after the expire pass, over the same
-    // expiry predicate, WITHOUT locking — it must see the rows the locked
-    // expire scan skipped.
-    expect(calls[1].sql).toContain("immortal_count");
+    expect(calls[0].sql).toContain("activity.backend_xid = wake.xmax");
+    expect(calls[0].sql).toContain("activity.state = 'idle in transaction'");
+    expect(calls[0].sql).toContain("activity.state_change <= $2::timestamptz");
+    expect(calls[0].sql).toContain("activity.usename = current_user");
+    expect(calls[0].sql).toContain("pg_terminate_backend");
+    expect(calls[1].sql).toContain("FOR UPDATE SKIP LOCKED");
     expect(calls[1].sql).toContain("AND (state <> 'claimed' OR claimed_until <= $1::timestamptz)");
-    expect(calls[1].sql).not.toContain("FOR UPDATE");
-    expect(calls[4].sql).toContain("satisfied_at <= $1::timestamptz");
-    expect(calls[5].sql).toContain("stale_claim_count");
+    expect(calls[1].values[1]).toBe(25);
+    // The survivor probe runs after reclamation and the expire pass, without
+    // locking, so non-terminable pins remain observable.
+    expect(calls[2].sql).toContain("pinned_count");
+    expect(calls[2].sql).toContain("AND (wake.state <> 'claimed' OR wake.claimed_until <= $1::timestamptz)");
+    expect(calls[2].sql).toContain("activity.backend_xid = wake.xmax");
+    expect(calls[2].sql).not.toContain("FOR UPDATE");
+    expect(calls[5].sql).toContain("satisfied_at <= $1::timestamptz");
+    expect(calls[6].sql).toContain("stale_claim_count");
   });
 
   it("summarizes wake intents grouped by lane, origin, and state with structural fields only", async () => {

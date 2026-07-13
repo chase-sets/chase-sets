@@ -64,7 +64,7 @@ The existing projection-group runners in the `projections` group are untouched. 
 
 ## Retention Cleanup
 
-A scheduled `work-signals.cleanup` runner claims a control-plane scheduled-runner slot and runs the work-signal store cleanup (expiring overdue intents and pruning completed/expired intents, stale readiness rows, and stale waiters) on a bounded interval, operationalizing the store's retention contract.
+A scheduled `work-signals.cleanup` runner claims a control-plane scheduled-runner slot and runs the work-signal store cleanup (expiring overdue intents and pruning completed/expired intents, stale readiness rows, and stale waiters) on a bounded interval, operationalizing the store's retention contract. Before expiry, it can release a row pinned by an orphaned transaction only when the tuple's exact `xmax` owner is a same-role backend that has been `idle in transaction` beyond the orphan threshold. Active, recent, and other-role transactions are never terminated automatically. Releasing a backend does not transition intent state; the existing `FOR UPDATE SKIP LOCKED` expiry update remains the atomic transition, preserving single processing under concurrent reapers and claimers. Residual pins stay observable for the operator path in the push-wake runbook.
 
 ## Configuration
 

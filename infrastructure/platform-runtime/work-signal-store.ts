@@ -256,15 +256,18 @@ export type WorkSignalCleanupResult = Readonly<{
   prunedCheckpointReadiness: number;
   prunedCheckpointWaiters: number;
   /**
-   * Wake intents that matched the expiry predicate but survived the expire
-   * pass. The expire scan uses `FOR UPDATE SKIP LOCKED`, so a row pinned by
-   * another transaction's row lock is skipped silently; a count that stays
-   * nonzero across passes means zombie rows are pinned by a hung or orphaned
-   * lock holder (kill it via `pg_locks`/`pg_terminate_backend` — see the
-   * push-wake operations runbook). Claims skip the same locked rows, so these
-   * intents also read as perpetually `queued` starvation in drill evidence.
+   * Expired wake intents whose exact row-lock owner was an old, same-role,
+   * idle-in-transaction backend that this cleanup pass terminated.
    */
-  immortalWakeIntents: number;
+  reclaimedPinnedWakeIntents: number;
+  /** Same-role orphaned transactions terminated to release those pins. */
+  reclaimedOrphanTransactions: number;
+  /**
+   * Wake intents that still match the expiry predicate after automatic
+   * reclamation and the locked expiry pass. These need operator inspection:
+   * their holder is active, recent, or owned by another database role.
+   */
+  remainingPinnedWakeIntents: number;
 }>;
 
 export type EnqueueProjectionWakeIntentInput = Readonly<{
@@ -390,6 +393,12 @@ export type WorkSignalStoreOptions = Readonly<{
    * `lock_timeout` when the store runs over a transactional pool.
    */
   enqueueLockTimeoutMs?: number;
+  /**
+   * Minimum age for a same-role `idle in transaction` backend to be treated
+   * as an orphan when it pins an expired wake-intent row. Recent and active
+   * transactions are never terminated. Set to 0 only in deterministic tests.
+   */
+  orphanedWakeTransactionMinAgeMs?: number;
   readConsistencyGateway?: WorkSignalReadConsistencyGatewayOptions;
   observer?: WorkSignalStoreObserver;
   now?: () => Date;
@@ -432,6 +441,9 @@ const DEFAULT_WAKE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_READINESS_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_WAITER_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_WAKE_ENQUEUE_LOCK_TIMEOUT_MS = 2_000;
+const DEFAULT_ORPHANED_WAKE_TRANSACTION_MIN_AGE_MS = 60_000;
+const MAX_ORPHANED_WAKE_TRANSACTIONS_PER_CLEANUP = 10;
+const ORPHANED_WAKE_TRANSACTION_TERMINATION_TIMEOUT_MS = 1_000;
 const POSTGRES_LOCK_NOT_AVAILABLE_CODE = "55P03";
 const DEFAULT_CLEANUP_LIMIT = 500;
 const MAX_POSTGRES_INTEGER = 2_147_483_647;
@@ -592,6 +604,10 @@ export function createPostgresWorkSignalStore(
   const enqueueLockTimeoutMs = Math.max(
     1,
     Math.floor(options.enqueueLockTimeoutMs ?? DEFAULT_WAKE_ENQUEUE_LOCK_TIMEOUT_MS),
+  );
+  const orphanedWakeTransactionMinAgeMs = Math.max(
+    0,
+    Math.floor(options.orphanedWakeTransactionMinAgeMs ?? DEFAULT_ORPHANED_WAKE_TRANSACTION_MIN_AGE_MS),
   );
   const checkpointReadyWaiter =
     options.readConsistencyGateway?.waitForReadinessNotifications && isTransactionalPool(db)
@@ -1259,6 +1275,64 @@ export function createPostgresWorkSignalStore(
       const before = input.before ?? now();
       const limit = Math.max(1, Math.min(input.limit ?? DEFAULT_CLEANUP_LIMIT, 10_000));
 
+      // A committed tuple locked by SELECT ... FOR UPDATE carries the locking
+      // transaction id in xmax. Joining that exact xid to pg_stat_activity is
+      // narrower than relation-level pg_locks inspection: it proves which
+      // backend pins each expired row. Only same-role sessions that have been
+      // idle in their transaction beyond the orphan threshold are eligible.
+      // Active, recent, and other-role sessions remain untouched. Termination
+      // only releases the lock; the normal locked expiry update below remains
+      // the single atomic state-transition path under concurrent reapers.
+      const orphanCutoff = addMs(now(), -orphanedWakeTransactionMinAgeMs);
+      const reclaimedOrphans = await query<
+        Readonly<{ reclaimed_intent_count: number; terminated_transaction_count: number }>
+      >(
+        db,
+        `
+        WITH orphan_locks AS MATERIALIZED (
+          SELECT wake.wake_intent_id, activity.pid
+          FROM platform_projection_wake_intents wake
+          JOIN pg_stat_activity activity
+            ON activity.datid = (SELECT oid FROM pg_database WHERE datname = current_database())
+           AND activity.backend_xid = wake.xmax
+          WHERE wake.state IN ('queued', 'claimed', 'failed')
+            AND wake.expires_at <= $1::timestamptz
+            AND (wake.state <> 'claimed' OR wake.claimed_until <= $1::timestamptz)
+            AND wake.xmax::text <> '0'
+            AND activity.pid <> pg_backend_pid()
+            AND activity.usename = current_user
+            AND activity.state = 'idle in transaction'
+            AND activity.xact_start <= $2::timestamptz
+            AND activity.state_change <= $2::timestamptz
+        ),
+        orphan_lockers AS MATERIALIZED (
+          SELECT DISTINCT pid
+          FROM orphan_locks
+          ORDER BY pid
+          LIMIT $3
+        ),
+        terminated AS MATERIALIZED (
+          SELECT
+            pid,
+            pg_terminate_backend(pid, $4::bigint) AS terminated
+          FROM orphan_lockers
+        )
+        SELECT
+          COUNT(DISTINCT orphan_locks.wake_intent_id)
+            FILTER (WHERE terminated.terminated)::integer AS reclaimed_intent_count,
+          COUNT(DISTINCT terminated.pid)
+            FILTER (WHERE terminated.terminated)::integer AS terminated_transaction_count
+        FROM terminated
+        JOIN orphan_locks USING (pid)
+        `,
+        [
+          formatTimestamp(before),
+          formatTimestamp(orphanCutoff),
+          Math.min(limit, MAX_ORPHANED_WAKE_TRANSACTIONS_PER_CLEANUP),
+          ORPHANED_WAKE_TRANSACTION_TERMINATION_TIMEOUT_MS,
+        ],
+      );
+
       const expiredWakeIntents = await query(
         db,
         `
@@ -1286,21 +1360,22 @@ export function createPostgresWorkSignalStore(
         [formatTimestamp(before), limit],
       );
 
-      // Rows that still match the expiry predicate after the expire pass are
-      // pinned: the expire scan's FOR UPDATE SKIP LOCKED silently skips rows
-      // locked by another transaction, and claims skip the same rows, so a
-      // hung or orphaned lock holder turns them into immortal zombies that
-      // read as perpetually queued starvation. Count them
-      // without locking so operators and drills can tell zombies from
-      // ordinary backlog; the runbook remedy is terminating the lock holder.
-      const immortalResult = await query<Readonly<{ immortal_count: number }>>(
+      // Anything still matching after automatic reclamation and the expiry
+      // pass is pinned by a holder cleanup deliberately cannot terminate
+      // (active, recent, or another role). Count it without taking a lock so
+      // the operator fallback remains explicit and the cleanup loop stays live.
+      const remainingPinnedResult = await query<Readonly<{ pinned_count: number }>>(
         db,
         `
-        SELECT COUNT(*)::integer AS immortal_count
-        FROM platform_projection_wake_intents
-        WHERE state IN ('queued', 'claimed', 'failed')
-          AND expires_at <= $1::timestamptz
-          AND (state <> 'claimed' OR claimed_until <= $1::timestamptz)
+        SELECT COUNT(DISTINCT wake.wake_intent_id)::integer AS pinned_count
+        FROM platform_projection_wake_intents wake
+        JOIN pg_stat_activity activity
+          ON activity.datid = (SELECT oid FROM pg_database WHERE datname = current_database())
+         AND activity.backend_xid = wake.xmax
+        WHERE wake.state IN ('queued', 'claimed', 'failed')
+          AND wake.expires_at <= $1::timestamptz
+          AND (wake.state <> 'claimed' OR wake.claimed_until <= $1::timestamptz)
+          AND wake.xmax::text <> '0'
         `,
         [formatTimestamp(before)],
       );
@@ -1363,7 +1438,9 @@ export function createPostgresWorkSignalStore(
         prunedWakeIntents: prunedWakeIntents.rowCount ?? 0,
         prunedCheckpointReadiness: prunedCheckpointReadiness.rowCount ?? 0,
         prunedCheckpointWaiters: prunedCheckpointWaiters.rowCount ?? 0,
-        immortalWakeIntents: Number(immortalResult.rows[0]?.immortal_count ?? 0),
+        reclaimedPinnedWakeIntents: Number(reclaimedOrphans.rows[0]?.reclaimed_intent_count ?? 0),
+        reclaimedOrphanTransactions: Number(reclaimedOrphans.rows[0]?.terminated_transaction_count ?? 0),
+        remainingPinnedWakeIntents: Number(remainingPinnedResult.rows[0]?.pinned_count ?? 0),
       };
     },
 
