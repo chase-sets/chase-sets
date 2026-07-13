@@ -55,6 +55,7 @@ import {
   fallbackCheckoutFeePreview,
   type CheckoutFeePreview,
 } from "./checkout-fee-preview";
+import { FeeCalculatorSection, type PublicMarketplaceFeeSchedule } from "./fee-comparison-calculator";
 import { launchTimeline } from "./launch-config";
 import { publicPresenceT as t } from "./public-presence-translator";
 
@@ -457,6 +458,7 @@ export function PublicPresenceHomePage({
   source,
   selectedGame: selectedGameInput = null,
   checkoutFeePreview = fallbackCheckoutFeePreview,
+  feeSchedule = null,
 }: {
   actionData: WaitlistActionData;
   discordInviteUrl?: string | null;
@@ -465,6 +467,12 @@ export function PublicPresenceHomePage({
   selectedGame?: string | null;
   /** Live buyer-side checkout processing presentation from the loader; falls back to the compiled launch terms. */
   checkoutFeePreview?: CheckoutFeePreview;
+  /**
+   * Live standard fee schedule from the whitelisted public policy read
+   * (loader-provided). Null hides the calculator — its Chase Sets numbers
+   * are truth-gated and never hardcoded.
+   */
+  feeSchedule?: PublicMarketplaceFeeSchedule | null;
 }) {
   const [intent, setIntent] = useState<WaitlistIntent>(defaultIntent);
   const waitlistCounterDisplay = useWaitlistCounterDisplay();
@@ -576,6 +584,8 @@ export function PublicPresenceHomePage({
 
         <FeeComparisonSection />
 
+        <FeeCalculatorSection schedule={feeSchedule} />
+
         <FoundersOfferSection />
 
         <LaunchTimelineSection />
@@ -637,7 +647,9 @@ function GameRosterSection({ pagePath, selectedGame }: { pagePath: string; selec
 
 // The "everywhere else" card describes the generic pattern of buy/sell social
 // groups (unlisted, unprotected, seller-hunts-a-stranger), not any single
-// named platform — same anonymization call as the fee-comparison table above.
+// named platform. Unlike the fee-comparison surfaces (which name TCGplayer
+// and eBay per the ratified competitor-naming decision), there is no single
+// platform to name here.
 function OpenOffersSection() {
   return (
     <PageSection
@@ -965,20 +977,20 @@ function SellerEconomicsSection() {
   );
 }
 
-// Fee-comparison sourcing: major-marketplace figures use each marketplace's
-// own published seller-fee schedule, applied to a $10.00 item price before
-// shipping or tax. Retrieved 2026-07-10.
-// - Marketplace A = TCGplayer: 10.75% Marketplace-seller commission (Level
-//   1-4, effective 2026-02-10) + 2.5% + $0.30 transaction fee.
+// Fee-comparison sourcing: competitor figures use each marketplace's own
+// published seller-fee schedule, applied to a $10.00 item price before
+// shipping or tax, with cents rounded DOWN in each competitor's favor so the
+// comparison is unimpeachable. Retrieved 2026-07-10, re-verified 2026-07-12.
+// - TCGplayer: 10.75% Marketplace-seller commission (Level 1-4, effective
+//   2026-02-10) + 2.5% + $0.30 transaction fee.
 //   https://help.tcgplayer.com/hc/en-us/articles/201357836-TCGplayer-Fees
 //   https://seller.tcgplayer.com/blog/important-changes-to-tcgplayer-direct-minimum-pricing-and-marketplace-fees
-// - Marketplace B = eBay: 13.25% trading-card final value fee (non-store
-//   rate, on sale totals up to $7,500) + $0.30 per-order fee (orders of $10
-//   or less).
+// - eBay: 13.25% trading-card final value fee (non-store rate, on sale
+//   totals up to $7,500) + $0.30 per-order fee (orders of $10 or less).
 //   https://www.ebay.com/help/selling/fees-credits-invoices/selling-fees?id=4822
-// Named-vs-anonymized competitor labeling is a legal-safety call for product
-// review; ship anonymized "Marketplace A/B" until product/legal picks a
-// naming approach.
+// Competitors are named explicitly per the ratified competitor-naming
+// decision (Todd, 2026-07-12): TCGplayer and eBay, here and on all
+// downstream fee-comparison surfaces.
 function FeeComparisonSection() {
   return (
     <PageSection
@@ -992,29 +1004,29 @@ function FeeComparisonSection() {
           columns={[
             t("publicPresence.home.sellerEconomics.comparison.column.metric"),
             t("publicPresence.home.sellerEconomics.comparison.column.chaseSets"),
-            t("publicPresence.home.sellerEconomics.comparison.column.marketplaceA"),
-            t("publicPresence.home.sellerEconomics.comparison.column.marketplaceB"),
+            t("publicPresence.home.sellerEconomics.comparison.column.tcgplayer"),
+            t("publicPresence.home.sellerEconomics.comparison.column.ebay"),
           ]}
           rows={[
             [
               t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.label"),
               t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.chaseSets"),
-              t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.marketplaceA"),
-              t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.marketplaceB"),
+              t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.tcgplayer"),
+              t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.ebay"),
             ],
             [
               t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.label"),
               t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.chaseSets"),
-              t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.marketplaceA"),
-              t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.marketplaceB"),
+              t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.tcgplayer"),
+              t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.ebay"),
             ],
             [
               t("publicPresence.home.sellerEconomics.comparison.row.youKeep.label"),
               <Badge tone="success" variant="solid">
                 {t("publicPresence.home.sellerEconomics.comparison.row.youKeep.chaseSets")}
               </Badge>,
-              t("publicPresence.home.sellerEconomics.comparison.row.youKeep.marketplaceA"),
-              t("publicPresence.home.sellerEconomics.comparison.row.youKeep.marketplaceB"),
+              t("publicPresence.home.sellerEconomics.comparison.row.youKeep.tcgplayer"),
+              t("publicPresence.home.sellerEconomics.comparison.row.youKeep.ebay"),
             ],
           ]}
         />
