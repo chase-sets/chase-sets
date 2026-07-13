@@ -1,19 +1,26 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import type { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import type { DiscoveryBulkCartPreview } from "../support/request-support/api-client";
 
-const { mockUseLoaderData, mockUseNavigate, mockUseNavigation, mockUseSearchParams, mockSubscribeRealtimePatches } =
-  vi.hoisted(() => ({
-    mockUseLoaderData: vi.fn(),
-    mockUseNavigate: vi.fn(),
-    mockUseNavigation: vi.fn(),
-    mockUseSearchParams: vi.fn(),
-    mockSubscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
-  }));
+const {
+  mockUseLoaderData,
+  mockUseLocation,
+  mockUseNavigate,
+  mockUseNavigation,
+  mockUseSearchParams,
+  mockSubscribeRealtimePatches,
+} = vi.hoisted(() => ({
+  mockUseLoaderData: vi.fn(),
+  mockUseLocation: vi.fn(),
+  mockUseNavigate: vi.fn(),
+  mockUseNavigation: vi.fn(),
+  mockUseSearchParams: vi.fn(),
+  mockSubscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
+}));
 
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
@@ -21,6 +28,7 @@ vi.mock("react-router", async () => {
   return {
     ...actual,
     useLoaderData: mockUseLoaderData,
+    useLocation: mockUseLocation,
     useNavigate: mockUseNavigate,
     useNavigation: mockUseNavigation,
     useSearchParams: mockUseSearchParams,
@@ -133,6 +141,10 @@ function searchDataWithMarketOnlyResult(search = "") {
 }
 
 describe("marketplace search route", () => {
+  beforeEach(() => {
+    mockUseLocation.mockReturnValue({ pathname: "/search", search: "", hash: "", state: null, key: "test" });
+  });
+
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
