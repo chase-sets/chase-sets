@@ -3,6 +3,7 @@ export type { BalanceCreditResolver, BalanceCreditResolution } from "./features/
 export { normalizeRequestedBalanceCreditAmount } from "./features/payments/api/balance-credit-request";
 export type { PaymentServices } from "./features/payments/api/runtime";
 export type { PaymentsCheckoutStatus } from "./features/payments/api/contracts";
+export type { PaymentsPaymentDetail } from "./features/payments/api/contracts";
 export {
   marketplaceCheckoutFeePaymentMethodCategories,
   normalizeMarketplaceCheckoutFeePaymentMethodCategory,

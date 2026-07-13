@@ -31,6 +31,7 @@ import { CheckoutSavedInfoSection } from "./checkout-saved-info-section";
 import { CheckoutShippingSection } from "./checkout-shipping-section";
 import { useCheckoutSessionModel } from "./use-checkout-session-model";
 import type { CheckoutSessionPageProps } from "./checkout-page-types";
+import { StripeConfirmationCard } from "@chase-sets/payments/web";
 
 export type {
   CheckoutAddressDefaults,
@@ -90,7 +91,9 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
 
       <CheckoutNoticeStack candidates={model.noticeCandidates} />
 
-      {model.session.payment_id ? (
+      {model.preparedPayment?.status === "pending-confirmation" ? (
+        <StripeConfirmationCard payment={model.preparedPayment} buyerEmail={model.preparedPaymentBuyerEmail} />
+      ) : model.session.payment_id ? (
         <CheckoutConfirmationSection
           paymentId={model.session.payment_id}
           orderReferenceValue={model.orderReferenceValue}
@@ -185,15 +188,16 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
     </Stack>
   );
 
-  const stickyAction = (
-    <CheckoutStickyAction
-      totalsTotalLabel={model.totalsTotalLabel}
-      hasPayment={model.hasPayment}
-      totalsTotal={model.totalsTotal}
-      isOfferIntent={model.isOfferIntent}
-      commitButtonProps={commitButtonProps}
-    />
-  );
+  const stickyAction =
+    model.preparedPayment?.status === "pending-confirmation" ? null : (
+      <CheckoutStickyAction
+        totalsTotalLabel={model.totalsTotalLabel}
+        hasPayment={model.hasPayment}
+        totalsTotal={model.totalsTotal}
+        isOfferIntent={model.isOfferIntent}
+        commitButtonProps={commitButtonProps}
+      />
+    );
 
   return (
     <Page>

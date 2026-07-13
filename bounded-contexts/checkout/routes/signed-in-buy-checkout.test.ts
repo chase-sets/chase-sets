@@ -108,7 +108,6 @@ vi.mock("@chase-sets/settlement/server", () => ({
 }));
 
 import { action as checkoutStartAction } from "./checkout-start";
-import { loader as buyCheckoutConfirmationLoader } from "./buy-checkout-confirmation";
 import { action as checkoutSessionAction, loader as checkoutSessionLoader } from "./checkout-session";
 
 const signedInBuyer = {
@@ -444,6 +443,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
     confirmForm.set("previewPaymentMethodCategory", "card");
     confirmForm.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_card_1");
     confirmForm.set("savedCheckoutInstrumentId", "sci_card_1");
+    confirmForm.set("acceleratedSavedPayment", "true");
 
     const confirmResponse = (await checkoutSessionAction({
       request: new Request("http://localhost/checkout/buy/session/chk_signed_in", {
@@ -547,6 +547,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
         unavailable_reason_details: [],
       });
     mockGetAccountPayment.mockResolvedValue({
+      payment_id: "pay_signed_in_1",
       amount: "27.25",
       status: "pending-confirmation",
       currency_code: "usd",
@@ -632,36 +633,24 @@ describe("checkout web routes: signed-in buy checkout", () => {
     const confirmLocation = confirmResponse.headers.get("Location") ?? "";
 
     expect(confirmResponse.status).toBe(302);
-    expectCompactPostWriteLocation(confirmLocation, "/checkout/buy/session/chk_signed_in/confirmation?postWriteToken=");
+    expectCompactPostWriteLocation(confirmLocation, "/checkout/buy/session/chk_signed_in?postWriteToken=");
     expect(mockSelectShippingOption).not.toHaveBeenCalled();
 
     mockGetCheckoutSession.mockResolvedValue(signedInBuyNowCommittedOrderSession("pay_signed_in_1"));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
-      getCheckoutPaymentSummary: mockGetCheckoutPaymentSummary,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
 
-    const confirmation = await buyCheckoutConfirmationLoader({
+    const inlinePayment = await checkoutSessionLoader({
       request: new Request(`http://localhost${confirmLocation}`),
       params: { sessionId: "chk_signed_in" },
       context: undefined,
     } as never);
 
-    expect(confirmation.paymentPath).toContain("/account/payments/pay_signed_in_1?postWriteToken=");
-    expect(mockGetCheckoutPaymentSummary).toHaveBeenCalledWith("pay_signed_in_1");
-
-    let paymentRedirect: Response | null = null;
-    try {
-      await checkoutSessionLoader({
-        request: new Request("http://localhost/checkout/buy/session/chk_signed_in"),
-        params: { sessionId: "chk_signed_in" },
-        context: undefined,
-      } as never);
-    } catch (error) {
-      paymentRedirect = error as Response;
-    }
-
-    expect(paymentRedirect?.status).toBe(302);
-    expect(paymentRedirect?.headers.get("Location")).toBe("/account/payments/pay_signed_in_1");
+    expect(inlinePayment.preparedPayment).toEqual(
+      expect.objectContaining({ payment_id: "pay_signed_in_1", status: "pending-confirmation" }),
+    );
+    expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_signed_in_1");
   });
 });
