@@ -1793,4 +1793,108 @@ describe("marketplace listing runtime", () => {
       ).resolves.toEqual([]);
     });
   });
+
+  describe("listing evidence garbage collection", () => {
+    function gcAsset(key: string) {
+      return {
+        role: "source",
+        width: 1200,
+        height: 1600,
+        density: null,
+        mediaType: "image/webp",
+        storageKey: key,
+        publicUrl: `https://assets.test/${key}`,
+        byteSize: 100,
+        generatedAt: "2026-05-09T00:00:00.000Z",
+      };
+    }
+    function gcPhoto(photoId: string, status: string, sourceHash: string) {
+      return {
+        photoId,
+        originalFilename: null,
+        altText: null,
+        slotId: null,
+        viewKind: null,
+        status,
+        sortOrder: 0,
+        capturedAt: null,
+        uploadedAt: "2026-05-09T00:00:00.000Z",
+        assetRevision: `rev-${sourceHash}`,
+        replacesPhotoId: null,
+        assetSet: { kind: "listing-photo", sourceHash, source: gcAsset(`${photoId}/source`), variants: [] },
+      };
+    }
+
+    function gcDb(listingPhotos: unknown[], updatedAt: string) {
+      return {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("FROM marketplace_listing_pages") && sql.includes("COALESCE(entry->>'status', 'active')")) {
+            return { rows: [{ listing_id: "lst_1", updated_at: updatedAt, listing_photos: listingPhotos }] };
+          }
+          throw new Error(`Unexpected query in test: ${sql}`);
+        }),
+      };
+    }
+
+    it("deletes retired, unreferenced assets past the safe delay and is observable", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const deleted: string[][] = [];
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: gcDb(
+          [gcPhoto("lpho_active", "active", "hash_active"), gcPhoto("lpho_removed", "removed", "hash_removed")],
+          "2026-01-01T00:00:00.000Z",
+        ) as never,
+        commercialTermsResolver: { resolveListingTerms: vi.fn() } as never,
+        listingPhotoStorage: {
+          putObject: vi.fn(),
+          deleteObjects: vi.fn(async (keys: readonly string[]) => {
+            deleted.push([...keys]);
+          }),
+        } as never,
+      });
+
+      const report = await services.collectListingEvidenceGarbage({ now: "2026-07-13T00:00:00.000Z" });
+
+      expect(report.collectedPhotoIds).toEqual(["lpho_removed"]);
+      expect(report.storageDeletionPerformed).toBe(true);
+      expect(report.deletedAssetKeyCount).toBe(1);
+      expect(deleted).toEqual([["lpho_removed/source"]]);
+    });
+
+    it("retains a retired asset whose source is still referenced by an active entry", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: gcDb(
+          [gcPhoto("lpho_active", "active", "shared"), gcPhoto("lpho_removed", "removed", "shared")],
+          "2026-01-01T00:00:00.000Z",
+        ) as never,
+        commercialTermsResolver: { resolveListingTerms: vi.fn() } as never,
+        listingPhotoStorage: { putObject: vi.fn(), deleteObjects: vi.fn() } as never,
+      });
+
+      const report = await services.collectListingEvidenceGarbage({ now: "2026-07-13T00:00:00.000Z" });
+      expect(report.collectedPhotoIds).toEqual([]);
+      expect(report.retainedReferencedPhotoIds).toEqual(["lpho_removed"]);
+    });
+
+    it("reports candidates but performs no deletion when storage cannot delete", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: gcDb([gcPhoto("lpho_removed", "removed", "hash_removed")], "2026-01-01T00:00:00.000Z") as never,
+        commercialTermsResolver: { resolveListingTerms: vi.fn() } as never,
+        listingPhotoStorage: { putObject: vi.fn() } as never,
+      });
+
+      const report = await services.collectListingEvidenceGarbage({ now: "2026-07-13T00:00:00.000Z" });
+      expect(report.collectedPhotoIds).toEqual(["lpho_removed"]);
+      expect(report.storageDeletionPerformed).toBe(false);
+      expect(report.deletedAssetKeyCount).toBe(0);
+    });
+  });
 });

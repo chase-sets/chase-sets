@@ -134,6 +134,28 @@ class ProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 1 };
     }
 
+    if (sql.includes("SELECT listing_photos FROM marketplace_listing_pages WHERE listing_id = $1")) {
+      const row = this.listings.get(String(values[0]));
+      return {
+        rows: (row ? [{ listing_photos: row.listing_photos }] : []) as Row[],
+        rowCount: row ? 1 : 0,
+      };
+    }
+
+    if (
+      sql.includes("UPDATE marketplace_listing_pages") &&
+      sql.includes("SET listing_photos = $2") &&
+      sql.includes("updated_at = $3")
+    ) {
+      const row = this.listings.get(String(values[0]));
+      if (!row) {
+        return { rows: [], rowCount: 0 };
+      }
+      row.listing_photos = JSON.parse(String(values[1]));
+      row.updated_at = String(values[2]);
+      return { rows: [], rowCount: 1 };
+    }
+
     if (sql.includes("SELECT * FROM marketplace_listing_pages WHERE listing_id = $1")) {
       const row = this.listings.get(String(values[0]));
       return { rows: (row ? [row] : []) as Row[], rowCount: row ? 1 : 0 };
@@ -376,6 +398,88 @@ describe("marketplace listing projection", () => {
         event("marketplace.listing.published", listingPublishedData(), "marketplace.listing-missing"),
       ),
     ).rejects.toThrow("Cannot project marketplace.listing.published for missing marketplace listing missing.");
+  });
+
+  function evidencePhoto(photoId: string, overrides: Record<string, unknown> = {}) {
+    return {
+      photoId,
+      originalFilename: null,
+      altText: null,
+      slotId: null,
+      viewKind: null,
+      status: "active",
+      sortOrder: 0,
+      capturedAt: null,
+      uploadedAt: "2026-05-09T00:00:00.000Z",
+      assetRevision: `rev-${photoId}`,
+      replacesPhotoId: null,
+      assetSet: {
+        kind: "listing-photo",
+        sourceHash: `hash_${photoId}`,
+        source: {
+          role: "source",
+          width: 1200,
+          height: 1600,
+          density: null,
+          mediaType: "image/webp",
+          storageKey: `k/${photoId}/s`,
+          publicUrl: `u/${photoId}/s`,
+          byteSize: 100,
+          generatedAt: "2026-05-09T00:00:00.000Z",
+        },
+        variants: [],
+      },
+      ...overrides,
+    };
+  }
+
+  it("projects listing evidence classification", async () => {
+    const db = new ProjectionDb();
+    db.listings.set("lst_1", listingPage({ listing_photos: [evidencePhoto("lpho_1")] }));
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.listing.photo-classified"]!(
+      event(
+        "marketplace.listing.photo-classified",
+        { photoId: "lpho_1", slotId: "front", viewKind: "front", altText: "Front", capturedAt: null },
+        "marketplace.listing-lst_1",
+      ),
+    );
+
+    const photos = db.listings.get("lst_1")!.listing_photos as Array<Record<string, unknown>>;
+    expect(photos[0]).toMatchObject({ slotId: "front", viewKind: "front", altText: "Front" });
+  });
+
+  it("projects listing evidence replacement, removal, and reorder", async () => {
+    const db = new ProjectionDb();
+    db.listings.set(
+      "lst_1",
+      listingPage({ listing_photos: [evidencePhoto("lpho_1"), evidencePhoto("lpho_2", { sortOrder: 1 })] }),
+    );
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.listing.photo-replaced"]!(
+      event(
+        "marketplace.listing.photo-replaced",
+        { replacedPhotoId: "lpho_1", photo: evidencePhoto("lpho_3", { replacesPhotoId: "lpho_1" }) },
+        "marketplace.listing-lst_1",
+      ),
+    );
+    let photos = db.listings.get("lst_1")!.listing_photos as Array<Record<string, unknown>>;
+    expect(photos.find((photo) => photo.photoId === "lpho_1")?.status).toBe("replaced");
+    expect(photos.find((photo) => photo.photoId === "lpho_3")?.status).toBe("active");
+
+    await handlers["marketplace.listing.photo-removed"]!(
+      event("marketplace.listing.photo-removed", { photoId: "lpho_2" }, "marketplace.listing-lst_1"),
+    );
+    photos = db.listings.get("lst_1")!.listing_photos as Array<Record<string, unknown>>;
+    expect(photos.find((photo) => photo.photoId === "lpho_2")?.status).toBe("removed");
+
+    await handlers["marketplace.listing.photos-reordered"]!(
+      event("marketplace.listing.photos-reordered", { orderedPhotoIds: ["lpho_3"] }, "marketplace.listing-lst_1"),
+    );
+    photos = db.listings.get("lst_1")!.listing_photos as Array<Record<string, unknown>>;
+    expect(photos.find((photo) => photo.photoId === "lpho_3")?.sortOrder).toBe(0);
   });
 
   it("refreshes existing listing product measures from Catalog resolved-measure facts", async () => {

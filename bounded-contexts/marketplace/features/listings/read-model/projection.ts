@@ -84,6 +84,40 @@ function assertUpdatedListingRow(
   }
 }
 
+/**
+ * Read-modify-write for the `listing_photos` JSONB array. The typed Listing
+ * Evidence lifecycle events (#4985) carry deltas rather than the full array, so
+ * the projector rehydrates the current array, applies the delta, and writes it
+ * back. Safe because the projector applies a stream's events sequentially in
+ * order.
+ */
+async function transformListingPhotos(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  listingId: string,
+  transform: (photos: Array<Record<string, unknown>>) => Array<Record<string, unknown>>,
+) {
+  const current = await db.query<{ listing_photos: unknown }>(
+    "SELECT listing_photos FROM marketplace_listing_pages WHERE listing_id = $1",
+    [listingId],
+  );
+  if (current.rows.length === 0) {
+    throw new Error(`Cannot project ${event.type} for missing marketplace listing ${listingId}.`);
+  }
+  const photos = Array.isArray(current.rows[0]!.listing_photos)
+    ? (current.rows[0]!.listing_photos as Array<Record<string, unknown>>)
+    : [];
+  const next = transform(photos);
+  await db.query(
+    `UPDATE marketplace_listing_pages
+     SET listing_photos = $2,
+         updated_at = $3
+     WHERE listing_id = $1`,
+    [listingId, JSON.stringify(next), event.timing.recordedAt],
+  );
+  await emitListingPatch(db, event, listingId);
+}
+
 export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "marketplace.listing.created": async (event) => {
@@ -270,6 +304,59 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
       );
       assertUpdatedListingRow(result, event.type, listingId);
       await emitListingPatch(db, event, listingId);
+    },
+    "marketplace.listing.photo-classified": async (event) => {
+      const listingId = event.streamId.replace("marketplace.listing-", "");
+      const data = event.data as {
+        photoId: string;
+        slotId: string | null;
+        viewKind: string | null;
+        altText: string | null;
+        capturedAt: string | null;
+      };
+      await transformListingPhotos(db, event, listingId, (photos) =>
+        photos.map((photo) =>
+          photo.photoId === data.photoId
+            ? {
+                ...photo,
+                slotId: data.slotId,
+                viewKind: data.viewKind,
+                altText: data.altText,
+                capturedAt: data.capturedAt,
+              }
+            : photo,
+        ),
+      );
+    },
+    "marketplace.listing.photo-replaced": async (event) => {
+      const listingId = event.streamId.replace("marketplace.listing-", "");
+      const data = event.data as {
+        replacedPhotoId: string;
+        photo: Record<string, unknown>;
+      };
+      await transformListingPhotos(db, event, listingId, (photos) => [
+        ...photos.map((photo) => (photo.photoId === data.replacedPhotoId ? { ...photo, status: "replaced" } : photo)),
+        data.photo,
+      ]);
+    },
+    "marketplace.listing.photo-removed": async (event) => {
+      const listingId = event.streamId.replace("marketplace.listing-", "");
+      const data = event.data as { photoId: string };
+      await transformListingPhotos(db, event, listingId, (photos) =>
+        photos.map((photo) => (photo.photoId === data.photoId ? { ...photo, status: "removed" } : photo)),
+      );
+    },
+    "marketplace.listing.photos-reordered": async (event) => {
+      const listingId = event.streamId.replace("marketplace.listing-", "");
+      const data = event.data as { orderedPhotoIds: string[] };
+      const orderIndex = new Map(data.orderedPhotoIds.map((id, index) => [id, index]));
+      await transformListingPhotos(db, event, listingId, (photos) =>
+        photos.map((photo) =>
+          orderIndex.has(String(photo.photoId))
+            ? { ...photo, sortOrder: orderIndex.get(String(photo.photoId)) }
+            : photo,
+        ),
+      );
     },
     "marketplace.listing.price-updated": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");

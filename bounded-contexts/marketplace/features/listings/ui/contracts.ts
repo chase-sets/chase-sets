@@ -23,13 +23,38 @@ export interface MarketplaceListingPhotoAssetSet {
   variants: MarketplaceListingPhotoAssetVariant[];
 }
 
+export type MarketplaceListingPhotoStatus = "active" | "replaced" | "removed";
+
 export interface MarketplaceListingPhoto {
   photoId: string;
   originalFilename: string | null;
   altText: string | null;
+  slotId: string | null;
+  viewKind: string | null;
+  status: MarketplaceListingPhotoStatus;
   sortOrder: number;
+  capturedAt: string | null;
   uploadedAt: string;
+  assetRevision: string;
+  replacesPhotoId: string | null;
   assetSet: MarketplaceListingPhotoAssetSet;
+}
+
+export interface MarketplaceListingPublicGalleryImageAsset {
+  role: string;
+  publicUrl: string;
+  width: number;
+  height: number;
+  density: 1 | 2 | null;
+}
+
+export interface MarketplaceListingPublicGalleryImage {
+  photoId: string;
+  slotId: string | null;
+  viewKind: string | null;
+  altText: string | null;
+  sortOrder: number;
+  assets: readonly MarketplaceListingPublicGalleryImageAsset[];
 }
 
 export interface MarketplaceListingListItem {
@@ -140,6 +165,8 @@ export interface MarketplaceMarketSummary {
 export interface MarketplaceItemListing extends MarketplaceListingListItem {
   seller_display_name: string | null;
   visible_quantity: number;
+  /** Buyer-safe evidence gallery; `listing_photos` is empty on public rows (#4985). */
+  public_gallery: readonly MarketplaceListingPublicGalleryImage[];
 }
 
 export interface MarketplaceListingInventoryItemOption {
