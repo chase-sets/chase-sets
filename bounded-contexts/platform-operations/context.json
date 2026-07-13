@@ -274,7 +274,7 @@
     {
       "portName": "offerEconomicsCrossContext",
       "providedBy": "platform-api",
-      "purpose": "Marketplace's 0%-locked-fee listing cohort summary, Pricing's cohort-scoped GMV/weekly-trade reads, and Commercial Terms' published standard fee schedule terms, each bound to that context's own database pool and assembled once in the platform-api composition root, so the offer-economics monitor (#4075) aggregates the founders fee-lock cohort's economics without this context importing marketplace, pricing, or commercial-terms domain code directly."
+      "purpose": "Marketplace's 0%-locked-fee listing cohort summary, Pricing's cohort-scoped GMV/weekly-trade reads, Commercial Terms' published standard fee schedule terms, and Settlement's protection-reserve summary, each bound to its owning context's database pool and assembled once in the platform-api composition root."
     }
   ],
   "apiDeployables": ["platform-api"],

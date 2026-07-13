@@ -13,7 +13,7 @@
     {
       "sourceContextName": "payments",
       "projectionName": "settlement-payment-input-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "payments.payment-created",
         "payments.payment-authorized",
@@ -119,7 +119,7 @@
     {
       "projectionName": "settlement-payment-input-projection",
       "sourceContextNames": ["payments"],
-      "ownedTables": ["settlement_payment_sources", "settlement_refund_sources"],
+      "ownedTables": ["settlement_payment_sources", "settlement_refund_sources", "settlement_protection_reserve_facts"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },

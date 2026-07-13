@@ -162,6 +162,9 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.back": "Back",
   "ordering.features.orders.ui.orderDetailPage.buyer": "Buyer",
   "ordering.features.orders.ui.orderDetailPage.buyer.protection": "Order Protection",
+  "ordering.features.orders.ui.orderDetailPage.protection.included": "Every order includes Order Protection",
+  "ordering.features.orders.ui.orderDetailPage.protection.included.description":
+    "Included in the Shipping amount; never added as a separate buyer fee.",
   "ordering.features.orders.ui.orderDetailPage.cancel": "Cancel ",
   "ordering.features.orders.ui.orderDetailPage.counterparty": "Counterparty",
   "ordering.features.orders.ui.orderDetailPage.inventory.holds": "Inventory Holds",
@@ -195,6 +198,7 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.secure.payment": "Secure payment",
   "ordering.features.orders.ui.orderDetailPage.shipping": "Shipping",
   "ordering.features.orders.ui.orderDetailPage.shipping.allowance": "Shipping allowance",
+  "ordering.features.orders.ui.orderDetailPage.order.protection": "Order protection",
   "ordering.features.orders.ui.orderDetailPage.shipping.overage": "Shipping overage",
   "ordering.features.orders.ui.orderDetailPage.shipping.preference": "Shipping Preference",
   "ordering.features.orders.ui.orderDetailPage.source": "Source",

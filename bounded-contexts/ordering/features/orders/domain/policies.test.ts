@@ -1,9 +1,65 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateOrderFulfillmentEconomics,
   quoteMarketplaceSalesFeeFromSnapshot,
   resolveOrderPaymentDeadline,
   resolveTerminalPaymentFailureDeadline,
 } from "./policies";
+
+describe("ordering Order Protection economics (#4098)", () => {
+  it.each([
+    ["10.00", "0.10", "0.40", "4.10", "4.10", "13.50"],
+    ["50.00", "0.50", "2.00", "2.50", "2.50", "49.50"],
+    ["125.00", "1.25", "4.50", "0.00", "0.00", "117.50"],
+    ["500.00", "5.00", "4.50", "0.00", "0.00", "470.00"],
+  ])(
+    "documents the $%s buyer Shipping line, seller payout, and reserve split byte-exactly",
+    (itemSubtotal, protection, shippingAllowance, shippingOverage, buyerShipping, sellerPayout) => {
+      const economics = calculateOrderFulfillmentEconomics({
+        itemSubtotalAmount: itemSubtotal,
+        shippingBaseAmount: "4.50",
+        shippingAllowancePercentageBps: 500,
+      });
+      const fee = quoteMarketplaceSalesFeeFromSnapshot(itemSubtotal, {
+        marketplaceSalesFeePercentageBps: 500,
+        marketplaceSalesFeeFixedAmount: "0.00",
+        marketplaceSalesFeeCapAmount: "25.00",
+      });
+      const payoutCents =
+        BigInt(fee.sellerNetUnitAmount.replace(".", "")) +
+        BigInt(economics.sellerShippingPayoutAmount.replace(".", "")) -
+        BigInt(economics.protectionAllowanceAmount.replace(".", ""));
+
+      expect(economics).toEqual({
+        shippingBaseAmount: "4.50",
+        shippingDiscountAmount: shippingAllowance,
+        shippingAllowanceAmount: shippingAllowance,
+        shippingOverageAmount: shippingOverage,
+        sellerShippingPayoutAmount: shippingOverage,
+        protectionAmount: protection,
+        protectionAllowanceAmount: protection,
+        protectionOverageAmount: "0.00",
+        shippingChargeAmount: buyerShipping,
+      });
+      expect(`${payoutCents / 100n}.${String(payoutCents % 100n).padStart(2, "0")}`).toBe(sellerPayout);
+    },
+  );
+
+  it("funds protection before shipping and rounds up to keep every positive order covered", () => {
+    expect(
+      calculateOrderFulfillmentEconomics({
+        itemSubtotalAmount: "0.01",
+        shippingBaseAmount: "0.00",
+        shippingAllowancePercentageBps: 0,
+      }),
+    ).toMatchObject({
+      protectionAmount: "0.01",
+      protectionAllowanceAmount: "0.00",
+      protectionOverageAmount: "0.01",
+      shippingChargeAmount: "0.01",
+    });
+  });
+});
 
 describe("ordering marketplace sales fee snapshots", () => {
   it.each([

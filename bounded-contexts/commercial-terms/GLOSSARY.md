@@ -39,6 +39,7 @@ Notes:
 - Commercial Terms owns the configurable Shipping Allowance percentage on default schedules and account-specific agreements.
 - Marketplace, Ordering, Payments, and Settlement consume immutable snapshots of the resolved Shipping Allowance; they do not recalculate historical commitments when Commercial Terms are revised.
 - Settlement posts the resulting shipping allowance credit as a Rebate ledger entry.
+- Ordering applies the resolved allowance to Order Protection first and shipping second; Commercial Terms owns the percentage, not the allocation calculation.
 
 ## Seller Net
 

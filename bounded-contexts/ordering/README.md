@@ -39,6 +39,7 @@ If an item uses a `condition` dimension, that condition is represented inside th
 
 Ordering terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 Postage policy evaluation and package-plan snapshots are documented in [Postage Policy](./docs/postage-policy.md).
+Order Protection allocation and the ratified worked examples are documented in [Order Protection Economics](./docs/order-protection-economics.md).
 Buyer self-service purchase cancellation is documented in [Self-Service Purchase Cancellation](./docs/self-service-purchase-cancellation.md).
 
 ## Core Aggregates and Process Managers

@@ -20,6 +20,16 @@ Notes:
 - Commercial Terms owns the configurable Shipping Allowance percentage that creates the upstream economics snapshot.
 - A Commercial Terms revision affects only future resolved snapshots; existing rebate ledger entries remain historical accounting facts.
 
+## Protection Reserve Contribution
+
+A **Protection Reserve Contribution** is the Settlement-owned financial fact recorded for a captured order's Order Protection amount, including its immutable allowance-funded and overage-funded shares.
+
+Notes:
+
+- Contributions are independent of Marketplace Sales Fees, including Founders Window 0% fee orders.
+- Refund reversals preserve the original funding split and converge to the full contribution on a full-order refund.
+- Replay uses deterministic fact identities, so a contribution or reversal is recorded at most once.
+
 ## Balance
 
 A **Balance** is the current computed financial position of an account derived from ledger entries.

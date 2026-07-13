@@ -4,6 +4,13 @@ import type { OfferEconomicsCrossContextPort } from "./offer-economics-contracts
 
 function fakeCrossContext(): OfferEconomicsCrossContextPort {
   return {
+    getProtectionReserveSummary: vi.fn(async () => ({
+      contributionAmount: "10.00",
+      allowanceAmount: "9.00",
+      overageAmount: "1.00",
+      reversalAmount: "0.00",
+      coveredOrderCount: 5,
+    })),
     getLockedFeeListingCohortSummary: vi.fn(async () => ({
       listingsCreatedCount: 5,
       lockedSellerAccountIds: ["acc_founder_1"],
@@ -40,7 +47,14 @@ describe("offer economics runtime (#4075)", () => {
     expect(snapshot.listingsCreatedCount).toBe(5);
     expect(snapshot.lockedGmvAmount).toBe("300.00");
     expect(snapshot.lockedGmvShareRatio).toBe("0.0500");
-    expect(snapshot.protectionReserve.available).toBe(false);
+    expect(snapshot.protectionReserve).toEqual({
+      available: true,
+      contributionAmount: "10.00",
+      allowanceAmount: "9.00",
+      overageAmount: "1.00",
+      reversalAmount: "0.00",
+      coveredOrderCount: 5,
+    });
   });
 
   it("degrades to an honest zeroed snapshot without throwing when the cross-context port isn't wired", async () => {

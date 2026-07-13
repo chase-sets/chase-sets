@@ -49,6 +49,9 @@ export type OrderingOrderListRow = Readonly<{
   shipping_discount_amount: string;
   shipping_allowance_amount: string;
   shipping_overage_amount: string;
+  protection_amount: string;
+  protection_allowance_amount: string;
+  protection_overage_amount: string;
   shipping_charge_amount: string;
   sales_tax_amount: string;
   taxable_amount: string;
@@ -106,6 +109,9 @@ type BaseOrderPageRow = Readonly<{
   shipping_discount_amount: string;
   shipping_allowance_amount: string;
   shipping_overage_amount: string;
+  protection_amount: string;
+  protection_allowance_amount: string;
+  protection_overage_amount: string;
   shipping_charge_amount: string;
   sales_tax_amount: string;
   taxable_amount: string;
@@ -180,6 +186,9 @@ const baseOrderSelect = `
     page.shipping_discount_amount::text AS shipping_discount_amount,
     page.shipping_allowance_amount::text AS shipping_allowance_amount,
     page.shipping_overage_amount::text AS shipping_overage_amount,
+    page.protection_amount::text AS protection_amount,
+    page.protection_allowance_amount::text AS protection_allowance_amount,
+    page.protection_overage_amount::text AS protection_overage_amount,
     page.shipping_charge_amount::text AS shipping_charge_amount,
     page.sales_tax_amount::text AS sales_tax_amount,
     page.taxable_amount::text AS taxable_amount,

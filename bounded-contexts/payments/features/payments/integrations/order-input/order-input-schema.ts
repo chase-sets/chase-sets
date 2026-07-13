@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS payments_order_inputs (
   shipping_allowance_amount numeric(12, 2) NOT NULL DEFAULT 0,
   shipping_overage_amount numeric(12, 2) NOT NULL DEFAULT 0,
   seller_shipping_payout_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  protection_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  protection_allowance_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  protection_overage_amount numeric(12, 2) NOT NULL DEFAULT 0,
   seller_payout_amount numeric(12, 2) NOT NULL DEFAULT 0,
   shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
   terms_schedule_id text NULL,
@@ -108,6 +111,16 @@ export const paymentsOrderInputSchemaMigrations = [
       `CREATE INDEX IF NOT EXISTS payments_order_inputs_source_idx
   ON payments_order_inputs (source_type, source_reference_id)
   WHERE source_type IS NOT NULL AND source_reference_id IS NOT NULL`,
+    ],
+  },
+  {
+    migrationId: "20260712_payments_order_inputs_order_protection",
+    description: "Carry immutable Order Protection amount and funding split into Payments.",
+    statements: [
+      `ALTER TABLE payments_order_inputs
+  ADD COLUMN IF NOT EXISTS protection_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS protection_allowance_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS protection_overage_amount numeric(12, 2) NOT NULL DEFAULT 0`,
     ],
   },
   {

@@ -205,6 +205,9 @@ export type OrderingReservationRequestPayload = Readonly<{
 export type OrderingOrderCreatedPayload = Readonly<{
   orderId: string;
   reservationRequests: readonly OrderingReservationRequestPayload[];
+  protectionAmount?: string;
+  protectionAllowanceAmount?: string;
+  protectionOverageAmount?: string;
   commercialTermsSnapshot?: Readonly<{
     marketplaceSalesFeeAmount: string;
     marketplaceSalesFeeLines?: readonly MarketplaceSalesFeeLineSnapshotPayload[];
@@ -436,6 +439,9 @@ export type PaymentSellerPayoutPayload = Readonly<{
   sellerItemNetAmount: string;
   shippingAllowanceAmount: string;
   sellerShippingPayoutAmount: string;
+  protectionAmount?: string;
+  protectionAllowanceAmount?: string;
+  protectionOverageAmount?: string;
   sellerPayoutAmount: string;
 }>;
 

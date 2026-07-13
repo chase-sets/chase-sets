@@ -67,4 +67,25 @@ CREATE INDEX IF NOT EXISTS settlement_refund_sources_payment_idx
 
 CREATE INDEX IF NOT EXISTS settlement_refund_sources_status_idx
   ON settlement_refund_sources (status, updated_at DESC, refund_id DESC);
+
+CREATE TABLE IF NOT EXISTS settlement_protection_reserve_facts (
+  fact_id text PRIMARY KEY,
+  fact_kind text NOT NULL CHECK (fact_kind IN ('contribution', 'reversal')),
+  order_id text NOT NULL,
+  payment_id text NOT NULL,
+  payment_stream_version integer NOT NULL,
+  protection_amount numeric(12,2) NOT NULL,
+  allowance_amount numeric(12,2) NOT NULL,
+  overage_amount numeric(12,2) NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  CHECK (protection_amount >= 0 AND allowance_amount >= 0 AND overage_amount >= 0),
+  CHECK (protection_amount = allowance_amount + overage_amount)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS settlement_protection_reserve_contribution_order_key
+  ON settlement_protection_reserve_facts (order_id)
+  WHERE fact_kind = 'contribution';
+
+CREATE INDEX IF NOT EXISTS settlement_protection_reserve_facts_recorded_idx
+  ON settlement_protection_reserve_facts (recorded_at, order_id);
 `;

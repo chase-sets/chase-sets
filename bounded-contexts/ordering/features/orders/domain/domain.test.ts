@@ -161,6 +161,39 @@ describe("ordering order domain", () => {
     });
   });
 
+  it("snapshots one buyer Shipping amount from shipping and protection overflow", () => {
+    const command: CreateOrderCommand = {
+      ...createOrderCommand("cart-checkout"),
+      shippingAllowanceAmount: "0.80",
+      shippingOverageAmount: "4.19",
+      protectionAmount: "0.20",
+      protectionAllowanceAmount: "0.20",
+      protectionOverageAmount: "0.00",
+      shippingChargeAmount: "4.19",
+      totalAmount: "24.19",
+      commercialTermsSnapshot: {
+        ...commercialTermsSnapshot,
+        shippingAllowanceAmount: "0.80",
+        sellerShippingPayoutAmount: "4.19",
+        protectionAmount: "0.20",
+        protectionAllowanceAmount: "0.20",
+        protectionOverageAmount: "0.00",
+        sellerPayoutAmount: "22.99",
+      },
+    };
+
+    expect(decideOrderingOrder(initialOrderingOrderState, command)[0]).toMatchObject({
+      type: "ordering.order.created",
+      data: {
+        shippingOverageAmount: "4.19",
+        protectionAmount: "0.20",
+        protectionAllowanceAmount: "0.20",
+        protectionOverageAmount: "0.00",
+        shippingChargeAmount: "4.19",
+      },
+    });
+  });
+
   it("creates an order with no authenticity plan when the buyer did not opt in", () => {
     const createdState = decideOrderingOrder(initialOrderingOrderState, createOrderCommand("cart-checkout")).reduce(
       evolveOrderingOrder,

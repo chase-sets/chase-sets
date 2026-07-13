@@ -15,6 +15,9 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
         totalAmount: string;
         shippingAllowanceAmount?: string;
         shippingOverageAmount?: string;
+        protectionAmount?: string;
+        protectionAllowanceAmount?: string;
+        protectionOverageAmount?: string;
         commercialTermsSnapshot: {
           marketplaceSalesFeeAmount: string;
           marketplaceSalesFeeLines?: readonly unknown[];
@@ -22,6 +25,9 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
           sellerItemNetAmount?: string;
           shippingAllowanceAmount?: string;
           sellerShippingPayoutAmount?: string;
+          protectionAmount?: string;
+          protectionAllowanceAmount?: string;
+          protectionOverageAmount?: string;
           sellerPayoutAmount?: string;
           shippingAllowancePercentageBps?: number;
           termsScheduleId: string | null;
@@ -50,6 +56,9 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
             shipping_allowance_amount,
             shipping_overage_amount,
             seller_shipping_payout_amount,
+            protection_amount,
+            protection_allowance_amount,
+            protection_overage_amount,
             seller_payout_amount,
            shipping_allowance_percentage_bps,
            terms_schedule_id,
@@ -63,7 +72,7 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
            updated_at,
            cancelled_at,
            ready_for_fulfillment_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, 'pending-reservation', NULL, NULL, NULL, $23, $23, NULL, NULL)
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, 'pending-reservation', NULL, NULL, NULL, $26, $26, NULL, NULL)
          ON CONFLICT (order_id) DO UPDATE
          SET source_type = EXCLUDED.source_type,
              source_reference_id = EXCLUDED.source_reference_id,
@@ -81,6 +90,9 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
               shipping_allowance_amount = EXCLUDED.shipping_allowance_amount,
               shipping_overage_amount = EXCLUDED.shipping_overage_amount,
               seller_shipping_payout_amount = EXCLUDED.seller_shipping_payout_amount,
+              protection_amount = EXCLUDED.protection_amount,
+              protection_allowance_amount = EXCLUDED.protection_allowance_amount,
+              protection_overage_amount = EXCLUDED.protection_overage_amount,
               seller_payout_amount = EXCLUDED.seller_payout_amount,
              shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
              terms_schedule_id = EXCLUDED.terms_schedule_id,
@@ -115,6 +127,9 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
             data.commercialTermsSnapshot.shippingAllowanceAmount ??
             data.shippingAllowanceAmount ??
             "0.00",
+          data.protectionAmount ?? data.commercialTermsSnapshot.protectionAmount ?? "0.00",
+          data.protectionAllowanceAmount ?? data.commercialTermsSnapshot.protectionAllowanceAmount ?? "0.00",
+          data.protectionOverageAmount ?? data.commercialTermsSnapshot.protectionOverageAmount ?? "0.00",
           data.commercialTermsSnapshot.sellerPayoutAmount ??
             (
               Number.parseFloat(data.commercialTermsSnapshot.sellerNetAmount) +
