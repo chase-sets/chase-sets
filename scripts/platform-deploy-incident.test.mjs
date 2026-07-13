@@ -58,6 +58,23 @@ describe("platform deploy incident classification", () => {
     ).toMatchObject({ action: "create-or-update", kind: "deploy-failure", noOp: false });
   });
 
+  it("preserves a bounded bootstrap failure classification for staging incidents", () => {
+    expect(
+      classifyPlatformDeployRun({
+        resolveReleaseResult: "success",
+        buildImageResult: "success",
+        deployStagingResult: "failure",
+        deployProductionResult: "skipped",
+        recordStagingHealthResult: "success",
+        stagingFailureClassification: "staging-bootstrap-schema-lock-timeout",
+      }),
+    ).toMatchObject({
+      action: "create-or-update",
+      reason: "staging-bootstrap-schema-lock-timeout",
+      stagingFailureClassification: "staging-bootstrap-schema-lock-timeout",
+    });
+  });
+
   it("leaves an applied successful run open only when another dependency failed", () => {
     expect(
       classifyPlatformDeployRun({
@@ -121,12 +138,14 @@ describe("platform deploy incident classification", () => {
         RESOLVE_RELEASE_RESULT: "success",
         DEPLOY_STAGING_RESULT: "success",
         STAGING_APPLIED: "false",
+        STAGING_FAILURE_CLASSIFICATION: "staging-bootstrap-timeout",
       }),
     ).toMatchObject({
       command: "classify-run",
       resolveReleaseResult: "success",
       deployStagingResult: "success",
       stagingApplied: "false",
+      stagingFailureClassification: "staging-bootstrap-timeout",
     });
   });
 });

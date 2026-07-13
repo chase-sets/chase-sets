@@ -20,6 +20,8 @@ export function parsePlatformDeployIncidentOptions(argv, env = process.env) {
     productionSuperseded: readOption(argv, "--production-superseded") ?? readEnv("PRODUCTION_SUPERSEDED", env),
     recordStagingHealthResult:
       readOption(argv, "--record-staging-health-result") ?? readEnv("RECORD_STAGING_HEALTH_RESULT", env),
+    stagingFailureClassification:
+      readOption(argv, "--staging-failure-classification") ?? readEnv("STAGING_FAILURE_CLASSIFICATION", env) ?? "",
     title: readOption(argv, "--title") ?? readEnv("INCIDENT_TITLE", env) ?? "",
     body: readOption(argv, "--body") ?? readEnv("INCIDENT_BODY", env) ?? "",
     runUrl: readOption(argv, "--run-url") ?? readEnv("RUN_URL", env) ?? "",
@@ -50,6 +52,8 @@ export function classifyPlatformDeployRun(input = {}) {
     input.deployProductionResult === "skipped" &&
     (stagingWasNotApplied || legacyStagingNoOp);
   const supersededNoOp = successfulPrerequisites && (productionSuperseded || stagingSuperseded);
+  const stagingFailureClassification =
+    input.deployStagingResult === "failure" ? input.stagingFailureClassification || "" : "";
 
   return {
     schemaVersion: PLATFORM_DEPLOY_INCIDENT_VERSION,
@@ -60,7 +64,8 @@ export function classifyPlatformDeployRun(input = {}) {
       ? "production-superseded-by-newer-main"
       : stagingSuperseded
         ? "staging-superseded-before-apply"
-        : "deploy-stage-failure",
+        : stagingFailureClassification || "deploy-stage-failure",
+    ...(stagingFailureClassification ? { stagingFailureClassification } : {}),
   };
 }
 
