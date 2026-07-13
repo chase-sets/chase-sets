@@ -14,8 +14,8 @@ spec:
       interval: {{ $component.rollout.analysis.interval | quote }}
       count: {{ $component.rollout.analysis.count }}
       failureLimit: {{ $component.rollout.analysis.failureLimit }}
-      successCondition: result.status == "ok"
-      failureCondition: result.status != "ok"
+      successCondition: result.ok == true
+      failureCondition: result.ok != true
       provider:
         web:
           url: {{ printf "http://%s.%s.svc.cluster.local:%v%s" (include "chase-sets-platform.canaryServiceName" (dict "root" $ "name" $name)) $.Release.Namespace $component.service.port $component.rollout.analysis.path | quote }}

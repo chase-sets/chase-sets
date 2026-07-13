@@ -741,7 +741,7 @@ describe("render platform Helm values", () => {
     expect(rolloutTemplate).toContain("rollbackWindow:");
     expect(rolloutTemplate).toContain("pauseAfterWeight");
     expect(analysisTemplate).toContain("kind: AnalysisTemplate");
-    expect(analysisTemplate).toContain('successCondition: result.status == "ok"');
+    expect(analysisTemplate).toContain("successCondition: result.ok == true");
     expect(analysisTemplate).toContain("canaryServiceName");
     expect(analysisTemplate).toContain("$.Release.Namespace");
     expect(analysisTemplate).toContain("svc.cluster.local");
