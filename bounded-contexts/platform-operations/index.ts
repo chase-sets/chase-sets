@@ -116,15 +116,16 @@ export const module = defineBoundedContextModule<
         },
         "identity.risk-alert-queue-projection": {
           subscriptionName: "platform-operations.risk-alert-queue-projection",
-          buildHandlers: () => buildIdentityRiskAlertProjectionHandlers(services.db),
+          buildHandlers: () => buildIdentityRiskAlertProjectionHandlers(services.db, { policies: services.policies }),
         },
         "marketplace.risk-alert-queue-projection": {
           subscriptionName: "platform-operations.risk-alert-queue-projection",
-          buildHandlers: () => buildMarketplaceRiskAlertProjectionHandlers(services.db),
+          buildHandlers: () =>
+            buildMarketplaceRiskAlertProjectionHandlers(services.db, { policies: services.policies }),
         },
         "payments.risk-alert-queue-projection": {
           subscriptionName: "platform-operations.risk-alert-queue-projection",
-          buildHandlers: () => buildPaymentsRiskAlertProjectionHandlers(services.db),
+          buildHandlers: () => buildPaymentsRiskAlertProjectionHandlers(services.db, { policies: services.policies }),
         },
         "platform-operations.risk-alert-queue-projection": {
           subscriptionName: "platform-operations.risk-alert-queue-projection",

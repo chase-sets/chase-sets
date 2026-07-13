@@ -175,7 +175,19 @@ describe("business literal guard", () => {
   });
 
   it("whole-file allowlist entries suppress all violation kinds in that file", () => {
-    const fraudHeuristicFixture = `
+    // A synthetic whole-file entry (no `pattern`), not a production one: the
+    // production allowlist ratchets toward zero whole-file entries as
+    // migrations land, so this test of the suppression mechanism itself must
+    // not depend on which (if any) file currently holds one.
+    const syntheticWholeFileAllowlist = [
+      {
+        file: "bounded-contexts/settlement/features/wallets/read-model/fixture-whole-file-exception.ts",
+        reason: "Synthetic fixture for the whole-file allowlist suppression test.",
+        owner: "settlement",
+        ref: "n/a (test fixture)",
+      },
+    ];
+    const fixture = `
       function velocityFlagsSql() {
         return \`CASE WHEN listing_24h_value_cents >= 250000 AND occurred_at >= now() - interval '30 days' THEN TRUE END\`;
       }
@@ -183,9 +195,9 @@ describe("business literal guard", () => {
 
     expect(
       findBusinessLiteralGuardViolations({
-        relativeFile:
-          "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts",
-        content: fraudHeuristicFixture,
+        relativeFile: "bounded-contexts/settlement/features/wallets/read-model/fixture-whole-file-exception.ts",
+        content: fixture,
+        allowlist: syntheticWholeFileAllowlist,
       }),
     ).toEqual([]);
   });

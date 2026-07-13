@@ -108,8 +108,8 @@ function extractStringLiteralSegments(content) {
   return [...content.matchAll(stringLiteralPattern)].map((match) => match[0]);
 }
 
-function isAllowlisted({ relativeFile, snippet }) {
-  return businessLiteralAllowlist.some((entry) => {
+function isAllowlisted({ relativeFile, snippet, allowlist }) {
+  return allowlist.some((entry) => {
     if (entry.file !== relativeFile) {
       return false;
     }
@@ -117,7 +117,11 @@ function isAllowlisted({ relativeFile, snippet }) {
   });
 }
 
-export function findIntervalLiteralViolations({ relativeFile, content }) {
+// `allowlist` defaults to the real, reviewed `businessLiteralAllowlist` for
+// every production caller; tests may inject a synthetic list to exercise the
+// suppression mechanism itself without coupling to which files currently
+// happen to hold a reviewed exception (that set ratchets toward zero).
+export function findIntervalLiteralViolations({ relativeFile, content, allowlist = businessLiteralAllowlist }) {
   if (!isBusinessLiteralSqlGuardedFile(relativeFile)) {
     return [];
   }
@@ -127,7 +131,7 @@ export function findIntervalLiteralViolations({ relativeFile, content }) {
     intervalLiteralPattern.lastIndex = 0;
     for (const match of segment.matchAll(intervalLiteralPattern)) {
       const snippet = match[0];
-      if (isAllowlisted({ relativeFile, snippet })) {
+      if (isAllowlisted({ relativeFile, snippet, allowlist })) {
         continue;
       }
       violations.push({
@@ -141,7 +145,7 @@ export function findIntervalLiteralViolations({ relativeFile, content }) {
   return violations;
 }
 
-export function findMoneyComparisonViolations({ relativeFile, content }) {
+export function findMoneyComparisonViolations({ relativeFile, content, allowlist = businessLiteralAllowlist }) {
   if (!isBusinessLiteralSqlGuardedFile(relativeFile)) {
     return [];
   }
@@ -154,7 +158,7 @@ export function findMoneyComparisonViolations({ relativeFile, content }) {
       if (!isMoneyComparisonIdentifier(identifier)) {
         continue;
       }
-      if (isAllowlisted({ relativeFile, snippet })) {
+      if (isAllowlisted({ relativeFile, snippet, allowlist })) {
         continue;
       }
       violations.push({
@@ -168,7 +172,7 @@ export function findMoneyComparisonViolations({ relativeFile, content }) {
   return violations;
 }
 
-export function findBusinessConstantNameViolations({ relativeFile, content }) {
+export function findBusinessConstantNameViolations({ relativeFile, content, allowlist = businessLiteralAllowlist }) {
   if (!isBusinessConstantNameGuardedFile(relativeFile)) {
     return [];
   }
@@ -184,7 +188,7 @@ export function findBusinessConstantNameViolations({ relativeFile, content }) {
   businessConstantNamePattern.lastIndex = 0;
   for (const match of content.matchAll(businessConstantNamePattern)) {
     const [snippet, name] = match;
-    if (isAllowlisted({ relativeFile, snippet: name })) {
+    if (isAllowlisted({ relativeFile, snippet: name, allowlist })) {
       continue;
     }
     violations.push({
@@ -197,10 +201,10 @@ export function findBusinessConstantNameViolations({ relativeFile, content }) {
   return violations;
 }
 
-export function findBusinessLiteralGuardViolations({ relativeFile, content }) {
+export function findBusinessLiteralGuardViolations({ relativeFile, content, allowlist = businessLiteralAllowlist }) {
   return [
-    ...findIntervalLiteralViolations({ relativeFile, content }),
-    ...findMoneyComparisonViolations({ relativeFile, content }),
-    ...findBusinessConstantNameViolations({ relativeFile, content }),
+    ...findIntervalLiteralViolations({ relativeFile, content, allowlist }),
+    ...findMoneyComparisonViolations({ relativeFile, content, allowlist }),
+    ...findBusinessConstantNameViolations({ relativeFile, content, allowlist }),
   ];
 }

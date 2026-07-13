@@ -1,6 +1,11 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import {
+  settlementFraudVelocityPolicy,
+  type SettlementFraudVelocityPolicyValue,
+} from "../../domain/fraud-velocity-policy";
 
 type ShippingAddressSnapshot = Readonly<{
   line1: string;
@@ -144,39 +149,85 @@ function normalizeSellerPayouts(value: unknown): SellerPayoutComponent[] {
     : [];
 }
 
-function velocityFlagsSql(nowParam: string) {
+/** Optional platform-policy dependency threaded through every builder in this file; absent falls back to the compiled launch default (see `resolveFraudVelocityPolicy`). */
+export type AccountRiskSourcePolicyDeps = Readonly<{
+  policies?: Pick<PolicyRuntime, "resolvePolicy">;
+}>;
+
+/**
+ * Resolves the settlement fraud/velocity policy, failing SAFE to the
+ * compiled launch default both when no `policies` runtime is wired
+ * (standalone/test usage) and when resolution itself throws (policy store
+ * unavailable) -- mirroring the rate-limit policy's posture
+ * (`bounded-contexts/platform-operations/features/rate-limit-policy/api/rate-limit-policy-resolver.ts`):
+ * an unavailable policy store must never disable fraud/velocity detection.
+ */
+async function resolveFraudVelocityPolicy(
+  policies: Pick<PolicyRuntime, "resolvePolicy"> | undefined,
+): Promise<SettlementFraudVelocityPolicyValue> {
+  if (!policies) {
+    return settlementFraudVelocityPolicy.defaultValue;
+  }
+  try {
+    const resolved = await policies.resolvePolicy(settlementFraudVelocityPolicy);
+    return resolved.value;
+  } catch {
+    return settlementFraudVelocityPolicy.defaultValue;
+  }
+}
+
+function velocityFlagsSql(
+  params: Readonly<{
+    now: string;
+    chargebackMinCount: string;
+    chargebackMinRateBps: string;
+    newSellerAgeDays: string;
+    newSellerMinValueCents: string;
+    reviewMinCount: string;
+    reviewMaxMedianAgeDays: string;
+    youngBuyerAgeDays: string;
+    youngBuyerMinSpendCents: string;
+  }>,
+) {
   return `jsonb_strip_nulls(jsonb_build_object(
     'chargeback_velocity',
-      CASE WHEN chargeback_30d_count >= 2 OR chargeback_30d_rate_bps >= 200 THEN jsonb_build_object(
+      CASE WHEN chargeback_30d_count >= ${params.chargebackMinCount}::integer
+             OR chargeback_30d_rate_bps >= ${params.chargebackMinRateBps}::integer THEN jsonb_build_object(
         'manualPayoutReviewCandidate', TRUE,
         'chargeback30dCount', chargeback_30d_count,
         'chargeback30dRateBps', chargeback_30d_rate_bps
       ) END,
     'new_seller_listing_velocity',
       CASE WHEN account_created_at IS NOT NULL
-             AND ${nowParam}::timestamptz - account_created_at < interval '30 days'
-             AND listing_24h_value_cents >= 250000 THEN jsonb_build_object(
+             AND ${params.now}::timestamptz - account_created_at < (${params.newSellerAgeDays}::text || ' days')::interval
+             AND listing_24h_value_cents >= ${params.newSellerMinValueCents}::bigint THEN jsonb_build_object(
         'listing24hCount', listing_24h_count,
         'listing24hValueCents', listing_24h_value_cents
       ) END,
     'review_velocity',
-      CASE WHEN review_24h_count >= 5
+      CASE WHEN review_24h_count >= ${params.reviewMinCount}::integer
              AND review_24h_median_reviewer_age_days IS NOT NULL
-             AND review_24h_median_reviewer_age_days < 7 THEN jsonb_build_object(
+             AND review_24h_median_reviewer_age_days < ${params.reviewMaxMedianAgeDays}::numeric THEN jsonb_build_object(
         'review24hCount', review_24h_count,
         'medianReviewerAgeDays', review_24h_median_reviewer_age_days
       ) END,
     'young_buyer_spend_velocity',
       CASE WHEN account_created_at IS NOT NULL
-             AND ${nowParam}::timestamptz - account_created_at < interval '7 days'
-             AND buyer_spend_24h_cents >= 200000 THEN jsonb_build_object(
+             AND ${params.now}::timestamptz - account_created_at < (${params.youngBuyerAgeDays}::text || ' days')::interval
+             AND buyer_spend_24h_cents >= ${params.youngBuyerMinSpendCents}::bigint THEN jsonb_build_object(
         'buyerOrder24hCount', buyer_order_24h_count,
         'buyerSpend24hCents', buyer_spend_24h_cents
       ) END
   ))`;
 }
 
-async function refreshVelocityCounters(db: PgQueryable, accountId: string, now: string) {
+async function refreshVelocityCounters(
+  db: PgQueryable,
+  accountId: string,
+  now: string,
+  policies: Pick<PolicyRuntime, "resolvePolicy"> | undefined,
+) {
+  const policy = await resolveFraudVelocityPolicy(policies);
   await db.query(
     `INSERT INTO settlement_account_risk_sources (
        account_id,
@@ -196,44 +247,44 @@ async function refreshVelocityCounters(db: PgQueryable, accountId: string, now: 
        SELECT
          COUNT(*) FILTER (
            WHERE source_kind = 'chargeback-received'
-             AND occurred_at >= $2::timestamptz - interval '7 days'
+             AND occurred_at >= $2::timestamptz - ($3::text || ' days')::interval
          )::integer AS chargeback_7d_count,
          COUNT(*) FILTER (
            WHERE source_kind = 'chargeback-received'
-             AND occurred_at >= $2::timestamptz - interval '30 days'
+             AND occurred_at >= $2::timestamptz - ($4::text || ' days')::interval
          )::integer AS chargeback_30d_count,
          COUNT(*) FILTER (
            WHERE source_kind = 'seller-payment-created'
-             AND occurred_at >= $2::timestamptz - interval '30 days'
+             AND occurred_at >= $2::timestamptz - ($4::text || ' days')::interval
          )::integer AS seller_payment_30d_count,
          COUNT(*) FILTER (
            WHERE source_kind = 'listing-created'
-             AND occurred_at >= $2::timestamptz - interval '24 hours'
+             AND occurred_at >= $2::timestamptz - ($5::text || ' hours')::interval
          )::integer AS listing_24h_count,
          COALESCE(SUM(amount_cents) FILTER (
            WHERE source_kind = 'listing-created'
-             AND occurred_at >= $2::timestamptz - interval '24 hours'
+             AND occurred_at >= $2::timestamptz - ($5::text || ' hours')::interval
          ), 0)::bigint AS listing_24h_value_cents,
          COUNT(*) FILTER (
            WHERE source_kind = 'review-received'
-             AND occurred_at >= $2::timestamptz - interval '24 hours'
+             AND occurred_at >= $2::timestamptz - ($6::text || ' hours')::interval
          )::integer AS review_24h_count,
          ROUND((
            percentile_cont(0.5) WITHIN GROUP (
              ORDER BY EXTRACT(EPOCH FROM (occurred_at - reviewer_account_created_at)) / 86400
            ) FILTER (
              WHERE source_kind = 'review-received'
-               AND occurred_at >= $2::timestamptz - interval '24 hours'
+               AND occurred_at >= $2::timestamptz - ($6::text || ' hours')::interval
                AND reviewer_account_created_at IS NOT NULL
            )
          )::numeric, 2) AS review_24h_median_reviewer_age_days,
          COUNT(*) FILTER (
            WHERE source_kind = 'buyer-payment-created'
-             AND occurred_at >= $2::timestamptz - interval '24 hours'
+             AND occurred_at >= $2::timestamptz - ($7::text || ' hours')::interval
          )::integer AS buyer_order_24h_count,
          COALESCE(SUM(amount_cents) FILTER (
            WHERE source_kind = 'buyer-payment-created'
-             AND occurred_at >= $2::timestamptz - interval '24 hours'
+             AND occurred_at >= $2::timestamptz - ($7::text || ' hours')::interval
          ), 0)::bigint AS buyer_spend_24h_cents
        FROM settlement_account_velocity_sources
        WHERE account_id = $1
@@ -265,7 +316,17 @@ async function refreshVelocityCounters(db: PgQueryable, accountId: string, now: 
        review_24h_median_reviewer_age_days,
        buyer_order_24h_count,
        buyer_spend_24h_cents,
-       ${velocityFlagsSql("$2")},
+       ${velocityFlagsSql({
+         now: "$2",
+         chargebackMinCount: "$8",
+         chargebackMinRateBps: "$9",
+         newSellerAgeDays: "$10",
+         newSellerMinValueCents: "$11",
+         reviewMinCount: "$12",
+         reviewMaxMedianAgeDays: "$13",
+         youngBuyerAgeDays: "$14",
+         youngBuyerMinSpendCents: "$15",
+       })},
        $2
      FROM rollup
      ON CONFLICT (account_id) DO UPDATE SET
@@ -280,7 +341,23 @@ async function refreshVelocityCounters(db: PgQueryable, accountId: string, now: 
        buyer_spend_24h_cents = EXCLUDED.buyer_spend_24h_cents,
        velocity_alert_flags = EXCLUDED.velocity_alert_flags,
        updated_at = EXCLUDED.updated_at`,
-    [accountId, now],
+    [
+      accountId,
+      now,
+      policy.chargebackReportingWindowDays,
+      policy.chargebackVelocity.lookbackDays,
+      policy.newSellerListingVelocity.windowHours,
+      policy.reviewVelocity.windowHours,
+      policy.youngBuyerSpendVelocity.windowHours,
+      policy.chargebackVelocity.minCount,
+      policy.chargebackVelocity.minRateBps,
+      policy.newSellerListingVelocity.newAccountAgeDays,
+      policy.newSellerListingVelocity.minValueCents,
+      policy.reviewVelocity.minCount,
+      policy.reviewVelocity.maxMedianReviewerAgeDays,
+      policy.youngBuyerSpendVelocity.newAccountAgeDays,
+      policy.youngBuyerSpendVelocity.minSpendCents,
+    ],
   );
 }
 
@@ -295,6 +372,7 @@ async function upsertVelocitySource(
     reviewerAccountId?: string | null;
     updatedAt: string;
   }>,
+  policies: Pick<PolicyRuntime, "resolvePolicy"> | undefined,
 ) {
   await db.query(
     `INSERT INTO settlement_account_velocity_sources (
@@ -335,7 +413,7 @@ async function upsertVelocitySource(
       params.updatedAt,
     ],
   );
-  await refreshVelocityCounters(db, params.accountId, params.updatedAt);
+  await refreshVelocityCounters(db, params.accountId, params.updatedAt, policies);
 }
 
 // review_count/average_rating are payout-risk inputs (m108): author_role = 'buyer'
@@ -396,7 +474,10 @@ async function updateBadge(
   );
 }
 
-export function buildSettlementIdentityAccountRiskSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildSettlementIdentityAccountRiskSourceProjectionHandlers(
+  db: PgQueryable,
+  deps: AccountRiskSourcePolicyDeps = {},
+): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
       const data = event.data as { accountId: string; createdAt?: string | null };
@@ -428,7 +509,7 @@ export function buildSettlementIdentityAccountRiskSourceProjectionHandlers(db: P
         [data.accountId],
       );
       for (const row of touched.rows) {
-        await refreshVelocityCounters(db, row.account_id, event.timing.recordedAt);
+        await refreshVelocityCounters(db, row.account_id, event.timing.recordedAt, deps.policies);
       }
     },
     "identity.account.badge-assigned": async (event) => {
@@ -536,18 +617,25 @@ export function buildSettlementIdentityAccountRiskSourceProjectionHandlers(db: P
   };
 }
 
-export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildSettlementReputationAccountRiskSourceProjectionHandlers(
+  db: PgQueryable,
+  deps: AccountRiskSourcePolicyDeps = {},
+): ProjectorHandlerMap {
   return {
     "marketplace.listing.created": async (event) => {
       const data = event.data as { listingId: string; accountId: string; priceAmount: string };
-      await upsertVelocitySource(db, {
-        sourceKind: "listing-created",
-        sourceId: data.listingId,
-        accountId: data.accountId,
-        occurredAt: event.timing.occurredAt ?? event.timing.recordedAt,
-        amountCents: moneyToCents(data.priceAmount),
-        updatedAt: event.timing.recordedAt,
-      });
+      await upsertVelocitySource(
+        db,
+        {
+          sourceKind: "listing-created",
+          sourceId: data.listingId,
+          accountId: data.accountId,
+          occurredAt: event.timing.occurredAt ?? event.timing.recordedAt,
+          amountCents: moneyToCents(data.priceAmount),
+          updatedAt: event.timing.recordedAt,
+        },
+        deps.policies,
+      );
     },
     "marketplace.review.submitted": async (event) => {
       const data = event.data as {
@@ -579,14 +667,18 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db:
         [data.reviewId, data.orderId, data.subjectAccountId, data.authorRole, data.rating, data.submittedAt],
       );
       await refreshAccountReviews(db, data.subjectAccountId, data.submittedAt);
-      await upsertVelocitySource(db, {
-        sourceKind: "review-received",
-        sourceId: data.reviewId,
-        accountId: data.subjectAccountId,
-        occurredAt: data.submittedAt,
-        reviewerAccountId: data.authorAccountId ?? null,
-        updatedAt: event.timing.recordedAt,
-      });
+      await upsertVelocitySource(
+        db,
+        {
+          sourceKind: "review-received",
+          sourceId: data.reviewId,
+          accountId: data.subjectAccountId,
+          occurredAt: data.submittedAt,
+          reviewerAccountId: data.authorAccountId ?? null,
+          updatedAt: event.timing.recordedAt,
+        },
+        deps.policies,
+      );
     },
     "marketplace.review.updated": async (event) => {
       const data = event.data as { reviewId: string; rating: number; updatedAt: string };
@@ -636,7 +728,10 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db:
   };
 }
 
-export function buildSettlementPaymentsAccountRiskSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildSettlementPaymentsAccountRiskSourceProjectionHandlers(
+  db: PgQueryable,
+  deps: AccountRiskSourcePolicyDeps = {},
+): ProjectorHandlerMap {
   return {
     "payments.payment-created": async (event) => {
       const data = event.data as {
@@ -647,22 +742,30 @@ export function buildSettlementPaymentsAccountRiskSourceProjectionHandlers(db: P
         sellerPayouts?: unknown;
       };
       const occurredAt = data.createdAt ?? event.timing.occurredAt ?? event.timing.recordedAt;
-      await upsertVelocitySource(db, {
-        sourceKind: "buyer-payment-created",
-        sourceId: data.paymentId,
-        accountId: data.buyerAccountId,
-        occurredAt,
-        amountCents: moneyToCents(data.amount),
-        updatedAt: event.timing.recordedAt,
-      });
-      for (const payout of normalizeSellerPayouts(data.sellerPayouts)) {
-        await upsertVelocitySource(db, {
-          sourceKind: "seller-payment-created",
-          sourceId: `${data.paymentId}:${payout.orderId}`,
-          accountId: payout.sellerAccountId,
+      await upsertVelocitySource(
+        db,
+        {
+          sourceKind: "buyer-payment-created",
+          sourceId: data.paymentId,
+          accountId: data.buyerAccountId,
           occurredAt,
+          amountCents: moneyToCents(data.amount),
           updatedAt: event.timing.recordedAt,
-        });
+        },
+        deps.policies,
+      );
+      for (const payout of normalizeSellerPayouts(data.sellerPayouts)) {
+        await upsertVelocitySource(
+          db,
+          {
+            sourceKind: "seller-payment-created",
+            sourceId: `${data.paymentId}:${payout.orderId}`,
+            accountId: payout.sellerAccountId,
+            occurredAt,
+            updatedAt: event.timing.recordedAt,
+          },
+          deps.policies,
+        );
       }
     },
     "payments.payment-disputed": async (event) => {
@@ -674,13 +777,17 @@ export function buildSettlementPaymentsAccountRiskSourceProjectionHandlers(db: P
       };
       const occurredAt = data.disputedAt ?? event.timing.occurredAt ?? event.timing.recordedAt;
       for (const payout of normalizeSellerPayouts(data.sellerPayouts)) {
-        await upsertVelocitySource(db, {
-          sourceKind: "chargeback-received",
-          sourceId: `${data.providerDisputeId ?? data.paymentId}:${payout.orderId}`,
-          accountId: payout.sellerAccountId,
-          occurredAt,
-          updatedAt: event.timing.recordedAt,
-        });
+        await upsertVelocitySource(
+          db,
+          {
+            sourceKind: "chargeback-received",
+            sourceId: `${data.providerDisputeId ?? data.paymentId}:${payout.orderId}`,
+            accountId: payout.sellerAccountId,
+            occurredAt,
+            updatedAt: event.timing.recordedAt,
+          },
+          deps.policies,
+        );
       }
     },
     "payments.payment-fraud-warning-received": async (event) => {

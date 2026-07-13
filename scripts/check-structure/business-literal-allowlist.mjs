@@ -12,9 +12,13 @@
 // otherwise flag, in one of three shapes:
 //
 //   1. An operational (non-business) window or comparison that predates this
-//      milestone and was never a platform-policy candidate -- fraud/velocity
-//      heuristics and risk-summary reporting windows, which are m107 trust &
-//      safety territory, not m110's Tier 1-3 money/deadline/rate-limit list.
+//      milestone and was never a platform-policy candidate -- a single
+//      reporting query's own FILTER-clause window, not a value duplicated
+//      across functions. (The m107 fraud/velocity heuristic thresholds that
+//      used to live in this bucket were migrated onto `definePolicy` by
+//      the settlement and platform-operations trust-and-safety policies --
+//      see `bounded-contexts/settlement/features/wallets/domain/fraud-velocity-policy.ts`
+//      and `bounded-contexts/platform-operations/features/risk-alerts/domain/risk-alert-threshold-policy.ts`.)
 //   2. A page-size / result-count constant that only coincidentally matches
 //      the curated `_LIMIT` suffix.
 //   3. A pre-existing business-shaped threshold outside the audit's Tier
@@ -39,20 +43,6 @@ export const businessLiteralAllowlist = [
     reason:
       "Payout risk-summary lookback window (getAccountPayoutRiskSummary): a single reporting query's FILTER clauses, not a value duplicated across functions -- the historical bug pattern this guard exists to catch.",
     owner: "settlement",
-    ref: "#4293",
-  },
-  {
-    file: "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts",
-    reason:
-      "Chargeback/listing/review/buyer-spend velocity-flag thresholds and windows are m107 trust-and-safety fraud-detection heuristics, not part of the m110 audit's Tier 1-3 findings ledger (epic #4294). Tracked as a future migration candidate under trust & safety hardening, not this milestone.",
-    owner: "settlement",
-    ref: "#4293",
-  },
-  {
-    file: "bounded-contexts/platform-operations/features/risk-alerts/read-model/projection.ts",
-    reason:
-      "Companion velocity-counter windows for the settlement account-risk-source projection above; same m107 trust-and-safety scope, same out-of-Tier-ledger disposition.",
-    owner: "platform-operations",
     ref: "#4293",
   },
   {

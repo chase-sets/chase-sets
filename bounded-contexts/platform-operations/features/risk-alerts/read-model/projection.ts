@@ -1,5 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { riskAlertThresholdPolicy, type RiskAlertThresholdPolicyValue } from "../domain/risk-alert-threshold-policy";
 
 type RiskAlertKind =
   | "chargeback-velocity"
@@ -8,16 +10,32 @@ type RiskAlertKind =
   | "young-buyer-spend-velocity";
 type SellerPayoutComponent = Readonly<{ orderId: string; sellerAccountId: string }>;
 
-export const riskAlertThresholdDefaults = {
-  chargeback30dCount: 2,
-  chargeback30dRateBps: 200,
-  newSellerAgeDays: 30,
-  newSellerListingValue24hCents: 250000,
-  review24hCount: 5,
-  medianReviewerAgeDays: 7,
-  youngBuyerAgeDays: 7,
-  youngBuyerSpend24hCents: 200000,
-} as const;
+/** Optional platform-policy dependency threaded through every builder in this file; absent falls back to the compiled launch default (see `resolveRiskAlertThresholdPolicy`). */
+export type RiskAlertPolicyDeps = Readonly<{
+  policies?: Pick<PolicyRuntime, "resolvePolicy">;
+}>;
+
+/**
+ * Resolves the risk-alert threshold policy, failing SAFE to the compiled
+ * launch default both when no `policies` runtime is wired (standalone/test
+ * usage) and when resolution itself throws (policy store unavailable) --
+ * mirroring the rate-limit policy's posture
+ * (`../../rate-limit-policy/api/rate-limit-policy-resolver.ts`): an
+ * unavailable policy store must never disable fraud/velocity alerting.
+ */
+async function resolveRiskAlertThresholdPolicy(
+  policies: Pick<PolicyRuntime, "resolvePolicy"> | undefined,
+): Promise<RiskAlertThresholdPolicyValue> {
+  if (!policies) {
+    return riskAlertThresholdPolicy.defaultValue;
+  }
+  try {
+    const resolved = await policies.resolvePolicy(riskAlertThresholdPolicy);
+    return resolved.value;
+  } catch {
+    return riskAlertThresholdPolicy.defaultValue;
+  }
+}
 
 function moneyToCents(value: unknown): number {
   const parsed = Number.parseFloat(String(value ?? "0"));
@@ -92,7 +110,13 @@ async function upsertAlert(
   );
 }
 
-async function refreshAccountAlerts(db: PgQueryable, accountId: string, now: string) {
+async function refreshAccountAlerts(
+  db: PgQueryable,
+  accountId: string,
+  now: string,
+  policies: Pick<PolicyRuntime, "resolvePolicy"> | undefined,
+) {
+  const policy = await resolveRiskAlertThresholdPolicy(policies);
   const result = await db.query<{
     account_created_at: string | null;
     chargeback_30d_count: string;
@@ -108,40 +132,40 @@ async function refreshAccountAlerts(db: PgQueryable, accountId: string, now: str
        SELECT
          COUNT(*) FILTER (
            WHERE source_kind = 'chargeback-received'
-             AND occurred_at >= $2::timestamptz - interval '30 days'
+             AND occurred_at >= $2::timestamptz - ($3::text || ' days')::interval
          )::integer AS chargeback_30d_count,
          COUNT(*) FILTER (
            WHERE source_kind = 'seller-payment-created'
-             AND occurred_at >= $2::timestamptz - interval '30 days'
+             AND occurred_at >= $2::timestamptz - ($3::text || ' days')::interval
          )::integer AS seller_payment_30d_count,
          COUNT(*) FILTER (
            WHERE source_kind = 'listing-created'
-             AND occurred_at >= $2::timestamptz - interval '24 hours'
+             AND occurred_at >= $2::timestamptz - ($4::text || ' hours')::interval
          )::integer AS listing_24h_count,
          COALESCE(SUM(amount_cents) FILTER (
            WHERE source_kind = 'listing-created'
-             AND occurred_at >= $2::timestamptz - interval '24 hours'
+             AND occurred_at >= $2::timestamptz - ($4::text || ' hours')::interval
          ), 0)::bigint AS listing_24h_value_cents,
          COUNT(*) FILTER (
            WHERE source_kind = 'review-received'
-             AND occurred_at >= $2::timestamptz - interval '24 hours'
+             AND occurred_at >= $2::timestamptz - ($5::text || ' hours')::interval
          )::integer AS review_24h_count,
          ROUND((
            percentile_cont(0.5) WITHIN GROUP (
              ORDER BY EXTRACT(EPOCH FROM (occurred_at - reviewer_account_created_at)) / 86400
            ) FILTER (
              WHERE source_kind = 'review-received'
-               AND occurred_at >= $2::timestamptz - interval '24 hours'
+               AND occurred_at >= $2::timestamptz - ($5::text || ' hours')::interval
                AND reviewer_account_created_at IS NOT NULL
            )
          )::numeric, 2) AS review_24h_median_reviewer_age_days,
          COUNT(*) FILTER (
            WHERE source_kind = 'buyer-payment-created'
-             AND occurred_at >= $2::timestamptz - interval '24 hours'
+             AND occurred_at >= $2::timestamptz - ($6::text || ' hours')::interval
          )::integer AS buyer_order_24h_count,
          COALESCE(SUM(amount_cents) FILTER (
            WHERE source_kind = 'buyer-payment-created'
-             AND occurred_at >= $2::timestamptz - interval '24 hours'
+             AND occurred_at >= $2::timestamptz - ($6::text || ' hours')::interval
          ), 0)::bigint AS buyer_spend_24h_cents
        FROM platform_operations_risk_alert_velocity_sources
        WHERE account_id = $1
@@ -161,17 +185,21 @@ async function refreshAccountAlerts(db: PgQueryable, accountId: string, now: str
        counters.buyer_spend_24h_cents::text AS buyer_spend_24h_cents
      FROM counters
      LEFT JOIN platform_operations_risk_alert_account_sources account ON account.account_id = $1`,
-    [accountId, now],
+    [
+      accountId,
+      now,
+      policy.chargebackLookbackDays,
+      policy.newSellerListingWindowHours,
+      policy.reviewWindowHours,
+      policy.youngBuyerSpendWindowHours,
+    ],
   );
   const row = result.rows[0];
   if (!row) return;
 
   const chargeback30dCount = Number(row.chargeback_30d_count);
   const chargeback30dRateBps = Number(row.chargeback_30d_rate_bps);
-  if (
-    chargeback30dCount >= riskAlertThresholdDefaults.chargeback30dCount ||
-    chargeback30dRateBps >= riskAlertThresholdDefaults.chargeback30dRateBps
-  ) {
+  if (chargeback30dCount >= policy.chargebackMinCount || chargeback30dRateBps >= policy.chargebackMinRateBps) {
     await upsertAlert(db, {
       accountId,
       kind: "chargeback-velocity",
@@ -179,8 +207,8 @@ async function refreshAccountAlerts(db: PgQueryable, accountId: string, now: str
       manualPayoutReviewCandidate: true,
       evidence: { chargeback30dCount, chargeback30dRateBps },
       threshold: {
-        chargeback30dCount: riskAlertThresholdDefaults.chargeback30dCount,
-        chargeback30dRateBps: riskAlertThresholdDefaults.chargeback30dRateBps,
+        chargeback30dCount: policy.chargebackMinCount,
+        chargeback30dRateBps: policy.chargebackMinRateBps,
       },
       triggeredAt: now,
       updatedAt: now,
@@ -192,8 +220,8 @@ async function refreshAccountAlerts(db: PgQueryable, accountId: string, now: str
   const listing24hValueCents = Number(row.listing_24h_value_cents);
   if (
     ageDays !== null &&
-    ageDays < riskAlertThresholdDefaults.newSellerAgeDays &&
-    listing24hValueCents >= riskAlertThresholdDefaults.newSellerListingValue24hCents
+    ageDays < policy.newSellerAgeDays &&
+    listing24hValueCents >= policy.newSellerListingValue24hCents
   ) {
     await upsertAlert(db, {
       accountId,
@@ -205,8 +233,8 @@ async function refreshAccountAlerts(db: PgQueryable, accountId: string, now: str
         listing24hValueCents,
       },
       threshold: {
-        accountAgeDaysLessThan: riskAlertThresholdDefaults.newSellerAgeDays,
-        listing24hValueCents: riskAlertThresholdDefaults.newSellerListingValue24hCents,
+        accountAgeDaysLessThan: policy.newSellerAgeDays,
+        listing24hValueCents: policy.newSellerListingValue24hCents,
       },
       triggeredAt: now,
       updatedAt: now,
@@ -217,9 +245,9 @@ async function refreshAccountAlerts(db: PgQueryable, accountId: string, now: str
   const medianReviewerAgeDays =
     row.review_24h_median_reviewer_age_days === null ? null : Number(row.review_24h_median_reviewer_age_days);
   if (
-    review24hCount >= riskAlertThresholdDefaults.review24hCount &&
+    review24hCount >= policy.review24hCount &&
     medianReviewerAgeDays !== null &&
-    medianReviewerAgeDays < riskAlertThresholdDefaults.medianReviewerAgeDays
+    medianReviewerAgeDays < policy.medianReviewerAgeDays
   ) {
     await upsertAlert(db, {
       accountId,
@@ -227,8 +255,8 @@ async function refreshAccountAlerts(db: PgQueryable, accountId: string, now: str
       severity: "medium",
       evidence: { review24hCount, medianReviewerAgeDays },
       threshold: {
-        review24hCount: riskAlertThresholdDefaults.review24hCount,
-        medianReviewerAgeDaysLessThan: riskAlertThresholdDefaults.medianReviewerAgeDays,
+        review24hCount: policy.review24hCount,
+        medianReviewerAgeDaysLessThan: policy.medianReviewerAgeDays,
       },
       triggeredAt: now,
       updatedAt: now,
@@ -236,11 +264,7 @@ async function refreshAccountAlerts(db: PgQueryable, accountId: string, now: str
   }
 
   const buyerSpend24hCents = Number(row.buyer_spend_24h_cents);
-  if (
-    ageDays !== null &&
-    ageDays < riskAlertThresholdDefaults.youngBuyerAgeDays &&
-    buyerSpend24hCents >= riskAlertThresholdDefaults.youngBuyerSpend24hCents
-  ) {
+  if (ageDays !== null && ageDays < policy.youngBuyerAgeDays && buyerSpend24hCents >= policy.youngBuyerSpend24hCents) {
     await upsertAlert(db, {
       accountId,
       kind: "young-buyer-spend-velocity",
@@ -251,8 +275,8 @@ async function refreshAccountAlerts(db: PgQueryable, accountId: string, now: str
         buyerSpend24hCents,
       },
       threshold: {
-        accountAgeDaysLessThan: riskAlertThresholdDefaults.youngBuyerAgeDays,
-        buyerSpend24hCents: riskAlertThresholdDefaults.youngBuyerSpend24hCents,
+        accountAgeDaysLessThan: policy.youngBuyerAgeDays,
+        buyerSpend24hCents: policy.youngBuyerSpend24hCents,
       },
       triggeredAt: now,
       updatedAt: now,
@@ -271,6 +295,7 @@ async function upsertVelocitySource(
     reviewerAccountId?: string | null;
     updatedAt: string;
   }>,
+  policies: Pick<PolicyRuntime, "resolvePolicy"> | undefined,
 ) {
   await db.query(
     `INSERT INTO platform_operations_risk_alert_velocity_sources (
@@ -306,10 +331,13 @@ async function upsertVelocitySource(
       params.updatedAt,
     ],
   );
-  await refreshAccountAlerts(db, params.accountId, params.updatedAt);
+  await refreshAccountAlerts(db, params.accountId, params.updatedAt, policies);
 }
 
-export function buildIdentityRiskAlertProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildIdentityRiskAlertProjectionHandlers(
+  db: PgQueryable,
+  deps: RiskAlertPolicyDeps = {},
+): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
       const data = event.data as { accountId: string; createdAt?: string | null };
@@ -341,24 +369,31 @@ export function buildIdentityRiskAlertProjectionHandlers(db: PgQueryable): Proje
         [data.accountId],
       );
       for (const row of touched.rows) {
-        await refreshAccountAlerts(db, row.account_id, event.timing.recordedAt);
+        await refreshAccountAlerts(db, row.account_id, event.timing.recordedAt, deps.policies);
       }
     },
   };
 }
 
-export function buildMarketplaceRiskAlertProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildMarketplaceRiskAlertProjectionHandlers(
+  db: PgQueryable,
+  deps: RiskAlertPolicyDeps = {},
+): ProjectorHandlerMap {
   return {
     "marketplace.listing.created": async (event) => {
       const data = event.data as { listingId: string; accountId: string; priceAmount: string };
-      await upsertVelocitySource(db, {
-        sourceKind: "listing-created",
-        sourceId: data.listingId,
-        accountId: data.accountId,
-        occurredAt: event.timing.occurredAt ?? event.timing.recordedAt,
-        amountCents: moneyToCents(data.priceAmount),
-        updatedAt: event.timing.recordedAt,
-      });
+      await upsertVelocitySource(
+        db,
+        {
+          sourceKind: "listing-created",
+          sourceId: data.listingId,
+          accountId: data.accountId,
+          occurredAt: event.timing.occurredAt ?? event.timing.recordedAt,
+          amountCents: moneyToCents(data.priceAmount),
+          updatedAt: event.timing.recordedAt,
+        },
+        deps.policies,
+      );
     },
     "marketplace.review.submitted": async (event) => {
       const data = event.data as {
@@ -367,19 +402,26 @@ export function buildMarketplaceRiskAlertProjectionHandlers(db: PgQueryable): Pr
         subjectAccountId: string;
         submittedAt: string;
       };
-      await upsertVelocitySource(db, {
-        sourceKind: "review-received",
-        sourceId: data.reviewId,
-        accountId: data.subjectAccountId,
-        occurredAt: data.submittedAt,
-        reviewerAccountId: data.authorAccountId ?? null,
-        updatedAt: event.timing.recordedAt,
-      });
+      await upsertVelocitySource(
+        db,
+        {
+          sourceKind: "review-received",
+          sourceId: data.reviewId,
+          accountId: data.subjectAccountId,
+          occurredAt: data.submittedAt,
+          reviewerAccountId: data.authorAccountId ?? null,
+          updatedAt: event.timing.recordedAt,
+        },
+        deps.policies,
+      );
     },
   };
 }
 
-export function buildPaymentsRiskAlertProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildPaymentsRiskAlertProjectionHandlers(
+  db: PgQueryable,
+  deps: RiskAlertPolicyDeps = {},
+): ProjectorHandlerMap {
   return {
     "payments.payment-created": async (event) => {
       const data = event.data as {
@@ -390,22 +432,30 @@ export function buildPaymentsRiskAlertProjectionHandlers(db: PgQueryable): Proje
         sellerPayouts?: unknown;
       };
       const occurredAt = data.createdAt ?? event.timing.occurredAt ?? event.timing.recordedAt;
-      await upsertVelocitySource(db, {
-        sourceKind: "buyer-payment-created",
-        sourceId: data.paymentId,
-        accountId: data.buyerAccountId,
-        occurredAt,
-        amountCents: moneyToCents(data.amount),
-        updatedAt: event.timing.recordedAt,
-      });
-      for (const payout of normalizeSellerPayouts(data.sellerPayouts)) {
-        await upsertVelocitySource(db, {
-          sourceKind: "seller-payment-created",
-          sourceId: `${data.paymentId}:${payout.orderId}`,
-          accountId: payout.sellerAccountId,
+      await upsertVelocitySource(
+        db,
+        {
+          sourceKind: "buyer-payment-created",
+          sourceId: data.paymentId,
+          accountId: data.buyerAccountId,
           occurredAt,
+          amountCents: moneyToCents(data.amount),
           updatedAt: event.timing.recordedAt,
-        });
+        },
+        deps.policies,
+      );
+      for (const payout of normalizeSellerPayouts(data.sellerPayouts)) {
+        await upsertVelocitySource(
+          db,
+          {
+            sourceKind: "seller-payment-created",
+            sourceId: `${data.paymentId}:${payout.orderId}`,
+            accountId: payout.sellerAccountId,
+            occurredAt,
+            updatedAt: event.timing.recordedAt,
+          },
+          deps.policies,
+        );
       }
     },
     "payments.payment-disputed": async (event) => {
@@ -417,13 +467,17 @@ export function buildPaymentsRiskAlertProjectionHandlers(db: PgQueryable): Proje
       };
       const occurredAt = data.disputedAt ?? event.timing.occurredAt ?? event.timing.recordedAt;
       for (const payout of normalizeSellerPayouts(data.sellerPayouts)) {
-        await upsertVelocitySource(db, {
-          sourceKind: "chargeback-received",
-          sourceId: `${data.providerDisputeId ?? data.paymentId}:${payout.orderId}`,
-          accountId: payout.sellerAccountId,
-          occurredAt,
-          updatedAt: event.timing.recordedAt,
-        });
+        await upsertVelocitySource(
+          db,
+          {
+            sourceKind: "chargeback-received",
+            sourceId: `${data.providerDisputeId ?? data.paymentId}:${payout.orderId}`,
+            accountId: payout.sellerAccountId,
+            occurredAt,
+            updatedAt: event.timing.recordedAt,
+          },
+          deps.policies,
+        );
       }
     },
   };
@@ -461,11 +515,11 @@ export function buildPlatformOperationsRiskAlertProjectionHandlers(db: PgQueryab
   };
 }
 
-export function buildRiskAlertProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildRiskAlertProjectionHandlers(db: PgQueryable, deps: RiskAlertPolicyDeps = {}): ProjectorHandlerMap {
   return {
-    ...buildIdentityRiskAlertProjectionHandlers(db),
-    ...buildMarketplaceRiskAlertProjectionHandlers(db),
-    ...buildPaymentsRiskAlertProjectionHandlers(db),
+    ...buildIdentityRiskAlertProjectionHandlers(db, deps),
+    ...buildMarketplaceRiskAlertProjectionHandlers(db, deps),
+    ...buildPaymentsRiskAlertProjectionHandlers(db, deps),
     ...buildPlatformOperationsRiskAlertProjectionHandlers(db),
   };
 }

@@ -246,9 +246,25 @@ describe("settlement account risk source projection", () => {
       expect.stringContaining("settlement_account_velocity_sources"),
       ["listing-created", "lst_1", "acc_seller", "2026-05-01T00:00:00.000Z", 260000, null, "2026-05-01T00:00:00.000Z"],
     ]);
+    // Trailing params are the settlement fraud/velocity policy's compiled launch
+    // defaults (see ../../domain/fraud-velocity-policy.ts), stamped onto the SQL
+    // as parameters instead of hardcoded interval/threshold literals.
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("review_24h_median_reviewer_age_days"), [
       "acc_seller",
       expect.any(String),
+      7, // chargebackReportingWindowDays
+      30, // chargebackVelocity.lookbackDays
+      24, // newSellerListingVelocity.windowHours
+      24, // reviewVelocity.windowHours
+      24, // youngBuyerSpendVelocity.windowHours
+      2, // chargebackVelocity.minCount
+      200, // chargebackVelocity.minRateBps
+      30, // newSellerListingVelocity.newAccountAgeDays
+      250_000, // newSellerListingVelocity.minValueCents
+      5, // reviewVelocity.minCount
+      7, // reviewVelocity.maxMedianReviewerAgeDays
+      7, // youngBuyerSpendVelocity.newAccountAgeDays
+      200_000, // youngBuyerSpendVelocity.minSpendCents
     ]);
     expect(velocitySourceCalls).toContainEqual([
       expect.stringContaining("settlement_account_velocity_sources"),

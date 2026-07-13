@@ -75,15 +75,20 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
           buildSettlementFulfillmentSourceProjectionHandlers(services.db),
         "identity.settlement-account-risk-source-projection": {
           subscriptionName: "settlement.identity-account-risk-source-projection",
-          buildHandlers: () => buildSettlementIdentityAccountRiskSourceProjectionHandlers(services.db),
+          buildHandlers: () =>
+            buildSettlementIdentityAccountRiskSourceProjectionHandlers(services.db, { policies: services.policies }),
         },
         "marketplace.settlement-account-risk-source-projection": {
           subscriptionName: "settlement.marketplace-review-account-risk-source-projection",
-          buildHandlers: () => buildSettlementReputationAccountRiskSourceProjectionHandlers(services.db),
+          buildHandlers: () =>
+            buildSettlementReputationAccountRiskSourceProjectionHandlers(services.db, {
+              policies: services.policies,
+            }),
         },
         "payments.settlement-account-risk-source-projection": {
           subscriptionName: "settlement.payments-fraud-account-risk-source-projection",
-          buildHandlers: () => buildSettlementPaymentsAccountRiskSourceProjectionHandlers(services.db),
+          buildHandlers: () =>
+            buildSettlementPaymentsAccountRiskSourceProjectionHandlers(services.db, { policies: services.policies }),
           filterToEventTypes: true,
         },
       },
