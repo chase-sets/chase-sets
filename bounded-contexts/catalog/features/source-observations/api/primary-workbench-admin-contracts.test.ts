@@ -755,6 +755,12 @@ describe("Catalog primary workbench admin contracts", () => {
           status: "ready",
           startAllowed: true,
           explanation: "Selected provider units can pull Source Observations for this Catalog scope.",
+          estimate: {
+            totalEstimatedRequestCount: null,
+            estimateState: "estimate-unavailable",
+            estimateReason: null,
+            creditConsumingProviders: [],
+          },
           blockers: [],
           units: [
             {

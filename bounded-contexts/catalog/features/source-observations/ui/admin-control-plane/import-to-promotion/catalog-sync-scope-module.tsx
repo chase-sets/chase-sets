@@ -24,6 +24,7 @@ import type {
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
 import type { CatalogScopeSyncUnitStateReadModel, CatalogSyncRun } from "../../contracts";
+import { catalogSyncEstimateForSelection } from "../../primary-workbench-catalog-sync";
 import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
 import { CommandHiddenInputs } from "./command-controls";
 import { BlockerList, stateLabel } from "./workbench-formatting";
@@ -128,6 +129,7 @@ export function CatalogSyncScopeModule({
     catalogSync.action.state === "degraded" ||
     (catalogSync.action.state === "blocked" && currentActionBlockers.length === 0);
   const startAllowedForCurrentSelection = selectedEligibleCount > 0 && actionStateAllowsCurrentSelection;
+  const estimate = catalogSyncEstimateForSelection(catalogSync.preview, selectedUnitKeys);
 
   return (
     <WorkflowModule
@@ -171,6 +173,8 @@ export function CatalogSyncScopeModule({
         </WorkbenchGrid>
 
         <BlockerList blockers={currentActionBlockers} compact hideWhenEmpty />
+
+        <CatalogSyncCostPreview estimate={estimate} />
 
         <DataTable
           rows={[...catalogSync.preview.units]}
@@ -240,6 +244,52 @@ export function CatalogSyncScopeModule({
         <DeferredScopeSyncStateSection readModel={readModel} deferredScopeSyncState={deferredScopeSyncState} />
       </WorkbenchStack>
     </WorkflowModule>
+  );
+}
+
+function CatalogSyncCostPreview({
+  estimate,
+}: Readonly<{
+  estimate: CatalogPrimaryWorkbenchReadModel["catalogSync"]["preview"]["estimate"];
+}>) {
+  return (
+    <WorkbenchDetailPanel data-catalog-sync-cost-preview="true">
+      <WorkbenchStack gap="sm">
+        <WorkbenchText tone="foreground" weight="semibold">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.costPreview.title")}
+        </WorkbenchText>
+        <KeyValueList
+          items={[
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.costPreview.requests"),
+              value:
+                estimate.totalEstimatedRequestCount === null
+                  ? t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.costPreview.unavailable")
+                  : String(estimate.totalEstimatedRequestCount),
+            },
+          ]}
+        />
+        {estimate.creditConsumingProviders.length > 0 ? (
+          <WorkbenchStack gap="sm">
+            <WorkbenchText size="sm" tone="secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.costPreview.creditProviders")}
+            </WorkbenchText>
+            <BadgeCluster
+              items={estimate.creditConsumingProviders.map((provider) => ({
+                key: provider.providerKey,
+                label: provider.displayName,
+                tone: "warning" as const,
+              }))}
+            />
+          </WorkbenchStack>
+        ) : null}
+        {estimate.estimateReason ? (
+          <WorkbenchText size="xs" tone="secondary">
+            {estimate.estimateReason}
+          </WorkbenchText>
+        ) : null}
+      </WorkbenchStack>
+    </WorkbenchDetailPanel>
   );
 }
 

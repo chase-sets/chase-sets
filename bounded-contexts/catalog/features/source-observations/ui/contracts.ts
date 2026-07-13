@@ -879,6 +879,16 @@ export interface CatalogSyncProviderParticipationPreview {
   scope: CatalogSyncScope;
   status: "ready" | "blocked";
   startAllowed: boolean;
+  estimate: {
+    totalEstimatedRequestCount: number | null;
+    estimateState: "estimated" | "estimate-unavailable";
+    estimateReason: string | null;
+    creditConsumingProviders: {
+      providerKey: string;
+      displayName: string;
+      unitKeys: string[];
+    }[];
+  };
   units: CatalogSyncProviderParticipationPreviewUnit[];
   blockers: CatalogSyncProviderParticipationPreviewUnit["blockers"];
   explanation: string;

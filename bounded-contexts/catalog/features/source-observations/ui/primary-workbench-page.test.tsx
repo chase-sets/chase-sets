@@ -295,6 +295,12 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       },
       status: "ready" as const,
       startAllowed: true,
+      estimate: {
+        totalEstimatedRequestCount: null,
+        estimateState: "estimate-unavailable" as const,
+        estimateReason: null,
+        creditConsumingProviders: [],
+      },
       units: [
         {
           providerKey: "tcgplayer",
