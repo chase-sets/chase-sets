@@ -67,6 +67,51 @@ export function parseReleaseHealthReportArgs(argv, env = process.env) {
     dir: readOption(argv, "--dir") ?? readEnv("RELEASE_HEALTH_DIR", env) ?? "",
     outPath: readOption(argv, "--out") ?? readEnv("RELEASE_HEALTH_REPORT_OUT", env) ?? "",
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
+    // Segment-level projection lag SLO regression gate: the report is
+    // read-only by default so operators can inspect posture without failing a
+    // build. Pass --gate (or RELEASE_HEALTH_REPORT_GATE=true) from a CI step
+    // to turn a failing freshness posture into a non-zero exit code.
+    gate: argv.includes("--gate") || readEnv("RELEASE_HEALTH_REPORT_GATE", env) === "true",
+  };
+}
+
+/**
+ * Segment-level projection lag SLO regression gate. Evaluates the
+ * already-computed Projection Freshness Evidence posture — Buy Now, wake
+ * drills, account-cart, non-Buy-Now UAT, and the checkout/cart/sell-list/
+ * payout/payment/listing route-matrix segments — and reports whether a CI
+ * caller should fail closed. Coverage gaps (`blocked`/`skipped` routes) are
+ * never a regression signal on their own; only actual breaches (missing
+ * receipts, timeouts, error rates, SLO threshold misses, or a support-safe
+ * redaction failure) block the gate. Kept separate from `buildReleaseHealthReport`
+ * so callers that only want the report (no gating) are unaffected.
+ */
+export function evaluateSegmentSloRegressionGate(report) {
+  const freshness = report.summary.freshness;
+  const blocked = freshness.posture === "fail";
+  const reasons = blocked
+    ? [
+        freshness.redactionFailureCount > 0
+          ? `${freshness.redactionFailureCount} support-safe redaction failure(s)`
+          : null,
+        freshness.buyNowAbortCount > 0 ? `${freshness.buyNowAbortCount} Buy Now freshness abort(s)` : null,
+        freshness.wakeDrillFailureCount > 0 ? `${freshness.wakeDrillFailureCount} wake-drill failure(s)` : null,
+        freshness.accountCartFailureCount > 0
+          ? `${freshness.accountCartFailureCount} account-cart probe failure(s)`
+          : null,
+        freshness.nonBuyNowUatFailureCount > 0
+          ? `${freshness.nonBuyNowUatFailureCount} non-Buy-Now UAT failure(s)`
+          : null,
+        freshness.routeMatrixFailureCount > 0
+          ? `${freshness.routeMatrixFailureCount} route-matrix segment SLO breach(es)`
+          : null,
+      ].filter(Boolean)
+    : [];
+
+  return {
+    blocked,
+    posture: freshness.posture,
+    reasons: reasons.length > 0 ? reasons : blocked ? [freshness.reason] : [],
   };
 }
 
@@ -978,18 +1023,27 @@ function summarizeRouteMatrixRoute(record, route) {
   const projection = normalizeEvidenceLabel(
     route.projectionName ?? route.projection ?? route.readModel ?? wake.projectionName ?? wake.projection,
   );
-  const status =
-    isPassingRouteMatrixStatus(routeStatus) &&
-    p95Ms !== null &&
-    p99Ms !== null &&
-    sampleCount > 0 &&
-    (timeoutRate ?? 0) === 0 &&
-    (errorRate ?? 0) === 0 &&
-    missingReceiptCount === 0 &&
-    missingTargetContextCount === 0 &&
-    exactDependencyFallbackCount === 0 &&
-    targetContext !== "unknown" &&
-    projection !== "unknown"
+  // A route the sampler could not drive by design (`blocked`, e.g. a
+  // not-yet-available payout/listing persona) or that was skipped for an
+  // in-flight deploy window is a documented coverage gap, never an SLO
+  // regression — matches the same distinction `routeMatrixRouteEvidence` in
+  // read-consistency-route-matrix-evidence.mjs already makes for its own exit
+  // code. Keep the row's real status instead of collapsing it into "fail" so
+  // the segment-level regression gate does not go permanently red on a
+  // known, out-of-scope coverage gap.
+  const status = isRouteMatrixCoverageGapStatus(routeStatus)
+    ? routeStatus
+    : isPassingRouteMatrixStatus(routeStatus) &&
+        p95Ms !== null &&
+        p99Ms !== null &&
+        sampleCount > 0 &&
+        (timeoutRate ?? 0) === 0 &&
+        (errorRate ?? 0) === 0 &&
+        missingReceiptCount === 0 &&
+        missingTargetContextCount === 0 &&
+        exactDependencyFallbackCount === 0 &&
+        targetContext !== "unknown" &&
+        projection !== "unknown"
       ? "pass"
       : "fail";
 
@@ -1022,6 +1076,10 @@ function summarizeRouteMatrixRoute(record, route) {
 
 function isPassingRouteMatrixStatus(status) {
   return ["fresh", "green", "ok", "pass", "promote", "within-slo"].includes(status);
+}
+
+function isRouteMatrixCoverageGapStatus(status) {
+  return ["blocked", "skipped"].includes(status);
 }
 
 function formatFreshnessEvidenceRows(freshness) {
@@ -1372,6 +1430,20 @@ async function main(argv, env = process.env) {
 
   const report = await runReleaseHealthReport(options);
   console.log(report.markdown);
+
+  if (!options.gate) {
+    return 0;
+  }
+
+  const gate = evaluateSegmentSloRegressionGate(report);
+  if (gate.blocked) {
+    console.error(`Segment-level projection lag SLO regression gate failed (posture: ${gate.posture}).`);
+    for (const reason of gate.reasons) {
+      console.error(`- ${reason}`);
+    }
+    return 1;
+  }
+  console.log(`Segment-level projection lag SLO regression gate passed (posture: ${gate.posture}).`);
   return 0;
 }
 

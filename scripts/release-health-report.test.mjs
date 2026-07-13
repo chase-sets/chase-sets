@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildReleaseHealthReport,
   classifyReleaseHealthArtifacts,
+  evaluateSegmentSloRegressionGate,
   parseReleaseHealthReportArgs,
 } from "./release-health-report.mjs";
 
@@ -630,6 +631,175 @@ describe("release health report", () => {
     expect(result.markdown).not.toContain("pay_123");
   });
 
+  it("treats blocked and skipped route-matrix rows as coverage gaps, not SLO regressions", () => {
+    const routes = [
+      {
+        routeTemplate: "/checkout/buy/session/:sessionId",
+        targetContext: "checkout",
+        projectionName: "checkout.session-projection",
+        wakeBeforeWait: {
+          status: "pass",
+          sampleCount: 24,
+          p95Ms: 420,
+          p99Ms: 710,
+          timeoutRate: 0,
+          workSignalErrorRate: 0,
+        },
+      },
+      {
+        routeTemplate: "/account/cart",
+        targetContext: "checkout",
+        projectionName: "checkout.cart-projection",
+        wakeBeforeWait: {
+          status: "pass",
+          sampleCount: 24,
+          p95Ms: 300,
+          p99Ms: 500,
+          timeoutRate: 0,
+          workSignalErrorRate: 0,
+        },
+      },
+      {
+        routeTemplate: "/account/sell-list",
+        targetContext: "checkout",
+        projectionName: "checkout.sell-list-projection",
+        wakeBeforeWait: {
+          status: "pass",
+          sampleCount: 24,
+          p95Ms: 510,
+          p99Ms: 900,
+          timeoutRate: 0,
+          workSignalErrorRate: 0,
+        },
+      },
+      {
+        // Documented coverage gap: the payout-ready operator persona is not
+        // yet available, so the sampler cannot drive this route.
+        routeTemplate: "/account/payouts/:payoutId",
+        targetContext: "settlement",
+        projectionName: "settlement.payout-projection",
+        wakeBeforeWait: {
+          status: "blocked",
+          sampleCount: 0,
+          p95Ms: null,
+          p99Ms: null,
+          timeoutRate: 0,
+          workSignalErrorRate: 0,
+        },
+      },
+      {
+        // In-flight deploy window: the sampler intentionally skipped this
+        // route rather than racing the rollout.
+        routeTemplate: "/account/payments/:paymentId",
+        targetContext: "payments",
+        projectionName: "payments.payment-projection",
+        wakeBeforeWait: {
+          status: "skipped",
+          sampleCount: 0,
+          p95Ms: null,
+          p99Ms: null,
+          timeoutRate: 0,
+          workSignalErrorRate: 0,
+        },
+      },
+      {
+        routeTemplate: "/account/listings/:listingId",
+        targetContext: "marketplace",
+        projectionName: "marketplace.listing-projection",
+        wakeBeforeWait: {
+          status: "pass",
+          sampleCount: 24,
+          p95Ms: 380,
+          p99Ms: 680,
+          timeoutRate: 0,
+          workSignalErrorRate: 0,
+        },
+      },
+    ];
+
+    const result = buildReleaseHealthReport({
+      checkedAt: "2026-07-13T13:00:00.000Z",
+      records: [record()],
+      evidenceArtifacts: [
+        {
+          file: "route-matrix.json",
+          record: {
+            schemaVersion: "read-consistency-route-matrix-evidence/v1",
+            environment: "staging",
+            checkedAt: "2026-07-13T13:00:00.000Z",
+            routes,
+          },
+        },
+      ],
+    });
+
+    expect(result.summary.freshness).toMatchObject({
+      posture: "pass",
+      routeMatrixFailureCount: 0,
+    });
+    expect(result.markdown).toContain(
+      "| wake-route-matrix | staging | /account/payouts/:payoutid | blocked | wake blocked; samples 0; p95 unknown; p99 unknown; timeout 0%; errors 0%; missing-receipt 0; plain-read-missing-receipt 0; missing-target 0; fallback 0; target settlement; projection settlement.payout-projection | blocked |",
+    );
+    expect(result.markdown).toContain(
+      "| wake-route-matrix | staging | /account/payments/:paymentid | skipped | wake skipped; samples 0; p95 unknown; p99 unknown; timeout 0%; errors 0%; missing-receipt 0; plain-read-missing-receipt 0; missing-target 0; fallback 0; target payments; projection payments.payment-projection | skipped |",
+    );
+    expect(evaluateSegmentSloRegressionGate(result)).toMatchObject({
+      blocked: false,
+      posture: "pass",
+      reasons: [],
+    });
+  });
+
+  it("blocks the segment-level projection lag SLO regression gate on a real route-matrix breach", () => {
+    const result = buildReleaseHealthReport({
+      checkedAt: "2026-07-13T13:00:00.000Z",
+      records: [record()],
+      evidenceArtifacts: [
+        {
+          file: "route-matrix.json",
+          record: {
+            schemaVersion: "read-consistency-route-matrix-evidence/v1",
+            environment: "staging",
+            checkedAt: "2026-07-13T13:00:00.000Z",
+            routes: [
+              {
+                routeTemplate: "/checkout/buy/session/:sessionId",
+                targetContext: "checkout",
+                projectionName: "checkout.session-projection",
+                // Real traffic observed, but the timeout rate breaches the SLO.
+                wakeBeforeWait: {
+                  status: "fail",
+                  sampleCount: 24,
+                  p95Ms: 9800,
+                  p99Ms: 12500,
+                  timeoutRate: 0.2,
+                  workSignalErrorRate: 0,
+                },
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const gate = evaluateSegmentSloRegressionGate(result);
+    expect(gate.blocked).toBe(true);
+    expect(gate.posture).toBe("fail");
+    expect(gate.reasons.some((reason) => reason.includes("route-matrix segment SLO breach"))).toBe(true);
+  });
+
+  it("passes the segment-level projection lag SLO regression gate when no freshness evidence was included", () => {
+    const result = buildReleaseHealthReport({
+      checkedAt: "2026-07-13T13:00:00.000Z",
+      records: [record()],
+    });
+
+    expect(evaluateSegmentSloRegressionGate(result)).toMatchObject({
+      blocked: false,
+      posture: "not-provided",
+    });
+  });
+
   it("recommends a batch increase only after enough healthy deployable attempts", () => {
     const records = Array.from({ length: 10 }, (_, index) =>
       record({
@@ -658,6 +828,19 @@ describe("release health report", () => {
       files: ["a.json", "b.json"],
       dir: "artifacts/release-health",
       outPath: "artifacts/release-health/summary.md",
+      gate: false,
     });
+  });
+
+  it("parses the --gate flag and RELEASE_HEALTH_REPORT_GATE environment default", () => {
+    expect(parseReleaseHealthReportArgs(["--dir", "artifacts/wake-drills", "--gate"], {})).toMatchObject({
+      gate: true,
+    });
+    expect(
+      parseReleaseHealthReportArgs(["--dir", "artifacts/wake-drills"], {
+        RELEASE_HEALTH_REPORT_GATE: "true",
+      }),
+    ).toMatchObject({ gate: true });
+    expect(parseReleaseHealthReportArgs(["--dir", "artifacts/wake-drills"], {})).toMatchObject({ gate: false });
   });
 });
