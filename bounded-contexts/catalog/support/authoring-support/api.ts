@@ -15,6 +15,7 @@ import { fieldRoutes } from "../../features/fields/api/route";
 import { productContentRoutes } from "../../features/product-contents/api/route";
 import { providerScopeMappingRoutes } from "../../features/provider-scope-mapping/api/route";
 import { referenceDataRoutes } from "../../features/reference-data/api/route";
+import { catalogScopeRegistryRoutes } from "../../features/scope-registry/api/route";
 import { sourceObservationRoutes } from "../../features/source-observations/api/route";
 
 export type CatalogAuthoringEnv = {
@@ -97,6 +98,7 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
   app.route("/alias-review", catalogAliasRoutes(services.catalogAliases));
   app.route("/attention-queue", catalogAttentionQueueRoutes(services.attentionQueue));
   app.route("/provider-scope-mappings", providerScopeMappingRoutes(services.providerScopeMappings));
+  app.route("/scope-records", catalogScopeRegistryRoutes(services.scopeRegistry));
 
   return app;
 }

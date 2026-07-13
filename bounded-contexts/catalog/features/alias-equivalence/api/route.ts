@@ -42,6 +42,8 @@ function reviewFilterFromQuery(query: Record<string, string | undefined>): Parti
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean) as CatalogAliasReviewFilter["reviewStatuses"];
+  const targetKind = (query.targetKind?.trim() as CatalogAliasReviewFilter["targetKind"]) || null;
+  const targetId = query.targetId?.trim() || null;
 
   return {
     providerKey: query.providerKey?.trim() || null,
@@ -49,6 +51,10 @@ function reviewFilterFromQuery(query: Record<string, string | undefined>): Parti
     aliasType: (query.aliasType?.trim() as CatalogAliasReviewFilter["aliasType"]) || null,
     observationId: query.observationId?.trim() || null,
     reviewStatuses,
+    // targetId without targetKind (or vice versa) is not a valid narrowing, so
+    // only apply the pair when both are present.
+    targetKind: targetId ? targetKind : null,
+    targetId: targetKind ? targetId : null,
   };
 }
 

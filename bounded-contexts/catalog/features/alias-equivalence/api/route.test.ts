@@ -32,6 +32,8 @@ function emptyReadModel(): CatalogAliasReviewReadModel {
       aliasType: null,
       reviewStatuses: [],
       observationId: null,
+      targetKind: null,
+      targetId: null,
     },
     counts: {
       total: 0,

@@ -105,6 +105,8 @@ const emptyFilter: CatalogAliasReviewFilter = {
   aliasType: null,
   reviewStatuses: [],
   observationId: null,
+  targetKind: null,
+  targetId: null,
 };
 
 describe("mapCatalogAliasReviewCandidate", () => {

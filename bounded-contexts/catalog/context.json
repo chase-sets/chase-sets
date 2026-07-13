@@ -345,6 +345,14 @@
           "routeType": "route",
           "sourceContext": "catalog",
           "section": "catalog"
+        },
+        {
+          "routeId": "scope-detail",
+          "routePath": "scopes/:id",
+          "fileExport": "./routes/admin/scope-detail",
+          "routeType": "route",
+          "sourceContext": "catalog",
+          "section": "catalog"
         }
       ]
     }
@@ -610,6 +618,7 @@
         "product-measures",
         "provider-scope-mapping",
         "reference-data",
+        "scope-registry",
         "source-observations"
       ]
     },
@@ -1092,6 +1101,26 @@
       "proof": {
         "authoritativeResponse": "POST /commands dispatches AcceptProviderScopeMapping/RejectProviderScopeMapping/RevokeProviderScopeMapping keyed by mapping id with the operator as actor and responds from the command handler's evolved aggregate state; POST /propose dispatches ProposeProviderScopeMapping and optionally an immediate AcceptProviderScopeMapping, returning the final committed snapshot. Both client wrappers (dispatchProviderScopeMappingReviewCommand, proposeProviderScopeMapping) return that snapshot directly, and the inbox/coverage-detail pages call refresh() afterward to re-read the read model.",
         "tests": ["bounded-contexts/catalog/features/provider-scope-mapping/api/route.test.ts"]
+      }
+    },
+    {
+      "id": "catalog.scope-detail-language-edition-command-snapshots",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "route-action:bounded-contexts/catalog/support/route-support/admin-scope-detail/scope-detail-action.ts"
+      ],
+      "visibleDestination": {
+        "routeId": "scope-detail",
+        "description": "The Scope Detail language-editions section's accept/reject/defer/revoke actions stay on the scope-detail page and return the committed Catalog Alias aggregate command result (status, intent, outcome); the next loader re-reads the alias-review read model scoped to this scope's reference record, so the operator never sees a stale candidate after a review write."
+      },
+      "proof": {
+        "authoritativeResponse": "The scope-detail route action dispatches the AcceptCatalogAlias/RejectCatalogAlias/RevokeCatalogAlias aggregate commands through the same alias-equivalence command endpoint the generic alias-review table uses, and returns the command outcome directly; defer is acknowledged without an aggregate write. The route stays on the scope-detail page after every command, so a full navigation re-runs the loader against the same scope.",
+        "tests": [
+          "bounded-contexts/catalog/support/route-support/admin-scope-detail/scope-detail-action.test.ts",
+          "bounded-contexts/catalog/support/route-support/admin-scope-detail/scope-detail-loader.test.ts"
+        ]
       }
     }
   ],

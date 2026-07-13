@@ -21,6 +21,8 @@ const filter: CatalogAliasReviewFilter = {
   aliasType: null,
   reviewStatuses: [],
   observationId: null,
+  targetKind: null,
+  targetId: null,
 };
 
 function candidateRow(overrides: Partial<CatalogAliasCandidateRow> = {}): CatalogAliasCandidateRow {

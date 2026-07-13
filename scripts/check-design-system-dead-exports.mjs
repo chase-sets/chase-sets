@@ -93,7 +93,6 @@ const canonicalReserveZeroConsumerExports = [
   "ProductMediaModule",
   "Progress",
   "ProgressBar",
-  "ProgressiveDisclosureGroup",
   "ProgressTrack",
   "Quote",
   "RecordPage",
