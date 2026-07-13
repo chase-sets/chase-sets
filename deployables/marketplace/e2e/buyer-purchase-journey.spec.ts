@@ -12,9 +12,7 @@ test.describe("marketplace buyer purchase journey", () => {
     await expect(page.getByRole("heading", { name: /^Your cart$/i }).first()).toBeVisible();
   });
 
-  test("seeded buyer walks the real cart to the checkout-session boundary @marketplace-checkout", async ({
-    page,
-  }) => {
+  test("seeded buyer walks the real cart to the checkout-session boundary @marketplace-checkout", async ({ page }) => {
     test.setTimeout(120_000);
 
     await page.goto("/sign-in?returnTo=%2Faccount%2Fcart", { waitUntil: "domcontentloaded" });
