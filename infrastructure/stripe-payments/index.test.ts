@@ -128,7 +128,7 @@ describe("Stripe payment processor gateway", () => {
     });
 
     expect(payment.processorPaymentReference).toBe("cs_123");
-    expect(gateway.getPublicConfiguration().dynamicPaymentMethods).toBe(false);
+    expect(gateway.getPublicConfiguration().dynamicPaymentMethods).toBe(true);
     expect(fetchMock).toHaveBeenCalledWith(
       "https://stripe.test/v1/checkout/sessions",
       expect.objectContaining({
@@ -149,6 +149,8 @@ describe("Stripe payment processor gateway", () => {
       return_url: "https://marketplace.test/account/payments/pay_123",
       client_reference_id: "pay_123",
       customer: "cus_123",
+      "payment_method_types[0]": "card",
+      "payment_method_types[1]": "link",
       "payment_intent_data[statement_descriptor_suffix]": "CHASESETS",
       "line_items[0][price_data][product_data][name]": "Test payment",
       "metadata[funds_strategy]": "platform-held",
@@ -165,6 +167,92 @@ describe("Stripe payment processor gateway", () => {
     expect(formSnapshot(init.body)).not.toHaveProperty(
       "payment_intent_data[payment_method_options][card][request_three_d_secure]",
     );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("offers card-rail wallets and Link to guests without creating a Stripe Customer", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "cs_guest",
+            client_secret: "cs_guest_secret",
+            status: "open",
+            payment_status: "unpaid",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await gateway.createPaymentSession({
+      paymentId: "pay_guest" as never,
+      buyerAccountId: "acc_guest" as never,
+      orderIds: ["ord_guest" as never],
+      amount: "12.34",
+      currencyCode: "usd",
+      paymentMethodCategory: "card",
+      description: "Guest payment",
+      returnUrl: "https://marketplace.test/checkout/payments/pay_guest",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(formSnapshot(init.body)).toMatchObject({
+      "payment_method_types[0]": "card",
+      "payment_method_types[1]": "link",
+    });
+    expect(formSnapshot(init.body)).not.toHaveProperty("customer");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps bank-category Checkout Sessions isolated from card-rail methods", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "cs_bank",
+            client_secret: "cs_bank_secret",
+            status: "open",
+            payment_status: "unpaid",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await gateway.createPaymentSession({
+      paymentId: "pay_bank" as never,
+      buyerAccountId: "acc_buyer" as never,
+      orderIds: ["ord_bank" as never],
+      amount: "12.34",
+      currencyCode: "usd",
+      paymentMethodCategory: "bank-account",
+      description: "Bank payment",
+      providerCustomerReference: "cus_123",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(formSnapshot(init.body)).toMatchObject({
+      customer: "cus_123",
+      "payment_method_types[0]": "us_bank_account",
+    });
+    expect(formSnapshot(init.body)).not.toHaveProperty("payment_method_types[1]");
 
     vi.unstubAllGlobals();
   });
@@ -385,6 +473,70 @@ describe("Stripe payment processor gateway", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it.each([
+    {
+      name: "Apple Pay",
+      paymentMethod: {
+        id: "pm_apple_pay",
+        type: "card",
+        customer: "cus_123",
+        card: { brand: "visa", last4: "4242", fingerprint: "fp_apple", wallet: { type: "apple_pay" } },
+      },
+      expectedLabel: "Apple Pay •••• 4242",
+      expectedFingerprint: "fp_apple",
+    },
+    {
+      name: "Google Pay",
+      paymentMethod: {
+        id: "pm_google_pay",
+        type: "card",
+        customer: "cus_123",
+        card: { brand: "visa", last4: "4242", fingerprint: "fp_google", wallet: { type: "google_pay" } },
+      },
+      expectedLabel: "Google Pay •••• 4242",
+      expectedFingerprint: "fp_google",
+    },
+    {
+      name: "Link",
+      paymentMethod: {
+        id: "pm_link",
+        type: "link",
+        customer: "cus_123",
+        link: { email: "buyer@example.com" },
+      },
+      expectedLabel: "Link",
+      expectedFingerprint: null,
+    },
+  ])(
+    "maps $name to the card fee category with a receipt-safe label",
+    async ({ paymentMethod, expectedLabel, expectedFingerprint }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(JSON.stringify(paymentMethod), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+        ),
+      );
+      const gateway = createStripePaymentProcessorGateway({
+        secretKey: "sk_test",
+        publishableKey: "pk_test",
+        webhookSecret: "whsec_test",
+        apiBaseUrl: "https://stripe.test",
+      });
+
+      await expect(gateway.retrieveSavedPaymentMethod?.(paymentMethod.id)).resolves.toMatchObject({
+        paymentMethodCategory: "card",
+        displayLabel: expectedLabel,
+        paymentMethodFingerprint: expectedFingerprint,
+      });
+
+      vi.unstubAllGlobals();
+    },
+  );
 
   it("charges selected Stripe saved payment methods with customer and payment method references", async () => {
     const fetchMock = vi.fn(

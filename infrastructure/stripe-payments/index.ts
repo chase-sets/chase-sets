@@ -114,6 +114,12 @@ type StripePaymentMethodResponse = Readonly<{
     brand?: string | null;
     last4?: string | null;
     fingerprint?: string | null;
+    wallet?: Readonly<{
+      type?: string | null;
+    }> | null;
+  }> | null;
+  link?: Readonly<{
+    email?: string | null;
   }> | null;
   us_bank_account?: Readonly<{
     bank_name?: string | null;
@@ -155,6 +161,12 @@ type StripeEventEnvelope = Readonly<{
         brand?: string | null;
         last4?: string | null;
         fingerprint?: string | null;
+        wallet?: Readonly<{
+          type?: string | null;
+        }> | null;
+      }> | null;
+      link?: Readonly<{
+        email?: string | null;
       }> | null;
       us_bank_account?: Readonly<{
         bank_name?: string | null;
@@ -620,7 +632,14 @@ function paymentMethodReference(value: string | Readonly<StripePaymentMethodResp
 function paymentMethodCategory(
   method: Pick<StripePaymentMethodResponse, "type">,
 ): ProcessorSavedPaymentMethod["paymentMethodCategory"] {
-  return method.type === "us_bank_account" ? "bank-account" : "card";
+  switch (method.type) {
+    case "us_bank_account":
+      return "bank-account";
+    case "card":
+    case "link":
+    default:
+      return "card";
+  }
 }
 
 function titleCase(value: string) {
@@ -638,8 +657,17 @@ function paymentMethodDisplayLabel(method: StripePaymentMethodResponse) {
     return last4 ? `${bankName} ending in ${last4}` : bankName;
   }
 
+  if (method.type === "link") {
+    return "Link";
+  }
+
   const brand = normalizeOptionalText(method.card?.brand ?? null);
   const last4 = normalizeOptionalText(method.card?.last4 ?? null);
+  const walletType = normalizeOptionalText(method.card?.wallet?.type ?? null);
+  const walletLabel = walletType === "apple_pay" ? "Apple Pay" : walletType === "google_pay" ? "Google Pay" : null;
+  if (walletLabel) {
+    return last4 ? `${walletLabel} •••• ${last4}` : walletLabel;
+  }
   const label = brand ? titleCase(brand) : "Card";
   return last4 ? `${label} ending in ${last4}` : label;
 }
@@ -1150,7 +1178,7 @@ export function createStripePaymentProcessorGateway(
     processorName: "stripe",
     publishableKey: options.publishableKey,
     confirmationExperience: "processor-managed-form",
-    dynamicPaymentMethods: false,
+    dynamicPaymentMethods: true,
     sensitivePaymentDetailsHandledByProcessor: true,
     agenticPaymentHandlers: [
       {
@@ -1393,7 +1421,8 @@ export function createStripePaymentProcessorGateway(
       }
 
       const paymentReturnUrl = normalizeOptionalText(input.returnUrl) ?? "http://localhost/account/payments";
-      const paymentMethodType = input.paymentMethodCategory === "bank-account" ? "us_bank_account" : "card";
+      const paymentMethodTypes =
+        input.paymentMethodCategory === "bank-account" ? ["us_bank_account"] : ["card", "link"];
       const body = await stripeRequest<StripeCheckoutSessionResponse>(
         "/v1/checkout/sessions",
         {
@@ -1402,7 +1431,12 @@ export function createStripePaymentProcessorGateway(
             mode: "payment",
             ui_mode: "elements",
             return_url: paymentReturnUrl,
-            "payment_method_types[0]": paymentMethodType,
+            ...Object.fromEntries(
+              paymentMethodTypes.map((paymentMethodType, index) => [
+                `payment_method_types[${index}]`,
+                paymentMethodType,
+              ]),
+            ),
             client_reference_id: input.paymentId,
             "line_items[0][quantity]": "1",
             "line_items[0][price_data][currency]": input.currencyCode,

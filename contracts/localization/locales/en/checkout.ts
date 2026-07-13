@@ -119,7 +119,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.browse.marketplace": "Browse marketplace",
   "checkout.features.sessions.ui.checkoutPage.buy.now": "Buy now",
   "checkout.features.sessions.ui.checkoutPage.buyer.protection": "Order Protection",
-  "checkout.features.sessions.ui.checkoutPage.card": "Card",
+  "checkout.features.sessions.ui.checkoutPage.card": "Card or wallet",
   "checkout.features.sessions.ui.checkoutPage.cart": "Buy cart",
   "checkout.features.sessions.ui.checkoutPage.catalog.item": "Catalog item: ",
   "checkout.features.sessions.ui.checkoutPage.checkout": "Checkout",
@@ -214,7 +214,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.payment.starts.only.after.orders.are":
     "Payment starts only after final checkout review.",
   "checkout.features.sessions.ui.checkoutPage.guest.data.description":
-    "Guest checkout contact and shipping details are used for this checkout, delivery, tax, security checks, and support. Card details stay in the secure payment step.",
+    "Guest checkout contact and shipping details are used for this checkout, delivery, tax, security checks, and support. Card and wallet details stay in the secure payment step.",
   "checkout.features.sessions.ui.checkoutPage.platform.credit.only": "Platform credit only",
   "checkout.features.sessions.ui.checkoutPage.postal.code": "Postal code",
   "checkout.features.sessions.ui.checkoutPage.processing.payment": "Processing payment...",
