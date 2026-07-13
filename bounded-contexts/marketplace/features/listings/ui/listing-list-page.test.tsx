@@ -3,7 +3,17 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { MarketplaceListingListPage } from "./listing-list-page";
-import type { MarketplaceListingListItem, MarketplaceSellerListingAvailability } from "./contracts";
+import type {
+  MarketplaceListingListItem,
+  MarketplaceSellerListingAvailability,
+  MarketplaceSellerOrderCapacity,
+} from "./contracts";
+
+const defaultOrderCapacity = {
+  account_id: "acc_seller",
+  max_open_orders: null,
+  updated_at: "2026-06-01T00:00:00.000Z",
+} satisfies MarketplaceSellerOrderCapacity;
 
 const availableListings = {
   account_id: "acc_seller",
@@ -86,7 +96,11 @@ afterEach(() => {
 describe("marketplace listings workbench", () => {
   it("links to the dedicated create-listing route instead of embedding a create form", () => {
     const markup = renderToString(
-      <MarketplaceListingListPage data={{ items: [] }} listingAvailability={availableListings} />,
+      <MarketplaceListingListPage
+        data={{ items: [] }}
+        listingAvailability={availableListings}
+        orderCapacity={defaultOrderCapacity}
+      />,
     );
 
     expect(markup).toContain('href="/account/listings/new"');
@@ -99,6 +113,7 @@ describe("marketplace listings workbench", () => {
       <MarketplaceListingListPage
         data={{ items: [] }}
         listingAvailability={availableListings}
+        orderCapacity={defaultOrderCapacity}
         statusCounts={{ active: 3, draft: 2, paused: 1, withdrawn: 4 }}
       />,
     );
@@ -118,6 +133,7 @@ describe("marketplace listings workbench", () => {
       <MarketplaceListingListPage
         data={{ items: [] }}
         listingAvailability={availableListings}
+        orderCapacity={defaultOrderCapacity}
         sellerBehavioralMetrics={{
           seller_account_id: "acc_seller",
           window_days: 90,
@@ -150,6 +166,7 @@ describe("marketplace listings workbench", () => {
       <MarketplaceListingListPage
         data={{ items: [buildListingRow()] }}
         listingAvailability={availableListings}
+        orderCapacity={defaultOrderCapacity}
         filters={{ status: "paused", search: "Charizard" }}
       />,
     );
@@ -165,6 +182,7 @@ describe("marketplace listings workbench", () => {
       <MarketplaceListingListPage
         data={{ items: [buildListingRow({ listing_id: "lst_1" }), buildListingRow({ listing_id: "lst_2" })] }}
         listingAvailability={availableListings}
+        orderCapacity={defaultOrderCapacity}
       />,
     );
 
@@ -187,6 +205,7 @@ describe("marketplace listings workbench", () => {
       <MarketplaceListingListPage
         data={{ items: [buildListingRow()] }}
         listingAvailability={availableListings}
+        orderCapacity={defaultOrderCapacity}
         bulkActionOutcomes={[
           { listingId: "lst_1", label: "Listing lst_1", outcome: "success", message: null },
           { listingId: "lst_2", label: "Listing lst_2", outcome: "error", message: "Listing is withdrawn." },
@@ -202,7 +221,11 @@ describe("marketplace listings workbench", () => {
 
   it("captures the seller-local resume instant client-side when a return date is chosen", () => {
     const { container } = render(
-      <MarketplaceListingListPage data={{ items: [] }} listingAvailability={availableListings} />,
+      <MarketplaceListingListPage
+        data={{ items: [] }}
+        listingAvailability={availableListings}
+        orderCapacity={defaultOrderCapacity}
+      />,
     );
 
     const dateInput = screen.getByLabelText("Available again on") as HTMLInputElement;
@@ -216,7 +239,11 @@ describe("marketplace listings workbench", () => {
 
   it("clears the hidden resume instant when the return date is cleared", () => {
     const { container } = render(
-      <MarketplaceListingListPage data={{ items: [] }} listingAvailability={availableListings} />,
+      <MarketplaceListingListPage
+        data={{ items: [] }}
+        listingAvailability={availableListings}
+        orderCapacity={defaultOrderCapacity}
+      />,
     );
 
     const dateInput = screen.getByLabelText("Available again on") as HTMLInputElement;
@@ -230,7 +257,13 @@ describe("marketplace listings workbench", () => {
   });
 
   it("allows refreshing away settings while already unavailable, prefilled from current state", () => {
-    render(<MarketplaceListingListPage data={{ items: [] }} listingAvailability={unavailableListings} />);
+    render(
+      <MarketplaceListingListPage
+        data={{ items: [] }}
+        listingAvailability={unavailableListings}
+        orderCapacity={defaultOrderCapacity}
+      />,
+    );
 
     expect(screen.getByRole("button", { name: "Turn on listings" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Update away settings" })).toBeTruthy();
@@ -239,7 +272,13 @@ describe("marketplace listings workbench", () => {
   });
 
   it("labels the away-settings action as turning listings off while currently available", () => {
-    render(<MarketplaceListingListPage data={{ items: [] }} listingAvailability={availableListings} />);
+    render(
+      <MarketplaceListingListPage
+        data={{ items: [] }}
+        listingAvailability={availableListings}
+        orderCapacity={defaultOrderCapacity}
+      />,
+    );
 
     expect(screen.getByRole("button", { name: "Turn off listings" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Turn on listings" })).toBeNull();

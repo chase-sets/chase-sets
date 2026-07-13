@@ -10,6 +10,7 @@ export type {
   MarketplaceListingListItem,
   MarketplaceListingFeeHistoryEntry,
   MarketplaceSellerListingAvailability,
+  MarketplaceSellerOrderCapacity,
   MarketplaceSellerListingStatusCounts,
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,

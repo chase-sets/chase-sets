@@ -18,6 +18,7 @@ export type {
   MarketplaceAnonymousListingDraftIntent,
   MarketplaceListingListItem,
   MarketplaceSellerListingAvailability,
+  MarketplaceSellerOrderCapacity,
   MarketplaceSellerListingStatusCounts,
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,

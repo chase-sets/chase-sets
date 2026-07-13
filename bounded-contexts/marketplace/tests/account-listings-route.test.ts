@@ -97,6 +97,11 @@ describe("account listings route", () => {
         enabled_at: null,
         updated_at: "2026-04-17T00:00:00.000Z",
       }),
+      getSellerOrderCapacity: vi.fn().mockResolvedValue({
+        account_id: "acc_seller",
+        max_open_orders: null,
+        updated_at: "2026-04-17T00:00:00.000Z",
+      }),
     });
 
     const result = await loader({
@@ -128,6 +133,7 @@ describe("account listings route", () => {
       listSellerListings: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
       listSellerListingFeeLockReport: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
       getSellerListingAvailability: vi.fn().mockRejectedValue(projectionTimeout),
+      getSellerOrderCapacity: vi.fn().mockRejectedValue(projectionTimeout),
     });
     const path = appendFreshWriteToken("/account/listings?availabilityAction=disabled", {
       commitPositions: [

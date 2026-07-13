@@ -302,6 +302,34 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.no.fee.locks": "No fee locks",
   "marketplace.features.listings.ui.listingListPage.no.listings.yet": "No listings yet",
   "marketplace.features.listings.ui.listingListPage.no.return.date": "No return date",
+  "marketplace.features.listings.ui.listingListPage.time.away.and.order.capacity": "Time away & order capacity",
+  "marketplace.features.listings.ui.listingListPage.impact.preview.title": "Before you turn off listings",
+  "marketplace.features.listings.ui.listingListPage.impact.preview.description":
+    "{count} active listings will be hidden from buyers; offer acceptance pauses; orders already in flight are unaffected.",
+  "marketplace.features.listings.ui.listingListPage.scheduled.restore.title": "Automatic return",
+  "marketplace.features.listings.ui.listingListPage.scheduled.restore.notice":
+    "Your listings will automatically return on {date} — we'll notify you.",
+  "marketplace.features.listings.ui.listingListPage.scheduled.restore.notice.window":
+    "Your listings will turn off on {startDate} and automatically return on {endDate} — we'll notify you.",
+  "marketplace.features.listings.ui.listingListPage.scheduled.restore.notice.window.indefinite":
+    "Your listings will turn off on {startDate} and stay off until you turn them back on.",
+  "marketplace.features.listings.ui.listingListPage.order.capacity": "Order capacity",
+  "marketplace.features.listings.ui.listingListPage.order.capacity.description":
+    "Pause new order intake once you have this many open orders at once.",
+  "marketplace.features.listings.ui.listingListPage.order.capacity.current": "Current cap: {cap} open orders",
+  "marketplace.features.listings.ui.listingListPage.order.capacity.unlimited":
+    "No cap set — you'll accept unlimited open orders.",
+  "marketplace.features.listings.ui.listingListPage.order.capacity.open.orders.now":
+    "Open orders right now: {count} of {cap}",
+  "marketplace.features.listings.ui.listingListPage.order.capacity.open.orders.now.unlimited":
+    "Open orders right now: {count}",
+  "marketplace.features.listings.ui.listingListPage.order.capacity.open.orders.unavailable":
+    "Open order count is temporarily unavailable.",
+  "marketplace.features.listings.ui.listingListPage.order.capacity.sourced.from.ordering":
+    "Counted live from your orders.",
+  "marketplace.features.listings.ui.listingListPage.order.capacity.max.open.orders": "Maximum open orders",
+  "marketplace.features.listings.ui.listingListPage.order.capacity.set": "Set capacity",
+  "marketplace.features.listings.ui.listingListPage.order.capacity.clear": "Remove cap",
   "marketplace.features.listings.ui.listingListPage.no.schedule.available": "No schedule available",
   "marketplace.features.listings.ui.listingListPage.no.seller.purchase.limits": "No seller purchase limits set",
   "marketplace.features.listings.ui.listingListPage.no.sellable.inventory.is.available":

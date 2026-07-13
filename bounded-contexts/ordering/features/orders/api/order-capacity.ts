@@ -77,6 +77,18 @@ export async function loadSellerOrderCapacityCap(db: PgQueryable, sellerAccountI
 }
 
 /**
+ * Read-only seller-facing count of the account's currently Open Orders --
+ * the authoritative "N" in the "N of M" Order Capacity display (m127). It
+ * counts the Ordering-owned claim ledger (`ordering_seller_open_order_claims`,
+ * status `'claimed'`), the same truth the plan-stage claim/release path
+ * maintains, so the seller settings surface never counts orders client-side.
+ * Non-locking: this is a display read, not a claim decision.
+ */
+export async function loadSellerOpenOrderCount(db: PgQueryable, sellerAccountId: string): Promise<number> {
+  return countOpenClaims(db, sellerAccountId);
+}
+
+/**
  * Claims one Open Order slot per order id for each seller group in the
  * plan, transactionally (before CreateOrder is dispatched for any of
  * them). A seller whose group would push their open count over

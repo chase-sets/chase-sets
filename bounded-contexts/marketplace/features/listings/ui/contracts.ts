@@ -174,6 +174,20 @@ export interface MarketplaceSellerListingAvailability {
   updated_at: string;
 }
 
+/**
+ * The seller's Order Capacity setting (m127): the maximum number of
+ * concurrently Open Orders the account will accept before new order intake
+ * pauses. `max_open_orders: null` means unlimited (the default). This is the
+ * marketplace-owned source of truth for the cap; the live "N of M" Open Order
+ * count that pairs with it is read separately from Ordering, never
+ * counted client-side.
+ */
+export interface MarketplaceSellerOrderCapacity {
+  account_id: string;
+  max_open_orders: number | null;
+  updated_at: string;
+}
+
 export interface MarketplaceListingFeeLockReportEntry {
   listing_id: string;
   inventory_item_id: string;

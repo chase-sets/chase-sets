@@ -16,7 +16,6 @@ import {
   Card,
   DataTable,
   FilterArea,
-  Grid,
   Inline,
   LinkButton,
   MarketplaceDashboardPanel,
@@ -38,9 +37,11 @@ import type {
   MarketplaceListingFeeLockReportEntry,
   MarketplaceListingListItem,
   MarketplaceSellerListingAvailability,
+  MarketplaceSellerOrderCapacity,
   MarketplaceSellerListingStatusCounts,
 } from "./contracts";
 import type { SellerBehavioralMetricsSummary } from "../../../support/request-support/seller-metrics-client";
+import { TimeAwayCapacityCard } from "./time-away-capacity-card";
 
 const SELLER_LISTING_STATUS_FILTERS = ["all", "draft", "active", "paused", "withdrawn"] as const;
 
@@ -113,41 +114,6 @@ function formatBehavioralMetricRate(rate: string | null) {
   return formatBpsPercent(Number(rate) * 10_000, { maximumFractionDigits: 1 });
 }
 
-function availabilityTone(status: MarketplaceSellerListingAvailability["status"]) {
-  return status === "available" ? "success" : "warning";
-}
-
-// The domain accepts only a fully-formed instant and never guesses a
-// timezone server-side, so the date `<input>` is converted here, in the
-// browser, using the seller's own local clock -- "back on July 20" means
-// listings resume the morning of the 20th in the seller's own timezone.
-// This only ever runs from a real `onChange` event, so it never executes
-// during server rendering (where "local" would mean the server's timezone,
-// not the seller's).
-function localDateInputToInstant(value: string): string {
-  if (!value) {
-    return "";
-  }
-
-  const localMidnight = new Date(`${value}T00:00:00`);
-  return Number.isNaN(localMidnight.valueOf()) ? "" : localMidnight.toISOString();
-}
-
-function availabilityReasonLabel(reason: string | null) {
-  switch (reason) {
-    case "travel":
-      return t("marketplace.features.listings.ui.listingListPage.reason.travel");
-    case "audit":
-      return t("marketplace.features.listings.ui.listingListPage.reason.audit");
-    case "operations":
-      return t("marketplace.features.listings.ui.listingListPage.reason.operations");
-    case "other":
-      return t("marketplace.features.listings.ui.listingListPage.reason.other");
-    default:
-      return t("marketplace.features.listings.ui.listingListPage.reason.not.set");
-  }
-}
-
 function navigateToListingListPage(page: number, pageSize: number) {
   if (typeof window === "undefined") {
     return;
@@ -204,6 +170,8 @@ export function MarketplaceListingListPage({
   pagination,
   feeLockReport,
   listingAvailability,
+  orderCapacity,
+  openOrderCount = null,
   filters = { status: "all", search: "" },
   bulkActionOutcomes,
   errorMessage,
@@ -214,6 +182,9 @@ export function MarketplaceListingListPage({
   pagination?: Readonly<{ limit: number; offset: number; total: number }>;
   feeLockReport?: { items: readonly MarketplaceListingFeeLockReportEntry[] };
   listingAvailability: MarketplaceSellerListingAvailability;
+  orderCapacity: MarketplaceSellerOrderCapacity;
+  /** Ordering-sourced live Open Order count for the "N of M" display; null when that cross-context read was unavailable. Never counted client-side. */
+  openOrderCount?: number | null;
   filters?: Readonly<{ status: string; search: string }>;
   bulkActionOutcomes?: readonly MarketplaceListingBulkActionOutcome[] | null;
   errorMessage?: string | null;
@@ -221,9 +192,6 @@ export function MarketplaceListingListPage({
   sellerBehavioralMetrics?: SellerBehavioralMetricsSummary | null;
 }) {
   const [selectedListingIds, setSelectedListingIds] = useState<Set<string>>(new Set());
-  const [availableAgainAt, setAvailableAgainAt] = useState("");
-  const [awayWindowStartsAt, setAwayWindowStartsAt] = useState("");
-  const [awayWindowEndsAt, setAwayWindowEndsAt] = useState("");
   const activeListings = statusCounts
     ? statusCounts.active
     : data.items.filter((item) => item.status === "active").length;
@@ -268,147 +236,13 @@ export function MarketplaceListingListPage({
         />
       ) : null}
 
-      <PageSection title={t("marketplace.features.listings.ui.listingListPage.seller.listing.availability")}>
-        <Card>
-          <Grid columns={{ base: 1, lg: 2 }} gap={5}>
-            <Stack gap={3}>
-              <Inline align="center">
-                <Badge tone={availabilityTone(listingAvailability.status)}>
-                  {listingAvailability.status === "available"
-                    ? t("marketplace.features.listings.ui.listingListPage.listings.available")
-                    : t("marketplace.features.listings.ui.listingListPage.listings.unavailable")}
-                </Badge>
-                <Text weight="semibold">
-                  {t("marketplace.features.listings.ui.listingListPage.account.wide.listing.control")}
-                </Text>
-              </Inline>
-              <Text tone="secondary">
-                {listingAvailability.status === "available"
-                  ? t("marketplace.features.listings.ui.listingListPage.availability.available.description")
-                  : t("marketplace.features.listings.ui.listingListPage.availability.unavailable.description", {
-                      reason: availabilityReasonLabel(listingAvailability.disabled_reason_category),
-                      date:
-                        listingAvailability.available_again_on ??
-                        t("marketplace.features.listings.ui.listingListPage.no.return.date"),
-                    })}
-              </Text>
-              {listingAvailability.status === "unavailable" ? (
-                <Form spacing="none" method="post">
-                  <Button type="submit" name="intent" value="enable-listing-availability">
-                    {t("marketplace.features.listings.ui.listingListPage.turn.on.listings")}
-                  </Button>
-                </Form>
-              ) : null}
-            </Stack>
-            <Form spacing="none" method="post">
-              <Stack gap={3}>
-                <Grid columns={{ base: 1, md: 2 }} gap={3}>
-                  <NativeSelect
-                    label={t("marketplace.features.listings.ui.listingListPage.reason")}
-                    name="reasonCategory"
-                    defaultValue={listingAvailability.disabled_reason_category ?? ""}
-                    items={[
-                      { value: "", label: t("marketplace.features.listings.ui.listingListPage.reason.not.set") },
-                      { value: "travel", label: t("marketplace.features.listings.ui.listingListPage.reason.travel") },
-                      { value: "audit", label: t("marketplace.features.listings.ui.listingListPage.reason.audit") },
-                      {
-                        value: "operations",
-                        label: t("marketplace.features.listings.ui.listingListPage.reason.operations"),
-                      },
-                      { value: "other", label: t("marketplace.features.listings.ui.listingListPage.reason.other") },
-                    ]}
-                  />
-                  <TextInput
-                    label={t("marketplace.features.listings.ui.listingListPage.available.again.on")}
-                    name="availableAgainOn"
-                    type="date"
-                    defaultValue={listingAvailability.available_again_on ?? undefined}
-                    onChange={(changeEvent) => setAvailableAgainAt(localDateInputToInstant(changeEvent.target.value))}
-                  />
-                </Grid>
-                <HiddenInput type="hidden" name="availableAgainAt" value={availableAgainAt} />
-                <Inline>
-                  <Button type="submit" name="intent" value="disable-listing-availability" tone="secondary">
-                    {listingAvailability.status === "unavailable"
-                      ? t("marketplace.features.listings.ui.listingListPage.update.away.settings")
-                      : t("marketplace.features.listings.ui.listingListPage.turn.off.listings")}
-                  </Button>
-                </Inline>
-              </Stack>
-            </Form>
-          </Grid>
-        </Card>
-      </PageSection>
-
-      <PageSection title={t("marketplace.features.listings.ui.listingListPage.away.window")}>
-        <Card>
-          {listingAvailability.away_window_starts_at ? (
-            <Stack gap={3}>
-              <Text tone="secondary">
-                {t("marketplace.features.listings.ui.listingListPage.away.window.scheduled.description", {
-                  reason: availabilityReasonLabel(listingAvailability.away_window_reason_category),
-                  startDate: formatDateTime(listingAvailability.away_window_starts_at),
-                  endDate: listingAvailability.away_window_ends_at
-                    ? formatDateTime(listingAvailability.away_window_ends_at)
-                    : t("marketplace.features.listings.ui.listingListPage.no.return.date"),
-                })}
-              </Text>
-              <Form spacing="none" method="post">
-                <Button type="submit" name="intent" value="cancel-away-window" tone="secondary">
-                  {t("marketplace.features.listings.ui.listingListPage.cancel.away.window")}
-                </Button>
-              </Form>
-            </Stack>
-          ) : listingAvailability.status === "available" ? (
-            <Form spacing="none" method="post">
-              <Stack gap={3}>
-                <Text tone="secondary">
-                  {t("marketplace.features.listings.ui.listingListPage.away.window.description")}
-                </Text>
-                <Grid columns={{ base: 1, md: 3 }} gap={3}>
-                  <NativeSelect
-                    label={t("marketplace.features.listings.ui.listingListPage.reason")}
-                    name="awayWindowReasonCategory"
-                    defaultValue=""
-                    items={[
-                      { value: "", label: t("marketplace.features.listings.ui.listingListPage.reason.not.set") },
-                      { value: "travel", label: t("marketplace.features.listings.ui.listingListPage.reason.travel") },
-                      { value: "audit", label: t("marketplace.features.listings.ui.listingListPage.reason.audit") },
-                      {
-                        value: "operations",
-                        label: t("marketplace.features.listings.ui.listingListPage.reason.operations"),
-                      },
-                      { value: "other", label: t("marketplace.features.listings.ui.listingListPage.reason.other") },
-                    ]}
-                  />
-                  <TextInput
-                    label={t("marketplace.features.listings.ui.listingListPage.away.window.starts.on")}
-                    name="awayWindowStartsOn"
-                    type="date"
-                    onChange={(changeEvent) => setAwayWindowStartsAt(localDateInputToInstant(changeEvent.target.value))}
-                  />
-                  <TextInput
-                    label={t("marketplace.features.listings.ui.listingListPage.away.window.ends.on")}
-                    name="awayWindowEndsOn"
-                    type="date"
-                    onChange={(changeEvent) => setAwayWindowEndsAt(localDateInputToInstant(changeEvent.target.value))}
-                  />
-                </Grid>
-                <HiddenInput type="hidden" name="awayWindowStartsAt" value={awayWindowStartsAt} />
-                <HiddenInput type="hidden" name="awayWindowEndsAt" value={awayWindowEndsAt} />
-                <Inline>
-                  <Button type="submit" name="intent" value="schedule-away-window" tone="secondary">
-                    {t("marketplace.features.listings.ui.listingListPage.schedule.away.window")}
-                  </Button>
-                </Inline>
-              </Stack>
-            </Form>
-          ) : (
-            <Text tone="secondary">
-              {t("marketplace.features.listings.ui.listingListPage.away.window.unavailable.while.away")}
-            </Text>
-          )}
-        </Card>
+      <PageSection title={t("marketplace.features.listings.ui.listingListPage.time.away.and.order.capacity")}>
+        <TimeAwayCapacityCard
+          availability={listingAvailability}
+          orderCapacity={orderCapacity}
+          openOrderCount={openOrderCount}
+          activeListingCount={activeListings}
+        />
       </PageSection>
 
       <MarketplaceDashboardPanel

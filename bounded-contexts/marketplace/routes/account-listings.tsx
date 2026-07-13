@@ -17,9 +17,11 @@ import {
   type MarketplaceListingFeeLockReportEntry,
   type MarketplaceListingListItem,
   type MarketplaceSellerListingAvailability,
+  type MarketplaceSellerOrderCapacity,
   type MarketplaceSellerListingStatusCounts,
 } from "../support/request-support/api-client";
 import { createSellerMetricsRequestApiClient } from "../support/request-support/seller-metrics-api-client";
+import { createOrderingOpenOrdersRequestApiClient } from "../support/request-support/ordering-open-orders-api-client";
 import type { SellerBehavioralMetricsSummary } from "../support/request-support/seller-metrics-client";
 import type { MarketplaceListingBulkActionOutcome } from "../features/listings/ui/contracts";
 import {
@@ -68,8 +70,18 @@ function accountAccessRequired(returnTo: string) {
       away_window_reason_category: null,
       updated_at: "1970-01-01T00:00:00.000Z",
     },
+    orderCapacity: emptyOrderCapacity(""),
+    openOrderCount: null,
     filters: { status: "all", search: "" },
     sellerBehavioralMetrics: null,
+  };
+}
+
+function emptyOrderCapacity(accountId: string): MarketplaceSellerOrderCapacity {
+  return {
+    account_id: accountId,
+    max_open_orders: null,
+    updated_at: "1970-01-01T00:00:00.000Z",
   };
 }
 
@@ -88,6 +100,7 @@ type AccountListingsPageReads = Readonly<{
   listings: MarketplaceListingListResponse;
   feeLockReport: ListResponse<MarketplaceListingFeeLockReportEntry>;
   listingAvailability: MarketplaceSellerListingAvailability;
+  orderCapacity: MarketplaceSellerOrderCapacity;
 }>;
 
 function emptyListResponse<T>(): ListResponse<T> {
@@ -123,6 +136,7 @@ function createFreshWriteRecoveryPageReads(
       away_window_reason_category: null,
       updated_at: "1970-01-01T00:00:00.000Z",
     },
+    orderCapacity: emptyOrderCapacity(accountId),
   };
 }
 
@@ -177,13 +191,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
     request: resolvedRequest,
     isNotFound: (error) => marketplaceApiErrorStatus(error) === 404,
     load: async () => {
-      const [listings, feeLockReport, listingAvailability] = await Promise.all([
+      const [listings, feeLockReport, listingAvailability, orderCapacity] = await Promise.all([
         marketplaceApi.listSellerListings(listingsPageQuery),
         marketplaceApi.listSellerListingFeeLockReport(DEFAULT_FEE_LOCK_QUERY),
         marketplaceApi.getSellerListingAvailability(),
+        marketplaceApi.getSellerOrderCapacity(),
       ]);
 
-      return { listings, feeLockReport, listingAvailability };
+      return { listings, feeLockReport, listingAvailability, orderCapacity };
     },
     telemetry: ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY,
   });
@@ -204,7 +219,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     throw new Response(t("marketplace.routes.accountListings.listings.marketplace"), { status: 500 });
   }
 
-  const { listings, feeLockReport, listingAvailability } = pageReads;
+  const { listings, feeLockReport, listingAvailability, orderCapacity } = pageReads;
 
   // Best-effort, outside the write-freshness machinery above --
   // behavioral metrics have no write path on this page, so there is nothing
@@ -212,11 +227,20 @@ export async function loader({ request }: LoaderFunctionArgs) {
   // "not enough orders yet" rather than failing the whole listings page.
   const sellerBehavioralMetrics = await fetchSellerBehavioralMetrics(resolvedRequest);
 
+  // Ordering-sourced live Open Order count (the "N" in the card's "N of M"),
+  // read cross-context and best-effort: Ordering owns this count, the setting
+  // itself is written to marketplace, so a transient Ordering read failure
+  // degrades the count to "temporarily unavailable" rather than failing the
+  // whole listings page. Never counted client-side.
+  const openOrderCount = await fetchSellerOpenOrderCount(resolvedRequest);
+
   return {
     accountAccessRequired: null,
     listings,
     feeLockReport,
     listingAvailability,
+    orderCapacity,
+    openOrderCount,
     filters,
     sellerBehavioralMetrics,
   };
@@ -225,6 +249,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
 async function fetchSellerBehavioralMetrics(request: Request): Promise<SellerBehavioralMetricsSummary | null> {
   try {
     return await createSellerMetricsRequestApiClient(request).getOwnBehavioralMetrics();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchSellerOpenOrderCount(request: Request): Promise<number | null> {
+  try {
+    return await createOrderingOpenOrdersRequestApiClient(request).getSellerOpenOrderCount();
   } catch {
     return null;
   }
@@ -282,6 +314,21 @@ export async function action({ request }: ActionFunctionArgs) {
     if (intent === "cancel-away-window") {
       return redirect(
         await navigateToAccountListingsAfterWrite(await api.cancelScheduledAwayWindow(), "/account/listings"),
+      );
+    }
+
+    if (intent === "set-order-capacity") {
+      return redirect(
+        await navigateToAccountListingsAfterWrite(
+          await api.setSellerOrderCapacity(Number(formData.get("maxOpenOrders") ?? "")),
+          "/account/listings",
+        ),
+      );
+    }
+
+    if (intent === "clear-order-capacity") {
+      return redirect(
+        await navigateToAccountListingsAfterWrite(await api.clearSellerOrderCapacity(), "/account/listings"),
       );
     }
 
@@ -362,6 +409,9 @@ export default function MarketplaceAccountListingsRoute() {
         data.feeLockReport.items.map((item) => item.listing_id).join("|"),
         data.listingAvailability.status,
         data.listingAvailability.updated_at,
+        data.orderCapacity.updated_at,
+        String(data.orderCapacity.max_open_orders),
+        String(data.openOrderCount),
         data.filters.status,
         data.filters.search,
       ].join("\n")}
@@ -447,6 +497,8 @@ function MarketplaceAccountListingsRealtimeView({
       pagination={{ limit: listings.limit, offset: listings.offset, total: listings.total }}
       feeLockReport={feeLockReport}
       listingAvailability={data.listingAvailability as MarketplaceSellerListingAvailability}
+      orderCapacity={data.orderCapacity as MarketplaceSellerOrderCapacity}
+      openOrderCount={data.openOrderCount}
       filters={data.filters}
       bulkActionOutcomes={actionData?.bulkActionOutcomes ?? null}
       errorMessage={actionData?.error ?? null}

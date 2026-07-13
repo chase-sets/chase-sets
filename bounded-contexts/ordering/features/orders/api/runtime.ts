@@ -98,6 +98,7 @@ import {
 import {
   backfillSellerOpenOrderClaims as backfillSellerOpenOrderClaimsLedger,
   claimSellerOrderCapacity,
+  loadSellerOpenOrderCount,
   reconcileSellerOrderCapacity,
   type SellerOrderCapacityGroup,
 } from "./order-capacity";
@@ -557,6 +558,13 @@ export type OrderingOrderServices = Readonly<{
   listSales: (params: Parameters<typeof listSales>[1]) => ReturnType<typeof listSales>;
   getSale: (orderId: string, sellerAccountId: string) => ReturnType<typeof getSale>;
   getSaleListSummary: (sellerAccountId: string) => ReturnType<typeof getSaleListSummary>;
+  /**
+   * Read-only Open Order count for a seller (m127): the authoritative "N"
+   * in the "N of M" Order Capacity display, counted from the Ordering claim
+   * ledger. Marketplace's seller settings surface reads this cross-context
+   * so the count is never derived client-side.
+   */
+  getSellerOpenOrderCount: (sellerAccountId: string) => Promise<number>;
   getOrderReviewOpportunity: (
     orderId: string,
     authorAccountId: string,
@@ -2395,6 +2403,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     listSales: (params) => listSales(deps.db, params),
     getSale: (orderId, sellerAccountId) => getSale(deps.db, orderId, sellerAccountId),
     getSaleListSummary: (sellerAccountId) => getSaleListSummary(deps.db, sellerAccountId),
+    getSellerOpenOrderCount: (sellerAccountId) => loadSellerOpenOrderCount(deps.db, sellerAccountId),
     getOrderReviewOpportunity: (orderId, authorAccountId) =>
       getOrderingOrderReviewOpportunity(deps.db, { orderId, authorAccountId }),
     reconcileSellerOrderCapacitySignal: (sellerAccountId, context) =>
