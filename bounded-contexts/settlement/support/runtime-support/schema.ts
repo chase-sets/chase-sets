@@ -2,6 +2,10 @@ import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import { settlementWalletSchemaMigrations, settlementWalletSchemaSql } from "../../features/wallets/read-model/schema";
+import {
+  settlementWalletAdjustmentSchemaMigrations,
+  settlementWalletAdjustmentSchemaSql,
+} from "../../features/wallets/read-model/wallet-adjustment-schema";
 import { settlementPaymentSourceSchemaSql } from "../../features/wallets/integrations/payment-source/payment-source-schema";
 import { settlementSupportSourceSchemaSql } from "../../features/wallets/integrations/support-source/support-source-schema";
 import { settlementFulfillmentSourceSchemaSql } from "../../features/wallets/integrations/fulfillment-source/fulfillment-source-schema";
@@ -43,6 +47,7 @@ export const settlementSchemaSql = [
   settlementFulfillmentSourceSchemaSql,
   settlementAccountRiskSourceSchemaSql,
   settlementWalletSchemaSql,
+  settlementWalletAdjustmentSchemaSql,
   settlementPayoutReadinessSchemaSql,
   settlementPayoutSchemaSql,
   settlementWorkClaimSchemaSql,
@@ -55,6 +60,7 @@ export const settlementSchemaSql = [
 
 export const settlementSchemaMigrations = [
   ...settlementWalletSchemaMigrations,
+  ...settlementWalletAdjustmentSchemaMigrations,
   ...settlementAccountRiskSourceSchemaMigrations,
   ...settlementPayoutReadinessSchemaMigrations,
   ...settlementPayoutSchemaMigrations,

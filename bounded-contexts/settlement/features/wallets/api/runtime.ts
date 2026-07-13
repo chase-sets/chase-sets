@@ -20,6 +20,7 @@ import {
   type SettlementWalletRow,
 } from "../read-model/queries";
 import { buildWalletProjectionHandlers } from "../read-model/projection";
+import { buildWalletAdjustmentProjectionHandlers } from "../read-model/wallet-adjustment-projection";
 import {
   decideWallet,
   evolveWallet,
@@ -80,6 +81,8 @@ export type PostedLedgerEntrySnapshot = Readonly<{
 
 export type WalletServices = Readonly<{
   commandHandler: CommandHandler<WalletCommand, WalletState, WalletEvent>;
+  /** Loads the wallet aggregate state from the event store, so callers can read the authoritative balance without waiting on the read model. */
+  loadWalletState: (accountId: AccountId) => Promise<WalletState>;
   getWallet: (accountId: string) => Promise<SettlementWalletRow>;
   listWalletEntries: (
     params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
@@ -165,7 +168,7 @@ function postedEntrySnapshot(event: WalletLedgerEntryPostedEvent): PostedLedgerE
 
 export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
   const negativeBalancePolicy = deps.negativeBalancePolicy ?? defaultNegativeBalancePolicy;
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<WalletEvent>(),
     initialState: () => initialWalletState,
@@ -209,6 +212,10 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
 
   return {
     commandHandler,
+    loadWalletState: async (accountId) => {
+      const loaded = await repository.load(`settlement.wallet-${accountId}`);
+      return loaded.state;
+    },
     getWallet: (accountId) => getWallet(deps.db, accountId),
     listWalletEntries: (params) => listWalletEntries(deps.db, params),
     listNegativeBalanceAccounts: (params = {}) => listNegativeBalanceAccounts(deps.db, params),
@@ -353,7 +360,10 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
     projectors: [
       createProjectionHandlerSet({
         projectionName: "settlement-wallet-projection",
-        handlers: buildWalletProjectionHandlers(deps.db),
+        handlers: {
+          ...buildWalletProjectionHandlers(deps.db),
+          ...buildWalletAdjustmentProjectionHandlers(deps.db),
+        },
       }),
     ],
   };

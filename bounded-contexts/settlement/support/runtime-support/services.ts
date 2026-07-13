@@ -11,6 +11,7 @@ import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbo
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createWalletRuntime } from "../../features/wallets/api/runtime";
 import type { NegativeBalancePolicy } from "../../features/wallets/api/runtime";
+import { createWalletAdjustmentRuntime } from "../../features/wallets/api/wallet-adjustment-runtime";
 import { createPayoutRuntime } from "../../features/payouts/api/runtime";
 import { createPayoutReadinessRuntime } from "../../features/payout-readiness/api/runtime";
 import type { MoneyMovementGateway } from "@chase-sets/money-movement";
@@ -30,6 +31,7 @@ export type SettlementHostPorts = Readonly<{
 
 export type SettlementServices = Readonly<{
   wallets: ReturnType<typeof createWalletRuntime>;
+  walletAdjustments: ReturnType<typeof createWalletAdjustmentRuntime>;
   payouts: ReturnType<typeof createPayoutRuntime>;
   payoutReadiness: ReturnType<typeof createPayoutReadinessRuntime>;
   /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (clearance window, payout bounds). */
@@ -83,6 +85,7 @@ export function createSettlementServices(
     policies,
     ...(ports.negativeBalancePolicy ? { negativeBalancePolicy: ports.negativeBalancePolicy } : {}),
   });
+  const walletAdjustments = createWalletAdjustmentRuntime({ eventStore, db, wallets });
   const payoutReadiness = createPayoutReadinessRuntime({
     eventStore,
     checkpointStore,
@@ -110,6 +113,7 @@ export function createSettlementServices(
 
   return {
     wallets,
+    walletAdjustments,
     payouts,
     payoutReadiness,
     policies,
