@@ -1542,7 +1542,11 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       .map((link) => new URL(link.getAttribute("href") ?? "", "https://admin.example"))
       .find((url) => url.pathname === "/catalog/integrations/governance");
     expect(governanceLink).toBeTruthy();
-    expect(governanceLink!.searchParams.get("section")).toBe("controls");
+    // governance-controls is now the governance surface's sole workspace
+    // (#3833 dissolves conflict-resolution; #3832 moves lifecycle-recovery to
+    // the v2 Provider detail page), so it is the surface default and needs no
+    // ?section=.
+    expect(governanceLink!.searchParams.has("section")).toBe(false);
     expect(governanceLink!.searchParams.get("providerKey")).toBe("tcgdex");
     expect(governanceLink!.searchParams.get("unitKey")).toBe("tcgdex:pokemon:card:import");
     expect(governanceLink!.searchParams.get("importScope")).toBe("en:3:base:base1");
@@ -1602,7 +1606,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       .map((link) => new URL(link.getAttribute("href") ?? "", "https://admin.example"))
       .find((url) => url.pathname === "/catalog/integrations/governance");
     expect(governanceLink).toBeTruthy();
-    expect(governanceLink!.searchParams.get("section")).toBe("controls");
+    expect(governanceLink!.searchParams.has("section")).toBe(false);
     expect(new URL(governanceLink!.searchParams.get("returnPath") ?? "", "https://admin.example").pathname).toBe(
       "/catalog/integrations",
     );

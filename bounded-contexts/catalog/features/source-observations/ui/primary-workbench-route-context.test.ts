@@ -185,10 +185,10 @@ describe("Catalog primary workbench route context", () => {
 
     // The first workspace of a surface is its default and needs no ?section=.
     // profile-authoring/validation-readiness/lifecycle-recovery are retired
-    // (#3832 — folded into the v2 Provider detail page), so this now uses
-    // conflict-resolution, the first workspace remaining on the governance
-    // surface.
-    const conflictHref = new URL(
+    // (#3832 — folded into the v2 Provider detail page) and conflict-resolution
+    // is retired (#3833 — dissolved into merge candidate review), so
+    // governance-controls is now the only workspace on the governance surface.
+    const governanceControlsHref = new URL(
       catalogPrimaryWorkbenchHref(
         {
           section: "import-to-promotion",
@@ -204,12 +204,12 @@ describe("Catalog primary workbench route context", () => {
           promotionPreviewId: null,
           returnPath: null,
         },
-        "conflict-resolution",
+        "governance-controls",
       ),
       "https://admin.example",
     );
-    expect(conflictHref.pathname).toBe("/catalog/integrations/governance");
-    expect(conflictHref.searchParams.has("section")).toBe(false);
+    expect(governanceControlsHref.pathname).toBe("/catalog/integrations/governance");
+    expect(governanceControlsHref.searchParams.has("section")).toBe(false);
   });
 
   it("preserves scope names that cannot be reconstructed from importScope", () => {
@@ -263,7 +263,7 @@ describe("Catalog primary workbench route context", () => {
   it("derives the active workspace from the surface route path when no section param is present", () => {
     expect(
       parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/governance").section,
-    ).toBe("lifecycle-recovery");
+    ).toBe("governance-controls");
     expect(parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/health").section).toBe(
       "audit-evidence",
     );
