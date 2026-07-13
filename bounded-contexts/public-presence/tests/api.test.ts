@@ -63,6 +63,13 @@ function createServices(overrides: Partial<WaitlistServices> = {}) {
       allGamesCovered: false,
       admitted: false,
     })),
+    admitWave: vi.fn(async () => ({
+      waveNumber: 1 as const,
+      configuredInviteCount: 100,
+      admittedCount: 100,
+      rolloutExposurePercent: 10,
+      policyDocumentId: "pol_wave",
+    })),
     projectors: [],
   } satisfies WaitlistServices;
 
@@ -286,6 +293,32 @@ describe("public presence API", () => {
     expect(body).toHaveProperty("quality");
     expect(body).toHaveProperty("channelAttribution");
     expect(body).toHaveProperty("admissionBar");
+  });
+
+  it("returns the command-owned wave admission and rollout exposure snapshot", async () => {
+    const services = createServices();
+    const response = await adminAppFor(services, actorWithPermissions(["public-presence.manage"])).request(
+      "/waitlist/waves/2/admit",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          checkoutFailureRatePercent: 1.2,
+          projectionsNearRealTime: true,
+          supportWithinSoloOperatorCapacity: true,
+        }),
+      },
+    );
+    expect(response.status).toBe(201);
+    expect(services.admitWave).toHaveBeenCalledWith(
+      expect.objectContaining({ waveNumber: 2, checkoutFailureRatePercent: 1.2 }),
+      expect.objectContaining({ tenantId: "tnt_test" }),
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      configuredInviteCount: 100,
+      rolloutExposurePercent: 10,
+      policyDocumentId: "pol_wave",
+    });
   });
 
   it("forwards cohort-quality signup fields to submitWaitlistSignup", async () => {

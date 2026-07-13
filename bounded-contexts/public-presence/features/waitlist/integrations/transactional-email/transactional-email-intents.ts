@@ -199,3 +199,28 @@ function formatDate(value: string) {
     new Date(value),
   );
 }
+
+export function mapWaitlistAdmissionToTransactionalEmail(input: {
+  email: string;
+  signupId: string;
+  waveNumber: number;
+  correlationId: string;
+}): NotificationMessage {
+  return createTransactionalEmailNotificationMessage({
+    messageType: "public-presence.waitlist-signup.admitted",
+    criticality: "operational",
+    to: [{ email: input.email }],
+    subject: `Your Chase Sets beta wave ${input.waveNumber} invite`,
+    templateId: "waitlist_beta_invitation",
+    templateVersion: 1,
+    locale: "en",
+    templateData: {
+      headline: `You are invited to beta wave ${input.waveNumber}.`,
+      intro: "Create your Chase Sets account with this email to enter the beta.",
+      registrationPath: "/register",
+    },
+    idempotencyKey: `public-presence:beta-invitation:${input.signupId}`,
+    correlationId: input.correlationId,
+    actor: { userId: null, accountId: null },
+  });
+}

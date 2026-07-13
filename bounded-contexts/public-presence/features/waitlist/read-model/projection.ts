@@ -1,6 +1,7 @@
 import type {
   ChaseSetsEventPayloads,
   WaitlistCohortQualityProvidedPayload,
+  WaitlistSignupAdmittedPayload,
   WaitlistSignupRecordedPayload,
   WaitlistSignupUpdatedPayload,
 } from "@chase-sets/event-core";
@@ -107,6 +108,18 @@ async function applyCohortQuality(db: PgQueryable, data: WaitlistCohortQualityPr
   );
 }
 
+async function applyAdmission(db: PgQueryable, data: WaitlistSignupAdmittedPayload) {
+  await db.query(
+    `UPDATE public_presence_waitlist_signups
+     SET admitted_wave = $2,
+         beta_invitation_id = $3,
+         admitted_at = $4,
+         updated_at = $4
+     WHERE signup_id = $1`,
+    [data.signupId, data.waveNumber, data.invitationId, data.admittedAt],
+  );
+}
+
 export function buildWaitlistProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return defineProjectorHandlers<
     Pick<
@@ -114,6 +127,7 @@ export function buildWaitlistProjectionHandlers(db: PgQueryable): ProjectorHandl
       | "public-presence.waitlist-signup.recorded"
       | "public-presence.waitlist-signup.updated"
       | "public-presence.waitlist-signup.cohort-quality-provided"
+      | "public-presence.waitlist-signup.admitted"
     >
   >({
     "public-presence.waitlist-signup.recorded": async (event) => {
@@ -126,6 +140,9 @@ export function buildWaitlistProjectionHandlers(db: PgQueryable): ProjectorHandl
     },
     "public-presence.waitlist-signup.cohort-quality-provided": async (event) => {
       await applyCohortQuality(db, event.data);
+    },
+    "public-presence.waitlist-signup.admitted": async (event) => {
+      await applyAdmission(db, event.data);
     },
   });
 }

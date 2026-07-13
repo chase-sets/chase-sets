@@ -8,6 +8,11 @@ apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
   name: {{ include "chase-sets-platform.componentName" (dict "root" $ "name" $name) }}
+  {{- with $.Values.global.betaWave }}
+  annotations:
+    chase-sets.com/beta-wave-size: {{ .inviteCount | quote }}
+    chase-sets.com/beta-wave-rollout-exposure-percent: {{ .rolloutExposurePercent | quote }}
+  {{- end }}
   labels:
 {{ include "chase-sets-platform.labels" (dict "root" $ "name" $name) | nindent 4 }}
 spec:

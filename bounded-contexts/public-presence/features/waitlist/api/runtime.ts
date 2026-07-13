@@ -6,6 +6,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { roundDownWaitlistCounterForDisplay, stableWaitlistSignupId, type WaitlistSource } from "../domain/common";
 import {
@@ -18,6 +19,7 @@ import {
 } from "../domain/domain";
 import {
   evaluateWaveOneAdmissionBar,
+  WAVE_ONE_ADMISSION_BAR,
   type WaveOneAdmissionBarStatus,
 } from "../read-model/campaign-admission-bar-policy";
 import { buildWaitlistProjectionHandlers } from "../read-model/projection";
@@ -28,7 +30,10 @@ import {
   getWaitlistReferralSummary,
   getWaitlistSignupCount,
   listWaitlistSignups,
+  listWaveAdmissionCandidates,
 } from "../read-model/queries";
+import { betaWavePolicy } from "../domain/wave-policy";
+import { selectWaveCohort } from "../read-model/wave-cohort-policy";
 import type { CampaignChannelAttributionRow, CampaignQualityMetrics, WaitlistCounter } from "./contracts";
 import {
   PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
@@ -40,6 +45,8 @@ type WaitlistRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   notificationOutbox?: NotificationOutbox;
+  policies: PolicyRuntime;
+  now?: () => Date;
 }>;
 
 export type WaitlistServices = Readonly<{
@@ -81,6 +88,21 @@ export type WaitlistServices = Readonly<{
   getCampaignQualityMetrics: () => Promise<CampaignQualityMetrics>;
   getCampaignChannelAttribution: () => Promise<readonly CampaignChannelAttributionRow[]>;
   getWaveOneAdmissionBarStatus: () => Promise<WaveOneAdmissionBarStatus>;
+  admitWave: (
+    params: Readonly<{
+      waveNumber: 1 | 2 | 3;
+      checkoutFailureRatePercent?: number;
+      projectionsNearRealTime?: boolean;
+      supportWithinSoloOperatorCapacity?: boolean;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{
+    waveNumber: 1 | 2 | 3;
+    configuredInviteCount: number;
+    admittedCount: number;
+    rolloutExposurePercent: number;
+    policyDocumentId: string | null;
+  }>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -89,6 +111,7 @@ const WAITLIST_COUNTER_CACHE_TTL_MS = 60_000;
 export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServices {
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   let counterCache: { readAt: number; counter: WaitlistCounter } | null = null;
+  const now = deps.now ?? (() => new Date());
   const { commandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<WaitlistSignupEvent>(),
@@ -151,6 +174,57 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
         qualifiedSellerCount: quality.qualifiedSellerCount,
         qualifiedSellersByGame: quality.qualifiedSellersByGame,
       });
+    },
+    async admitWave(params, context) {
+      const admittedAt = now().toISOString();
+      const resolved = await deps.policies.resolvePolicy(betaWavePolicy, { at: admittedAt });
+      const wave = resolved.value.waves.find((candidate) => candidate.waveNumber === params.waveNumber);
+      if (!wave) {
+        throw new Error(`Wave ${params.waveNumber} is not configured.`);
+      }
+      if (Date.parse(admittedAt) < Date.parse(wave.opensAt)) {
+        throw new Error(`Wave ${params.waveNumber} cannot open before ${wave.opensAt}.`);
+      }
+      const quality = await getCampaignQualityMetrics(deps.db);
+      const operationsGates = resolved.value.operationsGates;
+      if (params.waveNumber === 1) {
+        if (!evaluateWaveOneAdmissionBar(quality).admitted) {
+          throw new Error("Wave 1 admission bar has not passed.");
+        }
+      } else if (
+        !Number.isFinite(params.checkoutFailureRatePercent) ||
+        Number(params.checkoutFailureRatePercent) >= operationsGates.maxCheckoutFailureRatePercent ||
+        (operationsGates.requireNearRealTimeProjections && params.projectionsNearRealTime !== true) ||
+        (operationsGates.requireSupportWithinSoloOperatorCapacity && params.supportWithinSoloOperatorCapacity !== true)
+      ) {
+        throw new Error("Between-wave operations gates have not passed.");
+      }
+
+      const selected = selectWaveCohort(
+        await listWaveAdmissionCandidates(deps.db, params.waveNumber),
+        params.waveNumber,
+        wave.inviteCount,
+        WAVE_ONE_ADMISSION_BAR.minQualifiedSellersPerGame,
+      );
+      let admittedCount = 0;
+      for (const candidate of selected) {
+        const invitationId = `wvi_${params.waveNumber}_${candidate.signupId.slice("wls_".length)}`;
+        const result = await commandHandler({
+          streamId: `public-presence.waitlist-signup-${candidate.signupId}`,
+          command: { type: "AdmitWaitlistSignup", waveNumber: params.waveNumber, invitationId, admittedAt },
+          context,
+        });
+        if (result.state.admission?.invitationId === invitationId) {
+          admittedCount += 1;
+        }
+      }
+      return {
+        waveNumber: params.waveNumber,
+        configuredInviteCount: wave.inviteCount,
+        admittedCount,
+        rolloutExposurePercent: wave.rolloutExposurePercent,
+        policyDocumentId: resolved.documentId,
+      };
     },
     async getWaitlistCounter() {
       // The counter renders on every landing view and is bucketed to 25s for display,

@@ -128,6 +128,11 @@ export async function requireRegistrationAdmission(
     return { ok: true };
   }
 
+  const waveAdmission = await services.registrationAdmission?.findAdmittedWaitlistSignupByEmail?.(normalizedEmail);
+  if (waveAdmission) {
+    return { ok: true, invitationId: waveAdmission.beta_invitation_id };
+  }
+
   const invitation = await services.identity.findPendingInvitationByEmail(normalizedEmail);
   if (!invitation) {
     return { ok: false, failure: waitlistFailure() };

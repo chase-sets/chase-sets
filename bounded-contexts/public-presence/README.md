@@ -10,6 +10,7 @@ Public Presence owns Chase Sets public product pages, prelaunch policy surfaces,
 - Prelaunch policy surfaces
 - Public help articles and their category taxonomy
 - Waitlist capture and waitlist entries
+- Beta wave policy, cohort selection, and waitlist admission
 - Internal waitlist review
 - Landing page positioning and analytics vocabulary
 
@@ -35,7 +36,8 @@ Public Presence terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Outgoing Integration Events
 
-- None outside Public Presence. `public-presence.waitlist-signup.recorded`, `public-presence.waitlist-signup.updated`, and `public-presence.waitlist-signup.cohort-quality-provided` are consumed by Public Presence's own waitlist and nurture-email projections.
+- `public-presence.waitlist-signup.admitted` is the durable beta-admission fact. Public Presence projects it into its waitlist read model and transactional-email outbox; Auth reads the admitted-email fact through a platform-api composition port rather than querying this context directly.
+- `public-presence.waitlist-signup.recorded`, `public-presence.waitlist-signup.updated`, and `public-presence.waitlist-signup.cohort-quality-provided` remain internal to Public Presence's own waitlist and nurture-email projections.
 
 Public Presence does publish one build-time contract rather than an event: the Help Article compiler derives `@chase-sets/public-docs` article-to-policy citations from canonical frontmatter for Platform Operations' policy-revision review queue.
 
@@ -58,5 +60,6 @@ The marketplace and admin deployables only compose routes from this context. Pro
 
 - [Landing page positioning](docs/landing-page-positioning.md)
 - [Landing page analytics](docs/landing-page-analytics.md)
+- [Beta wave exposure runbook](../../docs/runbooks/beta-wave-exposure.md)
 - [Help article contract](docs/help-article-contract.md)
 - [Seller migration and bulk-listing proof walkthrough](docs/seller-migration-bulk-listing-proof.md)

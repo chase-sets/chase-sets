@@ -11,6 +11,7 @@ import type { PublicPresenceServices } from "./support/runtime-support/services"
 import { createPublicPresenceServices } from "./support/runtime-support/services";
 import { publicPresenceSchemaSql } from "./support/runtime-support/schema";
 import { publicPresenceUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
+import { seedBetaWavePolicyIfMissing } from "./features/waitlist/api/seed";
 
 export const module = defineBoundedContextModule<
   PublicPresenceServices,
@@ -54,6 +55,7 @@ export const module = defineBoundedContextModule<
   seedProfiles: ["critical-bootstrap", "scenario-seed"],
   seed: async (pool, services, options) => {
     const publicPresenceServices = services ?? createPublicPresenceServices(pool);
+    await seedBetaWavePolicyIfMissing(publicPresenceServices);
     await seedPublicPresencePromoBarMessages(publicPresenceServices.db, options);
   },
 });

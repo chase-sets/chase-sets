@@ -70,6 +70,9 @@ type AuthIdentityReadServices = Readonly<{
 
 export type RegistrationAdmissionHostConfig = RegistrationAdmissionConfig &
   Readonly<{
+    findAdmittedWaitlistSignupByEmail?: (
+      email: string,
+    ) => Promise<Readonly<{ signup_id: string; beta_invitation_id: string; admitted_wave: number }> | null>;
     screeningObserver?: {
       record: (
         event: Readonly<{
@@ -142,6 +145,7 @@ function resolveRegistrationAdmissionConfig(
   return {
     ...DEFAULT_REGISTRATION_ADMISSION_CONFIG,
     ...config,
+    findAdmittedWaitlistSignupByEmail: config?.findAdmittedWaitlistSignupByEmail,
     disposableEmailDomains: [
       ...new Set([
         ...DEFAULT_REGISTRATION_ADMISSION_CONFIG.disposableEmailDomains,

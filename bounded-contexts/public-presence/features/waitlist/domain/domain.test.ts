@@ -501,4 +501,41 @@ describe("waitlist signup domain", () => {
     const updatedState = evolveWaitlistSignup(state, updated);
     expect(updatedState.cohortQuality.inventorySize).toBe("2000_plus");
   });
+
+  it("records beta admission once and makes an identical retry a no-op", async () => {
+    const [recorded] = await decideWaitlistSignup(initialWaitlistSignupState, {
+      type: "RecordWaitlistSignup",
+      email: "wave@example.com",
+      role: "buy",
+      interests: ["set-completion"],
+      marketingConsentAcceptedAt: null,
+      source,
+      recordedAt: "2026-07-01T00:00:00.000Z",
+    });
+    const state = evolveWaitlistSignup(initialWaitlistSignupState, recorded);
+    const [admitted] = await decideWaitlistSignup(state, {
+      type: "AdmitWaitlistSignup",
+      waveNumber: 1,
+      invitationId: "wvi_1_wave",
+      admittedAt: "2026-07-31T00:00:00.000Z",
+    });
+    expect(admitted.type).toBe("public-presence.waitlist-signup.admitted");
+    const admittedState = evolveWaitlistSignup(state, admitted);
+    expect(
+      decideWaitlistSignup(admittedState, {
+        type: "AdmitWaitlistSignup",
+        waveNumber: 1,
+        invitationId: "wvi_1_wave",
+        admittedAt: "2026-07-31T00:01:00.000Z",
+      }),
+    ).toEqual([]);
+    expect(() =>
+      decideWaitlistSignup(admittedState, {
+        type: "AdmitWaitlistSignup",
+        waveNumber: 2,
+        invitationId: "wvi_2_wave",
+        admittedAt: "2026-08-07T00:00:00.000Z",
+      }),
+    ).toThrow("already been admitted");
+  });
 });

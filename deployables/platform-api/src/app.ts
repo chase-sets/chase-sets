@@ -60,7 +60,11 @@ import {
   type SupportReferenceLookupResult,
   supportDeadlinePolicy,
 } from "@chase-sets/platform-operations/server";
-import type { PublicPolicySource } from "@chase-sets/public-presence/server";
+import {
+  betaWavePolicy,
+  findAdmittedWaitlistSignupByEmail,
+  type PublicPolicySource,
+} from "@chase-sets/public-presence/server";
 import {
   getPlatformGmvSeries,
   getPlatformKpiSummary,
@@ -199,6 +203,7 @@ export function createPlatformApiHost(
   const orderingPool = getPlatformApiPool(options.pools.ordering);
   const fulfillmentPool = getPlatformApiPool(options.pools.fulfillment);
   const pricingPool = getPlatformApiPool(options.pools.pricing);
+  const publicPresencePool = getPlatformApiPool(options.pools["public-presence"]);
   const opsMarketAnalyticsCrossContext: OpsMarketAnalyticsCrossContextPort | undefined = pricingPool
     ? {
         getPlatformGmvSeries: (params) => getPlatformGmvSeries(pricingPool, params),
@@ -250,6 +255,17 @@ export function createPlatformApiHost(
   const rateLimitPolicyResolver = platformOperationsPool
     ? createRateLimitPolicyResolver(platformOperationsPool)
     : undefined;
+  const configuredRegistrationAdmission = (options.hostPorts as Record<string, unknown> | undefined)
+    ?.registrationAdmission as Record<string, unknown> | undefined;
+  const registrationAdmission = {
+    ...(configuredRegistrationAdmission ?? {}),
+    ...(publicPresencePool
+      ? {
+          findAdmittedWaitlistSignupByEmail: (email: string) =>
+            findAdmittedWaitlistSignupByEmail(publicPresencePool, email),
+        }
+      : {}),
+  };
   const policyConsoleCrossContextSources: PolicyConsoleCrossContextPort["sources"][number][] = [];
   if (identityPool) {
     policyConsoleCrossContextSources.push({
@@ -311,6 +327,16 @@ export function createPlatformApiHost(
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.pricing as { policies?: PolicyConsoleWritePort } | undefined,
+      ),
+    });
+  }
+  if (publicPresencePool) {
+    policyConsoleCrossContextSources.push({
+      contextName: "public-presence",
+      db: publicPresencePool,
+      definitions: [betaWavePolicy] as unknown as readonly PolicyDefinition<JsonValue>[],
+      write: lazyPolicyConsoleWritePort(
+        () => runtime?.services["public-presence"] as { policies?: PolicyConsoleWritePort } | undefined,
       ),
     });
   }
@@ -411,6 +437,7 @@ export function createPlatformApiHost(
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
       ...(authenticityFeePolicyResolver ? { authenticityFeePolicyResolver } : {}),
       ...(rateLimitPolicyResolver ? { rateLimitPolicyResolver } : {}),
+      registrationAdmission,
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),

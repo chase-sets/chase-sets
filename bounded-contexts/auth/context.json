@@ -178,7 +178,7 @@
     {
       "portName": "registrationAdmission",
       "providedBy": "platform-api",
-      "purpose": "Registration admission and disposable-email screening policy used by Auth-owned registration journeys."
+      "purpose": "Registration admission and disposable-email screening policy plus the Public Presence admitted-waitlist lookup used by Auth-owned registration journeys."
     },
     {
       "portName": "securityLifetimes",

@@ -155,6 +155,7 @@ export function buildHelmUpgradeArgs(options = {}) {
               : [],
         )
       : [];
+  const waveExposureSetArgs = buildWaveExposureHelmSetArgs(options);
 
   return [
     "upgrade",
@@ -173,6 +174,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     ...previewPostgresSetArgs,
     ...observabilitySetArgs,
     ...rolloutSetArgs,
+    ...waveExposureSetArgs,
     ...previewSchedulingSetArgs,
     "--set-string",
     `global.image.registry=${image.registry}`,
@@ -189,6 +191,35 @@ export function buildHelmUpgradeArgs(options = {}) {
       "--set-string",
       `global.envOverrides.${name}=${escapeHelmSetStringValue(value)}`,
     ]),
+  ];
+}
+
+export function buildWaveExposureHelmSetArgs(options = {}) {
+  const inviteCount = options.betaWaveSize;
+  const exposurePercent = options.betaWaveRolloutExposure;
+  if (inviteCount == null && exposurePercent == null) return [];
+  if (inviteCount == null || exposurePercent == null) {
+    throw new Error("--beta-wave-size and --beta-wave-rollout-exposure must be supplied together.");
+  }
+  const parsedCount = Number(inviteCount);
+  const parsedExposure = Number(exposurePercent);
+  if (!Number.isInteger(parsedCount) || parsedCount < 1) {
+    throw new Error("--beta-wave-size must be a positive whole number.");
+  }
+  if (![10, 25, 50].includes(parsedExposure)) {
+    throw new Error("--beta-wave-rollout-exposure must be an analyzed Argo weight: 10, 25, or 50.");
+  }
+  const componentArgs = Object.entries(
+    buildPlatformHelmValues({ repoRoot: options.repoRoot }).components ?? {},
+  ).flatMap(([name, component]) =>
+    component.rollout ? ["--set", `components.${name}.rollout.canary.pauseAfterWeight=${parsedExposure}`] : [],
+  );
+  return [
+    "--set",
+    `global.betaWave.inviteCount=${parsedCount}`,
+    "--set",
+    `global.betaWave.rolloutExposurePercent=${parsedExposure}`,
+    ...componentArgs,
   ];
 }
 
@@ -991,7 +1022,7 @@ export function parseArgs(argv, env = process.env) {
     )
   ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollouts-enabled true|false] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollouts-enabled true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -1005,6 +1036,8 @@ export function parseArgs(argv, env = process.env) {
     release: readOption(rest, "--release", env.CHASE_SETS_HELM_RELEASE ?? defaultRelease),
     timeout: readOption(rest, "--timeout", env.CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT ?? defaultTimeout),
     rolloutsEnabled: readBooleanOption(rest, "--rollouts-enabled", env.ARGO_ROLLOUTS_ENABLED),
+    betaWaveSize: readOption(rest, "--beta-wave-size", env.BETA_WAVE_SIZE),
+    betaWaveRolloutExposure: readOption(rest, "--beta-wave-rollout-exposure", env.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT),
     revision: readOption(rest, "--revision", env.CHASE_SETS_HELM_ROLLBACK_REVISION),
     helmPath: readOption(rest, "--helm", env.HELM_PATH ?? "helm"),
     kubectlPath: readOption(rest, "--kubectl", env.KUBECTL_PATH ?? "kubectl"),
