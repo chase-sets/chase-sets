@@ -23,6 +23,7 @@ export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandle
           "authentication_method",
           "status",
           "expires_at",
+          "started_at",
           "updated_at",
         ],
         conflictColumns: ["session_id"],
@@ -34,6 +35,11 @@ export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandle
           authentication_method: authenticationMethod,
           status: "active",
           expires_at: expiresAt,
+          // Recorded only here, from the session's own started event, and
+          // deliberately absent from every other handler's setColumns below
+          // so account-switch/revoke/expire never overwrite it. A replay of
+          // this same started event is idempotent (same recordedAt).
+          started_at: event.timing.recordedAt,
           updated_at: event.timing.recordedAt,
         },
         casts: { available_account_ids: "jsonb" },

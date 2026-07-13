@@ -2020,6 +2020,14 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async getUnmappedScopeInbox<T>(limit?: number): Promise<T> {
+      const search = limit ? `?limit=${encodeURIComponent(String(limit))}` : "";
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/provider-scope-mappings/inbox${search}`, {
+        method: "GET",
+        headers: headersToRecord(headers),
+      });
+      return parseJsonResponse<T>(response);
+    },
     async dispatchCatalogAttentionQueueCommand<T>(input: {
       intent: "dismiss" | "defer" | "restore";
       itemKey: string;
@@ -2042,6 +2050,59 @@ export function createCatalogApiClient({
           ...(input.deferredUntil !== undefined ? { deferredUntil: input.deferredUntil } : {}),
           ...(input.deferHours !== undefined ? { deferHours: input.deferHours } : {}),
         }),
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async getScopeCoverageMatrix<T>(scopeRecordId: string): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/provider-scope-mappings/coverage/${encodeURIComponent(scopeRecordId)}`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async dispatchProviderScopeMappingReviewCommand<T>(input: {
+      intent: "accept" | "reject" | "revoke";
+      mappingIds: readonly string[];
+      reason?: string;
+    }): Promise<T> {
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/provider-scope-mappings/commands`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...headersToRecord(headers),
+        },
+        body: JSON.stringify({
+          intent: input.intent,
+          mappingIds: input.mappingIds,
+          ...(input.reason !== undefined ? { reason: input.reason } : {}),
+        }),
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async proposeProviderScopeMapping<T>(input: {
+      scopeRecordId: string;
+      providerKey: string;
+      unitKey: string;
+      coordinates: {
+        productLineId?: string | null;
+        seriesId?: string | null;
+        setId?: string | null;
+        setName?: string | null;
+      };
+      confidence?: string;
+      autoAccept?: boolean;
+      reason?: string;
+    }): Promise<T> {
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/provider-scope-mappings/propose`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...headersToRecord(headers),
+        },
+        body: JSON.stringify(input),
       });
       return parseJsonResponse<T>(response);
     },

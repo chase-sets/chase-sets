@@ -20,7 +20,52 @@ export type ResolvedActor = Readonly<{
   roleKey: string;
   permissions: readonly string[];
   agentGrant?: AgentOAuthGrantContext;
+  /**
+   * When the Auth session this actor was resolved from carries a reliable
+   * moment-of-authentication fact (the session's own `started_at`, never
+   * overwritten by later account switches or other session mutations), Auth
+   * populates this ISO-8601 UTC timestamp. Absent for actor kinds Auth does
+   * not track a session-start moment for (guest checkout, UCP/agent bearer
+   * tokens). Consumers that require a step-up/"recently authenticated" check
+   * -- see `resolveRecentAuthenticationStatus` below -- must fail closed when
+   * this is missing rather than treat an unknown moment as recent.
+   */
+  authenticatedAt?: string | null;
 }>;
+
+/**
+ * The recent-authentication ("step-up") outcome for a sensitive action, per
+ * ADR 0020's approval matrix: request, approval, and reversal of a Wallet
+ * Adjustment each require the acting session to have authenticated within a
+ * policy-owned window. This is Auth's existing session-authentication fact
+ * (`ResolvedActor.authenticatedAt`), not a new Settlement- or
+ * consumer-owned session concept -- callers outside Auth only interpret it.
+ *
+ * Fails closed: a missing, unparsable, or future `authenticatedAt`, or a
+ * non-positive `maxAgeMinutes`, is never treated as recently authenticated.
+ */
+export type RecentAuthenticationStatus = Readonly<{
+  recentlyAuthenticated: boolean;
+  authenticatedAt: string | null;
+}>;
+
+export function resolveRecentAuthenticationStatus(
+  actor: Pick<ResolvedActor, "authenticatedAt">,
+  options: Readonly<{ maxAgeMinutes: number; now?: Date }>,
+): RecentAuthenticationStatus {
+  const authenticatedAt = actor.authenticatedAt ?? null;
+  if (authenticatedAt === null || !Number.isFinite(options.maxAgeMinutes) || options.maxAgeMinutes <= 0) {
+    return { recentlyAuthenticated: false, authenticatedAt };
+  }
+  const authenticatedAtMs = Date.parse(authenticatedAt);
+  if (Number.isNaN(authenticatedAtMs)) {
+    return { recentlyAuthenticated: false, authenticatedAt: null };
+  }
+  const nowMs = (options.now ?? new Date()).getTime();
+  const ageMs = nowMs - authenticatedAtMs;
+  const maxAgeMs = options.maxAgeMinutes * 60_000;
+  return { recentlyAuthenticated: ageMs >= 0 && ageMs <= maxAgeMs, authenticatedAt };
+}
 
 export type AgentOAuthScope =
   | "catalog:read"

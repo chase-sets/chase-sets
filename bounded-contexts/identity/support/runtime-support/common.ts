@@ -72,7 +72,16 @@ export type PermissionKey =
   | "reputation.view"
   | "support.manage"
   | "support.view"
-  | "security.manage";
+  | "security.manage"
+  // Platform Wallet Adjustment authority ratified by ADR 0020: purpose-specific,
+  // never bundled into `payouts.*`, and granted to platform-admin only. Read,
+  // create (request), approve (approve/reject), and reverse are independently
+  // enforced permissions so each action of the lifecycle can be withheld on
+  // its own.
+  | "wallet-adjustments.approve"
+  | "wallet-adjustments.create"
+  | "wallet-adjustments.reverse"
+  | "wallet-adjustments.view";
 export type EmptyEventData = Readonly<Record<string, never>>;
 export type IdentityValue = JsonValue;
 

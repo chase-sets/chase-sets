@@ -34,6 +34,14 @@ export const ROLE_PERMISSIONS = {
     "security.manage",
     "support.manage",
     "support.view",
+    // Platform Wallet Adjustment authority (ADR 0020): platform-admin only.
+    // Never granted via invitation/membership assignment -- platform-admin
+    // itself can only be assigned by platform bootstrap (see
+    // assertRoleAssignmentAllowed) -- and never bundled into payouts.*.
+    "wallet-adjustments.approve",
+    "wallet-adjustments.create",
+    "wallet-adjustments.reverse",
+    "wallet-adjustments.view",
   ],
   owner: [
     "accounts.manage",

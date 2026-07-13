@@ -65,7 +65,11 @@ describe("identity role permissions", () => {
     expect(ROLE_PERMISSIONS.viewer).not.toContain("platform-policy.view");
   });
 
-  it("grants platform wallet-adjustment authority to no role, keeping it separate from account payout permissions", () => {
+  it("grants the legacy operator wallet-mutation authority to no role, keeping it separate from account payout permissions", () => {
+    // The legacy operator mutation routes (refund-debit/dispute-hold/dispute-release)
+    // still require this dedicated authority. It must never be resolved onto a role
+    // until those routes retire in favor of the typed Wallet Adjustment lifecycle, so
+    // no owner/manager (or any other role) can post to an arbitrary wallet.
     for (const roleKey of ROLE_KEYS) {
       expect(ROLE_PERMISSIONS[roleKey]).not.toContain("wallet-adjustments.operate");
     }
@@ -77,6 +81,34 @@ describe("identity role permissions", () => {
     expect(ROLE_PERMISSIONS.manager).not.toContain("wallet-adjustments.operate");
     // Acquiring any payout permission does not grant the wallet-adjustment authority.
     expect(ROLE_PERMISSIONS["platform-admin"]).not.toContain("wallet-adjustments.operate");
+  });
+
+  it("grants the platform Wallet Adjustment authority (ADR 0020) to platform-admin only", () => {
+    const walletAdjustmentPermissions = [
+      "wallet-adjustments.approve",
+      "wallet-adjustments.create",
+      "wallet-adjustments.reverse",
+      "wallet-adjustments.view",
+    ] as const;
+
+    for (const permission of walletAdjustmentPermissions) {
+      expect(ROLE_PERMISSIONS["platform-admin"]).toContain(permission);
+    }
+    for (const roleKey of ROLE_KEYS) {
+      if (roleKey === "platform-admin") {
+        continue;
+      }
+      for (const permission of walletAdjustmentPermissions) {
+        expect(ROLE_PERMISSIONS[roleKey]).not.toContain(permission);
+      }
+    }
+    // Read/create/approve/reverse are independently named permissions, not a
+    // single bundled grant, so each can be withheld on its own.
+    expect(new Set(walletAdjustmentPermissions).size).toBe(walletAdjustmentPermissions.length);
+    // Owner/manager hold payouts.manage, but the platform Wallet Adjustment
+    // authority must never ride along with account-scoped payout authority.
+    expect(ROLE_PERMISSIONS.owner).toContain("payouts.manage");
+    expect(ROLE_PERMISSIONS.manager).toContain("payouts.manage");
   });
 
   it("keeps payout scheduling as an authority permission instead of an account capability", () => {

@@ -89,3 +89,45 @@ export async function listAcceptedProviderScopeMappingsByProviderUnit(
 
   return result.rows;
 }
+
+/**
+ * Every mapping row for one canonical scope record, regardless of review
+ * status. The coverage matrix needs the full history (proposed / accepted /
+ * rejected / revoked) per provider, not only the currently-accepted set.
+ */
+export async function listProviderScopeMappingsByScopeRecord(
+  db: PgQueryable,
+  scopeRecordId: string,
+): Promise<readonly ProviderScopeMappingRow[]> {
+  const normalizedScopeRecordId = scopeRecordId.trim();
+  if (!normalizedScopeRecordId) {
+    return [];
+  }
+
+  const result = await db.query<ProviderScopeMappingRow>(
+    `SELECT *
+     FROM catalog_provider_scope_mappings
+     WHERE scope_record_id = $1
+     ORDER BY provider_key ASC, unit_key ASC, updated_at DESC`,
+    [normalizedScopeRecordId],
+  );
+
+  return result.rows;
+}
+
+export async function getProviderScopeMapping(
+  db: PgQueryable,
+  mappingId: string,
+): Promise<ProviderScopeMappingRow | null> {
+  const normalizedMappingId = mappingId.trim();
+  if (!normalizedMappingId) {
+    return null;
+  }
+
+  const result = await db.query<ProviderScopeMappingRow>(
+    `SELECT * FROM catalog_provider_scope_mappings WHERE mapping_id = $1`,
+    [normalizedMappingId],
+  );
+
+  return result.rows[0] ?? null;
+}

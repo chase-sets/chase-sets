@@ -598,6 +598,94 @@ const lorcanaDownstreamCatalogItemsJourney: ProviderSyncJourney = {
   scope: [{ label: "Set", choice: lorcanaSetChoice }],
 };
 
+// Canonical-scope dispatch grouping: several journeys pull the SAME real-world
+// scope (a TCG + language edition + set/expansion) through different provider
+// units (single-card imports, set-reference-data pulls, sealed products) — the
+// operator thinks in terms of "sync the Lorcana First Chapter scope", not "sync
+// scrydex:lorcana:single-card, then lorcanajson:lorcana:single-card, then...".
+// Derive a canonical scope key from data the journey already declares (the
+// unit's product domain, an explicit "Language" scope selection when the
+// journey carries one, and the most specific remaining scope selection) rather
+// than parsing the free-text `name`, so distinct language editions of the same
+// set (which ARE distinct canonical scopes) never collapse onto one group.
+function canonicalScopeKeyForProviderSyncJourney(journey: ProviderSyncJourney): string {
+  const productDomain = journey.unitKey.split(":")[1] ?? journey.providerKey;
+  const languageSelection = journey.scope.find((selection) => scopeSelectionLabelText(selection) === "language");
+  const languageKey = scopeSelectionChoiceKey(languageSelection) ?? "en";
+  const referenceSelection =
+    [...journey.scope]
+      .reverse()
+      .find((selection) => scopeReferenceLabelKinds.has(scopeSelectionLabelText(selection))) ??
+    journey.scope[journey.scope.length - 1];
+  const referenceKey = scopeSelectionChoiceKey(referenceSelection) ?? journey.unitKey;
+  return `${slugifyScopeKeyPart(productDomain)}:${slugifyScopeKeyPart(languageKey)}:${slugifyScopeKeyPart(referenceKey)}`;
+}
+
+const scopeReferenceLabelKinds = new Set(["set", "set name", "expansion", "product line"]);
+
+function scopeSelectionLabelText(selection: ScopeSelection | undefined): string {
+  if (!selection) {
+    return "";
+  }
+  return (typeof selection.label === "string" ? selection.label : selection.label.source).toLowerCase();
+}
+
+function scopeSelectionChoiceKey(selection: ScopeSelection | undefined): string | null {
+  if (!selection) {
+    return null;
+  }
+  // Prefer the human-readable preferred label over the raw `values` entry: the
+  // label ("The First Chapter") is the cross-provider-consistent join key,
+  // while `values` is each provider's own opaque internal id/code (a numeric
+  // TCGplayer product-line id, a Scrydex set code, a tcgdex expansion code) and
+  // differs per provider for the identical real-world scope — some journeys
+  // (e.g. TCGplayer's set-name choices) declare no `values` at all and resolve
+  // the id only at runtime via `fallbackToFirstAvailableOption`.
+  return selection.choice.labels?.[0] ?? selection.choice.values?.[0] ?? null;
+}
+
+function slugifyScopeKeyPart(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function groupProviderSyncJourneysByCanonicalScope(
+  journeys: readonly ProviderSyncJourney[],
+): ReadonlyMap<string, readonly ProviderSyncJourney[]> {
+  const groups = new Map<string, ProviderSyncJourney[]>();
+  for (const journey of journeys) {
+    const scopeKey = canonicalScopeKeyForProviderSyncJourney(journey);
+    const existing = groups.get(scopeKey);
+    if (existing) {
+      existing.push(journey);
+    } else {
+      groups.set(scopeKey, [journey]);
+    }
+  }
+  return groups;
+}
+
+// Preserving the settled-scope re-run acceptance criterion (a unit whose
+// durable per-scope sync state is already "settled" for the current child
+// execution scope fast-forwards onto its prior completed job instead of
+// re-enqueuing a provider call): re-select and re-sync the last journey in an
+// already-settled canonical scope group and assert the visible import job
+// rows for that unit + scope did not grow. A fresh (non-fast-forwarded) run
+// would add a new job row; a fast-forwarded run reuses the prior one.
+async function expectSettledScopeSyncFastForward(page: Page, journey: ProviderSyncJourney): Promise<void> {
+  const selectedScope = await selectProviderScope(page, journey);
+  const rowsBeforeRerun = await visibleImportJobRowTexts(page, journey.unitKey, selectedScope);
+  await syncSelectedProviderUnit(page, journey.unitKey, selectedScope);
+  const rowsAfterRerun = await visibleImportJobRowTexts(page, journey.unitKey, selectedScope);
+  expect(
+    rowsAfterRerun.length,
+    `Re-running the settled scope for "${journey.name}" should fast-forward onto the prior completed job instead of enqueuing a new one (rows before: ${rowsBeforeRerun.join(", ") || "none"}; rows after: ${rowsAfterRerun.join(", ") || "none"}).`,
+  ).toBe(rowsBeforeRerun.length);
+}
+
 test.describe("catalog staging provider sync UAT helpers", () => {
   test("recognizes a no-promotable settled operator state", () => {
     expect(
@@ -641,6 +729,69 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     expect(sanitized).toContain("[email redacted]");
     expect(sanitized).not.toContain("fake-token");
     expect(sanitized).not.toContain("user@example.test");
+  });
+
+  test("dispatches canonical-scope-first: groups the Lorcana First Chapter journey across every provider unit", () => {
+    const groups = groupProviderSyncJourneysByCanonicalScope(lorcanaLaunchProviderSyncJourneys);
+    const firstChapterGroup = [...groups.values()].find((journeysInGroup) =>
+      journeysInGroup.some((journey) => journey.name === "Lorcana card set through Scrydex bulk-first shared importer"),
+    );
+
+    expect(firstChapterGroup).toBeTruthy();
+    expect(firstChapterGroup!.map((journey) => journey.providerKey).sort()).toEqual([
+      "lorcanajson",
+      "lorcanajson",
+      "lorcast",
+      "lorcast",
+      "scrydex",
+      "scrydex",
+      "tcgplayer",
+      "tcgplayer",
+    ]);
+    // Every unit-kind pulling the First Chapter scope (card imports AND
+    // set-reference-data pulls, single-card AND sealed products) lands in the
+    // same canonical-scope group — this is the "dispatch by scope, not by
+    // per-unit" property the group must have.
+    expect(firstChapterGroup!.map((journey) => journey.unitKey).sort()).toEqual([
+      "lorcanajson:lorcana:set:reference-data",
+      "lorcanajson:lorcana:single-card:reference-data",
+      "lorcast:lorcana:set:reference-data",
+      "lorcast:lorcana:single-card:reference-data",
+      "scrydex:lorcana:set:reference-data",
+      "scrydex:lorcana:single-card:source-observation-import",
+      "tcgplayer:lorcana:sealed-product:source-observation-import",
+      "tcgplayer:lorcana:single-card:source-observation-import",
+    ]);
+  });
+
+  test("keeps distinct language-edition Pokemon scopes from collapsing onto one canonical-scope group", () => {
+    const groups = groupProviderSyncJourneysByCanonicalScope(tcgdexRepresentativePokemonJourneys);
+
+    // English and Traditional Chinese Surging Sparks are the SAME expansion in
+    // TWO different canonical scopes (language is part of scope identity), so
+    // canonical-scope dispatch must keep them apart, not merge them because
+    // they share a provider/unit/expansion.
+    expect(groups.size).toBe(tcgdexRepresentativePokemonJourneys.length);
+    for (const [scopeKey, journeysInGroup] of groups) {
+      expect(journeysInGroup, scopeKey).toHaveLength(1);
+    }
+  });
+
+  test("derives a stable canonical scope key from scope selections, not from the free-text journey name", () => {
+    const englishSurgingSparks = tcgdexRepresentativePokemonJourneys.find(
+      (journey) => journey.name === "Pokemon English Surging Sparks through TCGdex",
+    )!;
+    const traditionalChineseSurgingSparks = tcgdexRepresentativePokemonJourneys.find(
+      (journey) => journey.name === "Pokemon Traditional Chinese Surging Sparks through TCGdex",
+    )!;
+
+    expect(canonicalScopeKeyForProviderSyncJourney(englishSurgingSparks)).toBe("pokemon:english:surging-sparks");
+    expect(canonicalScopeKeyForProviderSyncJourney(traditionalChineseSurgingSparks)).toBe(
+      "pokemon:traditional-chinese:surging-sparks",
+    );
+    expect(canonicalScopeKeyForProviderSyncJourney(englishSurgingSparks)).not.toBe(
+      canonicalScopeKeyForProviderSyncJourney(traditionalChineseSurgingSparks),
+    );
   });
 
   test("covers the staging representative catalog provider matrix", () => {
@@ -688,22 +839,42 @@ test.describe("catalog staging provider sync UAT", () => {
     await openCatalogImporter(page);
     await assertSharedImporterSurface(page);
 
-    for (const journey of providerSyncJourneys) {
-      await test.step(journey.name, async () => {
-        const selectedScope = await selectProviderScope(page, journey);
-        if (journey.preflight) {
-          await expectImportPreflight(page, journey.unitKey, selectedScope, journey.preflight);
+    // Dispatch by canonical scope, not by per-unit: journeys pulling the SAME
+    // real-world scope through different provider units are grouped and run
+    // together under one "Scope: <key>" step, with the settled-scope
+    // fast-forward property re-verified once the group's units have all
+    // reached settled state (see expectSettledScopeSyncFastForward above).
+    // Grouping only changes dispatch/reporting structure; each unit's own
+    // sync/preflight/settlement assertions are unchanged from the prior
+    // per-unit-only iteration.
+    for (const [scopeKey, journeysInScope] of groupProviderSyncJourneysByCanonicalScope(providerSyncJourneys)) {
+      await test.step(`Scope: ${scopeKey}`, async () => {
+        for (const journey of journeysInScope) {
+          await test.step(journey.name, async () => {
+            const selectedScope = await selectProviderScope(page, journey);
+            if (journey.preflight) {
+              await expectImportPreflight(page, journey.unitKey, selectedScope, journey.preflight);
+            }
+            const syncAttempt = await syncSelectedProviderUnit(page, journey.unitKey, selectedScope);
+            if (journey.requiresTerminalSync) {
+              await expectImportJobSettledForSelectedUnit(
+                page,
+                journey.unitKey,
+                selectedScope,
+                syncAttempt.previousJobRows,
+                undefined,
+                { allowPartialWithReview: journey.allowPartialWithReview },
+              );
+            }
+          });
         }
-        const syncAttempt = await syncSelectedProviderUnit(page, journey.unitKey, selectedScope);
-        if (journey.requiresTerminalSync) {
-          await expectImportJobSettledForSelectedUnit(
-            page,
-            journey.unitKey,
-            selectedScope,
-            syncAttempt.previousJobRows,
-            undefined,
-            { allowPartialWithReview: journey.allowPartialWithReview },
-          );
+
+        const lastJourneyInScope = journeysInScope[journeysInScope.length - 1];
+        const scopeFullySettled = journeysInScope.every((journey) => journey.requiresTerminalSync);
+        if (lastJourneyInScope && scopeFullySettled) {
+          await test.step(`Settled-scope fast-forward: ${scopeKey}`, async () => {
+            await expectSettledScopeSyncFastForward(page, lastJourneyInScope);
+          });
         }
       });
     }
