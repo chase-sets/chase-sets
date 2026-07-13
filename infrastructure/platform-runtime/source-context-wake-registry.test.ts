@@ -60,7 +60,7 @@ describe("source-context wake registry", () => {
       {
         sourceContextName: "commercial-terms",
         rolloutState: "staging-enabled",
-        rolloutWave: "wave-3-platform-expansion",
+        rolloutWave: "wave-2-commerce-dependencies",
         relayFanOutEnabled: true,
         priorityLane: "bulk",
       },
