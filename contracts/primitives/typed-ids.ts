@@ -79,6 +79,8 @@ export type PaymentId = TypedUlid<"pay">;
 
 export type LedgerEntryId = TypedUlid<"led">;
 
+export type WalletAdjustmentId = TypedUlid<"wad">;
+
 export type PayoutId = TypedUlid<"pyo">;
 
 export type MembershipId = TypedUlid<"mbr">;

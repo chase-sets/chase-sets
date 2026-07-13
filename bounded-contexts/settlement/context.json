@@ -1,7 +1,7 @@
 {
   "contextName": "settlement",
   "packageName": "@chase-sets/settlement",
-  "ownedNouns": ["wallet", "payout", "payout-readiness", "ledger-entry"],
+  "ownedNouns": ["wallet", "wallet-adjustment", "payout", "payout-readiness", "ledger-entry"],
   "streamPrefix": "settlement.",
   "apiBasePath": "/api/settlement",
   "slices": ["wallets", "payout-readiness", "payouts"],
