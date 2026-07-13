@@ -13,6 +13,7 @@ const ACCOUNT_CART_PROBE_VERSION = "account-cart-consistency-probe/v1";
 const NON_BUY_NOW_UAT_VERSION = "non-buy-now-post-write-freshness-uat/v1";
 const ROUTE_MATRIX_EVIDENCE_VERSION = "read-consistency-route-matrix-evidence/v1";
 const PUSH_WAKE_CAPACITY_EVIDENCE_VERSION = "push-wake-capacity-evidence/v1";
+const EPHEMERAL_VERIFICATION_VERSION = "ephemeral-verification/v1";
 const FRESHNESS_SUSTAINED_WINDOW_TARGET_DAYS = 30;
 const CAPACITY_REVIEW_MIN_DEPLOYABLE_ATTEMPTS = 10;
 const CAPACITY_REVIEW_STAGING_DURATION_WARN_SECONDS = 20 * 60;
@@ -82,6 +83,7 @@ export async function runReleaseHealthReport(options) {
     records: classified.releaseRecords,
     evidenceArtifacts: classified.evidenceArtifacts,
     capacityArtifacts: classified.capacityArtifacts,
+    verificationArtifacts: classified.verificationArtifacts,
     ignoredArtifactCount: classified.ignoredArtifacts.length,
   });
 
@@ -101,6 +103,7 @@ export function buildReleaseHealthReport(input) {
   const freshness = summarizeFreshnessEvidence(input.evidenceArtifacts ?? []);
   const gates = summarizeGatePosture(records);
   const capacityEvidence = summarizeCapacityEvidence(input.capacityArtifacts ?? []);
+  const stagingElimination = summarizeStagingElimination(records, input.verificationArtifacts ?? []);
   const capacityReview = evaluateCapacityAndImageReview({
     records,
     deployableRecords,
@@ -128,6 +131,7 @@ export function buildReleaseHealthReport(input) {
     freshness,
     capacityEvidence,
     capacityReview,
+    stagingElimination,
   };
 
   const lines = [
@@ -143,6 +147,9 @@ export function buildReleaseHealthReport(input) {
     `- Production successes: ${summary.successCount}`,
     `- Production failures/cancellations: ${summary.failureCount}`,
     `- Staging aborts: ${summary.stagingAbortCount}`,
+    `- Persistent staging-only catch rate: ${summary.stagingElimination.persistentStagingCatchRate === null ? "unknown" : formatPercent(summary.stagingElimination.persistentStagingCatchRate)}`,
+    `- Ephemeral verification releases: ${summary.stagingElimination.verificationCount}`,
+    `- Staging retirement decision: ${summary.stagingElimination.decision}`,
     `- Stale staging skips: ${summary.staleSkipCount}`,
     `- Emergency releases: ${summary.emergencyCount}`,
     `- Releases with lock active: ${summary.lockedCount}`,
@@ -294,6 +301,7 @@ export function classifyReleaseHealthArtifacts(artifacts) {
   const releaseRecords = [];
   const evidenceArtifacts = [];
   const capacityArtifacts = [];
+  const verificationArtifacts = [];
   const ignoredArtifacts = [];
 
   for (const artifact of artifacts) {
@@ -305,12 +313,34 @@ export function classifyReleaseHealthArtifacts(artifacts) {
       evidenceArtifacts.push({ ...artifact, record });
     } else if (schemaVersion === PUSH_WAKE_CAPACITY_EVIDENCE_VERSION) {
       capacityArtifacts.push({ ...artifact, record });
+    } else if (schemaVersion === EPHEMERAL_VERIFICATION_VERSION) {
+      verificationArtifacts.push({ ...artifact, record });
     } else {
       ignoredArtifacts.push(artifact);
     }
   }
 
-  return { releaseRecords, evidenceArtifacts, capacityArtifacts, ignoredArtifacts };
+  return { releaseRecords, evidenceArtifacts, capacityArtifacts, verificationArtifacts, ignoredArtifacts };
+}
+
+function summarizeStagingElimination(records, artifacts) {
+  const measured = records.filter((record) => ["success", "failure", "cancelled"].includes(record.staging?.result));
+  const catches = measured.filter((record) => ["failure", "cancelled"].includes(record.staging?.result));
+  const verificationRecords = artifacts.map((artifact) => artifact.record ?? artifact);
+  const verificationSuccessCount = verificationRecords.filter((record) => record.result === "success").length;
+  const verificationFailureCount = verificationRecords.filter((record) => record.result === "failure").length;
+  const persistentStagingCatchRate = measured.length === 0 ? null : catches.length / measured.length;
+  const eligible =
+    measured.length >= 10 && catches.length === 0 && verificationSuccessCount > 0 && verificationFailureCount === 0;
+  return {
+    measuredReleaseCount: measured.length,
+    persistentStagingCatchCount: catches.length,
+    persistentStagingCatchRate,
+    verificationCount: verificationRecords.length,
+    verificationSuccessCount,
+    verificationFailureCount,
+    decision: eligible ? "eligible-for-explicit-retirement-review" : "retain-persistent-staging",
+  };
 }
 
 function formatReleaseRow(record) {

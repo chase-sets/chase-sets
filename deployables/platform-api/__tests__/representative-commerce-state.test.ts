@@ -66,7 +66,7 @@ describe("representative commerce state refresh guardrails", () => {
         confirmation: "seed staging commerce",
       }),
     ).toThrow(
-      "representative-commerce-state requires DEPLOYMENT_ENVIRONMENT=staging, test/dev runtime, or REPRESENTATIVE_COMMERCE_STATE_ALLOW_LOCAL=true.",
+      "representative-commerce-state requires staging, test/dev, an identified ephemeral verification namespace",
     );
 
     expect(() =>
@@ -76,6 +76,23 @@ describe("representative commerce state refresh guardrails", () => {
         localOverride: "true",
       }),
     ).not.toThrow();
+  });
+
+  it("allows only strictly identified ephemeral verification previews", () => {
+    expect(() =>
+      assertRepresentativeCommerceStateRunAllowed({
+        deploymentEnvironment: "preview",
+        confirmation: "seed staging commerce",
+        ephemeralVerificationNamespace: "chase-sets-verify-12345-1",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertRepresentativeCommerceStateRunAllowed({
+        deploymentEnvironment: "preview",
+        confirmation: "seed staging commerce",
+        ephemeralVerificationNamespace: "chase-sets-pr-4056",
+      }),
+    ).toThrow("identified ephemeral verification namespace");
   });
 });
 

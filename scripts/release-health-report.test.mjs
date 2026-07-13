@@ -171,17 +171,49 @@ describe("release health report", () => {
       segments: { writeToCheckoutReadyMs: 1200, documentToReadyMs: 300 },
     };
     const capacity = capacityEvidence();
+    const verification = {
+      schemaVersion: "ephemeral-verification/v1",
+      releaseCommit: "a".repeat(40),
+      result: "success",
+    };
     const classified = classifyReleaseHealthArtifacts([
       { file: "release.json", record: release },
       { file: "guest-buy-now-freshness-probe.json", record: probe },
       { file: "push-wake-capacity-evidence.json", record: capacity },
+      { file: "ephemeral-verification.json", record: verification },
       { file: "production-readiness-gate.json", record: { schemaVersion: "marketplace-production-readiness/v1" } },
     ]);
 
     expect(classified.releaseRecords).toEqual([release]);
     expect(classified.evidenceArtifacts.map((artifact) => artifact.record)).toEqual([probe]);
     expect(classified.capacityArtifacts.map((artifact) => artifact.record)).toEqual([capacity]);
+    expect(classified.verificationArtifacts.map((artifact) => artifact.record)).toEqual([verification]);
     expect(classified.ignoredArtifacts).toHaveLength(1);
+  });
+
+  it("reports the persistent staging-only catch rate and keeps retirement explicit", () => {
+    const records = Array.from({ length: 10 }, (_, index) =>
+      record({
+        releaseCommit: index.toString(16).repeat(40).slice(0, 40),
+      }),
+    );
+    const result = buildReleaseHealthReport({
+      checkedAt: "2026-07-12T12:00:00.000Z",
+      records,
+      evidenceArtifacts: [],
+      capacityArtifacts: [],
+      verificationArtifacts: [{ record: { schemaVersion: "ephemeral-verification/v1", result: "success" } }],
+    });
+
+    expect(result.summary.stagingElimination).toMatchObject({
+      measuredReleaseCount: 10,
+      persistentStagingCatchCount: 0,
+      persistentStagingCatchRate: 0,
+      verificationSuccessCount: 1,
+      decision: "eligible-for-explicit-retirement-review",
+    });
+    expect(result.markdown).toContain("Persistent staging-only catch rate: 0%");
+    expect(result.markdown).toContain("Staging retirement decision: eligible-for-explicit-retirement-review");
   });
 
   it("marks capacity review eligible only with enough healthy releases and passing evidence", () => {

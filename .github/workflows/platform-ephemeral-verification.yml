@@ -1,0 +1,327 @@
+name: Platform Ephemeral Verification
+
+on:
+  workflow_run:
+    workflows: [Platform Deploy]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Release commit or ref to verify. Defaults to main.
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: platform-ephemeral-verification-${{ github.event.workflow_run.head_sha || inputs.release_ref || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  verify-release:
+    name: Verify Release in Ephemeral Namespace
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment: preview
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      DEPLOYMENT_ENVIRONMENT: preview
+      DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
+      PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
+      VERIFICATION_SLUG: verify-${{ github.run_id }}-${{ github.run_attempt }}
+      PREVIEW_IDENTIFIER: verify-${{ github.run_id }}-${{ github.run_attempt }}
+      CHASE_SETS_HELM_RELEASE: csv-${{ github.run_id }}-${{ github.run_attempt }}
+      CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-verify-${{ github.run_id }}-${{ github.run_attempt }}
+      CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
+      STRIPE_CONNECT_ACCOUNTS_API: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
+      STRIPE_API_BASE_URL: ${{ vars.STRIPE_API_BASE_URL || '' }}
+      EASYPOST_API_BASE_URL: ${{ vars.EASYPOST_API_BASE_URL || '' }}
+      EASYPOST_MODE: ${{ vars.EASYPOST_MODE || 'test' }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || inputs.release_ref || 'main' }}
+
+      - name: Resolve release commit
+        id: release
+        run: |
+          set -euo pipefail
+          release_commit="$(git rev-parse HEAD)"
+          echo "release_commit=${release_commit}" >> "$GITHUB_OUTPUT"
+          echo "Verifying release ${release_commit} in ${CHASE_SETS_KUBERNETES_NAMESPACE}."
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Resolve promoted release image
+        id: image
+        env:
+          RELEASE_COMMIT: ${{ steps.release.outputs.release_commit }}
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]')"
+          if [ -z "$registry_name" ]; then
+            echo "DigitalOcean Container Registry is required for ephemeral release verification." >&2
+            exit 1
+          fi
+          doctl registry login --expiry-seconds 3600
+          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${RELEASE_COMMIT}"
+          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure verification Kubernetes context
+        working-directory: infrastructure/digitalocean/doks
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+          kubeconfig="${RUNNER_TEMP}/chase-sets-verification.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
+          if ! KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null 2>&1; then
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS state exposes neither cluster_id nor cluster_name." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+          KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+
+      - name: Reset verification namespace
+        run: |
+          set -euo pipefail
+          kubectl delete namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --ignore-not-found --wait=true --timeout=5m
+          kubectl create namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
+          kubectl label namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" chasesets.com/purpose=release-verification
+          kubectl annotate namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            chasesets.com/release-commit="${{ steps.release.outputs.release_commit }}" \
+            chasesets.com/workflow-run="${{ github.run_id }}"
+
+      - name: Register verification provider webhooks
+        env:
+          PLATFORM_API_BASE_URL: https://${{ env.VERIFICATION_SLUG }}-marketplace.preview.chasesets.com
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+        run: node ./scripts/provider-webhook-lifecycle.mjs create --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --base-url "$PLATFORM_API_BASE_URL"
+
+      - name: Apply verification Kubernetes runtime secrets
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          CHASE_SETS_DISCORD_INVITE_URL: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY || '' }}
+          GOOGLE_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          FACEBOOK_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+        run: |
+          set -euo pipefail
+          export CATALOG_ASSET_S3_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"
+          export CATALOG_ASSET_S3_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY"
+          export OTEL_EXPORTER_OTLP_HEADERS=""
+          node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
+
+      - name: Apply verification Kubernetes registry pull secret
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]')"
+          registry_pull_secret_name="registry-${registry_name}"
+          docker_config="$(mktemp)"
+          trap 'rm -f "$docker_config"' EXIT
+          doctl registry docker-config --expiry-seconds 3600 > "$docker_config"
+          kubectl create secret generic "$registry_pull_secret_name" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --from-file=.dockerconfigjson="$docker_config" \
+            --type=kubernetes.io/dockerconfigjson --dry-run=client -o yaml | kubectl apply -f -
+          echo "CHASE_SETS_IMAGE_PULL_SECRET_NAME=${registry_pull_secret_name}" >> "$GITHUB_ENV"
+
+      - name: Deploy verification Kubernetes release
+        id: deploy
+        env:
+          PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          landing_domain="${VERIFICATION_SLUG}.preview.chasesets.com"
+          marketplace_domain="${VERIFICATION_SLUG}-marketplace.preview.chasesets.com"
+          pnpm run platform:kubernetes-deployment -- deploy \
+            --image "$PLATFORM_IMAGE_REF" \
+            --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
+            --runtime-env "DEPLOYMENT_ENVIRONMENT=preview" \
+            --runtime-env "PREVIEW_IDENTIFIER=${VERIFICATION_SLUG}" \
+            --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
+            --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
+            --runtime-env "CHASE_SETS_PUBLIC_ORIGIN=https://${landing_domain}" \
+            --runtime-env "CHASE_SETS_MARKETPLACE_ORIGIN=https://${marketplace_domain}" \
+            --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=https://assets.preview.chasesets.com" \
+            --runtime-env "CATALOG_ASSET_S3_BUCKET=chase-sets-preview-catalog-assets" \
+            --runtime-env "CATALOG_ASSET_S3_ENDPOINT=https://nyc3.digitaloceanspaces.com" \
+            --runtime-env "CATALOG_ASSET_S3_REGION=nyc3" \
+            --runtime-env "NOTIFICATION_EMAIL_PROVIDER=noop" \
+            --runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${STRIPE_CONNECT_ACCOUNTS_API}" \
+            --runtime-env "EASYPOST_MODE=${EASYPOST_MODE}" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+
+      - name: Capture verification deploy diagnostics
+        if: failure()
+        run: pnpm run platform:kubernetes-deployment -- diagnostics --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --release "$CHASE_SETS_HELM_RELEASE" || true
+
+      - name: Wait for verification ingress URLs
+        id: domains
+        run: |
+          set -euo pipefail
+          node ./scripts/platform-ingress-wait.mjs \
+            --url "https://${VERIFICATION_SLUG}-admin.preview.chasesets.com/health/ready" \
+            --url "https://${VERIFICATION_SLUG}-marketplace.preview.chasesets.com/health/ready" \
+            --attempts 24 --delay-ms 5000
+          node ./scripts/platform-ingress-wait.mjs \
+            --url "https://${VERIFICATION_SLUG}.preview.chasesets.com/" \
+            --attempts 6 --delay-ms 5000
+
+      - name: Run representative commerce state
+        id: representative
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/ephemeral-verification
+          pod="$(kubectl get pods --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            -l app.kubernetes.io/component=platform-api \
+            -o jsonpath='{.items[0].metadata.name}')"
+          kubectl exec --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" "$pod" -- \
+            env EPHEMERAL_VERIFICATION_NAMESPACE="$CHASE_SETS_KUBERNETES_NAMESPACE" \
+              REPRESENTATIVE_COMMERCE_STATE_CONFIRM='seed staging commerce' \
+              REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT=/tmp/representative-commerce-state.json \
+              pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production
+          kubectl cp "$CHASE_SETS_KUBERNETES_NAMESPACE/$pod:/tmp/representative-commerce-state.json" \
+            artifacts/ephemeral-verification/representative-commerce-state.json
+
+      - name: Smoke check
+        id: smoke
+        env:
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          SMOKE_REQUIRE_ADMIN: "true"
+          SMOKE_REQUIRE_LANDING: "true"
+          SMOKE_REQUIRE_MARKETPLACE: "true"
+          SMOKE_WAITLIST_EMAIL: ops+verification-${{ github.run_id }}-${{ github.run_attempt }}@chasesets.com
+          SMOKE_SOURCE: ephemeral-verification
+          SMOKE_UTM_CAMPAIGN: release-${{ steps.release.outputs.release_commit }}
+          SMOKE_FETCH_ATTEMPTS: "24"
+          SMOKE_FETCH_RETRY_DELAY_MS: "5000"
+        run: pnpm run smoke:platform -- "https://${VERIFICATION_SLUG}.preview.chasesets.com" "https://${VERIFICATION_SLUG}-admin.preview.chasesets.com" "https://${VERIFICATION_SLUG}-marketplace.preview.chasesets.com"
+
+      - name: Stripe money smoke
+        id: stripe
+        env:
+          PLATFORM_API_BASE_URL: https://${{ env.VERIFICATION_SLUG }}-marketplace.preview.chasesets.com
+          PLATFORM_AUTH_BASE_URL: https://${{ env.VERIFICATION_SLUG }}-marketplace.preview.chasesets.com
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_MONEY_SMOKE_ENVIRONMENT: preview
+          STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "false"
+          SMOKE_REGISTER_SELLER: "true"
+          SMOKE_SELLER_EMAIL: stripe-verification+${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
+          SMOKE_SELLER_PASSWORD: verification-stripe-${{ github.run_id }}-${{ github.run_attempt }}
+          SMOKE_SELLER_DISPLAY_NAME: Stripe Verification ${{ github.run_id }}-${{ github.run_attempt }}
+        run: pnpm run stripe:money-smoke -- --edge-check --seller-flow
+
+      - name: Write ephemeral verification evidence
+        if: always()
+        env:
+          RELEASE_COMMIT: ${{ steps.release.outputs.release_commit }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          REPRESENTATIVE_OUTCOME: ${{ steps.representative.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          STRIPE_OUTCOME: ${{ steps.stripe.outcome }}
+          PERSISTENT_STAGING_RESULT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion || 'unknown' }}
+        run: |
+          mkdir -p artifacts/ephemeral-verification
+          node <<'NODE'
+          const fs = require("node:fs");
+          const outcomes = [process.env.DEPLOY_OUTCOME, process.env.REPRESENTATIVE_OUTCOME, process.env.SMOKE_OUTCOME, process.env.STRIPE_OUTCOME];
+          const record = {
+            schemaVersion: "ephemeral-verification/v1",
+            releaseCommit: process.env.RELEASE_COMMIT,
+            namespace: process.env.CHASE_SETS_KUBERNETES_NAMESPACE,
+            workflowRunId: process.env.GITHUB_RUN_ID,
+            workflowRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            result: outcomes.every((outcome) => outcome === "success") ? "success" : "failure",
+            persistentStagingResult: process.env.PERSISTENT_STAGING_RESULT,
+            workloads: ["representative-commerce-state", "platform-smoke", "stripe-money-smoke"],
+            persistentStagingRetained: true,
+            checkedAt: new Date().toISOString(),
+          };
+          fs.writeFileSync("artifacts/ephemeral-verification/ephemeral-verification.json", `${JSON.stringify(record, null, 2)}\n`);
+          NODE
+
+      - name: Upload ephemeral verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ephemeral-verification-${{ steps.release.outputs.release_commit }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/ephemeral-verification
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Delete verification provider webhooks
+        if: always()
+        env:
+          PLATFORM_API_BASE_URL: https://${{ env.VERIFICATION_SLUG }}-marketplace.preview.chasesets.com
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+        run: node ./scripts/provider-webhook-lifecycle.mjs delete --base-url "$PLATFORM_API_BASE_URL"
+
+      - name: Delete verification Kubernetes namespace
+        if: always()
+        run: pnpm run platform:kubernetes-deployment -- teardown --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --release "$CHASE_SETS_HELM_RELEASE" --timeout 5m

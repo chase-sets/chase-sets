@@ -176,6 +176,7 @@ export function assertRepresentativeCommerceStateRunAllowed(
     deploymentEnvironment: string | null | undefined;
     confirmation: string | null | undefined;
     localOverride?: string | null | undefined;
+    ephemeralVerificationNamespace?: string | null | undefined;
   }>,
 ): void {
   if (input.deploymentEnvironment === "production") {
@@ -194,9 +195,15 @@ export function assertRepresentativeCommerceStateRunAllowed(
   if (input.localOverride === "true") {
     return;
   }
+  if (
+    environmentName === "preview" &&
+    /^chase-sets-verify-\d+-\d+$/u.test(input.ephemeralVerificationNamespace ?? "")
+  ) {
+    return;
+  }
 
   throw new Error(
-    "representative-commerce-state requires DEPLOYMENT_ENVIRONMENT=staging, test/dev runtime, or REPRESENTATIVE_COMMERCE_STATE_ALLOW_LOCAL=true.",
+    "representative-commerce-state requires staging, test/dev, an identified ephemeral verification namespace, or REPRESENTATIVE_COMMERCE_STATE_ALLOW_LOCAL=true.",
   );
 }
 
@@ -206,6 +213,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
     deploymentEnvironment: config.deploymentEnvironment,
     confirmation: process.env.REPRESENTATIVE_COMMERCE_STATE_CONFIRM,
     localOverride: process.env.REPRESENTATIVE_COMMERCE_STATE_ALLOW_LOCAL,
+    ephemeralVerificationNamespace: process.env.EPHEMERAL_VERIFICATION_NAMESPACE,
   });
 
   const pools = createPlatformApiPools(config);
