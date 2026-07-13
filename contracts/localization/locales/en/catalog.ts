@@ -6,6 +6,8 @@ import { catalogSourceObservationsWorkbenchOperationsEnglishTranslations } from 
 import { catalogSourceObservationsControlPlaneEnglishTranslations } from "./catalog/source-observations-control-plane";
 import { catalogSourceObservationsAliasReviewEnglishTranslations } from "./catalog/source-observations-alias-review";
 import { catalogAttentionQueueEnglishTranslations } from "./catalog/attention-queue";
+import { catalogSourceObservationsScopeDetailEnglishTranslations } from "./catalog/source-observations-scope-detail";
+import { catalogScopeRegistryEnglishTranslations } from "./catalog/scope-registry";
 import { catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations } from "./catalog/source-observations-workbench-health-copy";
 import { catalogSourceObservationsWorkbenchProfileValidationEnglishTranslations } from "./catalog/source-observations-workbench-profile-validation";
 import { catalogRoutesEnglishTranslations } from "./catalog/routes";
@@ -60,6 +62,8 @@ const catalogEnglishTranslationParts = defineCatalogTranslationParts(
   catalogSourceObservationsControlPlaneEnglishTranslations,
   catalogSourceObservationsAliasReviewEnglishTranslations,
   catalogAttentionQueueEnglishTranslations,
+  catalogSourceObservationsScopeDetailEnglishTranslations,
+  catalogScopeRegistryEnglishTranslations,
   catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations,
   catalogSourceObservationsWorkbenchProfileValidationEnglishTranslations,
   catalogRoutesEnglishTranslations,
@@ -89,6 +93,8 @@ export const catalogEnglishTranslations = defineCatalogTranslations({
   ...catalogSourceObservationsControlPlaneEnglishTranslations,
   ...catalogSourceObservationsAliasReviewEnglishTranslations,
   ...catalogAttentionQueueEnglishTranslations,
+  ...catalogSourceObservationsScopeDetailEnglishTranslations,
+  ...catalogScopeRegistryEnglishTranslations,
   ...catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations,
   ...catalogSourceObservationsWorkbenchProfileValidationEnglishTranslations,
   ...catalogRoutesEnglishTranslations,

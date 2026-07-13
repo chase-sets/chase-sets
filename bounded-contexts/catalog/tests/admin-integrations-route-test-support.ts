@@ -48,6 +48,8 @@ export function aliasReviewReadModel() {
       aliasType: null,
       reviewStatuses: [],
       observationId: null,
+      targetKind: null,
+      targetId: null,
     },
     counts: {
       total: 1,

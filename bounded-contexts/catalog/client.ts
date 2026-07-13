@@ -38,4 +38,5 @@ export type {
   ScopeCoverageState,
   UnmappedScopeInboxGroup,
   UnmappedScopeInboxReadModel,
+  CatalogScopeRecordDetail,
 } from "./support/client-support/contracts";

@@ -20,6 +20,7 @@ export type {
   Field,
   ReferenceRecord,
   ReferenceType,
+  CatalogScopeRecordDetail,
   BulkSourceObservationPromotionOutcome,
   BulkSourceObservationPromotionResult,
   SourceObservationIntegrationScope,

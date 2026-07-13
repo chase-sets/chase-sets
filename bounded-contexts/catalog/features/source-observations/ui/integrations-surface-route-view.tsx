@@ -1,5 +1,6 @@
 import { Suspense, type ReactElement } from "react";
 import { Await } from "react-router";
+import { ProgressiveDisclosure } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
@@ -113,11 +114,25 @@ function DeferredAliasReviewSlot({
       <Await resolve={deferredAliasReview}>
         {(aliasReview) =>
           aliasReview ? (
-            <CatalogIntegrationAliasReviewWorkspace
-              readModel={aliasReview}
-              actionHref={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
-              canManageAliases={readModel.readiness.rbacAllowed}
-            />
+            // Language-edition equivalence review lives on Scope Detail, scoped
+            // to one scope. The generic all-scopes alias table stays reachable
+            // from the daily path but no longer streams open by default — an
+            // operator opens it explicitly when they want the cross-scope view.
+            <ProgressiveDisclosure
+              title={t("catalog.features.sourceObservations.ui.aliasReview.allScopes.title")}
+              description={t("catalog.features.sourceObservations.ui.aliasReview.allScopes.description")}
+              summary={t("catalog.features.sourceObservations.ui.aliasReview.allScopes.summary", {
+                count: aliasReview.counts.needsReview,
+              })}
+              defaultOpen={false}
+              tone={aliasReview.counts.needsReview > 0 ? "warning" : "neutral"}
+            >
+              <CatalogIntegrationAliasReviewWorkspace
+                readModel={aliasReview}
+                actionHref={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
+                canManageAliases={readModel.readiness.rbacAllowed}
+              />
+            </ProgressiveDisclosure>
           ) : null
         }
       </Await>

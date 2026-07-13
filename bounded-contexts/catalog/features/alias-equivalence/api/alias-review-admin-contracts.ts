@@ -229,6 +229,14 @@ export type CatalogAliasReviewFilter = Readonly<{
   aliasType: CatalogAliasTypeKey | null;
   reviewStatuses: readonly CatalogAliasReviewStateKey[];
   observationId: string | null;
+  /**
+   * Narrow to one alias target (kind + id), e.g. the one Reference Record a
+   * Scope Detail language-editions section reviews. Both fields are required
+   * together: a bare `targetKind` with no `targetId` would match every
+   * candidate of that kind, which no caller wants.
+   */
+  targetKind: CatalogAliasTargetKind | null;
+  targetId: string | null;
 }>;
 
 const ENGLISH_LANGUAGE_CODE = "en";
@@ -739,6 +747,8 @@ export async function assembleCatalogAliasReviewReadModel(
     aliasType: filter.aliasType ?? undefined,
     reviewStatuses: filter.reviewStatuses.length > 0 ? filter.reviewStatuses : undefined,
     observationId: filter.observationId ?? undefined,
+    targetKind: filter.targetKind ?? undefined,
+    targetId: filter.targetId ?? undefined,
     limit: input.candidateLimit,
   });
 
@@ -766,6 +776,8 @@ function normalizeFilter(filter: Partial<CatalogAliasReviewFilter> | undefined):
     aliasType: filter?.aliasType ?? null,
     reviewStatuses: filter?.reviewStatuses ?? [],
     observationId: filter?.observationId ?? null,
+    targetKind: filter?.targetKind ?? null,
+    targetId: filter?.targetId ?? null,
   };
 }
 

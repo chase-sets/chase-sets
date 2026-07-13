@@ -1986,6 +1986,13 @@ export function createCatalogApiClient({
         errorMessage: "Source Observation integration job failed.",
       });
     },
+    async getCatalogScopeRecord<T>(id: string): Promise<T> {
+      const response = await client["scope-records"][":id"].$get({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async getCatalogAliasReviewReadModel<T>(query = ""): Promise<T> {
       const search = query ? `?${new URLSearchParams(queryFromString(query)).toString()}` : "";
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/alias-review${search}`, {

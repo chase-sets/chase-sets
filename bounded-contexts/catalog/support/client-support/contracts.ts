@@ -20,6 +20,7 @@ export type {
   UnmappedScopeInboxReadModel,
 } from "../../features/provider-scope-mapping/ui/contracts";
 export type { ReferenceRecord, ReferenceType } from "../../features/reference-data/ui/contracts";
+export type { CatalogScopeRecordDetail } from "../../features/scope-registry/ui/contracts";
 export type {
   BulkSourceObservationPromotionOutcome,
   BulkSourceObservationPromotionResult,

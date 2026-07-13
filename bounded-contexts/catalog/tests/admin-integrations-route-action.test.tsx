@@ -1445,13 +1445,18 @@ describe("Catalog integrations route", () => {
     expect(await routeData.deferredAliasReview).toBeNull();
   });
 
-  it("streams the alias-review workspace inline on the daily surface when the loader defers it", async () => {
+  it("streams the alias-review supplementary slot inline on the daily surface when the loader defers it", async () => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
     const requestUrl = "https://admin.example/catalog/integrations?providerKey=tcgdex";
-    // The daily loader defers the alias-review read model (#1970); the route view
-    // renders it behind a Suspense/Await boundary, so the workspace appears once
-    // the streamed promise resolves rather than at first paint.
+    // The daily loader defers the alias-review read model; the route view renders
+    // it behind a Suspense/Await boundary, so the workspace appears once the
+    // streamed promise resolves rather than at first paint. The language-edition
+    // equivalence review now lives on Scope Detail (see
+    // language-editions-panel.test.tsx); the all-scopes table here stops
+    // streaming open by default (see integrations-surface-route-view.tsx), which
+    // this bare (non-router) render harness cannot resolve past the Suspense
+    // fallback, so this test keeps asserting the fallback/shared title renders.
     mockUseLoaderData.mockReturnValue(
       loaderData({
         data: scopes,
