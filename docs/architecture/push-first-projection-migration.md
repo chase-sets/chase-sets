@@ -51,7 +51,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `catalog:catalog-scope-registry-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `catalog:catalog-source-observation-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `checkout:checkout-catalog-item-projection` | Checkout | **catalog** | push-enabled | 1/1 |
-| `checkout:checkout-marketplace-listing-options-projection` | Checkout | **catalog**, **marketplace** | push-enabled | 2/2 |
+| `checkout:checkout-marketplace-listing-options-projection` | Checkout | **catalog**, **marketplace**, **ordering** | push-enabled | 3/3 |
 | `checkout:checkout-inventory-supply-projection` | Checkout | **inventory** | push-enabled | 1/1 |
 | `checkout:checkout-seller-accounts-projection` | Checkout | **identity**, **marketplace** | push-enabled | 2/2 |
 | `checkout:checkout.payment-affordance-projection` | Checkout | **payments** | push-enabled | 1/1 |
@@ -65,7 +65,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `discovery:discovery-category-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-google-shopping-feed-row-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-item-detail-projection` | Discovery | **catalog** | push-enabled | 1/1 |
-| `discovery:discovery-market-projection` | Discovery | **catalog**, **checkout**, **identity**, **inventory**, **marketplace** | push-enabled | 5/5 |
+| `discovery:discovery-market-projection` | Discovery | **catalog**, **checkout**, **identity**, **inventory**, **marketplace**, **ordering** | push-enabled | 6/6 |
 | `discovery:discovery-product-alert-notification-projection` | Discovery | **marketplace** | push-enabled | 1/1 |
 | `discovery:discovery-product-alert-page-projection` | Discovery | discovery | push-eligible | 0/1 |
 | `discovery:discovery-search-item-projection` | Discovery | **catalog** | push-enabled | 1/1 |

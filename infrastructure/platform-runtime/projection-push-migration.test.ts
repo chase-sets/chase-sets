@@ -72,12 +72,12 @@ describe("projection push migration inventory", () => {
     });
 
     // Mixed sources are fully push-enabled once catalog, checkout, identity,
-    // inventory, and marketplace all have relay fan-out enabled.
+    // inventory, marketplace, and ordering all have relay fan-out enabled.
     expect(byKey.get("discovery:discovery-market-projection")).toMatchObject({
       status: "push-enabled",
       owner: "Discovery",
-      enabledSourceContextCount: 5,
-      sourceContextCount: 5,
+      enabledSourceContextCount: 6,
+      sourceContextCount: 6,
       consumesDurableWakeIntents: true,
     });
 
