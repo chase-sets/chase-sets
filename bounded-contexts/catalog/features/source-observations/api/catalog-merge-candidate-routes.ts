@@ -25,6 +25,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
       status: candidateStatusQuery(c.req.query("status")),
       syncRunId: c.req.query("syncRunId") ?? undefined,
       identityFingerprint: c.req.query("identityFingerprint") ?? undefined,
+      scopeRecordId: c.req.query("scopeRecordId") ?? undefined,
       matchedCatalogItemId: c.req.query("matchedCatalogItemId") ?? undefined,
       provider: c.req.query("provider") ?? undefined,
       language: c.req.query("language") ?? undefined,

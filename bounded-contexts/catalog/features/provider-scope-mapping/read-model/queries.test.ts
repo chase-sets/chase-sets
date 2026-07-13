@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   getProviderScopeMapping,
+  listAcceptedProviderScopeMappingsForProviders,
   listAcceptedProviderScopeMappingsByProviderUnit,
   listAcceptedProviderScopeMappingsByScopeRecord,
   listProviderScopeMappingsByScopeRecord,
@@ -43,6 +44,23 @@ describe("Provider Scope Mapping queries", () => {
     expect(sql).toContain("unit_key = $2");
     expect(sql).toContain("review_status IN ('accepted', 'auto-accepted')");
     expect(query.mock.calls[0]?.[1]).toEqual(["tcgdex", "pokemon-card-import"]);
+  });
+
+  it("lists accepted mappings for matcher providers deterministically", async () => {
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+
+    await listAcceptedProviderScopeMappingsForProviders({ query }, [" TCGplayer ", "tcgdex", "tcgplayer"]);
+
+    expect(String(query.mock.calls[0]?.[0])).toContain("review_status IN ('accepted', 'auto-accepted')");
+    expect(String(query.mock.calls[0]?.[0])).toContain("ORDER BY provider_key ASC, unit_key ASC, scope_record_id ASC");
+    expect(query.mock.calls[0]?.[1]).toEqual([["tcgdex", "tcgplayer"]]);
+  });
+
+  it("does not query accepted matcher mappings without providers", async () => {
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+
+    await expect(listAcceptedProviderScopeMappingsForProviders({ query }, [])).resolves.toEqual([]);
+    expect(query).not.toHaveBeenCalled();
   });
 
   it("lists every mapping for a scope record regardless of review status", async () => {

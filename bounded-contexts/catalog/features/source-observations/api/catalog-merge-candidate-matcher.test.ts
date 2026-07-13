@@ -2,29 +2,27 @@ import { normalizedObservation } from "../../../support/test-support/source-obse
 import { describe, expect, it } from "vitest";
 import type { SourceObservationNormalized } from "../domain/domain";
 import type { SourceObservationListRow } from "../read-model/queries";
+import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
 import { buildCatalogMergeCandidatesFromObservations } from "./catalog-merge-candidate-matcher";
 
 describe("Catalog Merge Candidate matcher", () => {
   it("merges aligned provider observations into one ready candidate with provenance", () => {
-    const candidates = buildCatalogMergeCandidatesFromObservations(
-      [
-        observationRow("obs_tcgdex_054", "tcgdex", "sv2-054", {
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
-        }),
-        observationRow("obs_tcgplayer_054", "tcgplayer", "product:100054", {
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
-          externalProductReferences: [
-            {
-              providerKey: "tcgplayer",
-              externalKey: "sku:900054",
-              selectedOptions: [{ dimensionId: "dim_finish", optionId: "opt_holofoil" }],
-              reviewEvidence: { variantName: "Holofoil" },
-            },
-          ],
-        }),
-      ],
-      { addedAt: "2026-06-24T12:00:00.000Z" },
-    );
+    const candidates = match([
+      observationRow("obs_tcgdex_054", "tcgdex", "sv2-054", {
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
+      }),
+      observationRow("obs_tcgplayer_054", "tcgplayer", "product:100054", {
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
+        externalProductReferences: [
+          {
+            providerKey: "tcgplayer",
+            externalKey: "sku:900054",
+            selectedOptions: [{ dimensionId: "dim_finish", optionId: "opt_holofoil" }],
+            reviewEvidence: { variantName: "Holofoil" },
+          },
+        ],
+      }),
+    ]).candidates;
 
     expect(candidates).toHaveLength(1);
     expect(candidates[0]?.snapshot).toMatchObject({
@@ -52,19 +50,16 @@ describe("Catalog Merge Candidate matcher", () => {
   });
 
   it("projects blocking conflicts when matched observations disagree on proposed facts", () => {
-    const candidates = buildCatalogMergeCandidatesFromObservations(
-      [
-        observationRow("obs_tcgdex_054", "tcgdex", "sv2-054", {
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
-          rarity: "Double Rare",
-        }),
-        observationRow("obs_tcgplayer_054", "tcgplayer", "product:100054", {
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
-          rarity: "Ultra Rare",
-        }),
-      ],
-      { addedAt: "2026-06-24T12:00:00.000Z" },
-    );
+    const candidates = match([
+      observationRow("obs_tcgdex_054", "tcgdex", "sv2-054", {
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
+        rarity: "Double Rare",
+      }),
+      observationRow("obs_tcgplayer_054", "tcgplayer", "product:100054", {
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
+        rarity: "Ultra Rare",
+      }),
+    ]).candidates;
 
     expect(candidates).toHaveLength(1);
     expect(candidates[0]?.snapshot.conflicts).toEqual(
@@ -80,18 +75,15 @@ describe("Catalog Merge Candidate matcher", () => {
   });
 
   it("flags repeated marketplace IDs across materially different identities as ambiguous", () => {
-    const candidates = buildCatalogMergeCandidatesFromObservations(
-      [
-        observationRow("obs_left", "tcgdex", "sv2-054", {
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
-        }),
-        observationRow("obs_right", "tcgplayer", "product:100054", {
-          cardNumber: "055/091",
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
-        }),
-      ],
-      { addedAt: "2026-06-24T12:00:00.000Z" },
-    );
+    const candidates = match([
+      observationRow("obs_left", "tcgdex", "sv2-054", {
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
+      }),
+      observationRow("obs_right", "tcgplayer", "product:100054", {
+        cardNumber: "055/091",
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
+      }),
+    ]).candidates;
 
     expect(candidates).toHaveLength(1);
     expect(candidates[0]?.snapshot.conflicts).toEqual(
@@ -103,13 +95,10 @@ describe("Catalog Merge Candidate matcher", () => {
   });
 
   it("keeps observations split when neither external references nor merge identity align", () => {
-    const candidates = buildCatalogMergeCandidatesFromObservations(
-      [
-        observationRow("obs_054", "tcgdex", "sv2-054"),
-        observationRow("obs_055", "tcgdex", "sv2-055", { cardNumber: "055/091" }),
-      ],
-      { addedAt: "2026-06-24T12:00:00.000Z" },
-    );
+    const candidates = match([
+      observationRow("obs_054", "tcgdex", "sv2-054"),
+      observationRow("obs_055", "tcgdex", "sv2-055", { cardNumber: "055/091" }),
+    ]).candidates;
 
     expect(candidates).toHaveLength(2);
     expect(candidates.map((candidate) => candidate.snapshot.membership[0]?.observationId).sort()).toEqual([
@@ -119,47 +108,41 @@ describe("Catalog Merge Candidate matcher", () => {
   });
 
   it("builds ready candidates from canonical TCGplayer Pokemon provider-product merge identity", () => {
-    const candidates = buildCatalogMergeCandidatesFromObservations(
-      [
-        providerProductObservationRow("tcgplayer_en_product_42346", "42346", {
-          name: "Alakazam",
-          cardNumber: "1",
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:42346" }],
-          externalProductReferences: [
-            {
-              providerKey: "tcgplayer",
-              externalKey: "sku:99942346",
-              selectedOptions: [{ dimensionId: "printing", optionId: "normal" }],
-            },
-          ],
-          skuReferences: [
-            {
-              providerKey: "tcgplayer",
-              externalKey: "sku:99942346",
-              selectedOptions: [{ dimensionId: "printing", optionId: "normal" }],
-            },
-          ],
-          mergeIdentity: {
-            tcg: "pokemon",
-            productLineName: "Pokemon",
-            setName: "Base Set",
-            printedProductName: "Alakazam",
-            collectorNumber: "1",
-            languageCode: "en",
-            productForm: "single",
+    const candidates = match([
+      providerProductObservationRow("tcgplayer_en_product_42346", "42346", {
+        name: "Alakazam",
+        cardNumber: "1",
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:42346" }],
+        externalProductReferences: [
+          {
+            providerKey: "tcgplayer",
+            externalKey: "sku:99942346",
+            selectedOptions: [{ dimensionId: "printing", optionId: "normal" }],
           },
-        }),
-      ],
-      { addedAt: "2026-06-27T12:00:00.000Z" },
-    );
+        ],
+        skuReferences: [
+          {
+            providerKey: "tcgplayer",
+            externalKey: "sku:99942346",
+            selectedOptions: [{ dimensionId: "printing", optionId: "normal" }],
+          },
+        ],
+        mergeIdentity: {
+          tcg: "pokemon",
+          productLineName: "Pokemon",
+          setName: "Base Set",
+          printedProductName: "Alakazam",
+          collectorNumber: "1",
+          languageCode: "en",
+          productForm: "single",
+        },
+      }),
+    ]).candidates;
 
     expect(candidates).toHaveLength(1);
     expect(candidates[0]?.snapshot).toMatchObject({
       identity: {
-        tcg: "pokemon",
-        productLineName: "Pokemon",
-        setName: "Base Set",
-        printedProductName: "Alakazam",
+        scopeRecordId: "scope_base_set",
         collectorNumber: "1",
         languageCode: "en",
         productForm: "single",
@@ -177,7 +160,149 @@ describe("Catalog Merge Candidate matcher", () => {
       promotionIntent: "create-catalog-item",
     });
   });
+
+  it("merges different provider set names through accepted mappings to one canonical scope record", () => {
+    const result = match(
+      [
+        observationRow("obs_tcgdex_paf", "tcgdex", "sv4pt5-001", {
+          setId: "sv4pt5",
+          setName: "Paldean Fates",
+          expansionId: "sv4pt5",
+          expansionName: "Paldean Fates",
+          cardNumber: "001/091",
+        }),
+        observationRow("obs_tcgplayer_paf", "tcgplayer", "product:555001", {
+          setId: "paf-marketplace",
+          setName: "SV: Paldean Fates",
+          expansionId: "paf-marketplace",
+          expansionName: "SV: Paldean Fates",
+          cardNumber: "001/091",
+        }),
+      ],
+      [
+        mappingRow({
+          provider_key: "tcgdex",
+          scope_record_id: "scope_paldean_fates",
+          set_id: "sv4pt5",
+          set_name: "Paldean Fates",
+        }),
+        mappingRow({
+          provider_key: "tcgplayer",
+          scope_record_id: "scope_paldean_fates",
+          set_id: "paf-marketplace",
+          set_name: "SV: Paldean Fates",
+        }),
+      ],
+    );
+
+    expect(result.exclusions).toEqual([]);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]?.snapshot.identity).toMatchObject({
+      scopeRecordId: "scope_paldean_fates",
+      collectorNumber: "001/091",
+    });
+    expect(result.candidates[0]?.snapshot.membership.map((member) => member.observationId)).toEqual([
+      "obs_tcgdex_paf",
+      "obs_tcgplayer_paf",
+    ]);
+  });
+
+  it("excludes unmapped observations with a visible reason", () => {
+    const result = match([observationRow("obs_unmapped", "tcgplayer", "product:unmapped")], []);
+
+    expect(result.candidates).toEqual([]);
+    expect(result.exclusions).toEqual([
+      {
+        observationId: "obs_unmapped",
+        providerKey: "tcgplayer",
+        unitKey: "cards:pokemon:single",
+        code: "unmapped-provider-scope",
+        reason: "No accepted Provider Scope Mapping matches this Source Observation's provider scope coordinates.",
+        matchingScopeRecordIds: [],
+      },
+    ]);
+  });
+
+  it("does not borrow an accepted scope mapping from another ingestion unit", () => {
+    const result = match(
+      [observationRow("obs_wrong_unit", "tcgdex", "sv2-054")],
+      [mappingRow({ provider_key: "tcgdex", unit_key: "cards:pokemon:sealed" })],
+    );
+
+    expect(result.candidates).toEqual([]);
+    expect(result.exclusions).toEqual([
+      expect.objectContaining({
+        observationId: "obs_wrong_unit",
+        unitKey: "cards:pokemon:single",
+        code: "unmapped-provider-scope",
+      }),
+    ]);
+  });
+
+  it("is deterministic and idempotent across observation and mapping order", () => {
+    const observations = [
+      observationRow("obs_tcgdex_054", "tcgdex", "sv2-054"),
+      observationRow("obs_tcgplayer_054", "tcgplayer", "product:100054"),
+    ];
+    const mappings = defaultMappings();
+
+    const first = match(observations, mappings);
+    const second = match([...observations].reverse(), [...mappings].reverse());
+
+    expect(second).toEqual(first);
+  });
 });
+
+function match(
+  observations: readonly SourceObservationListRow[],
+  acceptedScopeMappings: readonly ProviderScopeMappingRow[] = defaultMappings(),
+) {
+  return buildCatalogMergeCandidatesFromObservations(observations, {
+    addedAt: "2026-06-24T12:00:00.000Z",
+    acceptedScopeMappings,
+    providerUnitKeyByObservationId: Object.fromEntries(
+      observations.map((observation) => [observation.observation_id, "cards:pokemon:single"]),
+    ),
+  });
+}
+
+function defaultMappings(): readonly ProviderScopeMappingRow[] {
+  return [
+    mappingRow({ provider_key: "tcgdex", set_id: "sv2", set_name: "Paldea Evolved" }),
+    mappingRow({ provider_key: "tcgplayer", set_id: "sv2", set_name: "Paldea Evolved" }),
+    mappingRow({
+      provider_key: "tcgplayer",
+      scope_record_id: "scope_base_set",
+      set_id: null,
+      set_name: "Base Set",
+    }),
+  ];
+}
+
+function mappingRow(overrides: Partial<ProviderScopeMappingRow>): ProviderScopeMappingRow {
+  return {
+    mapping_id: `map_${overrides.provider_key ?? "tcgdex"}_${overrides.scope_record_id ?? "scope_paldea_evolved"}`,
+    scope_record_id: "scope_paldea_evolved",
+    provider_key: "tcgdex",
+    unit_key: "cards:pokemon:single",
+    product_line_id: null,
+    series_id: null,
+    set_id: "sv2",
+    set_name: "Paldea Evolved",
+    language_coordinates: { languageCode: "en" },
+    confidence: "exact",
+    review_status: "accepted",
+    provenance: {},
+    evidence: {},
+    last_actor: "usr_reviewer",
+    last_reason: "verified",
+    policy_version: "scope-mapping-v1",
+    proposed_at: "2026-06-24T10:00:00.000Z",
+    reviewed_at: "2026-06-24T10:05:00.000Z",
+    updated_at: "2026-06-24T10:05:00.000Z",
+    ...overrides,
+  };
+}
 
 function observationRow(
   observationId: string,

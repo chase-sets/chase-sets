@@ -230,6 +230,7 @@ async function upsertCandidate(
   await db.query(
     `INSERT INTO catalog_merge_candidates (
        candidate_id,
+       scope_record_id,
        identity_fingerprint,
        sync_run_ids_json,
        status,
@@ -247,8 +248,9 @@ async function upsertCandidate(
        created_at,
        updated_at,
        stale_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, COALESCE($16::timestamptz, now()), $17, $18)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, COALESCE($17::timestamptz, now()), $18, $19)
      ON CONFLICT (candidate_id) DO UPDATE SET
+       scope_record_id = EXCLUDED.scope_record_id,
        identity_fingerprint = EXCLUDED.identity_fingerprint,
        sync_run_ids_json = EXCLUDED.sync_run_ids_json,
        status = EXCLUDED.status,
@@ -267,6 +269,7 @@ async function upsertCandidate(
        stale_at = EXCLUDED.stale_at`,
     [
       input.candidateId,
+      input.snapshot.identity.scopeRecordId,
       input.snapshot.identityFingerprint,
       JSON.stringify(input.snapshot.syncRunIds),
       input.status,

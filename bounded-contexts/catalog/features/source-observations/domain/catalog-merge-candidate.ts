@@ -11,10 +11,7 @@ export type CatalogMergeCandidatePromotionIntent =
 
 export type CatalogMergeCandidateIdentity = JsonObject &
   Readonly<{
-    tcg: string | null;
-    productLineName: string;
-    setName: string | null;
-    printedProductName: string;
+    scopeRecordId: string;
     collectorNumber: string | null;
     languageCode: string;
     productForm: string | null;
@@ -794,10 +791,7 @@ function normalizeReviewSnapshot(snapshot: CatalogMergeCandidateReviewSnapshot):
 
 function normalizeIdentity(identity: CatalogMergeCandidateIdentity): CatalogMergeCandidateIdentity {
   return {
-    tcg: identity.tcg?.trim().toLowerCase() || null,
-    productLineName: requireText(identity.productLineName, "Catalog Merge Candidate product line name"),
-    setName: identity.setName?.trim() || null,
-    printedProductName: requireText(identity.printedProductName, "Catalog Merge Candidate printed product name"),
+    scopeRecordId: requireText(identity.scopeRecordId, "Catalog Merge Candidate scope record ID"),
     collectorNumber: identity.collectorNumber?.trim() || null,
     languageCode: requireText(identity.languageCode, "Catalog Merge Candidate language code").toLowerCase(),
     productForm: identity.productForm?.trim() || null,

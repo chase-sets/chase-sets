@@ -59,6 +59,7 @@ export const catalogUnloggedProjectionSchemaMigrations: readonly BcSchemaMigrati
       "ALTER TABLE catalog_admin_component_detail_pages DROP CONSTRAINT IF EXISTS catalog_admin_component_detail_pages_component_id_fkey;",
       "ALTER TABLE catalog_dimension_options DROP CONSTRAINT IF EXISTS catalog_dimension_options_dimension_id_fkey;",
       "ALTER TABLE catalog_merge_candidate_observations DROP CONSTRAINT IF EXISTS catalog_merge_candidate_observations_candidate_fk;",
+      "ALTER TABLE catalog_merge_candidates DROP CONSTRAINT IF EXISTS catalog_merge_candidates_scope_record_fk;",
       "ALTER TABLE catalog_admin_blueprint_detail_pages SET UNLOGGED;",
       "ALTER TABLE catalog_admin_category_detail_pages SET UNLOGGED;",
       "ALTER TABLE catalog_admin_category_list_pages SET UNLOGGED;",
@@ -96,6 +97,8 @@ export const catalogUnloggedProjectionSchemaMigrations: readonly BcSchemaMigrati
       "ALTER TABLE catalog_dimension_options VALIDATE CONSTRAINT catalog_dimension_options_dimension_id_fkey;",
       "ALTER TABLE catalog_merge_candidate_observations ADD CONSTRAINT catalog_merge_candidate_observations_candidate_fk FOREIGN KEY (candidate_id) REFERENCES catalog_merge_candidates (candidate_id) ON DELETE CASCADE NOT VALID;",
       "ALTER TABLE catalog_merge_candidate_observations VALIDATE CONSTRAINT catalog_merge_candidate_observations_candidate_fk;",
+      "ALTER TABLE catalog_merge_candidates ADD CONSTRAINT catalog_merge_candidates_scope_record_fk FOREIGN KEY (scope_record_id) REFERENCES catalog_scope_records (scope_record_id) NOT VALID;",
+      "ALTER TABLE catalog_merge_candidates VALIDATE CONSTRAINT catalog_merge_candidates_scope_record_fk;",
     ],
   },
 ];

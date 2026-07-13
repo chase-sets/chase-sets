@@ -69,11 +69,17 @@ export type SourceObservationFilterScope = Readonly<{
 
 export type CatalogMergeCandidateListRow = Readonly<{
   candidate_id: string;
+  scope_record_id?: string;
   identity_fingerprint: string;
   sync_run_ids_json: readonly string[];
   status: CatalogMergeCandidateStatus;
   status_reason: string | null;
-  identity_json: CatalogMergeCandidateIdentity;
+  identity_json: CatalogMergeCandidateIdentity &
+    Readonly<{
+      printedProductName: string;
+      setName: string | null;
+      productLineName: string;
+    }>;
   matched_catalog_item_id: string | null;
   matched_product_ids_json: readonly string[];
   proposed_catalog_item_facts_json: JsonValue;
@@ -95,6 +101,7 @@ export type CatalogMergeCandidateFilterScope = Readonly<{
   status?: CatalogMergeCandidateStatus | "";
   syncRunId?: string;
   identityFingerprint?: string;
+  scopeRecordId?: string;
   matchedCatalogItemId?: string;
   provider?: string;
   language?: string;
@@ -231,7 +238,7 @@ export async function listCatalogMergeCandidates(
     values.push(`%${escapeLikePattern(params.search.trim())}%`);
     const param = `$${values.length}`;
     conditions.push(
-      `(c.candidate_id ILIKE ${param} ESCAPE '\\' OR c.identity_fingerprint ILIKE ${param} ESCAPE '\\' OR (c.identity_json->>'printedProductName') ILIKE ${param} ESCAPE '\\' OR (c.identity_json->>'setName') ILIKE ${param} ESCAPE '\\' OR (c.identity_json->>'collectorNumber') ILIKE ${param} ESCAPE '\\' OR c.matched_catalog_item_id ILIKE ${param} ESCAPE '\\')`,
+      `(c.candidate_id ILIKE ${param} ESCAPE '\\' OR c.identity_fingerprint ILIKE ${param} ESCAPE '\\' OR c.scope_record_id ILIKE ${param} ESCAPE '\\' OR (c.proposed_catalog_item_facts_json->>'name') ILIKE ${param} ESCAPE '\\' OR coalesce(c.proposed_catalog_item_facts_json->>'setName', c.proposed_catalog_item_facts_json->>'expansionName') ILIKE ${param} ESCAPE '\\' OR (c.identity_json->>'collectorNumber') ILIKE ${param} ESCAPE '\\' OR c.matched_catalog_item_id ILIKE ${param} ESCAPE '\\')`,
     );
   }
   const scopeCondition = buildCatalogMergeCandidateObservationScopeCondition(params, values);
@@ -242,11 +249,16 @@ export async function listCatalogMergeCandidates(
   const pagination = buildPaginationClause(params, values.length + 1);
   const countSql = `SELECT COUNT(*) as count FROM catalog_merge_candidates c ${where}`;
   const listSql = `SELECT c.candidate_id,
+                          c.scope_record_id,
                           c.identity_fingerprint,
                           c.sync_run_ids_json,
                           c.status,
                           c.status_reason,
-                          c.identity_json,
+                          c.identity_json || jsonb_build_object(
+                            'printedProductName', coalesce(c.proposed_catalog_item_facts_json->>'name', ''),
+                            'setName', coalesce(c.proposed_catalog_item_facts_json->>'setName', c.proposed_catalog_item_facts_json->>'expansionName'),
+                            'productLineName', coalesce(c.proposed_catalog_item_facts_json->>'productLineName', '')
+                          ) AS identity_json,
                           c.matched_catalog_item_id,
                           c.matched_product_ids_json,
                           c.proposed_catalog_item_facts_json,
@@ -1031,6 +1043,11 @@ function buildCatalogMergeCandidateFilter(params: CatalogMergeCandidateFilterSco
   if (params.identityFingerprint?.trim()) {
     values.push(params.identityFingerprint.trim());
     conditions.push(`c.identity_fingerprint = $${values.length}`);
+  }
+
+  if (params.scopeRecordId?.trim()) {
+    values.push(params.scopeRecordId.trim());
+    conditions.push(`c.scope_record_id = $${values.length}`);
   }
 
   if (params.matchedCatalogItemId?.trim()) {

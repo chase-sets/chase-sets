@@ -23,6 +23,7 @@ describe("Catalog Merge Candidate projections", () => {
 
     expect(query).toHaveBeenNthCalledWith(1, expect.stringContaining("INSERT INTO catalog_merge_candidates"), [
       "cand_pokemon_en_base1_043_standard",
+      "scope_base_set",
       "sha256:pokemon:en:base1:43:standard",
       JSON.stringify(candidateSnapshot().syncRunIds),
       "ready",
@@ -79,9 +80,9 @@ describe("Catalog Merge Candidate projections", () => {
 
     expect(query.mock.calls[0]?.[0]).toContain("INSERT INTO catalog_merge_candidates");
     expect(query.mock.calls[0]?.[1]?.[0]).toBe("cand_pokemon_en_base1_043_standard");
-    expect(query.mock.calls[0]?.[1]?.[3]).toBe("has-conflicts");
-    expect(query.mock.calls[0]?.[1]?.[11]).toBe(JSON.stringify(snapshot.conflicts));
-    expect(query.mock.calls[0]?.[1]?.[13]).toBe(JSON.stringify(snapshot.fieldProvenance));
+    expect(query.mock.calls[0]?.[1]?.[4]).toBe("has-conflicts");
+    expect(query.mock.calls[0]?.[1]?.[12]).toBe(JSON.stringify(snapshot.conflicts));
+    expect(query.mock.calls[0]?.[1]?.[14]).toBe(JSON.stringify(snapshot.fieldProvenance));
   });
 
   it("marks stale candidates without changing Source Observation rows", async () => {
@@ -206,10 +207,10 @@ describe("Catalog Merge Candidate projections", () => {
 
     expect(query.mock.calls[0]?.[0]).toContain("INSERT INTO catalog_merge_candidates");
     expect(query.mock.calls[0]?.[1]?.[0]).toBe("cand_pokemon_en_base1_043_standard");
-    expect(query.mock.calls[0]?.[1]?.[4]).toBe("Candidate split: Different variant.");
+    expect(query.mock.calls[0]?.[1]?.[5]).toBe("Candidate split: Different variant.");
     expect(query.mock.calls[3]?.[0]).toContain("INSERT INTO catalog_merge_candidates");
     expect(query.mock.calls[3]?.[1]?.[0]).toBe("cand_pokemon_en_base1_043_tcgplayer");
-    expect(query.mock.calls[3]?.[1]?.[4]).toBe(
+    expect(query.mock.calls[3]?.[1]?.[5]).toBe(
       "Candidate split from cand_pokemon_en_base1_043_standard: Different variant.",
     );
     expect(query.mock.calls[2]?.[1]?.[1]).toBe("obs_tcgdex_base1_43");
@@ -224,10 +225,7 @@ function candidateSnapshot(
     identityFingerprint: "sha256:pokemon:en:base1:43:standard",
     syncRunIds: ["job_sync_base1"],
     identity: {
-      tcg: "pokemon",
-      productLineName: "Pokemon TCG",
-      setName: "Base Set",
-      printedProductName: "Abra",
+      scopeRecordId: "scope_base_set",
       collectorNumber: "43",
       languageCode: "en",
       productForm: "single-card",

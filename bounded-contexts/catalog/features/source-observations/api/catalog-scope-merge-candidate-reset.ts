@@ -570,7 +570,7 @@ export function catalogScopeMergeCandidateRebuildChecklist(): readonly string[] 
   return [
     "Confirm evaluateCatalogScopeMergeCandidateResetEvidence returns no findings for the wipe half of this reset before rebuilding.",
     "Call generateCatalogMergeCandidates with an empty scope (POST /merge-candidates/generate, no filters) to rebuild every Catalog Merge Candidate from preserved catalog_source_observations rows through the active matcher.",
-    "Record observationsConsidered and candidatesCreated from the generate response as CatalogScopeMergeCandidateRebuildEvidence and attach it to the evidence packet's `rebuild` field.",
+    "Record observationCount, matchedObservationCount, excludedObservationCount, and candidateCount from the generate response; retain every unmapped/ambiguous exclusion reason, then attach observationsConsidered and candidatesCreated as CatalogScopeMergeCandidateRebuildEvidence.",
     "Re-run Provider Scope Mapping proposal ingestion for provider units whose proposed rows were reset, then route new proposals through the normal review queue.",
     "Verify catalog_scope_records and reviewed catalog_provider_scope_mappings counts are unchanged from the pre-reset dry run.",
     "Confirm the Admin merge-candidate review queue (/catalog/integrations) shows the rebuilt candidates and that stale/refresh semantics are unaffected.",

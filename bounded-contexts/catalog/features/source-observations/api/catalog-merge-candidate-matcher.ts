@@ -15,14 +15,28 @@ import type {
 import type {
   SourceObservationExternalCatalogItemReference,
   SourceObservationExternalProductReference,
-  SourceObservationMergeIdentity,
   SourceObservationNormalized,
 } from "../domain/domain";
 import type { SourceObservationListRow } from "../read-model/queries";
+import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
 
 export type CatalogMergeCandidateMatchResult = Readonly<{
   candidateId: string;
   snapshot: CatalogMergeCandidateReviewSnapshot;
+}>;
+
+export type CatalogMergeCandidateMatchExclusion = Readonly<{
+  observationId: string;
+  providerKey: string;
+  unitKey: string | null;
+  code: "unmapped-provider-scope" | "ambiguous-provider-scope" | "invalid-merge-identity";
+  reason: string;
+  matchingScopeRecordIds: readonly string[];
+}>;
+
+export type CatalogMergeCandidateMatchBatch = Readonly<{
+  candidates: readonly CatalogMergeCandidateMatchResult[];
+  exclusions: readonly CatalogMergeCandidateMatchExclusion[];
 }>;
 
 type CandidateFieldKey =
@@ -56,12 +70,12 @@ const CANDIDATE_FIELD_SPECS: readonly CandidateFieldSpec[] = [
   {
     factKey: "name",
     fieldPath: "catalogItem.name",
-    read: (row, identity) => stringFact(row.normalized.name) ?? identity.printedProductName,
+    read: (row) => stringFact(row.normalized.name) ?? undefined,
   },
   {
     factKey: "setName",
     fieldPath: "catalogItem.setName",
-    read: (row, identity) => stringFact(row.normalized.setName) ?? identity.setName ?? undefined,
+    read: (row) => stringFact(row.normalized.setName) ?? stringFact(row.normalized.expansionName) ?? undefined,
   },
   {
     factKey: "expansionName",
@@ -91,8 +105,7 @@ const CANDIDATE_FIELD_SPECS: readonly CandidateFieldSpec[] = [
   {
     factKey: "productLineName",
     fieldPath: "catalogItem.productLineName",
-    read: (row, identity) =>
-      stringFact(valueAt(row.normalized, "productLineName")) ?? identity.productLineName ?? undefined,
+    read: (row) => stringFact(valueAt(row.normalized, "productLineName")) ?? undefined,
   },
   {
     factKey: "productForm",
@@ -113,19 +126,35 @@ const CANDIDATE_FIELD_SPECS: readonly CandidateFieldSpec[] = [
 
 export function buildCatalogMergeCandidatesFromObservations(
   observations: readonly SourceObservationListRow[],
-  input: { addedAt: string },
-): readonly CatalogMergeCandidateMatchResult[] {
-  const eligible = observations
-    .map(toMatchableObservation)
-    .filter((observation): observation is MatchableObservation => observation !== null)
+  input: {
+    addedAt: string;
+    acceptedScopeMappings: readonly ProviderScopeMappingRow[];
+    providerUnitKeyByObservationId: Readonly<Record<string, string>>;
+  },
+): CatalogMergeCandidateMatchBatch {
+  const resolved = observations.map((observation) =>
+    toMatchableObservation(
+      observation,
+      input.providerUnitKeyByObservationId[observation.observation_id] ?? null,
+      input.acceptedScopeMappings,
+    ),
+  );
+  const eligible = resolved
+    .flatMap((result) => ("match" in result ? [result.match] : []))
     .sort((left, right) => left.row.observation_id.localeCompare(right.row.observation_id));
+  const exclusions = resolved
+    .flatMap((result) => ("exclusion" in result ? [result.exclusion] : []))
+    .sort((left, right) => left.observationId.localeCompare(right.observationId));
   if (eligible.length === 0) {
-    return [];
+    return { candidates: [], exclusions };
   }
 
-  return connectedGroups(eligible)
-    .map((group) => candidateFromGroup(group, input.addedAt))
-    .sort((left, right) => left.candidateId.localeCompare(right.candidateId));
+  return {
+    candidates: connectedGroups(eligible)
+      .map((group) => candidateFromGroup(group, input.addedAt))
+      .sort((left, right) => left.candidateId.localeCompare(right.candidateId)),
+    exclusions,
+  };
 }
 
 type MatchableObservation = Readonly<{
@@ -136,21 +165,43 @@ type MatchableObservation = Readonly<{
   externalProductReferences: readonly CatalogMergeCandidateExternalProductReference[];
 }>;
 
-function toMatchableObservation(row: SourceObservationListRow): MatchableObservation | null {
-  const identity = candidateIdentityFor(row.normalized);
+function toMatchableObservation(
+  row: SourceObservationListRow,
+  unitKey: string | null,
+  acceptedScopeMappings: readonly ProviderScopeMappingRow[],
+): Readonly<{ match: MatchableObservation } | { exclusion: CatalogMergeCandidateMatchExclusion }> {
+  const scopeResolution = resolveScopeRecord(row, unitKey, acceptedScopeMappings);
+  if (!("scopeRecordId" in scopeResolution)) {
+    return { exclusion: scopeResolution };
+  }
+
+  const identity = candidateIdentityFor(row.normalized, scopeResolution.scopeRecordId);
   if (!identity) {
-    return null;
+    return {
+      exclusion: {
+        observationId: row.observation_id,
+        providerKey: row.provider_key,
+        unitKey,
+        code: "invalid-merge-identity",
+        reason: "Source Observation is missing the language required for Catalog Merge Candidate identity.",
+        matchingScopeRecordIds: [scopeResolution.scopeRecordId],
+      },
+    };
   }
 
   return {
-    row,
-    identity,
-    identityFingerprint: fingerprintIdentity(identity),
-    externalCatalogItemReferences: normalizeExternalCatalogItemReferences(row.normalized.externalCatalogItemReferences),
-    externalProductReferences: normalizeExternalProductReferences([
-      ...(row.normalized.externalProductReferences ?? []),
-      ...((row.normalized.kind === "provider-product" ? row.normalized.skuReferences : []) ?? []),
-    ]),
+    match: {
+      row,
+      identity,
+      identityFingerprint: fingerprintIdentity(identity),
+      externalCatalogItemReferences: normalizeExternalCatalogItemReferences(
+        row.normalized.externalCatalogItemReferences,
+      ),
+      externalProductReferences: normalizeExternalProductReferences([
+        ...(row.normalized.externalProductReferences ?? []),
+        ...((row.normalized.kind === "provider-product" ? row.normalized.skuReferences : []) ?? []),
+      ]),
+    },
   };
 }
 
@@ -335,46 +386,122 @@ function projectCandidateFields(
   return { facts, conflicts, warnings, provenance };
 }
 
-function candidateIdentityFor(normalized: SourceObservationNormalized): CatalogMergeCandidateIdentity | null {
-  const declared = normalized.mergeIdentity;
-  const identity: SourceObservationMergeIdentity = declared ?? {
-    tcg: stringFact(valueAt(normalized, "tcg")) ?? "unknown",
-    productLineName: stringFact(valueAt(normalized, "productLineName")) ?? stringFact(valueAt(normalized, "category")),
-    setName: normalized.expansionName ?? normalized.setName ?? null,
-    printedProductName: normalized.name,
-    collectorNumber: normalized.cardNumber ?? null,
-    languageCode: normalized.languageCode,
-    productForm:
-      stringFact(valueAt(normalized, "sealedProductForm")) ??
-      stringFact(valueAt(normalized, "productForm")) ??
-      normalized.kind,
-    barcode: stringFact(valueAt(normalized, "barcode")) ?? null,
-  };
+function resolveScopeRecord(
+  row: SourceObservationListRow,
+  unitKey: string | null,
+  acceptedScopeMappings: readonly ProviderScopeMappingRow[],
+): Readonly<{ scopeRecordId: string }> | CatalogMergeCandidateMatchExclusion {
+  if (!unitKey) {
+    return {
+      observationId: row.observation_id,
+      providerKey: row.provider_key,
+      unitKey: null,
+      code: "unmapped-provider-scope",
+      reason: "Source Observation's provider profile version does not resolve to an ingestion unit.",
+      matchingScopeRecordIds: [],
+    };
+  }
 
-  const printedProductName = stringFact(identity.printedProductName);
-  const productLineName =
-    stringFact(identity.productLineName) ??
-    stringFact(valueAt(normalized, "productLineName")) ??
-    "Unknown Product Line";
-  const languageCode = stringFact(identity.languageCode) ?? stringFact(normalized.languageCode);
-  if (!printedProductName || !languageCode) {
+  const matchingScopeRecordIds = sortedUnique(
+    acceptedScopeMappings
+      .filter(
+        (mapping) =>
+          mapping.provider_key.toLowerCase() === row.provider_key.toLowerCase() &&
+          canonicalText(mapping.unit_key) === canonicalText(unitKey) &&
+          (mapping.review_status === "accepted" || mapping.review_status === "auto-accepted") &&
+          providerScopeMappingMatchesObservation(mapping, row),
+      )
+      .map((mapping) => mapping.scope_record_id),
+  );
+
+  if (matchingScopeRecordIds.length === 1) {
+    return { scopeRecordId: matchingScopeRecordIds[0]! };
+  }
+
+  return {
+    observationId: row.observation_id,
+    providerKey: row.provider_key,
+    unitKey,
+    code: matchingScopeRecordIds.length === 0 ? "unmapped-provider-scope" : "ambiguous-provider-scope",
+    reason:
+      matchingScopeRecordIds.length === 0
+        ? "No accepted Provider Scope Mapping matches this Source Observation's provider scope coordinates."
+        : "More than one canonical scope record matches this Source Observation's provider scope coordinates.",
+    matchingScopeRecordIds,
+  };
+}
+
+function providerScopeMappingMatchesObservation(
+  mapping: ProviderScopeMappingRow,
+  row: SourceObservationListRow,
+): boolean {
+  const normalized = row.normalized;
+  const coordinateChecks: readonly Readonly<{ expected: string | null; observed: readonly string[] }>[] = [
+    {
+      expected: mapping.set_id,
+      observed: textValues(valueAt(normalized, "setId"), valueAt(normalized, "expansionId")),
+    },
+    {
+      expected: mapping.set_name,
+      observed: textValues(normalized.setName, normalized.expansionName, normalized.mergeIdentity?.setName),
+    },
+    {
+      expected: mapping.series_id,
+      observed: textValues(valueAt(normalized, "seriesId")),
+    },
+    {
+      expected: mapping.product_line_id,
+      observed: textValues(valueAt(normalized, "productLineId")),
+    },
+  ];
+  const comparable = coordinateChecks.filter((check) => stringFact(check.expected) && check.observed.length > 0);
+  if (comparable.length === 0) {
+    return false;
+  }
+  if (
+    comparable.some(
+      (check) => !check.observed.some((observed) => canonicalText(observed) === canonicalText(check.expected)),
+    )
+  ) {
+    return false;
+  }
+
+  const mappingLanguageCode = languageCodeFromMapping(mapping.language_coordinates);
+  return !mappingLanguageCode || canonicalText(mappingLanguageCode) === canonicalText(row.language_code);
+}
+
+function languageCodeFromMapping(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return stringFact((value as Record<string, unknown>).languageCode);
+}
+
+function textValues(...values: readonly unknown[]): readonly string[] {
+  return sortedUnique(values.flatMap((value) => stringFact(value) ?? []));
+}
+
+function candidateIdentityFor(
+  normalized: SourceObservationNormalized,
+  scopeRecordId: string,
+): CatalogMergeCandidateIdentity | null {
+  const declared = normalized.mergeIdentity;
+  const languageCode = stringFact(declared?.languageCode) ?? stringFact(normalized.languageCode);
+  if (!languageCode) {
     return null;
   }
 
   return {
-    tcg: stringFact(identity.tcg)?.toLowerCase() ?? null,
-    productLineName,
-    setName: stringFact(identity.setName),
-    printedProductName,
-    collectorNumber: stringFact(identity.collectorNumber),
+    scopeRecordId,
+    collectorNumber: stringFact(declared?.collectorNumber) ?? stringFact(normalized.cardNumber),
     languageCode: languageCode.toLowerCase(),
     productForm:
-      stringFact(identity.productForm) ??
+      stringFact(declared?.productForm) ??
       stringFact(valueAt(normalized, "sealedProductForm")) ??
       stringFact(valueAt(normalized, "productForm")) ??
       stringFact(normalized.kind),
     variantKey: stringFact(valueAt(normalized, "cardVariantKey")),
-    barcode: stringFact(identity.barcode) ?? stringFact(valueAt(normalized, "barcode")),
+    barcode: stringFact(declared?.barcode) ?? stringFact(valueAt(normalized, "barcode")),
   };
 }
 
@@ -507,10 +634,7 @@ function conflict(input: CatalogMergeCandidateConflictInput): CatalogMergeCandid
 
 function fingerprintIdentity(identity: CatalogMergeCandidateIdentity): string {
   return `sha256:${hashJson({
-    tcg: identity.tcg,
-    productLineName: canonicalText(identity.productLineName),
-    setName: canonicalText(identity.setName),
-    printedProductName: canonicalText(identity.printedProductName),
+    scopeRecordId: identity.scopeRecordId,
     collectorNumber: canonicalText(identity.collectorNumber),
     languageCode: canonicalText(identity.languageCode),
     productForm: canonicalText(identity.productForm),
