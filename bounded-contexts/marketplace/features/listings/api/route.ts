@@ -317,7 +317,7 @@ async function fileToPhotoUpload(file: File, altText?: string | null): Promise<M
 }
 
 async function parseListingPhotoUploads(formData: FormData) {
-  const files = formData.getAll("listingPhotos").filter((entry): entry is File => entry instanceof File);
+  const files = formData.getAll("evidence").filter((entry): entry is File => entry instanceof File);
   const altTexts = formData.getAll("listingPhotoAltText").map((entry) => String(entry ?? ""));
   const uploads: MarketplaceListingPhotoUpload[] = [];
 

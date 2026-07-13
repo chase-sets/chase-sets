@@ -62,7 +62,7 @@ const listingPageRow = {
   max_units_per_order: null,
   max_units_per_day: null,
   max_units_per_customer_account: null,
-  listing_photos: [],
+  evidence: [],
   status: "active",
   created_at: "2026-06-23T06:08:00.000Z",
   updated_at: "2026-06-23T06:08:00.000Z",

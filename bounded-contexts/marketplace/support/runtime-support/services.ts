@@ -57,12 +57,14 @@ export function createMarketplaceServices(
   const commercialTermsResolver = options.commercialTermsResolver ?? createMarketplaceCommercialTermsResolver(db);
   const notificationOutbox = options.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const policies = createPolicyRuntime({ eventStore, db });
+  const listingEvidencePolicies = createListingEvidencePolicyRuntime({ db, policies });
   const deps = {
     eventStore,
     checkpointStore,
     db,
     commercialTermsResolver,
     policies,
+    listingEvidencePolicyEvaluator: listingEvidencePolicies,
     ...(options.listingPhotoStorage ? { listingPhotoStorage: options.listingPhotoStorage } : {}),
   } as const;
   const listings = createMarketplaceListingRuntime(deps);
@@ -78,8 +80,6 @@ export function createMarketplaceServices(
     notificationOutbox,
   });
   const sellerMetrics = createSellerMetricsRuntime({ db, policies });
-  const listingEvidencePolicies = createListingEvidencePolicyRuntime({ db, policies });
-
   return {
     listings,
     offers,

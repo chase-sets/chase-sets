@@ -187,9 +187,9 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
       product_id: string;
       selected_options: unknown;
       quantity_cap: number;
-      listing_photos: unknown;
+      evidence: unknown;
     }>(
-      `SELECT listing_id, status, catalog_catalog_item_id, product_id, selected_options, quantity_cap, listing_photos
+      `SELECT listing_id, status, catalog_catalog_item_id, product_id, selected_options, quantity_cap, evidence
        FROM marketplace_listing_pages
        WHERE listing_id = $1`,
       [listingId],
@@ -224,7 +224,7 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
       quantity_cap: 2,
     });
     expect(listing.rows[0]?.selected_options).toEqual(expect.arrayContaining(representativeSelectedOptions()));
-    expect(listing.rows[0]?.listing_photos).toEqual(
+    expect(listing.rows[0]?.evidence).toEqual(
       expect.arrayContaining([expect.objectContaining({ altText: expect.any(String) })]),
     );
     expect(offer.rows[0]).toMatchObject({

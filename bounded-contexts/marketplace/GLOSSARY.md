@@ -16,16 +16,16 @@ Notes:
 - Listings reference one `CatalogItemId`, one `ProductId`, and one normalized selection snapshot.
 - Listings reference inventory availability but do not own stock truth.
 
-## Listing Photo
+## Listing Evidence
 
-A **Listing Photo** is seller-supplied evidence imagery attached to a Listing.
+**Listing Evidence** is the typed, policy-classified evidence collection attached to a Listing. Its current entries are seller-supplied images.
 
 Notes:
 
-- Listing Photos are owned by Marketplace.
-- Listing photo uploads are normalized into Chase Sets-owned WebP asset variants before storage.
-- Listing photo metadata is recorded on Marketplace Listing events; raw image bytes are stored in the environment asset bucket.
-- Pristine and Mint Listings require at least one Listing Photo before publication.
+- Listing Evidence is owned by Marketplace.
+- Evidence image uploads are normalized into Chase Sets-owned WebP asset variants before storage.
+- Evidence metadata is recorded on Marketplace Listing events; raw image bytes are stored in the environment asset bucket.
+- Publication and Offer Acceptance evaluate the current evidence against the Listing's resolved requirement snapshot.
 
 ## Listing Evidence Policy
 
@@ -44,6 +44,10 @@ A **Policy Rule** is one named selector-and-outcome clause in a Listing Evidence
 ## Listing Evidence Requirement
 
 A **Listing Evidence Requirement** is the resolved minimum photo count, named Evidence Slots, image constraints, seller-trust conditions, and buyer-acknowledgment posture produced by matching Policy Rules.
+
+## Listing Evidence Requirement Snapshot
+
+A **Listing Evidence Requirement Snapshot** is the immutable policy identity, policy hash, matched rules, explanation codes, resolved requirements, and requirement hash recorded on a Listing. Marketplace refreshes it from stable Listing, Catalog, and seller facts before publication and Offer Acceptance, then evaluates the current evidence against that exact snapshot.
 
 ## Evidence Slot
 
@@ -103,22 +107,15 @@ A **Fee-Lock Tranche** is a contiguous quantity of units on one Listing that sha
 
 ## Lock-Preserving Mutation
 
-A **Lock-Preserving Mutation** changes a Listing without changing its identity or locked terms. Price edits requote every tranche from its own locked formula. Purchase-limit edits, Listing Photo additions, pause, automated unlisting, and resuming the same Listing preserve its Fee Locks.
+A **Lock-Preserving Mutation** changes a Listing without changing its identity or locked terms. Price edits requote every tranche from its own locked formula. Purchase-limit edits, Listing Evidence additions, pause, automated unlisting, and resuming the same Listing preserve its Fee Locks.
 
 ## Lock-Breaking Mutation
 
 A **Lock-Breaking Mutation** requires a new Listing identity and current Commercial Terms. Withdrawal is terminal; relisting, delete-and-recreate behavior, inventory-item substitution, Product substitution, and condition-selection substitution must create a new Listing. Marketplace has no command that mutates those identity fields in place.
 
-## High-Dollar Listing Publication Policy
+## Listing Evidence Readiness
 
-A **High-Dollar Listing Publication Policy** is the Marketplace-owned publication rule that blocks expensive Listings from becoming Active until seller evidence and account trust signals clear.
-
-Notes:
-
-- High-dollar Listing drafts can exist before the policy clears.
-- A high-dollar Listing requires Listing Photo evidence before publication.
-- A high-dollar Listing also requires trusted seller status or established account reputation.
-- Marketplace consumes Identity-owned Account Badges and Reputation-owned review signals for this policy, but Marketplace owns the Listing publication decision.
+**Listing Evidence Readiness** is Marketplace's generic decision that the current active evidence and seller-trust facts satisfy every clause in a Listing Evidence Requirement Snapshot. Readiness uses stable machine codes and never infers requirements from condition labels or other display text.
 
 ## Seller Listing Availability
 

@@ -33,7 +33,8 @@ type ListingPageRow = {
   max_units_per_order: number | null;
   max_units_per_day: number | null;
   max_units_per_customer_account: number | null;
-  listing_photos: unknown;
+  evidence_requirements: unknown;
+  evidence: unknown;
   status: string;
   created_at: string;
   updated_at: string;
@@ -99,10 +100,11 @@ class ProjectionDb implements PgQueryable {
         max_units_per_order: values[25] === null ? null : Number(values[25]),
         max_units_per_day: values[26] === null ? null : Number(values[26]),
         max_units_per_customer_account: values[27] === null ? null : Number(values[27]),
-        listing_photos: JSON.parse(String(values[28])),
+        evidence_requirements: values[28] === null ? null : JSON.parse(String(values[28])),
+        evidence: JSON.parse(String(values[29])),
         status: "draft",
-        created_at: String(values[29]),
-        updated_at: String(values[29]),
+        created_at: String(values[30]),
+        updated_at: String(values[30]),
       });
 
       this.listings.set(row.listing_id, row);
@@ -134,6 +136,42 @@ class ProjectionDb implements PgQueryable {
 
       row.status = "active";
       row.updated_at = String(values[1]);
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("SELECT evidence FROM marketplace_listing_pages WHERE listing_id = $1")) {
+      const row = this.listings.get(String(values[0]));
+      return {
+        rows: (row ? [{ evidence: row.evidence }] : []) as Row[],
+        rowCount: row ? 1 : 0,
+      };
+    }
+
+    if (
+      sql.includes("UPDATE marketplace_listing_pages") &&
+      sql.includes("SET evidence = $2") &&
+      sql.includes("updated_at = $3")
+    ) {
+      const row = this.listings.get(String(values[0]));
+      if (!row) {
+        return { rows: [], rowCount: 0 };
+      }
+      row.evidence = JSON.parse(String(values[1]));
+      row.updated_at = String(values[2]);
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (
+      sql.includes("UPDATE marketplace_listing_pages") &&
+      sql.includes("SET evidence_requirements = $2") &&
+      sql.includes("updated_at = $3")
+    ) {
+      const row = this.listings.get(String(values[0]));
+      if (!row) {
+        return { rows: [], rowCount: 0 };
+      }
+      row.evidence_requirements = JSON.parse(String(values[1]));
+      row.updated_at = String(values[2]);
       return { rows: [], rowCount: 1 };
     }
 
@@ -286,7 +324,8 @@ function listingPage(overrides: Partial<ListingPageRow> = {}): ListingPageRow {
     max_units_per_order: null,
     max_units_per_day: null,
     max_units_per_customer_account: null,
-    listing_photos: [],
+    evidence_requirements: null,
+    evidence: [],
     status: "active",
     created_at: "2026-05-09T00:00:00.000Z",
     updated_at: "2026-05-09T00:00:00.000Z",
@@ -348,7 +387,22 @@ function listingCreatedData(overrides: Record<string, unknown> = {}) {
       maxUnitsPerDay: null,
       maxUnitsPerCustomerAccount: null,
     },
-    listingPhotos: [],
+    evidenceRequirements: {
+      policyId: "pol_evidence",
+      policyVersion: 1,
+      policyHash: "sha256:policy",
+      evaluatedAt: "2026-05-09T00:00:00.000Z",
+      requirementHash: "sha256:requirements",
+      matchedRuleIds: [],
+      explanationCodes: [],
+      requirements: {
+        minimumPhotoCount: 0,
+        requiredSlots: [],
+        sellerTrustRequirements: [],
+        buyerAcknowledgment: "none",
+      },
+    },
+    evidence: [],
     ...overrides,
   };
 }
@@ -384,7 +438,37 @@ describe("marketplace listing projection", () => {
       listing_id: "lst_1",
       status: "draft",
       product_measure_snapshot: productMeasureSnapshot,
+      evidence_requirements: { requirementHash: "sha256:requirements" },
+      evidence: [],
     });
+  });
+
+  it("refreshes the resolved evidence requirement snapshot", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+    const revised = {
+      ...listingCreatedData().evidenceRequirements,
+      requirementHash: "sha256:revised",
+      requirements: {
+        minimumPhotoCount: 2,
+        requiredSlots: [],
+        sellerTrustRequirements: [],
+        buyerAcknowledgment: "none",
+      },
+    };
+
+    await handlers["marketplace.listing.created"]!(
+      event("marketplace.listing.created", listingCreatedData(), "marketplace.listing-lst_1"),
+    );
+    await handlers["marketplace.listing.evidence-requirements-refreshed"]!(
+      event(
+        "marketplace.listing.evidence-requirements-refreshed",
+        { evidenceRequirements: revised },
+        "marketplace.listing-lst_1",
+      ),
+    );
+
+    expect(db.listings.get("lst_1")?.evidence_requirements).toEqual(revised);
   });
 
   it("publishes existing seller listing pages", async () => {
@@ -415,6 +499,88 @@ describe("marketplace listing projection", () => {
         event("marketplace.listing.published", listingPublishedData(), "marketplace.listing-missing"),
       ),
     ).rejects.toThrow("Cannot project marketplace.listing.published for missing marketplace listing missing.");
+  });
+
+  function evidencePhoto(photoId: string, overrides: Record<string, unknown> = {}) {
+    return {
+      photoId,
+      originalFilename: null,
+      altText: null,
+      slotId: null,
+      viewKind: null,
+      status: "active",
+      sortOrder: 0,
+      capturedAt: null,
+      uploadedAt: "2026-05-09T00:00:00.000Z",
+      assetRevision: `rev-${photoId}`,
+      replacesPhotoId: null,
+      assetSet: {
+        kind: "listing-photo",
+        sourceHash: `hash_${photoId}`,
+        source: {
+          role: "source",
+          width: 1200,
+          height: 1600,
+          density: null,
+          mediaType: "image/webp",
+          storageKey: `k/${photoId}/s`,
+          publicUrl: `u/${photoId}/s`,
+          byteSize: 100,
+          generatedAt: "2026-05-09T00:00:00.000Z",
+        },
+        variants: [],
+      },
+      ...overrides,
+    };
+  }
+
+  it("projects listing evidence classification", async () => {
+    const db = new ProjectionDb();
+    db.listings.set("lst_1", listingPage({ evidence: [evidencePhoto("lpho_1")] }));
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.listing.photo-classified"]!(
+      event(
+        "marketplace.listing.photo-classified",
+        { photoId: "lpho_1", slotId: "front", viewKind: "front", altText: "Front", capturedAt: null },
+        "marketplace.listing-lst_1",
+      ),
+    );
+
+    const photos = db.listings.get("lst_1")!.evidence as Array<Record<string, unknown>>;
+    expect(photos[0]).toMatchObject({ slotId: "front", viewKind: "front", altText: "Front" });
+  });
+
+  it("projects listing evidence replacement, removal, and reorder", async () => {
+    const db = new ProjectionDb();
+    db.listings.set(
+      "lst_1",
+      listingPage({ evidence: [evidencePhoto("lpho_1"), evidencePhoto("lpho_2", { sortOrder: 1 })] }),
+    );
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.listing.photo-replaced"]!(
+      event(
+        "marketplace.listing.photo-replaced",
+        { replacedPhotoId: "lpho_1", photo: evidencePhoto("lpho_3", { replacesPhotoId: "lpho_1" }) },
+        "marketplace.listing-lst_1",
+      ),
+    );
+    let photos = db.listings.get("lst_1")!.evidence as Array<Record<string, unknown>>;
+    expect(photos.find((photo) => photo.photoId === "lpho_1")?.status).toBe("replaced");
+    expect(photos.find((photo) => photo.photoId === "lpho_3")?.status).toBe("active");
+
+    await handlers["marketplace.listing.photo-removed"]!(
+      event("marketplace.listing.photo-removed", { photoId: "lpho_2" }, "marketplace.listing-lst_1"),
+    );
+    photos = db.listings.get("lst_1")!.evidence as Array<Record<string, unknown>>;
+    expect(photos.find((photo) => photo.photoId === "lpho_2")?.status).toBe("removed");
+
+    await handlers["marketplace.listing.photos-reordered"]!(
+      event("marketplace.listing.photos-reordered", { orderedPhotoIds: ["lpho_3"] }, "marketplace.listing-lst_1"),
+    );
+    photos = db.listings.get("lst_1")!.evidence as Array<Record<string, unknown>>;
+    expect(photos.find((photo) => photo.photoId === "lpho_3")?.sortOrder).toBe(0);
   });
 
   it("refreshes existing listing product measures from Catalog resolved-measure facts", async () => {

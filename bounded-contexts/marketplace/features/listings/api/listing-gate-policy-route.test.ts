@@ -32,11 +32,12 @@ function createApp(policies: Partial<PolicyRuntime>, permissions: readonly strin
 }
 
 const samplePolicyValue = {
-  highDollarListingAmount: "250.00",
-  minTrustedReputationReviews: 3,
   maxActiveAnonymousListingDrafts: 20,
   anonymousListingDraftTtlDays: 30,
-  maxListingPhotoUploadBytes: 10 * 1024 * 1024,
+  maxListingEvidenceUploadBytes: 10 * 1024 * 1024,
+  maxListingEvidenceCount: 24,
+  maxListingEvidenceTotalBytes: 60 * 1024 * 1024,
+  evidenceGarbageCollectionSafeDelayHours: 24 * 7,
 };
 
 describe("marketplace listing-gate policy routes", () => {
@@ -95,11 +96,9 @@ describe("marketplace listing-gate policy routes", () => {
     const response = await app.request("/", {
       method: "POST",
       body: JSON.stringify({
-        highDollarListingAmount: "250.00",
-        minTrustedReputationReviews: 3,
         maxActiveAnonymousListingDrafts: 20,
         anonymousListingDraftTtlDays: 30,
-        maxListingPhotoUploadBytes: 10 * 1024 * 1024,
+        maxListingEvidenceUploadBytes: 10 * 1024 * 1024,
         status: "active",
         effectiveFrom: "2026-05-03T00:00:00.000Z",
       }),
@@ -140,11 +139,9 @@ describe("marketplace listing-gate policy routes", () => {
     const response = await app.request("/pol_1", {
       method: "PUT",
       body: JSON.stringify({
-        highDollarListingAmount: "500.00",
-        minTrustedReputationReviews: 5,
         maxActiveAnonymousListingDrafts: 10,
         anonymousListingDraftTtlDays: 14,
-        maxListingPhotoUploadBytes: 5 * 1024 * 1024,
+        maxListingEvidenceUploadBytes: 5 * 1024 * 1024,
         status: "active",
         effectiveFrom: "2026-08-01T00:00:00.000Z",
         effectiveUntil: null,
@@ -159,11 +156,12 @@ describe("marketplace listing-gate policy routes", () => {
       "pol_1",
       expect.objectContaining({
         value: {
-          highDollarListingAmount: "500.00",
-          minTrustedReputationReviews: 5,
           maxActiveAnonymousListingDrafts: 10,
           anonymousListingDraftTtlDays: 14,
-          maxListingPhotoUploadBytes: 5 * 1024 * 1024,
+          maxListingEvidenceUploadBytes: 5 * 1024 * 1024,
+          maxListingEvidenceCount: 24,
+          maxListingEvidenceTotalBytes: 60 * 1024 * 1024,
+          evidenceGarbageCollectionSafeDelayHours: 24 * 7,
         },
         actorUserId: "usr_admin",
       }),

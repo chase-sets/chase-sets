@@ -575,10 +575,10 @@ export function MarketplaceListingListPage({
                             {t("marketplace.features.listings.ui.listingListPage.shipping.measure.missing")}
                           </Badge>
                         )}
-                        {row.listing_photos.length > 0 ? (
+                        {row.evidence.length > 0 ? (
                           <Text tone="secondary" size="sm">
                             {t("marketplace.features.listings.ui.listingListPage.photo.count", {
-                              count: row.listing_photos.length,
+                              count: row.evidence.length,
                             })}
                           </Text>
                         ) : null}

@@ -1,10 +1,15 @@
 import { createHash } from "node:crypto";
 import sharp from "sharp";
-import type {
-  MarketplaceListingPhoto,
-  MarketplaceListingPhotoAssetRole,
-  MarketplaceListingPhotoAssetVariant,
+import {
+  listingPhotoAssetRevision,
+  type MarketplaceListingPhoto,
+  type MarketplaceListingPhotoAssetRole,
+  type MarketplaceListingPhotoAssetVariant,
 } from "../domain/domain";
+import {
+  assertDecodedImageWithinBudget,
+  DEFAULT_LISTING_EVIDENCE_MAX_SOURCE_PIXELS,
+} from "../domain/evidence-governance";
 
 const LISTING_PHOTO_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const DISPLAY_NORMALIZATION_VERSION = "trim-alpha-v1";
@@ -32,6 +37,13 @@ export type ListingPhotoStorage = Readonly<{
       cacheControl?: string;
     }>,
   ): Promise<Readonly<{ key: string; publicUrl: string }>>;
+  /**
+   * Idempotent bulk delete for evidence garbage collection. Deleting an
+   * already-absent key must be a no-op. Optional so standalone/test wiring
+   * without object storage still constructs; GC reports candidates but skips
+   * physical deletion when absent.
+   */
+  deleteObjects?: (keys: readonly string[]) => Promise<void>;
 }>;
 
 export type ListingPhotoImageProcessor = Readonly<{
@@ -52,8 +64,13 @@ export type NormalizeListingPhotoInput = Readonly<{
   photoId: string;
   originalFilename: string | null;
   altText: string | null;
+  slotId?: string | null;
+  viewKind?: string | null;
+  capturedAt?: string | null;
+  replacesPhotoId?: string | null;
   sortOrder: number;
   generatedAt: string;
+  maxSourcePixels?: number;
   photoStorage: ListingPhotoStorage;
   imageProcessor?: ListingPhotoImageProcessor;
 }>;
@@ -61,9 +78,19 @@ export type NormalizeListingPhotoInput = Readonly<{
 export async function normalizeListingPhoto(input: NormalizeListingPhotoInput): Promise<MarketplaceListingPhoto> {
   const imageProcessor = input.imageProcessor ?? sharpListingPhotoImageProcessor;
   const sourceHash = hashBytes(input.sourceBody);
+  // Validate the decoded content is a real image with sane dimensions BEFORE
+  // any expensive re-encode, so a malformed file or decompression bomb fails
+  // safely rather than exhausting memory during normalization.
+  const rawMetadata = await imageProcessor.metadata(input.sourceBody);
+  assertDecodedImageWithinBudget(rawMetadata, {
+    maxSourcePixels: input.maxSourcePixels ?? DEFAULT_LISTING_EVIDENCE_MAX_SOURCE_PIXELS,
+  });
   const displayBody = await imageProcessor.normalizeDisplaySource(input.sourceBody);
   const displayHash = hashBytes(displayBody);
   const sourceMetadata = await imageProcessor.metadata(displayBody);
+  assertDecodedImageWithinBudget(sourceMetadata, {
+    maxSourcePixels: input.maxSourcePixels ?? DEFAULT_LISTING_EVIDENCE_MAX_SOURCE_PIXELS,
+  });
   const source = await storeVariant({
     photoStorage: input.photoStorage,
     storageKey: `${input.storageBaseKey}/source-${sourceHash.slice(0, 12)}-${DISPLAY_NORMALIZATION_VERSION}-${displayHash.slice(0, 12)}.webp`,
@@ -100,8 +127,14 @@ export async function normalizeListingPhoto(input: NormalizeListingPhotoInput): 
     photoId: input.photoId,
     originalFilename: input.originalFilename,
     altText: input.altText,
+    slotId: input.slotId ?? null,
+    viewKind: input.viewKind ?? null,
+    status: "active",
     sortOrder: input.sortOrder,
+    capturedAt: input.capturedAt ?? null,
     uploadedAt: input.generatedAt,
+    assetRevision: listingPhotoAssetRevision(sourceHash),
+    replacesPhotoId: input.replacesPhotoId ?? null,
     assetSet: {
       kind: "listing-photo",
       sourceHash,
@@ -141,9 +174,14 @@ async function storeVariant(input: {
   };
 }
 
+// Decoder-level guard: cap the pixels sharp will decode so a decompression
+// bomb is rejected by the decoder itself, in addition to the domain-level
+// `assertDecodedImageWithinBudget` applied to the reported dimensions.
+const SHARP_INPUT_PIXEL_LIMIT = DEFAULT_LISTING_EVIDENCE_MAX_SOURCE_PIXELS;
+
 const sharpListingPhotoImageProcessor: ListingPhotoImageProcessor = {
   async metadata(body) {
-    const metadata = await sharp(body).metadata();
+    const metadata = await sharp(body, { limitInputPixels: SHARP_INPUT_PIXEL_LIMIT }).metadata();
     if (!metadata.width || !metadata.height) {
       throw new Error("Listing photo source image must have readable dimensions.");
     }
@@ -154,7 +192,7 @@ const sharpListingPhotoImageProcessor: ListingPhotoImageProcessor = {
     };
   },
   async normalizeDisplaySource(body) {
-    const { data } = await sharp(body)
+    const { data } = await sharp(body, { limitInputPixels: SHARP_INPUT_PIXEL_LIMIT })
       .ensureAlpha()
       .trim({ threshold: 8 })
       .webp({ quality: 100, lossless: true })
@@ -163,7 +201,7 @@ const sharpListingPhotoImageProcessor: ListingPhotoImageProcessor = {
     return new Uint8Array(data);
   },
   async resizeToWebp({ body, width, quality }) {
-    const { data, info } = await sharp(body)
+    const { data, info } = await sharp(body, { limitInputPixels: SHARP_INPUT_PIXEL_LIMIT })
       .resize({
         width,
         fit: "inside",

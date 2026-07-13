@@ -72,9 +72,9 @@ function optionalLimit(value: FormDataEntryValue | null) {
 
 function listingPhotoFormData(formData: FormData) {
   const apiForm = new FormData();
-  for (const entry of formData.getAll("listingPhotos")) {
+  for (const entry of formData.getAll("evidence")) {
     if (entry instanceof File && entry.size > 0) {
-      apiForm.append("listingPhotos", entry);
+      apiForm.append("evidence", entry);
     }
   }
 

@@ -20,7 +20,6 @@ import {
   type MarketplaceVersionSchema,
 } from "../../features/offers/domain/versioning";
 import { addReviewWindowDays, REVIEW_WINDOW_DAYS, type ReviewRole } from "../../features/reviews/domain/common";
-import { requiresListingPhotoEvidence, type MarketplaceListingState } from "../../features/listings/domain/domain";
 import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/runtime";
 import { quoteMarketplaceTerms } from "./fee-quotes";
 import { createMarketplaceServices, type MarketplaceServices } from "./services";
@@ -591,49 +590,38 @@ const defaultOfferDestination: AddressSnapshot = {
   email: "buyer@chasesets.test",
 };
 
-let seedListingPhotoBodyPromise: Promise<Buffer> | null = null;
-const HIGH_DOLLAR_SEED_LISTING_AMOUNT = 250;
-
-async function getSeedListingPhotoBody() {
-  seedListingPhotoBodyPromise ??= sharp({
+async function getSeedListingPhotoBody(index: number) {
+  return sharp({
     create: {
       width: 720,
       height: 1008,
       channels: 3,
-      background: { r: 245, g: 247, b: 250 },
+      background: { r: 220 + (index % 20), g: 230 + (index % 15), b: 240 + (index % 10) },
     },
   })
     .png()
     .toBuffer();
-
-  return seedListingPhotoBodyPromise;
 }
 
-async function buildSeedListingPhotoUpload(listing: ListingSeed): Promise<readonly MarketplaceListingPhotoUpload[]> {
-  return [
-    {
-      body: await getSeedListingPhotoBody(),
-      contentType: "image/png",
-      originalFilename: `${listing.listingId}-condition-evidence.png`,
-      altText: "Seed listing condition evidence photo",
-    },
-  ];
-}
-
-function requiresSeedListingPhotoUpload(
-  supply: Readonly<{
-    selected_options: readonly { dimensionId: string; optionId: string }[];
-    product_summary: string | null;
-    graded_card: MarketplaceListingState["gradedCard"];
-  }>,
+async function buildSeedListingEvidenceUploads(
   listing: ListingSeed,
-) {
-  return (
-    requiresListingPhotoEvidence({
-      selectedOptions: supply.selected_options,
-      productSummary: supply.product_summary,
-      gradedCard: supply.graded_card,
-    }) || Number.parseFloat(listing.priceAmount) >= HIGH_DOLLAR_SEED_LISTING_AMOUNT
+  requirements: NonNullable<
+    Awaited<ReturnType<MarketplaceServices["listings"]["loadListingState"]>>["evidenceRequirements"]
+  >,
+): Promise<readonly MarketplaceListingPhotoUpload[]> {
+  const count = Math.max(requirements.requirements.minimumPhotoCount, requirements.requirements.requiredSlots.length);
+  return Promise.all(
+    Array.from({ length: count }, async (_, index) => {
+      const slot = requirements.requirements.requiredSlots[index] ?? null;
+      return {
+        body: await getSeedListingPhotoBody(index),
+        contentType: "image/png",
+        originalFilename: `${listing.listingId}-evidence-${index + 1}.png`,
+        altText: `Seed listing evidence image ${index + 1}`,
+        slotId: slot?.slotId ?? null,
+        viewKind: slot?.viewKind ?? null,
+      } satisfies MarketplaceListingPhotoUpload;
+    }),
   );
 }
 
@@ -746,14 +734,23 @@ export async function seedMarketplaceDatabase(
         priceAmount: listing.priceAmount,
         quantityCap: listing.quantityCap,
         listingIdOverride: seededListingId,
-        listingPhotoUploads: requiresSeedListingPhotoUpload(supply, listing)
-          ? await buildSeedListingPhotoUpload(listing)
-          : [],
+        listingPhotoUploads: [],
       },
       listingContext,
     );
 
     if (listing.finalStatus !== "draft") {
+      const listingState = await services.listings.loadListingState(seededListingId);
+      if (listingState.evidenceRequirements && listingState.evidenceRequirements.requirements.minimumPhotoCount > 0) {
+        await services.listings.addListingPhotos(
+          {
+            accountId,
+            listingId: seededListingId,
+            listingPhotoUploads: await buildSeedListingEvidenceUploads(listing, listingState.evidenceRequirements),
+          },
+          listingContext,
+        );
+      }
       await services.listings.publishListing(
         {
           accountId,

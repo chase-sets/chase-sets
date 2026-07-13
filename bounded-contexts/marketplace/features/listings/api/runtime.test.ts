@@ -384,7 +384,7 @@ describe("marketplace listing runtime", () => {
       ),
     ).resolves.toEqual({
       listingId: "lst_seed_1",
-      version: 2,
+      version: 3,
     });
   });
 
@@ -649,7 +649,7 @@ describe("marketplace listing runtime", () => {
     ]);
   });
 
-  it("blocks high-dollar publication for accounts without listing evidence", async () => {
+  it("blocks publication when configured evidence coverage is incomplete", async () => {
     const { eventStore } = createInMemoryEventStore();
     const db = {
       query: vi.fn(async (sql: string) => {
@@ -724,10 +724,10 @@ describe("marketplace listing runtime", () => {
         },
         context,
       ),
-    ).rejects.toThrow("High-dollar listings require at least one listing photo before publication.");
+    ).rejects.toThrow("Listing evidence requirements are not met.");
   });
 
-  it("blocks high-dollar publication for untrusted accounts even with listing evidence", async () => {
+  it("blocks publication when configured seller-trust requirements are incomplete", async () => {
     const { eventStore } = createInMemoryEventStore();
     const db = {
       query: vi.fn(async (sql: string) => {
@@ -812,9 +812,7 @@ describe("marketplace listing runtime", () => {
         },
         context,
       ),
-    ).rejects.toThrow(
-      "High-dollar listings require a trusted seller account or established account reputation before publication.",
-    );
+    ).rejects.toThrow("Listing evidence requirements are not met.");
   });
 
   it("keeps existing listing fee locks when management changes future terms", async () => {
@@ -1163,103 +1161,7 @@ describe("marketplace listing runtime", () => {
     ).rejects.toThrow("Listing quantity caps cannot exceed available listing stock.");
   });
 
-  it("blocks high-dollar publication using a revised (lower) listing-gate policy threshold from the injected platform-policy runtime", async () => {
-    const { eventStore } = createInMemoryEventStore();
-    const db = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes("FROM marketplace_supply_items AS item")) {
-          return {
-            rows: [
-              {
-                item_id: "inv_1",
-                account_id: "acc_seller",
-                catalog_catalog_item_id: "cat_1",
-                product_id: "cat_1::",
-                item_title: "Charizard",
-                item_subtitle: null,
-                selected_options: [],
-                product_summary: null,
-                product_measure_snapshot: productMeasureSnapshot,
-                storage_location_name: "North shelf",
-                ship_from_code: "CHI",
-                ship_from_address: shipFromAddress,
-                available_quantity: 2,
-              },
-            ],
-          };
-        }
-
-        if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
-          return { rows: [{ quantity_cap: "0" }] };
-        }
-
-        if (sql.includes("FROM marketplace_account_pages")) {
-          return { rows: [{ account_id: "acc_seller", badges: [], review_count: 0, average_rating: null }] };
-        }
-
-        throw new Error(`Unexpected query in test: ${sql}`);
-      }),
-    };
-    const resolvePolicy = vi.fn(async () => ({
-      policyKey: "marketplace.listing-gate",
-      value: {
-        highDollarListingAmount: "50.00",
-        minTrustedReputationReviews: 3,
-        maxActiveAnonymousListingDrafts: 20,
-        anonymousListingDraftTtlDays: 30,
-        maxListingPhotoUploadBytes: 10 * 1024 * 1024,
-      },
-      source: "policy" as const,
-      documentId: "pol_listing_gate",
-      effectiveFrom: "2026-04-01T00:00:00.000Z",
-      effectiveUntil: null,
-      resolvedAt: "2026-04-17T00:00:00.000Z",
-    }));
-    const services = createMarketplaceListingRuntime({
-      eventStore,
-      checkpointStore: createCheckpointStore(),
-      db: db as never,
-      commercialTermsResolver: {
-        resolveListingTerms: vi.fn(async ({ amount, accountId }) => ({
-          accountId,
-          accountType: "business" as const,
-          basisAmount: amount,
-          marketplaceSalesFeeUnitAmount: "5.00",
-          sellerNetUnitAmount: "95.00",
-          scheduleId: "cts_default",
-          agreementId: null,
-          resolvedAt: "2026-04-17T00:00:00.000Z",
-        })),
-      } as never,
-      policies: { resolvePolicy } as never,
-    });
-
-    // $100 is below the compiled $250 default but at/above the revised $50 threshold.
-    const created = await services.createListing(
-      {
-        accountId: "acc_seller" as never,
-        inventoryItemId: "inv_1",
-        priceAmount: "100.00",
-        quantityCap: 1,
-        listingIdOverride: "lst_revised_threshold" as never,
-      },
-      context,
-    );
-
-    await expect(
-      services.publishListing(
-        {
-          accountId: "acc_seller",
-          listingId: "lst_revised_threshold",
-          feeQuoteFingerprint: created.feeQuoteFingerprint,
-        },
-        context,
-      ),
-    ).rejects.toThrow("High-dollar listings require at least one listing photo before publication.");
-    expect(resolvePolicy).toHaveBeenCalledWith(expect.objectContaining({ policyKey: "marketplace.listing-gate" }));
-  });
-
-  it("allows a $100 listing to publish under the compiled default listing-gate threshold when no policies runtime is wired", async () => {
+  it("uses the compiled Listing Evidence Policy when no policy runtime is wired", async () => {
     const { eventStore } = createInMemoryEventStore();
     const db = {
       query: vi.fn(async (sql: string) => {
@@ -1338,11 +1240,9 @@ describe("marketplace listing runtime", () => {
     const resolvePolicy = vi.fn(async () => ({
       policyKey: "marketplace.listing-gate",
       value: {
-        highDollarListingAmount: "250.00",
-        minTrustedReputationReviews: 3,
         maxActiveAnonymousListingDrafts: 1,
         anonymousListingDraftTtlDays: 30,
-        maxListingPhotoUploadBytes: 10 * 1024 * 1024,
+        maxListingEvidenceUploadBytes: 10 * 1024 * 1024,
       },
       source: "policy" as const,
       documentId: "pol_listing_gate",
@@ -1791,6 +1691,110 @@ describe("marketplace listing runtime", () => {
       await expect(
         services.applyBulkListingPriceUpdates({ accountId: "acc_seller", updates: [] }, context),
       ).resolves.toEqual([]);
+    });
+  });
+
+  describe("listing evidence garbage collection", () => {
+    function gcAsset(key: string) {
+      return {
+        role: "source",
+        width: 1200,
+        height: 1600,
+        density: null,
+        mediaType: "image/webp",
+        storageKey: key,
+        publicUrl: `https://assets.test/${key}`,
+        byteSize: 100,
+        generatedAt: "2026-05-09T00:00:00.000Z",
+      };
+    }
+    function gcPhoto(photoId: string, status: string, sourceHash: string) {
+      return {
+        photoId,
+        originalFilename: null,
+        altText: null,
+        slotId: null,
+        viewKind: null,
+        status,
+        sortOrder: 0,
+        capturedAt: null,
+        uploadedAt: "2026-05-09T00:00:00.000Z",
+        assetRevision: `rev-${sourceHash}`,
+        replacesPhotoId: null,
+        assetSet: { kind: "listing-photo", sourceHash, source: gcAsset(`${photoId}/source`), variants: [] },
+      };
+    }
+
+    function gcDb(evidence: unknown[], updatedAt: string) {
+      return {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("FROM marketplace_listing_pages") && sql.includes("COALESCE(entry->>'status', 'active')")) {
+            return { rows: [{ listing_id: "lst_1", updated_at: updatedAt, evidence: evidence }] };
+          }
+          throw new Error(`Unexpected query in test: ${sql}`);
+        }),
+      };
+    }
+
+    it("deletes retired, unreferenced assets past the safe delay and is observable", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const deleted: string[][] = [];
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: gcDb(
+          [gcPhoto("lpho_active", "active", "hash_active"), gcPhoto("lpho_removed", "removed", "hash_removed")],
+          "2026-01-01T00:00:00.000Z",
+        ) as never,
+        commercialTermsResolver: { resolveListingTerms: vi.fn() } as never,
+        listingPhotoStorage: {
+          putObject: vi.fn(),
+          deleteObjects: vi.fn(async (keys: readonly string[]) => {
+            deleted.push([...keys]);
+          }),
+        } as never,
+      });
+
+      const report = await services.collectListingEvidenceGarbage({ now: "2026-07-13T00:00:00.000Z" });
+
+      expect(report.collectedPhotoIds).toEqual(["lpho_removed"]);
+      expect(report.storageDeletionPerformed).toBe(true);
+      expect(report.deletedAssetKeyCount).toBe(1);
+      expect(deleted).toEqual([["lpho_removed/source"]]);
+    });
+
+    it("retains a retired asset whose source is still referenced by an active entry", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: gcDb(
+          [gcPhoto("lpho_active", "active", "shared"), gcPhoto("lpho_removed", "removed", "shared")],
+          "2026-01-01T00:00:00.000Z",
+        ) as never,
+        commercialTermsResolver: { resolveListingTerms: vi.fn() } as never,
+        listingPhotoStorage: { putObject: vi.fn(), deleteObjects: vi.fn() } as never,
+      });
+
+      const report = await services.collectListingEvidenceGarbage({ now: "2026-07-13T00:00:00.000Z" });
+      expect(report.collectedPhotoIds).toEqual([]);
+      expect(report.retainedReferencedPhotoIds).toEqual(["lpho_removed"]);
+    });
+
+    it("reports candidates but performs no deletion when storage cannot delete", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: gcDb([gcPhoto("lpho_removed", "removed", "hash_removed")], "2026-01-01T00:00:00.000Z") as never,
+        commercialTermsResolver: { resolveListingTerms: vi.fn() } as never,
+        listingPhotoStorage: { putObject: vi.fn() } as never,
+      });
+
+      const report = await services.collectListingEvidenceGarbage({ now: "2026-07-13T00:00:00.000Z" });
+      expect(report.collectedPhotoIds).toEqual(["lpho_removed"]);
+      expect(report.storageDeletionPerformed).toBe(false);
+      expect(report.deletedAssetKeyCount).toBe(0);
     });
   });
 });

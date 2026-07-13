@@ -34,7 +34,8 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     max_units_per_order: number | null;
     max_units_per_day: number | null;
     max_units_per_customer_account: number | null;
-    listing_photos: unknown;
+    evidence_requirements: unknown;
+    evidence: unknown;
     status: string;
     created_at: string;
     updated_at: string;
@@ -50,7 +51,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
             ? row.product_measure_snapshot
             : null,
         graded_card: typeof row.graded_card === "object" && row.graded_card !== null ? row.graded_card : null,
-        listing_photos: Array.isArray(row.listing_photos) ? row.listing_photos : [],
+        evidence: Array.isArray(row.evidence) ? row.evidence : [],
         fee_locks: Array.isArray(row.fee_locks) ? row.fee_locks : [],
       }
     : null;
@@ -82,6 +83,40 @@ function assertUpdatedListingRow(
   if ((result.rowCount ?? 0) === 0) {
     throw new Error(`Cannot project ${eventType} for missing marketplace listing ${listingId}.`);
   }
+}
+
+/**
+ * Read-modify-write for the `evidence` JSONB array. The typed Listing
+ * Evidence lifecycle events carry deltas rather than the full array, so
+ * the projector rehydrates the current array, applies the delta, and writes it
+ * back. Safe because the projector applies a stream's events sequentially in
+ * order.
+ */
+async function transformListingPhotos(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  listingId: string,
+  transform: (photos: Array<Record<string, unknown>>) => Array<Record<string, unknown>>,
+) {
+  const current = await db.query<{ evidence: unknown }>(
+    "SELECT evidence FROM marketplace_listing_pages WHERE listing_id = $1",
+    [listingId],
+  );
+  if (current.rows.length === 0) {
+    throw new Error(`Cannot project ${event.type} for missing marketplace listing ${listingId}.`);
+  }
+  const photos = Array.isArray(current.rows[0]!.evidence)
+    ? (current.rows[0]!.evidence as Array<Record<string, unknown>>)
+    : [];
+  const next = transform(photos);
+  await db.query(
+    `UPDATE marketplace_listing_pages
+     SET evidence = $2,
+         updated_at = $3
+     WHERE listing_id = $1`,
+    [listingId, JSON.stringify(next), event.timing.recordedAt],
+  );
+  await emitListingPatch(db, event, listingId);
 }
 
 export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -118,7 +153,8 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           maxUnitsPerDay: number | null;
           maxUnitsPerCustomerAccount: number | null;
         };
-        listingPhotos?: unknown;
+        evidenceRequirements?: unknown;
+        evidence?: unknown;
       };
 
       await db.query(
@@ -151,12 +187,13 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           max_units_per_order,
           max_units_per_day,
           max_units_per_customer_account,
-          listing_photos,
+          evidence_requirements,
+          evidence,
           status,
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, 'draft', $30, $30
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, 'draft', $31, $31
         )
         ON CONFLICT (listing_id) DO UPDATE SET
           account_id = EXCLUDED.account_id,
@@ -186,7 +223,8 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           max_units_per_order = EXCLUDED.max_units_per_order,
           max_units_per_day = EXCLUDED.max_units_per_day,
           max_units_per_customer_account = EXCLUDED.max_units_per_customer_account,
-          listing_photos = EXCLUDED.listing_photos,
+          evidence_requirements = EXCLUDED.evidence_requirements,
+          evidence = EXCLUDED.evidence,
           updated_at = EXCLUDED.updated_at`,
         [
           data.listingId,
@@ -219,7 +257,10 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           data.purchaseLimits?.maxUnitsPerOrder ?? null,
           data.purchaseLimits?.maxUnitsPerDay ?? null,
           data.purchaseLimits?.maxUnitsPerCustomerAccount ?? null,
-          JSON.stringify(Array.isArray(data.listingPhotos) ? data.listingPhotos : []),
+          data.evidenceRequirements && typeof data.evidenceRequirements === "object"
+            ? JSON.stringify(data.evidenceRequirements)
+            : null,
+          JSON.stringify(Array.isArray(data.evidence) ? data.evidence : []),
           event.timing.recordedAt,
         ],
       );
@@ -259,14 +300,80 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
     },
     "marketplace.listing.photos-added": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
-      const { listingPhotos } = event.data as { listingPhotos: unknown };
+      const { evidence } = event.data as { evidence: unknown };
 
       const result = await db.query(
         `UPDATE marketplace_listing_pages
-         SET listing_photos = $2,
+         SET evidence = $2,
              updated_at = $3
          WHERE listing_id = $1`,
-        [listingId, JSON.stringify(Array.isArray(listingPhotos) ? listingPhotos : []), event.timing.recordedAt],
+        [listingId, JSON.stringify(Array.isArray(evidence) ? evidence : []), event.timing.recordedAt],
+      );
+      assertUpdatedListingRow(result, event.type, listingId);
+      await emitListingPatch(db, event, listingId);
+    },
+    "marketplace.listing.photo-classified": async (event) => {
+      const listingId = event.streamId.replace("marketplace.listing-", "");
+      const data = event.data as {
+        photoId: string;
+        slotId: string | null;
+        viewKind: string | null;
+        altText: string | null;
+        capturedAt: string | null;
+      };
+      await transformListingPhotos(db, event, listingId, (photos) =>
+        photos.map((photo) =>
+          photo.photoId === data.photoId
+            ? {
+                ...photo,
+                slotId: data.slotId,
+                viewKind: data.viewKind,
+                altText: data.altText,
+                capturedAt: data.capturedAt,
+              }
+            : photo,
+        ),
+      );
+    },
+    "marketplace.listing.photo-replaced": async (event) => {
+      const listingId = event.streamId.replace("marketplace.listing-", "");
+      const data = event.data as {
+        replacedPhotoId: string;
+        photo: Record<string, unknown>;
+      };
+      await transformListingPhotos(db, event, listingId, (photos) => [
+        ...photos.map((photo) => (photo.photoId === data.replacedPhotoId ? { ...photo, status: "replaced" } : photo)),
+        data.photo,
+      ]);
+    },
+    "marketplace.listing.photo-removed": async (event) => {
+      const listingId = event.streamId.replace("marketplace.listing-", "");
+      const data = event.data as { photoId: string };
+      await transformListingPhotos(db, event, listingId, (photos) =>
+        photos.map((photo) => (photo.photoId === data.photoId ? { ...photo, status: "removed" } : photo)),
+      );
+    },
+    "marketplace.listing.photos-reordered": async (event) => {
+      const listingId = event.streamId.replace("marketplace.listing-", "");
+      const data = event.data as { orderedPhotoIds: string[] };
+      const orderIndex = new Map(data.orderedPhotoIds.map((id, index) => [id, index]));
+      await transformListingPhotos(db, event, listingId, (photos) =>
+        photos.map((photo) =>
+          orderIndex.has(String(photo.photoId))
+            ? { ...photo, sortOrder: orderIndex.get(String(photo.photoId)) }
+            : photo,
+        ),
+      );
+    },
+    "marketplace.listing.evidence-requirements-refreshed": async (event) => {
+      const listingId = event.streamId.replace("marketplace.listing-", "");
+      const { evidenceRequirements } = event.data as { evidenceRequirements: unknown };
+      const result = await db.query(
+        `UPDATE marketplace_listing_pages
+         SET evidence_requirements = $2,
+             updated_at = $3
+         WHERE listing_id = $1`,
+        [listingId, JSON.stringify(evidenceRequirements), event.timing.recordedAt],
       );
       assertUpdatedListingRow(result, event.type, listingId);
       await emitListingPatch(db, event, listingId);

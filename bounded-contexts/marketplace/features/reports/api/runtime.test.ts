@@ -82,7 +82,7 @@ async function seedActiveListing(eventStore: EventStore, listingId = "lst_report
             maxUnitsPerDay: null,
             maxUnitsPerCustomerAccount: null,
           },
-          listingPhotos: [],
+          evidence: [],
         },
       },
       {

@@ -410,7 +410,7 @@ export function MarketplaceListingCreatePage({
                   <FileDropzone
                     label={t("marketplace.features.listings.ui.listingCreatePage.listing.photos")}
                     description={t("marketplace.features.listings.ui.listingCreatePage.listing.photos.description")}
-                    name="listingPhotos"
+                    name="evidence"
                     accept="image/jpeg,image/png,image/webp"
                     multiple
                     dropLabel={t("marketplace.features.listings.ui.listingCreatePage.drop.listing.photos")}

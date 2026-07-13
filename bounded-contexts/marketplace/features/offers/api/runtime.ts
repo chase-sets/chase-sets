@@ -10,6 +10,15 @@ import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
 import { quoteMarketplaceTerms } from "../../../support/runtime-support/fee-quotes";
 import type { MarketplaceListingTermsPreview } from "../../listings/ui/contracts";
 import {
+  decideMarketplaceListing,
+  evolveMarketplaceListing,
+  initialMarketplaceListingState,
+  type MarketplaceListingEvent,
+} from "../../listings/domain/domain";
+import { evaluateListingEvidenceReadiness } from "../../listings/domain/listing-evidence-readiness";
+import { resolveListingEvidenceRequirements } from "../../listings/api/evidence-requirement-resolver";
+import { getMarketplaceAccountRisk } from "../../listings/read-model/queries";
+import {
   decideMarketplaceOffer,
   evolveMarketplaceOffer,
   initialMarketplaceOfferState,
@@ -136,6 +145,13 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     initialState: () => initialMarketplaceOfferSellerControlState,
     evolve: evolveMarketplaceOfferSellerControl,
     decide: decideMarketplaceOfferSellerControl,
+  });
+  const { commandHandler: listingCommandHandler, repository: listingRepository } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<MarketplaceListingEvent>(),
+    initialState: () => initialMarketplaceListingState,
+    evolve: evolveMarketplaceListing,
+    decide: decideMarketplaceListing,
   });
 
   async function getCatalogItemSnapshot(catalogItemId: string) {
@@ -424,6 +440,51 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       }
       if (!offer.can_fulfill) {
         throw new Error("Seller does not have enough active supply to accept this offer.");
+      }
+      const listingAggregate = await listingRepository.load(`marketplace.listing-${offer.listing_id}`);
+      const listing = listingAggregate.state;
+      if (
+        listing.listingId === null ||
+        listing.accountId !== params.sellerAccountId ||
+        listing.status !== "active" ||
+        !listing.catalogItemId ||
+        !listing.productId ||
+        !listing.priceAmount
+      ) {
+        throw new Error("Listing is not eligible for a new commitment.");
+      }
+      const evaluatedAt = new Date().toISOString();
+      let evidenceRequirements;
+      try {
+        evidenceRequirements = await resolveListingEvidenceRequirements(deps, {
+          accountId: params.sellerAccountId,
+          catalogItemId: listing.catalogItemId,
+          productId: listing.productId,
+          selectedOptions: listing.selectedOptions,
+          gradedItem: listing.gradedCard !== null,
+          priceAmount: listing.priceAmount,
+          evaluatedAt,
+        });
+      } catch {
+        throw new Error("Listing evidence requirements are unavailable.");
+      }
+      await listingCommandHandler({
+        streamId: `marketplace.listing-${offer.listing_id}`,
+        command: { type: "RefreshListingEvidenceRequirements", evidenceRequirements },
+        context,
+      });
+      const requiresSellerFacts = evidenceRequirements.requirements.sellerTrustRequirements.length > 0;
+      const accountRisk = requiresSellerFacts
+        ? await getMarketplaceAccountRisk(deps.db, params.sellerAccountId)
+        : { review_count: 0, badges: [] as readonly string[] };
+      const readiness = evaluateListingEvidenceReadiness({
+        snapshot: evidenceRequirements,
+        evidence: listing.evidence,
+        seller: { reviewCount: accountRisk.review_count, badgeKeys: accountRisk.badges },
+        now: evaluatedAt,
+      });
+      if (!readiness.ready) {
+        throw new Error("Listing evidence requirements are not met.");
       }
       const quote = await quoteMarketplaceTerms(deps.commercialTermsResolver, {
         accountId: params.sellerAccountId,

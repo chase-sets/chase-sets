@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
   max_units_per_order integer NULL CHECK (max_units_per_order IS NULL OR max_units_per_order > 0),
   max_units_per_day integer NULL CHECK (max_units_per_day IS NULL OR max_units_per_day > 0),
   max_units_per_customer_account integer NULL CHECK (max_units_per_customer_account IS NULL OR max_units_per_customer_account > 0),
-  listing_photos jsonb NOT NULL DEFAULT '[]'::jsonb,
+  evidence_requirements jsonb NULL,
+  evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
   status text NOT NULL DEFAULT 'draft',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -56,7 +57,6 @@ ALTER TABLE marketplace_listing_pages
   ADD COLUMN IF NOT EXISTS max_units_per_order integer NULL,
   ADD COLUMN IF NOT EXISTS max_units_per_day integer NULL,
   ADD COLUMN IF NOT EXISTS max_units_per_customer_account integer NULL,
-  ADD COLUMN IF NOT EXISTS listing_photos jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS fee_locks jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE TABLE IF NOT EXISTS marketplace_anonymous_listing_draft_intents (
@@ -133,6 +133,29 @@ CREATE TABLE IF NOT EXISTS marketplace_seller_order_capacity_pages (
 `;
 
 export const marketplaceListingSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260713_marketplace_listing_evidence_requirements_and_container",
+    description:
+      "Record resolved Listing Evidence requirements and rename the legacy listing-photo collection column to generic evidence.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      `DO $migration$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'marketplace_listing_pages' AND column_name = 'listing_photos'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'marketplace_listing_pages' AND column_name = 'evidence'
+  ) THEN
+    ALTER TABLE marketplace_listing_pages RENAME COLUMN listing_photos TO evidence;
+  END IF;
+END
+$migration$`,
+      `ALTER TABLE marketplace_listing_pages
+  ADD COLUMN IF NOT EXISTS evidence_requirements jsonb NULL`,
+    ],
+  },
   {
     migrationId: "20260713_marketplace_seller_listing_availability_due_restore_idx",
     description:
