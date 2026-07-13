@@ -1429,7 +1429,9 @@ describe("DigitalOcean platform configuration", () => {
       'add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"',
     );
     expect(deployStep).toContain('add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"');
-    expect(deployStep).toContain('add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"');
+    expect(deployStep).toContain(
+      'add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"',
+    );
     expect(deployStep).toContain('"${optional_runtime_env[@]}"');
     expect(deployStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
     expect(deployStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
