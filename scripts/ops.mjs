@@ -60,6 +60,10 @@ export const SUBCOMMANDS = {
     script: "guest-buy-now-freshness-probe.mjs",
     description: "Guest buy-now freshness probe against a deployed environment.",
   },
+  "launch:go-no-go-gate": {
+    script: "launch-go-no-go-gate.mjs",
+    description: "Aggregate terminal launch-evidence go/no-go gate and recorded decision.",
+  },
   "marketplace:checkout-fee-evidence": {
     script: "marketplace-checkout-fee-evidence.mjs",
     description: "Checkout fee policy approval evidence.",
