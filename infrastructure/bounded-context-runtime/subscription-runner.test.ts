@@ -1319,11 +1319,7 @@ describe("bounded context subscription runner", () => {
 
     await Promise.all([firstRunner.runOnce(context), secondRunner.runOnce(context)]);
 
-    expect(
-      sourceQuery.mock.calls.filter(([sql]) =>
-        String(sql).includes("SELECT COALESCE(MAX(global_position), 0) AS head"),
-      ),
-    ).toHaveLength(1);
+    expect(sourceQuery.mock.calls.filter(([sql]) => String(sql).includes("pg_sequence_last_value"))).toHaveLength(1);
   });
 
   it("rate-limits durable checkpoint fast-forward for idle unrelated source advances", async () => {

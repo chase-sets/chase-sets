@@ -584,7 +584,7 @@ export function createSubscriptionRunner(
     saveCheckpoint: (lastGlobalPosition: GlobalPosition) => Promise<void>,
     force = false,
   ): Promise<boolean> => {
-    // Fast-forward is safe only because source appends are serialized by the global append advisory lock.
+    // Fast-forward only to the event store's fenced, gap-safe source horizon.
     if (!shouldPersistIdleCheckpointFastForward(fromGlobalPosition, toGlobalPosition, force)) {
       return false;
     }

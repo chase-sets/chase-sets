@@ -8,6 +8,7 @@ import type {
 import { parseGlobalPosition, type GlobalPosition, type StreamVersion } from "@chase-sets/event-core/storage";
 import {
   buildStreamPrefixFilterSql,
+  readGapSafeEventStoreHead,
   type PgQueryable,
   type PgTransactionalPool,
   type ProjectionCascadeController,
@@ -889,15 +890,7 @@ function sumDecimalCounts(counts: readonly string[]): string {
 }
 
 export async function readSourceHeadGlobalPosition(pool: PgTransactionalPool): Promise<GlobalPosition> {
-  // Safe as a checkpoint fast-forward horizon only because event-core-postgres
-  // serializes append transactions with the global append advisory lock before
-  // assigning bigserial positions. Without that commit-order fence, MAX() could
-  // hide a lower in-flight position and projection checkpoints could skip it.
-  const result = await pool.query<Readonly<{ head: string | number | bigint | null }>>(
-    "SELECT COALESCE(MAX(global_position), 0) AS head FROM event_store_events",
-  );
-
-  return parseGlobalPosition(String(result.rows[0]?.head ?? ZERO_GLOBAL_POSITION));
+  return readGapSafeEventStoreHead(pool);
 }
 
 export async function estimateApplicableLag(

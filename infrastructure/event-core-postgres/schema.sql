@@ -33,6 +33,11 @@ CREATE TABLE IF NOT EXISTS event_store_events (
     ON DELETE CASCADE
 );
 
+-- Gap-safe catch-up horizons read the sequence's last allocated position after
+-- fencing concurrent append transactions. CACHE 1 is part of that invariant:
+-- a larger cache could issue a future position below the captured last_value.
+ALTER SEQUENCE event_store_events_global_position_seq CACHE 1;
+
 ALTER TABLE event_store_events
   ADD COLUMN IF NOT EXISTS stream_context_name text NULL,
   ADD COLUMN IF NOT EXISTS stream_category text NULL,
