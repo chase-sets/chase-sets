@@ -294,6 +294,193 @@ Use `pnpm run ops marketplace:stripe-money-operations-evidence` with the redacte
 
 When `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, broad marketplace traffic stays closed, but production root/admin domains route the narrow authenticated Checkout, Ordering, Payments, and Settlement proof APIs needed for this record to `platform-api`. The same proof posture routes only `/account/payouts/setup` to marketplace-web so the live embedded dashboard-none Connect setup page can be proven before `marketplace.chasesets.com` is promoted. Use those private proof APIs and the proof payout setup page only with operator-controlled accounts and orders tied to the external evidence record; they are not public launch surfaces. Live `SMOKE_ORDER_IDS` must come from a controlled normal checkout path, and `SMOKE_CREATE_PAYMENT=true` should be used only when the approved live payment rehearsal is ready.
 
+## Wallet Adjustment Operations
+
+Wallet Adjustments are Settlement's governed request/approve/reject/post/reverse
+lifecycle for operator-directed wallet corrections, ratified by
+[ADR 0020](../adr/0020-wallet-adjustment-authority-and-balance-types.md). This
+section covers investigation, recovery, the money-operations kill switch,
+volume limits, and reconciliation for that lifecycle specifically. Every
+procedure below assumes the invariant the ADR and the domain decider already
+enforce: a posted Wallet Adjustment is never edited or deleted, and a
+correction is always a new, linked, opposite-direction Wallet Adjustment.
+
+**No procedure in this section ever recommends a manual SQL balance edit,
+ledger-row deletion, or event mutation.** If a finding cannot be resolved by
+retrying a command, approving/rejecting a request, or posting a reversal,
+escalate to Engineering with the adjustment id and finding code rather than
+touching the database directly.
+
+### Reconciliation
+
+`GET /api/settlement/wallet-adjustments/reconciliation` (`wallet-adjustments.view`)
+returns a bounded, paginated report of stable-coded findings computed by
+`runWalletAdjustmentReconciliation`
+(`bounded-contexts/settlement/features/wallets/read-model/wallet-adjustment-reconciliation.ts`).
+It is pure `SELECT`-only against the durable read model -- no locks, safe to
+run at any time, safe under concurrent posting -- and stays available even
+while the kill switch is engaged. Page with `limit`/`offset` until `hasMore`
+is `false` for a full sweep. Every finding carries a `code`, `severity`
+(`critical` / `high` / `medium`), and a fixed `remediation` string:
+
+| Code | Meaning | Remediation |
+| --- | --- | --- |
+| `approved-not-posted` | Approved more than 30 minutes ago but still not posted. | Resume via `POST /wallet-adjustments/:id/approve` (idempotent) or the incomplete-adjustment sweep (`listIncompleteAdjustments`). |
+| `posted-without-ledger-entry` | A posted/reversed adjustment's `posted_ledger_entry_id` has no matching wallet ledger row. | Escalate immediately; investigate the posting path before any further action on this adjustment. |
+| `duplicate-ledger-linkage` | More than one adjustment references the same ledger entry. | Escalate immediately; investigate before acting on either adjustment. |
+| `unexpected-balance-delta` | The recorded before/after balance does not match the posted direction and amount. | Escalate immediately; investigate the posting path, never hand-correct the balance. |
+| `stale-pending-approval` | Requested more than 48 hours ago, still awaiting approval or rejection. | Route to a second authorized approver for approval or rejection. |
+| `reversal-mismatch` | A reversed adjustment's linked reversal is missing, mismatched, or claimed by more than one adjustment. | Investigate the linkage before posting any further reversal. |
+| `notification-delivery-gap` | Reserved: not currently emitted. Settlement does not yet resolve a target account's notification email for a Wallet Adjustment (the target is never the acting operator, so there is no caller-supplied email to enqueue against, unlike a Payout request). Track customer-notice delivery as separate follow-up work; do not assume adjustments are notifying customers today. | Not applicable until that follow-up work lands. |
+
+### Money-operations kill switch
+
+The kill switch and volume limits live in the `settlement.wallet-adjustment-limits`
+policy (`bounded-contexts/settlement/features/wallets/domain/wallet-adjustment-limits-policy.ts`)
+-- distinct from ADR 0020's `settlement.wallet-adjustment-controls` policy,
+which governs approval-matrix thresholds, not volume or availability. Both
+resolve through the same `PolicyRuntime` machinery as every other Settlement
+policy. Revise the limits policy through the platform policy console
+(`platform-operations` policy console admin surface) like any other policy
+document -- no deploy required, full audit history.
+
+- `haltNewActions: true` blocks new `request`, `approve` (which includes the
+  posting step via `approveAndPost`), and `reverse` decisions at the API
+  boundary and, redundantly, inside the runtime itself (defense in depth for
+  any future caller that bypasses the HTTP route). It returns
+  `wallet_adjustments_halted` at `503`.
+- **Fails closed**: if the policy cannot be resolved at all (policy-runtime
+  or database failure), the runtime treats that identically to an engaged
+  kill switch rather than silently letting a write through.
+- **Stays available while halted**: all reads (including the reconciliation
+  report above), `reject` (it halts a bad request without moving money), and
+  *resuming* an already-approved-before-the-halt posting (completing
+  in-flight work is safe recovery, not a new decision). Only a genuinely new
+  decision -- an adjustment still in `requested` status when `approve` is
+  called, or a fresh `request`/`reverse` -- is gated.
+- The compiled default is `haltNewActions: false` (normal operation). The
+  safe-state guarantee is about failure behavior, not about starting halted.
+
+To engage the kill switch during an incident: revise
+`settlement.wallet-adjustment-limits` with `haltNewActions: true`. To recover:
+confirm the underlying issue is fixed, then revise it back to `false`. Do not
+restart or redeploy to "reset" the switch -- it is policy state, not process
+state.
+
+### Limits
+
+The same `settlement.wallet-adjustment-limits` policy carries volume
+ceilings, evaluated by `evaluateWalletAdjustmentLimits` at request time (never
+re-checked at approve/post/reverse, so a since-tightened limit never blocks
+an idempotent retry of an already-recorded request):
+
+- `perAdjustmentMaxAmount` -- a hard ceiling on any single Wallet Adjustment.
+- `perAccountWindowMaxAmount` / `perAccountWindowMaxCount` -- rolling
+  `windowHours`-hour ceilings on the target account's posted-adjustment
+  dollar volume and total request count.
+- `perOperatorWindowMaxAmount` / `perOperatorWindowMaxCount` -- the same two
+  ceilings scoped to the requesting operator.
+
+A violation returns `wallet_adjustment_limit_exceeded` at `429` with every
+violated limit in `error.details` (not just the first). These are server
+enforced -- the client-facing UI cannot bypass them. When a limit is
+operationally wrong (too tight during a legitimate large-scale correction,
+too loose during abuse), revise the policy; do not work around it by issuing
+many small adjustments to stay under a per-adjustment ceiling.
+
+### Investigation
+
+1. Look up the adjustment: `GET /wallet-adjustments/:adjustmentId`, or list by
+   account: `GET /wallet-adjustments/accounts/:accountId/adjustments`.
+2. Cross-reference the account's wallet ledger:
+   `GET /wallet-adjustments/accounts/:accountId/ledger`.
+3. Run the reconciliation report scoped to the same window and confirm no
+   finding references this adjustment id.
+4. Every `settlement.wallet-adjustment.*` event snapshots the policy values
+   that governed that specific decision (thresholds, recent-auth outcome,
+   elevation requirement) -- a later policy revision never reinterprets a
+   historical adjustment's authorization basis, so read the stored
+   `high_value_credit_threshold_amount` / `high_value_debit_threshold_amount`
+   / `recent_auth_max_age_minutes` on the row itself, not the live policy.
+
+### Approval recovery
+
+- A `requested` adjustment with no decision: route to a second authorized
+  approver (`wallet-adjustments.approve`, distinct from the requester) to
+  approve or reject it. Self-approval and self-benefiting targets are blocked
+  outright by the domain decider, not just discouraged.
+- A high-value credit/debit, a negative-balance-creating debit, or a reversal
+  after the original entry's funds already moved requires elevated (second,
+  distinct) approval -- `elevationApprovedByUserId` on the approve/reverse
+  request. There is no override for the self-benefiting block.
+
+### Deterministic retry
+
+Every step is idempotent by deterministic identity: the adjustment id is
+derived from `(operator, canonical request body, optional Idempotency-Key
+header)`, and the ledger-entry id is derived from the adjustment id. Retrying
+`request`, `approve` (`approveAndPost`), or `post` after a timeout or a
+`concurrency_conflict` is always safe -- it converges on the same adjustment
+and never double-posts. Prefer retrying the same command over inventing a
+compensating one.
+
+### Linked reversal
+
+Reversing a posted adjustment (`POST /wallet-adjustments/:id/reverse`) runs
+its own governed request -> approve -> post lifecycle for a new, linked,
+opposite-direction adjustment; it never edits or deletes the original. A
+reversal of an already-spent-or-paid-out entry is elevated by construction
+and can drive the balance negative -- confirm the elevated approver before
+calling this on a settled adjustment. A retried reversal call reuses the same
+linked reversal id and never posts a second one.
+
+### Customer notice
+
+Settlement does not currently deliver a customer-facing notice for a posted
+or reversed Wallet Adjustment (see `notification-delivery-gap` above). Until
+that follow-up lands, use Support's existing case/communication tooling to
+notify the affected account manually when a reason code (`refund-correction`,
+`dispute-resolution`, `support-resolution`, `goodwill-cash-credit`, etc.)
+warrants it. Do not promise automated notification in support scripts.
+
+### Escalation
+
+Escalate to Engineering immediately (do not attempt local recovery) for any
+`critical`-severity reconciliation finding
+(`posted-without-ledger-entry`, `duplicate-ledger-linkage`,
+`unexpected-balance-delta`), a suspected self-dealing or self-benefiting
+approval that was not blocked, or any case where the recommended retry does
+not converge after two attempts. Include the adjustment id, finding code (if
+applicable), and the reconciliation report window in the escalation.
+
+### Rollout rollback
+
+If a Wallet Adjustment lifecycle or controls/limits change needs to be rolled
+back:
+
+1. Engage the kill switch first (`haltNewActions: true`) to stop new
+   money-movement decisions.
+2. Leave reads, reconciliation, and reject available.
+3. Roll back the deployable; the event-sourced lifecycle and read model are
+   backward-compatible additive changes, so no data migration is required to
+   roll back application code alone.
+4. Run the reconciliation report before disengaging the kill switch to
+   confirm no findings were introduced during the incident.
+5. Disengage the kill switch only after the underlying issue is confirmed
+   fixed and reconciliation is clean.
+
+### Retention and redaction
+
+Wallet Adjustment `explanation` and `evidenceReferences` are operator-entered
+free text and reference identifiers -- they may contain support-case detail.
+Follow the same redaction posture as every other Settlement structured
+evidence surface: never paste raw `explanation`/`evidenceReferences` content
+into external tooling, dashboards, or incident channels; reference the
+adjustment id and let an authorized viewer pull the field through
+`wallet-adjustments.view` instead. Structured logs and metrics never carry
+account, user, or adjustment ids as bounded labels -- see
+[Observability](./observability.md).
+
 ## Ownership
 
 - Product owns account-facing payout copy, natural-language status labels, and support escalation paths.

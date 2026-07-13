@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { WalletAdjustmentActivityWindow } from "../domain/wallet-adjustment-limits-policy";
 
 export type SettlementWalletAdjustmentRow = Readonly<{
   adjustment_id: string;
@@ -138,6 +139,69 @@ export async function listWalletAdjustments(
  * incomplete-status surface a durable retry sweeper polls so an approval can
  * never silently fail to post its wallet entry.
  */
+/**
+ * Rolling-window activity for a target account: the money-moving `postedAmount`
+ * (posted/reversed adjustments only -- money that actually moved) and the
+ * `requestedCount` (every request regardless of terminal status, to bound
+ * request churn). Feeds `evaluateWalletAdjustmentLimits` at request time.
+ */
+export async function sumWalletAdjustmentTargetAccountActivity(
+  db: PgQueryable,
+  targetAccountId: string,
+  sinceIso: string,
+): Promise<WalletAdjustmentActivityWindow> {
+  const [postedResult, requestedResult] = await Promise.all([
+    db.query<{ total: string | null }>(
+      `SELECT COALESCE(SUM(amount), 0)::text AS total
+       FROM settlement_wallet_adjustment_pages
+       WHERE target_account_id = $1
+         AND status IN ('posted', 'reversed')
+         AND posted_at >= $2`,
+      [targetAccountId, sinceIso],
+    ),
+    db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM settlement_wallet_adjustment_pages
+       WHERE target_account_id = $1
+         AND requested_at >= $2`,
+      [targetAccountId, sinceIso],
+    ),
+  ]);
+  return {
+    postedAmount: postedResult.rows[0]?.total ?? "0.00",
+    requestedCount: Number(requestedResult.rows[0]?.count ?? 0),
+  };
+}
+
+/** Same shape as {@link sumWalletAdjustmentTargetAccountActivity}, scoped to the requesting operator. */
+export async function sumWalletAdjustmentOperatorActivity(
+  db: PgQueryable,
+  requestedBy: string,
+  sinceIso: string,
+): Promise<WalletAdjustmentActivityWindow> {
+  const [postedResult, requestedResult] = await Promise.all([
+    db.query<{ total: string | null }>(
+      `SELECT COALESCE(SUM(amount), 0)::text AS total
+       FROM settlement_wallet_adjustment_pages
+       WHERE requested_by = $1
+         AND status IN ('posted', 'reversed')
+         AND posted_at >= $2`,
+      [requestedBy, sinceIso],
+    ),
+    db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM settlement_wallet_adjustment_pages
+       WHERE requested_by = $1
+         AND requested_at >= $2`,
+      [requestedBy, sinceIso],
+    ),
+  ]);
+  return {
+    postedAmount: postedResult.rows[0]?.total ?? "0.00",
+    requestedCount: Number(requestedResult.rows[0]?.count ?? 0),
+  };
+}
+
 export async function listIncompleteWalletAdjustments(
   db: PgQueryable,
   params: Readonly<{ limit?: number }> = {},

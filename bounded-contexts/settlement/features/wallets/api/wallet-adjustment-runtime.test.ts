@@ -9,8 +9,18 @@ import type {
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { WALLET_ADJUSTMENT_CONTROLS_DEFAULT, type WalletAdjustmentControls } from "../domain/wallet-adjustment";
+import {
+  WALLET_ADJUSTMENT_LIMITS_DEFAULT,
+  walletAdjustmentLimitsPolicy,
+  type WalletAdjustmentLimitsPolicyValue,
+} from "../domain/wallet-adjustment-limits-policy";
 import { createWalletRuntime } from "./runtime";
-import { createWalletAdjustmentRuntime, deriveWalletAdjustmentId } from "./wallet-adjustment-runtime";
+import {
+  createWalletAdjustmentRuntime,
+  deriveWalletAdjustmentId,
+  WalletAdjustmentHaltedError,
+  WalletAdjustmentLimitExceededError,
+} from "./wallet-adjustment-runtime";
 
 /** In-memory event store that enforces optimistic concurrency like the Postgres store. */
 function createInMemoryEventStore() {
@@ -70,21 +80,34 @@ const context = {
   audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_seller" as never },
 };
 
-/** Resolves straight to the ADR compiled default unless a test overrides it -- no DB/policy-runtime required. */
-function fakePolicies(controlsOverride?: WalletAdjustmentControls) {
+/**
+ * Resolves both `wallet-adjustment-controls` and `wallet-adjustment-limits`
+ * straight to their compiled defaults unless a test overrides one -- no
+ * DB/policy-runtime required. Dispatches by `policyKey` because the runtime
+ * resolves two distinct policy documents.
+ */
+function fakePolicies(controlsOverride?: WalletAdjustmentControls, limitsOverride?: WalletAdjustmentLimitsPolicyValue) {
   return {
-    resolvePolicy: async () => ({ value: controlsOverride ?? WALLET_ADJUSTMENT_CONTROLS_DEFAULT }) as never,
+    resolvePolicy: async (definition: { policyKey: string }) => {
+      if (definition.policyKey === walletAdjustmentLimitsPolicy.policyKey) {
+        return { value: limitsOverride ?? WALLET_ADJUSTMENT_LIMITS_DEFAULT } as never;
+      }
+      return { value: controlsOverride ?? WALLET_ADJUSTMENT_CONTROLS_DEFAULT } as never;
+    },
   };
 }
 
-function createRuntimes(controlsOverride?: WalletAdjustmentControls) {
+function createRuntimes(
+  controlsOverride?: WalletAdjustmentControls,
+  limitsOverride?: WalletAdjustmentLimitsPolicyValue,
+) {
   const { eventStore, allEvents } = createInMemoryEventStore();
   const wallets = createWalletRuntime({ eventStore, checkpointStore: {} as never, db: noopDb });
   const adjustments = createWalletAdjustmentRuntime({
     eventStore,
     db: noopDb,
     wallets,
-    policies: fakePolicies(controlsOverride),
+    policies: fakePolicies(controlsOverride, limitsOverride),
   });
   return { wallets, adjustments, allEvents };
 }
@@ -410,6 +433,219 @@ describe("wallet adjustment runtime", () => {
       );
       expect(posted.status).toBe("posted");
       expect(posted.high_value_credit_threshold_amount).toBe("500.00");
+    });
+  });
+
+  describe("money-operations kill switch (settlement.wallet-adjustment-limits, haltNewActions)", () => {
+    it("blocks a brand new request while halted", async () => {
+      const { adjustments } = createRuntimes(undefined, { ...WALLET_ADJUSTMENT_LIMITS_DEFAULT, haltNewActions: true });
+      await expect(
+        adjustments.request(
+          {
+            idempotencyKey: "corr-halt-1",
+            targetAccountId: "acc_seller" as never,
+            direction: "credit",
+            amount: "10.00",
+            reasonCode: "goodwill-cash-credit",
+            requestedBy: "usr_requester" as never,
+            selfBenefiting: false,
+          },
+          context,
+        ),
+      ).rejects.toThrow(WalletAdjustmentHaltedError);
+    });
+
+    it("blocks a brand new approval decision while halted, even for a request made before the halt", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const wallets = createWalletRuntime({ eventStore, checkpointStore: {} as never, db: noopDb });
+      await seedAvailable(wallets, "acc_seller", "10.00");
+
+      const beforeHalt = createWalletAdjustmentRuntime({
+        eventStore,
+        db: noopDb,
+        wallets,
+        policies: fakePolicies(undefined, WALLET_ADJUSTMENT_LIMITS_DEFAULT),
+      });
+      const requested = await beforeHalt.request(
+        {
+          idempotencyKey: "corr-halt-2",
+          targetAccountId: "acc_seller" as never,
+          direction: "credit",
+          amount: "10.00",
+          reasonCode: "goodwill-cash-credit",
+          requestedBy: "usr_requester" as never,
+          selfBenefiting: false,
+        },
+        context,
+      );
+
+      // Engage the kill switch only now, after the request was already
+      // recorded, and confirm the approval decision on that pre-existing
+      // request is still blocked -- sharing the same event store/stream.
+      const afterHalt = createWalletAdjustmentRuntime({
+        eventStore,
+        db: noopDb,
+        wallets,
+        policies: fakePolicies(undefined, { ...WALLET_ADJUSTMENT_LIMITS_DEFAULT, haltNewActions: true }),
+      });
+      await expect(
+        afterHalt.approve(
+          { adjustmentId: requested.adjustment_id as never, approvedBy: "usr_approver" as never },
+          context,
+        ),
+      ).rejects.toThrow(WalletAdjustmentHaltedError);
+    });
+
+    it("still resolves the live halted policy value through resolveLimits", async () => {
+      const halted = { ...WALLET_ADJUSTMENT_LIMITS_DEFAULT, haltNewActions: true };
+      const { adjustments } = createRuntimes(undefined, halted);
+      expect(await adjustments.resolveLimits()).toEqual(halted);
+    });
+
+    it("still allows reject while halted -- safe recovery, no money movement", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const wallets = createWalletRuntime({ eventStore, checkpointStore: {} as never, db: noopDb });
+
+      const beforeHalt = createWalletAdjustmentRuntime({
+        eventStore,
+        db: noopDb,
+        wallets,
+        policies: fakePolicies(undefined, WALLET_ADJUSTMENT_LIMITS_DEFAULT),
+      });
+      const requested = await beforeHalt.request(
+        {
+          idempotencyKey: "corr-halt-reject",
+          targetAccountId: "acc_seller" as never,
+          direction: "credit",
+          amount: "10.00",
+          reasonCode: "goodwill-cash-credit",
+          requestedBy: "usr_requester" as never,
+          selfBenefiting: false,
+        },
+        context,
+      );
+
+      const afterHalt = createWalletAdjustmentRuntime({
+        eventStore,
+        db: noopDb,
+        wallets,
+        policies: fakePolicies(undefined, { ...WALLET_ADJUSTMENT_LIMITS_DEFAULT, haltNewActions: true }),
+      });
+      const rejected = await afterHalt.reject(
+        { adjustmentId: requested.adjustment_id as never, rejectedBy: "usr_approver" as never },
+        context,
+      );
+      expect(rejected.status).toBe("rejected");
+    });
+
+    it("defaults to normal operation (not halted) when no policy override is supplied", async () => {
+      const { wallets, adjustments } = createRuntimes();
+      await seedAvailable(wallets, "acc_seller", "10.00");
+      const requested = await adjustments.request(
+        {
+          idempotencyKey: "corr-halt-default",
+          targetAccountId: "acc_seller" as never,
+          direction: "credit",
+          amount: "10.00",
+          reasonCode: "goodwill-cash-credit",
+          requestedBy: "usr_requester" as never,
+          selfBenefiting: false,
+        },
+        context,
+      );
+      expect(requested.status).toBe("requested");
+    });
+  });
+
+  describe("settlement.wallet-adjustment-limits volume ceilings", () => {
+    it("rejects a request exceeding the per-adjustment maximum", async () => {
+      const limits = { ...WALLET_ADJUSTMENT_LIMITS_DEFAULT, perAdjustmentMaxAmount: "100.00" };
+      const { adjustments } = createRuntimes(undefined, limits);
+      await expect(
+        adjustments.request(
+          {
+            idempotencyKey: "corr-limit-1",
+            targetAccountId: "acc_seller" as never,
+            direction: "credit",
+            amount: "100.01",
+            reasonCode: "goodwill-cash-credit",
+            requestedBy: "usr_requester" as never,
+            selfBenefiting: false,
+          },
+          context,
+        ),
+      ).rejects.toThrow(WalletAdjustmentLimitExceededError);
+    });
+
+    it("exposes every violated limit on the thrown error", async () => {
+      const limits = { ...WALLET_ADJUSTMENT_LIMITS_DEFAULT, perAdjustmentMaxAmount: "1.00" };
+      const { adjustments } = createRuntimes(undefined, limits);
+      try {
+        await adjustments.request(
+          {
+            idempotencyKey: "corr-limit-2",
+            targetAccountId: "acc_seller" as never,
+            direction: "credit",
+            amount: "2.00",
+            reasonCode: "goodwill-cash-credit",
+            requestedBy: "usr_requester" as never,
+            selfBenefiting: false,
+          },
+          context,
+        );
+        expect.unreachable("expected WalletAdjustmentLimitExceededError to be thrown");
+      } catch (error) {
+        expect(error).toBeInstanceOf(WalletAdjustmentLimitExceededError);
+        const violations = (error as InstanceType<typeof WalletAdjustmentLimitExceededError>).violations;
+        expect(violations.map((v) => v.code)).toContain("per-adjustment-max-amount");
+      }
+    });
+
+    it("allows an idempotent retry of an already-recorded request even when it would now exceed a since-tightened limit", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const wallets = createWalletRuntime({ eventStore, checkpointStore: {} as never, db: noopDb });
+      await seedAvailable(wallets, "acc_seller", "10.00");
+
+      const permissive = createWalletAdjustmentRuntime({
+        eventStore,
+        db: noopDb,
+        wallets,
+        policies: fakePolicies(undefined, WALLET_ADJUSTMENT_LIMITS_DEFAULT),
+      });
+      const first = await permissive.request(
+        {
+          idempotencyKey: "corr-limit-retry",
+          targetAccountId: "acc_seller" as never,
+          direction: "credit",
+          amount: "500.00",
+          reasonCode: "goodwill-cash-credit",
+          requestedBy: "usr_requester" as never,
+          selfBenefiting: false,
+        },
+        context,
+      );
+
+      // A second runtime instance now resolving a much tighter policy, but
+      // sharing the same event store/stream, replays the identical request.
+      const tightened = createWalletAdjustmentRuntime({
+        eventStore,
+        db: noopDb,
+        wallets,
+        policies: fakePolicies(undefined, { ...WALLET_ADJUSTMENT_LIMITS_DEFAULT, perAdjustmentMaxAmount: "1.00" }),
+      });
+      const retry = await tightened.request(
+        {
+          idempotencyKey: "corr-limit-retry",
+          targetAccountId: "acc_seller" as never,
+          direction: "credit",
+          amount: "500.00",
+          reasonCode: "goodwill-cash-credit",
+          requestedBy: "usr_requester" as never,
+          selfBenefiting: false,
+        },
+        context,
+      );
+      expect(retry.adjustment_id).toBe(first.adjustment_id);
     });
   });
 });
