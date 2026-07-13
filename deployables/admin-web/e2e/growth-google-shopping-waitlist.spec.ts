@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import { logSeedContractGap } from "./support/seed-contract-gap";
 
 test.describe("growth admin google shopping and waitlist", () => {
   test("operator reviews Google Shopping gates and waitlist export @admin-growth", async ({ page }) => {
@@ -39,11 +40,21 @@ async function expectGoogleShoppingOperations(page: Page) {
   await expect(page.getByText("Filter: Failed syncs").first()).toBeVisible();
   await expect(page.getByText("Search: google-shopping").first()).toBeVisible();
 
+  // The "failed" row filter only surfaces feed rows whose sync failed. The browser-e2e
+  // seed creates Google Shopping feed rows that are all `never-submitted` (live writes
+  // are launch-gated behind #3032, so nothing has synced or failed) — verified by direct
+  // inspection of discovery_google_shopping_feed_rows in the browser-e2e Postgres.
+  // Assert the inspect/retry-gated detail only when a failed row actually rendered; the
+  // seed structurally cannot produce one, so log the gap loudly and assert the empty state.
   const firstInspectLink = page.getByRole("link", { name: "Inspect" }).first();
   if (await firstInspectLink.isVisible({ timeout: 5_000 }).catch(() => false)) {
     await firstInspectLink.click();
     await expect(page.getByRole("button", { name: "Targeted retry gated" })).toBeDisabled();
   } else {
+    logSeedContractGap(
+      "No failed Google Shopping row: browser-e2e seed rows are all 'never-submitted' (live sync is gated " +
+        "behind launch gate #3032), so the 'failed' filter is empty. Asserting the empty-state copy instead.",
+    );
     await expect(page.getByText("No Google Shopping rows found")).toBeVisible();
   }
 }

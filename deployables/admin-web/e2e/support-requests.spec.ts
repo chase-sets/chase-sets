@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import { logSeedContractGap } from "./support/seed-contract-gap";
 
 test.describe("support admin requests", () => {
   test("operator reviews support queue and escalates overdue requests @admin-support", async ({ page }) => {
@@ -19,15 +20,7 @@ test.describe("support admin requests", () => {
 
     const escalateOverdue = page.getByRole("button", { name: "Escalate overdue" });
     await expect(escalateOverdue).toBeVisible();
-    if (
-      await page
-        .getByText("Support operations API unavailable")
-        .isVisible()
-        .catch(() => false)
-    ) {
-      await expect(escalateOverdue).toBeDisabled();
-      return;
-    }
+    await expect(page.getByText("Support operations API unavailable")).toHaveCount(0);
 
     await escalateOverdue.click();
     await expect(page).toHaveURL(/\/support\/requests\?/);
@@ -36,13 +29,25 @@ test.describe("support admin requests", () => {
     expect(searchParams.get("skipped")).toMatch(/^\d+$/);
     await expect(page.getByText(/Escalated \d+ overdue requests; skipped \d+\./)).toBeVisible();
 
-    await expectSupportRequestDetailIfPresent(page);
+    await expectSupportRequestDetail(page);
   });
 });
 
-async function expectSupportRequestDetailIfPresent(page: Page) {
+async function expectSupportRequestDetail(page: Page) {
+  // The operations queue (listSupportOperationsQueue) shows only *active* support
+  // requests — non-terminal AND overdue/urgent/ready-for-support, or with a disputed
+  // return-condition gate. The browser-e2e seed's two requests resolve to terminal
+  // states (resolved / closed), so the queue is legitimately empty and renders no
+  // per-row "Open" link (verified by direct inspection of support_request_pages in the
+  // browser-e2e Postgres). Assert the detail round-trip only when an Open link actually
+  // rendered, so the test never assumes an in-queue request the seed does not create.
   const openLink = page.getByRole("link", { name: "Open" }).first();
   if (!(await openLink.isVisible({ timeout: 5_000 }).catch(() => false))) {
+    logSeedContractGap(
+      "Support operations queue rendered no 'Open' link: the browser-e2e seed's support requests are all in " +
+        "terminal states (resolved/closed), so none appear in the active operations queue. The empty-queue " +
+        "recovery copy is asserted instead.",
+    );
     await expect(page.getByText("No requests need support review")).toBeVisible();
     return;
   }

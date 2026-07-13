@@ -1,6 +1,8 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { registerOrSignInSyntheticAccount, signInWithPassword } from "./support/auth";
+import { marketplaceBrowserE2eBuyerCredentials, marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
+import { logMarketplaceSeedContractGap } from "./support/seed-contract-gap";
 
 // Charter scope: this spec owns the buy-funnel redesign verification (milestone
 // #33, issue #1858). It exercises the REDESIGNED surfaces — cart, checkout
@@ -85,6 +87,11 @@ async function authenticateAccount(page: Page, testInfo: TestInfo) {
   await signInWithPassword(page, origin, credentials);
 }
 
+async function authenticateSeededBuyer(page: Page) {
+  await expectPageOk(page, "/");
+  await signInWithPassword(page, new URL(page.url()).origin, marketplaceBrowserE2eBuyerCredentials());
+}
+
 async function waitForAccountRoute(page: Page, routePath: string) {
   await expect
     .poll(
@@ -149,17 +156,30 @@ async function assertQuantityStepperUsed(page: Page, surfaceName: string) {
   // getComputedStyle, but we verify the structural contract: the input is
   // role="spinbutton" with inputMode="numeric", not type="number" in the
   // traditional spinner-bearing form).
+  // Wait for the first QuantityStepper to hydrate before counting — the cart
+  // line renders its Base UI NumberField spinbutton on client hydration, which
+  // can land a beat after the line markup, so a bare count can race it.
+  await expect(
+    page.locator("input[role='spinbutton'][inputmode='numeric']").first(),
+    `${surfaceName} should render a hydrated QuantityStepper input`,
+  ).toBeVisible({ timeout: 15_000 });
   const stepperInputs = await page.locator("input[role='spinbutton'][inputmode='numeric']").count();
   expect(stepperInputs, `${surfaceName} should have at least one QuantityStepper input`).toBeGreaterThan(0);
 
-  // There must be no bare <input type="number"> without the role="spinbutton"
-  // override — i.e. no legacy number-spinner that the DS suppression has not
-  // reached. (Base UI NumberField always forwards role="spinbutton" so a
-  // type=number without it implies the old NumberInput/CurrencyInput pattern.)
-  const bareNumberInputs = await page.locator("input[type='number']:not([role='spinbutton'])").count();
+  // There must be no VISIBLE bare <input type="number"> without the
+  // role="spinbutton" override — i.e. no legacy number-spinner that the DS
+  // suppression has not reached. Base UI NumberField's *visible* input carries
+  // role="spinbutton"; the primitive ALSO renders a visually-hidden
+  // `aria-hidden="true"` `<input type="number" tabindex="-1">` for native form
+  // submission (see @base-ui/react NumberFieldRoot, which always emits it). That
+  // hidden form input is part of the DS QuantityStepper itself, so it is excluded
+  // here — a genuine legacy bare spinner would be a visible, non-aria-hidden input.
+  const bareNumberInputs = await page
+    .locator("input[type='number']:not([role='spinbutton']):not([aria-hidden='true'])")
+    .count();
   expect(
     bareNumberInputs,
-    `${surfaceName} must have zero bare type="number" inputs without role="spinbutton" (found ${bareNumberInputs})`,
+    `${surfaceName} must have zero visible bare type="number" inputs without role="spinbutton" (found ${bareNumberInputs})`,
   ).toBe(0);
 }
 
@@ -172,8 +192,16 @@ async function assertSingleNoticeAtATime(page: Page, surfaceName: string) {
   //
   // The contract: multiple [role="status"] containers may exist in the DOM
   // (they stay mounted even when empty for ARIA stability), but at most ONE
-  // should contain visible children with substantive text.
-  const noticeRegions = await page.locator("[role='status']").all();
+  // top-level region should contain visible children with substantive text.
+  //
+  // Count only TOP-LEVEL status regions (those not nested inside another
+  // role="status"). A populated cart wraps its optimistic-update items live
+  // region in a role="status" and a per-line notice (e.g. a fulfillment-savings
+  // suggestion) renders its own nested role="status" inside it — a single
+  // logical live-region subtree, not two stacked notices. Counting every
+  // descendant role="status" would double-count that nesting; the stacking
+  // violation this guards against is multiple SIBLING top-level notice regions.
+  const noticeRegions = await page.locator("[role='status']:not([role='status'] [role='status'])").all();
   let activeNoticeCount = 0;
   for (const region of noticeRegions) {
     const text = (await region.textContent()) ?? "";
@@ -183,7 +211,7 @@ async function assertSingleNoticeAtATime(page: Page, surfaceName: string) {
   }
   expect(
     activeNoticeCount,
-    `${surfaceName} must have at most one active notice at a time (found ${activeNoticeCount})`,
+    `${surfaceName} must have at most one active top-level notice at a time (found ${activeNoticeCount})`,
   ).toBeLessThanOrEqual(1);
 }
 
@@ -236,7 +264,6 @@ test.describe("buy funnel redesign — defect verification", () => {
     await expect(page.getByRole("heading", { name: /your.*cart.*empty/i }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /^Keep shopping$/i }).first()).toBeVisible();
 
-    // Defect 5: no stacked notices on an empty surface.
     await assertSingleNoticeAtATime(page, "empty cart");
 
     // Screenshot: empty cart.
@@ -247,20 +274,10 @@ test.describe("buy funnel redesign — defect verification", () => {
 
   test("buy cart with seeded items shows Estimated total and passes all redesign contracts @marketplace-checkout", async ({
     page,
-  }, testInfo) => {
+  }) => {
     test.setTimeout(120_000);
 
-    // This test drives the full redesign contract check against a cart that
-    // has items. Without a pre-seeded catalog item we rely on the E2E seed
-    // items that the dev/browser-e2e server provides. If no seed items are
-    // present the test gracefully degrades: it still visits the cart and
-    // verifies the contracts hold on whatever state is present.
-    //
-    // If MARKETPLACE_E2E_EMAIL is set it uses that account (may have real
-    // items). For synthetic accounts the cart is empty; defects 1/5 still
-    // hold; 2/3/4 are meaningful only once a line is present.
-    await page.goto("/sign-in?returnTo=%2Faccount%2Fcart");
-    await authenticateAccount(page, testInfo);
+    await authenticateSeededBuyer(page);
     await waitForAccountRoute(page, "/account/cart");
 
     await expect(page.getByRole("heading", { name: /^Your cart$/i }).first()).toBeVisible();
@@ -269,50 +286,47 @@ test.describe("buy funnel redesign — defect verification", () => {
     // whether the cart has items or is empty.
     await assertNoPriceAtCheckoutText(page, "cart");
 
-    const hasLines = (await page.locator("[data-marketplace-cart-line]").count()) > 0;
+    const cartLines = page.locator("[data-marketplace-cart-line]");
+    await expect(cartLines, "browser-e2e seed contract requires the seeded cart lines").toHaveCount(
+      marketplaceBrowserE2eSeedContract.cart.lineCount,
+    );
 
-    if (hasLines) {
-      // Defect 2: Every action-hierarchy region stamps at most one primary.
-      // Per-line ActionStack stamps "0"; the StickyCtaBar stamps "1".
-      await assertSinglePrimaryActionPerSurface(page, "cart with lines");
+    // Defect 2: Every action-hierarchy region stamps at most one primary.
+    // Per-line ActionStack stamps "0"; the StickyCtaBar stamps "1".
+    await assertSinglePrimaryActionPerSurface(page, "cart with lines");
 
-      // "Estimated total" must appear as the total label (CheckoutTotals +
-      // StickyCtaBar both use the redesigned totalLabel prop).
-      await expect(page.locator("text=Estimated total").first()).toBeVisible();
+    // "Estimated total" must appear as the total label (CheckoutTotals +
+    // StickyCtaBar both use the redesigned totalLabel prop).
+    await expect(page.locator("text=Estimated total").first()).toBeVisible();
 
-      // "Final total confirmed at checkout" is the single deferral caption —
-      // it must appear exactly once as the totalCaption.
-      const deferralCaptions = await page.locator("text=Final total confirmed at checkout").count();
-      expect(deferralCaptions, '"Final total confirmed at checkout" should appear exactly once').toBe(1);
+    // "Final total confirmed at checkout" is the single deferral caption —
+    // it must appear exactly once as the totalCaption.
+    const deferralCaptions = await page.locator("text=Final total confirmed at checkout").count();
+    expect(deferralCaptions, '"Final total confirmed at checkout" should appear exactly once').toBe(1);
 
-      // Defect 3: QuantityStepper must be in use per cart line.
-      await assertQuantityStepperUsed(page, "cart with lines");
+    // Defect 3: QuantityStepper must be in use per cart line.
+    await assertQuantityStepperUsed(page, "cart with lines");
 
-      // Defect 4: no blank image squares — every cart line image slot renders
-      // either an actual image or the designed Icon placeholder (never empty).
-      // The DS Image primitive routes through a fallback slot; asserting that
-      // [data-marketplace-cart-line] children contain an img or the icon
-      // placeholder span.
-      const cartLines = await page.locator("[data-marketplace-cart-line]").all();
-      for (const line of cartLines) {
-        const hasImg = (await line.locator("img").count()) > 0;
-        // The placeholder renders an aria-hidden span with Icon; its presence
-        // is indicated by the icon element's surrounding span class.
-        const hasPlaceholder = (await line.locator("[aria-hidden='true'] svg").count()) > 0;
-        expect(
-          hasImg || hasPlaceholder,
-          "every cart line image slot must render either an img or the designed placeholder",
-        ).toBe(true);
-      }
-
-      // Defect 5: at most one active notice at a time.
-      await assertSingleNoticeAtATime(page, "cart with lines");
-
-      await captureScreenshot(page, "cart-with-lines");
-    } else {
-      // No lines on a synthetic account — screenshot the empty state anyway.
-      await captureScreenshot(page, "cart-empty-synthetic");
+    // Defect 4: no blank image squares — every cart line image slot renders
+    // either an actual image or the designed Icon placeholder (never empty).
+    // The DS Image primitive routes through a fallback slot; asserting that
+    // [data-marketplace-cart-line] children contain an img or the icon
+    // placeholder span.
+    const cartLineElements = await cartLines.all();
+    for (const line of cartLineElements) {
+      const hasImg = (await line.locator("img").count()) > 0;
+      // The placeholder renders an aria-hidden span with Icon; its presence
+      // is indicated by the icon element's surrounding span class.
+      const hasPlaceholder = (await line.locator("[aria-hidden='true'] svg").count()) > 0;
+      expect(
+        hasImg || hasPlaceholder,
+        "every cart line image slot must render either an img or the designed placeholder",
+      ).toBe(true);
     }
+
+    await assertSingleNoticeAtATime(page, "cart with lines");
+
+    await captureScreenshot(page, "cart-with-lines");
   });
 
   // ── 4. Checkout session surface (unauthenticated recovery) ────────────────
@@ -340,23 +354,18 @@ test.describe("buy funnel redesign — defect verification", () => {
 
   // ── 5. Checkout session — authenticated + contracts ───────────────────────
 
-  test("authenticated buy checkout session satisfies redesign contracts @marketplace-checkout", async ({
-    page,
-  }, testInfo) => {
+  test("authenticated buy checkout session satisfies redesign contracts @marketplace-checkout", async ({ page }) => {
     test.setTimeout(120_000);
 
-    await page.goto("/sign-in?returnTo=%2Faccount%2Fcart");
-    await authenticateAccount(page, testInfo);
+    await authenticateSeededBuyer(page);
     await waitForAccountRoute(page, "/account/cart");
 
-    // Navigate directly to a checkout buy session. For a new synthetic account
-    // there is no real checkout session — the route will render an access
-    // recovery or redirect. We assert the recovery path is clean (no root
-    // error, no "Price at checkout"), then also verify a live session if one
-    // is available.
-    const sessionResponse = await page.goto("/checkout/buy/session/chk_e2e_missing_access", {
-      waitUntil: "domcontentloaded",
-    });
+    const sessionResponse = await page.goto(
+      `/checkout/buy/session/${marketplaceBrowserE2eSeedContract.cart.startedSessionId}`,
+      {
+        waitUntil: "domcontentloaded",
+      },
+    );
     expect(sessionResponse, "checkout session should return a page response").not.toBeNull();
     expect(sessionResponse!.status(), "checkout session should not be a server error").toBeLessThan(500);
     await expect(page.getByRole("heading", { name: /^Marketplace error$/i })).toHaveCount(0);
@@ -366,23 +375,35 @@ test.describe("buy funnel redesign — defect verification", () => {
 
     await captureScreenshot(page, "checkout-session-authenticated");
 
-    // If the app has a PageStepper (the redesigned step indicator) visible,
-    // assert the step names from the spec.
-    const hasStepper = (await page.locator("[aria-label='Checkout steps']").count()) > 0;
-    if (hasStepper) {
-      // Step labels from CheckoutSessionPage (contact/delivery/shipping/payment/review).
+    // The checkout session surface always renders under the "Secure checkout" banner —
+    // the reachable checkout-session boundary. Assert it hard.
+    await expect(page.getByRole("heading", { name: /^Secure checkout$/i }).first()).toBeVisible();
+
+    // The payment-ready buyer stepper (Contact/Delivery/Shipping/Payment/Review) only
+    // renders once checkout deciders start payment. browser-e2e wires no payment provider,
+    // so the seeded started-cart session stays on the "Secure checkout" readiness surface
+    // ("Checkout needs attention") and never advances to the stepper. Assert the step
+    // labels and the redesign single-primary/single-notice contracts only when a
+    // payment-ready stepper actually rendered (real/staging env); otherwise log the gap
+    // loudly and assert the reachable readiness surface.
+    const checkoutSteps = page.locator("[aria-label='Checkout steps']");
+    if (await checkoutSteps.isVisible({ timeout: 15_000 }).catch(() => false)) {
       await expect(page.getByText(/^Contact$/i).first()).toBeVisible();
       await expect(page.getByText(/^Delivery$/i).first()).toBeVisible();
       await expect(page.getByText(/^Shipping$/i).first()).toBeVisible();
       await expect(page.getByText(/^Review$/i).first()).toBeVisible();
-
-      // Defect 2: single primary per surface.
       await assertSinglePrimaryActionPerSurface(page, "checkout session with stepper");
-
-      // Defect 5: at most one notice.
       await assertSingleNoticeAtATime(page, "checkout session with stepper");
-
       await captureScreenshot(page, "checkout-session-stepper");
+    } else {
+      logMarketplaceSeedContractGap(
+        "Seeded checkout session did not render the payment-ready buyer stepper: browser-e2e wires no payment " +
+          "provider, so the seeded started-cart checkout session stays on the 'Secure checkout' readiness surface. " +
+          "The reachable checkout-session redesign contracts are asserted instead.",
+      );
+      await expect(
+        page.getByRole("heading", { name: /Preparing checkout|Checkout needs attention/i }).first(),
+      ).toBeVisible();
     }
   });
 
@@ -398,9 +419,8 @@ test.describe("buy funnel redesign — defect verification", () => {
     });
 
     // The route may return 401/403/404 or redirect — any non-5xx is acceptable.
-    if (response) {
-      expect(response.status(), "confirmation access recovery must not be a server error").toBeLessThan(500);
-    }
+    expect(response, "confirmation access recovery should return a page response").not.toBeNull();
+    expect(response!.status(), "confirmation access recovery must not be a server error").toBeLessThan(500);
     await expect(page.getByRole("heading", { name: /^Marketplace error$/i })).toHaveCount(0);
 
     // Redesign contract.
@@ -427,9 +447,8 @@ test.describe("buy funnel redesign — defect verification", () => {
     const confirmResponse = await page.goto("/checkout/buy/confirm/chk_e2e_missing_access", {
       waitUntil: "domcontentloaded",
     });
-    if (confirmResponse) {
-      expect(confirmResponse.status(), "confirmation surface must not be a server error").toBeLessThan(500);
-    }
+    expect(confirmResponse, "authenticated confirmation recovery should return a page response").not.toBeNull();
+    expect(confirmResponse!.status(), "confirmation surface must not be a server error").toBeLessThan(500);
     await expect(page.getByRole("heading", { name: /^Marketplace error$/i })).toHaveCount(0);
 
     // Defect 1: "Price at checkout" absent from the confirmation surface.
@@ -437,18 +456,8 @@ test.describe("buy funnel redesign — defect verification", () => {
 
     await captureScreenshot(page, "checkout-confirmation-authenticated");
 
-    // If a real confirmation panel is rendered (happens only with a completed
-    // session), verify its contracts too.
-    const hasConfirmPanel = (await page.locator("text=Continue to payment").count()) > 0;
-    if (hasConfirmPanel) {
-      // Defect 2: single primary action per surface.
-      await assertSinglePrimaryActionPerSurface(page, "checkout confirmation panel");
-
-      // Defect 5: at most one active notice.
-      await assertSingleNoticeAtATime(page, "checkout confirmation panel");
-
-      await captureScreenshot(page, "checkout-confirmation-panel");
-    }
+    // Missing confirmation access must not render a payment continuation panel.
+    await expect(page.locator("text=Continue to payment")).toHaveCount(0);
   });
 
   // ── 8. Design-system structural contract: QuantityStepper has no bare
@@ -465,14 +474,19 @@ test.describe("buy funnel redesign — defect verification", () => {
 
     await expect(page.getByRole("heading", { name: /^Your cart$/i }).first()).toBeVisible();
 
-    // Defect 3 assertion regardless of cart state: there must be zero bare
+    // Defect 3 assertion regardless of cart state: there must be zero VISIBLE bare
     // <input type="number"> without role="spinbutton" anywhere on the cart page.
-    // Base UI NumberField always sets role="spinbutton" — the legacy NumberInput
-    // does not. Any bare type=number is evidence the old pattern slipped in.
-    const bareNumberInputs = await page.locator("input[type='number']:not([role='spinbutton'])").count();
+    // Base UI NumberField's visible input sets role="spinbutton" — the legacy
+    // NumberInput does not. The primitive also emits a visually-hidden
+    // `aria-hidden="true"` `<input type="number">` per field for native form
+    // submission, which is DS-compliant and excluded here; any *visible* bare
+    // type=number is evidence the old pattern slipped in.
+    const bareNumberInputs = await page
+      .locator("input[type='number']:not([role='spinbutton']):not([aria-hidden='true'])")
+      .count();
     expect(
       bareNumberInputs,
-      `Cart must have zero bare type="number" inputs without role="spinbutton" (found ${bareNumberInputs}). Use QuantityStepper.`,
+      `Cart must have zero visible bare type="number" inputs without role="spinbutton" (found ${bareNumberInputs}). Use QuantityStepper.`,
     ).toBe(0);
 
     await captureScreenshot(page, "cart-quantity-stepper-contract");
@@ -485,8 +499,7 @@ test.describe("buy funnel redesign — defect verification", () => {
   }, testInfo) => {
     test.setTimeout(120_000);
 
-    await page.goto("/sign-in?returnTo=%2Faccount%2Fcart");
-    await authenticateAccount(page, testInfo);
+    await authenticateSeededBuyer(page);
     await waitForAccountRoute(page, "/account/cart");
 
     await expect(page.getByRole("heading", { name: /^Your cart$/i }).first()).toBeVisible();
@@ -495,34 +508,27 @@ test.describe("buy funnel redesign — defect verification", () => {
     // "Estimated total" + one "Final total confirmed at checkout" caption. This
     // test verifies the full label vocabulary is correct on the cart surface.
     //
-    // For an empty cart neither label appears in the totals area — the contract
-    // is vacuously satisfied (and the empty-state recovery renders).
-    // For a non-empty cart both labels must be present exactly as specified.
+    await expect(
+      page.locator("[data-marketplace-cart-line]"),
+      "browser-e2e seed contract requires cart lines for the total contract",
+    ).toHaveCount(marketplaceBrowserE2eSeedContract.cart.lineCount);
 
-    const hasLines = (await page.locator("[data-marketplace-cart-line]").count()) > 0;
+    // "Estimated total" must appear (totalLabel in CheckoutTotals and StickyCtaBar).
+    const estimatedTotalCount = await page.locator("text=Estimated total").count();
+    expect(estimatedTotalCount, '"Estimated total" must appear at least once on the cart surface').toBeGreaterThan(0);
 
-    if (hasLines) {
-      // "Estimated total" must appear (totalLabel in CheckoutTotals and StickyCtaBar).
-      const estimatedTotalCount = await page.locator("text=Estimated total").count();
-      expect(estimatedTotalCount, '"Estimated total" must appear at least once on the cart surface').toBeGreaterThan(0);
+    // "Final total confirmed at checkout" must appear exactly once
+    // (totalCaption in CheckoutTotals).
+    const deferralCount = await page.locator("text=Final total confirmed at checkout").count();
+    expect(deferralCount, '"Final total confirmed at checkout" must appear exactly once').toBe(1);
 
-      // "Final total confirmed at checkout" must appear exactly once
-      // (totalCaption in CheckoutTotals).
-      const deferralCount = await page.locator("text=Final total confirmed at checkout").count();
-      expect(deferralCount, '"Final total confirmed at checkout" must appear exactly once').toBe(1);
+    // "Shipping & tax" line must have "Calculated at checkout" (once, muted).
+    // Exact match: a ready cart also renders the sticky-bar context copy
+    // ("Taxes and shipping are calculated at checkout."), which a
+    // case-insensitive substring locator would match a second time.
+    const shippingTaxLine = await page.getByText("Calculated at checkout", { exact: true }).count();
+    expect(shippingTaxLine, '"Calculated at checkout" should appear exactly once for the shipping/tax line').toBe(1);
 
-      // "Shipping & tax" line must have "Calculated at checkout" (once, muted).
-      // Exact match: a ready cart also renders the sticky-bar context copy
-      // ("Taxes and shipping are calculated at checkout."), which a
-      // case-insensitive substring locator would match a second time.
-      const shippingTaxLine = await page.getByText("Calculated at checkout", { exact: true }).count();
-      expect(shippingTaxLine, '"Calculated at checkout" should appear exactly once for the shipping/tax line').toBe(1);
-
-      await captureScreenshot(page, "cart-estimated-total-contract");
-    } else {
-      // Empty cart: verify "Price at checkout" is absent (still the core defect).
-      await assertNoPriceAtCheckoutText(page, "empty cart (Estimated total contract)");
-      await captureScreenshot(page, "cart-estimated-total-empty");
-    }
+    await captureScreenshot(page, "cart-estimated-total-contract");
   });
 });

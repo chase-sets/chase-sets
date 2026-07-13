@@ -35,6 +35,21 @@ export async function signInWithPassword(
   return body.sessionToken;
 }
 
+export async function signInThroughMarketplaceForm(
+  page: Page,
+  account: Pick<MarketplaceE2EAccount, "email" | "password">,
+) {
+  const identifier = page.getByLabel(/Email or phone/i);
+  await expect(identifier, "marketplace sign-in form must expose the identifier step").toBeVisible();
+  await identifier.fill(account.email);
+  await page.getByRole("button", { name: /^Continue$/i }).click();
+
+  const password = page.getByLabel(/^Password$/i);
+  await expect(password, "marketplace sign-in form must expose the password step").toBeVisible();
+  await password.fill(account.password);
+  await page.getByRole("button", { name: /^Sign in$/i }).click();
+}
+
 export async function registerOrSignInSyntheticAccount(
   page: Page,
   origin: string,

@@ -6,6 +6,7 @@ import {
   expectVisibleText,
   skipDeployedAdminE2e,
 } from "./support/admin-e2e";
+import { logSeedContractGap } from "./support/seed-contract-gap";
 
 async function clickUntilDisclosureExpanded(trigger: Locator, expanded: boolean) {
   const expectedValue = String(expanded);
@@ -82,10 +83,17 @@ function expectControlledCatalogStreamProbe(path: string, result: CatalogStreamP
   expect(() => JSON.parse(result.textStart || "{}"), `${path} should return JSON`).not.toThrow();
 }
 
-async function expectAliasReviewWorkspaceIfPresent(page: Page) {
+async function expectAliasReviewWorkspace(page: Page) {
   const aliasReviewHeading = page.getByRole("heading", { name: "Alias review" }).first();
   const aliasReviewRendered = await aliasReviewHeading.isVisible({ timeout: 30_000 }).catch(() => false);
   if (!aliasReviewRendered) {
+    logSeedContractGap(
+      "Alias review workspace did not render. Its Suspense boundary (DeferredAliasReviewSlot in " +
+        "integrations-surface-route-view.tsx) resolves to null by design when the scope has no alias " +
+        "candidates, and the browser-e2e daily route never runs a live Catalog sync against tcgdex, so no " +
+        "Source Observation has ever produced one. This is documented fail-soft behavior in production code, " +
+        "not a defect — hardening it into a required seed contract needs a real sync/seed first.",
+    );
     return;
   }
 
@@ -102,6 +110,7 @@ async function expectAliasReviewWorkspaceIfPresent(page: Page) {
     .filter({ has: page.getByRole("button", { name: "Evidence" }) })
     .first();
   if (!(await candidateRow.isVisible().catch(() => false))) {
+    logSeedContractGap("Alias review workspace rendered with zero candidate rows for this scope.");
     await expect(page.getByText("No alias candidates").first()).toBeVisible();
     return;
   }
@@ -177,18 +186,14 @@ test.describe.serial("catalog admin integrations", () => {
     await expectAdminWebHydrated(page);
     await expectVisibleText(page, "Catalog control plane");
     // #1970: when the selected provider profile declares source-option groups, the
-    // deferred source-options status panel streams in after first paint. The default
-    // provider is seed-dependent, so only assert the panel when this route context
-    // actually renders one.
+    // deferred source-options status panel streams in after first paint. The
+    // browser-e2e seed contract selects a provider with source-option groups.
     const sourceOptionsPanel = page.getByText("Source options").first();
-    if (await sourceOptionsPanel.count()) {
-      await expect(sourceOptionsPanel).toBeVisible({ timeout: 30_000 });
-    }
-    // The supplementary alias-review workspace also streams behind its own boundary,
-    // but its content is data-dependent (it resolves to nothing when there are no
-    // alias candidates for the scope). Assert it only when it actually rendered, so
-    // the test never assumes the seed carries alias candidates.
-    await expectAliasReviewWorkspaceIfPresent(page);
+    await expect(sourceOptionsPanel, "browser-e2e seed contract requires source options").toBeVisible({
+      timeout: 30_000,
+    });
+    // The supplementary alias-review workspace streams behind its own boundary.
+    await expectAliasReviewWorkspace(page);
     // The daily surface does not render a page-local "Import to promotion
     // workbench" label. The workbench identity is carried by the heading
     // (asserted above) and the linear three-stage flow ("Run sync" / "Review
@@ -258,25 +263,32 @@ test.describe.serial("catalog admin integrations", () => {
     // never settle the network; assert the stage button's continued visibility
     // directly.
     const providerSelect = page.getByRole("combobox", { name: "Provider" });
-    if (await providerSelect.count()) {
-      const currentProvider = await providerSelect.first().inputValue();
-      await providerSelect.first().selectOption(currentProvider);
-      await expect(page).toHaveURL(/\/catalog\/integrations(\?|$)/);
-      await expect(catalogSyncCommand.getByRole("button", { name: "Start Catalog sync" })).toBeVisible();
-    }
+    await expect(providerSelect, "browser-e2e seed contract requires a provider context").toHaveCount(1);
+    const currentProvider = await providerSelect.first().inputValue();
+    await providerSelect.first().selectOption(currentProvider);
+    await expect(page).toHaveURL(/\/catalog\/integrations(\?|$)/);
+    await expect(catalogSyncCommand.getByRole("button", { name: "Start Catalog sync" })).toBeVisible();
 
     // #1974: the selected-record command surface is the canonical BulkActionBar /
     // BulkActionPanel (no hand-rolled WorkbenchDetailPanel selection block). Open the
-    // "Review changes" stage and, IF the seed holds a selectable Source Observation,
-    // select its row checkbox and prove the bulk bar surfaces the consolidated command
-    // taxonomy: primary "Preview promotion", secondary "Defer" / "Clear selection", and
-    // the destructive reason-required "Reject" behind a BulkActionPanel trigger that opens
-    // a reason input. This is data-dependent (an empty review queue renders no selectable
-    // rows), so every assertion is guarded on a row actually being selectable — the test
-    // never assumes a non-empty seed.
+    // "Review changes" stage and, IF the browser-e2e daily route has a selectable
+    // changed Source Observation (it never does today — no test or seed ever runs a
+    // live Catalog sync; see logSeedContractGap below), select its row checkbox and
+    // prove the bulk bar surfaces the consolidated command taxonomy: primary
+    // "Preview promotion", secondary "Defer" / "Clear selection", and the destructive
+    // reason-required "Reject" behind a BulkActionPanel trigger that opens a reason
+    // input. This stays an explicit, loudly-logged conditional (not a silent
+    // if-present guard) rather than a hard seed contract, until a real sync/seed
+    // exists for this surface.
     await page.getByRole("button", { name: "Review changes" }).first().click();
     const reviewRowCheckbox = page.getByRole("row").getByRole("checkbox");
-    if (await reviewRowCheckbox.count()) {
+    const hasReviewRow = (await reviewRowCheckbox.count()) > 0;
+    if (!hasReviewRow) {
+      logSeedContractGap(
+        "Review changes stage has no selectable row: browser-e2e never runs a live Catalog sync, so the " +
+          "review queue is legitimately empty. Skipping the selection/bulk-action-bar assertions.",
+      );
+    } else {
       await reviewRowCheckbox.first().check();
       // The bar replaces the old hand-rolled panel: its primary/secondary commands and
       // the reject panel trigger are now the only selection-command affordances.
@@ -305,10 +317,11 @@ test.describe.serial("catalog admin integrations", () => {
     }
 
     // #2600: the review stage is candidate-first. Open a merged candidate's evidence
-    // sheet (IF the seed has candidate rows) and prove operators see source comparison,
-    // field provenance, and proposed reference/Product mapping without any raw JSON
-    // entry path. Source Observation evidence remains available as a supporting
-    // disclosure below and is asserted separately when rows exist.
+    // sheet (IF the browser-e2e route has one — see logSeedContractGap above) and
+    // prove operators see source comparison, field provenance, and proposed
+    // reference/Product mapping without any raw JSON entry path. Source Observation
+    // evidence remains available as a supporting disclosure below and is asserted
+    // separately when rows exist.
     const mergeCandidateReviewHeading = page.getByRole("heading", { name: "Merged candidate review" });
     if (await mergeCandidateReviewHeading.count()) {
       await expect(mergeCandidateReviewHeading.first()).toBeVisible({ timeout: 30_000 });
@@ -325,6 +338,10 @@ test.describe.serial("catalog admin integrations", () => {
         await expect(page.getByText(/raw JSON/i)).toHaveCount(0);
         await page.keyboard.press("Escape");
       }
+    } else {
+      logSeedContractGap(
+        "No merged candidate rendered: the review queue is empty (same root cause as the review-row gap above).",
+      );
     }
 
     const supportingSourceObservationEvidence = page.getByRole("button", { name: "Source Observation evidence" });
@@ -354,6 +371,7 @@ test.describe.serial("catalog admin integrations", () => {
         await page.keyboard.press("Escape");
       }
     } else {
+      logSeedContractGap("No Source Observation evidence disclosure rendered: the review queue is empty.");
       await expect(page.getByText(/raw JSON/i)).toHaveCount(0);
     }
 
@@ -497,14 +515,18 @@ test.describe.serial("catalog admin integrations", () => {
     expect(reviewPageTwoUrl.searchParams.get("selectedObservationIds")).toBe("obs_001");
     // The cursor round-trip above already proves the second page is reachable (the loader
     // reads reviewOffset and re-fetches that window). The pager itself is data-dependent:
-    // when the environment holds more than one page of in-scope observations it renders, and
-    // page 2 exposes a "Previous page" affordance so the queue is bidirectionally navigable;
-    // when the environment holds a single page the pager is correctly absent (no dead-end
-    // disabled controls). Assert the back-affordance only when the pager actually rendered, so
-    // the test does not assume a seed volume greater than one page.
+    // it needs more than 25 "changed" Source Observations in scope, which exceeds the
+    // ≤25-observation browser-e2e tcgdex seed/sync limit, so it renders only when a real
+    // sync happened to produce that many. Assert the back-affordance only when the pager
+    // actually rendered, so the test does not assume seed volume it structurally cannot have.
     const reviewPreviousPageLink = page.getByRole("link", { name: "Previous page" });
     if (await reviewPreviousPageLink.count()) {
       await expect(reviewPreviousPageLink.first()).toBeVisible();
+    } else {
+      logSeedContractGap(
+        "No 'Previous page' pager rendered: the review queue needs more than 25 changed observations to " +
+          "paginate, which exceeds the browser-e2e tcgdex seed/sync limit.",
+      );
     }
     // Return to the canonical daily route for the remaining assertions.
     await expectPageOk(page, "/catalog/integrations");
@@ -519,7 +541,7 @@ test.describe.serial("catalog admin integrations", () => {
 
     // The Create / update stage deep-links into the separate Catalog Items area,
     // filtered to the just-created/updated drafts for the provider (?source=). That
-    // target must load gracefully — even for an unknown provider, the filtered list
+    // target must load successfully — even for an unknown provider, the filtered list
     // renders an empty result (HTTP < 400), never a 500. This is the integration ->
     // catalog-items handoff seam from #1746.
     //
@@ -776,6 +798,16 @@ test.describe.serial("catalog admin integrations", () => {
           })
           .first(),
       ).toBeVisible();
+    } else {
+      // This control only renders when `magicProductionSignoffReference` is present on the
+      // rollout-control config (see magicProductionSignoffControl in
+      // catalog-integration-rollout-controls.ts) — i.e. an env-gated, production-like-only
+      // signoff reference. browser-e2e does not set that env var, so its absence here is
+      // correct, not a seed gap; still log it loudly rather than silently falling through.
+      logSeedContractGap(
+        "No 'magic-production-signoff-required' governance row rendered: browser-e2e does not configure " +
+          "magicProductionSignoffReference, so this env-gated control is legitimately absent.",
+      );
     }
 
     // With a resolving profile selected, lifecycle recovery renders the rollback,
