@@ -26,6 +26,15 @@ CREATE INDEX IF NOT EXISTS checkout_marketplace_seller_options_product_idx
 
 ALTER TABLE checkout_marketplace_seller_options
   ADD COLUMN IF NOT EXISTS product_measure_snapshot jsonb NULL;
+
+-- At-capacity buyer signal (m127 #4883, producer: ordering's #4882 open-order
+-- enforcement). Orthogonal to status: a seller can be away AND at capacity
+-- at once, and each clears independently, so this is tracked as its own
+-- column rather than a third status value that would lose information on
+-- overlap. Candidate/readiness queries additionally require
+-- at_capacity = false alongside status = 'active'.
+ALTER TABLE checkout_marketplace_seller_options
+  ADD COLUMN IF NOT EXISTS at_capacity boolean NOT NULL DEFAULT false;
 `;
 
 export const checkoutMarketplaceSellerOptionsSchemaMigrations: readonly BcSchemaMigration[] = [

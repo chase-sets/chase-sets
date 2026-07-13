@@ -79,6 +79,11 @@ export const module = defineBoundedContextModule<DiscoveryServices, PgTransactio
           filterToEventTypes: true,
           buildHandlers: () => marketProjectionHandlers,
         },
+        "ordering.discovery-market-projection": {
+          subscriptionName: "discovery.ordering-market-projection",
+          filterToEventTypes: true,
+          buildHandlers: () => marketProjectionHandlers,
+        },
         "marketplace.discovery-product-alert-notification-projection": {
           subscriptionName: "discovery.marketplace-product-alert-notifications",
           buildHandlers: (subscription) =>

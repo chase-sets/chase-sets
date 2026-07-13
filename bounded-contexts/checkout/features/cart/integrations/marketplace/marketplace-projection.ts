@@ -195,5 +195,41 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
         [data.accountId, event.timing.recordedAt],
       );
     },
+    // At-capacity buyer signal (m127, producer: ordering's open-order
+    // enforcement slice -- registered ahead of that slice landing, mirroring
+    // the parallel-lane pattern this projection already uses for every other
+    // marketplace event). Tracked as its own at_capacity column (not a third
+    // status value) so it composes independently of seller-listing
+    // availability: a seller can be away AND at capacity at once, and each
+    // clears on its own. listCartLines's candidate-option query requires
+    // at_capacity = false alongside status = 'active', so a locked listing
+    // whose seller crosses into capacity drops out of seller_options and the
+    // readiness re-check flags the cart line as unavailable before order
+    // creation -- the same "gone" path away-seller transitions already
+    // exercise, with zero changes to readiness.ts.
+    "ordering.seller-capacity.reached": async (event) => {
+      const data = event.data as { accountId: string };
+
+      await db.query(
+        `UPDATE checkout_marketplace_seller_options
+         SET at_capacity = true,
+             updated_at = $2
+         WHERE seller_account_id = $1
+           AND at_capacity = false`,
+        [data.accountId, event.timing.recordedAt],
+      );
+    },
+    "ordering.seller-capacity.cleared": async (event) => {
+      const data = event.data as { accountId: string };
+
+      await db.query(
+        `UPDATE checkout_marketplace_seller_options
+         SET at_capacity = false,
+             updated_at = $2
+         WHERE seller_account_id = $1
+           AND at_capacity = true`,
+        [data.accountId, event.timing.recordedAt],
+      );
+    },
   };
 }

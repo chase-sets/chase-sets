@@ -5,6 +5,7 @@ import { module as checkoutModule } from "@chase-sets/checkout";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as inventoryModule } from "@chase-sets/inventory";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
+import { module as orderingModule } from "@chase-sets/ordering";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import {
   bootstrapContextDatabase,
@@ -32,7 +33,15 @@ import { createDiscoveryServices } from "../../support/runtime-support/services"
 import { module as discoveryModule } from "../..";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
-const discoveryContextNames = ["catalog", "checkout", "identity", "inventory", "marketplace", "discovery"] as const;
+const discoveryContextNames = [
+  "catalog",
+  "checkout",
+  "identity",
+  "inventory",
+  "marketplace",
+  "ordering",
+  "discovery",
+] as const;
 
 function requireDatabaseBaseUrl(): string {
   if (!databaseBaseUrl) {
@@ -102,6 +111,7 @@ describe("marketplace search", () => {
     const marketplaceServices = marketplaceModule.createServices(pools.marketplace, {
       commercialTermsResolver: createNoopCommercialTermsResolver(),
     });
+    const orderingServices = orderingModule.createServices(pools.ordering, {});
     discoveryServices = createDiscoveryServices(pools.discovery);
     const mountedContexts = [
       {
@@ -144,6 +154,14 @@ describe("marketplace search", () => {
         projectionHandlerSets: [],
       },
       {
+        contextName: "ordering",
+        mountRole: "source-only",
+        module: orderingModule,
+        services: orderingServices,
+        pool: pools.ordering,
+        projectionHandlerSets: [],
+      },
+      {
         contextName: "discovery",
         module: discoveryModule,
         services: discoveryServices,
@@ -165,6 +183,7 @@ describe("marketplace search", () => {
     await bootstrapContextDatabase(identityModule, pools.identity);
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
     await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
+    await bootstrapContextDatabase(orderingModule, pools.ordering);
     await bootstrapContextDatabase(discoveryModule, pools.discovery);
   });
 

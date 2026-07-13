@@ -61,6 +61,14 @@
       "projectionHandlerSetNames": ["checkout.marketplace-seller-options-projection"]
     },
     {
+      "sourceContextName": "ordering",
+      "projectionName": "checkout-marketplace-listing-options-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["ordering.seller-capacity.reached", "ordering.seller-capacity.cleared"],
+      "order": 21,
+      "projectionHandlerSetNames": ["checkout.marketplace-seller-options-projection"]
+    },
+    {
       "sourceContextName": "marketplace",
       "projectionName": "checkout-seller-accounts-projection",
       "subscriptionVersion": 1,
@@ -242,7 +250,7 @@
     },
     {
       "projectionName": "checkout-marketplace-listing-options-projection",
-      "sourceContextNames": ["marketplace", "catalog"],
+      "sourceContextNames": ["marketplace", "catalog", "ordering"],
       "ownedTables": ["checkout_marketplace_seller_options"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"

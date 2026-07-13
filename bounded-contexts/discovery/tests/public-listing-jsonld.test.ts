@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { buildPublicListingProductJsonLd, serializePublicListingProductJsonLd } from "../routes/public-listing";
+import {
+  buildPublicListingProductJsonLd,
+  sellerUnbuyableMessage,
+  serializePublicListingProductJsonLd,
+} from "../routes/public-listing";
 import type { DiscoveryPublicListing } from "../support/client-support/contracts";
 import { getDiscoveryPublicListingBySlug } from "../support/market-support/queries";
 
@@ -103,6 +107,73 @@ describe("public listing Product JSON-LD", () => {
       offerId: "cs-listing-lst_1",
       priceAmount: "42.00",
     });
+  });
+
+  it("relaxes the direct listing lookup so away/at-capacity listings render instead of 'not found' (m127 #4883)", async () => {
+    const db = queryDb({ ...publicListing() });
+
+    await getDiscoveryPublicListingBySlug(db, "charizard-lst_1");
+
+    const sql = db.queries[0]?.sql ?? "";
+    expect(sql).not.toContain("seller_listing_availability_status = 'available'");
+    expect(sql).toContain("status = 'active'");
+    expect(sql).toContain("product_measure_snapshot IS NOT NULL");
+    expect(sql).toContain("visible_quantity > 0");
+  });
+});
+
+describe("public listing away/at-capacity buyer messaging (m127 #4883)", () => {
+  it("returns null when the listing is fully purchasable", () => {
+    expect(sellerUnbuyableMessage(publicListing())).toBeNull();
+  });
+
+  it("renders a timezone-correct back-on-date message when the seller is away with a known resume instant", () => {
+    const message = sellerUnbuyableMessage(
+      publicListing({
+        seller_listing_availability_status: "unavailable",
+        seller_available_again_at: "2026-07-20 05:00:00+00",
+      }),
+    );
+
+    expect(message).toMatchObject({ title: "Seller is away" });
+    expect(message?.description).toBe("This seller is away. Listings return July 20, 2026.");
+  });
+
+  it("falls back to the bare unavailable copy when the seller is away with no resume instant", () => {
+    const message = sellerUnbuyableMessage(
+      publicListing({
+        seller_listing_availability_status: "unavailable",
+        seller_available_again_at: null,
+      }),
+    );
+
+    expect(message).toMatchObject({
+      title: "Seller is away",
+      description: "Account listings are temporarily unavailable.",
+    });
+  });
+
+  it("renders at-capacity copy when the seller is not away but at capacity", () => {
+    const message = sellerUnbuyableMessage(
+      publicListing({
+        seller_listing_availability_status: "available",
+        seller_at_capacity: true,
+      }),
+    );
+
+    expect(message).toMatchObject({ title: "Temporarily at capacity" });
+  });
+
+  it("prioritizes the away message over at-capacity when both apply", () => {
+    const message = sellerUnbuyableMessage(
+      publicListing({
+        seller_listing_availability_status: "unavailable",
+        seller_available_again_at: "2026-07-20 05:00:00+00",
+        seller_at_capacity: true,
+      }),
+    );
+
+    expect(message?.title).toBe("Seller is away");
   });
 });
 

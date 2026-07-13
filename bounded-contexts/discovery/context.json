@@ -290,6 +290,14 @@
       "projectionHandlerSetNames": ["discovery-market-projection"]
     },
     {
+      "sourceContextName": "ordering",
+      "projectionName": "discovery-market-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["ordering.seller-capacity.reached", "ordering.seller-capacity.cleared"],
+      "order": 31,
+      "projectionHandlerSetNames": ["discovery-market-projection"]
+    },
+    {
       "sourceContextName": "marketplace",
       "projectionName": "discovery-product-alert-notification-projection",
       "subscriptionVersion": 1,
@@ -353,7 +361,7 @@
     },
     {
       "projectionName": "discovery-market-projection",
-      "sourceContextNames": ["catalog", "checkout", "identity", "inventory", "marketplace"],
+      "sourceContextNames": ["catalog", "checkout", "identity", "inventory", "marketplace", "ordering"],
       "ownedTables": [
         "discovery_item_detail_sell_list_lines",
         "discovery_market_accounts",

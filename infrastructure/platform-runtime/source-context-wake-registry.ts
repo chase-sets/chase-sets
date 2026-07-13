@@ -484,6 +484,12 @@ export const sourceContextWakeRegistry = [
     wakeStoreLoadEstimate: "high",
     affectedProjectionNames: [
       "auth:auth-agent-order-webhook-projection",
+      // Order Capacity at-capacity signal (m127): ordering's edge-triggered
+      // seller-capacity.reached/.cleared events wake the checkout seller-options
+      // and discovery market projections that surface buyer-facing "temporarily
+      // at capacity" messaging.
+      "checkout:checkout-marketplace-listing-options-projection",
+      "discovery:discovery-market-projection",
       "fulfillment:fulfillment-order-source-projection",
       "inventory:inventory-order-reservation-workflow",
       "notifications:notifications-source-facts-outbox-projection",

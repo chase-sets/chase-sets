@@ -144,6 +144,8 @@ export function CheckoutPurchaseIntentSection({
     /** Account badges mirror (m87 badge facts, m108 reputation). */
     seller_badges?: readonly string[];
     seller_founder_number?: number | null;
+    /** At-capacity buyer signal (m127): listing stays visible but unbuyable. */
+    seller_at_capacity?: boolean;
     graded_card?: DiscoveryGradedCardDetails | null;
   } | null;
   selectedListingSource?: MarketSelectionSource;
@@ -159,6 +161,10 @@ export function CheckoutPurchaseIntentSection({
   const isProductCartWorkflow = actionMode === "add-to-cart";
   const isListingWorkflow = Boolean(selectedListing && !isProductCartWorkflow);
   const addToCartUsesSelectedListing = Boolean(selectedListing && isListingWorkflow);
+  // At-capacity buyer signal (m127): the listing stays visible (it is
+  // not excluded from `visibleListingCount`/search) but purchase actions
+  // disable -- "check back soon" rather than a lost sale with no context.
+  const selectedListingAtCapacity = Boolean(selectedListing?.seller_at_capacity);
   const selectedListingQuantity = selectedListing
     ? parseQuantity(selectedListing.visible_quantity ?? selectedListing.quantity_cap)
     : null;
@@ -171,11 +177,13 @@ export function CheckoutPurchaseIntentSection({
   const selectedListingSellerHref = selectedListing?.seller_slug
     ? `/accounts/${selectedListing.seller_slug}#feedback`
     : null;
-  const selectedListingAvailability = selectedListing
-    ? t("discovery.routes.itemDetail.quantity.available.count", {
-        count: selectedListingQuantity,
-      })
-    : t("discovery.routes.itemDetail.unavailable");
+  const selectedListingAvailability = !selectedListing
+    ? t("discovery.routes.itemDetail.unavailable")
+    : selectedListingAtCapacity
+      ? t("discovery.routes.itemDetail.seller.at.capacity")
+      : t("discovery.routes.itemDetail.quantity.available.count", {
+          count: selectedListingQuantity,
+        });
   const addToCartSuccessData = isAddToCartActionData(addToCartFetcher.data) ? addToCartFetcher.data : null;
   const addToCartError = getActionErrorMessage(addToCartFetcher.data);
   const addToCartPending = addToCartFetcher.state !== "idle";
@@ -287,12 +295,14 @@ export function CheckoutPurchaseIntentSection({
       name="intent"
       value="buy-this-listing"
       tone={!isProductCartWorkflow && productId ? "primary" : "secondary"}
-      disabled={!productId || !selectedListing}
+      disabled={!productId || !selectedListing || selectedListingAtCapacity}
       block
     >
-      {selectedListingSource === "explicit"
-        ? t("discovery.routes.itemDetail.buy.now")
-        : t("discovery.routes.itemDetail.buy.best.available.listing")}
+      {selectedListingAtCapacity
+        ? t("discovery.routes.itemDetail.seller.at.capacity")
+        : selectedListingSource === "explicit"
+          ? t("discovery.routes.itemDetail.buy.now")
+          : t("discovery.routes.itemDetail.buy.best.available.listing")}
     </Button>
   );
   const buyBestMatchAction = (
@@ -311,7 +321,7 @@ export function CheckoutPurchaseIntentSection({
     <Button
       type="button"
       tone={isProductCartWorkflow && productId ? "primary" : "secondary"}
-      disabled={!productId || Boolean(addToCartPending)}
+      disabled={!productId || Boolean(addToCartPending) || (addToCartUsesSelectedListing && selectedListingAtCapacity)}
       onClick={() => {
         void handleAddToCart();
       }}
@@ -389,6 +399,13 @@ export function CheckoutPurchaseIntentSection({
                     <FounderBadge founderNumber={selectedListing?.seller_founder_number} />
                   ) : null}
                 </Inline>
+                {selectedListingAtCapacity ? (
+                  <Banner
+                    tone="warning"
+                    title={t("discovery.routes.itemDetail.seller.at.capacity")}
+                    description={t("discovery.routes.itemDetail.seller.at.capacity.description")}
+                  />
+                ) : null}
                 <ProductQuantitySummary
                   availability={selectedListingAvailability}
                   productSelectionDetails={productSelectionDetails}

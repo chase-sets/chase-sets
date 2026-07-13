@@ -70,6 +70,7 @@ function detailRow(overrides: Record<string, unknown> = {}) {
         seller_average_rating: "4.9",
         seller_review_count: 12,
         seller_badges: [],
+        seller_at_capacity: false,
         visible_quantity: 3,
         created_at: "2026-07-08T00:00:00.000Z",
         updated_at: "2026-07-08T00:00:00.000Z",

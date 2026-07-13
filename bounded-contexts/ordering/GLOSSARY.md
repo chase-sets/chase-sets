@@ -178,3 +178,11 @@ A **Counter Order** is the planned in-person or counter-originated commercial co
 ### Drawer Session
 
 A **Drawer Session** is the planned register or counter accounting window associated with Counter Orders.
+
+## Planned Seller Capacity
+
+This planned term pre-registers the upcoming edge-triggered at-capacity signal (m127 seller time-away & capacity milestone cluster, #4882). It is not shipped behavior until Ordering adds Open Order counting and the crossing-triggered event emission; Discovery and Checkout's buyer-facing messaging and cart-readiness handlers are pre-registered ahead of the producer, the standard parallel-lane pattern (#4883). Marketplace's Order Capacity, Open Order, and At Capacity terms (also planned) define the seller-set setting and the seller-facing vocabulary this signal is derived from.
+
+### Seller Capacity
+
+**Seller Capacity** is the planned Ordering-owned edge-triggered signal (`ordering.seller-capacity.reached` / `.cleared`) emitted exactly once per threshold crossing when a seller's Open Order count crosses their Order Capacity, consumed by Discovery and Checkout to disable purchase actions without filtering the seller out of search/browse.

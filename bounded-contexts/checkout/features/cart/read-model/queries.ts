@@ -231,6 +231,11 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
          FROM checkout_marketplace_seller_options option
          WHERE option.product_id = line.product_id
            AND option.status = 'active'
+           -- At-capacity sellers (m127 #4883) drop out of both the
+           -- alternative-listing candidates and, for a locked line, the
+           -- readiness re-check (selectedCartReadinessListing looks the
+           -- locked listing_id up in this same result set).
+           AND option.at_capacity = false
            AND LEAST(
              option.listing_quantity_cap,
              GREATEST(
