@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { forwardRef, useEffect, useId, useMemo, useState } from "react";
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
@@ -20,25 +20,28 @@ export interface ComboboxProps extends BaseInputProps {
   disabled?: boolean;
 }
 
-export function Combobox({
-  id,
-  name,
-  form,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  items,
-  value,
-  defaultValue,
-  onValueChange,
-  placeholder = "Search options",
-  noMatchesLabel = "No matches",
-  disabled = false,
-}: ComboboxProps) {
+export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Combobox(
+  {
+    id,
+    name,
+    form,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    items,
+    value,
+    defaultValue,
+    onValueChange,
+    placeholder = "Search options",
+    noMatchesLabel = "No matches",
+    disabled = false,
+  },
+  ref,
+) {
   const [open, setOpen] = useState(false);
   const [selectedValue, setSelectedValue] = useControllableValue(value, defaultValue ?? "", onValueChange);
   const [query, setQuery] = useState("");
@@ -105,6 +108,7 @@ export function Combobox({
         >
           <ComboboxPrimitive.Input
             id={inputId}
+            ref={ref}
             placeholder={placeholder}
             aria-controls={listboxId}
             aria-describedby={fieldDescribedBy({ inputId, description, error, status, counter })}
@@ -177,4 +181,5 @@ export function Combobox({
       </ComboboxPrimitive.Root>
     </FieldChrome>
   );
-}
+});
+Combobox.displayName = "Combobox";

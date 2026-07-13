@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { forwardRef, useId, useState } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
 import { InputAddon } from "./input-addon";
@@ -10,19 +10,22 @@ export interface PasswordInputProps extends TextInputProps {
   hidePasswordLabel?: string;
 }
 
-export function PasswordInput({
-  showPasswordLabel = "Show password",
-  hidePasswordLabel = "Hide password",
-  id,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  ...rest
-}: PasswordInputProps) {
+export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(function PasswordInput(
+  {
+    showPasswordLabel = "Show password",
+    hidePasswordLabel = "Hide password",
+    id,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    ...rest
+  },
+  ref,
+) {
   const [visible, setVisible] = useState(false);
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
@@ -56,6 +59,7 @@ export function PasswordInput({
         <input
           {...rest}
           id={inputId}
+          ref={ref}
           required={required}
           type={visible ? "text" : "password"}
           aria-describedby={fieldDescribedBy({ inputId, description, error, status, counter })}
@@ -65,4 +69,5 @@ export function PasswordInput({
       </InputAddon>
     </FieldChrome>
   );
-}
+});
+PasswordInput.displayName = "PasswordInput";

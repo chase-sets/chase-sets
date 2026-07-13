@@ -1,4 +1,4 @@
-import { useId, useMemo, type SelectHTMLAttributes } from "react";
+import { forwardRef, useId, useMemo, type SelectHTMLAttributes } from "react";
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { Icon as ChaseIcon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
@@ -19,20 +19,23 @@ export interface NativeSelectProps
   placeholder?: string;
 }
 
-export function NativeSelect({
-  id,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  items,
-  placeholder,
-  "aria-describedby": ariaDescribedBy,
-  ...rest
-}: NativeSelectProps) {
+export const NativeSelect = forwardRef<HTMLSelectElement, NativeSelectProps>(function NativeSelect(
+  {
+    id,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    items,
+    placeholder,
+    "aria-describedby": ariaDescribedBy,
+    ...rest
+  },
+  ref,
+) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
 
@@ -50,6 +53,7 @@ export function NativeSelect({
       <select
         {...rest}
         id={inputId}
+        ref={ref}
         required={required}
         aria-describedby={fieldDescribedBy({
           inputId,
@@ -71,7 +75,8 @@ export function NativeSelect({
       </select>
     </FieldChrome>
   );
-}
+});
+NativeSelect.displayName = "NativeSelect";
 
 export interface SelectProps extends BaseInputProps {
   id?: string;
@@ -85,24 +90,27 @@ export interface SelectProps extends BaseInputProps {
   disabled?: boolean;
 }
 
-export function Select({
-  id,
-  name,
-  form,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  items,
-  value,
-  defaultValue,
-  onValueChange,
-  placeholder = "Choose an option",
-  disabled = false,
-}: SelectProps) {
+export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select(
+  {
+    id,
+    name,
+    form,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    items,
+    value,
+    defaultValue,
+    onValueChange,
+    placeholder = "Choose an option",
+    disabled = false,
+  },
+  ref,
+) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
   const { overlayNode } = usePortalRoots();
@@ -133,6 +141,7 @@ export function Select({
       >
         <SelectPrimitive.Trigger
           id={inputId}
+          ref={ref}
           aria-describedby={fieldDescribedBy({
             inputId,
             description,
@@ -190,4 +199,5 @@ export function Select({
       </SelectPrimitive.Root>
     </FieldChrome>
   );
-}
+});
+Select.displayName = "Select";

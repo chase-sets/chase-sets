@@ -1,4 +1,4 @@
-import { useId, type InputHTMLAttributes } from "react";
+import { forwardRef, useId, type InputHTMLAttributes } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
 import { InputAddon } from "./input-addon";
@@ -7,19 +7,22 @@ import { FieldChrome, controlClass, controlErrorClass, fieldDescribedBy, type Ba
 export interface TextInputProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, "className" | "style" | "size">, BaseInputProps {}
 
-export function TextInput({
-  id,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  type = "text",
-  "aria-describedby": ariaDescribedBy,
-  ...rest
-}: TextInputProps) {
+export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function TextInput(
+  {
+    id,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    type = "text",
+    "aria-describedby": ariaDescribedBy,
+    ...rest
+  },
+  ref,
+) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
 
@@ -37,6 +40,7 @@ export function TextInput({
       <input
         {...rest}
         id={inputId}
+        ref={ref}
         required={required}
         type={type}
         aria-describedby={fieldDescribedBy({
@@ -52,22 +56,26 @@ export function TextInput({
       />
     </FieldChrome>
   );
-}
+});
+TextInput.displayName = "TextInput";
 
 export interface SearchInputProps extends TextInputProps {}
 
-export function SearchInput({
-  id,
-  label = "Search",
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  "aria-describedby": ariaDescribedBy,
-  ...rest
-}: SearchInputProps) {
+export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(function SearchInput(
+  {
+    id,
+    label = "Search",
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    "aria-describedby": ariaDescribedBy,
+    ...rest
+  },
+  ref,
+) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
 
@@ -86,6 +94,7 @@ export function SearchInput({
         <input
           {...rest}
           id={inputId}
+          ref={ref}
           required={required}
           type="search"
           aria-describedby={fieldDescribedBy({
@@ -102,10 +111,12 @@ export function SearchInput({
       </InputAddon>
     </FieldChrome>
   );
-}
+});
+SearchInput.displayName = "SearchInput";
 
 export interface DateInputProps extends TextInputProps {}
 
-export function DateInput(props: DateInputProps) {
-  return <TextInput {...props} type="date" />;
-}
+export const DateInput = forwardRef<HTMLInputElement, DateInputProps>(function DateInput(props, ref) {
+  return <TextInput {...props} ref={ref} type="date" />;
+});
+DateInput.displayName = "DateInput";

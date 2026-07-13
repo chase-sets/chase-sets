@@ -1,4 +1,5 @@
 import {
+  forwardRef,
   useCallback,
   useEffect,
   useId,
@@ -129,16 +130,19 @@ export interface CalendarProps {
  * `DatePicker` for a popover-backed form field; reach for `Calendar` directly
  * only when embedding a grid inline.
  */
-export function Calendar({
-  value,
-  defaultFocusedDate,
-  onValueChange,
-  onDaySelect,
-  id,
-  "aria-label": ariaLabel,
-  "aria-labelledby": ariaLabelledBy,
-  "aria-describedby": ariaDescribedBy,
-}: CalendarProps) {
+export const Calendar = forwardRef<HTMLButtonElement, CalendarProps>(function Calendar(
+  {
+    value,
+    defaultFocusedDate,
+    onValueChange,
+    onDaySelect,
+    id,
+    "aria-label": ariaLabel,
+    "aria-labelledby": ariaLabelledBy,
+    "aria-describedby": ariaDescribedBy,
+  },
+  ref,
+) {
   const fallbackId = useId();
   const gridId = id ?? fallbackId;
   const selected = useMemo(() => parseIsoDate(value), [value]);
@@ -303,7 +307,18 @@ export function Calendar({
               return (
                 <div role="gridcell" key={dayIndex} aria-selected={isSelected}>
                   <button
-                    ref={isFocused ? focusedDayRef : undefined}
+                    ref={
+                      isFocused
+                        ? (node) => {
+                            focusedDayRef.current = node;
+                            if (typeof ref === "function") {
+                              ref(node);
+                            } else if (ref) {
+                              ref.current = node;
+                            }
+                          }
+                        : undefined
+                    }
                     type="button"
                     tabIndex={isFocused ? 0 : -1}
                     aria-label={formatDayLabel(day)}
@@ -327,7 +342,8 @@ export function Calendar({
       </div>
     </div>
   );
-}
+});
+Calendar.displayName = "Calendar";
 
 export interface DatePickerProps extends BaseInputProps {
   name?: string;
@@ -351,24 +367,27 @@ function defaultFormatValue(value: CalendarDate): ReactNode {
  * A date field rendered as a popover-backed calendar. Integrates with the form
  * chrome (label, description, error) and emits ISO `YYYY-MM-DD` values.
  */
-export function DatePicker({
-  id,
-  name,
-  form,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  value,
-  defaultValue,
-  onValueChange,
-  placeholder = "Select a date",
-  disabled = false,
-  formatValue = defaultFormatValue,
-}: DatePickerProps) {
+export const DatePicker = forwardRef<HTMLButtonElement, DatePickerProps>(function DatePicker(
+  {
+    id,
+    name,
+    form,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    value,
+    defaultValue,
+    onValueChange,
+    placeholder = "Select a date",
+    disabled = false,
+    formatValue = defaultFormatValue,
+  },
+  ref,
+) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
   const { overlayNode } = usePortalRoots();
@@ -408,6 +427,7 @@ export function DatePicker({
       <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
         <PopoverPrimitive.Trigger
           id={inputId}
+          ref={ref}
           disabled={disabled}
           aria-describedby={describedBy}
           aria-invalid={!!error || undefined}
@@ -446,4 +466,5 @@ export function DatePicker({
       </PopoverPrimitive.Root>
     </FieldChrome>
   );
-}
+});
+DatePicker.displayName = "DatePicker";

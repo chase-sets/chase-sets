@@ -34,6 +34,10 @@ export function ValidationMessageList({ messages }: ValidationMessageListProps) 
 }
 
 function focusValidationTarget(fieldId: string) {
+  // ValidationSummary only receives stable field ids, so the id remains the
+  // compatibility bridge for controls whose refs now point at their natural
+  // focus target. A ref registry here would add context and lifecycle coupling
+  // without improving the public ValidationSummary contract.
   const target = document.getElementById(fieldId);
   if (!target) {
     return;

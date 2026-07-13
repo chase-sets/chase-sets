@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { forwardRef, useEffect, useId, useRef, useState } from "react";
 // The indeterminate/checked indicator imports lucide icons directly: the DS `Icon`
 // does not expose the precise `strokeWidth`/sizing this 16px in-control glyph needs.
 // Documented leaf — keep the raw lucide import here.
@@ -20,24 +20,27 @@ export interface CheckboxProps extends BaseInputProps {
   form?: string;
 }
 
-export function Checkbox({
-  id,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  checked,
-  defaultChecked,
-  onCheckedChange,
-  disabled = false,
-  readOnly = false,
-  name,
-  value,
-  form,
-}: CheckboxProps) {
+export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Checkbox(
+  {
+    id,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    checked,
+    defaultChecked,
+    onCheckedChange,
+    disabled = false,
+    readOnly = false,
+    name,
+    value,
+    form,
+  },
+  ref,
+) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -72,7 +75,14 @@ export function Checkbox({
       >
         <input
           id={inputId}
-          ref={inputRef}
+          ref={(node) => {
+            inputRef.current = node;
+            if (typeof ref === "function") {
+              ref(node);
+            } else if (ref) {
+              ref.current = node;
+            }
+          }}
           type="checkbox"
           name={name}
           value={value}
@@ -130,7 +140,8 @@ export function Checkbox({
       </label>
     </FieldChrome>
   );
-}
+});
+Checkbox.displayName = "Checkbox";
 
 export interface CheckboxGroupProps extends BaseInputProps {
   items: SelectItem[];
@@ -142,23 +153,26 @@ export interface CheckboxGroupProps extends BaseInputProps {
   readOnly?: boolean;
 }
 
-export function CheckboxGroup({
-  id,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  items,
-  values,
-  onValuesChange,
-  name,
-  form,
-  disabled = false,
-  readOnly = false,
-}: CheckboxGroupProps) {
+export const CheckboxGroup = forwardRef<HTMLInputElement, CheckboxGroupProps>(function CheckboxGroup(
+  {
+    id,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    items,
+    values,
+    onValuesChange,
+    name,
+    form,
+    disabled = false,
+    readOnly = false,
+  },
+  ref,
+) {
   const fallbackId = useId();
   const groupId = id ?? fallbackId;
   const legendId = `${groupId}-legend`;
@@ -189,12 +203,13 @@ export function CheckboxGroup({
           </legend>
         ) : null}
         <div className="space-y-2">
-          {items.map((item) => {
+          {items.map((item, index) => {
             const checked = values.includes(item.value);
 
             return (
               <Checkbox
                 key={item.value}
+                ref={index === 0 ? ref : undefined}
                 label={item.label}
                 description={item.description}
                 disabled={disabled}
@@ -214,4 +229,5 @@ export function CheckboxGroup({
       </fieldset>
     </FieldChrome>
   );
-}
+});
+CheckboxGroup.displayName = "CheckboxGroup";

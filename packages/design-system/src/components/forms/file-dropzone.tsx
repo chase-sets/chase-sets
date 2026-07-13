@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { forwardRef, useId, useRef, useState } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
 import { FieldChrome, fieldDescribedBy, type BaseInputProps } from "./shared";
@@ -14,23 +14,26 @@ export interface FileDropzoneProps extends BaseInputProps {
   browseLabel?: string;
 }
 
-export function FileDropzone({
-  id,
-  name,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  form,
-  accept,
-  multiple = false,
-  onFilesChange,
-  dropLabel = "Drop files here",
-  browseLabel = "or choose from your device",
-}: FileDropzoneProps) {
+export const FileDropzone = forwardRef<HTMLInputElement, FileDropzoneProps>(function FileDropzone(
+  {
+    id,
+    name,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    form,
+    accept,
+    multiple = false,
+    onFilesChange,
+    dropLabel = "Drop files here",
+    browseLabel = "or choose from your device",
+  },
+  ref,
+) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -86,7 +89,14 @@ export function FileDropzone({
           <div className="text-xs text-secondary">{browseLabel}</div>
         </div>
         <input
-          ref={inputRef}
+          ref={(node) => {
+            inputRef.current = node;
+            if (typeof ref === "function") {
+              ref(node);
+            } else if (ref) {
+              ref.current = node;
+            }
+          }}
           id={inputId}
           name={name}
           form={form}
@@ -102,4 +112,5 @@ export function FileDropzone({
       </label>
     </FieldChrome>
   );
-}
+});
+FileDropzone.displayName = "FileDropzone";

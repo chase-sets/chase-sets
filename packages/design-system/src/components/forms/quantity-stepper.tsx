@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { forwardRef, useId } from "react";
 import { NumberField as NumberFieldPrimitive } from "@base-ui/react/number-field";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
@@ -35,28 +35,31 @@ export interface QuantityStepperProps extends BaseInputProps {
  * Native number-input spinner chevrons are suppressed globally in styles.css;
  * this component inherits that suppression automatically.
  */
-export function QuantityStepper({
-  id,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  name,
-  form,
-  value,
-  defaultValue,
-  onValueChange,
-  min = 0,
-  max,
-  step = 1,
-  disabled = false,
-  loading = false,
-  decrementLabel = "Decrease quantity",
-  incrementLabel = "Increase quantity",
-}: QuantityStepperProps) {
+export const QuantityStepper = forwardRef<HTMLInputElement, QuantityStepperProps>(function QuantityStepper(
+  {
+    id,
+    label,
+    description,
+    error,
+    status,
+    counter,
+    required,
+    hideLabel,
+    name,
+    form,
+    value,
+    defaultValue,
+    onValueChange,
+    min = 0,
+    max,
+    step = 1,
+    disabled = false,
+    loading = false,
+    decrementLabel = "Decrease quantity",
+    incrementLabel = "Increase quantity",
+  },
+  ref,
+) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
   const isInteractionDisabled = disabled || loading;
@@ -105,6 +108,7 @@ export function QuantityStepper({
             <Icon name="minus" size="sm" />
           </NumberFieldPrimitive.Decrement>
           <NumberFieldPrimitive.Input
+            ref={ref}
             role="spinbutton"
             inputMode="numeric"
             aria-label={label ? undefined : "Quantity"}
@@ -127,4 +131,5 @@ export function QuantityStepper({
       </NumberFieldPrimitive.Root>
     </FieldChrome>
   );
-}
+});
+QuantityStepper.displayName = "QuantityStepper";
