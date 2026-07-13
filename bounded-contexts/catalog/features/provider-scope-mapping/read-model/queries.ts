@@ -27,6 +27,25 @@ export type ProviderScopeMappingRow = Readonly<{
   updated_at: string;
 }>;
 
+// Attention queue: provider scope mappings still awaiting review. A
+// `proposed` mapping is a scope a provider unit produced that no operator has
+// accepted or rejected yet — the "unmapped scope" that needs a human.
+export async function listProposedProviderScopeMappings(
+  db: PgQueryable,
+  options: Readonly<{ limit?: number }> = {},
+): Promise<readonly ProviderScopeMappingRow[]> {
+  const limit = Math.min(1000, Math.max(1, Math.trunc(options.limit ?? 200)));
+  const result = await db.query<ProviderScopeMappingRow>(
+    `SELECT *
+     FROM catalog_provider_scope_mappings
+     WHERE review_status = 'proposed'
+     ORDER BY proposed_at ASC, mapping_id ASC
+     LIMIT ${limit}`,
+  );
+
+  return result.rows;
+}
+
 export async function listAcceptedProviderScopeMappingsByScopeRecord(
   db: PgQueryable,
   scopeRecordId: string,

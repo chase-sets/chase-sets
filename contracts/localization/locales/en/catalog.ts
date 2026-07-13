@@ -5,6 +5,7 @@ import { catalogSourceObservationsApiDetailMappingEnglishTranslations } from "./
 import { catalogSourceObservationsWorkbenchOperationsEnglishTranslations } from "./catalog/source-observations-workbench-operations";
 import { catalogSourceObservationsControlPlaneEnglishTranslations } from "./catalog/source-observations-control-plane";
 import { catalogSourceObservationsAliasReviewEnglishTranslations } from "./catalog/source-observations-alias-review";
+import { catalogAttentionQueueEnglishTranslations } from "./catalog/attention-queue";
 import { catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations } from "./catalog/source-observations-workbench-health-copy";
 import { catalogSourceObservationsWorkbenchProfileValidationEnglishTranslations } from "./catalog/source-observations-workbench-profile-validation";
 import { catalogRoutesEnglishTranslations } from "./catalog/routes";
@@ -57,6 +58,7 @@ const catalogEnglishTranslationParts = defineCatalogTranslationParts(
   catalogSourceObservationsWorkbenchOperationsEnglishTranslations,
   catalogSourceObservationsControlPlaneEnglishTranslations,
   catalogSourceObservationsAliasReviewEnglishTranslations,
+  catalogAttentionQueueEnglishTranslations,
   catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations,
   catalogSourceObservationsWorkbenchProfileValidationEnglishTranslations,
   catalogRoutesEnglishTranslations,
@@ -84,6 +86,7 @@ export const catalogEnglishTranslations = defineCatalogTranslations({
   ...catalogSourceObservationsWorkbenchOperationsEnglishTranslations,
   ...catalogSourceObservationsControlPlaneEnglishTranslations,
   ...catalogSourceObservationsAliasReviewEnglishTranslations,
+  ...catalogAttentionQueueEnglishTranslations,
   ...catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations,
   ...catalogSourceObservationsWorkbenchProfileValidationEnglishTranslations,
   ...catalogRoutesEnglishTranslations,

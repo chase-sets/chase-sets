@@ -4,6 +4,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { CatalogServices } from "./services";
 import { catalogAliasRoutes } from "../../features/alias-equivalence/api/route";
+import { catalogAttentionQueueRoutes } from "../../features/attention-queue/api/route";
 import { blueprintRoutes } from "../../features/blueprints/api/route";
 import { catalogItemRoutes } from "../../features/catalog-items/api/route";
 import { categoryRoutes } from "../../features/categories/api/route";
@@ -93,6 +94,7 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
     sourceObservationRoutes(services.sourceObservations, services.providerIntegrationProfiles),
   );
   app.route("/alias-review", catalogAliasRoutes(services.catalogAliases));
+  app.route("/attention-queue", catalogAttentionQueueRoutes(services.attentionQueue));
 
   return app;
 }

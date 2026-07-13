@@ -53,6 +53,7 @@ import {
 import type { CatalogControlPlaneRouteSurfaceKey } from "../../../features/source-observations/ui/admin-control-plane/information-architecture";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import type { CatalogAliasReviewReadModel } from "../../../features/alias-equivalence/api/alias-review-admin-contracts";
+import type { CatalogAttentionQueueReadModel } from "../../../features/attention-queue/api/contracts";
 import { CatalogApiError } from "../../../client";
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { integrationScopeFromContext } from "./integrations-command-context";
@@ -284,7 +285,25 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
     deferredCatalogSyncRun: selectedCatalogSyncRun(api, readModel.routeContext),
     deferredScopeSyncState: selectedCatalogScopeSyncState(api, readModel.catalogSync),
     deferredAliasReview: selectedScopeAliasReview(api, readModel.routeContext),
+    deferredAttentionQueue: selectedAttentionQueue(api),
   };
+}
+
+// Fetch the unified attention queue for the daily home surface. Like the
+// alias review, it is supplementary "needs-you" context streamed behind an Await
+// boundary: a missing endpoint (older API) or a transient failure resolves to
+// null so the import-to-promotion workflow is never blocked by the queue.
+async function selectedAttentionQueue(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+): Promise<CatalogAttentionQueueReadModel | null> {
+  if (typeof api.getCatalogAttentionQueueReadModel !== "function") {
+    return null;
+  }
+  try {
+    return await api.getCatalogAttentionQueueReadModel<CatalogAttentionQueueReadModel>();
+  } catch {
+    return null;
+  }
 }
 
 function normalizedDailyRouteContext(

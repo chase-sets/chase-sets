@@ -2013,6 +2013,38 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async getCatalogAttentionQueueReadModel<T>(): Promise<T> {
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/attention-queue`, {
+        method: "GET",
+        headers: headersToRecord(headers),
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async dispatchCatalogAttentionQueueCommand<T>(input: {
+      intent: "dismiss" | "defer" | "restore";
+      itemKey: string;
+      kind?: string;
+      reason?: string;
+      deferredUntil?: string;
+      deferHours?: number;
+    }): Promise<T> {
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/attention-queue/commands`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...headersToRecord(headers),
+        },
+        body: JSON.stringify({
+          intent: input.intent,
+          itemKey: input.itemKey,
+          ...(input.kind !== undefined ? { kind: input.kind } : {}),
+          ...(input.reason !== undefined ? { reason: input.reason } : {}),
+          ...(input.deferredUntil !== undefined ? { deferredUntil: input.deferredUntil } : {}),
+          ...(input.deferHours !== undefined ? { deferHours: input.deferHours } : {}),
+        }),
+      });
+      return parseJsonResponse<T>(response);
+    },
   };
 }
 

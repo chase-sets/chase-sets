@@ -3,6 +3,7 @@ import { durableJobSchemaMigrations, durableJobSchemaSql } from "@chase-sets/pla
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { catalogAliasEquivalenceSchemaSql } from "../../features/alias-equivalence/read-model/schema";
+import { catalogAttentionDismissalSchemaSql } from "../../features/attention-queue/read-model/dismissal-schema";
 import { catalogBlueprintSchemaSql } from "../../features/blueprints/read-model/schema";
 import {
   catalogCatalogItemSchemaMigrations,
@@ -50,6 +51,7 @@ export const catalogAuthoringSchemaSql = [
   }),
   catalogSourceObservationSchemaSql,
   catalogAliasEquivalenceSchemaSql,
+  catalogAttentionDismissalSchemaSql,
   realtimeOutboxSchemaSql,
 ].join("\n\n");
 
