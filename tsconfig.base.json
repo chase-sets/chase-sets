@@ -540,6 +540,9 @@
       "@chase-sets/payments/server": [
         "./bounded-contexts/payments/server.ts"
       ],
+      "@chase-sets/payments/web": [
+        "./bounded-contexts/payments/web.ts"
+      ],
       "@chase-sets/platform-operations": [
         "./bounded-contexts/platform-operations/index.ts"
       ],
