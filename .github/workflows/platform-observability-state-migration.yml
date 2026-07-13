@@ -434,6 +434,7 @@ jobs:
           terraform -chdir="$local_module" plan \
             -input=false \
             -lock=false \
+            -state="$shared_work" \
             -out="$local_plan"
           terraform -chdir="$local_module" show -json "$local_plan" > "$local_plan_json"
           verify_plan "$local_plan_json" local
