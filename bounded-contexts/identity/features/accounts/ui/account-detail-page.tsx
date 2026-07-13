@@ -5,6 +5,7 @@ import {
   Form,
   Button,
   Inline,
+  LinkButton,
   NativeSelect,
   Stack,
   TextInput,
@@ -13,7 +14,20 @@ import { grantableRoleSelectItems } from "../../memberships/ui/role-select-items
 import { AccountBadgeList, accountBadgeLabel, accountBadgeKeys, accountBadgeLabels } from "./account-badges";
 import type { Account } from "./contracts";
 
-export function AccountDetailPage({ data }: { data: Account }) {
+// Settlement owns the wallet-adjustments.view permission (ADR 0020); this link only
+// crosses from the access section into the commerce section when the signed-in admin
+// actually holds it, so an unauthorized operator never sees a dead end.
+function hasPermission(actorPermissions: readonly string[], permission: string) {
+  return actorPermissions.includes(permission);
+}
+
+export function AccountDetailPage({
+  data,
+  actorPermissions = [],
+}: {
+  data: Account;
+  actorPermissions?: readonly string[];
+}) {
   return (
     <AdminResourceDetailPage
       breadcrumbs={[
@@ -25,6 +39,14 @@ export function AccountDetailPage({ data }: { data: Account }) {
       status={data.status}
       actions={
         <Inline gap={2}>
+          {hasPermission(actorPermissions, "wallet-adjustments.view") ? (
+            <LinkButton
+              href={`/commerce/wallet-workbench/${data.account_id}?accountName=${encodeURIComponent(data.display_name)}`}
+              tone="secondary"
+            >
+              {t("identity.features.accounts.ui.accountDetailPage.view.wallet")}
+            </LinkButton>
+          ) : null}
           <Form spacing="none" method="post">
             <Stack direction="row" align="end" gap={2}>
               <HiddenInput type="hidden" name="intent" value="update-profile" readOnly />

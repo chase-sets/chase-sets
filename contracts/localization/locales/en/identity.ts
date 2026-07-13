@@ -24,6 +24,7 @@ export const identityEnglishTranslations = {
   "identity.features.accounts.ui.accountDetailPage.suspend": "Suspend",
   "identity.features.accounts.ui.accountDetailPage.update.profile": "Update Profile",
   "identity.features.accounts.ui.accountDetailPage.updated.at": "Updated At",
+  "identity.features.accounts.ui.accountDetailPage.view.wallet": "View Wallet",
   "identity.features.accounts.ui.accountListPage.accounts": "Accounts",
   "identity.features.accounts.ui.accountListPage.apply.filters": "Apply filters",
   "identity.features.accounts.ui.accountListPage.clear.filters": "Clear filters",

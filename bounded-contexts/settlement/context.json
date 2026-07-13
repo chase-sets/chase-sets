@@ -317,6 +317,14 @@
           "routeType": "route",
           "sourceContext": "settlement",
           "section": "commerce"
+        },
+        {
+          "routeId": "settlement-wallet-workbench",
+          "routePath": "wallet-workbench/:accountId",
+          "fileExport": "./routes/admin/wallet-workbench",
+          "routeType": "route",
+          "sourceContext": "settlement",
+          "section": "commerce"
         }
       ]
     },
@@ -534,6 +542,31 @@
           "bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.test.ts",
           "bounded-contexts/settlement/features/wallets/api/wallet-adjustment-preview.test.ts",
           "bounded-contexts/settlement/features/wallets/api/wallet-adjustment-runtime.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "settlement.wallet-workbench-route-snapshot-correction",
+      "owner": "settlement",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/settlement/features/wallets/ui/wallet-workbench-page.tsx:H901edc92b88e#1",
+        "post-form:bounded-contexts/settlement/features/wallets/ui/wallet-workbench-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/settlement/features/wallets/ui/wallet-workbench-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/settlement/features/wallets/ui/wallet-workbench-page.tsx:H2df726441e2a#3",
+        "route-action:bounded-contexts/settlement/routes/admin/wallet-workbench.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "settlement-wallet-workbench",
+        "description": "The wallet workbench's request/approve/reject/reverse forms return the command-owned Wallet Adjustment snapshot(s) from the route action and render them immediately (including as a projection-catching-up notice merged ahead of the adjustment-history table), matching the wallet-adjustment API's own snapshot-return contract instead of waiting on the wallet-adjustment or ledger read models to converge."
+      },
+      "proof": {
+        "authoritativeResponse": "The wallet-workbench action forwards to requestWalletAdjustment/approveWalletAdjustment/rejectWalletAdjustment/reverseWalletAdjustment, each of which already returns the command-owned snapshot per settlement.wallet-adjustment-api-command-snapshots; the route action passes that snapshot straight back as actionData, and the page merges any snapshot not yet present in the loaded adjustment-history page into the table with an explicit catching-up notice.",
+        "tests": [
+          "bounded-contexts/settlement/routes/admin/wallet-workbench-route.test.ts",
+          "bounded-contexts/settlement/features/wallets/ui/wallet-workbench-page.test.tsx",
+          "bounded-contexts/settlement/features/wallets/api/wallet-adjustment-route.test.ts"
         ]
       }
     },

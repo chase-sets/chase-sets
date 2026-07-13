@@ -102,6 +102,18 @@ describe("Access Admin detail pages", () => {
     expect(html).toContain("Assign Manual Payout Review badge");
     expect(html).toContain("Assign Trusted Seller badge");
     expect(html).not.toMatch(/<h1[^>]*><div/);
+    expect(html).not.toContain("/commerce/wallet-workbench/");
+  });
+
+  it("links to the Settlement-owned wallet workbench only when the actor holds wallet-adjustments.view", () => {
+    const withoutPermission = renderToString(<AccountDetailPage data={account} actorPermissions={[]} />);
+    expect(withoutPermission).not.toContain("/commerce/wallet-workbench/");
+
+    const withPermission = renderToString(
+      <AccountDetailPage data={account} actorPermissions={["wallet-adjustments.view"]} />,
+    );
+    expect(withPermission).toContain(`/commerce/wallet-workbench/${account.account_id}`);
+    expect(withPermission).toContain("View Wallet");
   });
 
   it("gives API key details the shared breadcrumb and action structure", () => {
