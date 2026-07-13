@@ -63,3 +63,60 @@ test.describe("admin cross-cutting API topology", () => {
     expectControlledAccountRealtimeProbe(path, await probeAccountRealtimeEndpoint(page, path));
   });
 });
+
+test.describe("admin cross-cutting error state", () => {
+  for (const viewport of [
+    { name: "desktop", width: 1280, height: 800 },
+    { name: "mobile", width: 390, height: 844 },
+  ] as const) {
+    test(`unknown admin route renders the shared not-found shell on ${viewport.name} @admin-cross-cutting`, async ({
+      page,
+    }) => {
+      test.setTimeout(120_000);
+      test.skip(
+        skipDeployedAdminE2e,
+        "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+      );
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await authenticateAdmin(page, "/access/accounts", "/access/sign-in");
+
+      const response = await page.goto("/access/admin-cross-cutting-topology-smoke-missing-route", {
+        waitUntil: "domcontentloaded",
+        timeout: 90_000,
+      });
+
+      // React Router renders the shared root ErrorBoundary client-side for an unmatched route;
+      // the document response itself must never be a host-level static 404/HTML fallback.
+      expect(response?.status() ?? 0, "unknown admin route should not be a host-level failure").toBeLessThan(500);
+      await expect(page.getByRole("heading", { name: "Admin page not found" })).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByRole("link", { name: "Go to admin home" })).toBeVisible();
+
+      // The technical detail disclosure must never render a raw stack trace or bare object dump;
+      // any thrown detail routes through the same redaction the root ErrorBoundary applies.
+      const bodyText = await page.locator("body").innerText();
+      expect(bodyText).not.toMatch(/\bat\s+\S+\s+\(.*:\d+:\d+\)/);
+    });
+  }
+
+  test("mobile shell has no horizontal overflow on the admin landing route @admin-cross-cutting", async ({ page }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await authenticateAdmin(page, "/access/accounts", "/access/sign-in");
+    await expectPageOk(page, "/access/accounts");
+
+    const overflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(
+      overflow.scrollWidth,
+      `mobile admin shell should not overflow horizontally (scrollWidth=${overflow.scrollWidth}, clientWidth=${overflow.clientWidth})`,
+    ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+  });
+});
