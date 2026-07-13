@@ -1,5 +1,5 @@
 import type { CheckoutFulfillmentPreview, CheckoutSessionRow } from "../../../support/request-support/api-client";
-import type { PaymentsPaymentDetail } from "@chase-sets/payments/web";
+import type { ReactNode } from "react";
 
 export type CheckoutPaymentPreview = Readonly<{
   currency_code: string;
@@ -101,6 +101,5 @@ export type CheckoutSessionPageProps = {
   isSignedInBuyer?: boolean;
   initialEditSection?: CheckoutEditSection | null;
   autoResumePaymentStart?: boolean;
-  preparedPayment?: PaymentsPaymentDetail | null;
-  preparedPaymentBuyerEmail?: string | null;
+  preparedPaymentEntry?: ReactNode;
 };

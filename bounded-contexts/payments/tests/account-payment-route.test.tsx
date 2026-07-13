@@ -112,6 +112,20 @@ const walletElementOptions = {
   },
 };
 
+const paymentElementDefaultValues = {
+  billingDetails: {
+    email: "buyer@example.com",
+    name: "Buyer",
+    address: {
+      line1: "1 Main St",
+      city: "Maize",
+      state: "KS",
+      postal_code: "67101",
+      country: "US",
+    },
+  },
+};
+
 const { mockUseActionData, mockUseLoaderData, mockUseRevalidator } = vi.hoisted(() => ({
   mockUseActionData: vi.fn(),
   mockUseLoaderData: vi.fn(),
@@ -520,7 +534,7 @@ describe("marketplace account payment route", () => {
         contactName: "Jane Smith",
       },
       showSupportDetails: false,
-      buyerEmail: null,
+      paymentElementDefaultValues: null,
     });
 
     render(
@@ -557,7 +571,7 @@ describe("marketplace account payment route", () => {
         contactName: "Jane Smith",
       },
       showSupportDetails: false,
-      buyerEmail: null,
+      paymentElementDefaultValues: null,
     });
 
     render(
@@ -589,7 +603,7 @@ describe("marketplace account payment route", () => {
         processor_publishable_key: "pk_test_123",
       }),
       orders: [buildPurchase()],
-      buyerEmail: "buyer@example.com",
+      paymentElementDefaultValues,
     });
 
     (window as StripeWindow).Stripe = vi.fn(() => ({
@@ -637,13 +651,44 @@ describe("marketplace account payment route", () => {
     });
     expect(elementsCreate).toHaveBeenCalledWith("payment", {
       ...walletElementOptions,
-      defaultValues: {
-        billingDetails: {
-          email: "buyer@example.com",
-        },
-      },
+      defaultValues: paymentElementDefaultValues,
     });
     expect(paymentElement.mount).toHaveBeenCalled();
+  });
+
+  it("surfaces a missing buyer email before confirmation and does not initialize Stripe", () => {
+    const stripeFactory = vi.fn();
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "pi_secret_123",
+        processor_publishable_key: "pk_test_123",
+      }),
+      orders: [
+        buildPurchase({
+          shipping_destination_snapshot: {
+            name: "Buyer",
+            line1: "1 Main St",
+            city: "Maize",
+            state: "KS",
+            postalCode: "67101",
+            country: "US",
+            email: null,
+          },
+        }),
+      ],
+      paymentElementDefaultValues: null,
+    });
+    (window as StripeWindow).Stripe = stripeFactory;
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    expect(screen.getByRole("alert").textContent).toContain("buyer email address is required");
+    expect(screen.getByRole("button", { name: "Confirm payment" }).hasAttribute("disabled")).toBe(true);
+    expect(stripeFactory).not.toHaveBeenCalled();
   });
 
   it("loads versioned Stripe.js for Checkout Sessions", async () => {
@@ -654,7 +699,7 @@ describe("marketplace account payment route", () => {
         processor_payment_kind: "checkout-session",
       }),
       orders: [buildPurchase()],
-      buyerEmail: "buyer@example.com",
+      paymentElementDefaultValues,
     });
 
     render(
@@ -694,7 +739,7 @@ describe("marketplace account payment route", () => {
         processor_payment_kind: "checkout-session",
       }),
       orders: [buildPurchase()],
-      buyerEmail: "buyer@example.com",
+      paymentElementDefaultValues,
     });
 
     (window as StripeWindow).Stripe = vi.fn(() => ({
@@ -738,11 +783,7 @@ describe("marketplace account payment route", () => {
     expect(initCheckoutOptions?.elementsOptions.appearance.rules).toBeUndefined();
     expect(createPaymentElement).toHaveBeenCalledWith({
       ...walletElementOptions,
-      defaultValues: {
-        billingDetails: {
-          email: "buyer@example.com",
-        },
-      },
+      defaultValues: paymentElementDefaultValues,
     });
     expect(paymentElement.mount).toHaveBeenCalled();
   });
@@ -765,6 +806,7 @@ describe("marketplace account payment route", () => {
         processor_publishable_key: "pk_test_123",
       }),
       orders: [buildPurchase()],
+      paymentElementDefaultValues,
     });
 
     (window as StripeWindow).Stripe = vi.fn(() => ({
@@ -822,7 +864,7 @@ describe("marketplace account payment route", () => {
         processor_payment_kind: "checkout-session",
       }),
       orders: [buildPurchase()],
-      buyerEmail: "buyer@example.com",
+      paymentElementDefaultValues,
     });
 
     (window as StripeWindow).Stripe = vi.fn(() => ({
@@ -873,6 +915,7 @@ describe("marketplace account payment route", () => {
         processor_publishable_key: "pk_test_123",
       }),
       orders: [buildPurchase()],
+      paymentElementDefaultValues,
     });
 
     (window as StripeWindow).Stripe = vi.fn(() => ({
@@ -912,6 +955,7 @@ describe("marketplace account payment route", () => {
         processor_publishable_key: "pk_test_123",
       }),
       orders: [buildPurchase()],
+      paymentElementDefaultValues,
     });
 
     (window as StripeWindow).Stripe = vi.fn(() => ({
@@ -948,6 +992,7 @@ describe("marketplace account payment route", () => {
         processor_publishable_key: "pk_test_123",
       }),
       orders: [buildPurchase()],
+      paymentElementDefaultValues,
     });
 
     (window as StripeWindow).Stripe = vi.fn(() => ({
@@ -993,6 +1038,7 @@ describe("marketplace account payment route", () => {
         processor_publishable_key: "pk_test_123",
       }),
       orders: [buildPurchase()],
+      paymentElementDefaultValues,
     });
 
     (window as StripeWindow).Stripe = vi.fn(() => ({

@@ -42,7 +42,7 @@ export function AccountPaymentPage({
   orders,
   isGuestCheckoutPayment,
   showSupportDetails,
-  buyerEmail,
+  paymentElementDefaultValues,
   retryActionError,
   feedbackPrompt,
   guestClaimSection,
@@ -119,7 +119,7 @@ export function AccountPaymentPage({
   const paymentEntry = (
     <PageSection title={t("payments.routes.marketplace.accountPayment.secure.payment.2")}>
       {payment.processor_client_secret && payment.processor_publishable_key ? (
-        <StripeConfirmationCard payment={payment} buyerEmail={buyerEmail} />
+        <StripeConfirmationCard payment={payment} defaultValues={paymentElementDefaultValues} />
       ) : payment.processor_redirect_url ? (
         <Surface elevated glow>
           <Stack gap={3}>

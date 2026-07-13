@@ -1593,6 +1593,16 @@ describe("checkout web routes: checkout session loader", () => {
         lines: [],
         order_ids: ["ord_1"],
         payment_id: "pay_1",
+        shipping_address: {
+          name: "Jane Smith",
+          line1: "100 Market Street",
+          line2: "Suite 2",
+          city: "Chicago",
+          state: "IL",
+          postalCode: "60601",
+          country: "US",
+          email: "jane@example.com",
+        },
         created_at: "2026-04-01T00:00:00.000Z",
         updated_at: "2026-04-01T00:00:00.000Z",
       })),
@@ -1605,7 +1615,23 @@ describe("checkout web routes: checkout session loader", () => {
     } as never);
 
     expect(result).toEqual(
-      expect.objectContaining({ preparedPayment: { payment_id: "pay_1", status: "pending-confirmation" } }),
+      expect.objectContaining({
+        preparedPayment: { payment_id: "pay_1", status: "pending-confirmation" },
+        paymentElementDefaultValues: {
+          billingDetails: {
+            email: "jane@example.com",
+            name: "Jane Smith",
+            address: {
+              line1: "100 Market Street",
+              line2: "Suite 2",
+              city: "Chicago",
+              state: "IL",
+              postal_code: "60601",
+              country: "US",
+            },
+          },
+        },
+      }),
     );
   });
 

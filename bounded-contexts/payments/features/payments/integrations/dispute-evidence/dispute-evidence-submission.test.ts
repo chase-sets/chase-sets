@@ -58,6 +58,7 @@ function orderRow() {
     order_id: "ord_1",
     buyer_account_id: "acc_buyer",
     buyer_email: "buyer@example.test",
+    shipping_destination_snapshot: null,
     seller_account_id: "acc_seller",
     sales_tax_amount: "0.00",
     total_amount: "42.00",

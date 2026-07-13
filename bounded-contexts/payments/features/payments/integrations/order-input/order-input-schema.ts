@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS payments_order_inputs (
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
   cancelled_at timestamptz NULL,
-  ready_for_fulfillment_at timestamptz NULL
+  ready_for_fulfillment_at timestamptz NULL,
+  shipping_destination_snapshot jsonb NULL
 );
 
 CREATE INDEX IF NOT EXISTS payments_order_inputs_buyer_status_idx
@@ -130,5 +131,10 @@ export const paymentsOrderInputSchemaMigrations = [
       `ALTER TABLE payments_order_inputs
   ADD COLUMN IF NOT EXISTS marketplace_sales_fee_lines jsonb NOT NULL DEFAULT '[]'::jsonb`,
     ],
+  },
+  {
+    migrationId: "20260713_payments_order_inputs_shipping_destination_snapshot",
+    description: "Carry Ordering's immutable buyer destination snapshot into the payment entry read model.",
+    statements: [`ALTER TABLE payments_order_inputs ADD COLUMN IF NOT EXISTS shipping_destination_snapshot jsonb NULL`],
   },
 ] as const;

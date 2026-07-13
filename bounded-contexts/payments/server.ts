@@ -4,6 +4,7 @@ export { normalizeRequestedBalanceCreditAmount } from "./features/payments/api/b
 export type { PaymentServices } from "./features/payments/api/runtime";
 export type { PaymentsCheckoutStatus } from "./features/payments/api/contracts";
 export type { PaymentsPaymentDetail } from "./features/payments/api/contracts";
+export type { PaymentElementDefaultValues } from "./features/payments/ui/account-payment/account-payment-contracts";
 export {
   marketplaceCheckoutFeePaymentMethodCategories,
   normalizeMarketplaceCheckoutFeePaymentMethodCategory,

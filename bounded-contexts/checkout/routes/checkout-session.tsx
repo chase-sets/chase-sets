@@ -48,9 +48,11 @@ import {
 import { createIdentityRequestApiClient } from "@chase-sets/identity/server";
 import {
   createPaymentsRequestApiClient,
+  type PaymentElementDefaultValues,
   type PaymentsPaymentDetail,
   type PaymentsSavedCheckoutInstrument,
 } from "@chase-sets/payments/server";
+import { StripeConfirmationCard } from "@chase-sets/payments/web";
 import { checkoutSessionSourceCreatesOrders } from "@chase-sets/checkout-order-source";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
 import { CheckoutSessionPage, type CheckoutEditSection } from "../features/sessions/ui/checkout-page";
@@ -708,6 +710,24 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const preparedPayment: PaymentsPaymentDetail | null = session.payment_id
     ? await createPaymentsRequestApiClient(resolvedRequest).getAccountPayment(session.payment_id)
     : null;
+  const paymentElementDefaultValues: PaymentElementDefaultValues | null = session.shipping_address?.email?.trim()
+    ? {
+        billingDetails: {
+          email: session.shipping_address.email.trim(),
+          name: session.shipping_address.name,
+          address: {
+            line1: session.shipping_address.line1,
+            ...(session.shipping_address.line2 ? { line2: session.shipping_address.line2 } : {}),
+            city: session.shipping_address.city,
+            state: session.shipping_address.state,
+            postal_code: session.shipping_address.postalCode,
+            country: session.shipping_address.country,
+          },
+        },
+      }
+    : guestCheckoutContact?.contactEmail
+      ? { billingDetails: { email: guestCheckoutContact.contactEmail } }
+      : null;
   const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(session);
   const searchParams = new URL(resolvedRequest.url).searchParams;
   const defaultSavedPaymentMethodCategory =
@@ -754,7 +774,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     autoResumePaymentStart: !session.payment_id && paymentPreview !== null,
     initialEditSection: parseCheckoutEditSection(searchParams.get("edit")),
     preparedPayment,
-    preparedPaymentBuyerEmail: session.shipping_address?.email?.trim() || guestCheckoutContact?.contactEmail || null,
+    paymentElementDefaultValues,
   };
 }
 
@@ -1012,8 +1032,11 @@ export default function CheckoutSessionRoute() {
       reviewRefreshed={data.reviewRefreshed}
       paymentQuoteRequired={data.paymentQuoteRequired}
       autoResumePaymentStart={!actionData?.error && data.autoResumePaymentStart}
-      preparedPayment={data.preparedPayment}
-      preparedPaymentBuyerEmail={data.preparedPaymentBuyerEmail}
+      preparedPaymentEntry={
+        data.preparedPayment?.status === "pending-confirmation" ? (
+          <StripeConfirmationCard payment={data.preparedPayment} defaultValues={data.paymentElementDefaultValues} />
+        ) : null
+      }
       initialEditSection={actionEditSection ?? data.initialEditSection}
       isSubmitting={navigation.state === "submitting"}
     />

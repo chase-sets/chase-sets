@@ -197,7 +197,7 @@ describe("guest payment claim action", () => {
       expect.objectContaining({
         isGuestCheckoutPayment: true,
         showSupportDetails: false,
-        buyerEmail: null,
+        paymentElementDefaultValues: null,
         payment: expect.objectContaining({
           payment_id: "pay_guest_1",
           status: "captured",
@@ -282,6 +282,16 @@ describe("guest payment claim action", () => {
           order_id: "ord_signed_in_1",
           buyer_account_id: "acc_buyer",
           buyer_email: "jane@example.com",
+          shipping_destination_snapshot: {
+            name: "Jane Smith",
+            line1: "100 Market Street",
+            line2: "Suite 2",
+            city: "Chicago",
+            state: "IL",
+            postalCode: "60601",
+            country: "US",
+            email: "jane@example.com",
+          },
           status: "paid",
           total_amount: "27.29",
           seller_payout_amount: "25.00",
@@ -308,7 +318,7 @@ describe("guest payment claim action", () => {
         isGuestCheckoutPayment: false,
         guestClaimContext: null,
         showSupportDetails: false,
-        buyerEmail: null,
+        paymentElementDefaultValues: null,
         payment: expect.objectContaining({
           payment_id: "pay_signed_in_1",
           status: "captured",
@@ -366,7 +376,7 @@ describe("guest payment claim action", () => {
       expect.objectContaining({
         isGuestCheckoutPayment: false,
         showSupportDetails: true,
-        buyerEmail: null,
+        paymentElementDefaultValues: null,
       }),
     );
   });
@@ -394,6 +404,16 @@ describe("guest payment claim action", () => {
           order_id: "ord_checkout_session",
           buyer_account_id: "acc_buyer",
           buyer_email: "jane@example.com",
+          shipping_destination_snapshot: {
+            name: "Jane Smith",
+            line1: "100 Market Street",
+            line2: "Suite 2",
+            city: "Chicago",
+            state: "IL",
+            postalCode: "60601",
+            country: "US",
+            email: "jane@example.com",
+          },
           status: "pending-payment",
           total_amount: "27.29",
           seller_payout_amount: "25.00",
@@ -409,7 +429,20 @@ describe("guest payment claim action", () => {
 
     expect(result).toEqual(
       expect.objectContaining({
-        buyerEmail: "jane@example.com",
+        paymentElementDefaultValues: {
+          billingDetails: {
+            email: "jane@example.com",
+            name: "Jane Smith",
+            address: {
+              line1: "100 Market Street",
+              line2: "Suite 2",
+              city: "Chicago",
+              state: "IL",
+              postal_code: "60601",
+              country: "US",
+            },
+          },
+        },
         showSupportDetails: false,
         orders: [
           {

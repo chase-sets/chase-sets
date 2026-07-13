@@ -6,12 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CheckoutFulfillmentPreview } from "../../../support/request-support/api-client";
 import type { CheckoutSessionRow } from "../../../support/request-support/api-client";
 
-vi.mock("@chase-sets/payments/web", () => ({
-  StripeConfirmationCard: ({ payment }: { payment: { payment_id: string } }) => (
-    <div data-testid="inline-payment-element">{payment.payment_id}</div>
-  ),
-}));
-
 import { CheckoutSessionPage } from "./checkout-page";
 
 afterEach(() => {
@@ -1142,7 +1136,7 @@ describe("checkout session page", () => {
         session={{ ...readySession, payment_id: "pay_inline_1", order_ids: ["ord_1"] }}
         fulfillmentPreview={readyFulfillmentPreview}
         paymentPreview={paymentPreview}
-        preparedPayment={{ payment_id: "pay_inline_1", status: "pending-confirmation" } as never}
+        preparedPaymentEntry={<div data-testid="inline-payment-element">pay_inline_1</div>}
       />,
     );
 

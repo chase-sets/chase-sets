@@ -26,7 +26,15 @@ describe("payments order input projection", () => {
         sourceReferenceId: "chk_1",
         buyerAccountId: "acc_buyer",
         sellerAccountId: "acc_seller",
-        shippingDestinationSnapshot: { email: "buyer@example.com" },
+        shippingDestinationSnapshot: {
+          name: "Buyer",
+          line1: "1 Main St",
+          city: "Maize",
+          state: "KS",
+          postalCode: "67101",
+          country: "US",
+          email: "buyer@example.com",
+        },
         salesTaxAmount: "1.57",
         totalAmount: "20.81",
         commercialTermsSnapshot: {
@@ -89,6 +97,15 @@ describe("payments order input projection", () => {
       null,
       "2026-04-01T00:00:00.000Z",
       "2026-04-01T00:00:00.000Z",
+      JSON.stringify({
+        name: "Buyer",
+        line1: "1 Main St",
+        city: "Maize",
+        state: "KS",
+        postalCode: "67101",
+        country: "US",
+        email: "buyer@example.com",
+      }),
     ]);
   });
 

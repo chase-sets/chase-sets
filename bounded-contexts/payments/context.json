@@ -5,7 +5,7 @@
   "streamPrefix": "payments.",
   "apiBasePath": "/api/marketplace",
   "slices": ["payments", "refunds"],
-  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ucp-support"],
+  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ucp-support", "ui-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": ["@chase-sets/auth", "@chase-sets/ordering", "@chase-sets/platform-operations"],
   "seedRequirements": ["identity", "marketplace", "ordering"],
@@ -528,6 +528,11 @@
       "classification": "support",
       "purpose": "Provide Payments-owned UCP payment-handler declarations and AP2 guarded-completion decisions coordinated by Checkout sessions.",
       "expectedConsumers": ["Checkout UCP completion adapter", "Platform UCP route composition"]
+    },
+    "ui-support": {
+      "classification": "support",
+      "purpose": "Expose the Payments-owned provider confirmation card through the deployable-facing web surface.",
+      "expectedConsumers": ["web.ts", "checkout routes"]
     },
     "routes": {
       "classification": "routes",

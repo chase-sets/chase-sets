@@ -1,2 +1,2 @@
-export { StripeConfirmationCard } from "./features/payments/ui/account-payment/stripe-confirmation-card";
-export type { PaymentsPaymentDetail } from "./features/payments/api/contracts";
+export { StripeConfirmationCard } from "./support/ui-support";
+export type { PaymentElementDefaultValues, PaymentsPaymentDetail } from "./support/ui-support";

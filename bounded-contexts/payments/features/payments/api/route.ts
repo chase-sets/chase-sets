@@ -225,6 +225,7 @@ function accountOrderInputSnapshot(order: AccountOrderInputForApi) {
     order_id: order.order_id,
     buyer_account_id: order.buyer_account_id,
     buyer_email: order.buyer_email,
+    shipping_destination_snapshot: order.shipping_destination_snapshot,
     seller_account_id: order.seller_account_id,
     sales_tax_amount: order.sales_tax_amount,
     total_amount: order.total_amount,

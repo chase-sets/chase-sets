@@ -9,6 +9,21 @@ export type AccountPaymentOrderView = Readonly<{
   payment_deadline_at: string | null;
 }>;
 
+export type PaymentElementDefaultValues = Readonly<{
+  billingDetails: Readonly<{
+    email: string;
+    name?: string;
+    address?: Readonly<{
+      line1?: string;
+      line2?: string;
+      city?: string;
+      state?: string;
+      postal_code?: string;
+      country?: string;
+    }>;
+  }>;
+}>;
+
 export type GuestCheckoutClaimContext = Readonly<{
   accountId: string;
   paymentId: string;
@@ -33,7 +48,7 @@ export type AccountPaymentPageProps = Readonly<{
   orders: readonly AccountPaymentOrderView[];
   isGuestCheckoutPayment: boolean;
   showSupportDetails: boolean;
-  buyerEmail: string | null;
+  paymentElementDefaultValues: PaymentElementDefaultValues | null;
   retryActionError: string | null;
   feedbackPrompt: ReactNode;
   guestClaimSection: ReactNode;

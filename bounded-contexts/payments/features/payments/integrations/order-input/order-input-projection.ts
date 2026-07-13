@@ -1,5 +1,23 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+
+function paymentEntryAddressSnapshot(address: AddressSnapshot | null | undefined) {
+  if (!address) {
+    return null;
+  }
+
+  return {
+    name: address.name,
+    line1: address.line1,
+    ...(address.line2 ? { line2: address.line2 } : {}),
+    city: address.city,
+    state: address.state,
+    postalCode: address.postalCode,
+    country: address.country,
+    ...(address.email ? { email: address.email } : {}),
+  };
+}
 
 export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -10,7 +28,7 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
         sourceReferenceId: string | null;
         buyerAccountId: string;
         sellerAccountId: string;
-        shippingDestinationSnapshot?: { email?: string | null } | null;
+        shippingDestinationSnapshot?: AddressSnapshot | null;
         salesTaxAmount?: string;
         totalAmount: string;
         shippingAllowanceAmount?: string;
@@ -71,8 +89,9 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
             created_at,
            updated_at,
            cancelled_at,
-           ready_for_fulfillment_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, 'pending-reservation', NULL, NULL, NULL, $26, $26, NULL, NULL)
+           ready_for_fulfillment_at,
+           shipping_destination_snapshot
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, 'pending-reservation', NULL, NULL, NULL, $26, $26, NULL, NULL, $27)
          ON CONFLICT (order_id) DO UPDATE
          SET source_type = EXCLUDED.source_type,
              source_reference_id = EXCLUDED.source_reference_id,
@@ -104,7 +123,8 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
               payment_deadline_policy = EXCLUDED.payment_deadline_policy,
               updated_at = EXCLUDED.updated_at,
              cancelled_at = EXCLUDED.cancelled_at,
-             ready_for_fulfillment_at = EXCLUDED.ready_for_fulfillment_at`,
+             ready_for_fulfillment_at = EXCLUDED.ready_for_fulfillment_at,
+             shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot`,
         [
           data.orderId,
           data.sourceType,
@@ -145,6 +165,9 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
           data.commercialTermsSnapshot.termsAgreementId,
           data.commercialTermsSnapshot.termsResolvedAt,
           event.timing.recordedAt,
+          data.shippingDestinationSnapshot
+            ? JSON.stringify(paymentEntryAddressSnapshot(data.shippingDestinationSnapshot))
+            : null,
         ],
       );
     },

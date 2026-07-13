@@ -41,8 +41,7 @@ export function useCheckoutSessionModel({
   isSignedInBuyer = false,
   initialEditSection = null,
   autoResumePaymentStart = false,
-  preparedPayment = null,
-  preparedPaymentBuyerEmail = null,
+  preparedPaymentEntry = null,
 }: CheckoutSessionPageProps) {
   const lines = session.lines;
   const lineCount = lines.reduce((sum, line) => sum + line.quantity, 0);
@@ -368,7 +367,6 @@ export function useCheckoutSessionModel({
     commitIcon,
     reReserveIntent,
     noticeCandidates,
-    preparedPayment,
-    preparedPaymentBuyerEmail,
+    preparedPaymentEntry,
   };
 }
