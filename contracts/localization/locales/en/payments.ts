@@ -141,6 +141,9 @@ export const paymentsEnglishTranslations = {
   "payments.routes.marketplace.accountPaymentNew.buyer.protection": "Order Protection",
   "payments.routes.marketplace.accountPaymentNew.card": "Card",
   "payments.routes.marketplace.accountPaymentNew.checkout.confidence": "Checkout confidence",
+  "payments.routes.marketplace.accountPaymentNew.seller.evidence.at.acceptance": "Seller evidence at acceptance",
+  "payments.routes.marketplace.accountPaymentNew.seller.evidence.at.acceptance.description":
+    "Seller-supplied condition evidence committed when this offer was accepted.",
   "payments.routes.marketplace.accountPaymentNew.checkout.summary": "Checkout Summary",
   "payments.routes.marketplace.accountPaymentNew.choose.at.least.one.order.to": "Choose at least one order to pay.",
   "payments.routes.marketplace.accountPaymentNew.continue.to.payment": "Continue to payment",

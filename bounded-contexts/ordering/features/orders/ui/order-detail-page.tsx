@@ -7,6 +7,7 @@ import {
   CheckoutLayout,
   Divider,
   Grid,
+  ImageGallery,
   LinkButton,
   MarketplaceNotice,
   Page,
@@ -305,37 +306,63 @@ export function OrderingOrderDetailPage({
             <Stack gap={3}>
               {order.lines.map((line) => (
                 <Surface key={line.line_id} elevated>
-                  <Grid columns={{ base: 1, md: 3 }} gap={3}>
-                    <Stack gap={1}>
-                      <Text weight="semibold">{line.item_title}</Text>
-                      {line.item_subtitle ? (
-                        <Text tone="secondary" size="sm">
-                          {line.item_subtitle}
+                  <Stack gap={4}>
+                    {role === "buyer" && line.listing_evidence_gallery?.length ? (
+                      <Stack gap={2}>
+                        <Text weight="semibold">
+                          {t("ordering.features.orders.ui.orderDetailPage.seller.evidence.at.acceptance")}
                         </Text>
-                      ) : null}
-                      <ProductOptions
-                        options={productOptionsFromSummary(
-                          line.product_summary ?? t("ordering.features.orders.ui.orderDetailPage.standard"),
-                        )}
-                        variant="chips"
-                      />
-                    </Stack>
-                    <Stack gap={1}>
-                      <Text size="sm" tone="secondary">
-                        {t("ordering.features.orders.ui.orderDetailPage.quantity")}
-                      </Text>
-                      <Text weight="semibold">{line.quantity}</Text>
-                    </Stack>
-                    <Stack gap={1}>
-                      <Text size="sm" tone="secondary">
-                        {t("ordering.features.orders.ui.orderDetailPage.line.total")}
-                      </Text>
-                      <Text weight="semibold">
-                        {line.quantity} x {formatMoney(line.unit_price_amount, "USD")} ={" "}
-                        {formatMoney(line.line_total_amount, "USD")}
-                      </Text>
-                    </Stack>
-                  </Grid>
+                        <ImageGallery
+                          images={line.listing_evidence_gallery.flatMap((image) => {
+                            const asset =
+                              image.assets.find((candidate) => candidate.role === "catalog-detail") ??
+                              image.assets.find((candidate) => candidate.role === "search-card") ??
+                              image.assets[0];
+                            return asset
+                              ? [{ src: asset.publicUrl, alt: image.altText ?? `${line.item_title} evidence` }]
+                              : [];
+                          })}
+                          aspectRatio="3/4"
+                          thumbnailPlacement="left"
+                          maxHeightClassName="max-w-[min(100%,14rem)] [--gallery-max-height:18rem]"
+                        />
+                        <Text size="sm" tone="secondary">
+                          {t("ordering.features.orders.ui.orderDetailPage.seller.evidence.at.acceptance.description")}
+                        </Text>
+                      </Stack>
+                    ) : null}
+                    <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                      <Stack gap={1}>
+                        <Text weight="semibold">{line.item_title}</Text>
+                        {line.item_subtitle ? (
+                          <Text tone="secondary" size="sm">
+                            {line.item_subtitle}
+                          </Text>
+                        ) : null}
+                        <ProductOptions
+                          options={productOptionsFromSummary(
+                            line.product_summary ?? t("ordering.features.orders.ui.orderDetailPage.standard"),
+                          )}
+                          variant="chips"
+                        />
+                      </Stack>
+                      <Stack gap={1}>
+                        <Text size="sm" tone="secondary">
+                          {t("ordering.features.orders.ui.orderDetailPage.quantity")}
+                        </Text>
+                        <Text weight="semibold">{line.quantity}</Text>
+                      </Stack>
+                      <Stack gap={1}>
+                        <Text size="sm" tone="secondary">
+                          {t("ordering.features.orders.ui.orderDetailPage.line.total")}
+                        </Text>
+                        <Text weight="semibold">
+                          {line.quantity} x {formatMoney(line.unit_price_amount, "USD")} ={" "}
+                          {formatMoney(line.line_total_amount, "USD")}
+                        </Text>
+                      </Stack>
+                    </Grid>
+                  </Stack>
                 </Surface>
               ))}
             </Stack>

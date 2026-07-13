@@ -3,6 +3,7 @@ import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId } from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
+import type { ListingEvidenceSnapshot } from "../../../../support/request-support/listing-evidence";
 import type { MarketplaceDemand, MarketplaceSupplyCandidate, MarketplaceSupplyFeeLock } from "../../domain/policies";
 
 type VersionSelectedOptionEntry = Readonly<{
@@ -427,6 +428,7 @@ export type OrderingAcceptedOfferBatchInputRow = Readonly<{
   quantity_requested: number;
   acceptance_batch_id: string | null;
   acceptance_batch_size: number | null;
+  listing_evidence_snapshot: ListingEvidenceSnapshot | null;
 }>;
 
 export async function listAcceptedOfferBatchInputs(
@@ -462,7 +464,8 @@ export async function listAcceptedOfferBatchInputs(
        terms_resolved_at::text AS terms_resolved_at,
        quantity_requested,
        acceptance_batch_id,
-       acceptance_batch_size
+       acceptance_batch_size,
+       listing_evidence_snapshot
      FROM ordering_offer_acceptance_inputs
      WHERE acceptance_batch_id = $1
      ORDER BY buyer_account_id ASC, offer_id ASC`,

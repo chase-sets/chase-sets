@@ -106,6 +106,7 @@ describe("payments order input projection", () => {
         country: "US",
         email: "buyer@example.com",
       }),
+      "[]",
     ]);
   });
 

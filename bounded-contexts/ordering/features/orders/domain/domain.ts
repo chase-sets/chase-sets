@@ -9,6 +9,7 @@ import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId, OrderId } from "@chase-sets/primitives/typed-ids";
 import { moneyToCents } from "@chase-sets/primitives/money";
 import type { PackagePlan } from "@chase-sets/product-measures";
+import type { ListingEvidenceSnapshot } from "../../../support/request-support/listing-evidence";
 import {
   assert,
   assertNever,
@@ -52,6 +53,7 @@ export type OrderingOrderLine = Readonly<{
   marketplaceSalesFeeTotalAmount: string;
   sellerNetUnitAmount: string;
   sellerNetTotalAmount: string;
+  listingEvidenceSnapshot?: ListingEvidenceSnapshot | null;
 }>;
 
 export type OrderingReservationRequest = Readonly<{
@@ -438,6 +440,7 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
       fieldName: "Line seller net total amount",
       allowZero: true,
     }),
+    listingEvidenceSnapshot: line.listingEvidenceSnapshot ?? null,
   }));
 }
 

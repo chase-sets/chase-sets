@@ -805,7 +805,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by ordering-owned features and composition seams.",
-      "expectedConsumers": ["postage-policies"],
+      "expectedConsumers": ["orders", "postage-policies"],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {

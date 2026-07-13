@@ -19,6 +19,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId, OrderId } from "@chase-sets/primitives/typed-ids";
+import type { ListingEvidenceSnapshot } from "../../../support/request-support/listing-evidence";
 import {
   addMoneyAmounts,
   applyBasisPointsToMoneyAmount,
@@ -288,6 +289,7 @@ type SellerOrderDraft = Readonly<{
     marketplaceSalesFeeTotalAmount: string;
     sellerNetUnitAmount: string;
     sellerNetTotalAmount: string;
+    listingEvidenceSnapshot?: ListingEvidenceSnapshot | null;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string;
@@ -471,6 +473,7 @@ export type OrderingOrderServices = Readonly<{
       shippingAllowancePercentageBps?: number;
       shippingDestinationSnapshot: AddressSnapshot;
       quantityRequested: number;
+      listingEvidenceSnapshot?: ListingEvidenceSnapshot | null;
       orderIdsOverride?: readonly OrderId[];
     }>,
     context: EventStoreContext,
@@ -500,6 +503,7 @@ export type OrderingOrderServices = Readonly<{
         termsAgreementId: string | null;
         termsResolvedAt: string;
         quantityRequested: number;
+        listingEvidenceSnapshot?: ListingEvidenceSnapshot | null;
       }>[];
     }>,
     context: EventStoreContext,
@@ -1614,6 +1618,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       shippingAllowancePercentageBps?: number;
       shippingDestinationSnapshot: AddressSnapshot;
       quantityRequested: number;
+      listingEvidenceSnapshot?: ListingEvidenceSnapshot | null;
     }>,
   ) => {
     const demandGroups: MarketplaceDemand[] = [
@@ -1672,7 +1677,16 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       normalizeAddressSnapshot(params.shippingDestinationSnapshot, "Shipping destination"),
       taxQuoteResolver,
     );
-    return taxAdjustedPlan;
+    return {
+      ...taxAdjustedPlan,
+      orderDrafts: taxAdjustedPlan.orderDrafts.map((draft) => ({
+        ...draft,
+        lines: draft.lines.map((line) => ({
+          ...line,
+          listingEvidenceSnapshot: params.listingEvidenceSnapshot ?? null,
+        })),
+      })),
+    };
   };
 
   const createOrdersFromAcceptedOffer = async (
@@ -1698,6 +1712,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       shippingAllowancePercentageBps?: number;
       shippingDestinationSnapshot: AddressSnapshot;
       quantityRequested: number;
+      listingEvidenceSnapshot?: ListingEvidenceSnapshot | null;
       orderIdsOverride?: readonly OrderId[];
     }>,
     context: EventStoreContext,

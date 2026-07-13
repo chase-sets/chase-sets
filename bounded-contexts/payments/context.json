@@ -7,7 +7,12 @@
   "slices": ["payments", "refunds"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ucp-support", "ui-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
-  "allowedContextDependencies": ["@chase-sets/auth", "@chase-sets/ordering", "@chase-sets/platform-operations"],
+  "allowedContextDependencies": [
+    "@chase-sets/auth",
+    "@chase-sets/marketplace",
+    "@chase-sets/ordering",
+    "@chase-sets/platform-operations"
+  ],
   "seedRequirements": ["identity", "marketplace", "ordering"],
   "eventSubscriptions": [
     {
@@ -510,7 +515,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by payments-owned features and composition seams.",
-      "expectedConsumers": ["Multiple payments slices", "Deployable composition for payments"],
+      "expectedConsumers": ["payments"],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {

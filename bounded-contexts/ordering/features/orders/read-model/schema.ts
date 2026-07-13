@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS ordering_order_line_pages (
   marketplace_sales_fee_total_amount numeric(12,2) NOT NULL,
   seller_net_unit_amount numeric(12,2) NOT NULL,
   seller_net_total_amount numeric(12,2) NOT NULL,
+  listing_evidence_snapshot jsonb NULL,
   PRIMARY KEY (order_id, line_id)
 );
 
@@ -127,7 +128,8 @@ CREATE INDEX IF NOT EXISTS ordering_order_line_pages_catalog_version_idx
 ALTER TABLE ordering_order_line_pages
   ADD COLUMN IF NOT EXISTS marketplace_sales_fee_percentage_bps integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS marketplace_sales_fee_fixed_amount numeric(12,2) NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_cap_amount numeric(12,2) NULL;
+  ADD COLUMN IF NOT EXISTS marketplace_sales_fee_cap_amount numeric(12,2) NULL,
+  ADD COLUMN IF NOT EXISTS listing_evidence_snapshot jsonb NULL;
 
 CREATE TABLE IF NOT EXISTS ordering_order_hold_pages (
   hold_id text PRIMARY KEY,
@@ -203,6 +205,14 @@ CREATE INDEX IF NOT EXISTS ordering_seller_open_order_claims_open_idx
 `;
 
 export const orderingOrderSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260713_ordering_order_line_listing_evidence_snapshot",
+    description: "Persist immutable accepted-offer Listing Evidence snapshots on order lines.",
+    statements: [
+      `ALTER TABLE ordering_order_line_pages
+  ADD COLUMN IF NOT EXISTS listing_evidence_snapshot jsonb NULL`,
+    ],
+  },
   {
     migrationId: "20260707_ordering_order_payment_deadline_columns",
     description: "Add payment-deadline read-model columns and due-order index outside boot-time schema SQL.",

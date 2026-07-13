@@ -2,6 +2,11 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { MarketplaceSalesFeeLineSnapshotPayload } from "@chase-sets/event-core";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import {
+  toPublicListingEvidenceSnapshotGallery,
+  type ListingEvidenceSnapshot,
+  type MarketplaceListingPublicGalleryImage,
+} from "../../../../support/request-support/listing-evidence";
 
 export type PaymentOrderInputRow = Readonly<{
   order_id: string;
@@ -32,7 +37,15 @@ export type PaymentOrderInputRow = Readonly<{
   pending_payment_at: string | null;
   payment_deadline_at: string | null;
   payment_deadline_policy: string | null;
+  listing_evidence: readonly Readonly<{
+    line_id: string;
+    item_title: string;
+    gallery: readonly MarketplaceListingPublicGalleryImage[];
+  }>[];
 }>;
+
+type PaymentOrderInputDbRow = Omit<PaymentOrderInputRow, "listing_evidence"> &
+  Readonly<{ listing_evidence_snapshots: unknown }>;
 
 export async function listPaymentOrderInputs(
   db: PgQueryable,
@@ -43,7 +56,7 @@ export async function listPaymentOrderInputs(
     return [];
   }
 
-  const result = await db.query<PaymentOrderInputRow>(
+  const result = await db.query<PaymentOrderInputDbRow>(
     `SELECT
        order_id,
        buyer_account_id,
@@ -72,12 +85,33 @@ export async function listPaymentOrderInputs(
        status,
        pending_payment_at,
        payment_deadline_at,
-       payment_deadline_policy
+       payment_deadline_policy,
+       listing_evidence_snapshots
      FROM payments_order_inputs
      WHERE buyer_account_id = $1
        AND order_id = ANY($2)`,
     [buyerAccountId, orderIds],
   );
 
-  return result.rows;
+  return result.rows.map((row) => {
+    const { listing_evidence_snapshots, ...safeRow } = row;
+    return {
+      ...safeRow,
+      listing_evidence: Array.isArray(row.listing_evidence_snapshots)
+        ? row.listing_evidence_snapshots.flatMap((entry) => {
+            if (!entry || typeof entry !== "object") return [];
+            const value = entry as Record<string, unknown>;
+            const snapshot = value.listingEvidenceSnapshot;
+            if (!snapshot || typeof snapshot !== "object") return [];
+            return [
+              {
+                line_id: String(value.lineId ?? ""),
+                item_title: String(value.itemTitle ?? "Item"),
+                gallery: toPublicListingEvidenceSnapshotGallery(snapshot as ListingEvidenceSnapshot),
+              },
+            ];
+          })
+        : [],
+    };
+  });
 }

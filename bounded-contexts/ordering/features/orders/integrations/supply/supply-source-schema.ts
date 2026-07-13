@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
   accepted_at timestamptz NOT NULL,
   acceptance_batch_id text NULL,
   acceptance_batch_size integer NULL,
+  listing_evidence_snapshot jsonb NULL,
   updated_at timestamptz NOT NULL
 );
 
@@ -132,6 +133,8 @@ ALTER TABLE ordering_offer_acceptance_inputs
 
 ALTER TABLE ordering_offer_acceptance_inputs
   ADD COLUMN IF NOT EXISTS shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE ordering_offer_acceptance_inputs
+  ADD COLUMN IF NOT EXISTS listing_evidence_snapshot jsonb NULL;
 
 CREATE TABLE IF NOT EXISTS ordering_payment_capture_inputs (
   payment_id text PRIMARY KEY,

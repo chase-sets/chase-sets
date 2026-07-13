@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS payments_order_inputs (
   updated_at timestamptz NOT NULL,
   cancelled_at timestamptz NULL,
   ready_for_fulfillment_at timestamptz NULL,
-  shipping_destination_snapshot jsonb NULL
+  shipping_destination_snapshot jsonb NULL,
+  listing_evidence_snapshots jsonb NOT NULL DEFAULT '[]'::jsonb
 );
 
 CREATE INDEX IF NOT EXISTS payments_order_inputs_buyer_status_idx
@@ -45,6 +46,14 @@ CREATE INDEX IF NOT EXISTS payments_order_inputs_source_idx
 `;
 
 export const paymentsOrderInputSchemaMigrations = [
+  {
+    migrationId: "20260713_payments_order_inputs_listing_evidence_snapshots",
+    description: "Carry immutable accepted-offer evidence snapshots into the buyer payment review mirror.",
+    statements: [
+      `ALTER TABLE payments_order_inputs
+  ADD COLUMN IF NOT EXISTS listing_evidence_snapshots jsonb NOT NULL DEFAULT '[]'::jsonb`,
+    ],
+  },
   {
     migrationId: "20260703_payments_order_inputs_checkout_terms_columns",
     description: "Add checkout fee, tax, seller payout, and terms columns to existing payment order-input mirrors.",
