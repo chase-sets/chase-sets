@@ -326,4 +326,83 @@ describe("public presence home route", () => {
       process.env.NODE_ENV = originalNodeEnv;
     }
   });
+
+  // The two fee-schedule loader tests are order-sensitive on purpose: the
+  // loader memoizes a SUCCESSFUL policy read for five minutes, so the
+  // failure case must run before the first stubbed success in this file.
+  it("hides the fee calculator (null schedule) when the public policy read fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("policy source unavailable", { status: 503 })),
+    );
+
+    try {
+      const data = await loader({
+        request: new Request("https://chasesets.test/"),
+        params: {},
+        context: undefined,
+      } as never);
+
+      expect(data.feeSchedule).toBeNull();
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining("Fee-calculator policy read failed"),
+        expect.anything(),
+      );
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("loads the live standard fee schedule for the calculator through the whitelisted public policy read", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            values: {
+              "marketplace-sales-fee.standard.bps": {
+                type: "bps",
+                value: 500,
+                effectiveFrom: "2026-07-03T00:00:00.000Z",
+                upcoming: [],
+              },
+              "marketplace-sales-fee.standard.fixed": {
+                type: "money",
+                value: "0.00",
+                effectiveFrom: null,
+                upcoming: [],
+              },
+              "marketplace-sales-fee.standard.cap": {
+                type: "money",
+                value: "25.00",
+                effectiveFrom: null,
+                upcoming: [],
+              },
+            },
+            resolvedAt: "2026-07-12T00:00:00.000Z",
+            propagationSeconds: 360,
+            changeCalloutDays: 30,
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const data = await loader({
+      request: new Request("https://chasesets.test/"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/public-presence/policy-values"),
+      expect.anything(),
+    );
+    expect(data.feeSchedule).toEqual({
+      percentageBps: 500,
+      fixedAmount: "0.00",
+      capAmount: "25.00",
+      effectiveFrom: "2026-07-03T00:00:00.000Z",
+    });
+  });
 });
