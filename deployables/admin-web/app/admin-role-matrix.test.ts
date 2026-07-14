@@ -164,11 +164,9 @@ describe("admin RBAC matrix (role fixtures)", () => {
     ["owner", ["access", "catalog", "commerce", "growth", "platform", "support"]],
     ["manager", ["access", "catalog", "commerce", "growth", "platform", "support"]],
     ["fulfillment", ["access", "growth", "support"]],
-    // viewer no longer sees Support: its only Support-section nav contribution
-    // was the customer-feedback operator surface, removed by #5145. support.view
-    // alone unlocks no navigable Support surface (Support Requests needs
-    // support.manage), so viewer correctly loses the section.
-    ["viewer", ["access", "growth"]],
+    // The Customer Feedback attention surface is visible with support.view;
+    // Support Requests still requires support.manage.
+    ["viewer", ["access", "growth", "support"]],
   ] as const)("role %s sees exactly its authorized top-level sections", (roleKey, expectedSections) => {
     expect(visibleSectionKeys(roleKey)).toEqual([...expectedSections].sort());
   });

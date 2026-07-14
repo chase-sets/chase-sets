@@ -279,11 +279,12 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "low",
     wakeStoreLoadEstimate: "low",
     affectedProjectionNames: [
+      "customer-feedback:customer-feedback-case-attention-projection",
       "customer-feedback:customer-feedback-csat-analytics-projection",
       "customer-feedback:customer-feedback-csat-invitation-projection",
       "customer-feedback:customer-feedback-feedback-case-opening",
       "customer-feedback:customer-feedback-feedback-case-projection",
-      "customer-feedback:customer-feedback-case-attention-projection",
+      "notifications:notifications-source-facts-outbox-projection",
     ],
     routeDependencyIds: [],
   }),
