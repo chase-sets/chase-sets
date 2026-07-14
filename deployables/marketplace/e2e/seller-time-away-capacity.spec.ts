@@ -81,7 +81,8 @@ async function submitAndWaitForAccountListingsPostWrite(page: Page, submit: Loca
   const previousUrl = page.url();
   await Promise.all([
     page.waitForURL(
-      (url) => url.pathname === "/account/listings" && url.href !== previousUrl && url.searchParams.has("afterWrite"),
+      (url) =>
+        url.pathname === "/account/listings" && url.href !== previousUrl && url.searchParams.has("postWriteToken"),
     ),
     submit.click(),
   ]);

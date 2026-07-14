@@ -231,6 +231,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `marketplace.listing-stock-location-self-refresh` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.offer-match-accept-to-detail` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.offer-match-seller-control-list-refresh` | marketplace | important | exact wait | push-accelerated |
+| `marketplace.order-capacity-self-refresh` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.submitted-offer-detail` | marketplace | important | exact wait | push-accelerated |
 | `ordering.accepted-offer-to-sales-list` | ordering | critical | exact wait | push-accelerated |
 | `ordering.postage-policy-command-to-detail` | ordering | important | exact wait | push-accelerated |
