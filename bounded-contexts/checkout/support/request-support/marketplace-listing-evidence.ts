@@ -1,2 +1,5 @@
-export { evidenceCoverageCodeLocaleKey } from "@chase-sets/marketplace/server";
-export type { MarketplaceListingEvidenceCoverage } from "@chase-sets/marketplace/server";
+export { evidenceCoverageCodeLocaleKey, evaluateEvidenceCoverage } from "@chase-sets/marketplace/server";
+export type {
+  MarketplaceListingEvidenceCoverage,
+  ResolvedListingEvidenceRequirements,
+} from "@chase-sets/marketplace/server";

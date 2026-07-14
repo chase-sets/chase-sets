@@ -397,7 +397,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async classifyListingPhoto(id: string, photoId: string, body: Record<string, unknown>) {
+    async updateListingPhotoClassification(id: string, photoId: string, body: Record<string, unknown>) {
       return parseJsonResponse(
         await configuredFetch(
           joinApiPath(

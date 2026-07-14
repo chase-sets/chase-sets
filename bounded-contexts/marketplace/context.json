@@ -996,7 +996,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-client:bounded-contexts/marketplace/client.ts:POST H04af719a48e5#1",
-        "api-client:bounded-contexts/marketplace/client.ts:POST H69e37d957c74#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H5299f933f64b#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST Hc5a69ee641c4#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST He9c1132dcf96#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H59449737c72f#1",

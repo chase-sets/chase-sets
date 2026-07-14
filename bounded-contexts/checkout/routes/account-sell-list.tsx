@@ -64,6 +64,7 @@ type SellListOfferReview = Readonly<{
   terms: CheckoutSellListCompositeReview["offerReviews"][number]["terms"];
   comparison: SellListOfferTermsComparison | null;
   message: string | null;
+  evidence?: CheckoutSellListCompositeReview["offerReviews"][number]["evidence"];
 }>;
 
 type SellListOfferTermsComparisonField = "seller-net" | "marketplace-fee" | "shipping-allowance" | "terms-source";
@@ -506,67 +507,6 @@ async function loadGuestSellListOfferReviewsFromCheckout(
   return (await client.getGuestSellListOfferReviews(anonymousSellListId)).offerReviews;
 }
 
-async function loadOfferEvidenceCoverage(
-  request: Request,
-  reviews: readonly SellListOfferReview[],
-  lines: readonly CheckoutSellListLineRow[],
-) {
-  const marketplaceApi = createMarketplaceRequestApiClient(request) as Partial<
-    ReturnType<typeof createMarketplaceRequestApiClient>
-  >;
-  if (
-    typeof marketplaceApi.getOfferMatch !== "function" ||
-    typeof marketplaceApi.getSellerListingEvidenceCoverage !== "function"
-  ) {
-    return reviews;
-  }
-  const getOfferMatch = marketplaceApi.getOfferMatch;
-  const getSellerListingEvidenceCoverage = marketplaceApi.getSellerListingEvidenceCoverage;
-
-  return Promise.all(
-    reviews.map(async (review) => {
-      const line = lines.find((candidate) => candidate.line_id === review.lineId);
-      if (!line?.offer_id) {
-        return review;
-      }
-
-      try {
-        const match = await getOfferMatch(line.offer_id);
-        const evidence = await getSellerListingEvidenceCoverage(match.listing_id);
-        return { ...review, evidence };
-      } catch {
-        return { ...review, evidence: null };
-      }
-    }),
-  );
-}
-
-async function loadProductOfferEvidenceCoverage(request: Request, reviews: readonly SellListProductOfferReview[]) {
-  const marketplaceApi = createMarketplaceRequestApiClient(request) as Partial<
-    ReturnType<typeof createMarketplaceRequestApiClient>
-  >;
-  if (typeof marketplaceApi.getSellerListingEvidenceCoverage !== "function") {
-    return reviews;
-  }
-  const getSellerListingEvidenceCoverage = marketplaceApi.getSellerListingEvidenceCoverage;
-
-  return Promise.all(
-    reviews.map(async (review) => ({
-      ...review,
-      offers: await Promise.all(
-        review.offers.map(async (item) => {
-          try {
-            const evidence = await getSellerListingEvidenceCoverage(item.offer.listing_id);
-            return { ...item, evidence };
-          } catch {
-            return { ...item, evidence: null };
-          }
-        }),
-      ),
-    })),
-  );
-}
-
 export async function loader({ request }: LoaderFunctionArgs) {
   const browserRequestUrl = new URL(request.url);
   const resolvedRequest = await resolvePlatformPostWriteRequest(request);
@@ -665,16 +605,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const sellListCompositeReview = await loadSellListCompositeReviewFromCheckout(accountSellListApi, {
     includeStandardComparison: registrationReturn === "seller-checkout",
   });
-  const offerReviews = await loadOfferEvidenceCoverage(
-    accountSellListRequest,
-    sellListCompositeReview.offerReviews,
-    accountSellList.items,
-  );
-  const productOfferReviews = await loadProductOfferEvidenceCoverage(
-    accountSellListRequest,
-    sellListCompositeReview.productOfferReviews,
-  );
-
   return {
     isSignedIn: true,
     registrationReturn,
@@ -685,8 +615,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
     freshnessError,
     sellListRecovery: effectiveSellListRecovery,
     sellList: accountSellList,
-    offerReviews,
-    productOfferReviews,
+    offerReviews: sellListCompositeReview.offerReviews,
+    productOfferReviews: sellListCompositeReview.productOfferReviews,
     inventoryItems: sellListCompositeReview.inventoryItems,
     payoutReadiness: await loadPayoutReadiness(resolvedRequest, accountSellListApi),
   };
@@ -1051,7 +981,11 @@ export async function action({ request }: ActionFunctionArgs) {
 
       if (intent === "classify-listing-evidence") {
         const classification = evidenceClassificationFromForm(formData);
-        await marketplaceApi.classifyListingPhoto(listingId, formValue(formData, "photoId"), classification);
+        await marketplaceApi.updateListingPhotoClassification(
+          listingId,
+          formValue(formData, "photoId"),
+          classification,
+        );
       } else {
         const file = formData.get("listingPhoto");
         if (!(file instanceof File) || file.size <= 0) {

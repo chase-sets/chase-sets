@@ -49,6 +49,12 @@
       "subscriptionVersion": 1,
       "eventTypes": [
         "marketplace.listing.created",
+        "marketplace.listing.photos-added",
+        "marketplace.listing.photo-classified",
+        "marketplace.listing.photo-replaced",
+        "marketplace.listing.photo-removed",
+        "marketplace.listing.photos-reordered",
+        "marketplace.listing.evidence-requirements-refreshed",
         "marketplace.listing.price-updated",
         "marketplace.listing.quantity-cap-updated",
         "marketplace.listing.published",
