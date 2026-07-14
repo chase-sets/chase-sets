@@ -254,4 +254,151 @@ describe("payments support refund effect projection", () => {
 
     expect(issueRefund).not.toHaveBeenCalled();
   });
+
+  function platformCoverageReleasedFact(
+    overrides: Partial<{
+      coverageId: string | null;
+      refundAmount: string;
+      allocation: Record<string, unknown>;
+    }> = {},
+  ) {
+    return {
+      ...baseEvent(),
+      type: "support.support-request.refund-released.v1",
+      data: {
+        factSchemaVersion: 1,
+        supportRequestId: "sup_01ABC",
+        remedyId: "rmd_01ABC",
+        idempotencyKey: "idem_release_1",
+        causationId: "fct_trigger",
+        policyVersion: "policy_1",
+        occurredAt: "2026-06-06T00:00:00.000Z",
+        coverageId: overrides.coverageId === undefined ? "cov_1" : overrides.coverageId,
+        refundAmount: overrides.refundAmount ?? "12.00",
+        currencyCode: "usd",
+        allocation: overrides.allocation ?? {
+          sellerFundedAmount: "0.00",
+          platformFundedAmount: "12.00",
+          currencyCode: "usd",
+          fundingKind: "platform-funded",
+        },
+        refundTrigger: "immediate",
+      },
+    };
+  }
+
+  it("executes a platform-coverage remedy refund carrying remedy and allocation causation", async () => {
+    const issueRefund = vi.fn(async () => ({ refundId: "rfd_final", version: 1 }));
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("SELECT order_id, payment_id, status")) {
+          return { rows: [{ order_id: "ord_1", payment_id: "pay_1", status: "awaiting-return" }] };
+        }
+        if (sql.includes("FROM payments_payment_pages")) {
+          return { rows: [{ payment_id: "pay_1", order_refund_caps: [], order_refunded_amounts: [] }] };
+        }
+        if (sql.includes("FROM payments_order_inputs")) {
+          return { rows: [{ order_id: "ord_1", total_amount: "12.00" }] };
+        }
+        if (sql.includes("status = 'processing'")) {
+          return { rowCount: 1, rows: [{ order_id: "ord_1", payment_id: "pay_1", refund_id: "rfd_01ABC" }] };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const handlers = buildPaymentsSupportRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await handlers["support.support-request.refund-released.v1"]?.(platformCoverageReleasedFact() as never);
+
+    expect(issueRefund).toHaveBeenCalledWith(
+      expect.objectContaining({
+        refundId: "rfd_01ABC",
+        paymentId: "pay_1",
+        amount: "12.00",
+        causation: expect.objectContaining({
+          remedyId: "rmd_01ABC",
+          coverageId: "cov_1",
+          refundTrigger: "immediate",
+          refundTriggerEvidenceRef: "fct_trigger",
+          allocation: expect.objectContaining({ fundingKind: "platform-funded", platformFundedAmount: "12.00" }),
+        }),
+      }),
+      expect.objectContaining({ tenantId: "tnt_test" }),
+    );
+  });
+
+  it("rejects a platform-funded release that lacks the approved coverage reference", async () => {
+    const issueRefund = vi.fn(async () => ({ refundId: "rfd_final", version: 1 }));
+    const db = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
+    const handlers = buildPaymentsSupportRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await expect(
+      handlers["support.support-request.refund-released.v1"]?.(
+        platformCoverageReleasedFact({ coverageId: null }) as never,
+      ),
+    ).rejects.toThrow("A platform-funded remedy fact requires a coverageId.");
+    expect(issueRefund).not.toHaveBeenCalled();
+  });
+
+  it("routes a remedy release to manual review when the authorized amount exceeds the remaining refundable balance", async () => {
+    const issueRefund = vi.fn(async () => ({ refundId: "rfd_final", version: 1 }));
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("SELECT order_id, payment_id, status")) {
+          return { rows: [{ order_id: "ord_1", payment_id: "pay_1", status: "awaiting-return" }] };
+        }
+        if (sql.includes("FROM payments_payment_pages")) {
+          return {
+            rows: [
+              {
+                payment_id: "pay_1",
+                order_refund_caps: [],
+                order_refunded_amounts: [{ orderId: "ord_1", amount: "7.00" }],
+              },
+            ],
+          };
+        }
+        if (sql.includes("FROM payments_order_inputs")) {
+          return { rows: [{ order_id: "ord_1", total_amount: "12.00" }] };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const handlers = buildPaymentsSupportRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await handlers["support.support-request.refund-released.v1"]?.(platformCoverageReleasedFact() as never);
+
+    expect(issueRefund).not.toHaveBeenCalled();
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("status = 'manual-review'"),
+      expect.arrayContaining(["sup_01ABC"]),
+    );
+  });
+
+  it("no-ops a remedy release replay once the refund is already processing", async () => {
+    const issueRefund = vi.fn(async () => ({ refundId: "rfd_final", version: 1 }));
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("SELECT order_id, payment_id, status")) {
+          return { rows: [{ order_id: "ord_1", payment_id: "pay_1", status: "processing" }] };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const handlers = buildPaymentsSupportRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await handlers["support.support-request.refund-released.v1"]?.(platformCoverageReleasedFact() as never);
+
+    expect(issueRefund).not.toHaveBeenCalled();
+  });
+
+  it("no-ops a remedy release with no captured-payment-backed effect registered", async () => {
+    const issueRefund = vi.fn(async () => ({ refundId: "rfd_final", version: 1 }));
+    const db = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
+    const handlers = buildPaymentsSupportRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await handlers["support.support-request.refund-released.v1"]?.(platformCoverageReleasedFact() as never);
+
+    expect(issueRefund).not.toHaveBeenCalled();
+  });
 });

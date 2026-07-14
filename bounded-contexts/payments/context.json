@@ -52,7 +52,8 @@
         "support.support-request.resolved",
         "support.support-request.return-delivered",
         "support.support-request.return-condition-disputed",
-        "support.support-request.return-refund-released"
+        "support.support-request.return-refund-released",
+        "support.support-request.refund-released.v1"
       ],
       "order": 70,
       "projectionHandlerSetNames": ["payments-support-refund-effect"]

@@ -2,11 +2,17 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId, type PaymentId } from "@chase-sets/primitives/typed-ids";
+import { normalizeSupportRequestRefundReleasedV1 } from "@chase-sets/event-core/platform-coverage-facts";
 import type { RefundId } from "../../../../support/runtime-support/common";
 import type { RefundServices } from "../../api/runtime";
+import type { RefundCausationInput } from "../../domain/causation";
+import { refundIdForRemedy } from "../../domain/causation";
 import { getCapturedPaymentByOrderId, getOrderPaymentInput } from "../../../payments/read-model/queries";
 
 const refundResolutionTypes = new Set(["full-refund", "partial-refund", "return-for-refund", "cancel-order"]);
+
+/** Structured, non-free-form reason carried as refund causation when a platform-coverage remedy releases its refund. */
+const REMEDY_REFUND_RELEASED_REASON_CODE = "platform-coverage-remedy-refund-released";
 
 /**
  * `return-for-refund` records a pending refund effect instead of issuing one
@@ -199,6 +205,57 @@ async function claimReturnRefundRelease(
   return (result.rows[0]?.refund_id ?? null) as RefundId | null;
 }
 
+/**
+ * Opens the gate for a platform-coverage remedy refund. The refund id is derived
+ * from the stable remedy id (not request timing), so a redelivered release resolves
+ * to the same refund and the provider is invoked at most once. The claim is guarded
+ * to statuses that have not yet reached the provider so a replay after a successful
+ * claim is a no-op, and it returns the row's order/payment binding recorded when the
+ * case was resolved.
+ */
+async function claimRemedyRefundRelease(
+  db: PgQueryable,
+  params: Readonly<{ supportRequestId: string; refundId: RefundId; now: string }>,
+) {
+  const result = await db.query<{ order_id: string; payment_id: string | null; refund_id: string | null }>(
+    `UPDATE payments_support_refund_effects
+     SET refund_id = COALESCE(refund_id, $2),
+         status = 'processing',
+         failure_message = NULL,
+         updated_at = $3
+     WHERE support_request_id = $1
+       AND payment_id IS NOT NULL
+       AND status NOT IN ('processing', 'refund-requested', 'skipped', 'manual-review')
+     RETURNING order_id, payment_id, refund_id`,
+    [params.supportRequestId, params.refundId, params.now],
+  );
+
+  const row = result.rows[0];
+  if (!row || !row.payment_id) {
+    return null;
+  }
+  return {
+    orderId: row.order_id,
+    paymentId: row.payment_id,
+    refundId: (row.refund_id ?? params.refundId) as RefundId,
+  };
+}
+
+async function markRemedyRefundManualReview(
+  db: PgQueryable,
+  params: Readonly<{ supportRequestId: string; failureMessage: string; now: string }>,
+) {
+  await db.query(
+    `UPDATE payments_support_refund_effects
+     SET status = 'manual-review',
+         failure_message = $2,
+         updated_at = $3
+     WHERE support_request_id = $1
+       AND status NOT IN ('refund-requested', 'processing')`,
+    [params.supportRequestId, params.failureMessage, params.now],
+  );
+}
+
 async function issueClaimedRefund(
   db: PgQueryable,
   refunds: RefundServices,
@@ -209,6 +266,7 @@ async function issueClaimedRefund(
     orderId: string;
     amount: string;
     reason: string;
+    causation?: RefundCausationInput | null;
     context: EventStoreContext;
   }>,
 ) {
@@ -220,6 +278,7 @@ async function issueClaimedRefund(
         orderIds: [params.orderId],
         amount: params.amount,
         reason: params.reason,
+        causation: params.causation ?? null,
       },
       params.context,
     );
@@ -351,6 +410,107 @@ export function buildPaymentsSupportRefundEffectHandlers(
         orderId: data.orderId,
         amount,
         reason: `Support ${data.supportRequestId}: ${data.resolution.summary}`,
+        context: { tenantId: event.tenantId, audit: event.audit, trace: event.trace },
+      });
+    },
+    "support.support-request.refund-released.v1": async (event) => {
+      // Remedy-scoped refund release from a platform-covered resolution. The fact
+      // carries the authorized allocation and (for platform-funded remedies) the
+      // approved coverage reference; the normalizer rejects a platform-funded
+      // release that lacks coverage before any provider work is attempted.
+      const fact = normalizeSupportRequestRefundReleasedV1(
+        event.data as Parameters<typeof normalizeSupportRequestRefundReleasedV1>[0],
+      );
+
+      const existing = await db.query<{ order_id: string; payment_id: string | null; status: string }>(
+        `SELECT order_id, payment_id, status
+         FROM payments_support_refund_effects
+         WHERE support_request_id = $1`,
+        [fact.supportRequestId],
+      );
+      const row = existing.rows[0];
+      if (!row || !row.payment_id) {
+        // No captured-payment-backed effect is registered for this remedy; Payments
+        // cannot resolve the original rail. Fail closed: leave the remedy's
+        // refund-completion effect unsatisfied for Support to surface, never a
+        // silently misdirected or duplicated refund.
+        return;
+      }
+      if (row.status === "refund-requested" || row.status === "processing") {
+        // Already claimed/executed for this remedy; idempotent replay.
+        return;
+      }
+
+      const [payment, orderInput] = await Promise.all([
+        getCapturedPaymentByOrderId(db, row.order_id),
+        getOrderPaymentInput(db, row.order_id),
+      ]);
+      if (!payment || !orderInput) {
+        await db.query(
+          `UPDATE payments_support_refund_effects
+           SET status = 'failed',
+               failure_message = $2,
+               updated_at = $3
+           WHERE support_request_id = $1`,
+          [fact.supportRequestId, "Captured payment was not found when the remedy refund released.", fact.occurredAt],
+        );
+        return;
+      }
+
+      const remainingOrderAmount = remainingRefundableOrderAmount(payment, row.order_id, orderInput.total_amount);
+      if (compareMoney(remainingOrderAmount, "0.00") <= 0) {
+        await db.query(
+          `UPDATE payments_support_refund_effects
+           SET status = 'skipped',
+               failure_message = $2,
+               updated_at = $3
+           WHERE support_request_id = $1`,
+          [
+            fact.supportRequestId,
+            "Order had no remaining refundable amount when the remedy refund released.",
+            fact.occurredAt,
+          ],
+        );
+        return;
+      }
+      if (compareMoney(fact.refundAmount, remainingOrderAmount) > 0) {
+        // The authorized remedy amount no longer fits the order's remaining
+        // refundable balance. Payments cannot re-split seller vs platform liability
+        // to fit a smaller refund, so it refuses rather than issue a refund whose
+        // carried allocation would not sum to the amount. Surface for review.
+        await markRemedyRefundManualReview(db, {
+          supportRequestId: fact.supportRequestId,
+          failureMessage: "Authorized remedy amount exceeds the order's remaining refundable balance.",
+          now: fact.occurredAt,
+        });
+        return;
+      }
+
+      const claimed = await claimRemedyRefundRelease(db, {
+        supportRequestId: fact.supportRequestId,
+        refundId: refundIdForRemedy(fact.remedyId) as RefundId,
+        now: fact.occurredAt,
+      });
+      if (!claimed) {
+        return;
+      }
+
+      await issueClaimedRefund(db, refunds, {
+        supportRequestId: fact.supportRequestId,
+        paymentId: claimed.paymentId,
+        refundId: claimed.refundId,
+        orderId: claimed.orderId,
+        amount: fact.refundAmount,
+        reason: `Support ${fact.supportRequestId}: platform-coverage remedy refund released.`,
+        causation: {
+          remedyId: fact.remedyId,
+          coverageId: fact.coverageId,
+          allocation: fact.allocation,
+          reasonCode: REMEDY_REFUND_RELEASED_REASON_CODE,
+          refundTrigger: fact.refundTrigger,
+          refundTriggerEvidenceRef: fact.causationId,
+          policyVersion: fact.policyVersion,
+        },
         context: { tenantId: event.tenantId, audit: event.audit, trace: event.trace },
       });
     },

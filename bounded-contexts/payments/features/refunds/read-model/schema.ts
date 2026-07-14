@@ -12,10 +12,48 @@ CREATE TABLE IF NOT EXISTS payments_refund_pages (
   status text NOT NULL,
   failure_code text NULL,
   failure_message text NULL,
+  remedy_id text NULL,
+  coverage_id text NULL,
+  liability_funding_kind text NULL,
+  seller_funded_amount numeric(12, 2) NULL,
+  platform_funded_amount numeric(12, 2) NULL,
+  refund_trigger text NULL,
+  reason_code text NULL,
   requested_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
   issued_at timestamptz NULL,
   failed_at timestamptz NULL,
   last_stream_version bigint NOT NULL DEFAULT 0
 );
+
+CREATE INDEX IF NOT EXISTS payments_refund_pages_pending_idx
+  ON payments_refund_pages (status, updated_at)
+  WHERE status NOT IN ('issued', 'failed');
+
+CREATE INDEX IF NOT EXISTS payments_refund_pages_remedy_idx
+  ON payments_refund_pages (remedy_id)
+  WHERE remedy_id IS NOT NULL;
 `;
+
+export const paymentsRefundSchemaMigrations = [
+  {
+    migrationId: "20260714_payments_refund_pages_causation",
+    description:
+      "Carry remedy and liability-allocation causation on the refund read model so completed refunds preserve who authorized them and how liability is allocated, and so stuck refunds are queryable.",
+    statements: [
+      `ALTER TABLE payments_refund_pages ADD COLUMN IF NOT EXISTS remedy_id text NULL`,
+      `ALTER TABLE payments_refund_pages ADD COLUMN IF NOT EXISTS coverage_id text NULL`,
+      `ALTER TABLE payments_refund_pages ADD COLUMN IF NOT EXISTS liability_funding_kind text NULL`,
+      `ALTER TABLE payments_refund_pages ADD COLUMN IF NOT EXISTS seller_funded_amount numeric(12, 2) NULL`,
+      `ALTER TABLE payments_refund_pages ADD COLUMN IF NOT EXISTS platform_funded_amount numeric(12, 2) NULL`,
+      `ALTER TABLE payments_refund_pages ADD COLUMN IF NOT EXISTS refund_trigger text NULL`,
+      `ALTER TABLE payments_refund_pages ADD COLUMN IF NOT EXISTS reason_code text NULL`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_refund_pages_pending_idx
+  ON payments_refund_pages (status, updated_at)
+  WHERE status NOT IN ('issued', 'failed')`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_refund_pages_remedy_idx
+  ON payments_refund_pages (remedy_id)
+  WHERE remedy_id IS NOT NULL`,
+    ],
+  },
+] as const;
