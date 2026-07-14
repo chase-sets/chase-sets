@@ -13,7 +13,6 @@ import {
   consumeChallenge,
   consumeGuestCheckoutClaimToken,
   consumeMagicLinkToken,
-  consumePhoneCodeToken,
   consumeSocialLoginState,
   insertAccountSelectionToken,
   insertChallenge,
@@ -21,6 +20,7 @@ import {
   insertMagicLinkToken,
   insertPhoneCodeToken,
   insertSocialLoginState,
+  verifyPhoneCodeToken,
 } from "./store";
 
 // phantom-SQL rule: exercised against a real Postgres sandbox
@@ -112,6 +112,62 @@ describeDb("auth token store persistence boundary", () => {
   });
 
   describe("phone code tokens", () => {
+    it("invalidates a phone code after five failed verification attempts", async () => {
+      await insertPhoneCodeToken(pool, {
+        tokenId: "cmd_phone_attempt_cap",
+        userId: "usr_existing",
+        phone: "+13125550100",
+        codeHash: "hash_phone_correct",
+        deliveryCode: "123456",
+        expiresAt: futureIso(),
+      });
+
+      for (let attempt = 1; attempt < 5; attempt += 1) {
+        await expect(
+          verifyPhoneCodeToken(pool, {
+            tokenId: "cmd_phone_attempt_cap",
+            phone: "+13125550100",
+            codeHash: `hash_phone_wrong_${attempt}`,
+            maxFailedAttempts: 5,
+          }),
+        ).resolves.toEqual({ status: "rejected", invalidated: false });
+      }
+
+      await expect(
+        verifyPhoneCodeToken(pool, {
+          tokenId: "cmd_phone_attempt_cap",
+          phone: "+13125550100",
+          codeHash: "hash_phone_wrong_5",
+          maxFailedAttempts: 5,
+        }),
+      ).resolves.toEqual({ status: "rejected", invalidated: true });
+
+      await expect(
+        verifyPhoneCodeToken(pool, {
+          tokenId: "cmd_phone_attempt_cap",
+          phone: "+13125550100",
+          codeHash: "hash_phone_correct",
+          maxFailedAttempts: 5,
+        }),
+      ).resolves.toEqual({ status: "rejected", invalidated: false });
+
+      const stored = await pool.query<{
+        failed_attempt_count: number;
+        invalidated_at: string | null;
+        delivery_code: string | null;
+      }>(
+        `SELECT failed_attempt_count, invalidated_at, delivery_code
+         FROM identity_phone_code_tokens
+         WHERE token_id = $1`,
+        ["cmd_phone_attempt_cap"],
+      );
+      expect(stored.rows[0]).toMatchObject({
+        failed_attempt_count: 5,
+        invalidated_at: expect.any(Date),
+        delivery_code: null,
+      });
+    });
+
     it("consumes a phone code token exactly once through the stored SQL predicate", async () => {
       await insertPhoneCodeToken(pool, {
         tokenId: "cmd_phone_once",
@@ -123,20 +179,38 @@ describeDb("auth token store persistence boundary", () => {
       });
 
       await expect(
-        consumePhoneCodeToken(pool, { phone: "+13125550101", codeHash: "hash_phone_once" }),
+        verifyPhoneCodeToken(pool, {
+          tokenId: "cmd_phone_once",
+          phone: "+13125550101",
+          codeHash: "hash_phone_once",
+          maxFailedAttempts: 5,
+        }),
       ).resolves.toMatchObject({
-        token_id: "cmd_phone_once",
-        user_id: "usr_existing",
-        phone: "+13125550101",
-        code_hash: "hash_phone_once",
+        status: "verified",
+        token: {
+          token_id: "cmd_phone_once",
+          user_id: "usr_existing",
+          phone: "+13125550101",
+          code_hash: "hash_phone_once",
+        },
       });
 
       await expect(
-        consumePhoneCodeToken(pool, { phone: "+13125550101", codeHash: "hash_phone_once" }),
-      ).resolves.toBeNull();
+        verifyPhoneCodeToken(pool, {
+          tokenId: "cmd_phone_once",
+          phone: "+13125550101",
+          codeHash: "hash_phone_once",
+          maxFailedAttempts: 5,
+        }),
+      ).resolves.toEqual({ status: "rejected", invalidated: false });
       await expect(
-        consumePhoneCodeToken(pool, { phone: "+13125550101", codeHash: "hash_missing" }),
-      ).resolves.toBeNull();
+        verifyPhoneCodeToken(pool, {
+          tokenId: "cmd_phone_once",
+          phone: "+13125550101",
+          codeHash: "hash_missing",
+          maxFailedAttempts: 5,
+        }),
+      ).resolves.toEqual({ status: "rejected", invalidated: false });
     });
 
     it("rejects expired phone code tokens without consuming them", async () => {
@@ -150,8 +224,13 @@ describeDb("auth token store persistence boundary", () => {
       });
 
       await expect(
-        consumePhoneCodeToken(pool, { phone: "+13125550102", codeHash: "hash_phone_expired" }),
-      ).resolves.toBeNull();
+        verifyPhoneCodeToken(pool, {
+          tokenId: "cmd_phone_expired",
+          phone: "+13125550102",
+          codeHash: "hash_phone_expired",
+          maxFailedAttempts: 5,
+        }),
+      ).resolves.toEqual({ status: "rejected", invalidated: false });
       await expect(readConsumedAt("identity_phone_code_tokens", "code_hash", "hash_phone_expired")).resolves.toBeNull();
     });
 
@@ -166,11 +245,22 @@ describeDb("auth token store persistence boundary", () => {
       });
 
       const results = await Promise.all([
-        consumePhoneCodeToken(pool, { phone: "+13125550103", codeHash: "hash_phone_race" }),
-        consumePhoneCodeToken(pool, { phone: "+13125550103", codeHash: "hash_phone_race" }),
+        verifyPhoneCodeToken(pool, {
+          tokenId: "cmd_phone_race",
+          phone: "+13125550103",
+          codeHash: "hash_phone_race",
+          maxFailedAttempts: 5,
+        }),
+        verifyPhoneCodeToken(pool, {
+          tokenId: "cmd_phone_race",
+          phone: "+13125550103",
+          codeHash: "hash_phone_race",
+          maxFailedAttempts: 5,
+        }),
       ]);
 
-      expectExactlyOneWinner(results);
+      expect(results.filter((result) => result.status === "verified")).toHaveLength(1);
+      expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
     });
   });
 

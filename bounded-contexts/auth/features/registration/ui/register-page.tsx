@@ -445,6 +445,12 @@ export function RegisterPage(props: RegistrationPageProps) {
             <Text size="sm" tone="secondary">
               {t("auth.features.registration.ui.registerPage.enter.phone.code.copy")}
             </Text>
+            <HiddenInput
+              type="hidden"
+              name="tokenId"
+              value={props.notice?.status === "phone-code-sent" ? props.notice.tokenId : ""}
+              readOnly
+            />
             <HiddenInput type="hidden" name="displayName" value={details.displayName} readOnly />
             <TextInput
               label={t("auth.features.registration.ui.registerPage.phone")}

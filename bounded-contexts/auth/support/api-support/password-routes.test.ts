@@ -153,4 +153,45 @@ describe("password auth routes", () => {
     expect(services.auth.verifySecret).not.toHaveBeenCalled();
     expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
   });
+
+  it("rate limits failed password verification per identifier and per IP", async () => {
+    const services = createServices();
+    services.identity.getUserByEmail = vi.fn(async () => null);
+    const app = buildApp(services);
+
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const response = await signInRequest(
+        app,
+        { email: "locked@example.test", password: "wrong" },
+        `203.0.113.${90 + attempt}`,
+      );
+      expect(response.status).toBe(401);
+    }
+
+    const identifierLimited = await signInRequest(
+      app,
+      { email: "locked@example.test", password: "wrong" },
+      "203.0.113.96",
+    );
+    expect(identifierLimited.status).toBe(429);
+    await expect(identifierLimited.json()).resolves.toMatchObject({
+      error: { code: "rate_limited", surface: "auth.sign-in.identifier-failures" },
+    });
+
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const response = await signInRequest(
+        app,
+        { email: `unknown-${attempt}@example.test`, password: "wrong" },
+        "203.0.113.100",
+      );
+      expect(response.status).toBe(401);
+    }
+
+    const ipLimited = await signInRequest(app, { email: "unknown-6@example.test", password: "wrong" }, "203.0.113.100");
+    expect(ipLimited.status).toBe(429);
+    await expect(ipLimited.json()).resolves.toMatchObject({
+      error: { code: "rate_limited", surface: "auth.sign-in.ip-failures" },
+    });
+    expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+  });
 });

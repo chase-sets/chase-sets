@@ -247,11 +247,13 @@ export async function insertPhoneCodeToken(
   );
 }
 
-export async function consumePhoneCodeToken(
+export async function verifyPhoneCodeToken(
   db: PgQueryable,
   params: Readonly<{
+    tokenId: string;
     phone: string;
     codeHash: string;
+    maxFailedAttempts: number;
   }>,
 ) {
   const result = await db.query<{
@@ -261,19 +263,55 @@ export async function consumePhoneCodeToken(
     code_hash: string;
     expires_at: string;
     consumed_at: string | null;
+    invalidated_at: string | null;
+    failed_attempt_count: number;
+    code_matches: boolean;
   }>(
-    `UPDATE identity_phone_code_tokens
-     SET consumed_at = now(),
-         delivery_code = NULL
-     WHERE phone = $1
-       AND code_hash = $2
-       AND consumed_at IS NULL
-       AND expires_at > now()
-     RETURNING token_id, user_id, phone, code_hash, expires_at, consumed_at`,
-    [params.phone, params.codeHash],
+    `WITH active_phone_code AS (
+       SELECT token_id, code_hash = $3 AS code_matches
+       FROM identity_phone_code_tokens
+       WHERE token_id = $1
+         AND phone = $2
+         AND consumed_at IS NULL
+         AND invalidated_at IS NULL
+         AND expires_at > now()
+       FOR UPDATE
+     )
+     UPDATE identity_phone_code_tokens AS token
+     SET consumed_at = CASE WHEN active.code_matches THEN now() ELSE token.consumed_at END,
+         invalidated_at = CASE
+           WHEN NOT active.code_matches AND token.failed_attempt_count + 1 >= $4 THEN now()
+           ELSE token.invalidated_at
+         END,
+         failed_attempt_count = CASE
+           WHEN active.code_matches THEN token.failed_attempt_count
+           ELSE token.failed_attempt_count + 1
+         END,
+         delivery_code = CASE
+           WHEN active.code_matches OR token.failed_attempt_count + 1 >= $4 THEN NULL
+           ELSE token.delivery_code
+         END
+     FROM active_phone_code AS active
+     WHERE token.token_id = active.token_id
+     RETURNING token.token_id,
+               token.user_id,
+               token.phone,
+               token.code_hash,
+               token.expires_at,
+               token.consumed_at,
+               token.invalidated_at,
+               token.failed_attempt_count,
+               active.code_matches`,
+    [params.tokenId, params.phone, params.codeHash, params.maxFailedAttempts],
   );
 
-  return result.rows[0] ?? null;
+  const record = result.rows[0];
+  if (!record || !record.code_matches) {
+    return { status: "rejected", invalidated: Boolean(record?.invalidated_at) } as const;
+  }
+
+  const { code_matches: _, ...token } = record;
+  return { status: "verified", token } as const;
 }
 
 export async function insertChallenge(
