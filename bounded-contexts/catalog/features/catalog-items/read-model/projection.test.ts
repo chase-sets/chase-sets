@@ -77,6 +77,25 @@ describe("Catalog Item projections", () => {
     expect(query).toHaveBeenCalledWith("DELETE FROM catalog_items WHERE catalog_item_id = $1", ["cat_1"]);
   });
 
+  it("keeps category assignment idempotent when an event is replayed", async () => {
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+    const handlers = buildCatalogItemProjectionHandlers({ query });
+    const assigned = {
+      streamId: "catalog.item-cat_1",
+      data: { categoryId: "category_1" },
+      timing: { recordedAt: "2026-05-17T00:00:00.000Z" },
+    } as never;
+
+    await handlers["catalog.catalog-item.category-assigned"]?.(assigned);
+    await handlers["catalog.catalog-item.category-assigned"]?.(assigned);
+
+    expect(query).toHaveBeenCalledTimes(2);
+    for (const [sql, params] of query.mock.calls) {
+      expect(sql).toContain("WHEN category_ids @> $2::jsonb THEN category_ids");
+      expect(params).toEqual(["cat_1", '["category_1"]', "2026-05-17T00:00:00.000Z"]);
+    }
+  });
+
   it("deletes removed drafts from admin list and detail pages", async () => {
     const query = vi.fn(async () => ({ rows: [] }));
     const handlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
