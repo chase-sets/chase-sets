@@ -15,6 +15,7 @@ import {
   buildNamespaceGetArgs,
   buildPreviewWildcardSecretApplyArgs,
   buildPreviewWildcardSecretGetArgs,
+  buildScenarioSeedJobManifest,
   copyPreviewWildcardTlsSecret,
   deployPlatformToKubernetes,
   helmReleaseExists,
@@ -24,7 +25,9 @@ import {
   platformKubernetesWorkloads,
   promotePlatformRollouts,
   rollbackPlatformOnKubernetes,
+  runScenarioSeedOnKubernetes,
   sanitizeCopiedSecretManifest,
+  scenarioSeedMaxActiveDeadlineSeconds,
   teardownPlatformKubernetesNamespace,
 } from "./platform-kubernetes-deployment.mjs";
 
@@ -88,6 +91,80 @@ describe("platform Kubernetes deployment", () => {
       digest: `sha256:${"a".repeat(64)}`,
     });
     expect(() => parsePlatformImageRef("chase-sets-platform:abc123")).toThrow("Platform image must look like");
+  });
+
+  it("builds a staging-only post-deploy scenario seed Job without quiescing workers", () => {
+    const manifest = buildScenarioSeedJobManifest({
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+      image: `registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:${"a".repeat(64)}`,
+      imagePullSecret: "registry-chase-sets",
+      timeout: "60m",
+      jobName: "staging-scenario-seed-proof",
+      envOverrides: {
+        DEPLOYMENT_ENVIRONMENT: "staging",
+        CHASE_SETS_RUNTIME_PROFILE: "public",
+        CATALOG_ASSET_PUBLIC_BASE_URL: "https://assets.staging.chasesets.com",
+        CATALOG_ASSET_S3_BUCKET: "staging-assets",
+      },
+    });
+    const container = manifest.spec.template.spec.containers[0];
+    const env = new Map(container.env.map((entry) => [entry.name, entry]));
+
+    expect(manifest.spec.activeDeadlineSeconds).toBe(scenarioSeedMaxActiveDeadlineSeconds);
+    expect(manifest.spec.backoffLimit).toBe(0);
+    expect(manifest.spec.template.spec.imagePullSecrets).toEqual([{ name: "registry-chase-sets" }]);
+    expect(container.args).toEqual(["pnpm --filter @chase-sets/app-platform-api run bootstrap:production"]);
+    expect(container.args.join(" ")).not.toContain("bootstrap-quiesce");
+    expect(env.get("PLATFORM_DATA_PROFILES")).toEqual({ name: "PLATFORM_DATA_PROFILES", value: "scenario-seed" });
+    expect(env.get("DEPLOYMENT_ENVIRONMENT")).toEqual({ name: "DEPLOYMENT_ENVIRONMENT", value: "staging" });
+    expect(env.get("DATABASE_URL_IDENTITY")).toEqual({
+      name: "DATABASE_URL_IDENTITY",
+      valueFrom: {
+        secretKeyRef: {
+          name: "chase-sets-platform-runtime",
+          key: "BOOTSTRAP_DATABASE_URL_IDENTITY",
+        },
+      },
+    });
+    expect(container.env.map((entry) => entry.name)).not.toContain("CHASE_SETS_QUIESCE_DEPLOYMENTS");
+
+    expect(() =>
+      buildScenarioSeedJobManifest({
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:proof",
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
+      }),
+    ).toThrow("staging-only");
+  });
+
+  it("applies, streams, and verifies the post-deploy scenario seed Job", async () => {
+    const calls = [];
+    const result = await runScenarioSeedOnKubernetes({
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:proof",
+      timeout: "60m",
+      jobName: "staging-scenario-seed-proof",
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging" },
+      spawn: completedSpawn(calls, [
+        { code: 0 },
+        { code: 0 },
+        { code: 0, stdout: JSON.stringify({ status: { succeeded: 1 } }) },
+      ]),
+    });
+
+    expect(result).toMatchObject({
+      action: "scenario-seed",
+      result: "success",
+      jobName: "staging-scenario-seed-proof",
+    });
+    expect(calls.map((call) => [call.command, call.args[0]])).toEqual([
+      ["kubectl", "apply"],
+      ["kubectl", "logs"],
+      ["kubectl", "get"],
+    ]);
+    const appliedManifest = JSON.parse(calls[0].stdin);
+    expect(appliedManifest.metadata.labels["app.kubernetes.io/component"]).toBe("scenario-seed");
   });
 
   it("builds Helm upgrade arguments for atomic rollout-based deploys", () => {
@@ -239,7 +316,7 @@ describe("platform Kubernetes deployment", () => {
       "--runtime-env",
       "CHASE_SETS_RUNTIME_PROFILE=public",
       "--runtime-env",
-      "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap,scenario-seed",
+      "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap",
       "--runtime-env",
       "CATALOG_ASSET_PUBLIC_BASE_URL=https://assets.staging.chasesets.com",
       "--namespace",

@@ -1050,16 +1050,17 @@ jobs:
           add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"
           add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"
 
-          # Deployed marketplace critical flows use the scenario-seed collector
-          # account, cart lines, and started checkout session. DOKS owns a separate
-          # staging database, so its bootstrap hook must reconcile that profile too.
+          # Keep the deploy-critical pre-upgrade hook aligned with production:
+          # only schemas and the two long-lived bootstrap profiles belong there.
+          # Scenario data is reconciled after this rollout by a separate Job,
+          # while the worker fleet is available to drain projections.
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
             --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=staging" \
             --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
-            --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap,scenario-seed" \
+            --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
             --runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${TF_VAR_admin_google_workspace_hosted_domains:-}" \
             --runtime-env "CHASE_SETS_PUBLIC_ORIGIN=https://${landing_domain}" \
             --runtime-env "NOTIFICATION_EMAIL_PROVIDER=${TF_VAR_notification_email_provider:-noop}" \
@@ -1074,6 +1075,37 @@ jobs:
             --release "$CHASE_SETS_HELM_RELEASE" \
             --rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+
+      - name: Seed staging Kubernetes scenario data
+        if: env.SHOULD_DEPLOY != 'false'
+        env:
+          PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          catalog_asset_public_base_url="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_public_base_url)"
+          catalog_asset_s3_bucket="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_bucket)"
+          catalog_asset_s3_endpoint="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_endpoint)"
+          catalog_asset_s3_region="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_region)"
+          if [ -z "$catalog_asset_public_base_url" ] || [ -z "$catalog_asset_s3_bucket" ] || [ -z "$catalog_asset_s3_endpoint" ] || [ -z "$catalog_asset_s3_region" ]; then
+            echo "Staging catalog asset runtime env outputs are required before scenario seeding." >&2
+            exit 1
+          fi
+
+          # This Job is deliberately outside Helm's pre-upgrade hook. Its 55m
+          # in-cluster deadline fits inside the 60m caller budget without
+          # extending either staging's 15m rollout timeout or any production path.
+          pnpm run platform:kubernetes-deployment -- scenario-seed \
+            --image "$PLATFORM_IMAGE_REF" \
+            --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
+            --runtime-env "DEPLOYMENT_ENVIRONMENT=staging" \
+            --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
+            --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}" \
+            --runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}" \
+            --runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}" \
+            --runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --timeout 60m
 
       - name: Capture staging Kubernetes deploy diagnostics
         if: failure() && env.SHOULD_DEPLOY != 'false'
