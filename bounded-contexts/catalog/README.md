@@ -52,6 +52,7 @@ The v2 integration control-plane IA — three pages, two utilities, and the per-
 - Provider Source Observations before review and promotion into canonical Catalog Items
 - Catalog Sync Scopes and provider participation previews that decide which provider units may pull Source Observations
 - Catalog Scope Records that make product-line, series, expansion, and set sync identity canonical before provider mappings are applied
+- Provider Scope Observations that persist hash-deduped provider-unit option evidence before canonical scope matching
 - Provider Scope Mappings that review and persist provider execution coordinates for canonical Catalog Scope Records
 - External Catalog Item References that map third-party product identifiers to Catalog Item truth
 - External Product References that map third-party SKU identifiers to Product selection truth
@@ -87,6 +88,7 @@ Catalog terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - Source Observation
 - Catalog Sync Scope
 - Catalog Scope Record
+- Provider Scope Observation
 - Provider Scope Mapping
 - External Catalog Item Reference
 - External Product Reference
@@ -196,6 +198,15 @@ Catalog Scope Records are provider-independent. They carry product domain, scope
 Owns the reviewed bridge from one provider unit to one Catalog Scope Record.
 
 Provider Scope Mappings are keyed by `scope_record_id`, `provider_key`, and `unit_key`. They persist provider execution coordinates such as product line id, series id, set id, set name, and language coordinates with confidence, provenance, and review status. Only `accepted` and `auto-accepted` mappings are queryable as execution-ready scope mappings; `rejected` and `revoked` mappings remain as audit evidence.
+
+### Provider Scope Observation
+
+Owns the provider-unit evidence returned by scope option syncs before it becomes a Provider Scope Mapping.
+
+- Persists provider, unit, scope kind, external id, label, parent coordinates, language, metadata, and a deterministic observation hash
+- Matches exact canonical ids/codes, normalized names, and accepted set/series aliases; release-date proximity only breaks otherwise ambiguous ties
+- Auto-accepts unique exact canonical matches, keeps ambiguous matches proposed, and creates a reviewable canonical Scope Record proposal when no record matches
+- Re-running the same evidence is idempotent and never overwrites accepted, rejected, or revoked mapping disposition
 
 ### External Catalog Item Reference
 

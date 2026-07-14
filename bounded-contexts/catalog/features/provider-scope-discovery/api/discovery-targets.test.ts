@@ -17,7 +17,8 @@ describe("provider scope discovery targets", () => {
     // product-line listing is a discovery target.
     const tcgplayerTargets = targets.filter((target) => target.providerKey === "tcgplayer");
 
-    expect(tcgplayerTargets.map((target) => target.queryKind)).toEqual(["product-lines"]);
+    expect(tcgplayerTargets.length).toBeGreaterThan(0);
+    expect(tcgplayerTargets.every((target) => target.queryKind === "product-lines")).toBe(true);
   });
 
   it("never emits card, product, or SKU level queries", () => {
@@ -28,8 +29,10 @@ describe("provider scope discovery targets", () => {
     expect(queryKinds.has("skus")).toBe(false);
   });
 
-  it("emits each provider query kind exactly once across competing profiles", () => {
-    const keys = targets.map((target) => `${target.providerKey}:${target.queryKind}`);
+  it("emits each provider-unit query kind exactly once across competing profiles", () => {
+    const keys = targets.map(
+      (target) => `${target.providerKey}:${target.ingestionUnitKey}:${target.queryKind}:${target.languageCode}`,
+    );
 
     expect(new Set(keys).size).toBe(keys.length);
   });

@@ -147,7 +147,7 @@ describe("Provider Scope Mapping lifecycle", () => {
     ).toHaveLength(0);
   });
 
-  it("does not downgrade an accepted mapping when identical provider evidence is observed again", () => {
+  it("does not downgrade or duplicate an accepted mapping when changed provider evidence is observed again", () => {
     const candidate = mappingCandidate();
     const accepted = apply(
       apply(initialProviderScopeMappingState, {
@@ -160,7 +160,11 @@ describe("Provider Scope Mapping lifecycle", () => {
 
     const replay = decideProviderScopeMapping(accepted.state, {
       type: "ProposeProviderScopeMapping",
-      candidate,
+      candidate: mappingCandidate({
+        coordinates: { setName: "Paldean Fates (updated label)" },
+        provenance: { source: "scope-registry-backfill", sourceId: "obs_scope_2", mappingFingerprint: "fp-2" },
+        evidence: { providerSetUrl: "https://example.test/sv4-5-v2" },
+      }),
       actor: "system",
     });
 
@@ -168,7 +172,7 @@ describe("Provider Scope Mapping lifecycle", () => {
     expect(accepted.state.reviewStatus).toBe("accepted");
   });
 
-  it("does not reopen a rejected mapping when identical provider evidence is observed again", () => {
+  it("does not resurrect a rejected mapping when changed provider evidence is observed again", () => {
     const candidate = mappingCandidate();
     const rejected = apply(
       apply(initialProviderScopeMappingState, {
@@ -181,7 +185,11 @@ describe("Provider Scope Mapping lifecycle", () => {
 
     const replay = decideProviderScopeMapping(rejected.state, {
       type: "ProposeProviderScopeMapping",
-      candidate,
+      candidate: mappingCandidate({
+        coordinates: { setName: "Paldean Fates (updated label)" },
+        provenance: { source: "scope-registry-backfill", sourceId: "obs_scope_2", mappingFingerprint: "fp-2" },
+        evidence: { providerSetUrl: "https://example.test/sv4-5-v2" },
+      }),
       actor: "system",
     });
 

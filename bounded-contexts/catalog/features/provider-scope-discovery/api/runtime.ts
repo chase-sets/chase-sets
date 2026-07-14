@@ -29,6 +29,11 @@ import {
   type ProviderScopeObservationInput,
   type ProviderScopeObservationRecord,
 } from "./refresh-schedule-store";
+import {
+  listCanonicalScopeRecordProposals,
+  type CanonicalScopeRecordProposalRecord,
+  type CanonicalScopeRecordProposalReviewStatus,
+} from "./scope-record-proposal-store";
 import { matchScopeObservationsToScopeRecords } from "./scope-observation-matcher";
 
 export type ProviderScopeRefreshProviderResult = Readonly<{
@@ -89,8 +94,20 @@ export type ProviderScopeDiscoveryServices = Readonly<{
     reason?: string | null;
   }) => Promise<ProviderRefreshScheduleRecord | null>;
   listScopeObservations: (
-    input?: Readonly<{ providerKey?: string | null; queryKind?: string | null; limit?: number }>,
+    input?: Readonly<{
+      providerKey?: string | null;
+      unitKey?: string | null;
+      scopeKind?: ProviderScopeObservationRecord["scopeKind"] | null;
+      limit?: number;
+    }>,
   ) => Promise<readonly ProviderScopeObservationRecord[]>;
+  listCanonicalScopeRecordProposals: (
+    input?: Readonly<{
+      reviewStatus?: CanonicalScopeRecordProposalReviewStatus | null;
+      productDomain?: CanonicalScopeRecordProposalRecord["productDomain"] | null;
+      limit?: number;
+    }>,
+  ) => Promise<readonly CanonicalScopeRecordProposalRecord[]>;
 }>;
 
 const SCHEDULED_ACTOR = "system:scheduled-provider-scope-refresh";
@@ -276,6 +293,7 @@ export function createProviderScopeDiscoveryRuntime(
     },
 
     listScopeObservations: (input = {}) => listProviderScopeObservations(db, input),
+    listCanonicalScopeRecordProposals: (input = {}) => listCanonicalScopeRecordProposals(db, input),
   };
 }
 
@@ -315,11 +333,13 @@ async function collectTargetOptions(
     for (const item of page.items) {
       observations.push({
         providerKey: target.providerKey,
-        queryKind: target.queryKind,
+        unitKey: target.ingestionUnitKey,
+        scopeKind: target.scopeKind,
+        sourceQueryKind: target.queryKind,
         languageCode: target.languageCode,
-        optionExternalKey: item.value,
-        displayName: item.label,
-        parentValue: item.parentValue,
+        externalId: item.value,
+        label: item.label,
+        parents: item.parentValue ? [item.parentValue] : [],
         imageUrl: item.imageUrl,
         metadata: item.metadata,
       });
@@ -350,12 +370,12 @@ async function proposeMappingsForTarget(input: {
 
   let proposed = 0;
   for (const { candidate } of candidates) {
-    await input.ports.providerScopeMappingCommandHandler({
+    const result = await input.ports.providerScopeMappingCommandHandler({
       streamId: providerScopeMappingStreamId(candidate),
       command: { type: "ProposeProviderScopeMapping", candidate, actor: SCHEDULED_ACTOR },
       context: input.context,
     });
-    proposed += 1;
+    proposed += result.newEvents.length;
   }
   return proposed;
 }

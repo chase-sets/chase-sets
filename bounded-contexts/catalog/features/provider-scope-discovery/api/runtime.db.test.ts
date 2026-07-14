@@ -77,6 +77,14 @@ describeDb("provider scope discovery runtime db", () => {
         readonly { value: string; label: string; parentValue?: string | null; metadata?: Record<string, unknown> }[]
       >
     >;
+    optionPagesByProviderQueryKind?: Readonly<
+      Record<
+        string,
+        readonly { value: string; label: string; parentValue?: string | null; metadata?: Record<string, unknown> }[]
+      >
+    >;
+    profileProviderKeys?: readonly string[];
+    cadenceConfig?: readonly ProviderRefreshCadenceConfig[];
     failQueryKinds?: readonly string[];
   }) {
     const eventStore = createPostgresEventStore({ pool: pools.catalog });
@@ -89,16 +97,21 @@ describeDb("provider scope discovery runtime db", () => {
       deps,
       {
         listProfileVersions: async () =>
-          catalogProviderIntegrationProfileVersions.filter((version) => version.providerKey === "tcgdex"),
+          catalogProviderIntegrationProfileVersions.filter((version) =>
+            (input.profileProviderKeys ?? ["tcgdex"]).includes(version.providerKey),
+          ),
         queryIntegrationOptions: async (query) => {
           queryCalls.push(`${query.providerKey}:${query.queryKind}`);
           if (input.failQueryKinds?.includes(query.queryKind)) {
             throw new Error(`provider transport unavailable for ${query.queryKind}`);
           }
-          const items = input.optionPagesByQueryKind[query.queryKind] ?? [];
+          const items =
+            input.optionPagesByProviderQueryKind?.[`${query.providerKey}:${query.queryKind}`] ??
+            input.optionPagesByQueryKind[query.queryKind] ??
+            [];
           return optionPage(
             items.map((item) => ({
-              providerKey: "tcgdex",
+              providerKey: query.providerKey,
               queryKind: query.queryKind,
               value: item.value,
               label: item.label,
@@ -112,20 +125,29 @@ describeDb("provider scope discovery runtime db", () => {
         },
         providerScopeMappingCommandHandler: providerScopeMappings.commandHandler,
       },
-      testCadence,
+      input.cadenceConfig ?? testCadence,
     );
 
-    return { runtime, queryCalls };
+    return { runtime, queryCalls, providerScopeMappings };
   }
 
-  async function insertScopeRecord(input: { id: string; name: string; officialSetCode: string | null }) {
+  async function insertScopeRecord(input: {
+    id: string;
+    name: string;
+    officialSetCode: string | null;
+    productDomain?: "pokemon" | "magic" | "yugioh" | "one-piece" | "lorcana";
+    scopeKind?: "expansion" | "set";
+    releaseDate?: string | null;
+  }) {
+    const productDomain = input.productDomain ?? "pokemon";
+    const scopeKind = input.scopeKind ?? "expansion";
     await pools.catalog.query(
       `INSERT INTO catalog_scope_records (
          scope_record_id, product_domain, scope_kind, reference_type_key,
-         reference_record_id, reference_record_key, name, lifecycle_status, official_set_code
+         reference_record_id, reference_record_key, name, lifecycle_status, official_set_code, release_date
        )
-       VALUES ($1, 'pokemon', 'expansion', 'expansion', $1, $2, $3, 'active', $4)`,
-      [input.id, input.id, input.name, input.officialSetCode],
+       VALUES ($1, $2, $3, $3, $1, $1, $4, 'active', $5, $6::date)`,
+      [input.id, productDomain, scopeKind, input.name, input.officialSetCode, input.releaseDate ?? null],
     );
   }
 
@@ -152,6 +174,20 @@ describeDb("provider scope discovery runtime db", () => {
     expect(summary.observationsRecorded).toBeGreaterThan(0);
     expect(summary.mappingsProposed).toBe(1);
 
+    const observations = await runtime.listScopeObservations({ providerKey: "tcgdex", scopeKind: "expansion" });
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      providerKey: "tcgdex",
+      scopeKind: "expansion",
+      sourceQueryKind: "expansions",
+      externalId: "sv04.5",
+      label: "Paldean Fates",
+      parents: ["sv"],
+      languageCode: "en",
+    });
+    expect(observations[0]!.unitKey).not.toBe("");
+    expect(observations[0]!.observationHash).toMatch(/^[a-f0-9]{64}$/);
+
     const mappingEvents = await pools.catalog.query<{ event_type: string; payload: { reviewStatus: string } }>(
       `SELECT event_type, payload FROM event_store_events WHERE stream_id LIKE 'catalog.provider-scope-mapping-%'`,
     );
@@ -159,11 +195,197 @@ describeDb("provider scope discovery runtime db", () => {
     expect(mappingEvents.rows[0]!.event_type).toBe("catalog.provider-scope-mapping.proposed");
     expect(mappingEvents.rows[0]!.payload.reviewStatus).toBe("auto-accepted");
 
+    const refreshed = buildRuntime({
+      optionPagesByQueryKind: {
+        expansions: [
+          {
+            value: "sv04.5",
+            label: "Paldean Fates",
+            parentValue: "sv",
+            metadata: { abbreviation: "PAF", providerRevision: 2 },
+          },
+        ],
+      },
+    });
+    const refreshedResult = await refreshed.runtime.runProviderRefreshNow({
+      providerKey: "tcgdex",
+      context: TEST_CONTEXT,
+    });
+    expect(refreshedResult.mappingsProposed).toBe(0);
+
+    const acceptedEventsAfterRefresh = await pools.catalog.query<{ event_type: string }>(
+      `SELECT event_type FROM event_store_events WHERE stream_id LIKE 'catalog.provider-scope-mapping-%'`,
+    );
+    expect(acceptedEventsAfterRefresh.rows).toHaveLength(1);
+
     // A second sweep inside the cadence window claims nothing: the provider
     // is not due again and nothing is re-proposed.
     const secondSweep = await runtime.processScheduledRefresh({ context: TEST_CONTEXT });
     expect(secondSweep.providersDue).toBe(0);
     expect(secondSweep.mappingsProposed).toBe(0);
+  });
+
+  it("auto-accepts a unique normalized-name or accepted set-equivalent alias match", async () => {
+    await insertScopeRecord({ id: "scope-name-match", name: "Journey Together", officialSetCode: null });
+    await insertScopeRecord({ id: "scope-alias-match", name: "Scarlet & Violet—151", officialSetCode: null });
+    await pools.catalog.query(
+      `INSERT INTO catalog_reference_record_aliases (
+         alias_hash, reference_record_id, type_key, alias_text, normalized_alias_text,
+         alias_language_code, source_language_code, alias_type, confidence, review_status,
+         provider_key, observation_id, source_category, source_profile_key, source_profile_version,
+         mapping_fingerprint, evidence, last_actor, last_reason, policy_version
+       ) VALUES (
+         'alias-pokemon-151', 'scope-alias-match', 'expansion', 'Pokemon 151', 'pokemon 151',
+         'en', NULL, 'set-equivalent', 'high', 'accepted',
+         'tcgdex', NULL, 'provider-observation', 'pokemon-tcg', 'test',
+         'fp-alias-151', '{}'::jsonb, 'user:test', 'verified', 'test-policy'
+       )`,
+    );
+
+    const { runtime } = buildRuntime({
+      optionPagesByQueryKind: {
+        expansions: [
+          { value: "journey-together", label: "Journey Together" },
+          { value: "sv03.5", label: "Pokémon 151" },
+        ],
+      },
+    });
+    const result = await runtime.runProviderRefreshNow({ providerKey: "tcgdex", context: TEST_CONTEXT });
+
+    expect(result.mappingsProposed).toBe(2);
+    const events = await pools.catalog.query<{ payload: { reviewStatus: string; evidence: { matchedBy: string } } }>(
+      `SELECT payload FROM event_store_events
+       WHERE stream_id LIKE 'catalog.provider-scope-mapping-%'
+       ORDER BY payload->'evidence'->>'matchedBy' ASC`,
+    );
+    expect(events.rows.map((row) => row.payload.reviewStatus)).toEqual(["auto-accepted", "auto-accepted"]);
+    expect(events.rows.map((row) => row.payload.evidence.matchedBy).sort()).toEqual([
+      "accepted-alias",
+      "normalized-name",
+    ]);
+  });
+
+  it("uses release-date proximity only to propose a tiebreaker for ambiguous exact names", async () => {
+    await insertScopeRecord({
+      id: "scope-legacy-base-set",
+      name: "Base Set",
+      officialSetCode: null,
+      releaseDate: "1999-01-09",
+    });
+    await insertScopeRecord({
+      id: "scope-modern-base-set",
+      name: "Base Set",
+      officialSetCode: null,
+      releaseDate: "2025-01-01",
+    });
+
+    const { runtime } = buildRuntime({
+      optionPagesByQueryKind: {
+        expansions: [{ value: "base", label: "Base Set", metadata: { releaseDate: "1999-01-10" } }],
+      },
+    });
+    const result = await runtime.runProviderRefreshNow({ providerKey: "tcgdex", context: TEST_CONTEXT });
+
+    expect(result.mappingsProposed).toBe(1);
+    const event = await pools.catalog.query<{
+      payload: { scopeRecordId: string; reviewStatus: string; evidence: { matchedBy: string } };
+    }>(`SELECT payload FROM event_store_events WHERE stream_id LIKE 'catalog.provider-scope-mapping-%'`);
+    expect(event.rows[0]!.payload).toMatchObject({
+      scopeRecordId: "scope-legacy-base-set",
+      reviewStatus: "proposed",
+      evidence: { matchedBy: "release-date-proximity" },
+    });
+  });
+
+  it("proposes one new canonical set and mappings from every provider unit that offers it", async () => {
+    const cadenceConfig: readonly ProviderRefreshCadenceConfig[] = [
+      {
+        providerKey: "lorcanajson",
+        scheduleEnabled: false,
+        manualOnly: true,
+        creditAware: false,
+        intervalMs: 24 * HOUR_MS,
+        reason: "test",
+      },
+      {
+        providerKey: "lorcast",
+        scheduleEnabled: false,
+        manualOnly: true,
+        creditAware: false,
+        intervalMs: 24 * HOUR_MS,
+        reason: "test",
+      },
+    ];
+    const { runtime } = buildRuntime({
+      optionPagesByQueryKind: {},
+      optionPagesByProviderQueryKind: {
+        "lorcanajson:sets": [
+          { value: "FBL", label: "Fabled", metadata: { setCode: "FBL", releaseDate: "2026-08-01" } },
+        ],
+        "lorcast:sets": [{ value: "fabled", label: "Fabled", metadata: { setCode: "FBL", releaseDate: "2026-08-01" } }],
+      },
+      profileProviderKeys: ["lorcanajson", "lorcast"],
+      cadenceConfig,
+    });
+
+    await runtime.runProviderRefreshNow({ providerKey: "lorcanajson", context: TEST_CONTEXT });
+    await runtime.runProviderRefreshNow({ providerKey: "lorcast", context: TEST_CONTEXT });
+
+    const proposals = await runtime.listCanonicalScopeRecordProposals({ productDomain: "lorcana" });
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]).toMatchObject({
+      name: "Fabled",
+      officialSetCode: "FBL",
+      reviewStatus: "proposed",
+      scopeKind: "set",
+    });
+
+    const mappingEvents = await pools.catalog.query<{
+      payload: { providerKey: string; unitKey: string; reviewStatus: string; scopeRecordId: string };
+    }>(`SELECT payload FROM event_store_events WHERE stream_id LIKE 'catalog.provider-scope-mapping-%'`);
+    expect(new Set(mappingEvents.rows.map((row) => row.payload.providerKey))).toEqual(
+      new Set(["lorcanajson", "lorcast"]),
+    );
+    expect(mappingEvents.rows.every((row) => row.payload.unitKey.length > 0)).toBe(true);
+    expect(mappingEvents.rows.every((row) => row.payload.reviewStatus === "proposed")).toBe(true);
+    expect(mappingEvents.rows.every((row) => row.payload.scopeRecordId === proposals[0]!.scopeRecordId)).toBe(true);
+  });
+
+  it("does not resurrect a rejected proposal when changed evidence is observed again", async () => {
+    const first = buildRuntime({
+      optionPagesByQueryKind: {
+        expansions: [{ value: "new-set", label: "A New Set", metadata: { providerRevision: 1 } }],
+      },
+    });
+    await first.runtime.runProviderRefreshNow({ providerKey: "tcgdex", context: TEST_CONTEXT });
+
+    const proposed = await pools.catalog.query<{ stream_id: string }>(
+      `SELECT stream_id FROM event_store_events WHERE stream_id LIKE 'catalog.provider-scope-mapping-%'`,
+    );
+    const streamId = proposed.rows[0]!.stream_id;
+    await first.providerScopeMappings.commandHandler({
+      streamId,
+      command: { type: "RejectProviderScopeMapping", actor: "user:test", reason: "wrong provider set" },
+      context: TEST_CONTEXT,
+    });
+
+    const second = buildRuntime({
+      optionPagesByQueryKind: {
+        expansions: [{ value: "new-set", label: "A New Set", metadata: { providerRevision: 2 } }],
+      },
+    });
+    const rerun = await second.runtime.runProviderRefreshNow({ providerKey: "tcgdex", context: TEST_CONTEXT });
+    expect(rerun.mappingsProposed).toBe(0);
+
+    const events = await pools.catalog.query<{ event_type: string }>(
+      `SELECT event_type FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version ASC`,
+      [streamId],
+    );
+    expect(events.rows.map((row) => row.event_type)).toEqual([
+      "catalog.provider-scope-mapping.proposed",
+      "catalog.provider-scope-mapping.rejected",
+    ]);
+    expect(await second.runtime.listCanonicalScopeRecordProposals()).toHaveLength(1);
   });
 
   it("never claims manual-only credit-consuming providers and honors operator pause", async () => {

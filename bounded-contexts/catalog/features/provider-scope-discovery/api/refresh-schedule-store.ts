@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { JsonObject } from "@chase-sets/primitives/json";
+import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
+import type { ProviderScopeObservationKind } from "./discovery-targets";
 import type { ProviderRefreshCadenceConfig } from "./provider-refresh-cadence";
 
 export type ProviderRefreshRunStatus = "succeeded" | "failed" | "skipped-no-targets";
@@ -25,11 +27,13 @@ export type ProviderRefreshScheduleRecord = Readonly<{
 
 export type ProviderScopeObservationInput = Readonly<{
   providerKey: string;
-  queryKind: string;
+  unitKey: string;
+  scopeKind: ProviderScopeObservationKind;
+  sourceQueryKind: string;
   languageCode: string;
-  optionExternalKey: string;
-  displayName: string;
-  parentValue: string | null;
+  externalId: string;
+  label: string;
+  parents: readonly string[];
   imageUrl: string | null;
   metadata: JsonObject;
 }>;
@@ -39,8 +43,11 @@ export type ProviderScopeObservationRecord = ProviderScopeObservationInput &
     scanId: string;
     scannedAt: string;
     firstObservedAt: string;
+    observationHash: string;
     /** True when this scan was the first time the option was ever observed. */
     newlyObserved: boolean;
+    /** True when this scan inserted the option or changed its hashed provider evidence. */
+    changed: boolean;
   }>;
 
 type ScheduleRow = Readonly<{
@@ -184,8 +191,8 @@ export async function recordProviderRefreshRun(
 }
 
 // Upsert one scan's worth of option evidence for a provider. Returns every
-// written record with `newlyObserved` marking options this scan saw for the
-// first time — the delta the mapping matcher consumes.
+// written record with `newlyObserved` marking first sight and `changed`
+// marking the hash delta the mapping matcher consumes.
 export async function upsertProviderScopeObservations(
   db: PgQueryable,
   input: Readonly<{
@@ -198,34 +205,56 @@ export async function upsertProviderScopeObservations(
   const written: ProviderScopeObservationRecord[] = [];
 
   for (const observation of input.observations) {
+    const normalized = normalizeProviderScopeObservation(observation);
+    const observationHash = hashProviderScopeObservation(normalized);
     const result = await db.query<{
       first_observed_at: string | Date;
       inserted: boolean;
+      changed: boolean;
     }>(
-      `INSERT INTO catalog_provider_scope_observations (
-         provider_key, query_kind, language_code, option_external_key,
-         display_name, parent_value, image_url, metadata,
+      `WITH prior AS (
+         SELECT observation_hash
+         FROM catalog_provider_scope_observations
+         WHERE provider_key = $1
+           AND unit_key = $2
+           AND scope_kind = $3
+           AND language_code = $5
+           AND external_id = $6
+       ), written AS (
+       INSERT INTO catalog_provider_scope_observations (
+         provider_key, unit_key, scope_kind, source_query_kind, language_code,
+         external_id, label, parents, image_url, metadata, observation_hash,
          scan_id, scanned_at, first_observed_at, updated_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::timestamptz, $10::timestamptz, now())
-       ON CONFLICT (provider_key, query_kind, language_code, option_external_key) DO UPDATE SET
-         display_name = EXCLUDED.display_name,
-         parent_value = EXCLUDED.parent_value,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::jsonb, $11, $12, $13::timestamptz, $13::timestamptz, now())
+       ON CONFLICT (provider_key, unit_key, scope_kind, language_code, external_id) DO UPDATE SET
+         source_query_kind = EXCLUDED.source_query_kind,
+         label = EXCLUDED.label,
+         parents = EXCLUDED.parents,
          image_url = EXCLUDED.image_url,
          metadata = EXCLUDED.metadata,
+         observation_hash = EXCLUDED.observation_hash,
          scan_id = EXCLUDED.scan_id,
          scanned_at = EXCLUDED.scanned_at,
          updated_at = now()
-       RETURNING first_observed_at, (xmax = 0) AS inserted`,
+       RETURNING first_observed_at, (xmax = 0) AS inserted
+       )
+       SELECT first_observed_at,
+              inserted,
+              inserted OR COALESCE((SELECT observation_hash FROM prior), '') <> $11 AS changed
+       FROM written`,
       [
-        observation.providerKey.trim().toLowerCase(),
-        observation.queryKind,
-        observation.languageCode,
-        observation.optionExternalKey,
-        observation.displayName,
-        observation.parentValue,
-        observation.imageUrl,
-        JSON.stringify(observation.metadata),
+        normalized.providerKey,
+        normalized.unitKey,
+        normalized.scopeKind,
+        normalized.sourceQueryKind,
+        normalized.languageCode,
+        normalized.externalId,
+        normalized.label,
+        JSON.stringify(normalized.parents),
+        normalized.imageUrl,
+        JSON.stringify(normalized.metadata),
+        observationHash,
         input.scanId,
         scannedAt,
       ],
@@ -233,12 +262,13 @@ export async function upsertProviderScopeObservations(
 
     const row = result.rows[0];
     written.push({
-      ...observation,
-      providerKey: observation.providerKey.trim().toLowerCase(),
+      ...normalized,
       scanId: input.scanId,
       scannedAt,
       firstObservedAt: toIsoString(row?.first_observed_at ?? scannedAt),
+      observationHash,
       newlyObserved: Boolean(row?.inserted),
+      changed: Boolean(row?.changed),
     });
   }
 
@@ -247,7 +277,12 @@ export async function upsertProviderScopeObservations(
 
 export async function listProviderScopeObservations(
   db: PgQueryable,
-  input: Readonly<{ providerKey?: string | null; queryKind?: string | null; limit?: number }> = {},
+  input: Readonly<{
+    providerKey?: string | null;
+    unitKey?: string | null;
+    scopeKind?: ProviderScopeObservationKind | null;
+    limit?: number;
+  }> = {},
 ): Promise<readonly ProviderScopeObservationRecord[]> {
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -255,49 +290,110 @@ export async function listProviderScopeObservations(
     params.push(input.providerKey.trim().toLowerCase());
     conditions.push(`provider_key = $${params.length}`);
   }
-  if (input.queryKind?.trim()) {
-    params.push(input.queryKind.trim());
-    conditions.push(`query_kind = $${params.length}`);
+  if (input.unitKey?.trim()) {
+    params.push(input.unitKey.trim().toLowerCase());
+    conditions.push(`unit_key = $${params.length}`);
+  }
+  if (input.scopeKind?.trim()) {
+    params.push(input.scopeKind.trim());
+    conditions.push(`scope_kind = $${params.length}`);
   }
   params.push(Math.min(Math.max(input.limit ?? 500, 1), 2_000));
 
   const result = await db.query<{
     provider_key: string;
-    query_kind: string;
+    unit_key: string;
+    scope_kind: ProviderScopeObservationKind;
+    source_query_kind: string;
     language_code: string;
-    option_external_key: string;
-    display_name: string;
-    parent_value: string | null;
+    external_id: string;
+    label: string;
+    parents: readonly string[];
     image_url: string | null;
     metadata: JsonObject;
+    observation_hash: string;
     scan_id: string;
     scanned_at: string | Date;
     first_observed_at: string | Date;
   }>(
-    `SELECT provider_key, query_kind, language_code, option_external_key,
-            display_name, parent_value, image_url, metadata,
+    `SELECT provider_key, unit_key, scope_kind, source_query_kind, language_code,
+            external_id, label, parents, image_url, metadata, observation_hash,
             scan_id, scanned_at, first_observed_at
      FROM catalog_provider_scope_observations
      ${conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""}
-     ORDER BY first_observed_at DESC, provider_key ASC, option_external_key ASC
+     ORDER BY first_observed_at DESC, provider_key ASC, unit_key ASC, external_id ASC
      LIMIT $${params.length}`,
     params,
   );
 
   return result.rows.map((row) => ({
     providerKey: row.provider_key,
-    queryKind: row.query_kind,
+    unitKey: row.unit_key,
+    scopeKind: row.scope_kind,
+    sourceQueryKind: row.source_query_kind,
     languageCode: row.language_code,
-    optionExternalKey: row.option_external_key,
-    displayName: row.display_name,
-    parentValue: row.parent_value,
+    externalId: row.external_id,
+    label: row.label,
+    parents: row.parents,
     imageUrl: row.image_url,
     metadata: row.metadata,
+    observationHash: row.observation_hash,
     scanId: row.scan_id,
     scannedAt: toIsoString(row.scanned_at),
     firstObservedAt: toIsoString(row.first_observed_at),
     newlyObserved: false,
+    changed: false,
   }));
+}
+
+export function hashProviderScopeObservation(input: ProviderScopeObservationInput): string {
+  const normalized = normalizeProviderScopeObservation(input);
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        providerKey: normalized.providerKey,
+        unitKey: normalized.unitKey,
+        scopeKind: normalized.scopeKind,
+        externalId: normalized.externalId,
+        label: normalized.label,
+        parents: normalized.parents,
+        languageCode: normalized.languageCode,
+        imageUrl: normalized.imageUrl,
+        metadata: normalized.metadata,
+      }),
+    )
+    .digest("hex");
+}
+
+function normalizeProviderScopeObservation(input: ProviderScopeObservationInput): ProviderScopeObservationInput {
+  return {
+    providerKey: input.providerKey.trim().toLowerCase(),
+    unitKey: input.unitKey.trim().toLowerCase(),
+    scopeKind: input.scopeKind,
+    sourceQueryKind: input.sourceQueryKind.trim().toLowerCase(),
+    languageCode: input.languageCode.trim().toLowerCase(),
+    externalId: input.externalId.trim(),
+    label: input.label.trim(),
+    parents: [...new Set(input.parents.map((parent) => parent.trim()).filter(Boolean))].sort((left, right) =>
+      left.localeCompare(right),
+    ),
+    imageUrl: input.imageUrl?.trim() || null,
+    metadata: normalizeJsonValue(input.metadata) as JsonObject,
+  };
+}
+
+function normalizeJsonValue(input: JsonValue): JsonValue {
+  if (Array.isArray(input)) {
+    return input.map(normalizeJsonValue);
+  }
+  if (input !== null && typeof input === "object") {
+    return Object.fromEntries(
+      Object.entries(input)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, value]) => [key, normalizeJsonValue(value)]),
+    );
+  }
+  return input;
 }
 
 function toScheduleRecord(row: ScheduleRow): ProviderRefreshScheduleRecord {
