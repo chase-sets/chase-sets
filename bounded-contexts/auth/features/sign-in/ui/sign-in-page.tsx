@@ -337,6 +337,12 @@ export function SignInPage(
               <Stack gap={3}>
                 <HiddenFields fields={props.hiddenFields} />
                 <HiddenInput type="hidden" name="intent" value="phone-code-consume" readOnly />
+                <HiddenInput
+                  type="hidden"
+                  name="tokenId"
+                  value={props.notice?.status === "phone-code-sent" ? props.notice.tokenId : ""}
+                  readOnly
+                />
                 <HiddenInput type="hidden" name="phone" value={identifier} readOnly />
                 <TextInput
                   label={t("auth.features.signIn.ui.signInPage.phone.code.2")}

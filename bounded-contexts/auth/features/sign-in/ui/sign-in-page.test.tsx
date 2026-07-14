@@ -152,6 +152,21 @@ describe("sign-in page two-step journey", () => {
     expect(screen.queryByRole("button", { name: "Use Passkey" })).toBeNull();
   });
 
+  it("binds the issued phone challenge to the verification form", () => {
+    render(
+      <SignInPage
+        notice={{
+          status: "phone-code-sent",
+          tokenId: "cmd_phone_sign_in",
+          phone: "+13125550100",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }}
+      />,
+    );
+
+    expect((document.querySelector('input[name="tokenId"]') as HTMLInputElement).value).toBe("cmd_phone_sign_in");
+  });
+
   it("keeps secondary options behind the identifier step", () => {
     render(<SignInPage />);
 

@@ -95,8 +95,16 @@ CREATE TABLE IF NOT EXISTS identity_phone_code_tokens (
   delivery_code text NULL,
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz NULL,
+  invalidated_at timestamptz NULL,
+  failed_attempt_count integer NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE identity_phone_code_tokens
+  ADD COLUMN IF NOT EXISTS invalidated_at timestamptz NULL;
+
+ALTER TABLE identity_phone_code_tokens
+  ADD COLUMN IF NOT EXISTS failed_attempt_count integer NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS identity_phone_code_tokens_lookup_idx
   ON identity_phone_code_tokens (phone, code_hash)

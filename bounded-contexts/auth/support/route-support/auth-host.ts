@@ -53,6 +53,7 @@ export type AuthActionNotice =
     }>
   | Readonly<{
       status: "phone-code-sent";
+      tokenId: string;
       phone: string;
       expiresAt: string;
       displayName?: string;
@@ -70,6 +71,7 @@ type MagicLinkRequestResult = Readonly<{
 }>;
 
 type PhoneCodeRequestResult = Readonly<{
+  tokenId: string;
   phone: string;
   expiresAt: string;
 }>;
@@ -494,6 +496,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
 
             return {
               status: "phone-code-sent",
+              tokenId: result.tokenId,
               phone: result.phone,
               expiresAt: result.expiresAt,
             };
@@ -513,6 +516,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
                 })
               : intent === "phone-code-consume"
                 ? await api.consumePhoneCode<InteractiveAuthResult>({
+                    tokenId: formData.get("tokenId"),
                     phone: formData.get("phone"),
                     code: formData.get("code"),
                     accountId: formData.get("accountId"),
@@ -553,6 +557,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
 
             return {
               status: "phone-code-sent",
+              tokenId: result.tokenId,
               phone: result.phone,
               expiresAt: result.expiresAt,
               displayName:
@@ -576,6 +581,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
             authResult = passkeyRegistration.authResult;
           } else if (intent === "phone-code-consume") {
             authResult = await api.consumePhoneCode<InteractiveAuthResult>({
+              tokenId: formData.get("tokenId"),
               displayName: formData.get("displayName"),
               phone: formData.get("phone"),
               code: formData.get("code"),

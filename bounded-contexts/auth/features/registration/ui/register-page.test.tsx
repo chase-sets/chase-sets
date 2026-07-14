@@ -102,6 +102,22 @@ describe("registration page", () => {
     expect(inputNamed("code").getAttribute("autocomplete")).toBe("one-time-code");
   });
 
+  it("binds the issued phone challenge to the registration verification form", () => {
+    render(
+      <RegisterPage
+        notice={{
+          status: "phone-code-sent",
+          tokenId: "cmd_phone_registration",
+          phone: "+13125550100",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          displayName: "Todd",
+        }}
+      />,
+    );
+
+    expect(inputNamed("tokenId").value).toBe("cmd_phone_registration");
+  });
+
   it("keeps password registration available as the fallback", () => {
     render(<RegisterPage />);
 

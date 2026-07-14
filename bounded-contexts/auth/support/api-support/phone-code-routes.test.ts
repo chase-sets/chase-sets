@@ -110,6 +110,56 @@ describe("phone code auth routes", () => {
     );
   });
 
+  it("throttles phone code issuance per normalized phone and per IP", async () => {
+    const enqueueNotification = vi.fn(async () => undefined);
+    const services = {
+      db: { query: vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] })) },
+      auth: {
+        hashSecret: vi.fn((value: string) => `hashed:${value}`),
+      },
+      identity: {
+        getUserByPhone: vi.fn(async () => ({ user_id: "usr_existing" })),
+      },
+      registrationAdmission: {
+        mode: "open",
+        disposableEmailMode: "enforce",
+        disposableEmailDomains: ["mailinator.com"],
+      },
+      notificationOutbox: { enqueueNotification },
+    };
+    const app = buildApp(services);
+
+    const requestCode = (phone: string, forwardedFor: string) =>
+      app.request("/phone-code/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-forwarded-for": forwardedFor },
+        body: JSON.stringify({ phone }),
+      });
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const response = await requestCode("(312) 555-0200", `203.0.113.${70 + attempt}`);
+      expect(response.status).toBe(200);
+    }
+
+    const identifierLimited = await requestCode("+1 312-555-0200", "203.0.113.74");
+    expect(identifierLimited.status).toBe(429);
+    await expect(identifierLimited.json()).resolves.toMatchObject({
+      error: { code: "rate_limited", surface: "auth.phone-code.request.identifier" },
+    });
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const response = await requestCode(`312555${String(300 + attempt).padStart(4, "0")}`, "203.0.113.80");
+      expect(response.status).toBe(200);
+    }
+
+    const ipLimited = await requestCode("3125550310", "203.0.113.80");
+    expect(ipLimited.status).toBe(429);
+    await expect(ipLimited.json()).resolves.toMatchObject({
+      error: { code: "rate_limited", surface: "auth.phone-code.request.ip" },
+    });
+    expect(enqueueNotification).toHaveBeenCalledTimes(13);
+  });
+
   it("rejects invalid or expired codes without starting a session", async () => {
     const services = {
       db: { query: vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] })) },
@@ -132,7 +182,7 @@ describe("phone code auth routes", () => {
     const response = await app.request("/phone-code/consume", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone: "3125550101", code: "123456" }),
+      body: JSON.stringify({ tokenId: "cmd_phone_invalid", phone: "3125550101", code: "123456" }),
     });
 
     expect(response.status).toBe(401);
@@ -162,7 +212,7 @@ describe("phone code auth routes", () => {
     const response = await app.request("/phone-code/consume", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone: "3125550101", code: "123 456- " }),
+      body: JSON.stringify({ tokenId: "cmd_phone_normalized", phone: "3125550101", code: "123 456- " }),
     });
 
     expect(response.status).toBe(401);
@@ -179,9 +229,12 @@ describe("phone code auth routes", () => {
               token_id: "cmd_phone_1",
               user_id: null,
               phone: "+13125550101",
-              code_hash: String(params[1]),
+              code_hash: String(params[2]),
               expires_at: new Date(Date.now() + 60_000).toISOString(),
               consumed_at: new Date().toISOString(),
+              invalidated_at: null,
+              failed_attempt_count: 0,
+              code_matches: true,
             },
           ],
         };
@@ -222,7 +275,12 @@ describe("phone code auth routes", () => {
     const response = await app.request("/phone-code/consume", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone: "3125550101", code: "123456", displayName: "New Buyer" }),
+      body: JSON.stringify({
+        tokenId: "cmd_phone_1",
+        phone: "3125550101",
+        code: "123456",
+        displayName: "New Buyer",
+      }),
     });
 
     expect(response.status).toBe(200);
@@ -265,6 +323,9 @@ describe("phone code auth routes", () => {
               code_hash: "hashed:+13125550101:654321",
               expires_at: new Date(Date.now() + 60_000).toISOString(),
               consumed_at: new Date().toISOString(),
+              invalidated_at: null,
+              failed_attempt_count: 0,
+              code_matches: true,
             },
           ],
         };
@@ -296,7 +357,7 @@ describe("phone code auth routes", () => {
       memberships: [],
     });
     const app = buildApp(services);
-    const requestBody = JSON.stringify({ phone: "3125550101", code: "654321" });
+    const requestBody = JSON.stringify({ tokenId: "cmd_phone_2", phone: "3125550101", code: "654321" });
 
     const first = await app.request("/phone-code/consume", {
       method: "POST",
