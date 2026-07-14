@@ -34,6 +34,8 @@ export type PermissionKey =
   | "accounts.view"
   | "catalog.manage"
   | "catalog.view"
+  | "collection.manage"
+  | "collection.view"
   | "commercial-terms.manage"
   | "commercial-terms.view"
   | "fulfillment.manage"

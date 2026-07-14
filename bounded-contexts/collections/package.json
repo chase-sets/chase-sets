@@ -11,13 +11,18 @@
   "exports": {
     ".": "./index.ts",
     "./context": "./context.json",
-    "./server": "./server.ts"
+    "./routes/*": "./routes/*.tsx",
+    "./server": "./server.ts",
+    "./web": "./web.ts"
   },
   "types": "./index.ts",
   "dependencies": {
     "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
+    "@chase-sets/http": "workspace:*",
+    "@chase-sets/localization": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*"
   },

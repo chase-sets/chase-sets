@@ -150,6 +150,7 @@ const contextSuiteOwnership = new Map([
   ["auth", ["marketplace_account", "admin_auth"]],
   ["catalog", ["marketplace_browse", "catalog_admin_integrations"]],
   ["checkout", ["marketplace_checkout"]],
+  ["collections", ["marketplace_account"]],
   ["commercial-terms", ["marketplace_browse", "marketplace_seller"]],
   ["discovery", ["marketplace_browse"]],
   ["fulfillment", ["marketplace_account"]],
@@ -167,6 +168,7 @@ const contextSuiteOwnership = new Map([
 
 const marketplaceContextRouteSuiteOwnership = new Map([
   ["auth", ["marketplace_account"]],
+  ["collections", ["marketplace_account"]],
   ["discovery", ["marketplace_browse"]],
   ["fulfillment", ["marketplace_account"]],
   ["identity", ["marketplace_account"]],
@@ -193,6 +195,7 @@ const adminContextRouteSuiteOwnership = new Map([
 
 const e2eSpecSuiteOwnership = [
   { pattern: /^deployables\/marketplace\/e2e\/item-detail\.spec\.ts$/, suites: ["marketplace_browse"] },
+  { pattern: /^deployables\/marketplace\/e2e\/my-collection\.spec\.ts$/, suites: ["marketplace_account"] },
   { pattern: /^deployables\/marketplace\/e2e\/critical-flows\.spec\.ts$/, suites: allMarketplaceSuiteIds },
   {
     pattern:

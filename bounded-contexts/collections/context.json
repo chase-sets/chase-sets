@@ -5,8 +5,8 @@
   "streamPrefix": "collections.",
   "apiBasePath": "/api/collections",
   "slices": ["saved-lists"],
-  "allowedSupportDirectories": ["runtime-support"],
-  "publicExports": [".", "./context", "./server"],
+  "allowedSupportDirectories": ["runtime-support", "ui-support", "request-support"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "hostPorts": [
@@ -20,8 +20,41 @@
   "apiRuntimeProfiles": [],
   "apiMounts": [],
   "workerRuntimeProfiles": [],
-  "deployableContributions": [],
-  "shellContributions": [],
+  "deployableContributions": [
+    {
+      "deployable": "marketplace-web",
+      "routes": [
+        {
+          "routeId": "account-collection",
+          "routePath": "account/collection",
+          "fileExport": "./routes/marketplace/account-collection",
+          "routeType": "route",
+          "sourceContext": "collections"
+        },
+        {
+          "routeId": "account-collection-list",
+          "routePath": "account/collection/lists/:listId",
+          "fileExport": "./routes/marketplace/account-collection",
+          "routeType": "route",
+          "sourceContext": "collections"
+        }
+      ]
+    }
+  ],
+  "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "placements": ["top-nav", "bottom-nav"],
+      "key": "collection",
+      "label": "My Collection",
+      "icon": "cards",
+      "href": "/account/collection",
+      "order": 150,
+      "visibility": "signed-in",
+      "requiredPermissions": ["collection.view"]
+    }
+  ],
   "directoryIntent": {
     "saved-lists": {
       "classification": "slice",
@@ -38,8 +71,18 @@
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Reserve Collections route metadata for later My Collection and shared Saved List route contributions.",
-      "expectedConsumers": ["Future generated deployable route adapters"]
+      "purpose": "Compose the My Collection deep-module route for marketplace-web from Collections Saved List reads and Inventory-owned Overview and Owned Cards.",
+      "expectedConsumers": ["Generated marketplace-web route adapters"]
+    },
+    "ui-support": {
+      "classification": "support",
+      "purpose": "Hold the React My Collection deep module for the collections context, its Overview, Owned Cards, and saved-lists sections, and their presentation view-models exported through ./web.",
+      "expectedConsumers": ["marketplace-web My Collection route", "Collections web barrel"]
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Provide the request-scoped Collections API client that the My Collection route uses to reach Saved List reads and commands over HTTP.",
+      "expectedConsumers": ["marketplace-web My Collection route"]
     }
   }
 }

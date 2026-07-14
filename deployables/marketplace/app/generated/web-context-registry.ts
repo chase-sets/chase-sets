@@ -4,6 +4,7 @@ import type { WebContextRegistry } from "@chase-sets/platform-runtime/web";
 
 import authManifest from "@chase-sets/auth/context";
 import checkoutManifest from "@chase-sets/checkout/context";
+import collectionsManifest from "@chase-sets/collections/context";
 import discoveryManifest from "@chase-sets/discovery/context";
 import fulfillmentManifest from "@chase-sets/fulfillment/context";
 import identityManifest from "@chase-sets/identity/context";
@@ -26,6 +27,11 @@ export const webContextRegistry = [
     contextName: "checkout",
     packageName: "@chase-sets/checkout",
     manifest: checkoutManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "collections",
+    packageName: "@chase-sets/collections",
+    manifest: collectionsManifest as WebContextRegistry[number]["manifest"],
   },
   {
     contextName: "discovery",

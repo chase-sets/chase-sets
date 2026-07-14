@@ -13,6 +13,7 @@
   "dependencies": {
     "@chase-sets/auth": "workspace:*",
     "@chase-sets/checkout": "workspace:*",
+    "@chase-sets/collections": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/discovery": "workspace:*",
     "@chase-sets/fulfillment": "workspace:*",

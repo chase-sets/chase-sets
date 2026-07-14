@@ -78,7 +78,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `CheckoutTotals` | `packages/design-system/src/components/checkout/summary.tsx` | Purpose not documented; symbol name suggests: Checkout Totals. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `CheckoutTrustPanel` | `packages/design-system/src/patterns/app-shells/checkout-panels.tsx` | Purpose not documented; symbol name suggests: Checkout Trust Panel. | `No production consumer yet.` |
 | `clearFieldError` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: clear Field Error. | `No production consumer yet.` |
-| `Cluster` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Cluster. | `bounded-contexts/discovery/features/google-shopping-operations/ui/google-shopping-operations-page.tsx` |
+| `Cluster` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Cluster. | `bounded-contexts/collections/support/ui-support/saved-list-detail.tsx` |
 | `ColorModeToggle` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: Color Mode Toggle. | `No production consumer yet.` |
 | `Combobox` | `packages/design-system/src/components/forms/combobox.tsx` | Purpose not documented; symbol name suggests: Combobox. | `bounded-contexts/catalog/features/catalog-items/ui/catalog-item-detail-page.tsx` |
 | `CommentsSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Comments Sheet. | `No production consumer yet.` |
@@ -310,7 +310,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `surfaceSemanticToneClasses` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: surface Semantic Tone Classes. | `No production consumer yet.` |
 | `Switch` | `packages/design-system/src/components/forms/switch.tsx` | Purpose not documented; symbol name suggests: Switch. | `bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx` |
 | `Table` | `packages/design-system/src/components/data-display/table.tsx` | Purpose not documented; symbol name suggests: Table. | `bounded-contexts/public-presence/features/waitlist/ui/compare-page.tsx` |
-| `Tabs` | `packages/design-system/src/components/actions/tabs.tsx` | Purpose not documented; symbol name suggests: Tabs. | `bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx` |
+| `Tabs` | `packages/design-system/src/components/actions/tabs.tsx` | Purpose not documented; symbol name suggests: Tabs. | `bounded-contexts/collections/support/ui-support/my-collection-page.tsx` |
 | `Tag` | `packages/design-system/src/components/feedback/badge.tsx` | Purpose not documented; symbol name only: Tag. | `No production consumer yet.` |
 | `TagInput` | `packages/design-system/src/components/forms/tag-input.tsx` | Purpose not documented; symbol name suggests: Tag Input. | `bounded-contexts/settlement/features/wallets/ui/wallet-adjustment-guided-flow.tsx` |
 | `TaskLineItem` | `packages/design-system/src/components/data-display/operational-workflow/task-line-item.tsx` | Task line item: a checkable fulfillment row pairing a packed toggle, media thumbnail, item detail, and a quantity readout or stepper, tone-coded by save status, used inside a packing checklist. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx` |

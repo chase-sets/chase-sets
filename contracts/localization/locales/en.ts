@@ -5,6 +5,7 @@ import { catalogEnglishTranslations } from "./en/catalog";
 import { fulfillmentEnglishTranslations } from "./en/fulfillment";
 import { orderingEnglishTranslations } from "./en/ordering";
 import { checkoutEnglishTranslations } from "./en/checkout";
+import { collectionsEnglishTranslations } from "./en/collections";
 import { commercialTermsEnglishTranslations } from "./en/commercial-terms";
 import { customerFeedbackEnglishTranslations } from "./en/customer-feedback";
 import { discoveryEnglishTranslations } from "./en/discovery";
@@ -30,6 +31,7 @@ export const englishTranslations = {
   ...fulfillmentEnglishTranslations,
   ...orderingEnglishTranslations,
   ...checkoutEnglishTranslations,
+  ...collectionsEnglishTranslations,
   ...commercialTermsEnglishTranslations,
   ...customerFeedbackEnglishTranslations,
   ...discoveryEnglishTranslations,
