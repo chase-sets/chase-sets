@@ -15,13 +15,15 @@ The context publishes the replay-stable Saved List aggregate and command contrac
 - Versioned Saved List event and owner/viewer snapshot contracts.
 - Authorization and immutable selected-line source snapshots for Inventory handoff.
 - Current Saved List estimated market value and explicit estimate coverage.
+- Event-sourced sharing disclosure and revocable unlisted access policy.
+- Public-safe shared-page projection, access decisions, cache/SEO posture, and moderation adapter boundary.
 
 ## Does Not Own
 
 - Inventory quantity, Inventory Item identity, acquisition cost, location, SKU, holds, or availability.
 - Asking prices, Listings, realized or unrealized profit and loss, or account-wide value history.
 - Catalog Product identity or selected Option validity; Catalog is consulted through a host port before a Product enters a list.
-- Public rendering, unlisted capabilities, disclosure policy, collaboration, or ownership transfer.
+- Public rendering UI, collaboration, ownership transfer, or live copy synchronization.
 - Market estimation algorithms, estimate publication, cost basis, gain/loss, or valuation history.
 - My Collection shell/navigation composition.
 
@@ -63,7 +65,13 @@ Collections terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 7. Inventory, cost, Listing, availability, and profit fields never enter Saved List state or events.
 8. A missing or stale estimate is never represented as zero, and low-confidence coverage remains explicit.
 9. Shared valuation is absent whenever tracked quantities are hidden or Pricing has not approved public disclosure.
+10. Shared-page reads fail closed, use only the public-safe projection, and never return private notes/tags or capability verifiers.
+11. Unlisted secrets are revocable capabilities; only one-way verifiers enter durable state.
 
 ## Tests
 
 Run `pnpm --filter @chase-sets/collections run test:watch` for the inner loop. Run `pnpm --filter @chase-sets/collections run test` before opening a pull request.
+
+## Security
+
+The [Saved List Sharing Threat Model](./docs/saved-list-sharing-threat-model.md) defines the projection allowlist, unlisted capability handling, normalized failures, cache/SEO posture, and verification obligations.

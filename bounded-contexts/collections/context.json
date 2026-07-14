@@ -1,7 +1,14 @@
 {
   "contextName": "collections",
   "packageName": "@chase-sets/collections",
-  "ownedNouns": ["saved-list", "saved-list-line", "tracked-quantity", "saved-list-visibility", "saved-list-cover"],
+  "ownedNouns": [
+    "saved-list",
+    "saved-list-line",
+    "tracked-quantity",
+    "saved-list-visibility",
+    "saved-list-cover",
+    "saved-list-sharing"
+  ],
   "streamPrefix": "collections.",
   "apiBasePath": "/api/collections",
   "slices": ["saved-lists", "saved-list-valuation"],
@@ -19,6 +26,26 @@
       "portName": "inventorySavedListImportBatchCreator",
       "providedBy": "platform-api",
       "purpose": "Creates an Inventory-owned review-first import batch from an authorized immutable Saved List source snapshot."
+    },
+    {
+      "portName": "savedListCapabilities",
+      "providedBy": "platform-api",
+      "purpose": "Issues and verifies high-entropy unlisted Saved List capabilities from deployment-managed key material."
+    },
+    {
+      "portName": "savedListSharingRateLimits",
+      "providedBy": "platform-api",
+      "purpose": "Applies horizontally scalable request limits to shared views, unlisted exchanges, and abuse reports."
+    },
+    {
+      "portName": "savedListSharingAudit",
+      "providedBy": "platform-api",
+      "purpose": "Records bounded Saved List access decisions without capability secrets."
+    },
+    {
+      "portName": "savedListAbuseReports",
+      "providedBy": "platform-api",
+      "purpose": "Adapts Saved List reports into the existing moderation workflow without creating a second reporting system."
     }
   ],
   "eventSubscriptions": [
@@ -48,6 +75,17 @@
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "collections.saved-list-shared-page-projection",
+      "sourceContextNames": ["collections"],
+      "ownedTables": [
+        "collections_saved_list_shared_pages",
+        "collections_saved_list_shared_lines",
+        "collections_saved_list_access_policies"
+      ],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
     {
       "projectionName": "collections-saved-list-valuation-projection",
       "sourceContextNames": ["collections", "pricing"],

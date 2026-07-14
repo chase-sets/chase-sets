@@ -238,7 +238,10 @@ export const sourceContextWakeRegistry = [
     priorityLane: "standard",
     expectedEventVolume: "medium",
     wakeStoreLoadEstimate: "low",
-    affectedProjectionNames: ["collections:collections-saved-list-valuation-projection"],
+    affectedProjectionNames: [
+      "collections:collections-saved-list-valuation-projection",
+      "collections:collections.saved-list-shared-page-projection",
+    ],
     routeDependencyIds: [],
   }),
   registryEntry({
