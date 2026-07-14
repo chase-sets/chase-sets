@@ -67,7 +67,7 @@ Session/token security lifetimes -- values, env vars, bounds, and the env-tier-b
 2. Switching account, revoking, or expiring a session requires an active session.
 3. Switching a session's account requires the target account to already be listed in the session's available accounts and to differ from the current account.
 4. Auth resolves the actor for hosts; Identity remains the sole owner of the underlying user, account, membership, and permission facts an actor carries.
-5. Social Login must not create or link a user unless the provider returns a verified email address.
+5. Social Login may auto-link by email only when the provider proves email ownership; otherwise linking requires an authenticated existing-user continuation.
 6. Dynamic Client Registration accepts only public OAuth clients; Auth does not issue, store, or echo client secrets.
 
 ## Tests

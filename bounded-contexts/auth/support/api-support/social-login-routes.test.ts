@@ -1,4 +1,5 @@
 import {
+  createAccountUserTestActor,
   createAnonymousTestActor,
   createInternalSystemTestActor,
   createTestApp,
@@ -25,9 +26,12 @@ vi.mock("@chase-sets/identity/server", () => ({
   createIdentityAuthRequestClient: mockCreateIdentityAuthRequestClient,
 }));
 
-function buildApp(services: AuthServices) {
+function buildApp(
+  services: AuthServices,
+  actor: ReturnType<typeof createAccountUserTestActor> | null = createAnonymousTestActor(),
+) {
   return createTestApp<AuthApiEnv>({
-    actor: createAnonymousTestActor(),
+    actor,
     context: createTestEventStoreContext(createInternalSystemTestActor(), {
       tenantId: "ten_test",
       trace: {},
@@ -45,6 +49,7 @@ function createServices(
       emailVerified: boolean;
       hostedDomain?: string | null;
     };
+    providerName?: "google" | "facebook";
     providerFails?: boolean;
     existingUser?: { user_id: string; status: string } | null;
     socialLoginUser?: { user_id: string; status: string } | null;
@@ -126,7 +131,7 @@ function createServices(
     },
     socialLoginProviders: [
       {
-        providerName: "google",
+        providerName: options.providerName ?? "google",
         createAuthorizationUrl: vi.fn(({ state }) => `https://provider.test/auth?state=${encodeURIComponent(state)}`),
         exchangeCallback: vi.fn(async () => {
           if (options.providerFails) {
@@ -134,9 +139,9 @@ function createServices(
           }
 
           return {
-            providerName: "google",
-            providerSubject: "google-subject",
-            email: options.profile?.email ?? "buyer@example.com",
+            providerName: options.providerName ?? "google",
+            providerSubject: `${options.providerName ?? "google"}-subject`,
+            email: options.profile ? options.profile.email : "buyer@example.com",
             emailVerified: options.profile?.emailVerified ?? true,
             hostedDomain: options.profile?.hostedDomain,
             displayName: "Buyer Example",
@@ -174,6 +179,17 @@ describe("social login routes", () => {
       expect.stringContaining("INSERT INTO identity_social_login_states"),
       expect.arrayContaining(["hashed:social_token", "google", "registration", "/account/orders"]),
     );
+  });
+
+  it("requires an authenticated user before starting an account-link journey", async () => {
+    const services = createServices({ existingUser: null, providerName: "facebook" });
+    const app = buildApp(services);
+
+    const response = await app.request("/social/facebook/start?journey=link&returnTo=/account");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/sign-in?socialLoginError=");
+    expect(services.socialLoginProviders[0]!.createAuthorizationUrl).not.toHaveBeenCalled();
   });
 
   it("uses the forwarded HTTPS origin for provider callback redirects", async () => {
@@ -279,9 +295,115 @@ describe("social login routes", () => {
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/sign-in?socialLoginError=");
+    const fallback = new URL(response.headers.get("Location")!, "https://market.test");
+    expect(fallback.pathname).toBe("/sign-in");
+    expect(fallback.searchParams.get("socialLoginError")).toBeTruthy();
+    expect(fallback.searchParams.get("returnTo")).toBeNull();
     expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
     expect(mockIdentityMutations.createPersonalIdentity).not.toHaveBeenCalled();
+  });
+
+  it("does not resolve or link an existing user by an unverified provider email", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+      providerName: "facebook",
+      profile: {
+        email: "buyer@example.com",
+        emailVerified: false,
+      },
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/facebook/start");
+    const response = await app.request("/social/facebook/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    const fallback = new URL(response.headers.get("Location")!, "https://market.test");
+    expect(fallback.pathname).toBe("/sign-in");
+    expect(fallback.searchParams.get("socialLoginError")).toBeTruthy();
+    expect(fallback.searchParams.get("returnTo")).toBe(
+      "/api/auth/social/facebook/start?journey=link&returnTo=%2Faccount",
+    );
+    expect(services.identity.getUserByEmail).not.toHaveBeenCalled();
+    expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
+    expect(mockIdentityMutations.verifyEmailContactMethod).not.toHaveBeenCalled();
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("authenticates an existing provider-subject link without relinking an unverified email", async () => {
+    const services = createServices({
+      existingUser: null,
+      providerName: "facebook",
+      socialLoginUser: { user_id: "usr_existing", status: "active" },
+      profile: {
+        email: "buyer@example.com",
+        emailVerified: false,
+      },
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/facebook/start?returnTo=/account");
+    const response = await app.request("/social/facebook/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account");
+    expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
+    expect(services.identity.getUserByEmail).not.toHaveBeenCalled();
+    expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
+    expect(mockIdentityMutations.verifyEmailContactMethod).not.toHaveBeenCalled();
+  });
+
+  it("links an unverified provider subject only to the authenticated user", async () => {
+    const services = createServices({
+      existingUser: null,
+      providerName: "facebook",
+      profile: {
+        email: "buyer@example.com",
+        emailVerified: false,
+      },
+    });
+    const actor = createAccountUserTestActor({ userId: "usr_authenticated" });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services, actor);
+
+    await app.request("/social/facebook/start?journey=link&returnTo=/account");
+    const response = await app.request("/social/facebook/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account");
+    expect(services.identity.getUserByEmail).not.toHaveBeenCalled();
+    expect(mockIdentityMutations.linkSocialLogin).toHaveBeenCalledWith({
+      userId: "usr_authenticated",
+      providerName: "facebook",
+      providerSubject: "facebook-subject",
+      email: "buyer@example.com",
+    });
+    expect(mockIdentityMutations.verifyEmailContactMethod).not.toHaveBeenCalled();
+  });
+
+  it("does not move an existing provider-subject link to another authenticated user", async () => {
+    const services = createServices({
+      existingUser: null,
+      providerName: "facebook",
+      socialLoginUser: { user_id: "usr_link_owner", status: "active" },
+      profile: {
+        email: "buyer@example.com",
+        emailVerified: false,
+      },
+    });
+    const actor = createAccountUserTestActor({ userId: "usr_authenticated" });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services, actor);
+
+    await app.request("/social/facebook/start?journey=link&returnTo=/account");
+    const response = await app.request("/social/facebook/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/sign-in?socialLoginError=");
+    expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
   });
 
   it("creates a personal identity for a verified provider profile without an existing user", async () => {

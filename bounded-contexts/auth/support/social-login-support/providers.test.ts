@@ -103,7 +103,7 @@ describe("social login providers", () => {
     });
   });
 
-  it("normalizes Facebook profile responses", async () => {
+  it("does not treat a Facebook profile email as verified", async () => {
     const fetch = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("oauth/access_token")) {
@@ -131,7 +131,7 @@ describe("social login providers", () => {
       providerName: "facebook",
       providerSubject: "facebook-subject",
       email: "seller@example.com",
-      emailVerified: true,
+      emailVerified: false,
       displayName: "Seller Example",
     });
   });

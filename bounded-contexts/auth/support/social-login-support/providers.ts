@@ -194,12 +194,11 @@ export function createFacebookSocialLoginProvider(
     fetch: params.fetch,
     profileMapper(value) {
       const profile = getRecord(value);
-      const email = typeof profile.email === "string" ? profile.email : null;
       return {
         providerName: "facebook",
         providerSubject: requireText(profile.id, "subject"),
-        email,
-        emailVerified: Boolean(email),
+        email: typeof profile.email === "string" ? profile.email : null,
+        emailVerified: false,
         displayName: typeof profile.name === "string" ? profile.name : null,
         givenName: typeof profile.first_name === "string" ? profile.first_name : null,
         familyName: typeof profile.last_name === "string" ? profile.last_name : null,
