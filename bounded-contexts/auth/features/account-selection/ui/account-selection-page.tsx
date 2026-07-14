@@ -7,7 +7,7 @@ export function AccountSelectionPage({
   errorMessage,
   submitLabel = t("auth.features.accountSelection.ui.accountSelectionPage.continue"),
 }: {
-  memberships: readonly { accountId: string; roleKey: string }[];
+  memberships: readonly { accountId: string; accountName: string; roleLabel: string }[];
   action?: string;
   errorMessage?: string | null;
   submitLabel?: string;
@@ -33,10 +33,11 @@ export function AccountSelectionPage({
             <Stack gap={3}>
               <HiddenInput type="hidden" name="accountId" value={membership.accountId} readOnly />
               <Stack gap={1}>
-                <Text weight="semibold">{membership.accountId}</Text>
+                <Text weight="semibold">{membership.accountName}</Text>
                 <Text tone="secondary">
-                  {t("auth.features.accountSelection.ui.accountSelectionPage.role")}
-                  {membership.roleKey}
+                  {t("auth.features.accountSelection.ui.accountSelectionPage.role", {
+                    roleLabel: membership.roleLabel,
+                  })}
                 </Text>
               </Stack>
               <Button type="submit">{submitLabel}</Button>
