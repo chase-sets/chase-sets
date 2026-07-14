@@ -36,6 +36,10 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_VAR_environment: staging
+      STAGING_APP_SERVING: ${{ vars.STAGING_APP_SERVING || 'app-platform' }}
+      DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}
+      TF_VAR_staging_app_serving: ${{ vars.STAGING_APP_SERVING || 'app-platform' }}
+      TF_VAR_doks_ingress_target: ${{ vars.DOKS_INGRESS_TARGET || '' }}
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
@@ -311,7 +315,7 @@ jobs:
         working-directory: infrastructure/digitalocean/platform
         run: terraform fmt -check -recursive
 
-      - name: Reconcile staging App Platform alias DNS state
+      - name: Reconcile staging serving DNS state
         working-directory: infrastructure/digitalocean/platform
         env:
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -371,14 +375,22 @@ jobs:
 
           records_json="$(doctl compute domain records list "$zone" --output json)"
           for name in admin marketplace www; do
-            address="digitalocean_record.staging_app_alias[\"${name}\"]"
-            if terraform state show "$address" >/dev/null 2>&1; then
+            address="digitalocean_record.staging_app_serving[\"${name}\"]"
+            legacy_address="digitalocean_record.staging_app_alias[\"${name}\"]"
+            if terraform state show "$address" >/dev/null 2>&1 || terraform state show "$legacy_address" >/dev/null 2>&1; then
               continue
             fi
 
-            record_id="$(printf '%s' "$records_json" | jq -r --arg name "$name" --arg target "$target" 'first(.[] | select(.type == "CNAME" and .name == $name and (.data | rtrimstr(".")) == $target) | .id) // empty')"
+            record_type="CNAME"
+            record_target="$target"
+            if [ "$STAGING_APP_SERVING" = "doks" ]; then
+              record_type="A"
+              record_target="$DOKS_INGRESS_TARGET"
+            fi
+
+            record_id="$(printf '%s' "$records_json" | jq -r --arg name "$name" --arg type "$record_type" --arg target "$record_target" 'first(.[] | select(.type == $type and .name == $name and (.data | rtrimstr(".")) == $target) | .id) // empty')"
             if [ -z "$record_id" ]; then
-              echo "No live CNAME found for ${name}.${zone}; Terraform will create it."
+              echo "No live ${record_type} found for ${name}.${zone}; Terraform will create it."
               continue
             fi
 

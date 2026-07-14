@@ -107,16 +107,3 @@ resource "digitalocean_record" "doks_ingress_shadow" {
   value  = var.doks_ingress_target
   ttl    = var.doks_ingress_ttl
 }
-
-# Live-host cutover records: present only while staging_app_serving is "doks".
-# Point the released App Platform host names at the DOKS load balancer for the
-# instant flip; removing them (serving back to "app-platform") is the rollback.
-resource "digitalocean_record" "doks_ingress_serving" {
-  for_each = local.doks_serving_records
-
-  domain = digitalocean_domain.environment.name
-  type   = "A"
-  name   = each.value.name
-  value  = var.doks_ingress_target
-  ttl    = var.doks_ingress_ttl
-}

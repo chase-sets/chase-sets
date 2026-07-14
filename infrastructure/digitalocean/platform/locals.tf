@@ -30,6 +30,7 @@ locals {
   environment_zone    = "${var.environment}.${var.root_domain}"
   database_name_token = replace(local.environment_slug, "-", "_")
   name_prefix         = local.is_production ? "chase-sets" : "chase-sets-${local.environment_slug}"
+  serving_from_doks   = local.is_staging && var.staging_app_serving == "doks"
 
   public_domains = local.is_production ? [
     var.root_domain,
@@ -51,6 +52,15 @@ locals {
   ] : []
   all_marketplace_domains = concat(local.marketplace_domains, local.staging_root_marketplace_domains)
   app_primary_domain      = local.is_staging ? local.staging_root_marketplace_domains[0] : local.public_domains[0]
+
+  # App Platform stays warm during the DOKS soak, but it must release every
+  # live staging domain before the records below change from CNAME to A. These
+  # attachment sets preserve production/preview behavior and remove only the
+  # staging live-host attachments during the cutover.
+  app_platform_public_domains                   = local.serving_from_doks ? [] : local.public_domains
+  app_platform_marketplace_domains              = local.serving_from_doks ? [] : local.marketplace_domains
+  app_platform_staging_root_marketplace_domains = local.serving_from_doks ? [] : local.staging_root_marketplace_domains
+  app_platform_admin_domains                    = local.serving_from_doks ? [] : [local.admin_domain]
 
   admin_domain       = local.is_production ? "admin.${var.root_domain}" : local.is_staging ? "admin.${var.environment}.${var.root_domain}" : "admin.${local.environment_slug}.preview.${var.root_domain}"
   landing_domain     = local.public_domains[0]
@@ -777,10 +787,11 @@ locals {
       (local.admin_domain) = local.is_staging ? local.environment_zone : var.root_domain
     },
   )
-  # Released when staging_app_serving flips to "doks" so the environment-dns
-  # DOKS A records own these host names during cutover with no CNAME/A collision.
-  # Flipping back to "app-platform" restores the App Platform CNAMEs (rollback).
-  staging_app_alias_record_names = local.is_staging && var.staging_app_serving == "app-platform" ? toset([
+  # One Terraform identity owns each leaf record in both serving modes. The
+  # provider marks record type ForceNew, so a flip destroys the old CNAME/A
+  # before creating its replacement and DigitalOcean never sees both types at
+  # the same owner name.
+  staging_app_serving_record_names = local.is_staging ? toset([
     "admin",
     "marketplace",
     "www",

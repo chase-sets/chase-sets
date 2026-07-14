@@ -296,10 +296,10 @@ Production remains a separate operator flip. After #4053 has installed the produ
 
 ## DNS Cutover And Rehearsed Rollback
 
-The cutover keeps **both platforms serving** and makes the flip an instant, reversible DNS change. App Platform is kept warm through the entire staging soak and the production low-signup window (#4053) so rollback is always a DNS-only step. Two independent controls in [infrastructure/digitalocean/environment-dns](../../infrastructure/digitalocean/environment-dns/README.md) drive it, coordinated with the matching `staging_app_serving` switch in [infrastructure/digitalocean/platform](../../infrastructure/digitalocean/platform):
+The cutover keeps **both platforms serving** and makes the flip an instant, reversible DNS change. App Platform is kept warm through the entire staging soak and the production low-signup window (#4053) so rollback is always a DNS-only step. Two coordinated controls drive it across [environment-dns](../../infrastructure/digitalocean/environment-dns/README.md) and [platform](../../infrastructure/digitalocean/platform):
 
 - `doks_ingress_target` (load balancer IPv4) creates the **shadow validation hosts** `doks.staging.chasesets.com`, `www.doks.…`, `marketplace.doks.…`, `admin.doks.…`. DOKS serves and issues certificates on these while App Platform serves the live hosts. No live traffic moves.
-- `staging_app_serving=doks` creates the **live-host cutover records** (apex + `www`/`marketplace`/`admin` `A` records at the load balancer).
+- `staging_app_serving=doks` makes the `platform` root replace the live leaf CNAMEs with `A` records and release App Platform's apex attachment before creating the apex `A`.
 
 ### 1. Rehearse (both platforms serving)
 
@@ -319,10 +319,8 @@ The cutover keeps **both platforms serving** and makes the flip an instant, reve
 
 ### 2. Flip (instant cutover)
 
-1. Release the colliding App Platform records **before** adding the DOKS live-host records:
-   - Apply the platform root with `staging_app_serving=doks` to drop the `www`/`marketplace`/`admin` `staging_app_alias` CNAMEs.
-   - Release the App Platform staging apex domain so DO stops auto-managing the `staging.chasesets.com` apex record.
-2. Apply environment-dns with `doks_ingress_target=<lb-ip>` and `staging_app_serving=doks`. The apex + `www`/`marketplace`/`admin` `A` records now point at the load balancer.
+1. Apply environment-dns with `doks_ingress_target=<lb-ip>` and `staging_app_serving=doks` to retain the shadow validation records and validate the coordinated target. It does not own live serving records.
+2. Apply the platform root with the same values. One dependency graph destroys each `www`/`marketplace`/`admin` CNAME before creating its replacement `A`, releases the App Platform live-domain attachments, and then creates the apex `A` at the load balancer.
 3. Wait for HTTPS probes on the live hosts:
 
    ```bash
@@ -336,11 +334,10 @@ The cutover keeps **both platforms serving** and makes the flip an instant, reve
 
 ### 3. Rollback (rehearsed)
 
-1. Flip `staging_app_serving` back to `app-platform` in both the platform root and environment-dns and apply. The DOKS live-host records are removed; the App Platform `staging_app_alias` CNAMEs and apex domain management return.
-2. Re-attach the App Platform apex domain if it was released.
-3. Confirm HTTPS probes pass against App Platform and record the rollback evidence.
+1. Flip `staging_app_serving` back to `app-platform` in both roots and apply. The platform dependency graph removes the DOKS apex/leaf records before restoring the App Platform domain attachments and leaf CNAMEs.
+2. Confirm HTTPS probes pass against App Platform and record the rollback evidence.
 
-Because App Platform never left, rollback is a DNS change plus apex re-attach — no redeploy. The shadow hosts stay in place, so the next flip attempt needs no re-rehearsal.
+Because App Platform never left, rollback is a single Terraform graph change — no redeploy. The shadow hosts stay in place, so the next flip attempt needs no re-rehearsal.
 
 ### Production
 

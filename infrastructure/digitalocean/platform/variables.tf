@@ -757,11 +757,33 @@ variable "uptime_checks_enabled" {
 variable "staging_app_serving" {
   type        = string
   default     = "app-platform"
-  description = "Which platform serves the live staging marketplace/admin/www hosts. \"app-platform\" (default) keeps the App Platform staging_app_alias CNAME records and is the rollback state. \"doks\" releases those CNAMEs so the environment-dns DOKS A records can serve staging during the cutover. Coordinate this switch with staging_app_serving in infrastructure/digitalocean/environment-dns."
+  description = "Which platform serves the live staging apex, marketplace, admin, and www hosts. \"app-platform\" (default) attaches the domains and uses CNAME leaf records; \"doks\" releases the attachments and replaces the same leaf record identities with A records before adding the apex A."
 
   validation {
     condition     = contains(["app-platform", "doks"], var.staging_app_serving)
     error_message = "staging_app_serving must be either \"app-platform\" or \"doks\"."
+  }
+}
+
+variable "doks_ingress_target" {
+  type        = string
+  default     = ""
+  description = "DOKS ingress load balancer IPv4 address. Required when staging_app_serving is \"doks\" so the live staging records can replace the App Platform records in the same Terraform graph."
+
+  validation {
+    condition     = trimspace(var.doks_ingress_target) == "" || can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$", trimspace(var.doks_ingress_target)))
+    error_message = "doks_ingress_target must be a valid IPv4 address when set."
+  }
+}
+
+variable "doks_ingress_ttl" {
+  type        = number
+  default     = 300
+  description = "TTL for live DOKS ingress DNS records during cutover."
+
+  validation {
+    condition     = var.doks_ingress_ttl >= 60 && var.doks_ingress_ttl <= 3600
+    error_message = "doks_ingress_ttl must be between 60 and 3600 seconds."
   }
 }
 

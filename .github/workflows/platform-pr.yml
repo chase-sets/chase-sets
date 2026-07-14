@@ -744,6 +744,17 @@ jobs:
           terraform -chdir="$tmp" init -backend=false
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
 
+      - name: Terraform plan staging platform DOKS cutover
+        run: |
+          tmp="$(mktemp -d)"
+          cp -R infrastructure/digitalocean/platform/. "$tmp/"
+          sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
+          terraform -chdir="$tmp" init -backend=false
+          terraform -chdir="$tmp" plan -refresh=false -lock=false \
+            -var=doks_ingress_target=203.0.113.10 \
+            -var=staging_app_serving=doks \
+            -out=tfplan
+
       - name: Terraform init catalog assets without remote backend
         working-directory: infrastructure/digitalocean/catalog-assets
         run: terraform init -backend=false
