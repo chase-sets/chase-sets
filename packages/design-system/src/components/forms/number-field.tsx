@@ -10,7 +10,7 @@ import {
 import { Icon } from "../../icons";
 import { VisuallyHidden } from "../../primitives/layout";
 import { cx } from "../../utils/cx";
-import { controlIconButtonSizeClasses } from "../control-sizing";
+import { controlSquareSizeClasses } from "../control-sizing";
 import { FieldChrome, compoundControlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 /**
@@ -48,7 +48,7 @@ function NumberFieldControlGroup({
 }) {
   const iconButtonClass = cx(
     "focus-ring inline-flex items-center justify-center rounded-tokenSm text-secondary hover:bg-background disabled:pointer-events-none",
-    controlIconButtonSizeClasses.md,
+    controlSquareSizeClasses.sm,
   );
 
   return (
@@ -57,7 +57,7 @@ function NumberFieldControlGroup({
         compoundControlClass,
         !!error && controlErrorClass,
         disabledChrome && "cursor-not-allowed opacity-60",
-        "grid grid-cols-[var(--control-md-icon-size)_minmax(0,1fr)_var(--control-md-icon-size)] items-center gap-1",
+        "grid grid-cols-[var(--control-sm-height)_minmax(0,1fr)_var(--control-sm-height)] items-center gap-1",
       )}
     >
       <NumberFieldPrimitive.Decrement aria-label={decrementLabel} className={iconButtonClass}>

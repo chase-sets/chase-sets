@@ -1,8 +1,9 @@
 import { type HTMLAttributes, type ReactNode } from "react";
-import { cx } from "../../../utils/cx";
 import { Icon } from "../../../icons";
 import { Grid, Inline, Stack } from "../../../primitives/layout";
 import { Text } from "../../../primitives/typography";
+import { cx } from "../../../utils/cx";
+import { controlSquareSizeClasses } from "../../control-sizing";
 
 export interface TaskLineItemProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
   title: ReactNode;
@@ -70,7 +71,8 @@ export function TaskLineItem({
       <button
         type="button"
         className={cx(
-          "focus-ring inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-tokenFull border border-border bg-background transition-shadow",
+          "focus-ring inline-flex shrink-0 items-center justify-center rounded-tokenFull border border-border bg-background transition-shadow",
+          controlSquareSizeClasses.md,
           checked && "border-success bg-success text-success-contrast",
           !onCheckedChange && "pointer-events-none",
         )}

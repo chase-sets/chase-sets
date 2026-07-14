@@ -2,6 +2,7 @@ import { forwardRef, useId } from "react";
 import { Radio } from "@base-ui/react/radio";
 import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group";
 import { cx } from "../../utils/cx";
+import { controlHeightClasses } from "../control-sizing";
 import { FieldChrome, fieldDescribedBy, type BaseInputProps } from "./shared";
 import type { SelectItem } from "./select";
 
@@ -86,7 +87,10 @@ export const RadioGroup = forwardRef<HTMLButtonElement, RadioGroupProps>(functio
               value={item.value}
               aria-labelledby={itemLabelId}
               aria-describedby={itemDescriptionId}
-              className="modern-surface focus-ring flex w-full cursor-pointer items-start gap-3 rounded-tokenMd border border-muted p-3 text-left"
+              className={cx(
+                "modern-surface focus-ring flex w-full cursor-pointer items-start gap-3 rounded-tokenMd border border-muted p-3 text-left",
+                controlHeightClasses.md,
+              )}
             >
               <span
                 aria-hidden="true"

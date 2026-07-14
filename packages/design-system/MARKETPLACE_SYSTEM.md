@@ -24,6 +24,8 @@ Design for accounts that can both buy and sell. Buyer and seller labels are cont
 
 All functionality must remain available on every supported form factor. Compose layouts from design-system primitives and token breakpoints (`sm`, `md`, `lg`, `xl`, and `2xl`); do not introduce fixed pixel dimensions, custom pixel breakpoints, or hide interactive functionality without a responsive counterpart. Deliberate fixed-format contracts such as print layouts require a leading `@responsive-exempt <reason>` comment.
 
+Touch targets must remain at least 44px where interaction is expected. Apply the target size to the interactive element or its label while keeping icons, checkbox marks, radio indicators, and other visual glyphs at their intended size. The only exception is `compact` density on pointer-primary dense workbenches; default/comfortable density and coarse-pointer or mobile surfaces always keep the 44px floor.
+
 `pnpm run check:responsive-safety` machine-enforces these rules with the ratcheted [`RESPONSIVE_SAFETY.json`](./RESPONSIVE_SAFETY.json) ledger. The check runs through `verify:static` in scope-gated CI for every pull request that touches production UI paths.
 
 ## Visual Language

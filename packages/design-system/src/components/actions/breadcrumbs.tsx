@@ -1,6 +1,8 @@
 import type { HTMLAttributes } from "react";
 import { Icon } from "../../icons";
 import { useLinkComponent } from "../../theme/link-adapter";
+import { cx } from "../../utils/cx";
+import { controlHeightClasses } from "../control-sizing";
 
 export interface BreadcrumbItem {
   label: string;
@@ -24,7 +26,13 @@ export function Breadcrumbs({ items, ariaLabel = "Breadcrumb", ...rest }: Breadc
           return (
             <li key={`${item.label}-${index}`} className="inline-flex items-center gap-2">
               {item.href && !isCurrent ? (
-                <Link href={item.href} className="focus-ring rounded-tokenSm hover:text-foreground">
+                <Link
+                  href={item.href}
+                  className={cx(
+                    "focus-ring inline-flex items-center rounded-tokenSm hover:text-foreground",
+                    controlHeightClasses.md,
+                  )}
+                >
                   {item.label}
                 </Link>
               ) : (

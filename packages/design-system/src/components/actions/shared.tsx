@@ -1,12 +1,6 @@
 import type { ReactNode } from "react";
 import { LayoutGroup, motion } from "motion/react";
-import {
-  compactControlHeightClasses,
-  compactControlPaddingClasses,
-  controlHeightClasses,
-  controlPaddingClasses,
-  controlTextClasses,
-} from "../control-sizing";
+import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../control-sizing";
 import { cx } from "../../utils/cx";
 
 export type ButtonTone = "primary" | "secondary" | "ghost" | "danger";
@@ -25,12 +19,6 @@ export const buttonSizeClasses: Record<ButtonSize, string> = {
   sm: cx(controlHeightClasses.sm, controlPaddingClasses.sm, controlTextClasses.sm),
   md: cx(controlHeightClasses.md, controlPaddingClasses.md, controlTextClasses.md),
   lg: cx(controlHeightClasses.lg, controlPaddingClasses.lg, controlTextClasses.lg),
-};
-
-export const buttonCompactSizeClasses: Record<ButtonSize, string> = {
-  sm: cx(compactControlHeightClasses.sm, compactControlPaddingClasses.sm, controlTextClasses.sm),
-  md: cx(compactControlHeightClasses.md, compactControlPaddingClasses.md, controlTextClasses.md),
-  lg: cx(compactControlHeightClasses.lg, compactControlPaddingClasses.lg, controlTextClasses.md),
 };
 
 export const buttonBaseClass =

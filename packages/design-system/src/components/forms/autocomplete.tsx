@@ -4,7 +4,7 @@ import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { useControllableValue } from "../controllable";
-import { controlIconButtonSizeClasses } from "../control-sizing";
+import { controlHeightClasses, controlSquareSizeClasses } from "../control-sizing";
 import { FieldChrome, compoundControlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface AutocompleteItem {
@@ -95,7 +95,7 @@ export const Autocomplete = forwardRef<HTMLInputElement, AutocompleteProps>(func
           <AutocompletePrimitive.Trigger
             className={cx(
               "focus-ring inline-flex items-center justify-center rounded-tokenSm",
-              controlIconButtonSizeClasses.md,
+              controlSquareSizeClasses.md,
             )}
           >
             <Icon name="search" size="sm" tone="secondary" />
@@ -116,6 +116,7 @@ export const Autocomplete = forwardRef<HTMLInputElement, AutocompleteProps>(func
                     className={(state) =>
                       cx(
                         "focus-ring cursor-pointer rounded-tokenMd px-3 py-2 text-left text-sm text-foreground",
+                        controlHeightClasses.md,
                         state.highlighted && "bg-background",
                         state.disabled && "cursor-not-allowed opacity-disabled",
                       )

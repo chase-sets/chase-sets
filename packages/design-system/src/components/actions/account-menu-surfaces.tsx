@@ -4,6 +4,7 @@ import { Badge } from "../feedback";
 import { Icon } from "../../icons";
 import { Box, Cluster, Divider, Stack } from "../../primitives/layout";
 import { cx } from "../../utils/cx";
+import { controlHeightClasses, controlSquareSizeClasses } from "../control-sizing";
 import type { AccountMenuItem } from "./account-menu";
 
 type AccountMenuSurfaceProps = Readonly<{
@@ -30,6 +31,7 @@ type AccountMenuSurfaceProps = Readonly<{
 function menuItemClassName(highlighted?: boolean, destructive = false) {
   return cx(
     "focus-ring flex min-w-0 cursor-pointer select-none items-center gap-3 rounded-tokenMd px-3 py-2 text-sm outline-none transition",
+    controlHeightClasses.md,
     highlighted && "bg-background",
     destructive ? "text-danger" : "text-foreground",
   );
@@ -58,6 +60,7 @@ function AccountMenuTrigger({
       aria-label={menuLabel}
       className={cx(
         "focus-ring inline-flex max-w-[12.5rem] items-center gap-2 rounded-tokenMd border border-muted bg-surface px-3 py-2 text-left shadow-tokenSm transition hover:border-accent hover:bg-surface-2 sm:max-w-[15rem] md:max-w-[18rem]",
+        controlHeightClasses.md,
         className,
       )}
       onClick={onToggle}
@@ -158,7 +161,10 @@ export function AccountMenuMobileSurface(props: AccountMenuSurfaceProps) {
                 <button
                   type="button"
                   aria-label="Close account menu"
-                  className="focus-ring inline-flex h-9 w-9 items-center justify-center rounded-tokenMd text-secondary transition hover:bg-surface-2 hover:text-foreground"
+                  className={cx(
+                    "focus-ring inline-flex items-center justify-center rounded-tokenMd text-secondary transition hover:bg-surface-2 hover:text-foreground",
+                    controlSquareSizeClasses.md,
+                  )}
                   onClick={props.onClose}
                 >
                   <Icon name="close" size="sm" tone="secondary" />

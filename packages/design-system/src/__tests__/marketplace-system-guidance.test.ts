@@ -25,6 +25,8 @@ describe("marketplace system guidance", () => {
     expect(marketplaceSystemGuidance).toContain("All functionality must remain available");
     expect(marketplaceSystemGuidance).toContain("pnpm run check:responsive-safety");
     expect(marketplaceSystemGuidance).toContain("RESPONSIVE_SAFETY.json");
+    expect(marketplaceSystemGuidance).toContain("Touch targets must remain at least 44px");
+    expect(marketplaceSystemGuidance).toContain("compact` density on pointer-primary dense workbenches");
   });
 
   it("documents object-first item-detail rail actions", () => {

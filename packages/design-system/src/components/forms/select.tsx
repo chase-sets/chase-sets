@@ -4,6 +4,7 @@ import { Icon as ChaseIcon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { useControllableValue } from "../controllable";
+import { controlHeightClasses } from "../control-sizing";
 import { FieldChrome, controlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface SelectItem {
@@ -176,6 +177,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
                     className={(state) =>
                       cx(
                         "focus-ring relative flex cursor-pointer select-none items-center rounded-tokenMd px-3 py-2 text-sm text-foreground outline-none",
+                        controlHeightClasses.md,
                         state.disabled && "cursor-not-allowed opacity-disabled",
                         state.highlighted && "bg-background",
                       )

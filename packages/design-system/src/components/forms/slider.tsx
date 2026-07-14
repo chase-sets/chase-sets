@@ -1,5 +1,7 @@
 import { forwardRef, useId } from "react";
 import { Slider as SliderPrimitive } from "@base-ui/react/slider";
+import { cx } from "../../utils/cx";
+import { controlHeightClasses } from "../control-sizing";
 import { FieldChrome, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface SliderProps extends BaseInputProps {
@@ -64,9 +66,9 @@ export const Slider = forwardRef<HTMLInputElement, SliderProps>(function Slider(
           disabled={disabled}
           aria-describedby={fieldDescribedBy({ inputId, description, error, status, counter })}
           aria-invalid={!!error || undefined}
-          className="relative flex h-6 w-full items-center"
+          className={cx("relative flex w-full items-center", controlHeightClasses.md)}
         >
-          <SliderPrimitive.Control className="relative flex h-6 w-full items-center">
+          <SliderPrimitive.Control className={cx("relative flex w-full items-center", controlHeightClasses.md)}>
             <SliderPrimitive.Track className="relative h-2 w-full rounded-tokenFull bg-muted">
               <SliderPrimitive.Indicator className="absolute h-full rounded-tokenFull bg-accent" />
             </SliderPrimitive.Track>

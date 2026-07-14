@@ -4,7 +4,7 @@ import { ToggleGroup as ToggleGroupPrimitive } from "@base-ui/react/toggle-group
 import { Icon, type IconName } from "../../icons";
 import { cx } from "../../utils/cx";
 import type { ButtonSize } from "./shared";
-import { buttonBaseClass, buttonCompactSizeClasses, buttonSizeClasses } from "./shared";
+import { buttonBaseClass, buttonSizeClasses } from "./shared";
 
 export interface ToggleProps {
   children?: ReactNode;
@@ -105,7 +105,7 @@ export function ToggleGroup({
           className={(state) =>
             cx(
               buttonBaseClass,
-              buttonCompactSizeClasses[size],
+              buttonSizeClasses[size],
               state.pressed
                 ? "border-accent bg-elevated text-accent shadow-tokenSm"
                 : "border-transparent bg-transparent text-secondary shadow-none hover:bg-elevated hover:text-foreground",

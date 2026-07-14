@@ -64,7 +64,7 @@ export function Pagination({
             return (
               <span
                 key={value}
-                className="inline-flex min-h-10 min-w-10 items-center justify-center text-sm text-secondary"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center text-sm text-secondary"
                 aria-hidden="true"
               >
                 &hellip;
@@ -77,7 +77,7 @@ export function Pagination({
               type="button"
               aria-current={value === page ? "page" : undefined}
               className={cx(
-                "focus-ring inline-flex min-h-10 min-w-10 items-center justify-center rounded-tokenMd border px-3 text-sm font-semibold transition",
+                "focus-ring inline-flex min-h-11 min-w-11 items-center justify-center rounded-tokenMd border px-3 text-sm font-semibold transition",
                 value === page
                   ? "border-accent bg-accent text-accent-contrast"
                   : "border-muted bg-elevated text-secondary hover:text-foreground",

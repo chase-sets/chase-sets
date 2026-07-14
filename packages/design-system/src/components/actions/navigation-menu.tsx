@@ -3,6 +3,7 @@ import { NavigationMenu as NavigationMenuPrimitive } from "@base-ui/react/naviga
 import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
+import { controlHeightClasses } from "../control-sizing";
 
 export interface NavigationMenuItem {
   value: string;
@@ -53,7 +54,8 @@ export function NavigationMenu({
                 <NavigationMenuPrimitive.Trigger
                   className={(state) =>
                     cx(
-                      "focus-ring inline-flex min-h-9 items-center gap-2 rounded-tokenMd px-3 text-sm font-semibold text-secondary transition hover:bg-elevated hover:text-foreground",
+                      "focus-ring inline-flex items-center gap-2 rounded-tokenMd px-3 text-sm font-semibold text-secondary transition hover:bg-elevated hover:text-foreground",
+                      controlHeightClasses.md,
                       state.open && "bg-elevated text-accent",
                     )
                   }
@@ -72,7 +74,8 @@ export function NavigationMenu({
                 closeOnClick
                 className={(state) =>
                   cx(
-                    "focus-ring inline-flex min-h-9 items-center rounded-tokenMd px-3 text-sm font-semibold text-secondary transition hover:bg-elevated hover:text-foreground",
+                    "focus-ring inline-flex items-center rounded-tokenMd px-3 text-sm font-semibold text-secondary transition hover:bg-elevated hover:text-foreground",
+                    controlHeightClasses.md,
                     state.active && "bg-elevated text-accent",
                   )
                 }
