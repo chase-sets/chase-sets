@@ -314,6 +314,9 @@ importers:
         specifier: ^19.2.5
         version: 19.2.6
     devDependencies:
+      '@chase-sets/bounded-context-runtime':
+        specifier: workspace:*
+        version: link:../../infrastructure/bounded-context-runtime
       react-dom:
         specifier: ^19.2.5
         version: 19.2.6(react@19.2.6)
@@ -1568,6 +1571,9 @@ importers:
       '@chase-sets/checkout':
         specifier: workspace:*
         version: link:../../bounded-contexts/checkout
+      '@chase-sets/collections':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/collections
       '@chase-sets/commercial-terms':
         specifier: workspace:*
         version: link:../../bounded-contexts/commercial-terms
@@ -1695,6 +1701,9 @@ importers:
       '@chase-sets/checkout':
         specifier: workspace:*
         version: link:../../bounded-contexts/checkout
+      '@chase-sets/collections':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/collections
       '@chase-sets/commercial-terms':
         specifier: workspace:*
         version: link:../../bounded-contexts/commercial-terms

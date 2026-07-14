@@ -12,6 +12,8 @@ import {
   buildSavedListValuationCollectionProjectionHandlers,
   buildSavedListValuationPricingProjectionHandlers,
 } from "./features/saved-list-valuation/read-model/projection";
+import { buildSavedListCatalogProjectionHandlers } from "./features/saved-lists/integrations/catalog/projection";
+import { buildSavedListProjectionHandlers } from "./features/saved-lists/read-model/projection";
 import type { CollectionsHostPorts, CollectionsServices } from "./support/runtime-support/services";
 import { createCollectionsServices } from "./support/runtime-support/services";
 import { collectionsSchemaSql } from "./support/runtime-support/schema";
@@ -26,8 +28,10 @@ export const module = defineBoundedContextModule<CollectionsServices, PgTransact
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({
       contextName: "collections",
-      manifest: contextManifest,
+      manifest: collectionsContextManifest,
       handlers: {
+        "catalog.collections-catalog-product-projection": () => buildSavedListCatalogProjectionHandlers(services.db),
+        "collections.collections-saved-list-projection": () => buildSavedListProjectionHandlers(services.db),
         "collections.collections-saved-list-valuation-projection": () =>
           buildSavedListValuationCollectionProjectionHandlers(services.db),
         "pricing.collections-saved-list-valuation-projection": () =>
