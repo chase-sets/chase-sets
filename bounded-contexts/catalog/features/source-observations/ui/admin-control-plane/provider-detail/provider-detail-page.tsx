@@ -16,6 +16,10 @@ import {
   type DataColumn,
 } from "@chase-sets/design-system";
 import { formatDateTime, t } from "@chase-sets/localization";
+import {
+  ProviderRefreshSchedulePanel,
+  type ProviderRefreshSchedulePanelItem,
+} from "../../../../provider-scope-discovery/ui/provider-refresh-schedule-panel";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../primary-workbench-command-feedback";
 import {
@@ -49,9 +53,11 @@ import { SectionDirtySummary } from "./section-dirty-summary";
 export function CatalogProviderDetailPage({
   readModel,
   commandFeedback = null,
+  providerRefreshSchedules = null,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
+  providerRefreshSchedules?: readonly ProviderRefreshSchedulePanelItem[] | null;
 }>) {
   const authoring = readModel.profileAuthoring;
   const selectedProfile = authoring.selectedProfile;
@@ -59,6 +65,10 @@ export function CatalogProviderDetailPage({
   const cloneDraft = authoring.cloneDraft;
   const cloneDisabled = cloneDraft.state !== "available" && cloneDraft.state !== "degraded";
   const submitHref = catalogProviderDetailHref(providerKey);
+  const scheduleActionHref = catalogProviderDetailHref(providerKey, {
+    profileVersion: selectedProfile?.profileVersion ?? null,
+  });
+  const canManageCatalog = !cloneDraft.blockers.includes("permission-denied");
 
   return (
     <DenseAdminWorkbench data-catalog-provider-detail="true">
@@ -71,6 +81,14 @@ export function CatalogProviderDetailPage({
       {commandFeedback ? <CommandFeedbackBanner feedback={commandFeedback} /> : null}
 
       <ProviderDetailHeader readModel={readModel} providerKey={providerKey} />
+
+      {providerRefreshSchedules ? (
+        <ProviderRefreshSchedulePanel
+          items={providerRefreshSchedules}
+          actionHref={scheduleActionHref}
+          canManageCatalog={canManageCatalog}
+        />
+      ) : null}
 
       {selectedProfile ? (
         <ProfileOverviewEvidence profile={selectedProfile} />
@@ -188,25 +206,7 @@ function ProviderParticipatingUnits({
       ) : (
         <WorkbenchStack gap="sm">
           {units.map((unit) => (
-            <KeyValueList
-              key={unit.unitKey}
-              density="compact"
-              variant="surface"
-              items={[
-                { key: unit.unitKey, value: `${unit.productDomain}/${unit.productForm}` },
-                {
-                  key: t("catalog.features.sourceObservations.ui.providerDetail.units.scopes"),
-                  value:
-                    unit.importScopes.join(", ") || t("catalog.features.sourceObservations.ui.primaryWorkbench.none"),
-                },
-                {
-                  key: t("catalog.features.sourceObservations.ui.providerDetail.units.activeProfile"),
-                  value:
-                    unit.activeProfile?.profileVersion ??
-                    t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
-                },
-              ]}
-            />
+            <ProviderParticipatingUnit key={unit.unitKey} readModel={readModel} unit={unit} />
           ))}
         </WorkbenchStack>
       )}
@@ -214,11 +214,53 @@ function ProviderParticipatingUnits({
   );
 }
 
-// Recent jobs for this provider — the "recent jobs" content item. There is no
-// provider option-sync schedule/cadence capability anywhere in the codebase
-// today (verified before implementing this page), so this section reports the
-// most recent import activity as the honest "last refresh" signal rather than
-// fabricating a schedule feature that does not exist.
+function ProviderParticipatingUnit({
+  readModel,
+  unit,
+}: Readonly<{
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  unit: CatalogPrimaryWorkbenchReadModel["providerScope"]["providers"][number]["units"][number];
+}>) {
+  const health = readModel.healthTriage.units.find((candidate) => candidate.unitKey === unit.unitKey);
+  const none = t("catalog.features.sourceObservations.ui.primaryWorkbench.none");
+
+  return (
+    <KeyValueList
+      density="compact"
+      variant="surface"
+      items={[
+        { key: unit.unitKey, value: `${unit.productDomain}/${unit.productForm}` },
+        {
+          key: t("catalog.features.sourceObservations.ui.providerDetail.units.scopes"),
+          value: unit.importScopes.join(", ") || none,
+        },
+        {
+          key: t("catalog.features.sourceObservations.ui.providerDetail.units.activeProfile"),
+          value:
+            unit.activeProfile?.profileVersion ??
+            t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+        },
+        {
+          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.catalog.semantic"),
+          value: health ? stateLabel(health.semanticReadiness) : none,
+        },
+        {
+          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.provider.transport"),
+          value: health ? stateLabel(health.transportReadiness) : none,
+        },
+        {
+          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.freshness"),
+          value: `${stateLabel(readModel.healthTriage.freshness)} · ${formatDateTime(readModel.healthTriage.generatedAt)}`,
+        },
+        {
+          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.diagnostics"),
+          value: health?.latestDiagnosticText ?? none,
+        },
+      ]}
+    />
+  );
+}
+
 function ProviderRecentJobs({
   readModel,
   providerKey,

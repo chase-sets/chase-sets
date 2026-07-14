@@ -10,10 +10,6 @@ afterEach(() => {
   cleanup();
 });
 
-// #3832: one page — profile, validation, lifecycle, health, and schedule for one
-// provider — replacing the deleted profile-authoring, validation-readiness, and
-// lifecycle-recovery workspace components. Every command form on the page must
-// submit back to this same page (no cross-surface redirect).
 describe("CatalogProviderDetailPage", () => {
   it("renders provider identity, the active profile, clone draft, and version history on one page", () => {
     const profile = profileReview({
@@ -32,7 +28,26 @@ describe("CatalogProviderDetailPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogProviderDetailPage readModel={readModel} />);
+    render(
+      <CatalogProviderDetailPage
+        readModel={readModel}
+        providerRefreshSchedules={[
+          {
+            providerKey: "tcgdex",
+            scheduleEnabled: true,
+            manualOnly: false,
+            creditAware: false,
+            intervalMs: 21_600_000,
+            paused: false,
+            pausedBy: null,
+            nextRunAt: "2026-07-14T18:00:00.000Z",
+            lastRunCompletedAt: "2026-07-14T12:00:00.000Z",
+            lastRunStatus: "succeeded",
+            lastRunError: null,
+          },
+        ]}
+      />,
+    );
 
     // Identity header.
     expect(screen.getAllByText("tcgdex").length).toBeGreaterThan(0);
@@ -53,6 +68,14 @@ describe("CatalogProviderDetailPage", () => {
     // Version history table with the active profile listed.
     expect(screen.getByRole("heading", { name: "Profile candidates" })).toBeTruthy();
     expect(screen.getAllByText(/tcgdex-pokemon-card@2026.06.04/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Scheduled source-option refresh")).toBeTruthy();
+    expect(screen.getByText(/Last run: Succeeded/)).toBeTruthy();
+    const runNowForm = document
+      .querySelector<HTMLInputElement>('input[name="_intent"][value="run-provider-refresh"]')
+      ?.closest("form");
+    const action = new URL(runNowForm?.getAttribute("action") ?? "", "https://admin.example");
+    expect(action.pathname).toBe("/catalog/providers/tcgdex");
+    expect(action.searchParams.get("profileVersion")).toBe("2026.06.04");
   });
 
   it("renders rollback/deprecate/retire as row-level lifecycle actions that submit back to this page", () => {
@@ -107,6 +130,9 @@ describe("CatalogProviderDetailPage", () => {
     // both name the provider, so at least two headings render "tcgdex".
     expect(screen.getAllByRole("heading", { name: "tcgdex" }).length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
+    expect(screen.getByText("Catalog semantic readiness")).toBeTruthy();
+    expect(screen.getByText("Provider transport readiness")).toBeTruthy();
+    expect(screen.getAllByText("Freshness").length).toBeGreaterThan(0);
     expect(screen.queryByText(/health-triage/i)).toBeNull();
   });
 

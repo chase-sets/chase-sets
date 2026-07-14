@@ -6,7 +6,7 @@ import {
   WorkbenchStack,
   WorkflowModule,
 } from "@chase-sets/design-system";
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
 import { stateLabel } from "../import-to-promotion/workbench-formatting";
 
@@ -100,6 +100,19 @@ export function ProviderDetailHeader({
               value:
                 providerRow?.payloadAcquisition ??
                 t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.freshness"),
+              value: stateLabel(readModel.healthTriage.freshness),
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.generated"),
+              value: formatDateTime(readModel.healthTriage.generatedAt),
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.diagnostics"),
+              value:
+                providerRow?.latestDiagnosticText ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.none"),
             },
           ]}
         />
