@@ -37,6 +37,7 @@ export type ItemDetailMobileCommerceSection = Readonly<{
 }>;
 
 export type ItemDetailCommerceSections = Readonly<{
+  save?: ReactNode;
   buy: ReactNode;
   offer?: ReactNode;
   sell?: ReactNode;

@@ -1,4 +1,9 @@
 export { createCatalogRequestApiClient } from "./support/request-support/api-client";
+export {
+  resolveCatalogProductSelection,
+  type CatalogProductSelection,
+  type CatalogProductSelectionResolution,
+} from "./support/request-support/product-selection";
 export { seedCatalogDatabase as bootstrapCatalogDatabase } from "./support/authoring-support/seed";
 export { seedProductContentScenario as reconcileRepresentativeProductContentsScenario } from "./features/product-contents/api/seed";
 export {

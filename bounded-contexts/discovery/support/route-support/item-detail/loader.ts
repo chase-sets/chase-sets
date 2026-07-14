@@ -26,6 +26,7 @@ import {
   readExplicitMarketSelectionId,
   readInitialSelectedOptions,
 } from "./support";
+import { loadSavedListClaimPreparation } from "../saved-list-addition";
 
 const SELECTED_SELLER_LISTING_HANDOFF_EXPECTATIONS = {
   "marketplace.listing.publish": "resource-present",
@@ -244,6 +245,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       notFound: true,
       canonicalUrl: null,
       productAlertClaimError: null,
+      savedListClaim: { preparation: null, error: null },
       listingSetupLoadState: "not-applicable" satisfies ListingSetupLoadState,
       listingSetupLoadError: null,
     };
@@ -272,6 +274,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     const similarItemsPromise = loadSimilarItems(api, item.catalog_item_id);
 
     let productAlertClaimError: string | null = null;
+    const savedListClaimPromise = loadSavedListClaimPreparation(request, (product) => product.productId);
 
     if (claimProductAlertIntentId) {
       const cleanClaimPath = `/items/${item.slug || item.catalog_item_id}?market=watch`;
@@ -373,6 +376,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: false,
       productAlertClaimError,
+      savedListClaim: await savedListClaimPromise,
       listingSetupLoadState,
       listingSetupLoadError,
       canonicalUrl: new URL(`/items/${item.slug || item.catalog_item_id}`, browserUrl.origin).toString(),
@@ -405,6 +409,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         notFound: true,
         canonicalUrl: null,
         productAlertClaimError: null,
+        savedListClaim: { preparation: null, error: null },
         listingSetupLoadState: "not-applicable" satisfies ListingSetupLoadState,
         listingSetupLoadError: null,
         error: error.message,
@@ -433,6 +438,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       notFound: true,
       canonicalUrl: null,
       productAlertClaimError: null,
+      savedListClaim: { preparation: null, error: null },
       listingSetupLoadState: "not-applicable" satisfies ListingSetupLoadState,
       listingSetupLoadError: null,
       error: error instanceof Error ? error.message : t("discovery.routes.itemDetail.item.not.found"),

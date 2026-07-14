@@ -241,6 +241,7 @@ export const sourceContextWakeRegistry = [
     wakeStoreLoadEstimate: "medium",
     affectedProjectionNames: [
       "collections:collections-saved-list-projection",
+      "collections:collections-saved-list-picker-projection",
       "collections:collections-saved-list-valuation-projection",
       "collections:collections.saved-list-shared-page-projection",
     ],

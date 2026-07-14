@@ -11,3 +11,29 @@ export * from "./features/saved-lists/integrations/inventory-handoff";
 export * from "./features/saved-list-valuation/domain";
 export * from "./features/saved-list-valuation/api";
 export * from "./features/saved-lists/read-model";
+export { createCollectionsRequestApiClient } from "./features/saved-lists/api/request-client";
+export {
+  CollectionsApiError,
+  collectionsApi,
+  createCollectionsApiClient,
+  type CollectionsApiClientOptions,
+} from "./features/saved-lists/api/client";
+export type {
+  AddProductToSavedListRequest,
+  AnonymousSavedListClaimPreparation,
+  AnonymousSavedListIntent,
+  CreateAnonymousSavedListIntentRequest,
+  RecentSavedListsResponse,
+  SavedListAdditionResponse,
+  SavedListAdditionTokens,
+  SavedListDestination,
+  SavedListDiscoveryAnalyticsLabel,
+  SavedListDiscoverySurface,
+} from "./features/saved-lists/api/discovery-contracts";
+export type { SavedListProductSelection } from "./features/saved-lists/domain/contracts";
+export type { RecentSavedList } from "./features/saved-lists/read-model/picker-queries";
+export {
+  appendAnonymousSavedListCookie,
+  ensureAnonymousSavedListOwnerId,
+  readAnonymousSavedListOwnerId,
+} from "./features/saved-lists/api/anonymous-cookie";

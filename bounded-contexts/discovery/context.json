@@ -20,6 +20,7 @@
   "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [
     "@chase-sets/checkout",
+    "@chase-sets/collections",
     "@chase-sets/customer-feedback",
     "@chase-sets/inventory",
     "@chase-sets/marketplace",
@@ -856,12 +857,16 @@
       "surfaces": ["route-action:bounded-contexts/discovery/routes/search.tsx"],
       "visibleDestination": {
         "routeId": "search",
-        "description": "Search bulk add stays on the browse page and renders Checkout command-owned bulk counts. Client-side request keys suppress stale bulk snapshots when the visible Result Set changes before the POST resolves."
+        "description": "Search bulk add and Add to List stay on the browse page and render command-owned Checkout or Collections snapshots. Client-side request keys suppress stale snapshots when the visible Result Set or Product changes before the POST resolves."
       },
       "proof": {
-        "authoritativeResponse": "The route action returns the Discovery preview plus Checkout addCartLines/addGuestCartLines counts from the command response.",
-        "correction": "The Search route records the active Result Set key and bulk request id, applies only the latest matching response, and ignores older snapshots after navigation or filter changes.",
-        "tests": ["bounded-contexts/discovery/routes/search-route.test.tsx"]
+        "authoritativeResponse": "The route action returns the Discovery preview plus Checkout bulk counts or the Collections Saved List aggregate snapshot from the owning command response.",
+        "correction": "The Search route records active Result Set and Product keys with request ids, applies only the latest matching response, and ignores older snapshots after navigation, selection, or filter changes.",
+        "tests": [
+          "bounded-contexts/discovery/routes/search-route.test.tsx",
+          "bounded-contexts/discovery/support/ui-support/add-to-saved-list.test.tsx",
+          "bounded-contexts/collections/features/saved-lists/api/discovery-runtime.test.ts"
+        ]
       }
     },
     {
@@ -880,13 +885,15 @@
       ],
       "visibleDestination": {
         "routeIds": ["item-detail", "buy-checkout-session", "account-sell-list", "account-sales"],
-        "description": "Item-detail writes that navigate to Checkout, Sell List, Sales, or back to Item Detail preserve the command owner's receipt in afterWrite when the destination is projection-backed; guest checkout readiness carries the command payload in the redirect query instead of relying on a Discovery projection."
+        "description": "Item-detail writes that navigate to Checkout, Sell List, Sales, or back to Item Detail preserve the command owner's receipt in afterWrite when the destination is projection-backed. Add to List stays on item detail and renders the Collections command snapshot; guest checkout readiness and Saved List registration carry durable command or intent state instead of relying on a fresh Discovery projection."
       },
       "proof": {
-        "authoritativeResponse": "The Discovery action consumes Checkout, Marketplace, Inventory, or Discovery command snapshots in the same request and carries their receipt into redirects. The destination owners govern the actual fresh-read waits for Checkout, Sell List, Sales, and Inventory pages.",
+        "authoritativeResponse": "The Discovery action consumes Checkout, Marketplace, Inventory, Discovery, or Collections command snapshots in the same request. Add to List returns the Saved List aggregate snapshot in place; navigations carry their owner receipt and destination owners govern any actual fresh-read waits.",
         "tests": [
           "bounded-contexts/discovery/tests/item-detail-buy-now-checkout.test.ts",
-          "bounded-contexts/discovery/tests/item-detail-buy-now-validation.test.ts"
+          "bounded-contexts/discovery/tests/item-detail-buy-now-validation.test.ts",
+          "bounded-contexts/discovery/support/ui-support/add-to-saved-list.test.tsx",
+          "bounded-contexts/collections/features/saved-lists/api/discovery-runtime.test.ts"
         ]
       }
     },

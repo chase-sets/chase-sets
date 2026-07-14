@@ -82,6 +82,16 @@ Notes:
 - Catalog display identity is joined from Collections' consumer-owned Catalog mirror; it is not copied into Saved List events.
 - It is private owner data. Public-safe projection and disclosure policy are separate behavior.
 
+## Anonymous Saved List Intent
+
+An **Anonymous Saved List Intent** is a short-lived request to add one exact Catalog Product after the visitor registers or signs in.
+
+Notes:
+
+- It retains the source path, exact Product selection, and idempotency tokens but does not create a Saved List before account ownership is known.
+- It can be claimed once by one account and one destination; a matching retry returns the original command result.
+- Active intents expire after 30 days and the anonymous owner has a bounded number of pending intents.
+
 ## Saved List Sharing
 
 **Saved List Sharing** governs who may view an active Saved List and independently controls whether the shared view reveals Tracked Quantity and Current Estimated Value.

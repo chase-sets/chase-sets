@@ -7,7 +7,8 @@
     "tracked-quantity",
     "saved-list-visibility",
     "saved-list-cover",
-    "saved-list-sharing"
+    "saved-list-sharing",
+    "anonymous-saved-list-intent"
   ],
   "streamPrefix": "collections.",
   "apiBasePath": "/api/collections",
@@ -46,6 +47,11 @@
       "portName": "savedListAbuseReports",
       "providedBy": "platform-api",
       "purpose": "Adapts Saved List reports into the existing moderation workflow without creating a second reporting system."
+    },
+    {
+      "portName": "rateLimitPolicyResolver",
+      "providedBy": "platform-api",
+      "purpose": "Resolves the bounded anonymous Saved List intent capture limit through the platform policy seam."
     }
   ],
   "eventSubscriptions": [
@@ -93,6 +99,24 @@
     },
     {
       "sourceContextName": "collections",
+      "projectionName": "collections-saved-list-picker-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "collections.saved-list.created",
+        "collections.saved-list.details-changed",
+        "collections.saved-list.archived",
+        "collections.saved-list.visibility-changed",
+        "collections.saved-list.cover-changed",
+        "collections.saved-list.line-added",
+        "collections.saved-list.line-changed",
+        "collections.saved-list.line-removed",
+        "collections.saved-list.line-reordered"
+      ],
+      "order": 10,
+      "projectionHandlerSetNames": ["collections-saved-list-picker-projection"]
+    },
+    {
+      "sourceContextName": "collections",
       "projectionName": "collections-saved-list-valuation-projection",
       "subscriptionVersion": 1,
       "eventTypes": [
@@ -137,6 +161,13 @@
       "resetStrategy": "truncate-owned-tables"
     },
     {
+      "projectionName": "collections-saved-list-picker-projection",
+      "sourceContextNames": ["collections"],
+      "ownedTables": ["collections_saved_list_picker"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "collections.saved-list-shared-page-projection",
       "sourceContextNames": ["collections"],
       "ownedTables": [
@@ -157,6 +188,33 @@
       ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "truncate-owned-tables"
+    }
+  ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "collections.saved-list-discovery-command-snapshots",
+      "owner": "collections",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H6018dee4d9e7#1",
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H8f7de280cfe0#1",
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H889f0611e195#1",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/route.ts:POST /account/list-additions",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/route.ts:POST /account/saved-list-intents/:id/claim",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/route.ts:POST /guest/saved-list-intents"
+      ],
+      "visibleDestination": {
+        "routeIds": ["search", "item-detail"],
+        "description": "Search and item detail remain visible after the command and render the Saved List aggregate snapshot, line result, and List title returned by Collections. Guest capture returns the durable anonymous intent and claim returns the same command snapshot without requiring the recent-List projection to catch up."
+      },
+      "proof": {
+        "authoritativeResponse": "Direct add and guest claim responses carry the #5016 Saved List command snapshot and receipt. Claim retries retain the exact attempted version and completed response, while recent Lists remain picker input only.",
+        "tests": [
+          "bounded-contexts/collections/features/saved-lists/api/discovery-runtime.test.ts",
+          "bounded-contexts/collections/features/saved-lists/api/route.test.ts"
+        ]
+      }
     }
   ],
   "apiDeployables": ["platform-api"],

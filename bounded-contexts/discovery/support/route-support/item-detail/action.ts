@@ -54,6 +54,8 @@ import {
   shipFromAddressFromForm,
 } from "./action-helpers";
 import type { DiscoveryItemDetail } from "../../client-support/contracts";
+import type { SavedListProductSelection } from "@chase-sets/collections/server";
+import { commitSavedListAddition, prepareSavedListAddition, savedListActionError } from "../saved-list-addition";
 
 type ListingCommandResult = {
   id?: string;
@@ -161,6 +163,27 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const discoveryApi = createDiscoveryRequestApiClient(request);
+  if (intent === "commit-saved-list") {
+    return commitSavedListAddition(request, formData);
+  }
+  if (intent === "prepare-saved-list") {
+    try {
+      const item = await discoveryApi.getItemDetail(params.id!);
+      return prepareSavedListAddition({
+        request,
+        product: {
+          catalogItemId: item.catalog_item_id as SavedListProductSelection["catalogItemId"],
+          productId: String(formData.get("productId") ?? "") as SavedListProductSelection["productId"],
+          selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
+        },
+        productLabel:
+          String(formData.get("productLabel") ?? "").trim() || [item.title, item.subtitle].filter(Boolean).join(" · "),
+        sourceSurface: "item-detail",
+      });
+    } catch (error) {
+      return savedListActionError(error);
+    }
+  }
   const marketplaceApi = createMarketplaceRequestApiClient(request);
   const inventoryApi = createInventoryRequestApiClient(request);
   const checkoutApi = createCheckoutRequestApiClient(request);

@@ -1,6 +1,8 @@
 import { createPostgresEventStore, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
+import { createSavedListDiscoveryRuntime } from "../../features/saved-lists/api/discovery-runtime";
 import {
   createSavedListSharedAccess,
   type SavedListAbuseReportAdapter,
@@ -17,6 +19,7 @@ import type { SavedListCapabilityService } from "../../features/saved-lists/doma
 import { createSavedListReadModelRuntime } from "../../features/saved-lists/read-model/runtime";
 import { buildSavedListSharedPageProjectionHandlers } from "../../features/saved-lists/read-model/shared-page-projection";
 import { loadSavedListSharedPage } from "../../features/saved-lists/read-model/shared-page-queries";
+import { buildSavedListPickerProjectionHandlers } from "../../features/saved-lists/read-model/picker-projection";
 
 export type CollectionsHostPorts = Readonly<{
   savedListProductCatalog?: SavedListProductCatalog;
@@ -25,6 +28,7 @@ export type CollectionsHostPorts = Readonly<{
   savedListSharingRateLimits?: SavedListSharingRateLimitPort;
   savedListSharingAudit?: SavedListSharingAuditSink;
   savedListAbuseReports?: SavedListAbuseReportAdapter;
+  rateLimitPolicyResolver?: RateLimitRuleResolver;
 }>;
 
 export type CollectionsServices = Readonly<{
@@ -34,7 +38,9 @@ export type CollectionsServices = Readonly<{
   savedListReadModels: ReturnType<typeof createSavedListReadModelRuntime>;
   savedListSharing: ReturnType<typeof createSavedListSharingRuntime>;
   savedListSharedAccess: ReturnType<typeof createSavedListSharedAccess>;
+  discovery: ReturnType<typeof createSavedListDiscoveryRuntime>;
   projectors: readonly ProjectionHandlerSet[];
+  rateLimitPolicyResolver?: RateLimitRuleResolver;
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;
@@ -78,9 +84,10 @@ export function createCollectionsServices(
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "collections" }),
   });
+  const productCatalog = ports.savedListProductCatalog ?? unavailableProductCatalog;
   const savedLists = createSavedListRuntime({
     eventStore,
-    productCatalog: ports.savedListProductCatalog ?? unavailableProductCatalog,
+    productCatalog,
   });
   const savedListReadModels = createSavedListReadModelRuntime(db);
   const capabilities = ports.savedListCapabilities ?? unavailableCapabilities;
@@ -97,6 +104,7 @@ export function createCollectionsServices(
     }),
     savedListValuation: createSavedListValuationRuntime(pool),
     savedListReadModels,
+    discovery: createSavedListDiscoveryRuntime({ db, savedLists, productCatalog }),
     savedListSharing,
     savedListSharedAccess: createSavedListSharedAccess({
       sharedPages: { load: (listId) => loadSavedListSharedPage(db, listId) },
@@ -109,10 +117,15 @@ export function createCollectionsServices(
     projectors: [
       ...savedListReadModels.projectors,
       createProjectionHandlerSet({
+        projectionName: "collections-saved-list-picker-projection",
+        handlers: buildSavedListPickerProjectionHandlers(db),
+      }),
+      createProjectionHandlerSet({
         projectionName: "collections.saved-list-shared-page-projection",
         handlers: buildSavedListSharedPageProjectionHandlers(db),
       }),
     ],
+    rateLimitPolicyResolver: ports.rateLimitPolicyResolver,
     pool,
     db,
   };
