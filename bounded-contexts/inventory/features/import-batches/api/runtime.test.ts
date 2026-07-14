@@ -8,7 +8,11 @@ import type {
   InventorySelectedOptionEntry,
 } from "../../inventory-items/integrations/catalog/versioning";
 import type { InventoryItemServices } from "../../inventory-items/api/runtime";
-import { createInventoryImportBatchRuntime, shouldDeferImportBatchParentClaimForCreateUnitMiss } from "./runtime";
+import {
+  createInventoryImportBatchRuntime,
+  serializeCreateBatchInputForIdempotency,
+  shouldDeferImportBatchParentClaimForCreateUnitMiss,
+} from "./runtime";
 import { inventoryImportBatchSchemaSql } from "../read-model/schema";
 
 type StoredBatch = Readonly<{
@@ -583,6 +587,24 @@ describe("inventory import batch runtime", () => {
     expect(shouldDeferImportBatchParentClaimForCreateUnitMiss(undefined)).toBe(false);
   });
 
+  it("compares retried staged input independently of JSON object key order", () => {
+    const base = {
+      accountId: "acc_1" as AccountId,
+      sourceKey: "saved-list" as const,
+      quantityMode: "add" as const,
+    };
+    const original = serializeCreateBatchInputForIdempotency({
+      ...base,
+      parsedRows: [{ rowNumber: 1, values: { sourceLineId: "sll_1", totalQuantity: "2" } }],
+    });
+    const jsonbReload = serializeCreateBatchInputForIdempotency({
+      ...base,
+      parsedRows: [{ rowNumber: 1, values: { totalQuantity: "2", sourceLineId: "sll_1" } }],
+    });
+
+    expect(jsonbReload).toBe(original);
+  });
+
   it("rejects empty queued import validation before staging a durable job", async () => {
     const services = runtime(dbWithLocations());
 
@@ -595,6 +617,106 @@ describe("inventory import batch runtime", () => {
         context,
       ),
     ).rejects.toThrow("Import CSV must include at least one row.");
+  });
+
+  it("rejects Saved List imports outside the authorized account", async () => {
+    const services = runtime(dbWithLocations());
+    const wrongAccountContext: EventStoreContext = {
+      tenantId: "tnt_1" as never,
+      audit: { performedByUserId: "usr_1" as never, forAccountId: "acc_other" as AccountId },
+    };
+
+    await expect(
+      services.createSavedListImportBatch(
+        {
+          requestId: "request_1",
+          accountId: "acc_1" as AccountId,
+          source: { sourceKind: "saved-list", listId: "svl_1", listVersion: 1, lines: [] },
+        },
+        wrongAccountContext,
+      ),
+    ).rejects.toThrow("does not match the authorized account");
+  });
+
+  it("routes Saved List rows with no location through canonical review and row repair", async () => {
+    const services = runtime(dbWithLocations());
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        sourceKey: "saved-list",
+        quantityMode: "add",
+        parsedRows: [
+          {
+            rowNumber: 1,
+            values: {
+              sourceListId: "svl_1",
+              sourceListVersion: "4",
+              sourceLineId: "sll_1",
+              sourceRowId: "saved-list:svl_1:v4:sll_1",
+              catalogItemId: "cat_active",
+              productId: "cat_active::condition:near_mint",
+              totalQuantity: "2",
+              "option:condition": "near_mint",
+            },
+          },
+        ],
+      },
+      context,
+    );
+
+    expect(batch.rows[0]).toMatchObject({
+      status: "rejected",
+      catalog_item_id: "cat_active",
+      product_id: "cat_active::condition:near_mint",
+      acquisition_cost_amount: null,
+    });
+    expect(batch.rows[0]?.validation_errors).toContain("storageLocationId or defaultStorageLocationId is required.");
+
+    const repaired = await services.resolveRow(
+      {
+        batchId: batch.batch_id,
+        rowId: batch.rows[0]!.row_id,
+        accountId: "acc_1" as AccountId,
+        catalogItemId: "cat_active",
+        selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
+        storageLocationId: "loc_active",
+      },
+      context,
+    );
+    expect(repaired.rows[0]).toMatchObject({ status: "accepted", storage_location_id: "loc_active" });
+  });
+
+  it("keeps changed Saved List Product evidence in review", async () => {
+    const services = runtime(dbWithLocations());
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        sourceKey: "saved-list",
+        quantityMode: "add",
+        parsedRows: [
+          {
+            rowNumber: 1,
+            values: {
+              sourceListId: "svl_1",
+              sourceListVersion: "4",
+              sourceLineId: "sll_1",
+              sourceRowId: "saved-list:svl_1:v4:sll_1",
+              catalogItemId: "cat_active",
+              productId: "stale_product",
+              storageLocationId: "loc_active",
+              totalQuantity: "2",
+              "option:condition": "near_mint",
+            },
+          },
+        ],
+      },
+      context,
+    );
+
+    expect(batch.rows[0]?.status).toBe("rejected");
+    expect(batch.rows[0]?.validation_errors).toContain(
+      "The source Product no longer matches the current Catalog selection.",
+    );
   });
 
   it("builds native CSV templates from account active storage locations only", async () => {

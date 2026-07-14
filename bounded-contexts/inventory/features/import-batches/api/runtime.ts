@@ -56,6 +56,11 @@ import {
   resolveInventoryImportAccountSkuMapping,
   type InventoryImportAccountSkuMapping,
 } from "../read-model/account-sku-mappings";
+import {
+  prepareInventorySavedListImportBatch,
+  type CreateInventorySavedListImportBatch,
+  type InventorySavedListImportBatchHandoff,
+} from "./saved-list-import";
 
 export type InventoryDraftListingCreator = (
   params: Readonly<{
@@ -119,6 +124,10 @@ export type InventoryImportBatchServices = Readonly<{
     params: Parameters<InventoryImportBatchServices["createBatch"]>[0],
     context: EventStoreContext,
   ) => Promise<InventoryImportBatchJob>;
+  createSavedListImportBatch: (
+    params: CreateInventorySavedListImportBatch,
+    context: EventStoreContext,
+  ) => Promise<InventorySavedListImportBatchHandoff>;
   getImportBatchJob: (jobId: string) => Promise<InventoryImportBatchJob | null>;
   listImportBatchJobEvents: (
     jobId: string,
@@ -201,6 +210,7 @@ const IMPORT_BATCH_JOB_KIND_COMMIT = "commit";
 export type InventoryImportBatchJobPayload = Readonly<{
   batchId?: string;
   accountId: string;
+  idempotencyFingerprint?: string;
   create?: Readonly<{
     inputId: string;
     batchId?: string;
@@ -242,6 +252,13 @@ type InventoryImportBatchJobInput = Readonly<{
   sourceFilename?: string | null;
 }>;
 
+type InventoryImportBatchCreateIdentity = Readonly<{
+  batchId: string;
+  jobId: string;
+  inputId: string;
+  inputFingerprint: string;
+}>;
+
 type InventoryImportBatchWorkUnitPayload = Readonly<{
   rowNumber: number;
 }>;
@@ -258,6 +275,45 @@ export function toInventoryImportBatchJobStatus(job: InventoryImportBatchJob): I
 function clean(value: string | undefined) {
   const trimmed = (value ?? "").trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+export function serializeCreateBatchInputForIdempotency(
+  input: Pick<
+    InventoryImportBatchJobInput,
+    | "accountId"
+    | "csvText"
+    | "parsedRows"
+    | "sourceKey"
+    | "quantityMode"
+    | "defaultStorageLocationId"
+    | "sourceFilename"
+  >,
+): string {
+  return JSON.stringify(
+    canonicalJsonValue({
+      accountId: input.accountId,
+      csvText: input.csvText ?? null,
+      parsedRows: input.parsedRows ?? null,
+      sourceKey: input.sourceKey ?? null,
+      quantityMode: input.quantityMode ?? null,
+      defaultStorageLocationId: input.defaultStorageLocationId ?? null,
+      sourceFilename: input.sourceFilename ?? null,
+    }),
+  );
+}
+
+function canonicalJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalJsonValue);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalJsonValue(entry)]),
+    );
+  }
+  return value;
 }
 
 function positiveWholeNumber(value: string | null, fieldName: string, errors: string[]) {
@@ -685,8 +741,11 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     },
   );
 
-  async function stageCreateBatchJobInput(params: Parameters<InventoryImportBatchServices["createBatch"]>[0]) {
-    const inputId = createId("job_input");
+  async function stageCreateBatchJobInput(
+    params: Parameters<InventoryImportBatchServices["createBatch"]>[0],
+    requestedInputId?: string,
+  ) {
+    const inputId = requestedInputId ?? createId("job_input");
     await deps.db.query(
       `INSERT INTO inventory_import_batch_job_inputs (
          input_id,
@@ -698,7 +757,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
          default_storage_location_id,
          source_filename,
          created_at
-       ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, now())`,
+       ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, now())
+       ON CONFLICT (input_id) DO NOTHING`,
       [
         inputId,
         params.accountId,
@@ -710,6 +770,13 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         params.sourceFilename ?? null,
       ],
     );
+
+    if (requestedInputId) {
+      const staged = await loadCreateBatchJobInput(inputId, params.accountId);
+      if (serializeCreateBatchInputForIdempotency(staged) !== serializeCreateBatchInputForIdempotency(params)) {
+        throw new InventoryDomainError("Inventory import request ID was already used for different source content.");
+      }
+    }
     return inputId;
   }
 
@@ -884,6 +951,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             selection: parseSelectedOptionsInput(selectedOptions),
           });
           productId = descriptor.productId;
+          const sourceProductId = clean(values.productId);
+          if (sourceProductId && sourceProductId !== productId) {
+            errors.push("The source Product no longer matches the current Catalog selection.");
+          }
         } catch (error) {
           errors.push(error instanceof Error ? error.message : "Selected options are invalid.");
         }
@@ -1679,6 +1750,96 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     }));
   }
 
+  function assertMatchingCreateJob(
+    job: InventoryImportBatchJob,
+    identity: InventoryImportBatchCreateIdentity,
+    accountId: AccountId,
+  ): void {
+    if (
+      job.jobKind !== IMPORT_BATCH_JOB_KIND_CREATE ||
+      job.payload.accountId !== accountId ||
+      job.payload.batchId !== identity.batchId ||
+      job.payload.create?.batchId !== identity.batchId ||
+      job.payload.idempotencyFingerprint !== identity.inputFingerprint
+    ) {
+      throw new InventoryDomainError("Inventory import request ID was already used for different source content.");
+    }
+  }
+
+  function enqueueCreateWorkUnits(jobId: string, rows: readonly NormalizedInventoryImportRow[]) {
+    return workUnitStore.enqueue({
+      jobId,
+      units: rows.map((row) => ({
+        unitId: String(row.rowNumber),
+        unitKind: IMPORT_BATCH_JOB_KIND_CREATE,
+        payload: { rowNumber: row.rowNumber },
+      })),
+    });
+  }
+
+  async function enqueueCreateBatchJob(
+    params: Parameters<InventoryImportBatchServices["createBatch"]>[0],
+    context: EventStoreContext,
+    identity?: InventoryImportBatchCreateIdentity,
+  ): Promise<InventoryImportBatchJob> {
+    const quantityMode = params.quantityMode ?? "add";
+    const rows = normalizedCreateBatchRows({
+      csvText: params.csvText,
+      parsedRows: params.parsedRows,
+      sourceKey: params.sourceKey,
+      quantityMode,
+      defaultStorageLocationId: params.defaultStorageLocationId,
+    });
+    if (rows.length === 0) {
+      throw new InventoryDomainError("Import CSV must include at least one row.");
+    }
+
+    if (identity) {
+      const existing = await jobStore.get(identity.jobId);
+      if (existing) {
+        assertMatchingCreateJob(existing, identity, params.accountId);
+        if (existing.status === "queued" || existing.status === "running") {
+          await enqueueCreateWorkUnits(existing.jobId, rows);
+        }
+        return existing;
+      }
+    }
+
+    const inputId = await stageCreateBatchJobInput(params, identity?.inputId);
+    const batchId = identity?.batchId ?? createId("imb");
+    const jobId = identity?.jobId ?? createId("job");
+    let job: InventoryImportBatchJob;
+    try {
+      job = await jobStore.enqueue({
+        jobId,
+        jobKind: IMPORT_BATCH_JOB_KIND_CREATE,
+        payload: {
+          batchId,
+          accountId: params.accountId,
+          ...(identity ? { idempotencyFingerprint: identity.inputFingerprint } : {}),
+          create: { inputId, batchId },
+        },
+        progress: importBatchJobProgress("queued", 0, rows.length, null, "Import validation queued."),
+        eventContext: context,
+      });
+    } catch (error) {
+      if (!identity) {
+        throw error;
+      }
+      const raced = await jobStore.get(identity.jobId);
+      if (!raced) {
+        throw error;
+      }
+      assertMatchingCreateJob(raced, identity, params.accountId);
+      job = raced;
+    }
+
+    if (job.status === "queued" || job.status === "running") {
+      await enqueueCreateWorkUnits(job.jobId, rows);
+    }
+    return job;
+  }
+
   return {
     createBatch: (params) => createBatchRows(params),
     getBatch: (batchId, accountId) => getImportBatch(deps.db, batchId, accountId),
@@ -1698,44 +1859,29 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     resolveAccountSkuMappingsToInventoryItems: (params) => resolveAccountSellerSkusToInventoryItems(deps.db, params),
     resolveRow: (params) => resolveBatchRow(params),
     commitBatch: (params, context) => commitBatchRows(params, context),
-    enqueueCreateBatchJob: async (params, context) => {
-      const quantityMode = params.quantityMode ?? "add";
-      const rows = normalizedCreateBatchRows({
-        csvText: params.csvText,
-        parsedRows: params.parsedRows,
-        sourceKey: params.sourceKey,
-        quantityMode,
-        defaultStorageLocationId: params.defaultStorageLocationId,
-      });
-      if (rows.length === 0) {
-        throw new InventoryDomainError("Import CSV must include at least one row.");
+    enqueueCreateBatchJob,
+    createSavedListImportBatch: async (params, context) => {
+      if (context.audit.forAccountId !== params.accountId) {
+        throw new InventoryDomainError("Inventory Saved List import account does not match the authorized account.");
       }
-
-      const inputId = await stageCreateBatchJobInput(params);
-      const batchId = createId("imb");
-      const job = await jobStore.enqueue({
-        jobId: createId("job"),
-        jobKind: IMPORT_BATCH_JOB_KIND_CREATE,
-        payload: {
-          batchId,
+      const prepared = prepareInventorySavedListImportBatch(params);
+      const job = await enqueueCreateBatchJob(
+        {
           accountId: params.accountId,
-          create: {
-            inputId,
-            batchId,
-          },
+          parsedRows: prepared.parsedRows,
+          sourceKey: "saved-list",
+          quantityMode: "add",
+          defaultStorageLocationId: null,
+          sourceFilename: null,
         },
-        progress: importBatchJobProgress("queued", 0, rows.length, null, "Import validation queued."),
-        eventContext: context,
-      });
-      await workUnitStore.enqueue({
+        context,
+        prepared,
+      );
+      return {
+        batchId: prepared.batchId,
         jobId: job.jobId,
-        units: rows.map((row) => ({
-          unitId: String(row.rowNumber),
-          unitKind: IMPORT_BATCH_JOB_KIND_CREATE,
-          payload: { rowNumber: row.rowNumber },
-        })),
-      });
-      return job;
+        reviewHref: prepared.reviewHref,
+      };
     },
     enqueueCommitBatchJob: async (params, context) => {
       const detail = await getImportBatch(deps.db, params.batchId, params.accountId);

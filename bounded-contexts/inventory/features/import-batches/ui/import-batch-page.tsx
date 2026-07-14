@@ -27,7 +27,7 @@ import type { InventoryImportBatch, InventoryImportBatchDetail, InventoryImportB
 import type { InventoryImportBatchJobStatus } from "../api/runtime";
 import type { InventoryCatalogItemSnapshot } from "../../inventory-items/integrations/catalog/queries";
 import type { InventoryStorageLocation } from "../../storage-locations/api/contracts";
-import { inventoryImportSourceLabel, listInventoryImportSources } from "../domain/import-source-adapters";
+import { listInventoryImportSources } from "../domain/import-source-adapters";
 import { appendInventoryHandoffSearch, inventoryListingHref } from "../../inventory-items/ui/listing-handoff";
 import {
   normalizeSelectedOptionsForSchema,
@@ -64,11 +64,29 @@ function catalogItemOptionLabel(item: InventoryCatalogItemSnapshot) {
 
 function rowNeedsPickerFix(row: InventoryImportBatchRow, sourceKey: InventoryImportBatch["source_key"]) {
   return (
-    sourceKey === "native-csv" &&
     row.status === "rejected" &&
-    row.resolution_status === "unresolved" &&
+    (sourceKey === "saved-list" || (sourceKey === "native-csv" && row.resolution_status === "unresolved")) &&
     !row.committed_at
   );
+}
+
+function localizedImportSourceLabel(sourceKey: ReturnType<typeof listInventoryImportSources>[number]["sourceKey"]) {
+  switch (sourceKey) {
+    case "saved-list":
+      return t("inventory.features.importBatches.ui.importBatchPage.saved.list");
+    case "tcgplayer-csv":
+      return t("inventory.features.importBatches.ui.importBatchPage.tcgplayer.csv");
+    case "ebay-csv":
+      return t("inventory.features.importBatches.ui.importBatchPage.ebay.csv");
+    case "shopify-csv":
+      return t("inventory.features.importBatches.ui.importBatchPage.shopify.csv");
+    case "whatnot-csv":
+      return t("inventory.features.importBatches.ui.importBatchPage.whatnot.csv");
+    case "cardtrader-csv":
+      return t("inventory.features.importBatches.ui.importBatchPage.cardtrader.csv");
+    case "native-csv":
+      return t("inventory.features.importBatches.ui.importBatchPage.chase.sets.csv");
+  }
 }
 
 function rowOutcome(row: InventoryImportBatchRow, currentPath?: string | null): ReactNode {
@@ -111,10 +129,12 @@ function rowOutcome(row: InventoryImportBatchRow, currentPath?: string | null): 
   );
 }
 
-const importSourceOptions = listInventoryImportSources().map((source) => ({
-  value: source.sourceKey,
-  label: source.label,
-}));
+const importSourceOptions = listInventoryImportSources()
+  .filter((source) => source.kind === "csv")
+  .map((source) => ({
+    value: source.sourceKey,
+    label: localizedImportSourceLabel(source.sourceKey),
+  }));
 
 function ImportRowResolutionForm({
   row,
@@ -404,7 +424,7 @@ export function InventoryImportBatchPage({
           {
             label: t("inventory.features.importBatches.ui.importBatchPage.source"),
             value: detail
-              ? inventoryImportSourceLabel(detail.source_key)
+              ? localizedImportSourceLabel(detail.source_key)
               : t("inventory.features.importBatches.ui.importBatchPage.chase.sets"),
             detail: detail
               ? t("inventory.features.importBatches.ui.importBatchPage.adapter.version", {

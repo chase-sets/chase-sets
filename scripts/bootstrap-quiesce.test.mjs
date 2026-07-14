@@ -27,7 +27,7 @@ describe("bootstrap quiesce wrapper", () => {
     });
   });
 
-  it("scales workers down, runs bootstrap, and leaves rollout restoration to Helm on success", async () => {
+  it("pauses KEDA before scaling workers down and resumes it after successful bootstrap", async () => {
     const calls = [];
     const result = await runQuiescedBootstrap({
       deployments: ["release-platform-worker"],
@@ -47,14 +47,17 @@ describe("bootstrap quiesce wrapper", () => {
     expect(calls).toEqual([
       ["readScale", "release-platform-worker"],
       ["log", "Quiescing release-platform-worker before bootstrap."],
+      ["pauseScaledObject", "release-platform-worker"],
       ["scale", "release-platform-worker", 0],
       ["wait", "release-platform-worker", 0],
       ["spawn", ["pnpm", "bootstrap"]],
-      ["log", "Bootstrap completed with workers quiesced; Helm may continue the rollout."],
+      ["log", "Bootstrap completed; Helm may continue the rollout."],
+      ["log", "Resuming KEDA autoscaling for release-platform-worker."],
+      ["resumeScaledObject", "release-platform-worker"],
     ]);
   });
 
-  it("restores old worker replica counts before failing the hook when bootstrap fails", async () => {
+  it("resumes KEDA before failing the hook when bootstrap fails", async () => {
     const calls = [];
     const result = await runQuiescedBootstrap({
       deployments: ["release-platform-worker"],
@@ -69,11 +72,11 @@ describe("bootstrap quiesce wrapper", () => {
 
     expect(result).toBe(17);
     expect(calls).toContainEqual(["scale", "release-platform-worker", 0]);
-    expect(calls).toContainEqual(["scale", "release-platform-worker", 3]);
-    expect(calls.at(-1)).toEqual(["wait", "release-platform-worker", 3]);
+    expect(calls).not.toContainEqual(["scale", "release-platform-worker", 3]);
+    expect(calls.at(-1)).toEqual(["resumeScaledObject", "release-platform-worker"]);
   });
 
-  it("restores old worker replica counts when bootstrap times out", async () => {
+  it("resumes KEDA when bootstrap times out", async () => {
     const calls = [];
     const result = await runQuiescedBootstrap({
       deployments: ["release-platform-worker"],
@@ -93,8 +96,32 @@ describe("bootstrap quiesce wrapper", () => {
     expect(result).toBe(124);
     expect(calls).toContainEqual(["spawn", ["pnpm", "bootstrap"], 780_000]);
     expect(calls).toContainEqual(["log", "Bootstrap failed with exit code 124."]);
+    expect(calls.at(-1)).toEqual(["resumeScaledObject", "release-platform-worker"]);
+  });
+
+  it("falls back to direct Deployment scaling and restoration without a ScaledObject", async () => {
+    const calls = [];
+    const result = await runQuiescedBootstrap({
+      deployments: ["release-platform-worker"],
+      command: ["pnpm", "bootstrap"],
+      timeoutMs: 1000,
+      pollIntervalMs: 1,
+      restoreOnFailure: true,
+      log: async (message) => calls.push(["log", message]),
+      kubernetes: fakeKubernetesClient(calls, { "release-platform-worker": 2 }, { kedaManaged: false }),
+      spawnCommand: async () => 17,
+    });
+
+    expect(result).toBe(17);
+    expect(calls).toContainEqual(["pauseScaledObject", "release-platform-worker"]);
+    expect(calls).toContainEqual([
+      "log",
+      "No ScaledObject found for release-platform-worker; scaling the Deployment directly.",
+    ]);
+    expect(calls).toContainEqual(["scale", "release-platform-worker", 0]);
     expect(calls).toContainEqual(["scale", "release-platform-worker", 2]);
     expect(calls.at(-1)).toEqual(["wait", "release-platform-worker", 2]);
+    expect(calls).not.toContainEqual(["resumeScaledObject", "release-platform-worker"]);
   });
 
   it("skips missing deployments during first install", async () => {
@@ -130,7 +157,7 @@ describe("bootstrap quiesce wrapper", () => {
       ["readScale", "release-platform-worker"],
       ["log", "Skipping missing deployment release-platform-worker; first install has no workers to quiesce."],
       ["spawn", ["pnpm", "bootstrap"]],
-      ["log", "Bootstrap completed with workers quiesced; Helm may continue the rollout."],
+      ["log", "Bootstrap completed; Helm may continue the rollout."],
     ]);
   });
 
@@ -151,7 +178,9 @@ describe("bootstrap quiesce wrapper", () => {
   });
 });
 
-function fakeKubernetesClient(calls, replicasByDeployment) {
+function fakeKubernetesClient(calls, replicasByDeployment, options = {}) {
+  const kedaManaged = options.kedaManaged ?? true;
+
   return {
     async readScale(name) {
       calls.push(["readScale", name]);
@@ -159,6 +188,14 @@ function fakeKubernetesClient(calls, replicasByDeployment) {
     },
     async scaleDeployment(name, replicas) {
       calls.push(["scale", name, replicas]);
+    },
+    async pauseScaledObject(name) {
+      calls.push(["pauseScaledObject", name]);
+      return kedaManaged;
+    },
+    async resumeScaledObject(name) {
+      calls.push(["resumeScaledObject", name]);
+      return kedaManaged;
     },
     async waitForReplicas(name, replicas) {
       calls.push(["wait", name, replicas]);

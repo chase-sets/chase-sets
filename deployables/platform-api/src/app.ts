@@ -10,6 +10,7 @@ import {
   lookupCheckoutSupportReference,
   type CheckoutSupportLookupResult,
 } from "@chase-sets/checkout/server";
+import type { SavedListInventoryImportBatchCreator } from "@chase-sets/collections/server";
 import {
   authenticityFeePolicy,
   checkoutProcessingFeePolicy,
@@ -29,7 +30,7 @@ import { catalogRealtimeManifest, catalogRealtimeTopicPolicyManifest } from "@ch
 import { pricingRealtimeManifest } from "@chase-sets/pricing/server";
 import { module as identityModule } from "@chase-sets/identity";
 import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
-import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
+import type { InventoryDraftListingCreator, InventorySavedListImportBatchCreator } from "@chase-sets/inventory/server";
 import {
   createOrderingUcpHandlers,
   lookupOrderBySupportId,
@@ -426,6 +427,21 @@ export function createPlatformApiHost(
 
     return createDraft(params, context);
   };
+  const inventorySavedListImportBatchCreator: SavedListInventoryImportBatchCreator = async (params, context) => {
+    const inventoryServices = runtime?.services.inventory as
+      | {
+          importBatches?: {
+            createSavedListImportBatch?: InventorySavedListImportBatchCreator;
+          };
+        }
+      | undefined;
+    const createBatch = inventoryServices?.importBatches?.createSavedListImportBatch;
+    if (!createBatch) {
+      throw new Error("Inventory Saved List import service is unavailable.");
+    }
+
+    return createBatch(params, context);
+  };
 
   runtime = createApiHost(apiContextRegistry, "platform-api", {
     ...options,
@@ -444,6 +460,7 @@ export function createPlatformApiHost(
       ...(offerEconomicsCrossContext ? { offerEconomicsCrossContext } : {}),
       publicPolicySources,
       draftListingCreator,
+      inventorySavedListImportBatchCreator,
     },
   });
   return runtime;

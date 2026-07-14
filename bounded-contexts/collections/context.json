@@ -1,10 +1,17 @@
 {
   "contextName": "collections",
   "packageName": "@chase-sets/collections",
-  "ownedNouns": ["saved-list", "saved-list-line", "tracked-quantity", "saved-list-visibility", "saved-list-cover"],
+  "ownedNouns": [
+    "saved-list",
+    "saved-list-line",
+    "tracked-quantity",
+    "saved-list-visibility",
+    "saved-list-cover",
+    "saved-list-sharing"
+  ],
   "streamPrefix": "collections.",
   "apiBasePath": "/api/collections",
-  "slices": ["saved-lists"],
+  "slices": ["saved-lists", "saved-list-valuation"],
   "allowedSupportDirectories": ["runtime-support"],
   "publicExports": [".", "./context", "./server"],
   "allowedContextDependencies": [],
@@ -14,12 +21,94 @@
       "portName": "savedListProductCatalog",
       "providedBy": "platform-api",
       "purpose": "Validates exact Catalog Product selections before they enter a Saved List without Collections reading Catalog tables."
+    },
+    {
+      "portName": "inventorySavedListImportBatchCreator",
+      "providedBy": "platform-api",
+      "purpose": "Creates an Inventory-owned review-first import batch from an authorized immutable Saved List source snapshot."
+    },
+    {
+      "portName": "savedListCapabilities",
+      "providedBy": "platform-api",
+      "purpose": "Issues and verifies high-entropy unlisted Saved List capabilities from deployment-managed key material."
+    },
+    {
+      "portName": "savedListSharingRateLimits",
+      "providedBy": "platform-api",
+      "purpose": "Applies horizontally scalable request limits to shared views, unlisted exchanges, and abuse reports."
+    },
+    {
+      "portName": "savedListSharingAudit",
+      "providedBy": "platform-api",
+      "purpose": "Records bounded Saved List access decisions without capability secrets."
+    },
+    {
+      "portName": "savedListAbuseReports",
+      "providedBy": "platform-api",
+      "purpose": "Adapts Saved List reports into the existing moderation workflow without creating a second reporting system."
     }
   ],
-  "apiDeployables": [],
-  "apiRuntimeProfiles": [],
-  "apiMounts": [],
-  "workerRuntimeProfiles": [],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "collections",
+      "projectionName": "collections-saved-list-valuation-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "collections.saved-list.created",
+        "collections.saved-list.archived",
+        "collections.saved-list.visibility-changed",
+        "collections.saved-list.line-added",
+        "collections.saved-list.line-changed",
+        "collections.saved-list.line-removed"
+      ],
+      "order": 10,
+      "projectionHandlerSetNames": ["collections-saved-list-valuation-projection"]
+    },
+    {
+      "sourceContextName": "pricing",
+      "projectionName": "collections-saved-list-valuation-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["pricing.market-price.estimated"],
+      "order": 20,
+      "projectionCascadeChunkSize": 100,
+      "projectionHandlerSetNames": ["collections-saved-list-valuation-projection"]
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "collections.saved-list-shared-page-projection",
+      "sourceContextNames": ["collections"],
+      "ownedTables": [
+        "collections_saved_list_shared_pages",
+        "collections_saved_list_shared_lines",
+        "collections_saved_list_access_policies"
+      ],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "collections-saved-list-valuation-projection",
+      "sourceContextNames": ["collections", "pricing"],
+      "ownedTables": [
+        "collections_saved_list_valuation_lists",
+        "collections_saved_list_valuation_lines",
+        "collections_saved_list_market_estimates"
+      ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    }
+  ],
+  "apiDeployables": ["platform-api"],
+  "apiRuntimeProfiles": ["proof", "public"],
+  "apiMounts": [
+    {
+      "mountPath": "/api/collections",
+      "kind": "primary",
+      "requiresAuth": true
+    }
+  ],
+  "workerRuntimeProfiles": ["proof", "public"],
+  "runtimeDeployables": ["platform-worker"],
   "deployableContributions": [],
   "shellContributions": [],
   "directoryIntent": {
@@ -29,6 +118,15 @@
       "expectedConsumers": [
         "Internal Collections module composition",
         "Saved List projection, valuation, sharing, Inventory handoff, sell-through, and My Collection slices"
+      ]
+    },
+    "saved-list-valuation": {
+      "classification": "slice",
+      "purpose": "The saved-list-valuation slice projects current Pricing market estimates against Saved List tracked quantities and exposes honest owner/viewer value coverage without inventory economics or history.",
+      "expectedConsumers": [
+        "Internal Collections module composition",
+        "My Collection Saved List detail",
+        "Shared Saved List presentation"
       ]
     },
     "runtime-support": {

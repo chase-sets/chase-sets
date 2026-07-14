@@ -165,6 +165,48 @@ describe("InventoryImportBatchPage", () => {
     expect(html).not.toMatch(/<input[^>]*name="catalogItemId"/);
   });
 
+  it("renders canonical row review for Saved List rows that need a location", () => {
+    const html = renderToString(
+      <InventoryImportBatchPage
+        batches={[batch({ source_key: "saved-list", default_storage_location_id: null })]}
+        storageLocations={[
+          {
+            storage_location_id: "loc_active",
+            account_id: "acc_1",
+            name: "Active shelf",
+            description: null,
+            ship_from_code: "CHI",
+            ship_from_address: {
+              name: "Chase Sets",
+              line1: "100 Market St",
+              city: "Chicago",
+              state: "IL",
+              postalCode: "60601",
+              country: "US",
+            },
+            is_archived: false,
+            updated_at: timestamp,
+          },
+        ]}
+        detail={{
+          ...detail([
+            row({
+              status: "rejected",
+              storage_location_id: null,
+              validation_errors: ["storageLocationId or defaultStorageLocationId is required."],
+            }),
+          ]),
+          source_key: "saved-list",
+          default_storage_location_id: null,
+        }}
+      />,
+    );
+
+    expect(html).toContain("Saved List");
+    expect(html).toContain("Apply row fix");
+    expect(html).toMatch(/<select[^>]*name="storageLocationId"/);
+  });
+
   it("renders the all-rejected and fully committed states without commit controls", () => {
     const allRejected = renderToString(
       <InventoryImportBatchPage

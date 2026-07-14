@@ -92,9 +92,11 @@ describe("platform-compose-smoke", () => {
     }
   });
 
-  it("adds the critical-bootstrap data profile the bootstrap job needs, since the base chart leaves it empty", () => {
+  it("narrows the local bootstrap to critical data without duplicating the base chart entry", () => {
     const values = buildComposeSmokeValues();
-    expect(envValue(values.components["platform-bootstrap"], "PLATFORM_DATA_PROFILES")).toBe("critical-bootstrap");
+    expect(
+      values.components["platform-bootstrap"].env.filter((entry) => entry.name === "PLATFORM_DATA_PROFILES"),
+    ).toEqual([{ name: "PLATFORM_DATA_PROFILES", value: "critical-bootstrap" }]);
   });
 
   it("skips the in-cluster preview-Postgres multi-database provisioning path", () => {

@@ -1,0 +1,22 @@
+{
+  "name": "@chase-sets/market-estimate-display",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@chase-sets/primitives": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.0",
+    "vitest": "^4.1.4"
+  }
+}

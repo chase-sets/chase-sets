@@ -115,26 +115,17 @@ function valueOverridesFor(origins) {
     CHASE_SETS_MARKETPLACE_ORIGIN: origins.marketplaceOrigin,
     CATALOG_ASSET_STORAGE_KIND: "filesystem",
     CATALOG_ASSET_PUBLIC_BASE_URL: `${origins.landingOrigin}/catalog-assets`,
+    PLATFORM_DATA_PROFILES: composeSmokeDataProfiles,
   };
 }
-
-// Present in preview's runtime-env overrides at deploy time
-// (platform-kubernetes-deployment.mjs), not in the base Helm values, so
-// they must be added rather than substituted.
-const additionalEnvByComponent = {
-  "platform-bootstrap": [{ name: "PLATFORM_DATA_PROFILES", value: composeSmokeDataProfiles }],
-};
 
 export function buildComposeSmokeValues(options = {}) {
   const values = structuredClone(options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot }));
   const origins = { ...defaultOrigins, ...options.origins };
   const overrides = valueOverridesFor(origins);
 
-  for (const [name, component] of Object.entries(values.components ?? {})) {
+  for (const component of Object.values(values.components ?? {})) {
     const rendered = (component.env ?? []).map((entry) => toComposeSmokeEnvEntry(entry, overrides));
-    for (const extra of additionalEnvByComponent[name] ?? []) {
-      rendered.push(extra);
-    }
     component.env = rendered;
   }
 

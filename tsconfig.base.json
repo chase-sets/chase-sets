@@ -471,6 +471,9 @@
       "@chase-sets/localization/locales/en/public-presence": [
         "./contracts/localization/locales/en/public-presence.ts"
       ],
+      "@chase-sets/market-estimate-display": [
+        "./contracts/market-estimate-display/index.ts"
+      ],
       "@chase-sets/marketplace": [
         "./bounded-contexts/marketplace/index.ts"
       ],

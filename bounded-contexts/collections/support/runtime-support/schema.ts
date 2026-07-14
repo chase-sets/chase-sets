@@ -1,3 +1,9 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import { savedListValuationSchemaSql } from "../../features/saved-list-valuation/read-model/schema";
+import { savedListSharedPageSchemaSql } from "../../features/saved-lists/read-model/shared-page-schema";
 
-export const collectionsSchemaSql = eventCorePostgresSchemaSql;
+export const collectionsSchemaSql = [
+  eventCorePostgresSchemaSql,
+  savedListValuationSchemaSql,
+  savedListSharedPageSchemaSql,
+].join("\n\n");

@@ -3,15 +3,17 @@ import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-po
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createCsatInvitationRuntime } from "../../features/csat/api/runtime";
+import { createFeedbackCaseRuntime } from "../../features/cases/api/runtime";
 
 /**
  * Runtime services for the Customer Feedback context.
  *
- * Composes the invitation aggregate, event-store wake wiring, and context-owned
- * query projections while keeping the deployable host thin.
+ * Composes the invitation and feedback case aggregates, event-store wake wiring,
+ * and context-owned query projections while keeping the deployable host thin.
  */
 export type CustomerFeedbackServices = Readonly<{
   invitations: ReturnType<typeof createCsatInvitationRuntime>;
+  cases: ReturnType<typeof createFeedbackCaseRuntime>;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -31,5 +33,6 @@ export function createCustomerFeedbackServices(
     }),
   });
   const invitations = createCsatInvitationRuntime({ eventStore, db });
-  return { invitations, projectors: invitations.projectors, pool, db };
+  const cases = createFeedbackCaseRuntime({ eventStore, db });
+  return { invitations, cases, projectors: [...invitations.projectors, ...cases.projectors], pool, db };
 }

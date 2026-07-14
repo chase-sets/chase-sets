@@ -553,6 +553,7 @@ locals {
     "authenticity",
     "catalog",
     "checkout",
+    "collections",
     "commercial-terms",
     "control",
     "customer-feedback",

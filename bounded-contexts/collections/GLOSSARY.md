@@ -46,3 +46,48 @@ Notes:
 
 - Collections stores only the line reference. Catalog remains the owner of image and display metadata.
 - Removing the selected line clears the cover.
+
+## Saved List Inventory Source Snapshot
+
+A **Saved List Inventory Source Snapshot** is the immutable list version and selected-line evidence sent to Inventory's review-first import.
+
+Notes:
+
+- It includes deterministic source row IDs, Saved List Line IDs, exact Products and selected Options, and Tracked Quantities.
+- It excludes acquisition cost, private notes, private tags, stock state, and workflow state.
+- The owner-authorized snapshot starts Inventory work, but its list correlation is navigation and audit metadata rather than authority for later Inventory access.
+
+## Saved List Estimated Market Value
+
+**Saved List Estimated Market Value** is the current sum of eligible Pricing estimates multiplied by each Saved List Line's Tracked Quantity.
+
+Notes:
+
+- It is an estimate of current market value, not owned stock, cost basis, profit and loss, or a historical valuation.
+- Missing and stale estimates are excluded rather than treated as zero.
+- Low-confidence estimates may contribute to the total but remain explicitly counted.
+- A shared view receives valuation only when it also receives Tracked Quantity and Pricing approves the estimate for public disclosure.
+
+## Estimate Coverage
+
+**Estimate Coverage** states how many Saved List Lines and tracked units have a current eligible estimate, alongside missing, stale, and low-confidence counts.
+
+## Saved List Sharing
+
+**Saved List Sharing** governs who may view an active Saved List and independently controls whether the shared view reveals Tracked Quantity and Current Estimated Value.
+
+Notes:
+
+- Both controls default to hidden.
+- A disclosed Current Estimated Value is current Pricing-derived context, never acquisition cost, profit and loss, or history.
+- Visibility grants a sharing posture; disclosure decides which optional fields that posture may reveal.
+
+## Unlisted Saved List Capability
+
+An **Unlisted Saved List Capability** is a high-entropy, revocable secret that grants read access to one active unlisted Saved List.
+
+Notes:
+
+- Rotation immediately replaces the prior capability; revocation leaves no active capability.
+- Only a one-way verifier is durable. The raw secret is returned to the owner and transported in a URL fragment for a body-based exchange.
+- Possession permits viewing, not editing, collaboration, or ownership transfer.

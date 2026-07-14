@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (117)
+## Projection Groups (122)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -60,11 +60,15 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `checkout:checkout.cart-projection` | Checkout | **checkout** | push-enabled | 1/1 |
 | `checkout:checkout.sell-list-projection` | Checkout | **marketplace** | push-enabled | 1/1 |
 | `checkout:checkout.session-projection` | Checkout | **checkout** | push-enabled | 1/1 |
+| `collections:collections-saved-list-valuation-projection` | Collections | collections, pricing | push-eligible | 0/2 |
+| `collections:collections.saved-list-shared-page-projection` | Collections | collections | push-eligible | 0/1 |
 | `commercial-terms:commercial-terms-account-projection` | Commercial Terms | **identity** | push-enabled | 1/1 |
 | `commercial-terms:commercial-terms-founders-window-reaction` | Commercial Terms | **identity** | push-enabled | 1/1 |
 | `commercial-terms:platform-policy-document-projection` | Commercial Terms | **commercial-terms** | push-enabled | 1/1 |
 | `customer-feedback:customer-feedback-csat-analytics-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-csat-invitation-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
+| `customer-feedback:customer-feedback-feedback-case-opening` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
+| `customer-feedback:customer-feedback-feedback-case-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `discovery:discovery-category-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-google-shopping-feed-row-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-item-detail-projection` | Discovery | **catalog** | push-enabled | 1/1 |
@@ -157,7 +161,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations** | push-enabled | 2/2 |
 
-Totals: 97 `push-enabled`, 17 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 101 `push-enabled`, 21 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (71)
 
@@ -243,9 +247,9 @@ Wave membership lives in the registry; this report records the enablement timeli
 
 - **Wave 1 (`checkout`, `marketplace`, `ordering`, `payments`)** — staging-enabled. `checkout` since 2026-06-10 (push-loop evidence in [Push-Wake SLO And Load Proof](./push-wake-slo-load-proof.md)); the wave-1 remainder enabled 2026-06-11 on the back of that evidence. The direct listener URLs and the connection budget in `infrastructure/digitalocean/platform/locals.tf` cover the wave-1 hot path plus the direct-listened `identity` and `inventory` staging dependencies.
 - **Production follow** — production stays inert (`PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED=false`, `WORKER_PROJECTION_WAKE_RELAY_ENABLED=false`, `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED=false`) until the production gates pass: a green steady-state production proof canary per the #1237 miss analysis and hold-then-gate action set in the SLO/load-proof doc, plus #1243 topology parity evidence. Flipping is a deliberate operator decision via the [rollout-controls runbook](../runbooks/push-wake-rollout-controls.md), not a registry side effect.
-- **Wave 2 (`catalog`, `fulfillment`, `identity`, `inventory`)** — `catalog` is staging-enabled for Source Observation import/review freshness and Catalog-sourced consumer projections; `identity` is staging-enabled and direct-listened for User presentation preference and account/security freshness; `inventory` is staging-enabled and direct-listened for reservation outcome and supply freshness consumed by Ordering, Marketplace, Pricing, and Inventory. `fulfillment` remains eligible. The remaining high-volume contexts still need the listener/connection-budget expansion decision and wake-store capacity evidence (#1246 gates in the registry doc) before enablement.
-- **Wave 3 (`commercial-terms`, `discovery`, `platform-operations`, `public-presence`, `settlement`)** — `commercial-terms` is staging-enabled for policy-revision-driven public-document review freshness, `settlement` is staging-enabled for seller payout-readiness freshness, `platform-operations` is staging-enabled for admin platform-feedback lifecycle freshness, and `public-presence` is staging-enabled for waitlist signup-to-admin-review freshness. The remaining wave-3 contexts are eligible and follow wave 2 with owner approval.
-- **Wave 4 (`auth`, `experience`, `insights`, `notifications`, `pricing`, `tax`)** — deferred or not currently source-enabled. Newly inventoried Auth self-owned projections/routes are classified here but remain relay-disabled until owner approval and the production-gate evidence path is ready.
+- **Wave 2 (`catalog`, `commercial-terms`, `fulfillment`, `identity`, `inventory`)** — `catalog` is staging-enabled for Source Observation import/review freshness and Catalog-sourced consumer projections; `commercial-terms` is staging-enabled for policy-revision-driven public-document review freshness; `identity` is staging-enabled and direct-listened for User presentation preference and account/security freshness; and `inventory` is staging-enabled and direct-listened for reservation outcome and supply freshness consumed by Ordering, Marketplace, Pricing, and Inventory. `fulfillment` remains eligible. The remaining high-volume contexts still need the listener/connection-budget expansion decision and wake-store capacity evidence (#1246 gates in the registry doc) before enablement.
+- **Wave 3 (`auth`, `customer-feedback`, `discovery`, `platform-operations`, `public-presence`, `settlement`)** — `settlement` is staging-enabled for seller payout-readiness freshness, `platform-operations` is staging-enabled for admin platform-feedback lifecycle freshness, and `public-presence` is staging-enabled for waitlist signup-to-admin-review freshness. Auth and Customer Feedback are eligible and follow wave 2 with owner approval.
+- **Wave 4 (`authenticity`, `collections`, `experience`, `insights`, `notifications`, `pricing`, `tax`)** — deferred or not currently source-enabled. Collections registers its shared-page projection but remains relay-disabled until an owner-approved rollout.
 
 ## Documented Polling Exceptions
 

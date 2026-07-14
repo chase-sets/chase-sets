@@ -12,15 +12,31 @@
     "sampling-policy",
     "response-rate",
     "csat-analytics-fact",
-    "legacy-experience-rating"
+    "legacy-experience-rating",
+    "feedback-case",
+    "feedback-case-disposition",
+    "feedback-case-follow-up"
   ],
   "streamPrefix": "customer-feedback.",
   "apiBasePath": "/api/customer-feedback",
-  "slices": ["csat"],
+  "slices": ["csat", "cases"],
   "allowedSupportDirectories": ["runtime-support"],
   "publicExports": [".", "./context", "./server"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
+  "eventReactions": [
+    {
+      "sourceContextName": "customer-feedback",
+      "reactionName": "customer-feedback-feedback-case-opening",
+      "subscriptionVersion": 1,
+      "eventTypes": ["customer-feedback.survey.submitted"],
+      "order": 10,
+      "reactionHandlerSetNames": ["customer-feedback-feedback-case-opening"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    }
+  ],
   "projectionGroups": [
     {
       "projectionName": "customer-feedback-csat-invitation-projection",
@@ -33,6 +49,21 @@
       "projectionName": "customer-feedback-csat-analytics-projection",
       "sourceContextNames": ["customer-feedback"],
       "ownedTables": ["customer_feedback_csat_analytics_facts"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "customer-feedback-feedback-case-opening",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["customer-feedback"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "customer-feedback-feedback-case-projection",
+      "sourceContextNames": ["customer-feedback"],
+      "ownedTables": ["customer_feedback_feedback_cases", "customer_feedback_feedback_case_timeline"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     }
@@ -51,6 +82,14 @@
       "expectedConsumers": [
         "Internal customer-feedback module composition",
         "Customer Feedback invitation, recording, and analytics leaves"
+      ]
+    },
+    "cases": {
+      "classification": "slice",
+      "purpose": "Own the attributed, event-sourced feedback case lifecycle opened from immutable CSAT responses, including triage, ownership, priority, disposition, linked work, consented follow-up, closure, and reopen.",
+      "expectedConsumers": [
+        "Customer Feedback case opening reaction",
+        "Future Customer Feedback operator queue and detail surfaces"
       ]
     },
     "runtime-support": {

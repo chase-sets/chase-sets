@@ -132,9 +132,9 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "auth",
     owner: "Auth",
-    rolloutState: "not-eligible",
+    rolloutState: "eligible",
     phase: "phase-3-expansion",
-    rolloutWave: "wave-4-deferred-or-not-eligible",
+    rolloutWave: "wave-3-platform-expansion",
     priorityLane: "bulk",
     expectedEventVolume: "low",
     wakeStoreLoadEstimate: "none",
@@ -237,8 +237,11 @@ export const sourceContextWakeRegistry = [
     rolloutWave: "wave-4-deferred-or-not-eligible",
     priorityLane: "standard",
     expectedEventVolume: "medium",
-    wakeStoreLoadEstimate: "none",
-    affectedProjectionNames: [],
+    wakeStoreLoadEstimate: "low",
+    affectedProjectionNames: [
+      "collections:collections-saved-list-valuation-projection",
+      "collections:collections.saved-list-shared-page-projection",
+    ],
     routeDependencyIds: [],
   }),
   registryEntry({
@@ -278,6 +281,8 @@ export const sourceContextWakeRegistry = [
     affectedProjectionNames: [
       "customer-feedback:customer-feedback-csat-analytics-projection",
       "customer-feedback:customer-feedback-csat-invitation-projection",
+      "customer-feedback:customer-feedback-feedback-case-opening",
+      "customer-feedback:customer-feedback-feedback-case-projection",
     ],
     routeDependencyIds: [],
   }),
@@ -618,8 +623,8 @@ export const sourceContextWakeRegistry = [
     rolloutWave: "wave-4-deferred-or-not-eligible",
     priorityLane: "bulk",
     expectedEventVolume: "medium",
-    wakeStoreLoadEstimate: "none",
-    affectedProjectionNames: [],
+    wakeStoreLoadEstimate: "low",
+    affectedProjectionNames: ["collections:collections-saved-list-valuation-projection"],
     routeDependencyIds: [],
   }),
   registryEntry({
