@@ -23,6 +23,7 @@ Notes:
 
 - Discovery Query is owned by Discovery.
 - It shapes read behavior only; it does not mutate upstream state.
+- Public routes truncate search text to 256 Unicode code points, bounding text-search and native CJK bigram work.
 
 ### Search Index
 

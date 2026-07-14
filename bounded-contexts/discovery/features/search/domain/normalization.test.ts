@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildSimpleSearchQuery, buildSimpleSearchText, normalizeSimpleSearchText } from "./normalization";
+import {
+  buildSimpleSearchQuery,
+  buildSimpleSearchText,
+  DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS,
+  normalizeSimpleSearchText,
+  truncateDiscoverySearchQuery,
+} from "./normalization";
 
 describe("discovery search normalization", () => {
   it("keeps letters and numbers while collapsing punctuation and whitespace", () => {
@@ -53,5 +59,24 @@ describe("buildSimpleSearchQuery", () => {
 
   it("mixes Latin words and CJK bigrams", () => {
     expect(buildSimpleSearchQuery("Charizard リザード")).toBe("Charizard リザ ザー ード");
+  });
+
+  it("keeps a maximum-length CJK query's bigram expansion bounded", () => {
+    const search = truncateDiscoverySearchQuery("検索".repeat(2_500));
+    const queryTokens = buildSimpleSearchQuery(search).split(" ");
+
+    expect([...search]).toHaveLength(DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS);
+    expect(queryTokens).toHaveLength(DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS - 1);
+    expect(queryTokens.every((token) => [...token].length === 2)).toBe(true);
+  });
+
+  it("normalizes tsquery metacharacters into well-formed simple-search input", () => {
+    expect(buildSimpleSearchQuery(`Charizard' & :* "quoted"`)).toBe("Charizard quoted");
+  });
+});
+
+describe("truncateDiscoverySearchQuery", () => {
+  it.each(["a".repeat(10_000), "検索".repeat(2_500)])("truncates oversized input by Unicode code point", (search) => {
+    expect([...truncateDiscoverySearchQuery(search)]).toHaveLength(DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS);
   });
 });

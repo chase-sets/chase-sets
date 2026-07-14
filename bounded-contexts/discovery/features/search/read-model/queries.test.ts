@@ -1,6 +1,12 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
-import { searchDiscoveryItems, searchDiscoveryItemsByNaturalKey, searchDiscoverySemanticItems } from "./queries";
+import {
+  previewBulkAddSearchResults,
+  searchDiscoveryItems,
+  searchDiscoveryItemsByNaturalKey,
+  searchDiscoverySemanticItems,
+} from "./queries";
+import { buildSimpleSearchQuery } from "../domain/normalization";
 import { discoverySearchSchemaMigrations, discoverySearchSchemaSql } from "./schema";
 
 function encodeCursor(input: {
@@ -48,6 +54,24 @@ function expectBuyerVisibleListingPredicate(sql: string | undefined) {
 }
 
 describe("searchDiscoveryItems cursor paging", () => {
+  it("issues only the result query and no facet queries for load-more requests", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, {
+      cursor: encodeCursor({
+        id: "cat_001",
+        title: "Bulbasaur",
+        updatedAt: "2026-05-16T00:00:00.000Z",
+      }),
+      limit: 24,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.sql).toContain("SELECT catalog_item_id");
+    expect(calls[0]?.sql).not.toContain("AS summaries");
+    expect(calls[0]?.sql).not.toContain("jsonb_array_elements");
+  });
+
   it("returns the ordered structured display badge list without reshaping it", async () => {
     const badges = [
       { kind: "set-code", label: "BS" },
@@ -617,6 +641,49 @@ describe("searchDiscoveryItems cursor paging", () => {
 });
 
 describe("searchDiscoveryItems facets", () => {
+  it("starts facet-value queries concurrently", async () => {
+    const started: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    let firstStarted: (() => void) | undefined;
+    const firstQueryStarted = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+    const summaryRows = [
+      { kind: "field", id: "field_one", label: "Field one", coverage: 2, distinct_count: 2 },
+      { kind: "field", id: "field_two", label: "Field two", coverage: 1, distinct_count: 1 },
+    ] as const;
+    const db = {
+      query: async <T>(sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("AS summaries")) {
+          return { rows: summaryRows as readonly unknown[] as T[] };
+        }
+
+        if (sql.includes("facet.value->>'fieldId'")) {
+          const fieldId = String(values.at(-2));
+          started.push(fieldId);
+          if (fieldId === "field_one") {
+            firstStarted?.();
+            return await new Promise<{ rows: T[] }>((resolve) => {
+              releaseFirst = () => resolve({ rows: [] });
+            });
+          }
+
+          return { rows: [] as T[] };
+        }
+
+        return { rows: [] as T[] };
+      },
+    } as PgQueryable;
+
+    const search = searchDiscoveryItems(db);
+    await firstQueryStarted;
+    const startedBeforeFirstCompleted = [...started];
+    releaseFirst?.();
+    await search;
+
+    expect(startedBeforeFirstCompleted).toEqual(["field_one", "field_two"]);
+  });
+
   it("returns a larger bounded facet option set and keeps selected values selected", async () => {
     const calls: { sql: string; values: readonly unknown[] }[] = [];
     const responses: { rows: readonly unknown[] }[] = [
@@ -745,6 +812,36 @@ describe("searchDiscoveryItems facets", () => {
     expect(facetIds).toContain("series");
     expect(facetIds).toContain("manufacturer");
     expect(facetIds).not.toContain("fld_seed_source");
+  });
+});
+
+describe("previewBulkAddSearchResults", () => {
+  it("performs no facet work", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await previewBulkAddSearchResults(db, { search: "Charizard" });
+
+    expect(calls).toHaveLength(2);
+    expect(calls.some((call) => call.sql.includes("AS summaries"))).toBe(false);
+    expect(calls.some((call) => call.sql.includes("jsonb_array_elements"))).toBe(false);
+  });
+});
+
+describe("searchDiscoveryItems input hardening", () => {
+  it.each([
+    ["maximum Latin query", "a".repeat(256)],
+    ["maximum CJK query", "検索".repeat(128)],
+    ["tsquery metacharacters", `Charizard' & :* "quoted"`],
+  ])("keeps %s parameterized and well formed", async (_label, search) => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, { search, limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.sql).toContain("plainto_tsquery('english', $2)");
+    expect(calls[0]?.sql).toContain("plainto_tsquery('simple', $3)");
+    expect(calls[0]?.sql).not.toContain(search);
+    expect(calls[0]?.values).toEqual(["active", search, buildSimpleSearchQuery(search), 25]);
   });
 });
 
