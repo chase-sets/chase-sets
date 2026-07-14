@@ -393,6 +393,9 @@
       "@chase-sets/event-core/event-store": [
         "./contracts/event-core/event-store.ts"
       ],
+      "@chase-sets/event-core/platform-coverage-facts": [
+        "./contracts/event-core/platform-coverage-facts.ts"
+      ],
       "@chase-sets/event-core/projector": [
         "./contracts/event-core/projector.ts"
       ],
