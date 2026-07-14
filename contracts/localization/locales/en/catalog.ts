@@ -21,6 +21,7 @@ import { catalogDimensionsEnglishTranslations } from "./catalog/dimensions";
 import { catalogFieldsEnglishTranslations } from "./catalog/fields";
 import { catalogProviderScopeMappingEnglishTranslations } from "./catalog/provider-scope-mapping";
 import { catalogProviderScopeDiscoveryEnglishTranslations } from "./catalog/provider-scope-discovery";
+import { catalogScopeSyncBatchesEnglishTranslations } from "./catalog/scope-sync-batches";
 
 type CatalogTranslationPart = Readonly<Record<string, string>>;
 
@@ -80,6 +81,7 @@ const catalogEnglishTranslationParts = defineCatalogTranslationParts(
   catalogFieldsEnglishTranslations,
   catalogProviderScopeMappingEnglishTranslations,
   catalogProviderScopeDiscoveryEnglishTranslations,
+  catalogScopeSyncBatchesEnglishTranslations,
 );
 
 type CatalogEnglishTranslationKey = CatalogTranslationKeysFromParts<typeof catalogEnglishTranslationParts>;
@@ -114,4 +116,5 @@ export const catalogEnglishTranslations = defineCatalogTranslations({
   ...catalogFieldsEnglishTranslations,
   ...catalogProviderScopeMappingEnglishTranslations,
   ...catalogProviderScopeDiscoveryEnglishTranslations,
+  ...catalogScopeSyncBatchesEnglishTranslations,
 });

@@ -22,6 +22,7 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Provider Scope Mapping`
 - `Scope Coverage`
 - `Scope Sync`
+- `Scope Sync Batch`
 - `Provider Participation Preview`
 - `Product Asset Set`
 - `Reference Type`
@@ -72,6 +73,7 @@ The current implementation also uses four supporting authoring concepts:
 - `Provider Scope Mapping` — a reviewed mapping from provider vocabulary, such as a product-line/category id, set id, or set name, to one Catalog Scope Record
 - `Scope Coverage` — the read model answer showing which provider units can cover a Catalog Scope Record and which mappings or provider capabilities are missing
 - `Scope Sync` — the workflow that starts from a Catalog Scope Record, applies approved Provider Scope Mappings, and then plans provider pulls
+- `Scope Sync Batch` — a durable, bounded Catalog workflow that previews and executes Scope Sync across explicit or server-resolved matching Catalog Scope Records while preserving per-scope planning, provider budgets, stale-evidence checks, and settled work
 - `Provider Participation Preview` — a unit-aware pre-sync answer showing which provider units can participate in a Catalog Sync Scope, which are required or optional, why they are eligible or blocked, and which child Source Observation execution scope each selected unit would use
 - `Product Asset Set` — the Catalog-owned normalized set of WebP image variants derived from one source image for a Catalog Item or Source Observation
 - `Asset Variant` — one generated WebP file in a Product Asset Set, identified by role, pixel dimensions, device-pixel-ratio target, storage key, byte size, and public URL
@@ -112,6 +114,12 @@ Expansion and set scope records carry canonical `release-date`, `official-set-co
 ## Provider Scope Mapping
 
 A `Provider Scope Mapping` is a reviewed, Catalog-owned mapping from provider vocabulary — a product-line or category id, set id, or set name — to exactly one Catalog Scope Record. Mappings carry review status and provenance; Scope Sync consumes only approved mappings and never rebuilds scope identity from provider hints.
+
+## Scope Sync Batch
+
+A `Scope Sync Batch` is Catalog-owned orchestration over existing Scope Sync Runs. Its preview resolves active Catalog Scope Records, accepted or auto-accepted Provider Scope Mappings, active production-capable Provider Integration Profile units, rollout and credential readiness, provider transport authority, and request or credit evidence. Confirmation re-resolves that evidence and fails closed when its plan fingerprint changes.
+
+The batch advances a bounded number of scope units per leased worker turn. It never fans out the complete catalog in one request and never creates a provider-specific execution shortcut. Completed units remain completed through cancel, resume, and failed-unit retry; an unchanged settled fingerprint is a fast no-op.
 
 ## Provider Scope Observation
 
@@ -163,6 +171,7 @@ Product identity is the tuple `(catalogItemId, selectedOptions)`. A Product is n
 - A `Category` organizes Catalog Items without changing Product identity.
 - A `Source Observation` may be promoted into a Catalog Item after review.
 - A `Catalog Sync Scope` may plan one or more provider-unit Source Observation pulls.
+- A `Scope Sync Batch` contains one durable unit per selected Catalog Scope Record and composes one existing Scope Sync Run per unit.
 - A `Catalog Scope Record` belongs to one product domain and points at one Reference Record.
 - A `Provider Scope Mapping` points provider vocabulary at one Catalog Scope Record.
 - A `Provider Participation Preview` belongs to one Catalog Sync Scope and resolves selected providers into child `SourceObservationIntegrationJobScope` values.

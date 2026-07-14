@@ -27,6 +27,7 @@ Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimens
 Graded card product modeling is documented in [Graded Card Data Model](./docs/graded-card-data-model.md).
 Provider-fed catalog data is documented in [Source Observation Integration](./docs/source-observation-integration.md).
 Catalog-owned provider scope planning is documented in [Catalog Sync Scope Planning](./docs/catalog-sync-scope-planning.md).
+Catalog-wide bounded scope synchronization is documented in [Scope Sync Batches](./docs/scope-sync-batches.md).
 Canonical scope records are documented in [Catalog Scope Registry](./docs/scope-registry.md).
 Scope-first merge-candidate handoff guidance is documented in [Catalog Scope Sync And Merge Candidate Handoff](./docs/catalog-scope-sync-merge-candidate-handoff.md).
 Provider-owned structural setup is documented in [Provider Integration Profiles](./docs/provider-integration-profiles.md).
@@ -51,6 +52,7 @@ The v2 integration control-plane IA — three pages, two utilities, and the per-
 - Field values and category membership for Catalog Items
 - Provider Source Observations before review and promotion into canonical Catalog Items
 - Catalog Sync Scopes and provider participation previews that decide which provider units may pull Source Observations
+- Scope Sync Batches that safely preview and advance many Catalog Scope Records through existing Scope Sync Runs
 - Catalog Scope Records that make product-line, series, expansion, and set sync identity canonical before provider mappings are applied
 - Provider Scope Observations that persist hash-deduped provider-unit option evidence before canonical scope matching
 - Provider Scope Mappings that review and persist provider execution coordinates for canonical Catalog Scope Records
@@ -87,6 +89,7 @@ Catalog terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - Display Template
 - Source Observation
 - Catalog Sync Scope
+- Scope Sync Batch
 - Catalog Scope Record
 - Provider Scope Observation
 - Provider Scope Mapping
