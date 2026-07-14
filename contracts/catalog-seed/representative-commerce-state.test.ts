@@ -385,6 +385,7 @@ describe("representative commerce state seed helpers", () => {
     expect(accepted).toEqual([
       expect.objectContaining({
         sellerAccountId: "acc_repr_card_vault_account",
+        listingId: expect.stringMatching(/^lst_repr_/),
         feeQuoteFingerprint: "fee_1",
       }),
     ]);

@@ -2027,6 +2027,7 @@ export const mcpServiceCatalog = [
             {
               accountId: stringProperty("Authenticated seller account scope."),
               offerId: stringProperty("Offer to accept."),
+              listingId: stringProperty("Seller listing whose supply and evidence bind the acceptance."),
               feeQuoteFingerprint: stringProperty("Current marketplace sales-fee quote fingerprint."),
               sourceActionKey: stringProperty("Optional source action key for semantic handoffs."),
               reason: stringProperty("Business reason for the action."),
@@ -2034,7 +2035,7 @@ export const mcpServiceCatalog = [
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate the action without committing it."),
             },
-            ["accountId", "offerId", "feeQuoteFingerprint", "idempotencyKey", "confirmationText"],
+            ["accountId", "offerId", "listingId", "feeQuoteFingerprint", "idempotencyKey", "confirmationText"],
           ),
           "offer",
           ["Use only after confirming price, quantity, seller supply, and commercial terms."],

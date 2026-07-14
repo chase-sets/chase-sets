@@ -2868,6 +2868,7 @@
         "required": [
           "accountId",
           "offerId",
+          "listingId",
           "feeQuoteFingerprint",
           "idempotencyKey",
           "confirmationText"
@@ -2880,6 +2881,10 @@
           "offerId": {
             "type": "string",
             "description": "Offer to accept."
+          },
+          "listingId": {
+            "type": "string",
+            "description": "Seller listing whose supply and evidence bind the acceptance."
           },
           "feeQuoteFingerprint": {
             "type": "string",
