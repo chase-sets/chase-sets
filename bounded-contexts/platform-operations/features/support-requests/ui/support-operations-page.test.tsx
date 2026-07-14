@@ -37,6 +37,12 @@ function buildQueueItem(overrides: Partial<SupportRequestListItem> = {}): Suppor
     return_delivered_at: null,
     return_refund_release_due_at: null,
     return_condition_disputed_at: null,
+    remedy: null,
+    case_presentation: "decision-pending",
+    closure_eligible: false,
+    closure_blocking_reasons: [],
+    next_remedy_action: null,
+    remedy_repair_guidance: [],
     ...overrides,
   };
 }

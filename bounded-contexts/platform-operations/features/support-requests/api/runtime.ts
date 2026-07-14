@@ -9,7 +9,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createId, parseTypedId } from "@chase-sets/primitives/typed-ids";
-import type { AccountId, OrderId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, CoverageId, OrderId, RemedyId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import {
   normalizeEvidenceType,
   normalizeFlowType,
@@ -40,6 +40,11 @@ import {
 import { getSupportFlowDefinition, supportFlowCatalog, type SupportFlowDefinition } from "../domain/flow-catalog";
 import { sellerSilenceResponsibilityFact } from "../domain/responsibility";
 import { resolveSupportFlowDeadlineHours, supportDeadlinePolicy } from "../domain/support-deadline-policy";
+import type {
+  AuthorizeSupportRemedyCommand,
+  OverrideSupportRemedyEffectCommand,
+  RecordSupportRemedyEffectCommand,
+} from "../domain/remedy";
 import {
   buildSupportRequestTransactionalEmailProjectionHandlers,
   SUPPORT_REQUEST_TRANSACTIONAL_EMAIL_PROJECTION,
@@ -191,6 +196,29 @@ export type SupportRequestServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
+  authorizeRemedy: (
+    params: Readonly<{
+      supportRequestId: string;
+      accountId: string;
+      remedy: AuthorizeSupportRemedyCommand["remedy"];
+      allocation: AuthorizeSupportRemedyCommand["allocation"];
+      returnDirective: AuthorizeSupportRemedyCommand["returnDirective"];
+      refundTrigger: AuthorizeSupportRemedyCommand["refundTrigger"];
+      policyVersion: string;
+      reasonCode: string;
+      idempotencyKey: string;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ supportRequestId: string; remedyId: string; version: number }>;
+  recordRemedyEffect: (
+    params: Omit<RecordSupportRemedyEffectCommand, "type"> & Readonly<{ supportRequestId: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ supportRequestId: string; remedyId: string; version: number }>;
+  overrideRemedyEffect: (
+    params: Omit<OverrideSupportRemedyEffectCommand, "type" | "actorAccountId" | "overriddenAt"> &
+      Readonly<{ supportRequestId: string; accountId: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ supportRequestId: string; remedyId: string; version: number }>;
   closeSupportRequest: (
     params: Readonly<{ supportRequestId: string; accountId: string; scope?: SupportRequestMutationScope }>,
     context: EventStoreContext,
@@ -664,6 +692,84 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       });
 
       return { supportRequestId: params.supportRequestId, version: result.version };
+    },
+    authorizeRemedy: async (params, context) => {
+      await requireMutableSupportRequest(deps.db, {
+        supportRequestId: params.supportRequestId,
+        accountId: params.accountId,
+        scope: "operations",
+      });
+      const remedyId = createId("rmd") as RemedyId;
+      const coverageId = params.allocation.fundingKind === "seller-funded" ? null : (createId("cov") as CoverageId);
+      const result = await commandHandler({
+        streamId: `support.support-request-${params.supportRequestId}`,
+        command: {
+          type: "AuthorizeSupportRemedy",
+          remedyId,
+          coverageId,
+          remedy: params.remedy,
+          allocation: params.allocation,
+          returnDirective: params.returnDirective,
+          refundTrigger: params.refundTrigger,
+          policyVersion: params.policyVersion,
+          reasonCode: params.reasonCode,
+          idempotencyKey: params.idempotencyKey,
+          authorizedAt: new Date().toISOString(),
+        },
+        context,
+      });
+      if (!result.state.remedy) {
+        throw new SupportDomainError("Remedy authorization did not produce a remedy.");
+      }
+      return {
+        supportRequestId: params.supportRequestId,
+        remedyId: result.state.remedy.remedyId,
+        version: result.version,
+      };
+    },
+    recordRemedyEffect: async (params, context) => {
+      const result = await commandHandler({
+        streamId: `support.support-request-${params.supportRequestId}`,
+        command: {
+          type: "RecordSupportRemedyEffect",
+          remedyId: params.remedyId,
+          coverageId: params.coverageId ?? null,
+          effect: params.effect,
+          outcome: params.outcome,
+          sourceFactType: params.sourceFactType,
+          sourceFactId: params.sourceFactId,
+          idempotencyKey: params.idempotencyKey,
+          occurredAt: params.occurredAt,
+          reasonCode: params.reasonCode,
+          refundId: params.refundId ?? null,
+          amount: params.amount ?? null,
+          currencyCode: params.currencyCode ?? null,
+          allocation: params.allocation ?? null,
+        },
+        context,
+      });
+      return { supportRequestId: params.supportRequestId, remedyId: params.remedyId, version: result.version };
+    },
+    overrideRemedyEffect: async (params, context) => {
+      await requireMutableSupportRequest(deps.db, {
+        supportRequestId: params.supportRequestId,
+        accountId: params.accountId,
+        scope: "operations",
+      });
+      const result = await commandHandler({
+        streamId: `support.support-request-${params.supportRequestId}`,
+        command: {
+          type: "OverrideSupportRemedyEffect",
+          remedyId: params.remedyId,
+          effect: params.effect,
+          actorAccountId: params.accountId as AccountId,
+          reasonCode: params.reasonCode,
+          idempotencyKey: params.idempotencyKey,
+          overriddenAt: new Date().toISOString(),
+        },
+        context,
+      });
+      return { supportRequestId: params.supportRequestId, remedyId: params.remedyId, version: result.version };
     },
     closeSupportRequest: async (params, context) => {
       await requireMutableSupportRequest(deps.db, params);

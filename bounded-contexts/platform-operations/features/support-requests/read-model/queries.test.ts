@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getSupportOperationsRequest,
   getSupportRequestByDisplayReference,
+  listSupportRequestsReadyForAutoClose,
   listSupportOperationsQueue,
 } from "./queries";
 
@@ -151,5 +152,15 @@ describe("support operations queue read-model query", () => {
         responsibilityReasonCode: "product-not-received.legacy-resolution-without-responsibility",
       },
     });
+  });
+
+  it("keeps live legacy rows auto-close eligible while requiring explicit eligibility for remedy rows", async () => {
+    const calls: QueryCall[] = [];
+    const db = buildDb(calls);
+
+    await listSupportRequestsReadyForAutoClose(db, { now: "2026-07-14T00:00:00.000Z" });
+
+    expect(calls[0]?.sql).toContain("(closure_eligible = true OR remedy IS NULL)");
+    expect(calls[0]?.sql).toContain("auto_close_due_at <= $1::timestamptz");
   });
 });

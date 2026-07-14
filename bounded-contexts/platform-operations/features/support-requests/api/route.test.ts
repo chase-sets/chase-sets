@@ -74,6 +74,9 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
     declineOffer: vi.fn(),
     escalateSupportRequest: vi.fn(),
     resolveSupportRequest: vi.fn(),
+    authorizeRemedy: vi.fn(),
+    recordRemedyEffect: vi.fn(),
+    overrideRemedyEffect: vi.fn(),
     closeSupportRequest: vi.fn(),
     cancelSupportRequest: vi.fn(),
     escalateOverdueSupportRequests: vi.fn(),
@@ -88,6 +91,100 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
 }
 
 describe("support request routes", () => {
+  it("authorizes and records remedy execution through support-managed command endpoints", async () => {
+    const authorizeRemedy = vi.fn(async () => ({ supportRequestId: "sup_1", remedyId: "rmd_1", version: 8 }));
+    const recordRemedyEffect = vi.fn(async () => ({ supportRequestId: "sup_1", remedyId: "rmd_1", version: 9 }));
+    const services = createServices({ authorizeRemedy, recordRemedyEffect });
+    const app = buildApp(services);
+
+    const authorization = await app.request("/support-requests/ops/sup_1/remedies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        remedy: { kind: "full-refund", amount: "10.00", currencyCode: "usd" },
+        allocation: {
+          sellerFundedAmount: "0.00",
+          platformFundedAmount: "10.00",
+          currencyCode: "usd",
+          fundingKind: "platform-funded",
+        },
+        returnDirective: "no-return",
+        refundTrigger: "immediate",
+        policyVersion: "coverage-2026-07",
+        reasonCode: "ambiguous-carrier-loss",
+        idempotencyKey: "authorize-1",
+      }),
+    });
+    expect(authorization.status).toBe(200);
+    await expect(authorization.json()).resolves.toEqual({
+      id: "sup_1",
+      remedyId: "rmd_1",
+      version: 8,
+      status: "remedy-in-progress",
+    });
+
+    const effect = await app.request("/support-requests/ops/sup_1/remedies/rmd_1/effects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        effect: "operator-release",
+        idempotencyKey: "operator-release-1",
+        occurredAt: "2026-07-04T00:00:00.000Z",
+        reasonCode: "operator-reviewed-return-evidence",
+      }),
+    });
+    expect(effect.status).toBe(200);
+    expect(recordRemedyEffect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        supportRequestId: "sup_1",
+        remedyId: "rmd_1",
+        effect: "operator-release",
+        outcome: "satisfied",
+        sourceFactType: "support.support-request.operator-release-recorded",
+        reasonCode: "operator-reviewed-return-evidence",
+      }),
+      expect.anything(),
+    );
+
+    const fabricatedFinancialFact = await app.request("/support-requests/ops/sup_1/remedies/rmd_1/effects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        effect: "settlement-reconciliation",
+        idempotencyKey: "pretend-settled",
+        reasonCode: "operator-says-settled",
+      }),
+    });
+    expect(fabricatedFinancialFact.status).toBe(400);
+    expect(recordRemedyEffect).toHaveBeenCalledTimes(1);
+
+    const invalidRemedyId = await app.request("/support-requests/ops/sup_1/remedies/not-a-remedy/effects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        effect: "operator-release",
+        idempotencyKey: "operator-release-invalid-remedy",
+        reasonCode: "operator-reviewed-return-evidence",
+      }),
+    });
+    expect(invalidRemedyId.status).toBe(400);
+    expect(recordRemedyEffect).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires the support-manage permission for remedy overrides", async () => {
+    const overrideRemedyEffect = vi.fn();
+    const response = await buildApp(createServices({ overrideRemedyEffect }), ["support.view"]).request(
+      "/support-requests/ops/sup_1/remedies/rmd_1/effects/facility-intake/override",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reasonCode: "facility-confirmed-offline", idempotencyKey: "override-1" }),
+      },
+    );
+    expect(response.status).toBe(403);
+    expect(overrideRemedyEffect).not.toHaveBeenCalled();
+  });
+
   it("returns account-scoped support order context for marketplace support lookup", async () => {
     const getSupportOrderContext = vi.fn(async () => ({
       orderId: "ord_1",

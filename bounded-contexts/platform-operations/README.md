@@ -119,6 +119,20 @@ Support never infers seller liability from a refund; the allocation and its clos
 `@chase-sets/event-core/platform-coverage-facts` and
 `@chase-sets/primitives/platform-coverage`.
 
+The remedy execution child is append-only. Authorization derives the required effects from the ratified allocation,
+return directive, and refund trigger. The slice owns an exact-contract reaction adapter for Settlement coverage facts;
+its manifest activation remains with the #5214 producer lane because the structure guard requires the source context to
+publish its ubiquitous-language term at the same time. Physical and provider effects enter through the same slice-owned
+correlated-fact command boundary until their owning contexts publish the contracts tracked by #5215 and
+#5224/#5229/#5230. Duplicate idempotency keys are no-ops, and facts received before authorization are retained and
+reconciled when the matching `remedyId` is authorized.
+
+Legacy replay has one explicit compatibility default: a historical `support.support-request.resolved` event with no
+subsequent `remedy-authorized.v1` has `remedy = null` and retains its stamped adjudication-era auto-close deadline. This
+preserves existing seller-funded/no-return behavior without inventing financial facts during replay. The moment a new
+remedy is authorized, that legacy deadline is cancelled; a replacement seven-day close deadline is projected only from
+`remedy-completed.v1`.
+
 ## Boundary Notes
 
 Platform Operations gives staff a coherent way to inspect and act on platform runtime signals. Shared infrastructure still owns generic projection runtime behavior, while each bounded context owns the projections and read models it declares.

@@ -8,6 +8,7 @@ import type {
 } from "../domain/common";
 import { normalizeFlowType } from "../domain/common";
 import { normalizeSupportResolutionForReplay } from "../domain/responsibility";
+import type { RemedyCasePresentation, RemedyExecution } from "../domain/remedy";
 
 export type SupportRequestListRow = Readonly<{
   support_request_id: string;
@@ -41,6 +42,12 @@ export type SupportRequestListRow = Readonly<{
   return_delivered_at: string | null;
   return_refund_release_due_at: string | null;
   return_condition_disputed_at: string | null;
+  remedy: RemedyExecution | null;
+  case_presentation: RemedyCasePresentation;
+  closure_eligible: boolean;
+  closure_blocking_reasons: readonly string[];
+  next_remedy_action: string | null;
+  remedy_repair_guidance: readonly string[];
 }>;
 
 export type SupportRequestDetailRow = SupportRequestListRow &
@@ -83,6 +90,16 @@ const listSelect = `
     return_delivered_at::text AS return_delivered_at,
     return_refund_release_due_at::text AS return_refund_release_due_at,
     return_condition_disputed_at::text AS return_condition_disputed_at
+    ,remedy
+    ,CASE
+       WHEN case_presentation = 'decision-pending' AND status = 'closed' THEN 'closed'
+       WHEN case_presentation = 'decision-pending' AND resolution IS NOT NULL THEN 'decision-made'
+       ELSE case_presentation
+     END AS case_presentation
+    ,(closure_eligible OR (status = 'resolved' AND remedy IS NULL)) AS closure_eligible
+    ,closure_blocking_reasons
+    ,next_remedy_action
+    ,remedy_repair_guidance
   FROM support_request_pages
 `;
 
@@ -122,6 +139,16 @@ const detailSelect = `
     return_delivered_at::text AS return_delivered_at,
     return_refund_release_due_at::text AS return_refund_release_due_at,
     return_condition_disputed_at::text AS return_condition_disputed_at
+    ,remedy
+    ,CASE
+       WHEN case_presentation = 'decision-pending' AND status = 'closed' THEN 'closed'
+       WHEN case_presentation = 'decision-pending' AND resolution IS NOT NULL THEN 'decision-made'
+       ELSE case_presentation
+     END AS case_presentation
+    ,(closure_eligible OR (status = 'resolved' AND remedy IS NULL)) AS closure_eligible
+    ,closure_blocking_reasons
+    ,next_remedy_action
+    ,remedy_repair_guidance
   FROM support_request_pages
 `;
 
@@ -270,6 +297,7 @@ export async function listSupportOperationsQueue(
         OR status = 'ready-for-support'
       ))
     OR return_refund_gate_status = 'return-condition-disputed'
+    OR case_presentation = 'action-required'
   )`;
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
@@ -502,6 +530,7 @@ export async function listSupportRequestsReadyForAutoClose(
     `SELECT support_request_id
      FROM support_request_pages
      WHERE status = 'resolved'
+       AND (closure_eligible = true OR remedy IS NULL)
        AND auto_close_due_at IS NOT NULL
        AND auto_close_due_at <= $1::timestamptz
      ORDER BY auto_close_due_at ASC, support_request_id ASC
