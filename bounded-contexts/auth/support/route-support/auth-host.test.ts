@@ -204,6 +204,23 @@ describe("auth host", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("returns the attempted identifier and method after a password sign-in error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof globalThis.fetch>()
+        .mockResolvedValue(Response.json({ error: "Invalid email or password." }, { status: 401 })),
+    );
+
+    const result = await host.createSignInAction()(createActionArgs(createPasswordSignInRequest()));
+
+    expect(result).toEqual({
+      error: "Invalid email or password.",
+      identifier: "seller@example.test",
+      method: "password",
+    });
+  });
+
   it("requests magic links with the host landing path and safe return path", async () => {
     let requestBody: unknown;
     const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
@@ -257,6 +274,8 @@ describe("auth host", () => {
 
     expect(result).toEqual({
       error: "Sign-in is temporarily unavailable. Try again in a few seconds.",
+      identifier: "seller@example.test",
+      method: "password",
     });
     expect(fetch).toHaveBeenCalledTimes(3);
   });

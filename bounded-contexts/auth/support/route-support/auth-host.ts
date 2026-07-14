@@ -44,7 +44,11 @@ export type AccountSelectionLoaderData = Readonly<{
   memberships: readonly AccountSelectionMembership[];
 }>;
 
-type AuthActionError = Readonly<{ error: string }>;
+type AuthActionError = Readonly<{
+  error: string;
+  identifier?: string;
+  method?: SignInMethod;
+}>;
 export type AuthActionNotice =
   | Readonly<{
       status: "magic-link-sent";
@@ -243,6 +247,26 @@ function toActionError(error: unknown): AuthActionError {
   }
 
   throw error;
+}
+
+function withSignInAttempt(error: AuthActionError, formData: FormData): AuthActionError {
+  const intent = String(formData.get("intent") ?? "password");
+  const method: SignInMethod =
+    intent === "phone-code-request" || intent === "phone-code-consume"
+      ? "phone-code"
+      : intent === "magic-link-request" || intent === "magic-link-consume"
+        ? "magic-link"
+        : intent === "passkey-sign-in"
+          ? "passkey"
+          : "password";
+  const submittedIdentifier = formData.get(method === "phone-code" ? "phone" : "email");
+  const identifier = typeof submittedIdentifier === "string" ? submittedIdentifier.trim() : "";
+
+  return {
+    ...error,
+    ...(identifier ? { identifier } : {}),
+    method,
+  };
 }
 
 function isTransientInternalAuthFetchError(error: unknown) {
@@ -472,13 +496,15 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
     },
     createSignInAction() {
       return async ({ request }) => {
+        let formData: FormData | undefined;
         try {
-          const formData = await request.formData();
+          const submittedFormData = await request.formData();
+          formData = submittedFormData;
           const api = createAuthRequestApiClientInternal(request);
-          const intent = String(formData.get("intent") ?? "password");
+          const intent = String(submittedFormData.get("intent") ?? "password");
           if (intent === "magic-link-request") {
             const result = await api.requestMagicLink<MagicLinkRequestResult>({
-              email: formData.get("email"),
+              email: submittedFormData.get("email"),
               landingPath: magicLinkLandingPath(options.signInPath),
               returnTo: getSafeReturnTo(request, options.defaultSuccessPath),
             });
@@ -487,12 +513,13 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               status: "magic-link-sent",
               tokenId: result.tokenId,
               expiresAt: result.expiresAt,
-              email: typeof formData.get("email") === "string" ? String(formData.get("email")) : undefined,
+              email:
+                typeof submittedFormData.get("email") === "string" ? String(submittedFormData.get("email")) : undefined,
             };
           }
           if (intent === "phone-code-request") {
             const result = await api.requestPhoneCode<PhoneCodeRequestResult>({
-              phone: formData.get("phone"),
+              phone: submittedFormData.get("phone"),
             });
 
             return {
@@ -504,36 +531,39 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
           }
 
           if (intent === "magic-link-consume" && !allowManualMagicLinkTokenEntry) {
-            return {
-              error: t("auth.support.routeSupport.authHost.magic.link.token.entry.is.not"),
-            };
+            return withSignInAttempt(
+              {
+                error: t("auth.support.routeSupport.authHost.magic.link.token.entry.is.not"),
+              },
+              submittedFormData,
+            );
           }
 
           const result =
             intent === "magic-link-consume"
               ? await api.consumeMagicLink<InteractiveAuthResult>({
-                  token: formData.get("token"),
-                  accountId: formData.get("accountId"),
+                  token: submittedFormData.get("token"),
+                  accountId: submittedFormData.get("accountId"),
                 })
               : intent === "phone-code-consume"
                 ? await api.consumePhoneCode<InteractiveAuthResult>({
-                    tokenId: formData.get("tokenId"),
-                    phone: formData.get("phone"),
-                    code: formData.get("code"),
-                    accountId: formData.get("accountId"),
+                    tokenId: submittedFormData.get("tokenId"),
+                    phone: submittedFormData.get("phone"),
+                    code: submittedFormData.get("code"),
+                    accountId: submittedFormData.get("accountId"),
                   })
                 : intent === "passkey-sign-in"
                   ? await api.signInWithPasskey<InteractiveAuthResult>({
-                      challengeId: formData.get("challengeId"),
-                      challenge: formData.get("challenge"),
-                      externalCredentialId: formData.get("externalCredentialId"),
-                      webauthnResponse: formData.get("webauthnResponse"),
-                      accountId: formData.get("accountId"),
+                      challengeId: submittedFormData.get("challengeId"),
+                      challenge: submittedFormData.get("challenge"),
+                      externalCredentialId: submittedFormData.get("externalCredentialId"),
+                      webauthnResponse: submittedFormData.get("webauthnResponse"),
+                      accountId: submittedFormData.get("accountId"),
                     })
                   : await retryTransientPasswordSignIn(() =>
                       api.signInWithPassword<InteractiveAuthResult>({
-                        email: formData.get("email"),
-                        password: formData.get("password"),
+                        email: submittedFormData.get("email"),
+                        password: submittedFormData.get("password"),
                       }),
                     );
 
@@ -541,7 +571,8 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
             freshWriteSource: identityFreshWriteSource(result),
           });
         } catch (error) {
-          return toActionError(error);
+          const actionError = toActionError(error);
+          return formData ? withSignInAttempt(actionError, formData) : actionError;
         }
       };
     },
