@@ -8,6 +8,8 @@ import {
   CommerceSheet,
   SearchInput,
   Select,
+  CurrencyInput,
+  Checkbox,
   LoadingSpinner,
   Banner,
   Stack,
@@ -51,6 +53,15 @@ type DynamicSearchFilterSelection = Readonly<{
   value: string;
 }>;
 type MarketActivityFilter = "" | "any" | "listings" | "offers";
+
+type PriceAndStockFiltersProps = Readonly<{
+  priceMin: string;
+  priceMax: string;
+  inStock: boolean;
+  onPriceMinChange: (value: string) => void;
+  onPriceMaxChange: (value: string) => void;
+  onInStockChange: (value: boolean) => void;
+}>;
 
 function formatPrice(item: DiscoverySearchItem): string | undefined {
   const lowestPrice = item.market_summary?.lowest_price_amount;
@@ -110,6 +121,58 @@ function facetOptionSearchProps(facet: DiscoveryFacetGroup) {
   };
 }
 
+function PriceAndStockFilters({
+  priceMin,
+  priceMax,
+  inStock,
+  onPriceMinChange,
+  onPriceMaxChange,
+  onInStockChange,
+}: PriceAndStockFiltersProps) {
+  return (
+    <Stack gap={3}>
+      <Stack gap={1}>
+        <Heading level={3} visualSize={6}>
+          {t("discovery.features.search.ui.searchPage.price.and.availability")}
+        </Heading>
+        <Text size="sm" tone="secondary">
+          {t("discovery.features.search.ui.searchPage.price.and.availability.description")}
+        </Text>
+      </Stack>
+      <Grid columns={{ base: 1, md: 2 }} gap={2}>
+        <CurrencyInput
+          currencyCode="USD"
+          label={t("discovery.features.search.ui.searchPage.minimum.price")}
+          value={priceMin || null}
+          onValueChange={(value) => onPriceMinChange(value ?? "")}
+          currencyAccessibleDescription={t(
+            "discovery.features.search.ui.searchPage.minimum.price.accessible.description",
+          )}
+          decrementLabel={t("discovery.features.search.ui.searchPage.minimum.price.decrease")}
+          incrementLabel={t("discovery.features.search.ui.searchPage.minimum.price.increase")}
+        />
+        <CurrencyInput
+          currencyCode="USD"
+          label={t("discovery.features.search.ui.searchPage.maximum.price")}
+          value={priceMax || null}
+          onValueChange={(value) => onPriceMaxChange(value ?? "")}
+          currencyAccessibleDescription={t(
+            "discovery.features.search.ui.searchPage.maximum.price.accessible.description",
+          )}
+          decrementLabel={t("discovery.features.search.ui.searchPage.maximum.price.decrease")}
+          incrementLabel={t("discovery.features.search.ui.searchPage.maximum.price.increase")}
+        />
+      </Grid>
+      <Checkbox
+        label={t("discovery.features.search.ui.searchPage.in.stock")}
+        description={t("discovery.features.search.ui.searchPage.in.stock.description")}
+        checked={inStock}
+        onCheckedChange={(checked) => onInStockChange(checked === true)}
+      />
+    </Stack>
+  );
+}
+
 function buildDynamicAppliedFilters(
   facets: readonly DiscoveryFacetGroup[],
   dynamicFilters: readonly DynamicSearchFilterSelection[],
@@ -167,6 +230,9 @@ export interface SearchPageProps {
   tag?: string;
   language: string;
   marketActivity: MarketActivityFilter;
+  priceMin: string;
+  priceMax: string;
+  inStock: boolean;
   sort: string;
   dynamicFilters: readonly DynamicSearchFilterSelection[];
   data: DiscoverySearchResponse | null;
@@ -183,6 +249,9 @@ export interface SearchPageProps {
   onTagClear?: () => void;
   onLanguageChange: (value: string) => void;
   onMarketActivityChange: (value: MarketActivityFilter) => void;
+  onPriceMinChange: (value: string) => void;
+  onPriceMaxChange: (value: string) => void;
+  onInStockChange: (value: boolean) => void;
   onSortChange: (value: string) => void;
   onDynamicFilterChange: (value: DynamicSearchFilterSelection) => void;
   onDynamicFilterClear: (value: Omit<DynamicSearchFilterSelection, "value">) => void;
@@ -231,6 +300,9 @@ export function SearchPage({
   tag = "",
   language,
   marketActivity,
+  priceMin,
+  priceMax,
+  inStock,
   sort,
   dynamicFilters,
   data,
@@ -247,6 +319,9 @@ export function SearchPage({
   onTagClear,
   onLanguageChange,
   onMarketActivityChange,
+  onPriceMinChange,
+  onPriceMaxChange,
+  onInStockChange,
   onSortChange,
   onDynamicFilterChange,
   onDynamicFilterClear,
@@ -257,6 +332,8 @@ export function SearchPage({
     { label: t("discovery.features.search.ui.searchPage.title.a.z"), value: "title_asc" },
     { label: t("discovery.features.search.ui.searchPage.title.z.a"), value: "title_desc" },
     { label: t("discovery.features.search.ui.searchPage.newest"), value: "newest" },
+    { label: t("discovery.features.search.ui.searchPage.price.low.to.high"), value: "price_asc" },
+    { label: t("discovery.features.search.ui.searchPage.price.high.to.low"), value: "price_desc" },
   ];
   const languageOptions = [
     { label: t("discovery.features.search.ui.searchPage.english"), value: "en" },
@@ -297,6 +374,9 @@ export function SearchPage({
     Boolean(tag) ||
     Boolean(language) ||
     Boolean(marketActivity) ||
+    Boolean(priceMin) ||
+    Boolean(priceMax) ||
+    inStock ||
     activeDynamicFilterCount > 0 ||
     sort !== "relevance";
   const canLoadMore = Boolean(data?.nextCursor && onLoadMore);
@@ -350,6 +430,37 @@ export function SearchPage({
           },
         ]
       : []),
+    ...(priceMin
+      ? [
+          {
+            id: "priceMin",
+            label: t("discovery.features.search.ui.searchPage.minimum.price.filter.label", {
+              price: formatMoney(priceMin),
+            }),
+            onRemove: () => onPriceMinChange(""),
+          },
+        ]
+      : []),
+    ...(priceMax
+      ? [
+          {
+            id: "priceMax",
+            label: t("discovery.features.search.ui.searchPage.maximum.price.filter.label", {
+              price: formatMoney(priceMax),
+            }),
+            onRemove: () => onPriceMaxChange(""),
+          },
+        ]
+      : []),
+    ...(inStock
+      ? [
+          {
+            id: "inStock",
+            label: t("discovery.features.search.ui.searchPage.in.stock"),
+            onRemove: () => onInStockChange(false),
+          },
+        ]
+      : []),
     ...(tag
       ? [
           {
@@ -388,6 +499,14 @@ export function SearchPage({
         selectedId={category}
         onSelect={onCategoryChange}
         {...progressiveFacetLabels}
+      />
+      <PriceAndStockFilters
+        priceMin={priceMin}
+        priceMax={priceMax}
+        inStock={inStock}
+        onPriceMinChange={onPriceMinChange}
+        onPriceMaxChange={onPriceMaxChange}
+        onInStockChange={onInStockChange}
       />
       <MarketplaceFacetRail
         title={t("discovery.features.search.ui.searchPage.language")}
@@ -663,6 +782,14 @@ export function SearchPage({
                 onSelect={onCategoryChange}
                 {...progressiveFacetLabels}
               />
+              <PriceAndStockFilters
+                priceMin={priceMin}
+                priceMax={priceMax}
+                inStock={inStock}
+                onPriceMinChange={onPriceMinChange}
+                onPriceMaxChange={onPriceMaxChange}
+                onInStockChange={onInStockChange}
+              />
               <MarketplaceFacetChoiceGroup
                 title={t("discovery.features.search.ui.searchPage.language")}
                 description={t("discovery.features.search.ui.searchPage.mobile.language.description")}
@@ -749,7 +876,14 @@ export function SearchPage({
           <NoResultsRecovery
             title={t("discovery.features.search.ui.searchPage.no.items.found")}
             description={
-              search || category || language || marketActivity || activeDynamicFilterCount > 0
+              search ||
+              category ||
+              language ||
+              marketActivity ||
+              priceMin ||
+              priceMax ||
+              inStock ||
+              activeDynamicFilterCount > 0
                 ? t("discovery.features.search.ui.searchPage.try.adjusting.your.search.or.filters")
                 : t("discovery.features.search.ui.searchPage.no.catalog.items.are.available.yet")
             }

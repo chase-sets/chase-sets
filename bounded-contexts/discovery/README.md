@@ -73,6 +73,17 @@ Runtime semantic retrieval is filter-respecting and fail-open: rescue is indepen
 
 Item detail also uses the stored Search Embedding for a bounded **Similar Items** Result Set. This item-to-item path never calls an embedding provider at request time and falls back to active same-category peers when semantic retrieval is disabled, unavailable, or fails.
 
+## Search Market Signals
+
+The Search Index denormalizes buyer-visible `lowest_price_amount` and `visible_quantity` from Discovery's local
+market projection. Listing creation, price and quantity changes, inventory holds, publication or delisting, account
+availability, and Search Index rebuilds recompute these signals through the canonical buyer-visible listing predicate.
+Both values are null when no listing is buyer-visible. Price Sort Orders keep those items after priced items in both
+directions, with catalog item identity as the deterministic keyset tie-breaker; the in-stock Filter excludes them.
+
+Listing count is intentionally not a secondary Relevance key. Commercial intent is expressed through explicit price,
+availability, and market-activity Filters or Sort Orders while lexical and semantic match quality remains stable.
+
 ## Item Detail Rail Analytics
 
 The simplified item-detail rail analytics contract is documented in [Item Detail Rail Analytics](./docs/item-detail-rail-analytics.md). Discovery owns the browser event vocabulary; the marketplace deployable owns capture and observability.

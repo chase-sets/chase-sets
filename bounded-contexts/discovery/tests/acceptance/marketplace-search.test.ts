@@ -31,6 +31,7 @@ import {
   rebuildDiscoverySearchIndex,
 } from "../../features/search/read-model/projection";
 import { createDiscoveryServices } from "../../support/runtime-support/services";
+import { buildDiscoveryMarketProjectionHandlers } from "../../support/market-support/projection";
 import { module as discoveryModule } from "../..";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -1029,6 +1030,242 @@ describe("marketplace search", () => {
     expect(result.rows[0].display_badges).toEqual([
       { kind: "rarity", label: "Rare" },
       { kind: "number", label: "7/100" },
+    ]);
+  });
+
+  it("keeps Search Index price and availability signals correct through the full listing lifecycle", async () => {
+    const handlers = buildDiscoveryMarketProjectionHandlers(pools.discovery);
+    let eventPosition = 1;
+    const project = async (type: string, streamId: string, streamVersion: number, data: Record<string, unknown>) => {
+      const handler = handlers[type];
+      expect(handler).toBeDefined();
+      await handler?.(
+        buildTransportEvent(type, data, {
+          id: `evt_market_signal_${eventPosition}`,
+          streamId,
+          streamVersion,
+          globalPosition: String(eventPosition++),
+          tenantId: "tnt_test",
+          audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
+          timing: {
+            occurredAt: `2026-07-14T00:00:${String(eventPosition).padStart(2, "0")}.000Z`,
+            recordedAt: `2026-07-14T00:00:${String(eventPosition).padStart(2, "0")}.000Z`,
+          },
+        }),
+      );
+    };
+    const signals = async () => {
+      const result = await pools.discovery.query<{
+        lowest_price_amount: string | null;
+        visible_quantity: number | null;
+      }>(
+        `SELECT lowest_price_amount::text AS lowest_price_amount, visible_quantity
+         FROM discovery_search_items
+         WHERE catalog_item_id = 'cat_market_signal'`,
+      );
+      return result.rows[0];
+    };
+
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status)
+       VALUES ('cat_market_signal', 'Market Signal Item', 'active')`,
+    );
+    await rebuildDiscoverySearchIndex(pools.discovery);
+    await project("identity.account.created", "identity.account-acc_market_signal", 1, {
+      accountId: "acc_market_signal",
+      displayName: "Market Signal Account",
+    });
+    await project("inventory.item.created", "inventory.item-inv_market_signal_1", 1, {
+      itemId: "inv_market_signal_1",
+      accountId: "acc_market_signal",
+      catalogItemId: "cat_market_signal",
+      productId: "prd_market_signal_1",
+      selectedOptions: [],
+      storageLocationId: "loc_market_signal",
+      totalQuantity: 5,
+    });
+    await project("marketplace.listing.created", "marketplace.listing-lst_market_signal_1", 1, {
+      listingId: "lst_market_signal_1",
+      accountId: "acc_market_signal",
+      inventoryItemId: "inv_market_signal_1",
+      catalogItemId: "cat_market_signal",
+      productId: "prd_market_signal_1",
+      itemTitle: "Market Signal Item",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      productMeasureSnapshot: { quantity: 1, unit: "item" },
+      storageLocationName: "Test location",
+      shipFromCode: "US-IL",
+      priceAmount: "10.00",
+      quantityCap: 4,
+    });
+    expect(await signals()).toEqual({ lowest_price_amount: null, visible_quantity: null });
+
+    await project("marketplace.listing.published", "marketplace.listing-lst_market_signal_1", 2, {});
+    expect(await signals()).toEqual({ lowest_price_amount: "10.00", visible_quantity: 4 });
+
+    await project("marketplace.listing.price-updated", "marketplace.listing-lst_market_signal_1", 3, {
+      priceAmount: "12.00",
+    });
+    expect(await signals()).toEqual({ lowest_price_amount: "12.00", visible_quantity: 4 });
+
+    await project("inventory.hold.placed", "inventory.hold-hld_market_signal", 1, {
+      holdId: "hld_market_signal",
+      itemId: "inv_market_signal_1",
+      quantity: 4,
+    });
+    expect(await signals()).toEqual({ lowest_price_amount: "12.00", visible_quantity: 1 });
+
+    await project("marketplace.listing.quantity-cap-updated", "marketplace.listing-lst_market_signal_1", 4, {
+      quantityCap: 0,
+    });
+    expect(await signals()).toEqual({ lowest_price_amount: null, visible_quantity: null });
+
+    await project("marketplace.listing.quantity-cap-updated", "marketplace.listing-lst_market_signal_1", 5, {
+      quantityCap: 4,
+    });
+    await project("inventory.hold.released", "inventory.hold-hld_market_signal", 2, {
+      holdId: "hld_market_signal",
+      releasedAt: "2026-07-14T00:01:00.000Z",
+    });
+    expect(await signals()).toEqual({ lowest_price_amount: "12.00", visible_quantity: 4 });
+
+    await project("inventory.item.created", "inventory.item-inv_market_signal_2", 1, {
+      itemId: "inv_market_signal_2",
+      accountId: "acc_market_signal",
+      catalogItemId: "cat_market_signal",
+      productId: "prd_market_signal_2",
+      selectedOptions: [],
+      storageLocationId: "loc_market_signal",
+      totalQuantity: 2,
+    });
+    await project("marketplace.listing.created", "marketplace.listing-lst_market_signal_2", 1, {
+      listingId: "lst_market_signal_2",
+      accountId: "acc_market_signal",
+      inventoryItemId: "inv_market_signal_2",
+      catalogItemId: "cat_market_signal",
+      productId: "prd_market_signal_2",
+      itemTitle: "Market Signal Item",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      productMeasureSnapshot: { quantity: 1, unit: "item" },
+      storageLocationName: "Test location",
+      shipFromCode: "US-IL",
+      priceAmount: "20.00",
+      quantityCap: 2,
+    });
+    await project("marketplace.listing.published", "marketplace.listing-lst_market_signal_2", 2, {});
+    expect(await signals()).toEqual({ lowest_price_amount: "12.00", visible_quantity: 6 });
+
+    await project(
+      "marketplace.seller-listing-availability.disabled",
+      "marketplace.seller-listing-availability-acc_market_signal",
+      1,
+      {
+        accountId: "acc_market_signal",
+        reasonCategory: "away",
+        availableAgainOn: null,
+      },
+    );
+    expect(await signals()).toEqual({ lowest_price_amount: null, visible_quantity: null });
+    await project(
+      "marketplace.seller-listing-availability.enabled",
+      "marketplace.seller-listing-availability-acc_market_signal",
+      2,
+      { accountId: "acc_market_signal" },
+    );
+    expect(await signals()).toEqual({ lowest_price_amount: "12.00", visible_quantity: 6 });
+
+    await project("marketplace.listing.paused", "marketplace.listing-lst_market_signal_1", 6, {});
+    expect(await signals()).toEqual({ lowest_price_amount: "20.00", visible_quantity: 2 });
+    await project("marketplace.listing.withdrawn", "marketplace.listing-lst_market_signal_2", 3, {});
+    expect(await signals()).toEqual({ lowest_price_amount: null, visible_quantity: null });
+
+    await project("marketplace.listing.published", "marketplace.listing-lst_market_signal_2", 4, {});
+    expect(await signals()).toEqual({ lowest_price_amount: "20.00", visible_quantity: 2 });
+    await rebuildDiscoverySearchIndex(pools.discovery);
+    expect(await signals()).toEqual({ lowest_price_amount: "20.00", visible_quantity: 2 });
+  });
+
+  it("keyset-paginates both price sorts without duplicates or gaps and keeps zero-listing items last", async () => {
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_items (
+         catalog_item_id,
+         title,
+         status,
+         lowest_price_amount,
+         visible_quantity
+       ) VALUES
+         ('cat_price_a', 'A', 'active', 10.00, 1),
+         ('cat_price_b', 'B', 'active', 10.00, 2),
+         ('cat_price_c', 'C', 'active', 20.00, 3),
+         ('cat_price_d', 'D', 'active', NULL, NULL),
+         ('cat_price_e', 'E', 'active', NULL, NULL)`,
+    );
+
+    const readAllPages = async (sort: "price_asc" | "price_desc") => {
+      const ids: string[] = [];
+      let cursor: string | null = null;
+      do {
+        const query = new URLSearchParams({ sort, limit: "2" });
+        if (cursor) query.set("cursor", cursor);
+        const response = await app.request(`/api/marketplace/items?${query.toString()}`);
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as {
+          items: Array<{ catalog_item_id: string }>;
+          nextCursor: string | null;
+        };
+        ids.push(...body.items.map((item) => item.catalog_item_id));
+        cursor = body.nextCursor;
+      } while (cursor);
+      return ids;
+    };
+
+    expect(await readAllPages("price_asc")).toEqual([
+      "cat_price_a",
+      "cat_price_b",
+      "cat_price_c",
+      "cat_price_d",
+      "cat_price_e",
+    ]);
+    expect(await readAllPages("price_desc")).toEqual([
+      "cat_price_c",
+      "cat_price_b",
+      "cat_price_a",
+      "cat_price_e",
+      "cat_price_d",
+    ]);
+  });
+
+  it("combines price and in-stock filters with facet counts", async () => {
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_items (
+         catalog_item_id,
+         title,
+         status,
+         field_filter_values,
+         lowest_price_amount,
+         visible_quantity
+       ) VALUES
+         ('cat_budget_rare', 'Budget Rare', 'active', '[{"fieldId":"rarity","label":"Rarity","value":"rare","valueLabel":"Rare"}]'::jsonb, 15.00, 1),
+         ('cat_expensive_rare', 'Expensive Rare', 'active', '[{"fieldId":"rarity","label":"Rarity","value":"rare","valueLabel":"Rare"}]'::jsonb, 40.00, 1),
+         ('cat_budget_common', 'Budget Common', 'active', '[{"fieldId":"rarity","label":"Rarity","value":"common","valueLabel":"Common"}]'::jsonb, 20.00, 0),
+         ('cat_unlisted_rare', 'Unlisted Rare', 'active', '[{"fieldId":"rarity","label":"Rarity","value":"rare","valueLabel":"Rare"}]'::jsonb, NULL, NULL)`,
+    );
+
+    const response = await app.request("/api/marketplace/items?priceMin=10&priceMax=25&inStock=true&includeTotal=true");
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      total: number;
+      items: Array<{ catalog_item_id: string }>;
+      facets: Array<{ id: string; values: Array<{ id: string; count: number }> }>;
+    };
+    expect(body.total).toBe(1);
+    expect(body.items.map((item) => item.catalog_item_id)).toEqual(["cat_budget_rare"]);
+    expect(body.facets.find((facet) => facet.id === "rarity")?.values).toEqual([
+      expect.objectContaining({ id: "rare", count: 1 }),
     ]);
   });
 

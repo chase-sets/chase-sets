@@ -35,6 +35,9 @@ function searchResultsFixture(search = "") {
     tag: "",
     language: "",
     marketActivity: "" as const,
+    priceMin: "",
+    priceMax: "",
+    inStock: false,
     sort: "relevance",
     dynamicFilters: [],
     data: {

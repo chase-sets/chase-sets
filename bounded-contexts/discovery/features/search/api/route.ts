@@ -50,6 +50,9 @@ function searchParamsFromRequest(requestUrl: string, query: (name: string) => st
   const blueprintId = query("blueprintId");
   const language = query("language");
   const marketActivity = normalizeMarketActivity(query("marketActivity"));
+  const priceMin = normalizePriceAmount(query("priceMin"));
+  const priceMax = normalizePriceAmount(query("priceMax"));
+  const inStock = query("inStock") === "true";
   const sort = query("sort");
   const limit = query("limit");
   const offset = query("offset");
@@ -63,6 +66,9 @@ function searchParamsFromRequest(requestUrl: string, query: (name: string) => st
     blueprintId: blueprintId || undefined,
     language: language || undefined,
     marketActivity,
+    priceMin,
+    priceMax,
+    inStock,
     sort: sort || undefined,
     status: "active",
     limit: limit ? Number.parseInt(limit, 10) : undefined,
@@ -77,6 +83,15 @@ function searchParamsFromRequest(requestUrl: string, query: (name: string) => st
 
 function normalizeMarketActivity(value: string | undefined): DiscoveryMarketActivityFilter | undefined {
   return value === "listings" || value === "offers" || value === "any" ? value : undefined;
+}
+
+function normalizePriceAmount(value: string | undefined): string | undefined {
+  const amount = value?.trim();
+  if (!amount || !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(amount)) {
+    return undefined;
+  }
+
+  return amount;
 }
 
 function readFieldFilters(searchParams: URLSearchParams) {

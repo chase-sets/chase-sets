@@ -49,6 +49,9 @@ const EMPTY_SEARCH_RESULT = {
   tag: "",
   language: "",
   marketActivity: "",
+  priceMin: "",
+  priceMax: "",
+  inStock: false,
   sort: "relevance",
   dynamicFilters: [],
   data: null,
@@ -84,6 +87,9 @@ function buildSearchQuery({
   tag,
   language,
   marketActivity,
+  priceMin,
+  priceMax,
+  inStock,
   sort,
   cursor,
   dynamicFilters,
@@ -93,6 +99,9 @@ function buildSearchQuery({
   tag: string;
   language: string;
   marketActivity: MarketActivityFilter;
+  priceMin: string;
+  priceMax: string;
+  inStock: boolean;
   sort: string;
   cursor?: string | null;
   dynamicFilters: readonly DynamicSearchFilterSelection[];
@@ -112,6 +121,15 @@ function buildSearchQuery({
   }
   if (marketActivity) {
     params.set("marketActivity", marketActivity);
+  }
+  if (priceMin) {
+    params.set("priceMin", priceMin);
+  }
+  if (priceMax) {
+    params.set("priceMax", priceMax);
+  }
+  if (inStock) {
+    params.set("inStock", "true");
   }
   params.set("sort", sort);
   params.set("limit", String(PAGE_SIZE));
@@ -143,6 +161,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const tag = url.searchParams.get("tag") ?? "";
   const language = url.searchParams.get("language") ?? "";
   const marketActivity = readMarketActivityFilter(url.searchParams);
+  const priceMin = readPriceFilter(url.searchParams, "priceMin");
+  const priceMax = readPriceFilter(url.searchParams, "priceMax");
+  const inStock = url.searchParams.get("inStock") === "true";
   const sort = url.searchParams.get("sort") ?? "relevance";
   const dynamicFilters = readDynamicSearchFilters(url.searchParams);
   const api = createDiscoveryRequestApiClient(request);
@@ -168,7 +189,20 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   const data = await api
-    .searchItems(buildSearchQuery({ search, category, tag, language, marketActivity, sort, dynamicFilters }))
+    .searchItems(
+      buildSearchQuery({
+        search,
+        category,
+        tag,
+        language,
+        marketActivity,
+        priceMin,
+        priceMax,
+        inStock,
+        sort,
+        dynamicFilters,
+      }),
+    )
     .catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE);
   const savedListClaim = await loadSavedListClaimPreparation(request, (product) => product.productId);
   const canonicalPath =
@@ -182,6 +216,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     tag,
     language,
     marketActivity,
+    priceMin,
+    priceMax,
+    inStock,
     sort,
     dynamicFilters,
     data,
@@ -261,10 +298,24 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const tag = url.searchParams.get("tag") ?? "";
   const language = url.searchParams.get("language") ?? "";
   const marketActivity = readMarketActivityFilter(url.searchParams);
+  const priceMin = readPriceFilter(url.searchParams, "priceMin");
+  const priceMax = readPriceFilter(url.searchParams, "priceMax");
+  const inStock = url.searchParams.get("inStock") === "true";
   const sort = url.searchParams.get("sort") ?? "relevance";
   const dynamicFilters = readDynamicSearchFilters(url.searchParams);
   const preview = await discoveryApi.previewBulkAddSearchResults(
-    buildSearchQuery({ search, category, tag, language, marketActivity, sort, dynamicFilters }),
+    buildSearchQuery({
+      search,
+      category,
+      tag,
+      language,
+      marketActivity,
+      priceMin,
+      priceMax,
+      inStock,
+      sort,
+      dynamicFilters,
+    }),
   );
 
   if (intent === "preview-bulk-add" || preview.overLimit || preview.lines.length === 0) {
@@ -359,6 +410,9 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     data.tag,
     data.language,
     data.marketActivity,
+    data.priceMin,
+    data.priceMax,
+    data.inStock,
     data.sort,
     dynamicFilters,
   ]);
@@ -436,6 +490,9 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         tag?: string | null;
         language?: string;
         marketActivity?: MarketActivityFilter;
+        priceMin?: string;
+        priceMax?: string;
+        inStock?: boolean;
         sort?: string;
         dynamicFilter?: DynamicSearchFilterSelection;
         dynamicFilterClear?: Omit<DynamicSearchFilterSelection, "value">;
@@ -504,6 +561,33 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
               next.set("marketActivity", nextValues.marketActivity);
             } else {
               next.delete("marketActivity");
+            }
+            next.delete("page");
+          }
+
+          if (nextValues.priceMin !== undefined) {
+            if (nextValues.priceMin) {
+              next.set("priceMin", nextValues.priceMin);
+            } else {
+              next.delete("priceMin");
+            }
+            next.delete("page");
+          }
+
+          if (nextValues.priceMax !== undefined) {
+            if (nextValues.priceMax) {
+              next.set("priceMax", nextValues.priceMax);
+            } else {
+              next.delete("priceMax");
+            }
+            next.delete("page");
+          }
+
+          if (nextValues.inStock !== undefined) {
+            if (nextValues.inStock) {
+              next.set("inStock", "true");
+            } else {
+              next.delete("inStock");
             }
             next.delete("page");
           }
@@ -586,6 +670,9 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     tag?: string | null;
     language?: string;
     marketActivity?: MarketActivityFilter;
+    priceMin?: string;
+    priceMax?: string;
+    inStock?: boolean;
     sort?: string;
     dynamicFilter?: DynamicSearchFilterSelection;
     dynamicFilterClear?: Omit<DynamicSearchFilterSelection, "value">;
@@ -608,6 +695,9 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       tag: data.tag,
       language: data.language,
       marketActivity: data.marketActivity,
+      priceMin: data.priceMin,
+      priceMax: data.priceMax,
+      inStock: data.inStock,
       sort: data.sort,
       dynamicFilters,
       cursor: visibleData.nextCursor,
@@ -648,6 +738,9 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     data.category,
     data.language,
     data.marketActivity,
+    data.priceMin,
+    data.priceMax,
+    data.inStock,
     data.search,
     data.tag,
     data.sort,
@@ -705,6 +798,9 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       tag={data.tag}
       language={data.language}
       marketActivity={data.marketActivity}
+      priceMin={data.priceMin}
+      priceMax={data.priceMax}
+      inStock={data.inStock}
       sort={data.sort}
       dynamicFilters={dynamicFilters}
       data={visibleData}
@@ -726,6 +822,9 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       onTagClear={() => handleImmediateSearchParamChange({ tag: null })}
       onLanguageChange={(value) => handleImmediateSearchParamChange({ language: value })}
       onMarketActivityChange={(value) => handleImmediateSearchParamChange({ marketActivity: value })}
+      onPriceMinChange={(value) => handleImmediateSearchParamChange({ priceMin: value })}
+      onPriceMaxChange={(value) => handleImmediateSearchParamChange({ priceMax: value })}
+      onInStockChange={(value) => handleImmediateSearchParamChange({ inStock: value })}
       onSortChange={(value) => handleImmediateSearchParamChange({ sort: value })}
       onDynamicFilterChange={(value) => handleImmediateSearchParamChange({ dynamicFilter: value })}
       onDynamicFilterClear={(value) => handleImmediateSearchParamChange({ dynamicFilterClear: value })}
@@ -798,6 +897,11 @@ function readDynamicSearchFilters(searchParams: URLSearchParams): DynamicSearchF
 function readMarketActivityFilter(searchParams: URLSearchParams): MarketActivityFilter {
   const value = searchParams.get("marketActivity");
   return value === "any" || value === "listings" || value === "offers" ? value : "";
+}
+
+function readPriceFilter(searchParams: URLSearchParams, name: "priceMin" | "priceMax"): string {
+  const amount = searchParams.get(name)?.trim() ?? "";
+  return /^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(amount) ? amount : "";
 }
 
 function appendDynamicSearchFilters(searchParams: URLSearchParams, filters: readonly DynamicSearchFilterSelection[]) {

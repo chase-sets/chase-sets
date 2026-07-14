@@ -172,6 +172,8 @@ CREATE TABLE IF NOT EXISTS discovery_search_items (
   embedding_model text NULL,
   embedded_text_hash text NULL,
   embedding_updated_at timestamptz NULL,
+  lowest_price_amount numeric NULL,
+  visible_quantity integer NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -197,6 +199,10 @@ ALTER TABLE discovery_search_items
   ADD COLUMN IF NOT EXISTS embedding_model text NULL,
   ADD COLUMN IF NOT EXISTS embedded_text_hash text NULL,
   ADD COLUMN IF NOT EXISTS embedding_updated_at timestamptz NULL;
+
+ALTER TABLE discovery_search_items
+  ADD COLUMN IF NOT EXISTS lowest_price_amount numeric NULL,
+  ADD COLUMN IF NOT EXISTS visible_quantity integer NULL;
 
 -- Structured set-code + collector-number natural key, denormalized from the
 -- Catalog "card-number" field and the "set"/"expansion" reference record onto
@@ -325,6 +331,17 @@ export const discoverySearchSchemaMigrations: readonly BcSchemaMigration[] = [
     statements: [
       `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_catalog_reference_records_slug_idx
   ON discovery_search_catalog_reference_records (slug) WHERE slug <> ''`,
+    ],
+  },
+  {
+    migrationId: "20260714_discovery_search_market_signal_indexes",
+    description:
+      "Create status-filtered Search Index keyset indexes for buyer-visible lowest-price sorting in both directions.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_status_price_asc_idx
+  ON discovery_search_items (status, lowest_price_amount ASC NULLS LAST, catalog_item_id ASC);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_status_price_desc_idx
+  ON discovery_search_items (status, lowest_price_amount DESC NULLS LAST, catalog_item_id DESC);`,
     ],
   },
 ];

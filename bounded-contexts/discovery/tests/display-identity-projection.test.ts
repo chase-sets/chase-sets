@@ -119,6 +119,10 @@ class DiscoveryProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 0 };
     }
 
+    if (sql.includes("UPDATE discovery_search_items AS item") && sql.includes("lowest_price_amount")) {
+      return { rows: [], rowCount: 0 };
+    }
+
     if (
       sql.includes("SELECT catalog_item_id") &&
       sql.includes("FROM discovery_search_catalog_items") &&
