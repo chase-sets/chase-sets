@@ -18,6 +18,7 @@
     "@chase-sets/catalog": "workspace:*",
     "@chase-sets/catalog-seed": "workspace:*",
     "@chase-sets/checkout": "workspace:*",
+    "@chase-sets/collections": "workspace:*",
     "@chase-sets/commercial-terms": "workspace:*",
     "@chase-sets/discovery": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",

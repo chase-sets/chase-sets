@@ -244,6 +244,7 @@ export const sourceContextWakeRegistry = [
       "collections:collections-saved-list-picker-projection",
       "collections:collections-saved-list-valuation-projection",
       "collections:collections.saved-list-shared-page-projection",
+      "discovery:discovery-saved-list-picker-projection",
     ],
     routeDependencyIds: [
       "collections.saved-list-bulk-to-detail",
