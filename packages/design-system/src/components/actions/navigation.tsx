@@ -10,7 +10,7 @@ import { useChaseMotion, usePortalRoots } from "../../theme/provider";
 import { renderMotionDiv } from "../../utils/base-ui";
 import { cx } from "../../utils/cx";
 import { resolveOverlayMotion } from "../feedback/motion-overlay";
-import { controlSquareSizeClasses } from "../control-sizing";
+import { controlHeightClasses, controlSquareSizeClasses } from "../control-sizing";
 import { renderActivePill, renderActivePillGroup } from "./shared";
 
 export interface NavigationItem {
@@ -63,6 +63,7 @@ function renderNavigationItem(
 
   const className = cx(
     "focus-ring relative inline-flex items-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-sm font-medium transition",
+    controlHeightClasses.md,
     orientation === "vertical" && "w-full justify-between",
     orientation === "rail" && "w-full flex-col justify-center py-3",
     active ? "bg-surface-2 text-accent shadow-tokenSm" : "text-secondary hover:bg-surface-2 hover:text-foreground",

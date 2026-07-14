@@ -1,6 +1,7 @@
 import { forwardRef, useId } from "react";
 import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
 import { cx } from "../../utils/cx";
+import { controlHeightClasses } from "../control-sizing";
 import { FieldChrome, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface SwitchProps extends BaseInputProps {
@@ -53,7 +54,10 @@ export const Switch = forwardRef<HTMLButtonElement, SwitchProps>(function Switch
     >
       <label
         htmlFor={inputId}
-        className="modern-surface flex cursor-pointer items-center justify-between gap-4 rounded-tokenMd border border-muted p-3"
+        className={cx(
+          "modern-surface flex cursor-pointer items-center justify-between gap-4 rounded-tokenMd border border-muted p-3",
+          controlHeightClasses.md,
+        )}
       >
         <div className="space-y-1">
           {label ? (

@@ -1,6 +1,7 @@
 import { forwardRef, useId, useState } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
+import { controlSquareSizeClasses } from "../control-sizing";
 import { InputAddon } from "./input-addon";
 import { FieldChrome, controlClass, controlErrorClass, fieldDescribedBy } from "./shared";
 import type { TextInputProps } from "./text-input";
@@ -47,7 +48,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(fu
           content: (
             <button
               type="button"
-              className="focus-ring flex items-center rounded-sm"
+              className={cx("focus-ring flex items-center justify-center rounded-sm", controlSquareSizeClasses.md)}
               onClick={() => setVisible((v) => !v)}
               aria-label={visible ? hidePasswordLabel : showPasswordLabel}
             >
@@ -64,7 +65,11 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(fu
           type={visible ? "text" : "password"}
           aria-describedby={fieldDescribedBy({ inputId, description, error, status, counter })}
           aria-invalid={!!error || undefined}
-          className={cx(controlClass, !!error && controlErrorClass, "pr-[calc(var(--control-md-px)+2rem)]")}
+          className={cx(
+            controlClass,
+            !!error && controlErrorClass,
+            "pr-[calc(var(--control-md-px)+var(--control-md-height))]",
+          )}
         />
       </InputAddon>
     </FieldChrome>

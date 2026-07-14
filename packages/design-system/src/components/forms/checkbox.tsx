@@ -4,6 +4,7 @@ import { forwardRef, useEffect, useId, useRef, useState } from "react";
 // Documented leaf — keep the raw lucide import here.
 import { Check, Minus } from "lucide-react";
 import { cx } from "../../utils/cx";
+import { controlHeightClasses } from "../control-sizing";
 import { FieldChrome, RequiredMarker, fieldDescribedBy, type BaseInputProps } from "./shared";
 import type { SelectItem } from "./select";
 
@@ -71,7 +72,10 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Che
     >
       <label
         htmlFor={inputId}
-        className="modern-surface flex cursor-pointer items-start gap-3 rounded-tokenMd border border-muted p-3"
+        className={cx(
+          "modern-surface flex cursor-pointer items-start gap-3 rounded-tokenMd border border-muted p-3",
+          controlHeightClasses.md,
+        )}
       >
         <input
           id={inputId}

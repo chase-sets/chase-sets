@@ -1,6 +1,7 @@
 import { forwardRef, useId, useState, type KeyboardEvent } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
+import { controlSquareSizeClasses } from "../control-sizing";
 import { FieldChrome, compoundControlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface TagInputProps extends BaseInputProps {
@@ -78,7 +79,10 @@ export const TagInput = forwardRef<HTMLInputElement, TagInputProps>(function Tag
             <span>{tag}</span>
             <button
               type="button"
-              className="focus-ring rounded-tokenFull"
+              className={cx(
+                "focus-ring inline-flex items-center justify-center rounded-tokenFull",
+                controlSquareSizeClasses.sm,
+              )}
               onClick={() => removeTag(tag)}
               aria-label={`Remove ${tag}`}
             >

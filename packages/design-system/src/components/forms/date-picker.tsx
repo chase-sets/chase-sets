@@ -15,6 +15,7 @@ import { useChaseMotion, usePortalRoots } from "../../theme/provider";
 import { renderMotionDiv } from "../../utils/base-ui";
 import { cx } from "../../utils/cx";
 import { useControllableValue } from "../controllable";
+import { controlSquareSizeClasses } from "../control-sizing";
 import { resolveOverlayMotion } from "../feedback/motion-overlay";
 import { FieldChrome, controlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
@@ -258,7 +259,10 @@ export const Calendar = forwardRef<HTMLButtonElement, CalendarProps>(function Ca
           type="button"
           aria-label="Previous month"
           onClick={() => moveFocus(addMonths(focused, -1))}
-          className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-tokenMd text-secondary hover:bg-background"
+          className={cx(
+            "focus-ring inline-flex items-center justify-center rounded-tokenMd text-secondary hover:bg-background",
+            controlSquareSizeClasses.md,
+          )}
         >
           <Icon name="chevronLeft" size="sm" />
         </button>
@@ -269,7 +273,10 @@ export const Calendar = forwardRef<HTMLButtonElement, CalendarProps>(function Ca
           type="button"
           aria-label="Next month"
           onClick={() => moveFocus(addMonths(focused, 1))}
-          className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-tokenMd text-secondary hover:bg-background"
+          className={cx(
+            "focus-ring inline-flex items-center justify-center rounded-tokenMd text-secondary hover:bg-background",
+            controlSquareSizeClasses.md,
+          )}
         >
           <Icon name="chevronRight" size="sm" />
         </button>
@@ -281,7 +288,7 @@ export const Calendar = forwardRef<HTMLButtonElement, CalendarProps>(function Ca
         className="grid gap-1"
         onKeyDown={onGridKeyDown}
       >
-        <div role="row" className="grid grid-cols-7 gap-1">
+        <div role="row" className="grid grid-cols-7">
           {WEEKDAY_SHORT.map((short, index) => (
             <div
               key={short}
@@ -294,7 +301,7 @@ export const Calendar = forwardRef<HTMLButtonElement, CalendarProps>(function Ca
           ))}
         </div>
         {weeks.map((week, weekIndex) => (
-          <div role="row" key={weekIndex} className="grid grid-cols-7 gap-1">
+          <div role="row" key={weekIndex} className="grid grid-cols-7">
             {week.map((day, dayIndex) => {
               if (!day) {
                 return <div role="gridcell" key={dayIndex} aria-hidden="true" className="h-8 w-full" />;
@@ -327,7 +334,8 @@ export const Calendar = forwardRef<HTMLButtonElement, CalendarProps>(function Ca
                     onClick={() => selectDay(day)}
                     onFocus={() => setFocused(day)}
                     className={cx(
-                      "focus-ring flex h-8 w-full items-center justify-center rounded-tokenMd text-sm tabular-nums outline-none transition",
+                      "focus-ring flex w-full items-center justify-center rounded-tokenMd text-sm tabular-nums outline-none transition",
+                      controlSquareSizeClasses.md,
                       isSelected ? "bg-accent font-semibold text-inverse" : "text-foreground hover:bg-background",
                       !isSelected && isToday && "font-semibold text-accent",
                     )}

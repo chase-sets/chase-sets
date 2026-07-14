@@ -587,7 +587,8 @@ describe("design system components", () => {
     expect(markup).toContain("min-h-[var(--control-md-height)]");
     expect(markup).toContain("px-[var(--control-md-px)]");
     expect(markup).toContain("py-[var(--control-md-py)]");
-    expect(markup).toContain("h-[var(--control-md-icon-size)]");
+    expect(markup).toContain("min-h-[var(--control-sm-height)]");
+    expect(markup).toContain("min-w-[var(--control-sm-height)]");
     expect(markup).toContain("min-w-[var(--control-md-height)]");
     expect(markup).not.toContain("touch-target");
     expect(markup).not.toContain("px-4 py-2.5");

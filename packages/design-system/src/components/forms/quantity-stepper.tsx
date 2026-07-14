@@ -2,7 +2,7 @@ import { forwardRef, useId } from "react";
 import { NumberField as NumberFieldPrimitive } from "@base-ui/react/number-field";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
-import { controlIconButtonSizeClasses } from "../control-sizing";
+import { controlSquareSizeClasses } from "../control-sizing";
 import { FieldChrome, compoundControlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface QuantityStepperProps extends BaseInputProps {
@@ -94,14 +94,14 @@ export const QuantityStepper = forwardRef<HTMLInputElement, QuantityStepperProps
             compoundControlClass,
             !!error && controlErrorClass,
             isInteractionDisabled && "cursor-not-allowed opacity-60",
-            "grid grid-cols-[var(--control-md-icon-size)_minmax(0,1fr)_var(--control-md-icon-size)] items-center gap-1",
+            "grid grid-cols-[var(--control-sm-height)_minmax(0,1fr)_var(--control-sm-height)] items-center gap-1",
           )}
         >
           <NumberFieldPrimitive.Decrement
             aria-label={decrementLabel}
             className={cx(
               "focus-ring inline-flex items-center justify-center rounded-tokenSm text-secondary hover:bg-background",
-              controlIconButtonSizeClasses.md,
+              controlSquareSizeClasses.sm,
               "disabled:pointer-events-none",
             )}
           >
@@ -121,7 +121,7 @@ export const QuantityStepper = forwardRef<HTMLInputElement, QuantityStepperProps
             aria-label={incrementLabel}
             className={cx(
               "focus-ring inline-flex items-center justify-center rounded-tokenSm text-secondary hover:bg-background",
-              controlIconButtonSizeClasses.md,
+              controlSquareSizeClasses.sm,
               "disabled:pointer-events-none",
             )}
           >

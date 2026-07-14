@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, type HTMLAttributes, type ReactNode } from 
 import { Icon, type IconName } from "../../icons";
 import { useDensity } from "../../theme/provider";
 import { cx } from "../../utils/cx";
+import { controlHeightClasses, controlSquareSizeClasses } from "../control-sizing";
 import { EmptyState } from "../feedback";
 import { TableCell, TableHeadCell, TableRow, TableShell } from "./table-shell";
 
@@ -167,7 +168,7 @@ export function DataTable<T>({
               {column.sortable ? (
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1 hover:text-accent"
+                  className={cx("inline-flex items-center gap-1 hover:text-accent", controlHeightClasses.md)}
                   onClick={() => handleSortClick(column)}
                 >
                   {column.header}
@@ -214,7 +215,7 @@ export function DataTable<T>({
                         disabled={isRowSelectable ? !isRowSelectable(row, index) : false}
                         onChange={() => handleSelectRow(rowId, isRowSelectable ? isRowSelectable(row, index) : true)}
                         aria-label={selectLabel}
-                        className="h-4 w-4 rounded border-border accent-accent"
+                        className={cx("rounded border-border accent-accent", controlSquareSizeClasses.md)}
                       />
                     </TableCell>
                   ) : null}
@@ -270,7 +271,12 @@ export function DataTable<T>({
               >
                 <div className="space-y-3">
                   {selectable ? (
-                    <label className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <label
+                      className={cx(
+                        "flex items-center gap-2 text-sm font-semibold text-foreground",
+                        controlHeightClasses.md,
+                      )}
+                    >
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -364,7 +370,7 @@ function SelectAllCheckbox({
       onChange={onChange}
       aria-label="Select all rows"
       aria-checked={indeterminate ? "mixed" : checked}
-      className="h-4 w-4 rounded border-border accent-accent"
+      className={cx("rounded border-border accent-accent", controlSquareSizeClasses.md)}
     />
   );
 }
