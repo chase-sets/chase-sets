@@ -1,7 +1,9 @@
 export const authEnglishTranslations = {
+  "auth.features.accountSelection.readModel.role.member": "Member",
+  "auth.features.accountSelection.readModel.role.platformAdministrator": "Platform administrator",
   "auth.features.accountSelection.ui.accountSelectionPage.choose.account": "Choose Account",
   "auth.features.accountSelection.ui.accountSelectionPage.continue": "Continue",
-  "auth.features.accountSelection.ui.accountSelectionPage.role": "Role: ",
+  "auth.features.accountSelection.ui.accountSelectionPage.role": "Role: {roleLabel}",
   "auth.features.accountSelection.ui.accountSelectionPage.this.user.can.act.for.more":
     "This user can act for more than one account.",
   "auth.features.registration.ui.registerPage.create.account": "Create an account with a passkey",

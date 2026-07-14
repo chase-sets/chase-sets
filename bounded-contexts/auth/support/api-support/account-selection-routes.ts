@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { AuthMethod } from "../../features/sessions/domain/auth-flow";
+import { listAccountSelectionMemberships } from "../../features/account-selection/read-model/queries";
 import { consumeAccountSelectionToken, getAccountSelectionTokenByHash } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import { getBootstrapContext, type AuthApiApp } from "./support";
@@ -17,7 +18,7 @@ export function registerAccountSelectionRoutes(app: AuthApiApp, services: AuthSe
       );
     }
 
-    const memberships = await services.identity.listActiveMembershipsForUser(selection.user_id);
+    const memberships = await listAccountSelectionMemberships(services.db, selection.user_id);
 
     return c.json({
       userId: selection.user_id,

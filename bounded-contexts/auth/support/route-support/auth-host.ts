@@ -35,7 +35,8 @@ export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 
 type AccountSelectionMembership = Readonly<{
   accountId: string;
-  roleKey: string;
+  accountName: string;
+  roleLabel: string;
 }>;
 
 export type AccountSelectionLoaderData = Readonly<{
