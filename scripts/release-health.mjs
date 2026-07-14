@@ -96,6 +96,9 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
       null,
     releaseAttemptWorkflowUrl:
       readOption(argv, "--release-attempt-workflow-url") ?? readEnv("RELEASE_ATTEMPT_WORKFLOW_URL", env) ?? null,
+    releaseStateTransitions: parseJsonList(
+      readOption(argv, "--release-state-transitions") ?? readEnv("RELEASE_STATE_TRANSITIONS", env) ?? "[]",
+    ),
     ciRetryCount: normalizeOptionalInteger(
       readOption(argv, "--ci-retry-count") ?? readEnv("CI_RETRY_COUNT", env),
       "CI_RETRY_COUNT",
@@ -243,6 +246,7 @@ export function buildReleaseHealthRecord(input) {
   ) {
     errors.push("releaseAttemptSupersededByCommit must be a 40-character Git commit SHA when provided.");
   }
+  validateReleaseStateTransitions(input.releaseStateTransitions ?? [], errors);
 
   const record = {
     schemaVersion: RELEASE_HEALTH_VERSION,
@@ -367,6 +371,20 @@ export function buildReleaseHealthRecord(input) {
       retryCount: input.ciRetryCount ?? 0,
       flakyFailureCount: input.ciFlakyFailureCount ?? 0,
       topFlakyJobs: normalizeTopFlakyJobs(input.ciTopFlakyJobs),
+    };
+  }
+
+  if (Array.isArray(input.releaseStateTransitions) && input.releaseStateTransitions.length > 0) {
+    record.releaseState = {
+      transitions: input.releaseStateTransitions.map(normalizeReleaseStateTransition),
+      coalescedCount: input.releaseStateTransitions
+        .filter((transition) => transition?.type === "coalesced")
+        .reduce((total, transition) => total + (Number.isInteger(transition.count) ? transition.count : 1), 0),
+      terminalOutcome:
+        [...input.releaseStateTransitions]
+          .reverse()
+          .find((transition) => ["promoted", "failed", "rolled-back", "superseded"].includes(transition?.type))?.type ??
+        null,
     };
   }
 
@@ -751,6 +769,52 @@ function normalizeTopFlakyJobs(value) {
     flakyFailureCount:
       Number.isInteger(job?.flakyFailureCount) && job.flakyFailureCount > 0 ? job.flakyFailureCount : 0,
   }));
+}
+
+function validateReleaseStateTransitions(transitions, errors) {
+  if (!Array.isArray(transitions)) {
+    errors.push("releaseStateTransitions must be an array.");
+    return;
+  }
+  const allowed = new Set([
+    "candidate",
+    "active",
+    "pending",
+    "coalesced",
+    "promoted",
+    "failed",
+    "rolled-back",
+    "superseded",
+  ]);
+  for (const [index, transition] of transitions.entries()) {
+    if (!transition || !allowed.has(transition.type)) {
+      errors.push(`releaseStateTransitions[${index}].type is invalid.`);
+    }
+    for (const field of ["commit", "supersededByCommit"]) {
+      if (isNonEmptyString(transition?.[field]) && !isCommitSha(transition[field])) {
+        errors.push(`releaseStateTransitions[${index}].${field} must be a 40-character Git commit SHA.`);
+      }
+    }
+    if (isNonEmptyString(transition?.imageDigest) && !/^sha256:[0-9a-f]{64}$/i.test(transition.imageDigest.trim())) {
+      errors.push(`releaseStateTransitions[${index}].imageDigest must be a sha256 digest.`);
+    }
+    if (transition?.count !== undefined && (!Number.isInteger(transition.count) || transition.count < 1)) {
+      errors.push(`releaseStateTransitions[${index}].count must be a positive integer.`);
+    }
+  }
+}
+
+function normalizeReleaseStateTransition(transition) {
+  return {
+    type: transition.type,
+    ...(isNonEmptyString(transition.commit) ? { commit: transition.commit.trim() } : {}),
+    ...(isNonEmptyString(transition.imageDigest) ? { imageDigest: transition.imageDigest.trim() } : {}),
+    ...(isNonEmptyString(transition.mode) ? { mode: transition.mode.trim() } : {}),
+    ...(isNonEmptyString(transition.supersededByCommit)
+      ? { supersededByCommit: transition.supersededByCommit.trim() }
+      : {}),
+    ...(Number.isInteger(transition.count) ? { count: transition.count } : {}),
+  };
 }
 
 function validateOptionalIsoInstant(name, value, errors) {

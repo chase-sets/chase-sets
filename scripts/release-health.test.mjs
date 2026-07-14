@@ -2,6 +2,57 @@ import { describe, expect, it } from "vitest";
 import { buildReleaseHealthRecord, parseReleaseHealthArgs } from "./release-health.mjs";
 
 describe("release health summary", () => {
+  it("records active, pending, coalesced, and promoted release transitions", () => {
+    const activeCommit = "a".repeat(40);
+    const pendingCommit = "b".repeat(40);
+    const imageDigest = `sha256:${"d".repeat(64)}`;
+    const result = buildReleaseHealthRecord({
+      ...minimalReleaseHealthInput(),
+      releaseStateTransitions: [
+        { type: "active", commit: activeCommit, imageDigest, mode: "automatic" },
+        { type: "pending", commit: pendingCommit, mode: "automatic" },
+        { type: "coalesced", commit: pendingCommit, count: 8 },
+        { type: "promoted", commit: activeCommit, imageDigest, mode: "automatic" },
+      ],
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.record.releaseState).toEqual({
+      transitions: [
+        { type: "active", commit: activeCommit, imageDigest, mode: "automatic" },
+        { type: "pending", commit: pendingCommit, mode: "automatic" },
+        { type: "coalesced", commit: pendingCommit, count: 8 },
+        { type: "promoted", commit: activeCommit, imageDigest, mode: "automatic" },
+      ],
+      coalescedCount: 8,
+      terminalOutcome: "promoted",
+    });
+  });
+
+  it("reports rollback and failure terminal outcomes while rejecting malformed immutable identities", () => {
+    const releaseCommit = "a".repeat(40);
+    const imageDigest = `sha256:${"d".repeat(64)}`;
+    const rolledBack = buildReleaseHealthRecord({
+      ...minimalReleaseHealthInput(),
+      releaseStateTransitions: [
+        { type: "active", commit: releaseCommit, imageDigest },
+        { type: "rolled-back", commit: releaseCommit, imageDigest },
+      ],
+    });
+    expect(rolledBack.record.releaseState?.terminalOutcome).toBe("rolled-back");
+
+    const failed = buildReleaseHealthRecord({
+      ...minimalReleaseHealthInput(),
+      releaseStateTransitions: [
+        { type: "active", commit: "short", imageDigest: "latest" },
+        { type: "failed", commit: releaseCommit, imageDigest },
+      ],
+    });
+    expect(failed.errors).toContain("releaseStateTransitions[0].commit must be a 40-character Git commit SHA.");
+    expect(failed.errors).toContain("releaseStateTransitions[0].imageDigest must be a sha256 digest.");
+    expect(failed.record.releaseState?.terminalOutcome).toBe("failed");
+  });
+
   it("builds a production release health record", () => {
     const result = buildReleaseHealthRecord({
       releaseCommit: "a".repeat(40),
@@ -745,3 +796,16 @@ describe("release health summary", () => {
     expect(result.errors).toContain("queueQueuedAt must be an ISO timestamp when provided.");
   });
 });
+
+function minimalReleaseHealthInput() {
+  return {
+    releaseCommit: "a".repeat(40),
+    workflowRunId: "123456",
+    workflowRunAttempt: "1",
+    checkedAt: "2026-07-14T12:00:00.000Z",
+    releaseMode: "normal",
+    deploymentRequired: true,
+    stagingResult: "success",
+    productionResult: "success",
+  };
+}

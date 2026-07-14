@@ -1,9 +1,15 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseResolveReleaseCommitArgs, resolveReleaseCommit } from "./resolve-release-commit.mjs";
+import {
+  createLatestOnlyReleaseState,
+  parseResolveReleaseCommitArgs,
+  reduceLatestOnlyReleaseState,
+  resolveReleaseCommit,
+} from "./resolve-release-commit.mjs";
 
 const commit = "a".repeat(40);
+const digest = `sha256:${"d".repeat(64)}`;
 
 function execRecorder(responses = {}) {
   const calls = [];
@@ -165,6 +171,152 @@ describe("resolve release commit", () => {
       expect(step).toContain("--checkout true");
     }
   });
+
+  it("separates cancellable candidate dispatch from non-cancellable immutable active execution", () => {
+    const workflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+    const dispatcher = workflowJob(workflow, "dispatch-release-candidate");
+    const staging = workflowJob(workflow, "deploy-staging");
+    const production = workflowJob(workflow, "deploy-production");
+
+    expect(workflow).toContain(
+      "group: ${{ github.event_name == 'push' && 'platform-release-candidate' || 'platform-registry-mutation' }}",
+    );
+    expect(workflow).toContain("cancel-in-progress: ${{ github.event_name == 'push' }}");
+    expect(dispatcher).toContain("if: github.event_name == 'push'");
+    expect(dispatcher).toContain("actions: write");
+    expect(dispatcher).toContain("gh workflow run platform-production.yml");
+    expect(dispatcher).toContain("--field automatic_release=true");
+    expect(workflowJob(workflow, "resolve-release")).toContain("if: github.event_name == 'workflow_dispatch'");
+
+    const activationIndex = staging.indexOf("- name: Activate immutable release before staging mutation");
+    const firstMutationIndex = staging.indexOf("- name: Terraform apply staging environment DNS");
+    expect(activationIndex).toBeGreaterThan(-1);
+    expect(activationIndex).toBeLessThan(firstMutationIndex);
+    expect(staging).toContain("RELEASE_IMAGE_DIGEST: ${{ needs.build-image.outputs.platform_image_digest }}");
+    expect(staging).not.toContain("Re-check release freshness before staging verification");
+    expect(production).not.toContain("Confirm automatic deploy is latest main");
+    expect(production).toContain(
+      "TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}",
+    );
+    expect(production).toContain(
+      'docker buildx imagetools create --tag "$release_image" "${promoted_image}@${promoted_digest}"',
+    );
+    expect(production).toContain("group: platform-deploy-production");
+    expect(production).toContain("cancel-in-progress: false");
+    expect(production).toContain("- name: Resolve terminal release state");
+  });
+});
+
+describe("latest-only release state", () => {
+  it("keeps one immutable active release and coalesces ten rapid merges to the latest pending commit", () => {
+    const commits = Array.from({ length: 10 }, (_, index) => (index + 1).toString(16).repeat(40));
+    const events = [
+      { type: "candidate", commit: commits[0], mode: "automatic" },
+      { type: "activate", commit: commits[0], imageDigest: digest },
+      ...commits.slice(1).map((candidateCommit) => ({
+        type: "candidate",
+        commit: candidateCommit,
+        mode: "automatic",
+      })),
+    ];
+
+    const state = reduceLatestOnlyReleaseState(events);
+
+    expect(state.active).toEqual({ commit: commits[0], imageDigest: digest, mode: "automatic" });
+    expect(state.pending).toEqual({ commit: commits[9], mode: "automatic" });
+    expect(state.coalescedCount).toBe(8);
+    expect(state.transitions.filter(({ type }) => type === "pending")).toHaveLength(9);
+  });
+
+  it("requires production promotion to use the staging-activated commit and image digest", () => {
+    const active = reduceLatestOnlyReleaseState([
+      { type: "candidate", commit, mode: "automatic" },
+      { type: "activate", commit, imageDigest: digest },
+    ]);
+
+    expect(() =>
+      reduceLatestOnlyReleaseState(
+        [{ type: "terminal", outcome: "promoted", commit: "b".repeat(40), imageDigest: digest }],
+        active,
+      ),
+    ).toThrow("terminal release commit must match");
+    expect(() =>
+      reduceLatestOnlyReleaseState(
+        [{ type: "terminal", outcome: "promoted", commit, imageDigest: `sha256:${"e".repeat(64)}` }],
+        active,
+      ),
+    ).toThrow("terminal image digest must match");
+
+    const promoted = reduceLatestOnlyReleaseState(
+      [{ type: "terminal", outcome: "promoted", commit, imageDigest: digest }],
+      active,
+    );
+    expect(promoted.active).toBeNull();
+    expect(promoted.transitions.at(-1)).toEqual({ type: "promoted", commit, imageDigest: digest, mode: "automatic" });
+  });
+
+  it("does not start a pending release until failure or rollback handling reaches a terminal outcome", () => {
+    const pendingCommit = "b".repeat(40);
+    const active = reduceLatestOnlyReleaseState([
+      { type: "candidate", commit, mode: "automatic" },
+      { type: "activate", imageDigest: digest },
+      { type: "candidate", commit: pendingCommit, mode: "automatic" },
+    ]);
+
+    expect(active.active?.commit).toBe(commit);
+    expect(active.candidate).toBeNull();
+    expect(active.pending?.commit).toBe(pendingCommit);
+
+    const failed = reduceLatestOnlyReleaseState([{ type: "terminal", outcome: "failed" }], active);
+    expect(failed.active).toBeNull();
+    expect(failed.candidate?.commit).toBe(pendingCommit);
+    expect(failed.pending).toBeNull();
+
+    const retried = reduceLatestOnlyReleaseState(
+      [{ type: "activate", imageDigest: `sha256:${"f".repeat(64)}` }],
+      failed,
+    );
+    expect(retried.active?.commit).toBe(pendingCommit);
+  });
+
+  it("gives the immutable active release precedence over newer manual and emergency requests", () => {
+    const manualCommit = "b".repeat(40);
+    const emergencyCommit = "c".repeat(40);
+    const state = reduceLatestOnlyReleaseState([
+      { type: "candidate", commit, mode: "automatic" },
+      { type: "activate", imageDigest: digest },
+      { type: "candidate", commit: manualCommit, mode: "manual" },
+      { type: "candidate", commit: emergencyCommit, mode: "emergency" },
+    ]);
+
+    expect(state.active).toEqual({ commit, imageDigest: digest, mode: "automatic" });
+    expect(state.pending).toEqual({ commit: emergencyCommit, mode: "emergency" });
+    expect(state.coalescedCount).toBe(1);
+  });
+
+  it("uses latest-only pending precedence regardless of automatic, manual, or emergency trigger type", () => {
+    const state = reduceLatestOnlyReleaseState([
+      { type: "candidate", commit, mode: "automatic" },
+      { type: "activate", imageDigest: digest },
+      { type: "candidate", commit: "b".repeat(40), mode: "emergency" },
+      { type: "candidate", commit: "c".repeat(40), mode: "manual" },
+      { type: "candidate", commit: "d".repeat(40), mode: "automatic" },
+    ]);
+
+    expect(state.active?.commit).toBe(commit);
+    expect(state.pending).toEqual({ commit: "d".repeat(40), mode: "automatic" });
+    expect(state.coalescedCount).toBe(2);
+  });
+
+  it("starts from an explicit empty state", () => {
+    expect(createLatestOnlyReleaseState()).toEqual({
+      candidate: null,
+      active: null,
+      pending: null,
+      coalescedCount: 0,
+      transitions: [],
+    });
+  });
 });
 
 function workflowStep(source, stepName) {
@@ -172,4 +324,12 @@ function workflowStep(source, stepName) {
   expect(start).not.toBe(-1);
   const next = source.indexOf("\n      - name:", start + 1);
   return next === -1 ? source.slice(start) : source.slice(start, next);
+}
+
+function workflowJob(source, jobName) {
+  const start = source.indexOf(`  ${jobName}:`);
+  expect(start).not.toBe(-1);
+  const remaining = source.slice(start + `  ${jobName}:`.length);
+  const nextOffset = remaining.search(/\n  [a-zA-Z0-9_-]+:\r?\n/);
+  return nextOffset === -1 ? source.slice(start) : source.slice(start, start + `  ${jobName}:`.length + nextOffset);
 }

@@ -8,6 +8,126 @@ import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 const execFile = promisify(execFileCallback);
 
+const RELEASE_MODES = new Set(["automatic", "manual", "emergency"]);
+const TERMINAL_OUTCOMES = new Set(["promoted", "failed", "rolled-back"]);
+
+export function createLatestOnlyReleaseState() {
+  return {
+    candidate: null,
+    active: null,
+    pending: null,
+    coalescedCount: 0,
+    transitions: [],
+  };
+}
+
+export function reduceLatestOnlyReleaseState(events, initialState = createLatestOnlyReleaseState()) {
+  const state = structuredClone(initialState);
+  for (const event of events) {
+    applyReleaseEvent(state, event);
+  }
+  return state;
+}
+
+function applyReleaseEvent(state, event) {
+  if (!event || typeof event.type !== "string") {
+    throw new Error("Release state events require a type.");
+  }
+
+  if (event.type === "candidate") {
+    const release = normalizeRelease(event);
+    if (state.active) {
+      if (state.pending) {
+        state.coalescedCount += 1;
+        state.transitions.push({
+          type: "coalesced",
+          commit: state.pending.commit,
+          supersededByCommit: release.commit,
+        });
+      }
+      state.pending = release;
+      state.transitions.push({ type: "pending", ...release });
+      return;
+    }
+
+    if (state.candidate) {
+      state.coalescedCount += 1;
+      state.transitions.push({
+        type: "coalesced",
+        commit: state.candidate.commit,
+        supersededByCommit: release.commit,
+      });
+    }
+    state.candidate = release;
+    state.transitions.push({ type: "candidate", ...release });
+    return;
+  }
+
+  if (event.type === "activate") {
+    if (state.active) {
+      throw new Error("An active release is immutable until it reaches a terminal outcome.");
+    }
+    if (!state.candidate) {
+      throw new Error("A release candidate is required before activation.");
+    }
+    const imageDigest = requireImageDigest(event.imageDigest);
+    if (event.commit && event.commit !== state.candidate.commit) {
+      throw new Error("Only the current latest candidate may become active.");
+    }
+    state.active = { ...state.candidate, imageDigest };
+    state.candidate = null;
+    state.transitions.push({ type: "active", ...state.active });
+    return;
+  }
+
+  if (event.type === "terminal") {
+    if (!state.active) {
+      throw new Error("A terminal outcome requires an active release.");
+    }
+    if (!TERMINAL_OUTCOMES.has(event.outcome)) {
+      throw new Error("Release terminal outcome must be promoted, failed, or rolled-back.");
+    }
+    if (event.commit && event.commit !== state.active.commit) {
+      throw new Error("The terminal release commit must match the immutable active release.");
+    }
+    if (event.imageDigest && event.imageDigest !== state.active.imageDigest) {
+      throw new Error("The terminal image digest must match the immutable active release.");
+    }
+    state.transitions.push({ type: event.outcome, ...state.active });
+    state.active = null;
+    state.candidate = state.pending;
+    state.pending = null;
+    return;
+  }
+
+  throw new Error(`Unsupported release state event '${event.type}'.`);
+}
+
+function normalizeRelease(event) {
+  const commit = requireCommit(event.commit);
+  const mode = event.mode ?? "automatic";
+  if (!RELEASE_MODES.has(mode)) {
+    throw new Error("Release mode must be automatic, manual, or emergency.");
+  }
+  return { commit, mode };
+}
+
+function requireCommit(value) {
+  const commit = requireNonEmpty(value, "Release commit is required.");
+  if (!/^[0-9a-f]{40}$/i.test(commit)) {
+    throw new Error("Release commit must be a 40-character Git commit SHA.");
+  }
+  return commit.toLowerCase();
+}
+
+function requireImageDigest(value) {
+  const digest = requireNonEmpty(value, "Release image digest is required before activation.");
+  if (!/^sha256:[0-9a-f]{64}$/i.test(digest)) {
+    throw new Error("Release image digest must be a sha256 digest.");
+  }
+  return digest.toLowerCase();
+}
+
 export function parseResolveReleaseCommitArgs(argv, env = process.env) {
   return {
     eventName: readOption(argv, "--event-name") ?? readEnv("GITHUB_EVENT_NAME", env),
