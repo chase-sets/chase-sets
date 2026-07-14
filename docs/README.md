@@ -194,6 +194,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0019: Feature Flags And Rollout Boundaries](./adr/0019-feature-flags-rollout-boundaries.md)
 - [ADR 0020: Wallet Adjustment Authority And Balance Types](./adr/0020-wallet-adjustment-authority-and-balance-types.md)
 - [ADR 0021: Customer Feedback Bounded Context And Versioned CSAT Contract](./adr/0021-customer-feedback-bounded-context-and-csat-contract.md)
+- [ADR 0022: Platform-Covered Resolution Ownership And Contracts](./adr/0022-platform-covered-resolution-contracts.md)
 
 ## Generated Markdown
 

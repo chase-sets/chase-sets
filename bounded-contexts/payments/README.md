@@ -63,6 +63,21 @@ Stripe runtime configuration, webhook setup, smoke tests, and incident workflows
 
 Run `pnpm --filter @chase-sets/payments run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/payments run test` before opening a PR.
 
+## Platform-Covered Resolutions
+
+For platform-covered resolutions (epic #5210), Payments executes the authorized refund
+exactly once and carries the remedy, coverage, and allocation references through to
+Settlement — it never decides who pays. It owns `refundId`; the refund idempotency key
+derives from stable domain ids (`remedyId`/`coverageId`), not request timing. Ownership,
+stable ids, and versioned contracts are ratified in
+[ADR 0022: Platform-Covered Resolution Ownership and Contracts](../../docs/adr/0022-platform-covered-resolution-contracts.md).
+
+- **Consumes** — `support.support-request.refund-released.v1` (carries the allocation,
+  refund amount, and coverage reference; Payments validates amount/currency against the
+  authorized remedy and rejects platform-funded input lacking a coverage reference).
+- **Publishes** — its refund completion fact carrying the `remedyId`/`coverageId`/
+  allocation causation consumed by Settlement and Support (contract shape landed by #5215).
+
 ## Open Extraction Candidates
 
 - Fraud review can be extracted later if authorization risk becomes a distinct workflow.

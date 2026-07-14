@@ -95,6 +95,30 @@ Buyer cancellation after Fulfillment records package preparation uses the `buyer
 
 Support operations readiness lives in [Support operations readiness](docs/support-operations-readiness.md).
 
+### Platform-Covered Resolutions
+
+For platform-covered resolutions (epic #5210), Support owns adjudication, the buyer
+remedy, the coverage-authorization request, and the case-level remedy execution
+lifecycle and closure policy. It owns `remedyId` and `supportRequestId`. Settlement owns
+financial truth: liability allocation authority, protection-reserve consumption, and
+`coverageId`. The ownership, stable ids, and versioned contracts are ratified in
+[ADR 0022: Platform-Covered Resolution Ownership and Contracts](../../docs/adr/0022-platform-covered-resolution-contracts.md).
+
+- **Publishes** — `support.support-request.remedy-authorized.v1`,
+  `support.support-request.platform-coverage-requested.v1`,
+  `support.support-request.refund-released.v1`,
+  `support.support-request.remedy-completed.v1`.
+- **Consumes** — `settlement.protection-coverage.reserved.v1`,
+  `settlement.protection-coverage.rejected.v1`,
+  `settlement.protection-coverage.settled.v1` (and, for return-gated triggers, the
+  Fulfillment reverse-shipment intake facts from #5211).
+
+Support never infers seller liability from a refund; the allocation and its closed
+`fundingKind` travel on the facts. A case cannot auto-close until
+`remedy-completed.v1`. Contract types and validators live in
+`@chase-sets/event-core/platform-coverage-facts` and
+`@chase-sets/primitives/platform-coverage`.
+
 ## Boundary Notes
 
 Platform Operations gives staff a coherent way to inspect and act on platform runtime signals. Shared infrastructure still owns generic projection runtime behavior, while each bounded context owns the projections and read models it declares.
