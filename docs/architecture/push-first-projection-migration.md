@@ -1,6 +1,6 @@
 # Push-First Projection Migration Inventory
 
-Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-07-13.
+Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-07-14.
 
 This is the migration report that classifies every projection group and every read-after-write route inventory entry into an explicit push-first disposition. The machine-readable source of truth is `@chase-sets/platform-runtime/projection-push-migration`, which derives every row below from the [source-context wake registry](./source-context-wake-registry.md) (#1245); registry tests pin that registry to `bounded-contexts/*/context.json`, and `projection-push-migration.test.ts` pins this document to the same inventory, so a new projection group or route entry fails CI until both are classified here.
 
@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (122)
+## Projection Groups (126)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -164,9 +164,9 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations** | push-enabled | 2/2 |
 
-Totals: 101 `push-enabled`, 21 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 102 `push-enabled`, 24 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (71)
+## Read-After-Write Route Inventory (75)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -185,6 +185,10 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `checkout.session-payment-handoff` | checkout | critical | exact wait | push-accelerated |
 | `checkout.session-self-refresh` | checkout | critical | exact wait | push-accelerated |
 | `checkout.session-start-to-detail` | checkout | critical | exact wait | push-accelerated |
+| `collections.saved-list-bulk-to-detail` | collections | important | exact wait | deferred until wave 4 |
+| `collections.saved-list-create-to-detail` | collections | important | exact wait | deferred until wave 4 |
+| `collections.saved-list-detail-self-refresh` | collections | important | exact wait | deferred until wave 4 |
+| `collections.saved-list-list-self-refresh` | collections | important | exact wait | deferred until wave 4 |
 | `commercial-terms.account-agreement-create-to-list` | commercial-terms | important | exact wait | push-accelerated |
 | `commercial-terms.agreement-create-to-list` | commercial-terms | important | exact wait | push-accelerated |
 | `commercial-terms.agreement-update-to-detail` | commercial-terms | important | exact wait | push-accelerated |

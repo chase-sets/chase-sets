@@ -180,6 +180,7 @@ export const sourceContextWakeRegistry = [
       "catalog:catalog-source-observation-projection",
       "checkout:checkout-catalog-item-projection",
       "checkout:checkout-marketplace-listing-options-projection",
+      "collections:collections-catalog-product-projection",
       "discovery:discovery-category-projection",
       "discovery:discovery-google-shopping-feed-row-projection",
       "discovery:discovery-item-detail-projection",
