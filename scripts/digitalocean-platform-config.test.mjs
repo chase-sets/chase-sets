@@ -1643,6 +1643,20 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain(
       "app_platform_all_marketplace_domains          = concat(local.app_platform_marketplace_domains, local.app_platform_staging_root_marketplace_domains)",
     );
+    expect(platformLocals).toContain(
+      "app_platform_doks_ingress_routes = local.serving_from_doks ? [",
+    );
+    expect(platformLocals).toContain('component   = "public-web"\n      path_prefix = "/"');
+    expect(platformLocals).toContain(
+      'component   = "admin-web"\n      path_prefix = "/_app-platform/doks/admin"',
+    );
+    expect(platformLocals).toContain(
+      'component   = "marketplace"\n      path_prefix = "/_app-platform/doks/marketplace"',
+    );
+    expect(platformMain).toContain("for_each = local.app_platform_doks_ingress_routes");
+    expect(platformMain).toContain("prefix = rule.value.path_prefix");
+    expect(platformMain).toContain("name                 = rule.value.component");
+    expect(platformMain).not.toContain("for_each = local.serving_from_doks ? [1] : []");
     expect(occurrenceCount(platformMain, "for_each = local.app_platform_public_domains")).toBe(3);
     expect(occurrenceCount(platformMain, "for_each = local.app_platform_admin_domains")).toBe(3);
     expect(occurrenceCount(platformMain, "for_each = local.app_platform_all_marketplace_domains")).toBe(2);
