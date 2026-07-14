@@ -197,6 +197,30 @@ function createServices(): MarketplaceListingServices {
     })),
     listSellerInventoryItemSupply: vi.fn(async () => ({ items: [], total: 0 })),
     getInventoryItemSupply: vi.fn(async () => null),
+    getListingEvidenceCoverage: vi.fn(async () => ({
+      listingId: "lst_1",
+      listingStatus: "active",
+      evidence: [],
+      policyHash: "sha256:policy",
+      policyVersion: 1,
+      requirements: {
+        minimumPhotoCount: 1,
+        requiredSlots: [],
+        sellerTrustRequirements: [],
+        buyerAcknowledgment: "none",
+      },
+      coverage: {
+        complete: false,
+        unmetCodes: ["min-photo-count-unmet"],
+        slots: [],
+        activePhotoCount: 0,
+        minimumPhotoCount: 1,
+      },
+      updatedAt: "2026-07-13T00:00:00.000Z",
+    })),
+    addListingPhotos: vi.fn(async () => ({ listingId: "lst_1", version: 3 })),
+    classifyListingPhoto: vi.fn(async () => ({ listingId: "lst_1", version: 4 })),
+    replaceListingPhoto: vi.fn(async () => ({ listingId: "lst_1", version: 5 })),
     applyBulkListingPriceUpdates: vi.fn(async (params: { updates: readonly { listingId: string }[] }) =>
       params.updates.map((update) => ({ listingId: update.listingId, outcome: "applied" as const, version: 2 })),
     ),
@@ -761,6 +785,44 @@ describe("marketplace listing routes", () => {
           performedByUserId: "usr_seller",
         }),
       }),
+    );
+  });
+
+  it("exposes seller-scoped evidence coverage and classification actions", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor, services });
+
+    const coverageResponse = await app.fetch(
+      new Request("http://marketplace.test/account/listings/lst_1/evidence-coverage?now=2026-07-13T00:00:00.000Z"),
+    );
+    expect(coverageResponse.status).toBe(200);
+    await expect(coverageResponse.json()).resolves.toMatchObject({
+      listingId: "lst_1",
+      coverage: { complete: false, unmetCodes: ["min-photo-count-unmet"] },
+    });
+    expect(services.getListingEvidenceCoverage).toHaveBeenCalledWith({
+      accountId: "acc_seller",
+      listingId: "lst_1",
+      now: "2026-07-13T00:00:00.000Z",
+    });
+
+    const classifyResponse = await app.fetch(
+      new Request("http://marketplace.test/account/listings/lst_1/photos/lpho_1/classify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slotId: "front", viewKind: "front" }),
+      }),
+    );
+    expect(classifyResponse.status).toBe(200);
+    expect(services.classifyListingPhoto).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller",
+        listingId: "lst_1",
+        photoId: "lpho_1",
+        slotId: "front",
+        viewKind: "front",
+      }),
+      expect.anything(),
     );
   });
 

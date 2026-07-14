@@ -21,6 +21,7 @@ export type {
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
   MarketplaceMarketSummary,
+  MarketplaceListingEvidenceCoverage,
   MarketplaceReportSubmissionSnapshot,
   ReportListingRequest,
   SubmittedOfferDetail,

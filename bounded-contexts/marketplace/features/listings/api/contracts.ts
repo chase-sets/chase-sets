@@ -13,6 +13,7 @@ export type {
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
   MarketplaceMarketSummary,
+  MarketplaceListingEvidenceCoverage,
 } from "../ui/contracts";
 export type {
   MarketplaceListingPhoto,

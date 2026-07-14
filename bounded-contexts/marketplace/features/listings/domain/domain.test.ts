@@ -596,15 +596,20 @@ describe("marketplace listing evidence lifecycle", () => {
     ).toThrow("Reorder must list exactly the current active evidence ids.");
   });
 
-  it("blocks evidence mutations once the listing is active", () => {
+  it("allows seller evidence remediation while the listing is active", () => {
     const draft = decideMarketplaceListing(initialMarketplaceListingState, {
       ...createListingCommand,
       evidence: [listingPhoto] as never,
     }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
     const active = decideMarketplaceListing(draft, publishListingCommand).reduce(evolveMarketplaceListing, draft);
-    expect(() => decideMarketplaceListing(active, { type: "RemoveListingPhoto", photoId: "lpho_1" })).toThrow(
-      "Listing evidence can only be removed while the listing is a draft.",
-    );
+    const classified = decideMarketplaceListing(active, {
+      type: "ClassifyListingPhoto",
+      photoId: "lpho_1",
+      slotId: "front",
+      viewKind: "front",
+    }).reduce(evolveMarketplaceListing, active);
+    expect(classified.evidence[0]).toMatchObject({ slotId: "front", viewKind: "front" });
+    expect(decideMarketplaceListing(classified, { type: "RemoveListingPhoto", photoId: "lpho_1" })).toHaveLength(1);
   });
 
   it("replays the full lifecycle deterministically from events", () => {

@@ -17,6 +17,8 @@ type SellerOptionRow = {
   updated_at: string;
   inventory_item_id: string | null;
   at_capacity: boolean;
+  evidence_requirements: unknown;
+  evidence: Record<string, unknown>[];
 };
 
 /**
@@ -47,6 +49,8 @@ class ProjectionDb implements PgQueryable {
         updated_at: String(values[8]),
         inventory_item_id: values[9] === null ? null : String(values[9]),
         at_capacity: existing?.at_capacity ?? false,
+        evidence_requirements: values[10] === null ? null : JSON.parse(String(values[10])),
+        evidence: JSON.parse(String(values[11])) as Record<string, unknown>[],
       });
       return { rows: [], rowCount: 1 };
     }
@@ -64,6 +68,29 @@ class ProjectionDb implements PgQueryable {
       const row = this.options.get(String(values[0]));
       if (row) {
         row.listing_quantity_cap = Number(values[1]);
+        row.updated_at = String(values[2]);
+      }
+      return { rows: [], rowCount: row ? 1 : 0 };
+    }
+
+    if (sql.includes("SELECT evidence")) {
+      const row = this.options.get(String(values[0]));
+      return { rows: row ? ([{ evidence: row.evidence }] as Row[]) : [], rowCount: row ? 1 : 0 };
+    }
+
+    if (sql.includes("SET evidence = $2")) {
+      const row = this.options.get(String(values[0]));
+      if (row) {
+        row.evidence = JSON.parse(String(values[1])) as Record<string, unknown>[];
+        row.updated_at = String(values[2]);
+      }
+      return { rows: [], rowCount: row ? 1 : 0 };
+    }
+
+    if (sql.includes("SET evidence_requirements = $2")) {
+      const row = this.options.get(String(values[0]));
+      if (row) {
+        row.evidence_requirements = JSON.parse(String(values[1]));
         row.updated_at = String(values[2]);
       }
       return { rows: [], rowCount: row ? 1 : 0 };
@@ -203,6 +230,8 @@ function createdEvent(overrides: Partial<Record<string, unknown>> = {}) {
     },
     priceAmount: "120.00",
     quantityCap: 5,
+    evidenceRequirements: { policyHash: "sha256:policy", policyVersion: 1, requirements: {} },
+    evidence: [],
     ...overrides,
   });
 }
@@ -229,6 +258,36 @@ describe("checkout marketplace seller-options projection", () => {
       }),
       status: "draft",
       inventory_item_id: "inv_1",
+    });
+  });
+
+  it("mirrors listing evidence changes for local Sell List review", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
+    const photo = { photoId: "photo_1", status: "active", slotId: null, viewKind: null };
+
+    await handlers["marketplace.listing.created"]!(createdEvent());
+    await handlers["marketplace.listing.photos-added"]!(
+      event("marketplace.listing.photos-added", "marketplace.listing-lst_1", { evidence: [photo] }),
+    );
+    await handlers["marketplace.listing.photo-classified"]!(
+      event("marketplace.listing.photo-classified", "marketplace.listing-lst_1", {
+        photoId: "photo_1",
+        slotId: "front",
+        viewKind: "front",
+        altText: "Front view",
+        capturedAt: null,
+      }),
+    );
+    await handlers["marketplace.listing.evidence-requirements-refreshed"]!(
+      event("marketplace.listing.evidence-requirements-refreshed", "marketplace.listing-lst_1", {
+        evidenceRequirements: { policyHash: "sha256:revised", policyVersion: 2, requirements: {} },
+      }),
+    );
+
+    expect(db.options.get("lst_1")).toMatchObject({
+      evidence: [{ ...photo, slotId: "front", viewKind: "front", altText: "Front view", capturedAt: null }],
+      evidence_requirements: { policyHash: "sha256:revised", policyVersion: 2, requirements: {} },
     });
   });
 

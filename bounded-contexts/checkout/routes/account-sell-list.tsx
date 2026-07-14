@@ -11,6 +11,7 @@ import {
   type PostWriteHandoffState,
 } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
+import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import {
@@ -63,6 +64,7 @@ type SellListOfferReview = Readonly<{
   terms: CheckoutSellListCompositeReview["offerReviews"][number]["terms"];
   comparison: SellListOfferTermsComparison | null;
   message: string | null;
+  evidence?: CheckoutSellListCompositeReview["offerReviews"][number]["evidence"];
 }>;
 
 type SellListOfferTermsComparisonField = "seller-net" | "marketplace-fee" | "shipping-allowance" | "terms-source";
@@ -603,7 +605,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const sellListCompositeReview = await loadSellListCompositeReviewFromCheckout(accountSellListApi, {
     includeStandardComparison: registrationReturn === "seller-checkout",
   });
-
   return {
     isSignedIn: true,
     registrationReturn,
@@ -623,6 +624,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 function formValue(formData: FormData, name: string) {
   return String(formData.get(name) ?? "").trim();
+}
+
+function evidenceClassificationFromForm(formData: FormData) {
+  const [slotId, viewKind] = formValue(formData, "classification").split("::", 2);
+  if (!slotId || !viewKind) {
+    throw new Error(t("checkout.features.sellList.ui.sellListPage.evidence.choose.slot"));
+  }
+  return { slotId, viewKind };
 }
 
 function limitedFormValue(formData: FormData, name: string, maxLength: number) {
@@ -957,6 +966,38 @@ export async function action({ request }: ActionFunctionArgs) {
           "/account/sell-list",
         ),
       );
+    }
+
+    if (intent === "add-listing-evidence" || intent === "classify-listing-evidence") {
+      if (!useAccountSellList) {
+        throw new Error(t("checkout.features.sellList.ui.sellListPage.sign.in.required"));
+      }
+
+      const marketplaceApi = createMarketplaceRequestApiClient(request);
+      const listingId = formValue(formData, "listingId");
+      if (!listingId) {
+        throw new Error(t("checkout.features.sellList.ui.sellListPage.evidence.unavailable"));
+      }
+
+      if (intent === "classify-listing-evidence") {
+        const classification = evidenceClassificationFromForm(formData);
+        await marketplaceApi.updateListingPhotoClassification(
+          listingId,
+          formValue(formData, "photoId"),
+          classification,
+        );
+      } else {
+        const file = formData.get("listingPhoto");
+        if (!(file instanceof File) || file.size <= 0) {
+          throw new Error(t("checkout.features.sellList.ui.sellListPage.evidence.photo"));
+        }
+        const upload = new FormData();
+        upload.append("evidence", file);
+        upload.append("listingPhotoAltText", formValue(formData, "listingPhotoAltText"));
+        await marketplaceApi.addListingPhotos(listingId, upload);
+      }
+
+      return redirect("/account/sell-list");
     }
 
     if (intent === "review-sell-list-checkout") {

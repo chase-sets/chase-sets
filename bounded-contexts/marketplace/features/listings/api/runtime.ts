@@ -53,6 +53,12 @@ import {
 import { createListingPublishedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { marketplaceListingGatePolicy, type MarketplaceListingGatePolicyValue } from "../domain/listing-gate-policy";
 import { marketplaceListingBulkPriceUpdatePolicy } from "../domain/bulk-price-update-policy";
+import {
+  evaluateListingEvidencePolicy,
+  LISTING_EVIDENCE_LAUNCH_POLICY_VALUE,
+  marketplaceListingEvidencePolicy,
+} from "../../listing-evidence-policy/domain/policy";
+import { evaluateEvidenceCoverage } from "../domain/evidence-coverage";
 import { normalizeListingPhoto } from "./listing-photo-normalization";
 import {
   decideSellerListingAvailability,
@@ -217,7 +223,7 @@ export type MarketplaceListingServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
-  /** Classify an existing active evidence entry into a configured slot/view kind (draft only). */
+  /** Classify an existing active evidence entry into a configured slot/view kind. */
   classifyListingPhoto: (
     params: Readonly<{
       accountId: string;
@@ -230,7 +236,7 @@ export type MarketplaceListingServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
-  /** Replace an active evidence entry with a freshly normalized upload (draft only). */
+  /** Replace an active evidence entry with a freshly normalized upload. */
   replaceListingPhoto: (
     params: Readonly<{
       accountId: string;
@@ -243,12 +249,12 @@ export type MarketplaceListingServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
-  /** Remove an active evidence entry (draft only); retained for commitment resolution. */
+  /** Remove an active evidence entry; retained for commitment resolution. */
   removeListingPhoto: (
     params: Readonly<{ accountId: string; listingId: string; photoId: string }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
-  /** Reorder the active evidence entries (draft only). */
+  /** Reorder the active evidence entries. */
   reorderListingPhotos: (
     params: Readonly<{ accountId: string; listingId: string; orderedPhotoIds: readonly string[] }>,
     context: EventStoreContext,
@@ -473,6 +479,16 @@ export type MarketplaceListingServices = Readonly<{
     params: Parameters<typeof hasSellerSupplyLocationNamed>[1],
   ) => ReturnType<typeof hasSellerSupplyLocationNamed>;
   getSellerListing: (listingId: string, accountId: string) => ReturnType<typeof getSellerListing>;
+  getListingEvidenceCoverage: (params: Readonly<{ accountId: string; listingId: string; now?: string }>) => Promise<{
+    listingId: string;
+    listingStatus: string;
+    evidence: readonly MarketplaceListingPhoto[];
+    policyHash: string;
+    policyVersion: number | null;
+    requirements: Awaited<ReturnType<typeof evaluateListingEvidencePolicy>>["requirements"];
+    coverage: ReturnType<typeof evaluateEvidenceCoverage>;
+    updatedAt: string;
+  }>;
   listSellerListingFeeHistory: (
     params: Readonly<{ listingId: string; accountId: string }>,
   ) => Promise<readonly MarketplaceListingFeeHistoryEntry[]>;
@@ -1871,6 +1887,69 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     listSellerInventoryItemSupply: (params) => listSellerInventoryItemSupply(deps.db, params),
     hasSellerSupplyLocationNamed: (params) => hasSellerSupplyLocationNamed(deps.db, params),
     getSellerListing: (listingId, accountId) => getSellerListing(deps.db, listingId, accountId),
+    getListingEvidenceCoverage: async ({ accountId, listingId, now }) => {
+      const listing = await loadOwnedListingState(listingId, accountId);
+      const [catalogResult, accountRisk, listingRow] = await Promise.all([
+        deps.db.query<{ blueprint_id: string | null; category_ids: unknown }>(
+          `SELECT blueprint_id, category_ids
+             FROM marketplace_catalog_items
+            WHERE catalog_item_id = $1`,
+          [listing.catalogItemId],
+        ),
+        getMarketplaceAccountRisk(deps.db, accountId),
+        deps.db.query<{ updated_at: string }>(
+          `SELECT updated_at::text AS updated_at
+             FROM marketplace_listing_pages
+            WHERE listing_id = $1 AND account_id = $2`,
+          [listingId, accountId],
+        ),
+      ]);
+      const catalog = catalogResult.rows[0];
+      const categoryIds = Array.isArray(catalog?.category_ids)
+        ? catalog.category_ids.filter((value): value is string => typeof value === "string")
+        : [];
+      const resolved = deps.policies
+        ? await deps.policies.resolvePolicy(marketplaceListingEvidencePolicy)
+        : {
+            value: LISTING_EVIDENCE_LAUNCH_POLICY_VALUE,
+            documentId: null,
+            effectiveFrom: null,
+            effectiveUntil: null,
+          };
+      const evaluation = evaluateListingEvidencePolicy(
+        resolved.value,
+        {
+          catalogItemId: listing.catalogItemId ?? "",
+          productId: listing.productId ?? "",
+          blueprintId: catalog?.blueprint_id ?? null,
+          categoryIds,
+          selectedOptions: listing.selectedOptions,
+          gradedItem: listing.gradedCard !== null,
+          priceAmount: listing.priceAmount ?? "0",
+          seller: {
+            reviewCount: accountRisk.review_count,
+            badgeKeys: accountRisk.badges,
+            riskLevel: null,
+          },
+        },
+        {
+          policyId: resolved.documentId,
+          policyVersion: null,
+          effectiveFrom: resolved.effectiveFrom,
+          effectiveUntil: resolved.effectiveUntil,
+        },
+      );
+      return {
+        listingId,
+        listingStatus: listing.status,
+        evidence: listing.evidence,
+        policyHash: evaluation.policyHash,
+        policyVersion: evaluation.policyVersion,
+        requirements: evaluation.requirements,
+        coverage: evaluateEvidenceCoverage(evaluation.requirements, listing.evidence, { now }),
+        updatedAt: listingRow.rows[0]?.updated_at ?? new Date().toISOString(),
+      };
+    },
     listSellerListingFeeHistory: async (params) => {
       await loadOwnedListingState(params.listingId, params.accountId);
       const events = await deps.eventStore.readStream({
