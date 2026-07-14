@@ -12,6 +12,7 @@ import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-po
 import { createWalletRuntime } from "../../features/wallets/api/runtime";
 import type { NegativeBalancePolicy } from "../../features/wallets/api/runtime";
 import { createWalletAdjustmentRuntime } from "../../features/wallets/api/wallet-adjustment-runtime";
+import { createProtectionCoverageRuntime } from "../../features/protection-coverage/api/protection-coverage-runtime";
 import { createPayoutRuntime } from "../../features/payouts/api/runtime";
 import { createPayoutReadinessRuntime } from "../../features/payout-readiness/api/runtime";
 import type { MoneyMovementGateway } from "@chase-sets/money-movement";
@@ -32,6 +33,7 @@ export type SettlementHostPorts = Readonly<{
 export type SettlementServices = Readonly<{
   wallets: ReturnType<typeof createWalletRuntime>;
   walletAdjustments: ReturnType<typeof createWalletAdjustmentRuntime>;
+  protectionCoverage: ReturnType<typeof createProtectionCoverageRuntime>;
   payouts: ReturnType<typeof createPayoutRuntime>;
   payoutReadiness: ReturnType<typeof createPayoutReadinessRuntime>;
   /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (clearance window, payout bounds). */
@@ -87,6 +89,7 @@ export function createSettlementServices(
     ...(ports.negativeBalancePolicy ? { negativeBalancePolicy: ports.negativeBalancePolicy } : {}),
   });
   const walletAdjustments = createWalletAdjustmentRuntime({ eventStore, db, wallets, policies, operationsRecorder });
+  const protectionCoverage = createProtectionCoverageRuntime({ eventStore, db, operationsRecorder });
   const payoutReadiness = createPayoutReadinessRuntime({
     eventStore,
     checkpointStore,
@@ -115,10 +118,17 @@ export function createSettlementServices(
   return {
     wallets,
     walletAdjustments,
+    protectionCoverage,
     payouts,
     payoutReadiness,
     policies,
-    projectors: [...wallets.projectors, ...payoutReadiness.projectors, ...payouts.projectors, ...policies.projectors],
+    projectors: [
+      ...wallets.projectors,
+      ...protectionCoverage.projectors,
+      ...payoutReadiness.projectors,
+      ...payouts.projectors,
+      ...policies.projectors,
+    ],
     pool,
     db,
   };

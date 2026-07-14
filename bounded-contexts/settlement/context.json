@@ -170,6 +170,13 @@
       "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "settlement-protection-coverage-projection",
+      "sourceContextNames": ["settlement"],
+      "ownedTables": ["settlement_protection_coverage", "settlement_protection_coverage_rejections"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [

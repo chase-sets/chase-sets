@@ -41,7 +41,14 @@ export type SettlementOperationEvent = Readonly<{
     | "wallet-adjustment-idempotent-retry"
     | "wallet-adjustment-negative-balance-effect"
     | "wallet-adjustment-halted"
-    | "wallet-adjustment-limit-exceeded";
+    | "wallet-adjustment-limit-exceeded"
+    | "protection-coverage-reserved"
+    | "protection-coverage-rejected"
+    | "protection-coverage-settled"
+    | "protection-coverage-released"
+    | "protection-coverage-expired"
+    | "protection-coverage-concurrency-conflict"
+    | "protection-coverage-idempotent-retry";
   accountId?: AccountId | string;
   payoutId?: PayoutId | string;
   amount?: string;
