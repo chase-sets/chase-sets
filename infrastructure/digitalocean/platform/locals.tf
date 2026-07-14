@@ -63,6 +63,25 @@ locals {
   app_platform_admin_domains                    = local.serving_from_doks ? [] : [local.admin_domain]
   app_platform_all_marketplace_domains          = concat(local.app_platform_marketplace_domains, local.app_platform_staging_root_marketplace_domains)
   app_platform_legacy_domain_redirects          = local.serving_from_doks ? {} : local.legacy_domain_redirects
+  # App Platform auto-assigns an un-routed web component to "/". Once DOKS
+  # serving removes every authority-qualified route, all three web components
+  # would otherwise collide there. Keep public-web as the harmless default and
+  # park the other warm fallback components on explicit, unique paths. This
+  # exact no-domain route set was accepted by `doctl apps propose` for staging.
+  app_platform_doks_ingress_routes = local.serving_from_doks ? [
+    {
+      component   = "public-web"
+      path_prefix = "/"
+    },
+    {
+      component   = "admin-web"
+      path_prefix = "/_app-platform/doks/admin"
+    },
+    {
+      component   = "marketplace"
+      path_prefix = "/_app-platform/doks/marketplace"
+    },
+  ] : []
 
   admin_domain       = local.is_production ? "admin.${var.root_domain}" : local.is_staging ? "admin.${var.environment}.${var.root_domain}" : "admin.${local.environment_slug}.preview.${var.root_domain}"
   landing_domain     = local.public_domains[0]

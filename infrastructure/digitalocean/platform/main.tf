@@ -1829,15 +1829,15 @@ resource "digitalocean_app" "platform" {
 
     ingress {
       dynamic "rule" {
-        for_each = local.serving_from_doks ? [1] : []
+        for_each = local.app_platform_doks_ingress_routes
         content {
           match {
             path {
-              prefix = "/"
+              prefix = rule.value.path_prefix
             }
           }
           component {
-            name                 = "public-web"
+            name                 = rule.value.component
             preserve_path_prefix = true
           }
         }
