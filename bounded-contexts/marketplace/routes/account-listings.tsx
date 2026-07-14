@@ -17,9 +17,11 @@ import {
   type MarketplaceListingFeeLockReportEntry,
   type MarketplaceListingListItem,
   type MarketplaceSellerListingAvailability,
+  type MarketplaceSellerOrderCapacity,
   type MarketplaceSellerListingStatusCounts,
 } from "../support/request-support/api-client";
 import { createSellerMetricsRequestApiClient } from "../support/request-support/seller-metrics-api-client";
+import { createOrderingOpenOrdersRequestApiClient } from "../support/request-support/ordering-open-orders-api-client";
 import type { SellerBehavioralMetricsSummary } from "../support/request-support/seller-metrics-client";
 import type { MarketplaceListingBulkActionOutcome } from "../features/listings/ui/contracts";
 import {
@@ -34,6 +36,13 @@ import { sellerListingFilters, sellerListingPageQuery } from "../support/request
 const DEFAULT_FEE_LOCK_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListings.manage.active.draft.paused.and.withdrawn");
 const AVAILABILITY_ACTION_PARAM = "availabilityAction";
+const SETTINGS_ACTION_PARAM = "settingsAction";
+const SETTINGS_ACTIONS = {
+  scheduleAwayWindow: "schedule-away-window",
+  cancelAwayWindow: "cancel-away-window",
+  setOrderCapacity: "set-order-capacity",
+  clearOrderCapacity: "clear-order-capacity",
+} as const;
 const ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY = {
   boundedContextName: "marketplace",
   surface: "account-listings",
@@ -68,8 +77,18 @@ function accountAccessRequired(returnTo: string) {
       away_window_reason_category: null,
       updated_at: "1970-01-01T00:00:00.000Z",
     },
+    orderCapacity: emptyOrderCapacity(""),
+    openOrderCount: null,
     filters: { status: "all", search: "" },
     sellerBehavioralMetrics: null,
+  };
+}
+
+function emptyOrderCapacity(accountId: string): MarketplaceSellerOrderCapacity {
+  return {
+    account_id: accountId,
+    max_open_orders: null,
+    updated_at: "1970-01-01T00:00:00.000Z",
   };
 }
 
@@ -88,6 +107,7 @@ type AccountListingsPageReads = Readonly<{
   listings: MarketplaceListingListResponse;
   feeLockReport: ListResponse<MarketplaceListingFeeLockReportEntry>;
   listingAvailability: MarketplaceSellerListingAvailability;
+  orderCapacity: MarketplaceSellerOrderCapacity;
 }>;
 
 function emptyListResponse<T>(): ListResponse<T> {
@@ -123,6 +143,7 @@ function createFreshWriteRecoveryPageReads(
       away_window_reason_category: null,
       updated_at: "1970-01-01T00:00:00.000Z",
     },
+    orderCapacity: emptyOrderCapacity(accountId),
   };
 }
 
@@ -138,6 +159,75 @@ function availabilityStatusFromAction(value: string | null): MarketplaceSellerLi
     return "available";
   }
   return null;
+}
+
+function requestWithoutFreshWrite(request: Request) {
+  const url = new URL(request.url);
+  url.searchParams.delete("afterWrite");
+  url.searchParams.delete("postWriteHandoff");
+  url.searchParams.delete("postWriteToken");
+  return new Request(url.toString(), { headers: request.headers });
+}
+
+function settingsDestination(
+  action: (typeof SETTINGS_ACTIONS)[keyof typeof SETTINGS_ACTIONS],
+  values: Record<string, string> = {},
+) {
+  const searchParams = new URLSearchParams({ [SETTINGS_ACTION_PARAM]: action, ...values });
+  return `/account/listings?${searchParams.toString()}`;
+}
+
+function applySettingsRecovery(
+  reads: AccountListingsPageReads,
+  searchParams: URLSearchParams,
+): AccountListingsPageReads {
+  const action = searchParams.get(SETTINGS_ACTION_PARAM);
+
+  if (action === SETTINGS_ACTIONS.scheduleAwayWindow) {
+    const startsAt = searchParams.get("awayWindowStartsAt");
+    if (!startsAt) return reads;
+
+    return {
+      ...reads,
+      listingAvailability: {
+        ...reads.listingAvailability,
+        away_window_starts_at: startsAt,
+        away_window_ends_at: searchParams.get("awayWindowEndsAt"),
+        away_window_reason_category: searchParams.get("awayWindowReasonCategory"),
+      },
+    };
+  }
+
+  if (action === SETTINGS_ACTIONS.cancelAwayWindow) {
+    return {
+      ...reads,
+      listingAvailability: {
+        ...reads.listingAvailability,
+        away_window_starts_at: null,
+        away_window_ends_at: null,
+        away_window_reason_category: null,
+      },
+    };
+  }
+
+  if (action === SETTINGS_ACTIONS.setOrderCapacity) {
+    const maxOpenOrders = Number(searchParams.get("maxOpenOrders"));
+    if (!Number.isSafeInteger(maxOpenOrders) || maxOpenOrders < 1) return reads;
+
+    return {
+      ...reads,
+      orderCapacity: { ...reads.orderCapacity, max_open_orders: maxOpenOrders },
+    };
+  }
+
+  if (action === SETTINGS_ACTIONS.clearOrderCapacity) {
+    return {
+      ...reads,
+      orderCapacity: { ...reads.orderCapacity, max_open_orders: null },
+    };
+  }
+
+  return reads;
 }
 
 function bulkActionOutcomeLabel(listingId: string) {
@@ -172,19 +262,23 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const filters = sellerListingFilters(resolvedRequest);
   const searchParams = new URL(resolvedRequest.url).searchParams;
   const pendingAvailabilityStatus = availabilityStatusFromAction(searchParams.get(AVAILABILITY_ACTION_PARAM));
+  const pendingSettingsAction = searchParams.get(SETTINGS_ACTION_PARAM);
+
+  const loadPageReads = async (apiClient: typeof marketplaceApi): Promise<AccountListingsPageReads> => {
+    const [listings, feeLockReport, listingAvailability, orderCapacity] = await Promise.all([
+      apiClient.listSellerListings(listingsPageQuery),
+      apiClient.listSellerListingFeeLockReport(DEFAULT_FEE_LOCK_QUERY),
+      apiClient.getSellerListingAvailability(),
+      apiClient.getSellerOrderCapacity(),
+    ]);
+
+    return { listings, feeLockReport, listingAvailability, orderCapacity };
+  };
 
   const pageRead = await loadAfterWrite<AccountListingsPageReads>({
     request: resolvedRequest,
     isNotFound: (error) => marketplaceApiErrorStatus(error) === 404,
-    load: async () => {
-      const [listings, feeLockReport, listingAvailability] = await Promise.all([
-        marketplaceApi.listSellerListings(listingsPageQuery),
-        marketplaceApi.listSellerListingFeeLockReport(DEFAULT_FEE_LOCK_QUERY),
-        marketplaceApi.getSellerListingAvailability(),
-      ]);
-
-      return { listings, feeLockReport, listingAvailability };
-    },
+    load: () => loadPageReads(marketplaceApi),
     telemetry: ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY,
   });
 
@@ -193,8 +287,15 @@ export async function loader({ request }: LoaderFunctionArgs) {
     pageReads = pageRead.data;
   } else if (pageRead.kind === "pending" && "classification" in pageRead) {
     const { classification } = pageRead;
-    if (pendingAvailabilityStatus && classification.transient && hasMarketplaceFreshWriteSource(classification)) {
-      pageReads = createFreshWriteRecoveryPageReads(actor.accountId, pendingAvailabilityStatus);
+    if (classification.transient && hasMarketplaceFreshWriteSource(classification)) {
+      if (pendingSettingsAction) {
+        const recoveryApi = createMarketplaceRequestApiClient(requestWithoutFreshWrite(resolvedRequest));
+        pageReads = applySettingsRecovery(await loadPageReads(recoveryApi), searchParams);
+      } else if (pendingAvailabilityStatus) {
+        pageReads = createFreshWriteRecoveryPageReads(actor.accountId, pendingAvailabilityStatus);
+      } else {
+        throw pageRead.error;
+      }
     } else {
       throw pageRead.error;
     }
@@ -204,7 +305,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     throw new Response(t("marketplace.routes.accountListings.listings.marketplace"), { status: 500 });
   }
 
-  const { listings, feeLockReport, listingAvailability } = pageReads;
+  const { listings, feeLockReport, listingAvailability, orderCapacity } = pageReads;
 
   // Best-effort, outside the write-freshness machinery above --
   // behavioral metrics have no write path on this page, so there is nothing
@@ -212,11 +313,20 @@ export async function loader({ request }: LoaderFunctionArgs) {
   // "not enough orders yet" rather than failing the whole listings page.
   const sellerBehavioralMetrics = await fetchSellerBehavioralMetrics(resolvedRequest);
 
+  // Ordering-sourced live Open Order count (the "N" in the card's "N of M"),
+  // read cross-context and best-effort: Ordering owns this count, the setting
+  // itself is written to marketplace, so a transient Ordering read failure
+  // degrades the count to "temporarily unavailable" rather than failing the
+  // whole listings page. Never counted client-side.
+  const openOrderCount = await fetchSellerOpenOrderCount(resolvedRequest);
+
   return {
     accountAccessRequired: null,
     listings,
     feeLockReport,
     listingAvailability,
+    orderCapacity,
+    openOrderCount,
     filters,
     sellerBehavioralMetrics,
   };
@@ -225,6 +335,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
 async function fetchSellerBehavioralMetrics(request: Request): Promise<SellerBehavioralMetricsSummary | null> {
   try {
     return await createSellerMetricsRequestApiClient(request).getOwnBehavioralMetrics();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchSellerOpenOrderCount(request: Request): Promise<number | null> {
+  try {
+    return await createOrderingOpenOrdersRequestApiClient(request).getSellerOpenOrderCount();
   } catch {
     return null;
   }
@@ -264,24 +382,53 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "schedule-away-window") {
+      const reasonCategory = String(formData.get("awayWindowReasonCategory") ?? "");
+      const startsAt = String(formData.get("awayWindowStartsAt") ?? "");
+      const endsAt = String(formData.get("awayWindowEndsAt") ?? "");
       return redirect(
         await navigateToAccountListingsAfterWrite(
           await api.scheduleSellerAwayWindow({
-            reasonCategory: String(formData.get("awayWindowReasonCategory") ?? ""),
+            reasonCategory,
             // Captured client-side (seller-local start-of-day for the
             // chosen date, converted to an instant), same convention as
             // the disable form's availableAgainAt.
-            startsAt: String(formData.get("awayWindowStartsAt") ?? ""),
-            endsAt: String(formData.get("awayWindowEndsAt") ?? ""),
+            startsAt,
+            endsAt,
           }),
-          "/account/listings",
+          settingsDestination(SETTINGS_ACTIONS.scheduleAwayWindow, {
+            awayWindowReasonCategory: reasonCategory,
+            awayWindowStartsAt: startsAt,
+            awayWindowEndsAt: endsAt,
+          }),
         ),
       );
     }
 
     if (intent === "cancel-away-window") {
       return redirect(
-        await navigateToAccountListingsAfterWrite(await api.cancelScheduledAwayWindow(), "/account/listings"),
+        await navigateToAccountListingsAfterWrite(
+          await api.cancelScheduledAwayWindow(),
+          settingsDestination(SETTINGS_ACTIONS.cancelAwayWindow),
+        ),
+      );
+    }
+
+    if (intent === "set-order-capacity") {
+      const maxOpenOrders = Number(formData.get("maxOpenOrders") ?? "");
+      return redirect(
+        await navigateToAccountListingsAfterWrite(
+          await api.setSellerOrderCapacity(maxOpenOrders),
+          settingsDestination(SETTINGS_ACTIONS.setOrderCapacity, { maxOpenOrders: String(maxOpenOrders) }),
+        ),
+      );
+    }
+
+    if (intent === "clear-order-capacity") {
+      return redirect(
+        await navigateToAccountListingsAfterWrite(
+          await api.clearSellerOrderCapacity(),
+          settingsDestination(SETTINGS_ACTIONS.clearOrderCapacity),
+        ),
       );
     }
 
@@ -362,6 +509,9 @@ export default function MarketplaceAccountListingsRoute() {
         data.feeLockReport.items.map((item) => item.listing_id).join("|"),
         data.listingAvailability.status,
         data.listingAvailability.updated_at,
+        data.orderCapacity.updated_at,
+        String(data.orderCapacity.max_open_orders),
+        String(data.openOrderCount),
         data.filters.status,
         data.filters.search,
       ].join("\n")}
@@ -447,6 +597,8 @@ function MarketplaceAccountListingsRealtimeView({
       pagination={{ limit: listings.limit, offset: listings.offset, total: listings.total }}
       feeLockReport={feeLockReport}
       listingAvailability={data.listingAvailability as MarketplaceSellerListingAvailability}
+      orderCapacity={data.orderCapacity as MarketplaceSellerOrderCapacity}
+      openOrderCount={data.openOrderCount}
       filters={data.filters}
       bulkActionOutcomes={actionData?.bulkActionOutcomes ?? null}
       errorMessage={actionData?.error ?? null}

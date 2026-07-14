@@ -197,7 +197,11 @@ export function Layout({ children }: { children: ReactNode }) {
   const data = useLoaderData<typeof loader>() as MarketplaceRootLoaderData | undefined;
   const location = useLocation();
   const origin = data?.origin ?? (typeof window === "undefined" ? "http://localhost" : window.location.origin);
-  const shouldIndex = data?.shouldIndex ?? shouldIndexMarketplace();
+  // Loader data is unavailable while React Router renders some client-side
+  // error/revalidation states. Never fall back to the server environment here:
+  // `process` does not exist in the browser, and indexing should fail closed
+  // when the server-owned crawl posture is unavailable.
+  const shouldIndex = data?.shouldIndex ?? false;
   const canonicalUrl = buildCanonicalUrl({
     origin,
     pathname: location.pathname,

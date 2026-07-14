@@ -475,6 +475,15 @@
           ]
         },
         {
+          "routePath": "/account/order-capacity",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "marketplace_seller_order_capacity_pages"
+            }
+          ]
+        },
+        {
           "routePath": "/account/listings/:id",
           "methods": ["GET", "HEAD"],
           "dependencies": [
@@ -845,6 +854,33 @@
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Account Listings loads Seller Listing Availability inside the default-safe fresh-write loader, so availability toggles redirect with a Marketplace receipt and the destination waits on the availability page before showing the account-wide control."
+        }
+      }
+    },
+    {
+      "id": "marketplace.order-capacity-self-refresh",
+      "owner": "marketplace",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "account-listings",
+        "actions": ["Set seller order capacity", "Clear seller order capacity"],
+        "command": "Seller Order Capacity commands",
+        "helperUses": ["navigateAfterWriteWithCompactToken"]
+      },
+      "destination": {
+        "routeId": "account-listings",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/order-capacity",
+        "readModelTables": ["marketplace_seller_order_capacity_pages"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account Listings loads the Seller Order Capacity setting inside the default-safe fresh-write loader, so the Time away & order capacity card's set/clear cap redirects with a Marketplace receipt and the destination waits on the capacity page before showing the current cap."
         }
       }
     },
@@ -1241,10 +1277,10 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#4",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.tsx:H2df726441e2a#4",
         "route-action:bounded-contexts/marketplace/routes/account-listings.tsx"
       ],
       "visibleDestination": {
@@ -1254,14 +1290,40 @@
         "readModelTables": ["marketplace_seller_listing_availability_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Seller Listing Availability toggles and Away Window schedule/cancel redirect to Account Listings with a Marketplace receipt; the destination loader forwards it to availability and list reads before rendering the account-wide status control and away-window section."
+          "behavior": "The Time away & order capacity card's Seller Listing Availability toggles and Away Window schedule/cancel redirect to Account Listings with a Marketplace receipt; the destination loader forwards it to availability and list reads before rendering the card's status control and away-window section."
         }
       },
       "proof": {
         "tests": [
+          "bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.test.tsx",
           "bounded-contexts/marketplace/features/listings/ui/listing-list-page.test.tsx",
           "bounded-contexts/marketplace/tests/account-listings-route.test.ts",
           "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.order-capacity-fresh-read-form",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.tsx:H2df726441e2a#5"
+      ],
+      "visibleDestination": {
+        "routeId": "account-listings",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/order-capacity",
+        "readModelTables": ["marketplace_seller_order_capacity_pages"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Time away & order capacity card's set/clear Order Capacity form redirects to Account Listings with a Marketplace receipt; the destination loader forwards it to the Order Capacity read before rendering the current cap. The read-only 'N of M' open-order count is an Ordering-owned best-effort read outside this write path."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.test.tsx",
+          "bounded-contexts/marketplace/tests/account-listings-route.test.ts"
         ]
       }
     },
@@ -1298,7 +1360,7 @@
       "owner": "marketplace",
       "risk": "important",
       "strategy": "optimistic-with-correction",
-      "surfaces": ["post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#5"],
+      "surfaces": ["post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#1"],
       "visibleDestination": {
         "description": "Bulk pause/withdraw submits the selected listing ids to the Account Listings route action, which batches the existing per-listing pause/withdraw commands and returns a per-row outcome list without redirecting; React Router revalidates the Account Listings loader on the same response, refreshing the table, status badges, and status counts from the Marketplace listings read model."
       },

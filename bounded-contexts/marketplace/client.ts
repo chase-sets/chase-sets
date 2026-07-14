@@ -22,6 +22,7 @@ export type {
   MarketplaceAnonymousListingDraftIntent,
   MarketplaceListingListItem,
   MarketplaceSellerListingAvailability,
+  MarketplaceSellerOrderCapacity,
   MarketplaceSellerListingStatusCounts,
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
@@ -56,6 +57,7 @@ import type {
   MarketplaceAnonymousListingDraftIntent,
   MarketplaceListingListItem,
   MarketplaceSellerListingAvailability,
+  MarketplaceSellerOrderCapacity,
   MarketplaceSellerListingStatusCounts,
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
@@ -310,6 +312,28 @@ export function createMarketplaceApiClient({
     async cancelScheduledAwayWindow() {
       return parseJsonResponse(
         await client.account["listing-availability"]["away-window"].$delete({
+          header: headers,
+        }),
+      );
+    },
+    async getSellerOrderCapacity(): Promise<MarketplaceSellerOrderCapacity> {
+      return parseJsonResponse(
+        await client.account["order-capacity"].$get({
+          header: headers,
+        }),
+      );
+    },
+    async setSellerOrderCapacity(maxOpenOrders: number) {
+      return parseJsonResponse(
+        await client.account["order-capacity"].$post({
+          json: { maxOpenOrders },
+          header: headers,
+        }),
+      );
+    },
+    async clearSellerOrderCapacity() {
+      return parseJsonResponse(
+        await client.account["order-capacity"].$delete({
           header: headers,
         }),
       );

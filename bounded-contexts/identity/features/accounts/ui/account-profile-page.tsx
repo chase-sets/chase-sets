@@ -103,6 +103,9 @@ export function AccountProfilePage({
             <LinkButton href="/account/inventory/locations" tone="secondary">
               {t("identity.features.accounts.ui.accountProfilePage.manage.ship.from.locations")}
             </LinkButton>
+            <LinkButton href="/account/listings" tone="secondary">
+              {t("identity.features.accounts.ui.accountProfilePage.manage.time.away.and.order.capacity")}
+            </LinkButton>
           </Stack>
         }
       />

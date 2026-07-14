@@ -405,6 +405,22 @@ export function createAccountSaleOrderRoutes(services: OrderingOrderServices) {
     });
   });
 
+  // Read-only Open Order count for the authenticated seller (m127): the
+  // authoritative "N" in the "N of M" Order Capacity display, counted from
+  // the Ordering claim ledger so marketplace's seller settings surface never
+  // counts orders client-side. Declared before `/sales/:id` so the literal
+  // path wins over the id param.
+  app.get("/sales/order-capacity", async (c) => {
+    const access = requireOrderAccess(c, "orders.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const openOrderCount = await services.getSellerOpenOrderCount(access.actor.accountId);
+
+    return c.json({ open_order_count: openOrderCount });
+  });
+
   app.get("/sales/:id", async (c) => {
     const access = requireOrderAccess(c, "orders.view");
     if (access.response) {

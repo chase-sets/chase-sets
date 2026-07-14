@@ -324,6 +324,8 @@ export const identityEnglishTranslations = {
   "identity.features.memberships.ui.accountTeamPage.membership.summary": "{role} · {status}",
   "identity.features.accounts.ui.accountProfilePage.manage.shipping.addresses": "Manage shipping addresses",
   "identity.features.accounts.ui.accountProfilePage.manage.ship.from.locations": "Manage ship-from locations",
+  "identity.features.accounts.ui.accountProfilePage.manage.time.away.and.order.capacity":
+    "Manage time away & order capacity",
   "identity.features.shippingAddresses.api.route.authentication.context.missing": "Authentication context missing.",
   "identity.features.shippingAddresses.api.route.address.standardization.suggested":
     "We found a standardized version of this address. Choose the suggested address or confirm the address as entered.",
