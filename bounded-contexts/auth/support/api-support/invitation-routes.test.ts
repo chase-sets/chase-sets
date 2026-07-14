@@ -223,6 +223,38 @@ describe("invitation auth routes", () => {
     expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
   });
 
+  it("rejects an expired invitation even when token verification succeeds", async () => {
+    const services = createServices();
+    const identityMutations = createIdentityMutations();
+    identityMutations.verifyInvitationAcceptanceToken.mockResolvedValue({
+      invitationId: "ivt_1",
+      accountId: "acc_invited",
+      email: "seller@example.com",
+      roleKey: "viewer",
+      expiresAt: "2026-01-01T00:00:00.000Z",
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(identityMutations);
+    const app = buildApp(services);
+
+    const response = await app.request("/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        invitationId: "ivt_1",
+        token: "invite_token",
+      }),
+    });
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invitation acceptance token is invalid or expired.",
+    });
+    expect(identityMutations.createPersonalIdentity).not.toHaveBeenCalled();
+    expect(identityMutations.acceptInvitationForUser).not.toHaveBeenCalled();
+    expect(identityMutations.verifyEmailContactMethod).not.toHaveBeenCalled();
+    expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+  });
+
   it("accepts a valid emailed token once and rejects replay", async () => {
     const services = createServices();
     const identityMutations = createIdentityMutations();

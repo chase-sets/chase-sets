@@ -90,6 +90,35 @@ describe("invitation domain", () => {
     ).toThrow("Invitation acceptance token is expired.");
   });
 
+  it("rejects an expired invitation even when the expiry sweeper has not run", () => {
+    const created = decideInvitation(initialInvitationState, {
+      type: "CreateInvitation",
+      invitationId: "ivt_test" as never,
+      accountId: "acc_test" as never,
+      email: "seller@example.com",
+      roleKey: "viewer",
+      expiresAt: "2026-04-01T00:00:00.000Z",
+      assignmentAuthority: { type: "system" },
+    });
+    const createdState = created.reduce(evolveInvitation, initialInvitationState);
+    const issued = decideInvitation(createdState, {
+      type: "IssueInvitationAcceptanceToken",
+      tokenHash: "hashed:invite_token",
+      expiresAt: "2026-04-01T00:00:00.000Z",
+    });
+    const issuedState = issued.reduce(evolveInvitation, createdState);
+
+    expect(issuedState.status).toBe("pending");
+    expect(() =>
+      decideInvitation(issuedState, {
+        type: "AcceptInvitation",
+        userId: "usr_test" as never,
+        acceptanceTokenHash: "hashed:invite_token",
+        acceptedAt: "2026-04-01T00:00:00.000Z",
+      }),
+    ).toThrow("Invitation is expired.");
+  });
+
   it("rejects platform-admin invitations outside platform bootstrap", () => {
     expect(() =>
       decideInvitation(initialInvitationState, {
