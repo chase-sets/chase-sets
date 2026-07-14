@@ -62,6 +62,7 @@ locals {
   app_platform_staging_root_marketplace_domains = local.serving_from_doks ? [] : local.staging_root_marketplace_domains
   app_platform_admin_domains                    = local.serving_from_doks ? [] : [local.admin_domain]
   app_platform_all_marketplace_domains          = concat(local.app_platform_marketplace_domains, local.app_platform_staging_root_marketplace_domains)
+  app_platform_legacy_domain_redirects          = local.serving_from_doks ? {} : local.legacy_domain_redirects
 
   admin_domain       = local.is_production ? "admin.${var.root_domain}" : local.is_staging ? "admin.${var.environment}.${var.root_domain}" : "admin.${local.environment_slug}.preview.${var.root_domain}"
   landing_domain     = local.public_domains[0]
