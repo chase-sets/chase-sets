@@ -243,6 +243,23 @@ Staging and production schema-bootstrap authority:
 - Exactly one control plane runs schema bootstrap in an environment. When the value is `doks`, the retained App Platform `platform-bootstrap` pre-deploy job logs a no-op without loading API/database configuration, and Terraform omits the App Platform worker component. The DOKS bootstrap hook remains the sole schema-bootstrap path.
 - To transfer authority to DOKS, first prove its bootstrap hook can complete, then change `PLATFORM_BOOTSTRAP_OWNER` on only the affected GitHub Environment and run Platform Deploy. Confirm the Terraform plan resolves `doks`, the App Platform job is a logged no-op, its worker is absent, and bootstrap executes exactly once before treating the transition as complete. Returning authority to App Platform requires a reviewed deployment change that first disables the DOKS bootstrap path; never flip the variable alone, enable both paths, or use an ingress change as the handoff signal.
 
+The deployment-contract preflight runs for staging and production in Resolve Release, before the release image build or any staging mutation. It reads the effective repository and GitHub Environment variables, then derives component and database-key names through the same Terraform-to-Helm renderer used by the DOKS deployment. Its JSON contains ownership, rollout and image-identity sources, component names, and database-key names/status only; it never reads or writes secret values.
+
+Reproduce the checked-in defaults locally:
+
+```powershell
+node ./scripts/deployment-contract-preflight.mjs --environment staging --out artifacts/deployment-contract/staging.json
+node ./scripts/deployment-contract-preflight.mjs --environment production --out artifacts/deployment-contract/production.json
+```
+
+Pass `--bootstrap-owner-override`, `--production-runtime-profile-override`, `--production-marketplace-public-enabled`, `--argo-rollouts-enabled`, or `--app-platform-lane` to reproduce an environment override. The production owner-omission regression fixture must fail with the ownership remediation:
+
+```powershell
+node ./scripts/deployment-contract-preflight.mjs --fixture ./scripts/fixtures/deployment-contract-preflight/production-owner-omission.json --out artifacts/deployment-contract/production-owner-omission.json
+```
+
+When the preflight fails, inspect the redacted contract artifact and its job-summary errors. Restore the missing workflow-to-Terraform owner mapping or correct the environment variable so the runtime owner and sole bootstrap owner match. For DOKS ownership, keep App Platform bootstrap as a no-op and its worker absent. For an App Platform ownership transfer, disable the DOKS runtime/bootstrap path in the reviewed deployment change and ensure every listed `PLATFORM_CONTROL_DATABASE_URL`/`DATABASE_URL_*` key is configured before switching authority.
+
 Additional `staging` variables:
 
 - `GOOGLE_WORKSPACE_DKIM_TXT_VALUE`: the Google Admin Console-provided DKIM TXT value for `google._domainkey.staging.chasesets.com`. Leave unset until Google generates the key; MX and SPF remain managed without it.

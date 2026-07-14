@@ -1,0 +1,22 @@
+{
+  "environment": "staging",
+  "runtimeProfile": "public",
+  "runtimeOwner": "app-platform",
+  "bootstrapOwner": "app-platform",
+  "bootstrapOwnerSource": "explicit",
+  "paths": {
+    "app-platform": {
+      "runtimeMode": "primary",
+      "bootstrapMode": "active"
+    },
+    "doks": {
+      "runtimeMode": "inactive",
+      "bootstrapMode": "no-op"
+    }
+  },
+  "rolloutMode": "app-platform",
+  "imageIdentity": {
+    "tagSource": "release-commit",
+    "digestSource": "build-release-image-digest"
+  }
+}

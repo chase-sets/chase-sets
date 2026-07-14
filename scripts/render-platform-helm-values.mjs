@@ -430,6 +430,13 @@ export function extractDigitalOceanPlatformComponents(sources) {
   });
 }
 
+export function extractDigitalOceanPlatformContextNames(sources) {
+  return {
+    landing: extractQuotedListLocal(sources.locals, "landing_context_names"),
+    platform: extractQuotedListLocal(sources.locals, "platform_context_names"),
+  };
+}
+
 export function buildPlatformHelmValues(options = {}) {
   const sources = options.sources ?? readPlatformSources(options.repoRoot ?? repoRoot);
   const components = extractDigitalOceanPlatformComponents(sources);
