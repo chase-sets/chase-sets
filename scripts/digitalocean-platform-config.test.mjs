@@ -487,6 +487,8 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformBootstrapJob).toContain('key   = "DEPLOYMENT_ENVIRONMENT"');
     expect(platformBootstrapJob).toContain("value = var.environment");
+    expect(platformBootstrapJob).toContain('key   = "PLATFORM_DATA_PROFILES"');
+    expect(platformBootstrapJob).toContain('value = "critical-bootstrap,catalog-integration-bootstrap"');
   });
 
   it("parses the production Postgres cluster id from indented Terraform state fallback output", () => {

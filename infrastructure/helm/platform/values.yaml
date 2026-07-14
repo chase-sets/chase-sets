@@ -970,6 +970,8 @@ components:
       - name: "PLATFORM_CONTROL_DATABASE_URL"
         secret: true
         secretKey: "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL"
+      - name: "PLATFORM_DATA_PROFILES"
+        value: "critical-bootstrap,catalog-integration-bootstrap"
       - name: "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
         value: "false"
       - name: "PLATFORM_INTERNAL_AUTH_SECRET"

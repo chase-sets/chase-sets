@@ -61,6 +61,10 @@ describe("render platform Helm values", () => {
     const bootstrapEnv = new Map(values.components["platform-bootstrap"].env.map((entry) => [entry.name, entry]));
     const apiEnv = new Map(values.components["platform-api"].env.map((entry) => [entry.name, entry]));
 
+    expect(bootstrapEnv.get("PLATFORM_DATA_PROFILES")).toEqual({
+      name: "PLATFORM_DATA_PROFILES",
+      value: "critical-bootstrap,catalog-integration-bootstrap",
+    });
     expect(bootstrapEnv.get("DATABASE_URL_CATALOG")?.secretKey).toBe("BOOTSTRAP_DATABASE_URL_CATALOG");
     expect(bootstrapEnv.get("PLATFORM_CONTROL_DATABASE_URL")?.secretKey).toBe(
       "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL",
@@ -675,7 +679,7 @@ describe("render platform Helm values", () => {
       "admin-web": 5,
       marketplace: 13,
       "platform-api": 91,
-      "platform-bootstrap": 55,
+      "platform-bootstrap": 56,
       "platform-worker": 119,
       "public-web": 12,
     });
