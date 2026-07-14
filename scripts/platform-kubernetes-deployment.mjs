@@ -15,6 +15,10 @@ export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deplo
 export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v1";
 export const PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION = "platform-kubernetes-scenario-seed/v1";
 export const scenarioSeedMaxActiveDeadlineSeconds = 3_300;
+const scenarioSeedQuiesceTimeoutSeconds = 45;
+// Leave more than four minutes inside the 55-minute Job deadline for worker
+// drain, command termination, and KEDA resume if the seed reaches this bound.
+const scenarioSeedCommandTimeoutSeconds = 3_000;
 // Metadata fields cert-manager/the API server stamp onto the source Secret
 // that must never travel to the copy: a namespace mismatch makes `kubectl
 // apply -n <target>` refuse the object outright, and the rest are
@@ -593,6 +597,8 @@ export function buildScenarioSeedJobManifest(options = {}) {
     options.jobName ??
       `${release}-scenario-seed-${options.env?.GITHUB_RUN_ID ?? Date.now()}-${options.env?.GITHUB_RUN_ATTEMPT ?? "1"}`,
   );
+  const accessName = scenarioSeedAccessName(release);
+  const workerDeployment = kubernetesComponentName(release, "platform-worker");
   const env = component.env.map((entry) => {
     if (entry.secret) {
       return {
@@ -614,6 +620,15 @@ export function buildScenarioSeedJobManifest(options = {}) {
           : String(envOverrides[entry.name] ?? entry.value ?? ""),
     };
   });
+  env.push(
+    { name: "CHASE_SETS_KUBERNETES_NAMESPACE", value: namespace },
+    { name: "CHASE_SETS_QUIESCE_DEPLOYMENTS", value: workerDeployment },
+    { name: "CHASE_SETS_QUIESCE_TIMEOUT_SECONDS", value: String(scenarioSeedQuiesceTimeoutSeconds) },
+    { name: "CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS", value: String(scenarioSeedCommandTimeoutSeconds) },
+    { name: "CHASE_SETS_QUIESCE_POLL_INTERVAL_MS", value: "2000" },
+    { name: "CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE", value: "true" },
+    { name: "CHASE_SETS_QUIESCE_IGNORE_MISSING_DEPLOYMENTS", value: "false" },
+  );
 
   return {
     apiVersion: "batch/v1",
@@ -645,6 +660,7 @@ export function buildScenarioSeedJobManifest(options = {}) {
         },
         spec: {
           restartPolicy: "Never",
+          serviceAccountName: accessName,
           ...(options.imagePullSecret ? { imagePullSecrets: [{ name: options.imagePullSecret }] } : {}),
           containers: [
             {
@@ -652,7 +668,7 @@ export function buildScenarioSeedJobManifest(options = {}) {
               image,
               imagePullPolicy: values.global?.image?.pullPolicy ?? "IfNotPresent",
               command: ["sh", "-lc"],
-              args: [component.command],
+              args: [`node ./infrastructure/helm/platform/scripts/bootstrap-quiesce.mjs -- ${component.command}`],
               env,
               ...(component.resources && Object.keys(component.resources).length > 0
                 ? { resources: component.resources }
@@ -665,62 +681,143 @@ export function buildScenarioSeedJobManifest(options = {}) {
   };
 }
 
+export function buildScenarioSeedAccessManifest(options = {}) {
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  const release = requiredOption(options.release ?? defaultRelease, "release");
+  const name = scenarioSeedAccessName(release);
+  const workerDeployment = kubernetesComponentName(release, "platform-worker");
+  const labels = {
+    "app.kubernetes.io/name": chartName,
+    "app.kubernetes.io/instance": release,
+    "app.kubernetes.io/component": "scenario-seed-quiesce",
+    "app.kubernetes.io/managed-by": "github-actions",
+  };
+
+  return {
+    apiVersion: "v1",
+    kind: "List",
+    items: [
+      {
+        apiVersion: "v1",
+        kind: "ServiceAccount",
+        metadata: { name, namespace, labels },
+      },
+      {
+        apiVersion: "rbac.authorization.k8s.io/v1",
+        kind: "Role",
+        metadata: { name, namespace, labels },
+        rules: [
+          {
+            apiGroups: ["apps"],
+            resources: ["deployments", "deployments/scale"],
+            resourceNames: [workerDeployment],
+            verbs: ["get", "patch"],
+          },
+          {
+            apiGroups: ["keda.sh"],
+            resources: ["scaledobjects"],
+            resourceNames: [workerDeployment],
+            verbs: ["patch"],
+          },
+        ],
+      },
+      {
+        apiVersion: "rbac.authorization.k8s.io/v1",
+        kind: "RoleBinding",
+        metadata: { name, namespace, labels },
+        subjects: [{ kind: "ServiceAccount", name, namespace }],
+        roleRef: {
+          apiGroup: "rbac.authorization.k8s.io",
+          kind: "Role",
+          name,
+        },
+      },
+    ],
+  };
+}
+
 export async function runScenarioSeedOnKubernetes(options = {}) {
   const kubectlPath = options.kubectlPath ?? "kubectl";
   const manifest = buildScenarioSeedJobManifest(options);
+  const accessManifest = buildScenarioSeedAccessManifest(options);
   const namespace = manifest.metadata.namespace;
   const jobName = manifest.metadata.name;
+  const accessName = accessManifest.items[0].metadata.name;
 
   await runProcess({
     command: kubectlPath,
     args: ["apply", "--namespace", namespace, "-f", "-"],
-    input: `${JSON.stringify(manifest)}\n`,
+    input: `${JSON.stringify(accessManifest)}\n`,
     spawn: options.spawn,
-  });
-  await runProcess({
-    command: kubectlPath,
-    args: ["logs", "--follow", `job/${jobName}`, "--namespace", namespace, "--pod-running-timeout=5m"],
-    spawn: options.spawn,
-    allowFailure: true,
   });
 
-  const timeoutMs = durationToMilliseconds(options.timeout ?? "60m");
-  const startedAt = (options.now ?? Date.now)();
-  const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
-  while (true) {
-    const result = await runProcess({
+  try {
+    await runProcess({
       command: kubectlPath,
-      args: ["get", `job/${jobName}`, "--namespace", namespace, "--output", "json"],
+      args: ["apply", "--namespace", namespace, "-f", "-"],
+      input: `${JSON.stringify(manifest)}\n`,
       spawn: options.spawn,
-      captureOutput: true,
     });
-    const job = JSON.parse(result.stdout);
-    const conditions = job.status?.conditions ?? [];
-    if (
-      job.status?.succeeded === 1 ||
-      conditions.some((condition) => condition.type === "Complete" && condition.status === "True")
-    ) {
-      return {
-        schemaVersion: PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION,
-        action: "scenario-seed",
-        result: "success",
-        release: options.release ?? defaultRelease,
+    await runProcess({
+      command: kubectlPath,
+      args: ["logs", "--follow", `job/${jobName}`, "--namespace", namespace, "--pod-running-timeout=5m"],
+      spawn: options.spawn,
+      allowFailure: true,
+    });
+
+    const timeoutMs = durationToMilliseconds(options.timeout ?? "60m");
+    const startedAt = (options.now ?? Date.now)();
+    const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    while (true) {
+      const result = await runProcess({
+        command: kubectlPath,
+        args: ["get", `job/${jobName}`, "--namespace", namespace, "--output", "json"],
+        spawn: options.spawn,
+        captureOutput: true,
+      });
+      const job = JSON.parse(result.stdout);
+      const conditions = job.status?.conditions ?? [];
+      if (
+        job.status?.succeeded === 1 ||
+        conditions.some((condition) => condition.type === "Complete" && condition.status === "True")
+      ) {
+        return {
+          schemaVersion: PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION,
+          action: "scenario-seed",
+          result: "success",
+          release: options.release ?? defaultRelease,
+          namespace,
+          jobName,
+        };
+      }
+      const failed = conditions.find((condition) => condition.type === "Failed" && condition.status === "True");
+      if (job.status?.failed > 0 || failed) {
+        throw new Error(
+          `Post-deploy scenario seed Job ${jobName} failed: ${failed?.reason ?? "container-exited"} ${failed?.message ?? ""}`.trim(),
+        );
+      }
+      if ((options.now ?? Date.now)() - startedAt >= timeoutMs) {
+        throw new Error(
+          `Timed out after ${options.timeout ?? "60m"} waiting for post-deploy scenario seed Job ${jobName}.`,
+        );
+      }
+      await sleep(options.pollIntervalMs ?? 2_000);
+    }
+  } finally {
+    await runProcess({
+      command: kubectlPath,
+      args: [
+        "delete",
+        `rolebinding/${accessName}`,
+        `role/${accessName}`,
+        `serviceaccount/${accessName}`,
+        "--namespace",
         namespace,
-        jobName,
-      };
-    }
-    const failed = conditions.find((condition) => condition.type === "Failed" && condition.status === "True");
-    if (job.status?.failed > 0 || failed) {
-      throw new Error(
-        `Post-deploy scenario seed Job ${jobName} failed: ${failed?.reason ?? "container-exited"} ${failed?.message ?? ""}`.trim(),
-      );
-    }
-    if ((options.now ?? Date.now)() - startedAt >= timeoutMs) {
-      throw new Error(
-        `Timed out after ${options.timeout ?? "60m"} waiting for post-deploy scenario seed Job ${jobName}.`,
-      );
-    }
-    await sleep(options.pollIntervalMs ?? 2_000);
+        "--ignore-not-found=true",
+      ],
+      spawn: options.spawn,
+      allowFailure: true,
+    });
   }
 }
 
@@ -1076,6 +1173,10 @@ function platformImageReference({ registryName, repository, tag, digest }) {
 
 function kubernetesComponentName(release, name) {
   return trimKubernetesName(`${release}-${chartName}-${name}`);
+}
+
+function scenarioSeedAccessName(release) {
+  return trimKubernetesName(`${release}-${chartName}-scenario-seed-quiesce`);
 }
 
 function componentFromWorkloadName(workloadName, release) {

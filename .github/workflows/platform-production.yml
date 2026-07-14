@@ -1078,6 +1078,7 @@ jobs:
 
       - name: Seed staging Kubernetes scenario data
         if: env.SHOULD_DEPLOY != 'false'
+        continue-on-error: true
         env:
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -1334,6 +1335,7 @@ jobs:
 
       - name: Staging marketplace critical flows
         if: env.SHOULD_DEPLOY != 'false'
+        continue-on-error: true
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
