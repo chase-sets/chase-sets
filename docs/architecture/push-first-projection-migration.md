@@ -46,6 +46,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `auth:auth-session-projection` | Auth | auth | push-eligible | 0/1 |
 | `catalog:catalog-admin-catalog-item-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `catalog:catalog-attention-dismissal-projection` | Catalog | **catalog** | push-enabled | 1/1 |
+| `catalog:catalog-item-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `catalog:catalog-product-contents-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `catalog:catalog-provider-scope-mapping-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `catalog:catalog-scope-registry-projection` | Catalog | **catalog** | push-enabled | 1/1 |
