@@ -13,13 +13,18 @@ import {
 } from "./catalog-mirror";
 import { createCatalogMirrorReplayDb } from "./catalog-mirror-replay";
 
-function event(type: string, data: Record<string, unknown>, streamId = "catalog.item-cat_1"): TransportEvent {
+function event(
+  type: string,
+  data: Record<string, unknown>,
+  streamId = "catalog.item-cat_1",
+  recordedAt = "2026-05-09T00:00:00.000Z",
+): TransportEvent {
   return buildTransportEvent(type, data, {
     id: "evt_1",
     streamId,
     tenantId: "tnt_1",
     audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
-    timing: { occurredAt: "2026-05-09T00:00:00.000Z", recordedAt: "2026-05-09T00:00:00.000Z" },
+    timing: { occurredAt: recordedAt, recordedAt },
   });
 }
 
@@ -403,8 +408,9 @@ describe("buildCatalogMirrorProjectionHandlers", () => {
     );
 
     expect(dimensionProductSchemaWrites).toHaveLength(1);
-    expect(dimensionProductSchemaWrites[0]?.params[0]).toBe("cat_affected");
-    expect(dimensionRevisionEffects.some((effect) => effect.sql.includes("ORDER BY catalog_item_id ASC"))).toBe(false);
+    expect(dimensionProductSchemaWrites[0]).toMatchObject({ params: ["bp_condition", expect.any(String)] });
+    expect(dimensionProductSchemaWrites[0]?.sql).toContain("WHERE blueprint_id = $1");
+    expect(dimensionProductSchemaWrites[0]?.sql).toContain("product_schema IS DISTINCT FROM $2::jsonb");
 
     const beforeOptionRevision = replayDb.effects.length;
     await handlers["catalog.dimension.option-revised"]!(
@@ -420,8 +426,68 @@ describe("buildCatalogMirrorProjectionHandlers", () => {
     );
 
     expect(optionProductSchemaWrites).toHaveLength(1);
-    expect(optionProductSchemaWrites[0]?.params[0]).toBe("cat_affected");
-    expect(optionRevisionEffects.some((effect) => effect.sql.includes("ORDER BY catalog_item_id ASC"))).toBe(false);
+    expect(optionProductSchemaWrites[0]).toMatchObject({ params: ["bp_condition", expect.any(String)] });
+  });
+
+  it("rebuilds one shared product schema per blueprint instead of once per assigned item", async () => {
+    const replayDb = createCatalogMirrorReplayDb("inventory_catalog");
+    const handlers = buildCatalogMirrorProjectionHandlers(replayDb.db, { tablePrefix: "inventory_catalog" });
+
+    await handlers["catalog.dimension.created"]!(
+      event("catalog.dimension.created", { dimensionId: "dim_condition", name: "Condition" }),
+    );
+    await handlers["catalog.blueprint.created"]!(
+      event("catalog.blueprint.created", { blueprintId: "bp_cards", name: "Cards" }, "catalog.blueprint-bp_cards"),
+    );
+    await handlers["catalog.blueprint.dimensions-set"]!(
+      event(
+        "catalog.blueprint.dimensions-set",
+        { dimensionRules: [{ dimensionId: "dim_condition", required: true }] },
+        "catalog.blueprint-bp_cards",
+      ),
+    );
+
+    const itemUpdatedAt = new Map([
+      ["cat_one", "2026-05-09T00:01:00.000Z"],
+      ["cat_two", "2026-05-09T00:02:00.000Z"],
+      ["cat_three", "2026-05-09T00:03:00.000Z"],
+    ]);
+    for (const [itemId, updatedAt] of itemUpdatedAt) {
+      await handlers["catalog.catalog-item.created"]!(
+        event(
+          "catalog.catalog-item.created",
+          { itemId, title: itemId, subtitle: null },
+          `catalog.item-${itemId}`,
+          updatedAt,
+        ),
+      );
+      await handlers["catalog.catalog-item.blueprint-assigned"]!(
+        event(
+          "catalog.catalog-item.blueprint-assigned",
+          { blueprintId: "bp_cards" },
+          `catalog.item-${itemId}`,
+          updatedAt,
+        ),
+      );
+    }
+
+    const beforeRevision = replayDb.effects.length;
+    await handlers["catalog.dimension.revised"]!(
+      event("catalog.dimension.revised", { name: "Card condition" }, "catalog.dimension-dim_condition"),
+    );
+    const revisionEffects = replayDb.effects.slice(beforeRevision);
+
+    expect(
+      revisionEffects.filter((effect) => effect.sql.includes("SELECT * FROM inventory_catalog_blueprints")),
+    ).toHaveLength(1);
+    expect(revisionEffects.filter((effect) => effect.sql.includes("SET product_schema = $2::jsonb"))).toHaveLength(1);
+    expect(revisionEffects.some((effect) => effect.sql.includes("WHERE catalog_item_id = $1"))).toBe(false);
+    expect(revisionEffects.at(-1)?.sql).toContain("updated_at = inventory_catalog_items.updated_at");
+    expect(
+      Object.fromEntries(
+        Object.entries(replayDb.snapshotState().items).map(([itemId, item]) => [itemId, item.updated_at]),
+      ),
+    ).toEqual(Object.fromEntries(itemUpdatedAt));
   });
 
   it("serializes product-schema refresh queries on the projection transaction client", async () => {

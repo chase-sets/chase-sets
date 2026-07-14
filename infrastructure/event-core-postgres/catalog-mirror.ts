@@ -247,14 +247,25 @@ async function refreshCatalogMirrorItemsByBlueprint(
   tables: CatalogMirrorTables,
   blueprintId: string,
 ): Promise<void> {
-  const result = await db.query<{ catalog_item_id: string }>(
-    `SELECT catalog_item_id FROM ${tables.items} WHERE blueprint_id = $1`,
-    [blueprintId],
-  );
+  const productSchema = await buildVersionSchema(db, tables, blueprintId);
+  const serializedProductSchema = productSchema === null ? null : JSON.stringify(productSchema);
 
-  for (const row of result.rows) {
-    await refreshCatalogMirrorItem(db, tables, row.catalog_item_id);
-  }
+  // Product schemas are blueprint-owned, so every item assigned to the same
+  // blueprint receives the same value. Keep structural Catalog events set-based:
+  // imported catalogs can contain tens of thousands of matching items, and
+  // rebuilding the identical schema once per item cannot fit in one projection
+  // transaction. Avoid rewriting rows that already contain the derived schema so
+  // replaying a subscription version stays cheap on long-lived environments. Keep
+  // each item's source-event timestamp unchanged, matching the legacy per-item
+  // refresh that wrote the row's existing updated_at value back to that row.
+  await db.query(
+    `UPDATE ${tables.items}
+     SET product_schema = $2::jsonb,
+         updated_at = ${tables.items}.updated_at
+     WHERE blueprint_id = $1
+       AND product_schema IS DISTINCT FROM $2::jsonb`,
+    [blueprintId, serializedProductSchema],
+  );
 }
 
 async function findBlueprintIdsByDimension(

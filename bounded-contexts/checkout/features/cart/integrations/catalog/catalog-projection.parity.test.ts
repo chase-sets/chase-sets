@@ -9,13 +9,13 @@ import { buildCheckoutCatalogProjectionHandlers } from "./catalog-projection";
  * The committed golden file is a recording of the pre-migration handlers (the
  * hand-rolled projection this slice carried before adopting the shared catalog-mirror
  * factory). Every recorded catalog fixture event is replayed through the current
- * handlers, and the emitted effects (normalized SQL + params, reads and writes) plus
- * the final mirror state must deep-equal the recorded projection. If the mirror's
- * behavior ever changes intentionally, re-record the golden by writing
+ * handlers. The final mirror state must remain identical to the legacy projection,
+ * while emitted effects (normalized SQL + params, reads and writes) must match the
+ * deliberately reviewed recording. If the SQL shape changes intentionally, re-record the golden by writing
  * `JSON.stringify(result, null, 2)` to the golden file and review the diff.
  */
 describe("checkout catalog projection parity", () => {
-  it("replays the recorded catalog fixture with identical projection effects", async () => {
+  it("replays the recorded catalog fixture with approved effects and legacy-equivalent data", async () => {
     const golden = JSON.parse(
       readFileSync(new URL("./catalog-projection.parity.golden.json", import.meta.url), "utf8"),
     ) as unknown;
@@ -24,6 +24,9 @@ describe("checkout catalog projection parity", () => {
       buildHandlers: buildCheckoutCatalogProjectionHandlers,
     });
 
-    expect(JSON.parse(JSON.stringify(result))).toEqual(golden);
+    const recordedResult = JSON.parse(JSON.stringify(result)) as typeof result;
+
+    expect(recordedResult.finalState).toEqual((golden as typeof result).finalState);
+    expect(recordedResult).toEqual(golden);
   });
 });
