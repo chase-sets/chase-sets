@@ -361,8 +361,8 @@ jobs:
       CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
       CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
       ARGO_ROLLOUTS_ENABLED: ${{ vars.STAGING_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}
-      BETA_WAVE_SIZE: ${{ vars.BETA_WAVE_SIZE || '' }}
-      BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT: ${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '' }}
+      BETA_WAVE_SIZE: ${{ vars.BETA_WAVE_SIZE || '100' }}
+      BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT: ${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '10' }}
       APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
       # DOKS is the primary rollout lane and always runs. The App Platform lane
       # is legacy: it exists only to keep App Platform's alias DNS reconciled
@@ -1946,8 +1946,8 @@ jobs:
       CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
       CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
       ARGO_ROLLOUTS_ENABLED: ${{ vars.PRODUCTION_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}
-      BETA_WAVE_SIZE: ${{ vars.BETA_WAVE_SIZE || '' }}
-      BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT: ${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '' }}
+      BETA_WAVE_SIZE: ${{ vars.BETA_WAVE_SIZE || '100' }}
+      BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT: ${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '10' }}
       DESTRUCTIVE_CHANGE_ALLOW_FILE: .github/deployment/production-destructive-change-approved.md
       PRODUCTION_RELEASE_LOCKED: ${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}
       PRODUCTION_RELEASE_LOCK_REASON: ${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}
@@ -3529,7 +3529,7 @@ jobs:
           - Resolve Release: ${RESOLVE_RELEASE_RESULT}
           - Build Release Image: ${BUILD_IMAGE_RESULT}
           - Deploy Staging: ${DEPLOY_STAGING_RESULT}
-          - Staging failure classification: ${STAGING_FAILURE_CLASSIFICATION}
+          - Staging failure classification: ${STAGING_FAILURE_CLASSIFICATION:-unknown}
           - Deploy Production: ${DEPLOY_PRODUCTION_RESULT}
           - Rollback: ${ROLLBACK_RESULT}
           - Record Staging Release Health: ${RECORD_STAGING_HEALTH_RESULT}

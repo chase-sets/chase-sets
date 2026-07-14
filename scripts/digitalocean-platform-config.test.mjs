@@ -1163,6 +1163,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(deployStagingJob).not.toContain("digitalocean-app-deployment.mjs wait-domains");
     expect(deployStagingJob).not.toContain("- name: Reset stale staging root domain attachment");
     expect(deployStagingJob).not.toContain("- name: Deploy App Platform image");
+    expect(deployStagingJob).toContain("BETA_WAVE_SIZE: ${{ vars.BETA_WAVE_SIZE || '100' }}");
+    expect(deployStagingJob).toContain(
+      "BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT: ${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '10' }}",
+    );
+    expect(deployProductionJob).toContain("BETA_WAVE_SIZE: ${{ vars.BETA_WAVE_SIZE || '100' }}");
+    expect(deployProductionJob).toContain(
+      "BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT: ${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '10' }}",
+    );
     expect(stagingSmokeStep).toContain("timeout-minutes: 12");
     expect(stagingSmokeStep).toContain('SMOKE_FETCH_TIMEOUT_MS: "15000"');
     expect(productionSmokeStep).toContain("timeout-minutes: 15");
@@ -1990,6 +1998,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(notifyProductionDeployIncidentJob).toContain("name: Classify deploy outcome");
     expect(notifyProductionDeployIncidentJob).toContain("id: classify_deploy_outcome");
     expect(notifyProductionDeployIncidentJob).toContain("node ./scripts/platform-deploy-incident.mjs");
+    expect(notifyProductionDeployIncidentJob).toContain(
+      "Staging failure classification: ${STAGING_FAILURE_CLASSIFICATION:-unknown}",
+    );
     expect(notifyProductionDeployIncidentJob).toContain(
       "STAGING_APPLIED: ${{ needs.deploy-staging.outputs.applied || '' }}",
     );
