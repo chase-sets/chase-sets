@@ -275,7 +275,10 @@ export const sourceContextWakeRegistry = [
     priorityLane: "bulk",
     expectedEventVolume: "low",
     wakeStoreLoadEstimate: "low",
-    affectedProjectionNames: ["customer-feedback:customer-feedback-csat-invitation-projection"],
+    affectedProjectionNames: [
+      "customer-feedback:customer-feedback-csat-analytics-projection",
+      "customer-feedback:customer-feedback-csat-invitation-projection",
+    ],
     routeDependencyIds: [],
   }),
   registryEntry({

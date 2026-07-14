@@ -58,3 +58,60 @@ CREATE INDEX IF NOT EXISTS customer_feedback_csat_invitations_expiry_idx
   ON customer_feedback_csat_invitations (expires_at)
   WHERE state IN ('issued', 'presented', 'dismissed');
 `;
+
+export const csatAnalyticsProjectionSchemaSql = `
+CREATE TABLE IF NOT EXISTS customer_feedback_csat_analytics_facts (
+  invitation_id text PRIMARY KEY,
+  survey_kind text NULL,
+  survey_version text NULL,
+  question_version text NULL,
+  outcome_code text NULL,
+  customer_role text NULL,
+  sampling_cohort text NULL,
+  eligible_at timestamptz NULL,
+  issued_at timestamptz NULL,
+  presented_at timestamptz NULL,
+  dismissed_at timestamptz NULL,
+  expired_at timestamptz NULL,
+  submitted_at timestamptz NULL,
+  rating smallint NULL CHECK (rating IS NULL OR rating BETWEEN 1 AND 5),
+  last_global_position bigint NOT NULL,
+  last_event_recorded_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS customer_feedback_csat_analytics_submitted_idx
+  ON customer_feedback_csat_analytics_facts
+  (survey_kind, survey_version, question_version, submitted_at, invitation_id)
+  WHERE submitted_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS customer_feedback_csat_analytics_presented_idx
+  ON customer_feedback_csat_analytics_facts
+  (survey_kind, survey_version, question_version, presented_at, invitation_id)
+  WHERE presented_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS customer_feedback_csat_analytics_eligible_idx
+  ON customer_feedback_csat_analytics_facts
+  (survey_kind, survey_version, question_version, eligible_at, invitation_id)
+  WHERE eligible_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS customer_feedback_csat_analytics_issued_idx
+  ON customer_feedback_csat_analytics_facts
+  (survey_kind, survey_version, question_version, issued_at, invitation_id)
+  WHERE issued_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS customer_feedback_csat_analytics_dismissed_idx
+  ON customer_feedback_csat_analytics_facts
+  (survey_kind, survey_version, question_version, dismissed_at, invitation_id)
+  WHERE dismissed_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS customer_feedback_csat_analytics_expired_idx
+  ON customer_feedback_csat_analytics_facts
+  (survey_kind, survey_version, question_version, expired_at, invitation_id)
+  WHERE expired_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS customer_feedback_csat_analytics_dimensions_idx
+  ON customer_feedback_csat_analytics_facts
+  (outcome_code, customer_role, sampling_cohort, invitation_id);
+`;

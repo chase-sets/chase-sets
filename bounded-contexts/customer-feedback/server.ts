@@ -11,3 +11,4 @@
  * request/SSR and cross-context contract composition only.
  */
 export * from "./features/csat/domain";
+export * from "./features/csat/api/analytics-contract";
