@@ -194,11 +194,12 @@
     {
       "sourceContextName": "platform-operations",
       "projectionName": "marketplace-review-support-source-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.resolved",
-        "support.support-request.cancelled"
+        "support.support-request.cancelled",
+        "support.support-request.remedy-authorized.v1"
       ],
       "order": 90,
       "projectionHandlerSetNames": ["marketplace-review-support-source-projection"]

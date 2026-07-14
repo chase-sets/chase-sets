@@ -86,7 +86,6 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
         authorRole: string;
         rating: number;
         feedback: string | null;
-        resolutionContext?: string | null;
         submittedAt: string;
         reviewWindowExpiresAt?: string | null;
       };
@@ -101,7 +100,6 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
            rating,
            feedback,
            status,
-           resolution_context,
            submitted_at,
            updated_at,
            withdrawn_at,
@@ -109,13 +107,12 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
            review_window_expires_at,
            reveal_reason
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $9, NULL, NULL, $10, NULL
+           $1, $2, $3, $4, $5, $6, $7, 'active', $8, $8, NULL, NULL, $9, NULL
          )
          ON CONFLICT (review_id) DO UPDATE
          SET rating = EXCLUDED.rating,
              feedback = EXCLUDED.feedback,
              status = EXCLUDED.status,
-             resolution_context = EXCLUDED.resolution_context,
              updated_at = EXCLUDED.updated_at,
              withdrawn_at = EXCLUDED.withdrawn_at`,
         [
@@ -126,7 +123,6 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
           data.authorRole,
           data.rating,
           data.feedback,
-          data.resolutionContext ?? null,
           data.submittedAt,
           data.reviewWindowExpiresAt ?? null,
         ],

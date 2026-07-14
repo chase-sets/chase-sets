@@ -98,7 +98,20 @@ Run `pnpm --filter @chase-sets/marketplace run test:watch` for the sub-second wa
 
 ## Reviews
 
-Marketplace owns reviews as the `reviews` slice. Reviews are post-transaction evaluations tied to completed commerce: Identity provides author and subject account references, Ordering provides order references and counterparty pairing, Fulfillment delivery-complete signals unlock review eligibility, and support-request outcomes can suspend eligibility. Durable review events use the `marketplace.review.*` namespace, review streams use the `marketplace.review-` prefix, and review read-model tables use Marketplace-owned names.
+Marketplace owns reviews and rating policy as the `reviews` slice. Reviews are post-transaction evaluations tied to completed commerce: Identity provides author and subject account references, Ordering provides order references and counterparty pairing, Fulfillment delivery-complete signals unlock review eligibility, and Support provides factual resolved responsibility. Support does not decide eligibility, visibility, or rating impact, and remedies such as refunds, returns, replacements, and cancellations never imply responsibility.
+
+The canonical directional policy produces transaction eligibility, submission state, visibility state, scoring disposition, a neutral reason code, and an effective deadline. For an otherwise eligible transaction, its baseline scoring matrix is:
+
+| Support fact | Buyer reviewing seller | Seller reviewing buyer |
+| --- | --- | --- |
+| Seller responsible | Included | Context-only |
+| Buyer responsible | Context-only | Included |
+| Carrier, platform, shared, or undetermined | Context-only | Context-only |
+| No resolved support case / normal completion | Included | Included |
+
+An open review-affecting Support request yields `held` in both directions. A seller-responsible cancellation may establish buyer-to-seller transaction eligibility without delivery once Ordering records the cancellation; other undelivered cancellations do not establish eligibility. A missing legacy responsibility is explicitly Context-only, while an unknown future responsibility value is quarantined as `held`; neither can score by accident. Context-only feedback remains publishable when otherwise allowed, but its rating is excluded from reputation calculations. Double-blind reveal and moderation remain independent visibility concerns.
+
+Durable review events use the `marketplace.review.*` namespace, review streams use the `marketplace.review-` prefix, and review read-model tables use Marketplace-owned names.
 
 Marketplace's seed slot runs before Ordering and Fulfillment, so the reviews seed cannot see a delivered shipment on its first pass; it skips and completes during the host's final seed reconciliation pass. The seed dataset therefore contains two delivered orders: the earliest-ready one receives the support-request seeds (which delete review eligibility), and the latest-ready one never does, so seeded reviews always have a review-eligible delivered order to attach to. Seed orders identify by `ready_for_fulfillment_at` (fixed by the payments seed's capture timestamps) because accepted-offer orders can be auto-created with generated ids before the ordering seed pins `reputationReservedSeedIds.orders.reviewEligibleDelivered`.
 

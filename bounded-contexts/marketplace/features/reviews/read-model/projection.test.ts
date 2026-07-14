@@ -49,68 +49,6 @@ describe("marketplace review projection", () => {
     }
   });
 
-  it("persists the resolution-context marker on the review page without touching summary math", async () => {
-    const queries: { sql: string; params: readonly unknown[] }[] = [];
-    const db = {
-      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
-        queries.push({ sql, params: params ?? [] });
-        return { rows: [] };
-      }),
-    };
-    const handlers = buildReviewProjectionHandlers(db as never);
-
-    await handlers["marketplace.review.submitted"]?.({
-      data: {
-        reviewId: "rev_1",
-        orderId: "ord_1",
-        authorAccountId: "acc_buyer",
-        subjectAccountId: "acc_seller",
-        authorRole: "buyer",
-        rating: 1,
-        feedback: "Refunded after the card arrived misdescribed.",
-        resolutionContext: "resolved-via-refund",
-        submittedAt: "2026-04-02T00:00:00.000Z",
-      },
-    } as never);
-
-    const pageInsert = queries.find((query) => query.sql.includes("INSERT INTO marketplace_review_pages"));
-    expect(pageInsert?.sql).toContain("resolution_context");
-    expect(pageInsert?.params).toContain("resolved-via-refund");
-
-    // Summary math is unchanged: the refresh aggregates only role, rating,
-    // and status — a refund-context review is a review.
-    const summaryRefresh = queries.find((query) => query.sql.includes("INSERT INTO marketplace_review_summary_pages"));
-    expect(summaryRefresh).toBeDefined();
-    expect(summaryRefresh?.sql).not.toContain("resolution_context");
-  });
-
-  it("stores a null resolution context for events persisted before the marker existed", async () => {
-    const queries: { sql: string; params: readonly unknown[] }[] = [];
-    const db = {
-      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
-        queries.push({ sql, params: params ?? [] });
-        return { rows: [] };
-      }),
-    };
-    const handlers = buildReviewProjectionHandlers(db as never);
-
-    await handlers["marketplace.review.submitted"]?.({
-      data: {
-        reviewId: "rev_legacy",
-        orderId: "ord_1",
-        authorAccountId: "acc_buyer",
-        subjectAccountId: "acc_seller",
-        authorRole: "buyer",
-        rating: 5,
-        feedback: null,
-        submittedAt: "2026-04-02T00:00:00.000Z",
-      },
-    } as never);
-
-    const pageInsert = queries.find((query) => query.sql.includes("INSERT INTO marketplace_review_pages"));
-    expect(pageInsert?.params).toContain(null);
-  });
-
   it("hides a submitted review from the summary until it is revealed", async () => {
     const queries: { sql: string; params: readonly unknown[] }[] = [];
     const db = {

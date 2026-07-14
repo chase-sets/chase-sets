@@ -15,24 +15,27 @@ type EligibilityRow = {
   author_account_id: string;
   subject_account_id: string;
   author_role: string;
-  resolution_context: string | null;
   eligible_at: string;
   updated_at: string;
 };
 
 class ReviewSourceProjectionDb implements PgQueryable {
-  public readonly orders = new Map<string, { buyer_account_id: string; seller_account_id: string }>();
+  public readonly orders = new Map<
+    string,
+    { buyer_account_id: string; seller_account_id: string; cancelled_at: string | null }
+  >();
   public readonly shipments = new Map<string, { order_id: string; status: string; delivered_at: string | null }>();
   public readonly supportRequests = new Map<
     string,
     {
       order_id: string;
       status: string;
+      responsibility: string | null;
       resolution_type: string | null;
-      flow_type: string | null;
       resolved_at: string | null;
     }
   >();
+  public readonly remedies = new Map<string, { remedy_id: string; coverage_id: string | null; remedy_kind: string }>();
   public readonly eligibilities = new Map<string, EligibilityRow>();
 
   async query<Row = Record<string, unknown>>(
@@ -43,6 +46,7 @@ class ReviewSourceProjectionDb implements PgQueryable {
       this.orders.set(String(values[0]), {
         buyer_account_id: String(values[1]),
         seller_account_id: String(values[2]),
+        cancelled_at: null,
       });
       return { rows: [], rowCount: 1 };
     }
@@ -56,6 +60,13 @@ class ReviewSourceProjectionDb implements PgQueryable {
         rows: order ? ([{ ...order }] as Row[]) : [],
         rowCount: order ? 1 : 0,
       };
+    }
+
+    if (sql.includes("UPDATE marketplace_review_order_sources")) {
+      const order = this.orders.get(String(values[0]));
+      if (!order) return { rows: [], rowCount: 0 };
+      if (sql.includes("status = 'cancelled'")) order.cancelled_at = String(values[1]);
+      return { rows: [], rowCount: 1 };
     }
 
     if (sql.includes("MIN(delivered_at)") && sql.includes("marketplace_review_shipment_sources")) {
@@ -104,41 +115,62 @@ class ReviewSourceProjectionDb implements PgQueryable {
         this.supportRequests.set(supportRequestId, {
           order_id: orderId,
           status: "resolved",
-          resolution_type: String(values[2]),
-          flow_type: values[3] === null ? null : String(values[3]),
+          responsibility: values[2] === null ? null : String(values[2]),
+          resolution_type: String(values[3]),
           resolved_at: String(values[4]),
         });
       } else if (sql.includes("VALUES ($1, $2, 'cancelled'")) {
         this.supportRequests.set(supportRequestId, {
           order_id: orderId,
           status: "cancelled",
+          responsibility: null,
           resolution_type: null,
-          flow_type: null,
           resolved_at: null,
         });
       } else {
         this.supportRequests.set(supportRequestId, {
           order_id: orderId,
           status: "open",
+          responsibility: null,
           resolution_type: null,
-          flow_type: null,
           resolved_at: null,
         });
       }
       return { rows: [], rowCount: 1 };
     }
 
+    if (sql.includes("INSERT INTO marketplace_review_remedy_sources")) {
+      this.remedies.set(String(values[0]), {
+        remedy_id: String(values[1]),
+        coverage_id: values[2] === null ? null : String(values[2]),
+        remedy_kind: String(values[3]),
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
     if (sql.includes("FROM marketplace_review_support_request_sources") && sql.includes("resolved_at::text")) {
       const orderId = String(values[0]);
-      const rows = [...this.supportRequests.values()]
-        .filter((request) => request.order_id === orderId)
-        .map((request) => ({
+      const rows = [...this.supportRequests.entries()]
+        .filter(([, request]) => request.order_id === orderId)
+        .map(([supportRequestId, request]) => ({
           status: request.status,
+          responsibility: request.responsibility,
           resolution_type: request.resolution_type,
-          flow_type: request.flow_type,
           resolved_at: request.resolved_at,
+          remedy_id: this.remedies.get(supportRequestId)?.remedy_id ?? null,
+          coverage_id: this.remedies.get(supportRequestId)?.coverage_id ?? null,
+          remedy_kind: this.remedies.get(supportRequestId)?.remedy_kind ?? null,
         }));
       return { rows: rows as Row[], rowCount: rows.length };
+    }
+
+    if (
+      sql.includes("SELECT order_id") &&
+      sql.includes("FROM marketplace_review_support_request_sources") &&
+      sql.includes("support_request_id = $1")
+    ) {
+      const request = this.supportRequests.get(String(values[0]));
+      return { rows: (request ? [{ order_id: request.order_id }] : []) as Row[], rowCount: request ? 1 : 0 };
     }
 
     if (sql.includes("SELECT 1") && sql.includes("FROM marketplace_review_eligibility_pages")) {
@@ -154,9 +186,8 @@ class ReviewSourceProjectionDb implements PgQueryable {
         author_account_id: authorAccountId,
         subject_account_id: subjectAccountId,
         author_role: authorRole,
-        resolution_context: values[4] === null ? null : String(values[4]),
-        eligible_at: String(values[5]),
-        updated_at: String(values[6]),
+        eligible_at: String(values[4]),
+        updated_at: String(values[5]),
       });
       return { rows: [], rowCount: 1 };
     }
@@ -222,23 +253,25 @@ function buildHarness(db: ReviewSourceProjectionDb) {
     supportRequestId: string,
     orderId: string,
     resolutionType: string,
-    flowType: string,
+    responsibility: unknown,
     resolvedAt: string,
   ) =>
     supportHandlers["support.support-request.resolved"]!(
       event("support.support-request.resolved", {
         supportRequestId,
         orderId,
-        flowType,
-        resolution: { resolutionType, resolvedAt },
+        resolution: { resolutionType, responsibility, resolvedAt },
       }),
     );
 
-  return { supportHandlers, shipmentHandlers, createOrder, deliverShipment, openSupport, resolveSupport };
+  const cancelOrder = (orderId: string, cancelledAt: string) =>
+    orderHandlers["ordering.order.cancelled"]!(event("ordering.order.cancelled", { orderId, cancelledAt }));
+
+  return { supportHandlers, shipmentHandlers, createOrder, cancelOrder, deliverShipment, openSupport, resolveSupport };
 }
 
 describe("marketplace review source projection eligibility", () => {
-  it("restores buyer→seller eligibility with the refund marker on a full-refund resolution and keeps seller→buyer suppressed", async () => {
+  it("restores both directions after a carrier-responsible full refund", async () => {
     const db = new ReviewSourceProjectionDb();
     const harness = buildHarness(db);
 
@@ -249,80 +282,119 @@ describe("marketplace review source projection eligibility", () => {
     await harness.openSupport("sup_1", "ord_1", "2026-04-04T00:00:00.000Z");
     expect(db.eligibilities.size).toBe(0);
 
-    await harness.resolveSupport(
-      "sup_1",
-      "ord_1",
-      "full-refund",
-      "product-not-as-described",
-      "2026-04-06T00:00:00.000Z",
-    );
+    await harness.resolveSupport("sup_1", "ord_1", "full-refund", "carrier", "2026-04-06T00:00:00.000Z");
 
     expect(db.buyerEligibility()).toMatchObject({
       author_role: "buyer",
-      resolution_context: "resolved-via-refund",
       eligible_at: "2026-04-03T00:00:00.000Z",
     });
-    expect(db.sellerEligibility()).toBeNull();
+    expect(db.sellerEligibility()).toMatchObject({
+      author_role: "seller",
+      eligible_at: "2026-04-03T00:00:00.000Z",
+    });
   });
 
-  it("keeps seller→buyer suppressed when the return leg of a return-for-refund delivers after resolution", async () => {
+  it("correlates an out-of-order ADR 0022 remedy fact without using it as a scoring signal", async () => {
+    const db = new ReviewSourceProjectionDb();
+    const harness = buildHarness(db);
+
+    await harness.supportHandlers["support.support-request.remedy-authorized.v1"]!(
+      event("support.support-request.remedy-authorized.v1", {
+        factSchemaVersion: 1,
+        supportRequestId: "sup_coverage",
+        remedyId: "rmd_coverage",
+        coverageId: "cov_coverage",
+        idempotencyKey: "remedy:coverage",
+        causationId: null,
+        policyVersion: "2026-07-14",
+        occurredAt: "2026-04-04T00:00:00.000Z",
+        remedy: { kind: "full-refund", amount: "100.00", currencyCode: "usd" },
+        allocation: {
+          sellerFundedAmount: "0.00",
+          platformFundedAmount: "100.00",
+          currencyCode: "usd",
+          fundingKind: "platform-funded",
+        },
+        returnDirective: "no-return",
+        refundTrigger: "immediate",
+        reasonCode: "support-resolution",
+      }),
+    );
+    expect(db.remedies.get("sup_coverage")).toEqual({
+      remedy_id: "rmd_coverage",
+      coverage_id: "cov_coverage",
+      remedy_kind: "full-refund",
+    });
+
+    await harness.createOrder();
+    await harness.deliverShipment("shp_1", "ord_1", "2026-04-03T00:00:00.000Z");
+    await harness.openSupport("sup_coverage", "ord_1", "2026-04-04T00:00:00.000Z");
+    await harness.resolveSupport("sup_coverage", "ord_1", "full-refund", "carrier", "2026-04-06T00:00:00.000Z");
+
+    expect(db.buyerEligibility()).not.toBeNull();
+    expect(db.sellerEligibility()).not.toBeNull();
+  });
+
+  it("keeps both directions eligible when a return leg delivers after a platform-responsible resolution", async () => {
     const db = new ReviewSourceProjectionDb();
     const harness = buildHarness(db);
 
     await harness.createOrder();
     await harness.deliverShipment("shp_out", "ord_1", "2026-04-03T00:00:00.000Z");
     await harness.openSupport("sup_1", "ord_1", "2026-04-04T00:00:00.000Z");
-    await harness.resolveSupport("sup_1", "ord_1", "return-for-refund", "return-request", "2026-04-06T00:00:00.000Z");
+    await harness.resolveSupport("sup_1", "ord_1", "return-for-refund", "platform", "2026-04-06T00:00:00.000Z");
 
     // The buyer ships the item back; the return leg delivering to the seller
-    // must not re-open the retaliation lane.
+    // does not change either directional disposition.
     await harness.deliverShipment("shp_return", "ord_1", "2026-04-09T00:00:00.000Z");
 
     expect(db.buyerEligibility()).toMatchObject({
-      resolution_context: "resolved-via-refund",
       eligible_at: "2026-04-03T00:00:00.000Z",
     });
-    expect(db.sellerEligibility()).toBeNull();
+    expect(db.sellerEligibility()).toMatchObject({ eligible_at: "2026-04-03T00:00:00.000Z" });
   });
 
-  it("restores buyer→seller without a delivery when the seller could not fulfill (cancel-order, seller-caused)", async () => {
+  it("creates buyer→seller eligibility without delivery after cancellation and explicit seller responsibility", async () => {
     const db = new ReviewSourceProjectionDb();
     const harness = buildHarness(db);
 
     await harness.createOrder();
     await harness.openSupport("sup_1", "ord_1", "2026-04-02T12:00:00.000Z");
-    await harness.resolveSupport("sup_1", "ord_1", "cancel-order", "seller-cannot-fulfill", "2026-04-04T00:00:00.000Z");
+    await harness.resolveSupport("sup_1", "ord_1", "cancel-order", "seller", "2026-04-04T00:00:00.000Z");
+    expect(db.eligibilities.size).toBe(0);
+
+    await harness.cancelOrder("ord_1", "2026-04-05T00:00:00.000Z");
 
     expect(db.buyerEligibility()).toMatchObject({
       author_role: "buyer",
-      resolution_context: "resolved-via-refund",
-      eligible_at: "2026-04-04T00:00:00.000Z",
+      eligible_at: "2026-04-05T00:00:00.000Z",
     });
     expect(db.sellerEligibility()).toBeNull();
   });
 
-  it("restores neither direction for a consensual buyer-cancel-request cancellation", async () => {
+  it("creates neither direction for a buyer-responsible cancellation", async () => {
     const db = new ReviewSourceProjectionDb();
     const harness = buildHarness(db);
 
     await harness.createOrder();
     await harness.openSupport("sup_1", "ord_1", "2026-04-02T12:00:00.000Z");
-    await harness.resolveSupport("sup_1", "ord_1", "cancel-order", "buyer-cancel-request", "2026-04-04T00:00:00.000Z");
+    await harness.resolveSupport("sup_1", "ord_1", "cancel-order", "buyer", "2026-04-04T00:00:00.000Z");
+    await harness.cancelOrder("ord_1", "2026-04-05T00:00:00.000Z");
 
     expect(db.eligibilities.size).toBe(0);
   });
 
-  it("restores both directions without a marker on benign resolutions", async () => {
+  it("restores both submission directions for a seller-responsible non-refund remedy", async () => {
     const db = new ReviewSourceProjectionDb();
     const harness = buildHarness(db);
 
     await harness.createOrder();
     await harness.deliverShipment("shp_1", "ord_1", "2026-04-03T00:00:00.000Z");
     await harness.openSupport("sup_1", "ord_1", "2026-04-04T00:00:00.000Z");
-    await harness.resolveSupport("sup_1", "ord_1", "no-action", "product-not-received", "2026-04-06T00:00:00.000Z");
+    await harness.resolveSupport("sup_1", "ord_1", "replacement", "seller", "2026-04-06T00:00:00.000Z");
 
-    expect(db.buyerEligibility()).toMatchObject({ resolution_context: null });
-    expect(db.sellerEligibility()).toMatchObject({ resolution_context: null });
+    expect(db.buyerEligibility()).not.toBeNull();
+    expect(db.sellerEligibility()).not.toBeNull();
   });
 
   it("does not restore eligibility on delivery while a support request is open", async () => {
@@ -336,17 +408,18 @@ describe("marketplace review source projection eligibility", () => {
     expect(db.eligibilities.size).toBe(0);
   });
 
-  it("heals refund-restored eligibility when the order source lands after the resolution (replay race)", async () => {
+  it("heals seller-cancellation eligibility when order lifecycle facts land after the Support resolution", async () => {
     const db = new ReviewSourceProjectionDb();
     const harness = buildHarness(db);
 
     await harness.openSupport("sup_1", "ord_1", "2026-04-02T12:00:00.000Z");
-    await harness.resolveSupport("sup_1", "ord_1", "cancel-order", "seller-cannot-fulfill", "2026-04-04T00:00:00.000Z");
+    await harness.resolveSupport("sup_1", "ord_1", "cancel-order", "seller", "2026-04-04T00:00:00.000Z");
     expect(db.eligibilities.size).toBe(0);
 
     await harness.createOrder();
+    await harness.cancelOrder("ord_1", "2026-04-05T00:00:00.000Z");
 
-    expect(db.buyerEligibility()).toMatchObject({ resolution_context: "resolved-via-refund" });
+    expect(db.buyerEligibility()).toMatchObject({ eligible_at: "2026-04-05T00:00:00.000Z" });
     expect(db.sellerEligibility()).toBeNull();
   });
 

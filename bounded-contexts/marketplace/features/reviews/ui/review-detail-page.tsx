@@ -97,11 +97,6 @@ export function ReviewDetailPage({
                 {pending ? (
                   <Badge tone="warning">{t("reputation.features.reviews.ui.reviewDetailPage.pending.reveal")}</Badge>
                 ) : null}
-                {review.resolution_context === "resolved-via-refund" ? (
-                  <Badge tone="neutral">
-                    {t("reputation.features.reviews.ui.reviewDetailPage.resolved.via.refund")}
-                  </Badge>
-                ) : null}
                 {review.withdrawn_by_actor_type === "operator" ? (
                   <Badge tone="danger">
                     {t("reputation.features.reviews.ui.reviewDetailPage.moderated.withdrawn")}
