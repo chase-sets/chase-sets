@@ -27,8 +27,7 @@ export function marketplaceBrowserE2eBuyerCredentials() {
 }
 
 export function marketplaceBrowserE2eSellerCredentials() {
-  const email =
-    process.env.MARKETPLACE_E2E_SELLER_EMAIL?.trim() || marketplaceBrowserE2eSeedContract.seller.email;
+  const email = process.env.MARKETPLACE_E2E_SELLER_EMAIL?.trim() || marketplaceBrowserE2eSeedContract.seller.email;
   const password =
     process.env.MARKETPLACE_E2E_SELLER_PASSWORD?.trim() || marketplaceBrowserE2eSeedContract.seller.password;
 

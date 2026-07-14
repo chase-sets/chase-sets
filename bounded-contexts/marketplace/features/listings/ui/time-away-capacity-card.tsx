@@ -71,10 +71,7 @@ type LocalDateInstantField = Readonly<{
   instantFieldName: string;
 }>;
 
-function populateLocalDateInstants(
-  event: FormEvent<HTMLFormElement>,
-  fields: readonly LocalDateInstantField[],
-): void {
+function populateLocalDateInstants(event: FormEvent<HTMLFormElement>, fields: readonly LocalDateInstantField[]): void {
   for (const { dateFieldName, instantFieldName } of fields) {
     const dateField = event.currentTarget.elements.namedItem(dateFieldName);
     const instantField = event.currentTarget.elements.namedItem(instantFieldName);
