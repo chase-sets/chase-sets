@@ -329,6 +329,9 @@ components:
       - name: "DATABASE_URL_CHECKOUT"
         secret: true
         secretKey: "DATABASE_URL_CHECKOUT"
+      - name: "DATABASE_URL_COLLECTIONS"
+        secret: true
+        secretKey: "DATABASE_URL_COLLECTIONS"
       - name: "DATABASE_URL_COMMERCIAL_TERMS"
         secret: true
         secretKey: "DATABASE_URL_COMMERCIAL_TERMS"
@@ -599,6 +602,9 @@ components:
       - name: "DATABASE_URL_CHECKOUT"
         secret: true
         secretKey: "DATABASE_URL_CHECKOUT"
+      - name: "DATABASE_URL_COLLECTIONS"
+        secret: true
+        secretKey: "DATABASE_URL_COLLECTIONS"
       - name: "DATABASE_URL_COMMERCIAL_TERMS"
         secret: true
         secretKey: "DATABASE_URL_COMMERCIAL_TERMS"
@@ -904,6 +910,9 @@ components:
       - name: "DATABASE_URL_CHECKOUT"
         secret: true
         secretKey: "BOOTSTRAP_DATABASE_URL_CHECKOUT"
+      - name: "DATABASE_URL_COLLECTIONS"
+        secret: true
+        secretKey: "BOOTSTRAP_DATABASE_URL_COLLECTIONS"
       - name: "DATABASE_URL_COMMERCIAL_TERMS"
         secret: true
         secretKey: "BOOTSTRAP_DATABASE_URL_COMMERCIAL_TERMS"

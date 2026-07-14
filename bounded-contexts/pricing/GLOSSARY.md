@@ -16,6 +16,10 @@ Examples:
 
 A **Market Price Snapshot** is the recorded fair-value output for a resolved product over a defined time window, tied to the source signals used to calculate it.
 
+## Market Price
+
+**Market Price** is the wire noun for Pricing's published current fair-value estimate for one resolved Product. `MarketPriceEstimated` publishes that derived answer; a Market Price Snapshot remains a recorded market-state input rather than the estimate itself.
+
 ## Liquidity Estimate
 
 A **Liquidity Estimate** is the modeled expectation of how quickly or reliably a resolved product can transact.
