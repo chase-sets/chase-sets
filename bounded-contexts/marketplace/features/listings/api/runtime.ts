@@ -45,6 +45,7 @@ import {
 import { evaluateListingEvidenceReadiness } from "../domain/listing-evidence-readiness";
 import { resolveListingEvidenceRequirements } from "./evidence-requirement-resolver";
 import { assertEvidenceCountAndBytesWithinBudget } from "../domain/evidence-governance";
+import { buildMarketplaceListingEvidenceReadiness } from "./evidence-readiness";
 import { buildListingEvidenceSnapshot, type ListingEvidenceSnapshot } from "../domain/evidence-snapshot";
 import {
   selectEvidenceGarbageCollectionTargets,
@@ -138,6 +139,13 @@ export class MarketplaceSalesFeeQuoteStaleError extends Error {
   public constructor(public readonly currentQuote: MarketplaceListingTermsPreview) {
     super("Fee quote is stale. Refresh the fee preview before continuing.");
     this.name = "MarketplaceSalesFeeQuoteStaleError";
+  }
+}
+
+export class MarketplaceListingEvidenceIncompleteError extends Error {
+  public constructor(public readonly currentReadiness: import("../ui/contracts").MarketplaceListingEvidenceReadiness) {
+    super("Listing evidence is incomplete.");
+    this.name = "MarketplaceListingEvidenceIncompleteError";
   }
 }
 
@@ -267,6 +275,12 @@ export type MarketplaceListingServices = Readonly<{
   getListingEvidenceSnapshot: (
     params: Readonly<{ accountId: string; listingId: string }>,
   ) => Promise<ListingEvidenceSnapshot>;
+  getListingEvidenceReadiness: (
+    params: Readonly<{ accountId: string; listingId: string; now?: string | null }>,
+  ) => Promise<import("../ui/contracts").MarketplaceListingEvidenceReadiness>;
+  previewListingEvidenceReadiness: (
+    params: Readonly<{ accountId: string; inventoryItemId: string; priceAmount: string; now?: string | null }>,
+  ) => Promise<import("../ui/contracts").MarketplaceListingEvidenceReadiness>;
   /**
    * Idempotent, observable evidence garbage collection sweep. Deletes storage
    * objects for replaced/removed evidence past the safe delay whose source is
@@ -1417,6 +1431,38 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         createdAt: new Date().toISOString(),
       });
     },
+    getListingEvidenceReadiness: async (params) => {
+      const listing = await loadOwnedListingState(params.listingId, params.accountId);
+      const evaluatedAt = params.now ?? new Date().toISOString();
+      const snapshot = await resolveEvidenceRequirementsForListing(listing, evaluatedAt);
+      const readiness = await evaluateListingReadiness(listing, snapshot, evaluatedAt);
+      return buildMarketplaceListingEvidenceReadiness(snapshot, listing.evidence, readiness);
+    },
+    previewListingEvidenceReadiness: async (params) => {
+      const supply = await getInventoryItemSupply(deps.db, params.inventoryItemId, params.accountId);
+      assert(supply, "Inventory item not found.");
+      const evaluatedAt = params.now ?? new Date().toISOString();
+      const snapshot = await resolveListingEvidenceRequirements(deps, {
+        accountId: params.accountId,
+        catalogItemId: supply.catalog_catalog_item_id,
+        productId: supply.product_id,
+        selectedOptions: supply.selected_options,
+        gradedItem: supply.graded_card !== null,
+        priceAmount: params.priceAmount,
+        evaluatedAt,
+      });
+      const requiresSellerFacts = snapshot.requirements.sellerTrustRequirements.length > 0;
+      const accountRisk = requiresSellerFacts
+        ? await getMarketplaceAccountRisk(deps.db, params.accountId)
+        : { review_count: 0, badges: [] as readonly string[] };
+      const readiness = evaluateListingEvidenceReadiness({
+        snapshot,
+        evidence: [],
+        seller: { reviewCount: accountRisk.review_count, badgeKeys: accountRisk.badges },
+        now: evaluatedAt,
+      });
+      return buildMarketplaceListingEvidenceReadiness(snapshot, [], readiness);
+    },
     collectListingEvidenceGarbage: async (params) => {
       const gatePolicy = await resolveListingGatePolicy();
       const safeDelayHours = params?.safeDelayHours ?? gatePolicy.evidenceGarbageCollectionSafeDelayHours;
@@ -1666,6 +1712,14 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         context,
       });
       const readiness = await evaluateListingReadiness(listing, evidenceRequirements, evaluatedAt);
+      if (!readiness.ready) {
+        const evidenceReadiness = buildMarketplaceListingEvidenceReadiness(
+          evidenceRequirements,
+          listing.evidence,
+          readiness,
+        );
+        throw new MarketplaceListingEvidenceIncompleteError(evidenceReadiness);
+      }
       await ensureActiveCapacity(listing.inventoryItemId, listing.quantityCap, params.listingId);
 
       const result = await commandHandler({

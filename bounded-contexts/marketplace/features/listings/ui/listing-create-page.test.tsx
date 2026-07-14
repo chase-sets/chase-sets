@@ -88,6 +88,52 @@ describe("marketplace listing create page", () => {
     expect(markup).not.toMatch(/<input[^>]*name="catalogItemId"/);
   });
 
+  it("keeps create-and-publish honest when server-owned evidence readiness is incomplete", () => {
+    const markup = renderToString(
+      <MarketplaceListingCreatePage
+        inventoryItems={[]}
+        hasListingStockLocation
+        evidenceReadiness={{
+          ready: false,
+          policy: {
+            policyId: "pol_1",
+            policyVersion: 2,
+            policyHash: "sha256:test",
+            requirementHash: "sha256:requirement",
+            evaluatedAt: "2026-07-13T00:00:00.000Z",
+            explanationCodes: ["configured-evidence"],
+          },
+          requirements: {
+            minimumPhotoCount: 1,
+            requiredSlots: [],
+            sellerTrustRequirements: [],
+            buyerAcknowledgment: "none",
+          },
+          coverage: {
+            complete: false,
+            unmetCodes: ["min-photo-count-unmet"],
+            slots: [],
+            activePhotoCount: 0,
+            minimumPhotoCount: 1,
+          },
+          nextActions: [
+            {
+              code: "min-photo-count-unmet",
+              localeKey: "marketplace.features.listings.evidenceCoverage.min-photo-count-unmet",
+              slotIds: [],
+            },
+          ],
+          publicGallery: [],
+        }}
+      />,
+    );
+
+    expect(markup).toContain("Evidence required");
+    expect(markup).toContain("Add more photos to meet the required number of evidence images.");
+    expect(markup).toMatch(/<button(?=[^>]*disabled="")(?=[^>]*value="create-and-publish-listing")[^>]*>/);
+    expect(markup).toContain('capture="environment"');
+  });
+
   it("finds a catalog item by title search and lets the seller select it without an ID", async () => {
     vi.stubGlobal(
       "fetch",

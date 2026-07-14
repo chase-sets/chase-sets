@@ -5,6 +5,7 @@ import { Hono } from "hono";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceApiEnv } from "../../../api";
 import {
+  MarketplaceListingEvidenceIncompleteError,
   MarketplaceSalesFeeQuoteStaleError,
   type MarketplaceBulkListingPriceUpdateInput,
   type MarketplaceListingPhotoUpload,
@@ -84,6 +85,19 @@ function rateLimitedResponse(message: string, retryAfterSeconds: number) {
 }
 
 function validationError(error: unknown) {
+  if (error instanceof MarketplaceListingEvidenceIncompleteError) {
+    return new Response(
+      JSON.stringify({
+        error: {
+          code: "listing_evidence_incomplete",
+          message: t("marketplace.features.listings.api.route.evidence.incomplete"),
+          currentEvidenceReadiness: error.currentReadiness,
+        },
+      }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
   if (error instanceof MarketplaceSalesFeeQuoteStaleError) {
     return new Response(
       JSON.stringify({
@@ -333,6 +347,10 @@ async function parseListingPhotoUploads(formData: FormData) {
 
 function formValue(formData: FormData, key: string) {
   return String(formData.get(key) ?? "");
+}
+
+function orderedPhotoIds(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((entry) => String(entry).trim()).filter((entry) => entry.length > 0) : [];
 }
 
 export function createAccountListingRoutes(services: MarketplaceListingServices) {
@@ -657,6 +675,24 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
     }
   });
 
+  app.post("/listings/evidence-readiness/preview", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) return access.response;
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      return c.json(
+        await services.previewListingEvidenceReadiness({
+          accountId: access.actor.accountId,
+          inventoryItemId: parseTypedIdBoundary(body.inventoryItemId, "inv", "inventoryItemId"),
+          priceAmount: String(body.priceAmount ?? "0"),
+          now: new Date().toISOString(),
+        }),
+      );
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.get("/listings/fee-lock-report", async (c) => {
     const access = requireListingAccess(c, "listings.view");
     if (access.response) {
@@ -725,7 +761,14 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
       );
     }
 
-    return c.json(listing);
+    return c.json({
+      ...listing,
+      evidence_readiness: await services.getListingEvidenceReadiness({
+        accountId: access.actor.accountId,
+        listingId: c.req.param("id"),
+        now: new Date().toISOString(),
+      }),
+    });
   });
 
   app.get("/listings/:id/evidence-coverage", async (c) => {
@@ -889,12 +932,41 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
     }
   });
 
-  app.post("/listings/:id/photos/:photoId/classify", async (c) => {
+  app.post("/listings/:id/photos/reorder", async (c) => {
     const access = requireListingAccess(c, "listings.manage");
-    if (access.response) {
-      return access.response;
+    if (access.response) return access.response;
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      const result = await services.reorderListingPhotos(
+        {
+          accountId: access.actor.accountId,
+          listingId: c.req.param("id"),
+          orderedPhotoIds: orderedPhotoIds(body.orderedPhotoIds ?? body.ordered_photo_ids),
+        },
+        context,
+      );
+      return c.json({ id: result.listingId, version: result.version, status: "photos-reordered" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/listings/:id/photos/:photoId/classify", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) return access.response;
     const context = c.get("context");
     if (!context) {
       return c.json(
@@ -973,6 +1045,37 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
         context,
       );
       return c.json({ id: result.listingId, version: result.version, status: "photo-replaced" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.delete("/listings/:id/photos/:photoId", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) return access.response;
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      const result = await services.removeListingPhoto(
+        {
+          accountId: access.actor.accountId,
+          listingId: c.req.param("id"),
+          photoId: c.req.param("photoId"),
+        },
+        context,
+      );
+      return c.json({ id: result.listingId, version: result.version, status: "photo-removed" });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

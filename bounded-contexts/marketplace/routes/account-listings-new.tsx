@@ -255,6 +255,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       hasListingStockLocation: false,
       claimError: null,
       createForm: null,
+      evidenceReadiness: null,
     };
   }
 
@@ -326,37 +327,47 @@ export async function loader({ request }: LoaderFunctionArgs) {
     : selectedCatalogItemId
       ? inventoryItems.find((inventoryItem) => inventoryItem.catalog_catalog_item_id === selectedCatalogItemId)
       : null;
-
-  return {
-    accountAccessRequired: null,
-    inventoryItems,
-    hasListingStockLocation,
-    claimError: claimError ?? inventoryHandoffError,
-    createForm: claimedDraft
-      ? createFormFromClaimedDraft(claimedDraft)
-      : selectedInventoryItem
+  const initialCreateForm = claimedDraft
+    ? createFormFromClaimedDraft(claimedDraft)
+    : selectedInventoryItem
+      ? {
+          inventoryItemId: selectedInventoryItem.item_id,
+          catalogItemId: selectedInventoryItem.catalog_catalog_item_id,
+          selectedOptions: selectedInventoryItem.selected_options,
+          priceAmount: recommendedPrice,
+          quantityCap: "1",
+          maxUnitsPerOrder: "",
+          maxUnitsPerDay: "",
+          maxUnitsPerCustomerAccount: "",
+        }
+      : selectedCatalogItemId
         ? {
-            inventoryItemId: selectedInventoryItem.item_id,
-            catalogItemId: selectedInventoryItem.catalog_catalog_item_id,
-            selectedOptions: selectedInventoryItem.selected_options,
+            inventoryItemId: "",
+            catalogItemId: selectedCatalogItemId,
+            selectedOptions,
             priceAmount: recommendedPrice,
             quantityCap: "1",
             maxUnitsPerOrder: "",
             maxUnitsPerDay: "",
             maxUnitsPerCustomerAccount: "",
           }
-        : selectedCatalogItemId
-          ? {
-              inventoryItemId: "",
-              catalogItemId: selectedCatalogItemId,
-              selectedOptions,
-              priceAmount: recommendedPrice,
-              quantityCap: "1",
-              maxUnitsPerOrder: "",
-              maxUnitsPerDay: "",
-              maxUnitsPerCustomerAccount: "",
-            }
-          : null,
+        : null;
+  const evidenceReadiness = initialCreateForm?.inventoryItemId
+    ? await marketplaceApi
+        .previewListingEvidenceReadiness({
+          inventoryItemId: initialCreateForm.inventoryItemId,
+          priceAmount: initialCreateForm.priceAmount || "0",
+        })
+        .catch(() => null)
+    : null;
+
+  return {
+    accountAccessRequired: null,
+    inventoryItems,
+    hasListingStockLocation,
+    claimError: claimError ?? inventoryHandoffError,
+    createForm: initialCreateForm,
+    evidenceReadiness,
   };
 }
 
@@ -383,6 +394,12 @@ export async function action({ request }: ActionFunctionArgs) {
         createPreview: await api.previewListingTerms({
           priceAmount: createForm.priceAmount,
         }),
+        evidenceReadiness: createForm.inventoryItemId
+          ? await api.previewListingEvidenceReadiness({
+              inventoryItemId: createForm.inventoryItemId,
+              priceAmount: createForm.priceAmount,
+            })
+          : null,
       };
     }
 
@@ -439,20 +456,37 @@ export async function action({ request }: ActionFunctionArgs) {
         );
       }
 
-      const redirectReceipts =
-        intent === "create-and-publish-listing"
-          ? [
-              result,
-              await api.publishListing(result.id, {
-                feeQuoteFingerprint: result.feeQuoteFingerprint,
-              }),
-            ]
-          : [result];
+      const redirectReceipts: unknown[] = [result];
+      let published = false;
+      let publicationBlocked = false;
+      if (intent === "create-and-publish-listing") {
+        try {
+          redirectReceipts.push(
+            await api.publishListing(result.id, {
+              feeQuoteFingerprint: result.feeQuoteFingerprint,
+            }),
+          );
+          published = true;
+        } catch (error) {
+          if (marketplaceApiErrorCode(error) !== "listing_evidence_incomplete") throw error;
+          publicationBlocked = true;
+        }
+      }
+
+      const evidenceEvent = published
+        ? "publication_succeeded"
+        : publicationBlocked
+          ? "publication_blocked"
+          : listingPhotoFiles.length > 0
+            ? "upload_completed"
+            : null;
 
       return redirect(
         await navigateToAccountListingsNewAfterWriteFromSources(
           redirectReceipts,
-          intent === "create-and-publish-listing" ? `/account/listings/${result.id}` : `/account/listings/${result.id}`,
+          `/account/listings/${result.id}${
+            published ? `?evidenceEvent=${evidenceEvent}` : evidenceEvent ? `?evidenceEvent=${evidenceEvent}` : ""
+          }`,
         ),
       );
     }
@@ -497,6 +531,7 @@ export default function MarketplaceAccountListingsNewRoute() {
       createForm={actionData?.createForm ?? data.createForm ?? undefined}
       createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}
       errorMessage={actionData?.error ?? data.claimError ?? null}
+      evidenceReadiness={actionData?.evidenceReadiness ?? data.evidenceReadiness}
     />
   );
 }

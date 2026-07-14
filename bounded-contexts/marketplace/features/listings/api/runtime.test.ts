@@ -724,7 +724,7 @@ describe("marketplace listing runtime", () => {
         },
         context,
       ),
-    ).rejects.toThrow("Listing evidence requirements are not met.");
+    ).rejects.toThrow("Listing evidence is incomplete.");
   });
 
   it("blocks publication when configured seller-trust requirements are incomplete", async () => {
@@ -812,7 +812,7 @@ describe("marketplace listing runtime", () => {
         },
         context,
       ),
-    ).rejects.toThrow("Listing evidence requirements are not met.");
+    ).rejects.toThrow("Listing evidence is incomplete.");
   });
 
   it("keeps existing listing fee locks when management changes future terms", async () => {

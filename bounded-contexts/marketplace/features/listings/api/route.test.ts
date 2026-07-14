@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountListingRoutes, createPublicListingRoutes } from "./route";
-import type { MarketplaceListingServices } from "./runtime";
+import { MarketplaceListingEvidenceIncompleteError, type MarketplaceListingServices } from "./runtime";
 
 function buildApp(
   options: Readonly<{
@@ -218,9 +218,66 @@ function createServices(): MarketplaceListingServices {
       },
       updatedAt: "2026-07-13T00:00:00.000Z",
     })),
+    getSellerListing: vi.fn(async () => null),
+    getListingEvidenceReadiness: vi.fn(async () => ({
+      policy: {
+        policyId: "pol_1",
+        policyVersion: 2,
+        policyHash: "sha256:test",
+        explanationCodes: ["configured-evidence"],
+        effectiveInterval: { from: "2026-07-13T00:00:00.000Z", until: null },
+      },
+      requirements: {
+        minimumPhotoCount: 1,
+        requiredSlots: [],
+        sellerTrustRequirements: [],
+        buyerAcknowledgment: "none",
+      },
+      coverage: {
+        complete: false,
+        unmetCodes: ["min-photo-count-unmet"],
+        slots: [],
+        activePhotoCount: 0,
+        minimumPhotoCount: 1,
+      },
+      nextActions: [
+        {
+          code: "min-photo-count-unmet",
+          localeKey: "marketplace.features.listings.evidenceCoverage.min-photo-count-unmet",
+          slotIds: [],
+        },
+      ],
+      publicGallery: [],
+    })),
+    previewListingEvidenceReadiness: vi.fn(async () => ({
+      policy: {
+        policyId: null,
+        policyVersion: null,
+        policyHash: "sha256:test",
+        explanationCodes: [],
+        effectiveInterval: { from: null, until: null },
+      },
+      requirements: {
+        minimumPhotoCount: 0,
+        requiredSlots: [],
+        sellerTrustRequirements: [],
+        buyerAcknowledgment: "none",
+      },
+      coverage: {
+        complete: true,
+        unmetCodes: [],
+        slots: [],
+        activePhotoCount: 0,
+        minimumPhotoCount: 0,
+      },
+      nextActions: [],
+      publicGallery: [],
+    })),
     addListingPhotos: vi.fn(async () => ({ listingId: "lst_1", version: 3 })),
     classifyListingPhoto: vi.fn(async () => ({ listingId: "lst_1", version: 4 })),
     replaceListingPhoto: vi.fn(async () => ({ listingId: "lst_1", version: 5 })),
+    removeListingPhoto: vi.fn(async () => ({ listingId: "lst_1", version: 6 })),
+    reorderListingPhotos: vi.fn(async () => ({ listingId: "lst_1", version: 7 })),
     applyBulkListingPriceUpdates: vi.fn(async (params: { updates: readonly { listingId: string }[] }) =>
       params.updates.map((update) => ({ listingId: update.listingId, outcome: "applied" as const, version: 2 })),
     ),
@@ -823,6 +880,92 @@ describe("marketplace listing routes", () => {
         viewKind: "front",
       }),
       expect.anything(),
+    );
+  });
+
+  it("returns the current readiness snapshot when publication evidence is stale or incomplete", async () => {
+    const services = createServices();
+    const currentReadiness = await services.getListingEvidenceReadiness({
+      accountId: "acc_seller",
+      listingId: "lst_1",
+    });
+    vi.mocked(services.publishListing).mockRejectedValue(
+      new MarketplaceListingEvidenceIncompleteError(currentReadiness),
+    );
+    const app = buildApp({ actor: sellerActor, services });
+
+    const response = await app.request("/account/listings/lst_1/publish", { method: "POST" });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error).toMatchObject({
+      code: "listing_evidence_incomplete",
+      currentEvidenceReadiness: { coverage: { complete: false } },
+    });
+  });
+
+  it("returns server-owned evidence readiness with a seller listing", async () => {
+    const services = createServices();
+    vi.mocked(services.getSellerListing).mockResolvedValue({ listing_id: "lst_1" } as never);
+    const app = buildApp({ actor: sellerActor, services });
+
+    const response = await app.request("/account/listings/lst_1");
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.evidence_readiness).toMatchObject({
+      coverage: { complete: false, unmetCodes: ["min-photo-count-unmet"] },
+      nextActions: [{ localeKey: "marketplace.features.listings.evidenceCoverage.min-photo-count-unmet" }],
+    });
+    expect(services.getListingEvidenceReadiness).toHaveBeenCalledWith({
+      accountId: "acc_seller",
+      listingId: "lst_1",
+      now: expect.any(String),
+    });
+  });
+
+  it("wires evidence classify, replace, remove, and reorder routes to the owned listing services", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor, services });
+
+    const classifyResponse = await app.request("/account/listings/lst_1/photos/lpho_1/classify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slotId: "front", viewKind: "front", altText: "Front view" }),
+    });
+    const replacement = new FormData();
+    replacement.set("listingPhoto", new File([new Uint8Array([1, 2, 3])], "front.webp", { type: "image/webp" }));
+    replacement.set("slotId", "front");
+    replacement.set("viewKind", "front");
+    const replaceResponse = await app.request("/account/listings/lst_1/photos/lpho_1/replace", {
+      method: "POST",
+      body: replacement,
+    });
+    const removeResponse = await app.request("/account/listings/lst_1/photos/lpho_1", { method: "DELETE" });
+    const reorderResponse = await app.request("/account/listings/lst_1/photos/reorder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderedPhotoIds: ["lpho_2", "lpho_1"] }),
+    });
+
+    expect([classifyResponse.status, replaceResponse.status, removeResponse.status, reorderResponse.status]).toEqual([
+      200, 200, 200, 200,
+    ]);
+    expect(services.classifyListingPhoto).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: "acc_seller", listingId: "lst_1", photoId: "lpho_1", slotId: "front" }),
+      expect.any(Object),
+    );
+    expect(services.replaceListingPhoto).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: "acc_seller", listingId: "lst_1", replacedPhotoId: "lpho_1" }),
+      expect.any(Object),
+    );
+    expect(services.removeListingPhoto).toHaveBeenCalledWith(
+      { accountId: "acc_seller", listingId: "lst_1", photoId: "lpho_1" },
+      expect.any(Object),
+    );
+    expect(services.reorderListingPhotos).toHaveBeenCalledWith(
+      { accountId: "acc_seller", listingId: "lst_1", orderedPhotoIds: ["lpho_2", "lpho_1"] },
+      expect.any(Object),
     );
   });
 

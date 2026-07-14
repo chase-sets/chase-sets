@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
+import { useEffect, useRef } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
 import {
   loadAfterWrite,
   navigateAfterWriteWithCompactToken,
@@ -12,6 +13,7 @@ import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
   type MarketplaceListingDetail,
+  type MarketplaceListingEvidenceReadiness,
   type MarketplaceListingFeeHistoryEntry,
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
@@ -24,6 +26,11 @@ import {
   ListingDetailRecoveryPage,
 } from "../features/listings/ui/listing-detail-error-boundary";
 import { MarketplaceListingDetailPage } from "../features/listings/ui/listing-detail-page";
+import {
+  listingEvidenceAnalyticsEventNames,
+  trackListingEvidenceEvent,
+  type ListingEvidenceAnalyticsEventName,
+} from "../features/listings/ui/listing-evidence-analytics";
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListing.inspect.listing.inventory.pricing.quantity.caps");
 const ACCOUNT_LISTING_POST_WRITE_TELEMETRY = {
@@ -63,6 +70,13 @@ function staleQuoteFromError(error: MarketplaceApiError) {
   return body.error.currentQuote as MarketplaceListingTermsPreview;
 }
 
+function evidenceReadinessFromError(error: MarketplaceApiError): MarketplaceListingEvidenceReadiness | null {
+  if (error.status !== 409 || !error.body || typeof error.body !== "object" || !("error" in error.body)) return null;
+  const apiError = error.body.error;
+  if (!apiError || typeof apiError !== "object" || !("currentEvidenceReadiness" in apiError)) return null;
+  return apiError.currentEvidenceReadiness as MarketplaceListingEvidenceReadiness;
+}
+
 function optionalLimit(value: FormDataEntryValue | null) {
   const text = String(value ?? "").trim();
   return text === "" ? null : Number(text);
@@ -77,6 +91,28 @@ function listingPhotoFormData(formData: FormData) {
   }
 
   return apiForm;
+}
+
+function replacementPhotoFormData(formData: FormData) {
+  const apiForm = new FormData();
+  const file = formData.get("listingPhoto");
+  if (file instanceof File && file.size > 0) apiForm.set("listingPhoto", file);
+  for (const key of ["slotId", "viewKind", "capturedAt"] as const) {
+    const value = String(formData.get(key) ?? "").trim();
+    if (value) apiForm.set(key, value);
+  }
+  const altText = String(formData.get("altText") ?? "").trim();
+  if (altText) apiForm.set("listingPhotoAltText", altText);
+  return apiForm;
+}
+
+function parseOrderedPhotoIds(value: FormDataEntryValue | null) {
+  try {
+    const parsed = JSON.parse(String(value ?? "")) as unknown;
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
 }
 
 async function navigateToAccountListingAfterWrite(commandResult: unknown, destinationRoute: string) {
@@ -179,7 +215,49 @@ export async function action({ request, params }: ActionFunctionArgs) {
         return redirect(
           await navigateToAccountListingAfterWrite(
             await api.addListingPhotos(params.listingId!, listingPhotoFormData(formData)),
-            pathname,
+            `${pathname}?evidenceEvent=upload_completed`,
+          ),
+        );
+      case "classify-photo": {
+        const listing = await api.getSellerListing(params.listingId!);
+        const slotId = String(formData.get("slotId") ?? "").trim();
+        const slot = listing.evidence_readiness.requirements.requiredSlots.find(
+          (requirement) => requirement.slotId === slotId,
+        );
+        return redirect(
+          await navigateToAccountListingAfterWrite(
+            await api.updateListingPhotoClassification(params.listingId!, String(formData.get("photoId") ?? ""), {
+              slotId: slot?.slotId ?? null,
+              viewKind: slot?.viewKind ?? null,
+              altText: String(formData.get("altText") ?? "").trim() || null,
+            }),
+            `${pathname}?evidenceEvent=remediation_completed`,
+          ),
+        );
+      }
+      case "replace-photo":
+        return redirect(
+          await navigateToAccountListingAfterWrite(
+            await api.replaceListingPhoto(
+              params.listingId!,
+              String(formData.get("photoId") ?? ""),
+              replacementPhotoFormData(formData),
+            ),
+            `${pathname}?evidenceEvent=upload_completed`,
+          ),
+        );
+      case "remove-photo":
+        return redirect(
+          await navigateToAccountListingAfterWrite(
+            await api.removeListingPhoto(params.listingId!, String(formData.get("photoId") ?? "")),
+            `${pathname}?evidenceEvent=remediation_completed`,
+          ),
+        );
+      case "reorder-photos":
+        return redirect(
+          await navigateToAccountListingAfterWrite(
+            await api.reorderListingPhotos(params.listingId!, parseOrderedPhotoIds(formData.get("orderedPhotoIds"))),
+            `${pathname}?evidenceEvent=remediation_completed`,
           ),
         );
       case "publish":
@@ -188,7 +266,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
             await api.publishListing(params.listingId!, {
               feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
             }),
-            pathname,
+            `${pathname}?evidenceEvent=publication_succeeded`,
           ),
         );
       case "pause":
@@ -205,9 +283,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
   } catch (error) {
     if (error instanceof MarketplaceApiError) {
       const currentQuote = staleQuoteFromError(error);
+      const currentEvidenceReadiness = evidenceReadinessFromError(error);
       return {
         priceDraftAmount,
         pricePreview: currentQuote,
+        evidenceReadiness: currentEvidenceReadiness,
+        evidenceAnalyticsEvent:
+          currentEvidenceReadiness && intent === "publish"
+            ? ("publication_blocked" as const)
+            : intent === "add-photos" || intent === "replace-photo"
+              ? ("upload_failed" as const)
+              : null,
         error: currentQuote ? t("marketplace.routes.accountListing.fee.quote.stale") : error.message,
       };
     }
@@ -226,14 +312,45 @@ export default function MarketplaceAccountListingRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const lastEvidenceAnalyticsKey = useRef<string | null>(null);
+  const readiness = actionData?.evidenceReadiness ?? data.listing?.evidence_readiness ?? null;
+  const requestedEvidenceEvent = actionData?.evidenceAnalyticsEvent ?? searchParams.get("evidenceEvent");
+
+  useEffect(() => {
+    if (
+      !requestedEvidenceEvent ||
+      !listingEvidenceAnalyticsEventNames.includes(requestedEvidenceEvent as ListingEvidenceAnalyticsEventName)
+    ) {
+      return;
+    }
+    if (requestedEvidenceEvent === "remediation_completed" && !readiness?.coverage.complete) return;
+
+    const key = `${requestedEvidenceEvent}:${data.listing?.listing_id ?? "pending"}:${readiness?.policy.policyHash ?? "none"}`;
+    if (lastEvidenceAnalyticsKey.current === key) return;
+    lastEvidenceAnalyticsKey.current = key;
+    const properties = {
+      surface: "listing-detail" as const,
+      complete: readiness?.coverage.complete,
+      unmetCount: readiness?.coverage.unmetCodes.length,
+      slotCount: readiness?.coverage.slots.length,
+    };
+    trackListingEvidenceEvent(requestedEvidenceEvent as ListingEvidenceAnalyticsEventName, properties);
+    if (requestedEvidenceEvent === "upload_completed" && readiness?.coverage.complete) {
+      trackListingEvidenceEvent("remediation_completed", properties);
+    }
+  }, [data.listing?.listing_id, readiness, requestedEvidenceEvent]);
 
   if (!data.listing) {
     return <ListingDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />;
   }
 
+  const currentListing = actionData?.evidenceReadiness
+    ? { ...data.listing, evidence_readiness: actionData.evidenceReadiness }
+    : data.listing;
   return (
     <MarketplaceListingDetailPage
-      listing={data.listing as MarketplaceListingDetail}
+      listing={currentListing as MarketplaceListingDetail}
       feeHistory={data.feeHistory.items as MarketplaceListingFeeHistoryEntry[]}
       priceDraftAmount={actionData?.priceDraftAmount ?? null}
       pricePreview={actionData?.pricePreview as MarketplaceListingTermsPreview | null | undefined}

@@ -39,6 +39,32 @@ const listing: MarketplaceListingDetail = {
   quantity_cap: 1,
   evidence_requirements: null,
   evidence: [],
+  evidence_readiness: {
+    ready: true,
+    policy: {
+      policyId: null,
+      policyVersion: null,
+      policyHash: "sha256:test",
+      requirementHash: "sha256:requirement",
+      evaluatedAt: "2026-07-13T00:00:00.000Z",
+      explanationCodes: [],
+    },
+    requirements: {
+      minimumPhotoCount: 0,
+      requiredSlots: [],
+      sellerTrustRequirements: [],
+      buyerAcknowledgment: "none",
+    },
+    coverage: {
+      complete: true,
+      unmetCodes: [],
+      slots: [],
+      activePhotoCount: 0,
+      minimumPhotoCount: 0,
+    },
+    nextActions: [],
+    publicGallery: [],
+  },
   status: "active",
   created_at: "2026-04-01T00:00:00.000Z",
   updated_at: "2026-04-01T00:00:00.000Z",
@@ -163,6 +189,38 @@ describe("MarketplaceListingDetailPage", () => {
               },
             },
           ],
+          evidence_readiness: {
+            ...listing.evidence_readiness,
+            coverage: {
+              ...listing.evidence_readiness.coverage,
+              activePhotoCount: 1,
+            },
+            publicGallery: [
+              {
+                photoId: "lpho_1",
+                slotId: null,
+                viewKind: null,
+                altText: "Charizard front photo",
+                sortOrder: 0,
+                assets: [
+                  {
+                    role: "catalog-detail",
+                    publicUrl: "/listing-detail-480w.webp",
+                    width: 480,
+                    height: 640,
+                    density: 1,
+                  },
+                  {
+                    role: "catalog-detail",
+                    publicUrl: "/listing-detail-960w.webp",
+                    width: 960,
+                    height: 1280,
+                    density: 2,
+                  },
+                ],
+              },
+            ],
+          },
         }}
         feeHistory={[]}
         priceDraftAmount="20.00"
@@ -193,5 +251,68 @@ describe("MarketplaceListingDetailPage", () => {
 
     expect(screen.getByRole("button", { name: "Publish listing" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByText("Resolve the catalog shipping measure before publishing this listing.")).toBeTruthy();
+  });
+
+  it("walks a draft through the concrete server-owned evidence action before publication", () => {
+    const { container } = render(
+      <MarketplaceListingDetailPage
+        listing={{
+          ...listing,
+          status: "draft",
+          product_measure_snapshot: {} as never,
+          evidence_readiness: {
+            ...listing.evidence_readiness,
+            ready: false,
+            requirements: {
+              ...listing.evidence_readiness.requirements,
+              minimumPhotoCount: 1,
+              requiredSlots: [
+                {
+                  slotId: "front",
+                  viewKind: "front",
+                  minimumWidthPixels: 800,
+                  minimumHeightPixels: 1000,
+                  maximumAgeHours: null,
+                },
+              ],
+            },
+            coverage: {
+              complete: false,
+              unmetCodes: ["min-photo-count-unmet", "slot-missing"],
+              slots: [
+                {
+                  slotId: "front",
+                  viewKind: "front",
+                  satisfied: false,
+                  matchedPhotoId: null,
+                  unmetCode: "slot-missing",
+                },
+              ],
+              activePhotoCount: 0,
+              minimumPhotoCount: 1,
+            },
+            nextActions: [
+              {
+                code: "min-photo-count-unmet",
+                localeKey: "marketplace.features.listings.evidenceCoverage.min-photo-count-unmet",
+                slotIds: [],
+              },
+              {
+                code: "slot-missing",
+                localeKey: "marketplace.features.listings.evidenceCoverage.slot-missing",
+                slotIds: ["front"],
+              },
+            ],
+          },
+        }}
+        feeHistory={[]}
+      />,
+    );
+
+    expect(screen.getByText("Evidence required")).toBeTruthy();
+    expect(screen.getByText("Add the required photo for this view.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Publish listing" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("Complete the required evidence actions above before publishing.")).toBeTruthy();
+    expect(container.querySelector('input[type="file"][capture="environment"]')).toBeTruthy();
   });
 });

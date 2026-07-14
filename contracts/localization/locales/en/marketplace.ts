@@ -1,4 +1,6 @@
 export const marketplaceEnglishTranslations = {
+  "marketplace.features.listings.api.route.evidence.incomplete":
+    "Listing evidence requirements changed or remain incomplete. Follow the current readiness actions before publishing.",
   "marketplace.app.host.inventory": "Inventory",
   "marketplace.app.host.listings": "Listings",
   "marketplace.app.host.offer.matches": "Offer Matches",
@@ -126,6 +128,51 @@ export const marketplaceEnglishTranslations = {
     "This photo is older than the maximum allowed age. Add a more recent photo.",
   "marketplace.features.listings.evidenceCoverage.duplicate-source":
     "The same image cannot prove two different required views. Add a distinct photo.",
+  "marketplace.features.listings.evidenceReadiness.requirements-unavailable":
+    "Evidence requirements are temporarily unavailable. Try again before publishing.",
+  "marketplace.features.listings.evidenceReadiness.seller-trust-requirement-unmet":
+    "This listing needs additional seller trust history or an accepted seller badge before publication.",
+  "marketplace.features.listings.ui.evidence.action.required": "Action required",
+  "marketplace.features.listings.ui.evidence.add.photos": "Add seller-supplied evidence",
+  "marketplace.features.listings.ui.evidence.add.photos.description":
+    "Use your camera or choose JPEG, PNG, or WebP images. Completed evidence remains attached if another upload fails.",
+  "marketplace.features.listings.ui.evidence.alt.text": "Image description",
+  "marketplace.features.listings.ui.evidence.assign.view": "Evidence view",
+  "marketplace.features.listings.ui.evidence.choose.photos": "or use your camera or choose images",
+  "marketplace.features.listings.ui.evidence.choose.replacement": "or use your camera or choose a replacement",
+  "marketplace.features.listings.ui.evidence.complete": "Complete",
+  "marketplace.features.listings.ui.evidence.drop.photos": "Drop evidence images here",
+  "marketplace.features.listings.ui.evidence.drop.replacement": "Drop a replacement image here",
+  "marketplace.features.listings.ui.evidence.minimum.dimensions": "At least {width} × {height} pixels",
+  "marketplace.features.listings.ui.evidence.minimum.photo.count": "Required image count: {count}",
+  "marketplace.features.listings.ui.evidence.move.earlier": "Move earlier",
+  "marketplace.features.listings.ui.evidence.move.later": "Move later",
+  "marketplace.features.listings.ui.evidence.photo.count.progress": "{present} of {required} required images present.",
+  "marketplace.features.listings.ui.evidence.photo.fallback.alt": "Seller-supplied evidence image {index}",
+  "marketplace.features.listings.ui.evidence.photo.label": "Evidence image {index}",
+  "marketplace.features.listings.ui.evidence.publish.blocked":
+    "Complete the required evidence actions above before publishing.",
+  "marketplace.features.listings.ui.evidence.readiness.title": "Listing readiness",
+  "marketplace.features.listings.ui.evidence.readiness.pending.title": "Confirm evidence readiness",
+  "marketplace.features.listings.ui.evidence.readiness.refreshing":
+    "Refreshing the configured evidence requirements for this Product.",
+  "marketplace.features.listings.ui.evidence.readiness.select.inventory":
+    "Select existing inventory to confirm publication readiness now, or save a draft and complete guided evidence next.",
+  "marketplace.features.listings.ui.evidence.ready.description":
+    "The current seller-supplied evidence meets the configured publication requirements.",
+  "marketplace.features.listings.ui.evidence.ready.title": "Evidence ready",
+  "marketplace.features.listings.ui.evidence.remove": "Remove",
+  "marketplace.features.listings.ui.evidence.replace": "Replace",
+  "marketplace.features.listings.ui.evidence.replace.photo": "Replace this image",
+  "marketplace.features.listings.ui.evidence.required.description":
+    "Follow each action below. You can keep this listing as a draft while evidence is incomplete.",
+  "marketplace.features.listings.ui.evidence.required.title": "Evidence required",
+  "marketplace.features.listings.ui.evidence.required.view": "Required view: {view}",
+  "marketplace.features.listings.ui.evidence.save.classification": "Save view",
+  "marketplace.features.listings.ui.evidence.seller.supplied": "Seller-supplied evidence",
+  "marketplace.features.listings.ui.evidence.unclassified": "Not assigned to a required view",
+  "marketplace.features.listings.ui.evidence.upload": "Upload evidence",
+  "marketplace.features.listings.ui.evidence.view.ready": "This required view is ready.",
   "marketplace.features.listings.ui.listingDetailPage.listing.overview": "Listing Overview",
   "marketplace.features.listings.ui.listingDetailPage.manage.seller.listing.pricing.quantity.caps":
     "Manage seller listing pricing, quantity caps, and publication state.",
@@ -239,7 +286,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.listing.health": "Listing health",
   "marketplace.features.listings.ui.listingListPage.listing.photos": "Listing evidence",
   "marketplace.features.listings.ui.listingListPage.listing.photos.description":
-    "Evidence requirements come from the active Listing Evidence Policy. Uploaded images are stored as normalized WebP variants.",
+    "Evidence requirements come from the active Listing Evidence Policy. Add clear images so buyers can verify the item they will receive.",
   "marketplace.features.listings.ui.listingListPage.list.without.managing.inventory":
     "List without managing inventory first",
   "marketplace.features.listings.ui.listingListPage.listings": "Listings",
@@ -398,7 +445,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingCreatePage.ship.from.country": "Country",
   "marketplace.features.listings.ui.listingCreatePage.listing.photos": "Listing evidence",
   "marketplace.features.listings.ui.listingCreatePage.listing.photos.description":
-    "Evidence requirements come from the active Listing Evidence Policy. Uploaded images are stored as normalized WebP variants.",
+    "Evidence requirements come from the active Listing Evidence Policy. Add clear images so buyers can verify the item they will receive.",
   "marketplace.features.listings.ui.listingCreatePage.drop.listing.photos": "Drop evidence images here",
   "marketplace.features.listings.ui.listingCreatePage.choose.photos": "or choose JPEG, PNG, or WebP files",
   "marketplace.features.listings.ui.listingCreatePage.advanced.inventory.and.limits": "Advanced inventory and limits",
