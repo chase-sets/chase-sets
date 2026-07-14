@@ -1050,13 +1050,16 @@ jobs:
           add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"
           add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"
 
+          # Deployed marketplace critical flows use the scenario-seed collector
+          # account, cart lines, and started checkout session. DOKS owns a separate
+          # staging database, so its bootstrap hook must reconcile that profile too.
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
             --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=staging" \
             --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
-            --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
+            --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap,scenario-seed" \
             --runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${TF_VAR_admin_google_workspace_hosted_domains:-}" \
             --runtime-env "CHASE_SETS_PUBLIC_ORIGIN=https://${landing_domain}" \
             --runtime-env "NOTIFICATION_EMAIL_PROVIDER=${TF_VAR_notification_email_provider:-noop}" \

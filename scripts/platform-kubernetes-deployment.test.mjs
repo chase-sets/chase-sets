@@ -239,7 +239,7 @@ describe("platform Kubernetes deployment", () => {
       "--runtime-env",
       "CHASE_SETS_RUNTIME_PROFILE=public",
       "--runtime-env",
-      "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap",
+      "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap,scenario-seed",
       "--runtime-env",
       "CATALOG_ASSET_PUBLIC_BASE_URL=https://assets.staging.chasesets.com",
       "--namespace",
