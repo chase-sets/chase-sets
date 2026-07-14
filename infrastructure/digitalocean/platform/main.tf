@@ -1652,7 +1652,7 @@ resource "digitalocean_app" "platform" {
     job {
       name               = "platform-bootstrap"
       kind               = "PRE_DEPLOY"
-      run_command        = "sh -c 'if [ \"$${PLATFORM_BOOTSTRAP_OWNER:-app-platform}\" = \"doks\" ]; then echo \"Skipping App Platform platform-bootstrap because PLATFORM_BOOTSTRAP_OWNER=doks; DOKS is the schema-bootstrap owner.\"; exit 0; fi; pnpm --filter @chase-sets/app-platform-api run bootstrap:production'"
+      run_command        = "sh -c 'case \"$${PLATFORM_BOOTSTRAP_OWNER:-}\" in doks) echo \"Skipping App Platform platform-bootstrap because PLATFORM_BOOTSTRAP_OWNER=doks; DOKS is the schema-bootstrap owner.\"; exit 0 ;; app-platform) exec pnpm --filter @chase-sets/app-platform-api run bootstrap:production ;; *) echo \"Invalid or missing PLATFORM_BOOTSTRAP_OWNER; expected app-platform or doks.\" >&2; exit 1 ;; esac'"
       instance_size_slug = var.app_instance_size_slug
       instance_count     = 1
 
