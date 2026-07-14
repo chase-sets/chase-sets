@@ -465,6 +465,7 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_VAR_digitalocean_token: pr-validation-token
+      TF_VAR_environment_project_id: 00000000-0000-0000-0000-000000000000
       TF_VAR_spaces_access_id: pr-validation-access-id
       TF_VAR_spaces_secret_key: pr-validation-secret-key
       TF_VAR_environment: preview
@@ -563,6 +564,7 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_VAR_digitalocean_token: pr-validation-token
+      TF_VAR_environment_project_id: 00000000-0000-0000-0000-000000000000
       TF_VAR_spaces_access_id: pr-validation-access-id
       TF_VAR_spaces_secret_key: pr-validation-secret-key
       TF_VAR_environment: production
@@ -662,6 +664,7 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_VAR_digitalocean_token: pr-validation-token
+      TF_VAR_environment_project_id: 00000000-0000-0000-0000-000000000000
       TF_VAR_spaces_access_id: pr-validation-access-id
       TF_VAR_spaces_secret_key: pr-validation-secret-key
       TF_VAR_environment: staging
