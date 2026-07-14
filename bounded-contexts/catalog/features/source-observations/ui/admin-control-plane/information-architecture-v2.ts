@@ -352,7 +352,10 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "status-banner",
     disclosure: "inline",
-    replacesIntents: ["promote-merge-candidate"],
+    // Single-candidate promote and the scope-level promote-all-ready bulk action
+    // are the same entity verb applied to one candidate or to the ready set; the
+    // bulk form only ever carries `ready` candidate IDs.
+    replacesIntents: ["promote-merge-candidate", "bulk-promote-merge-candidates"],
   },
   {
     id: "candidate.edit",
@@ -402,7 +405,9 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "row-transition",
     disclosure: "inline",
-    replacesIntents: ["defer-merge-candidate"],
+    // Single-candidate defer and the scope-level defer-remainder bulk action are
+    // the same entity verb over one candidate or the remainder set.
+    replacesIntents: ["defer-merge-candidate", "bulk-defer-merge-candidates"],
   },
   // alias (accept + auto-accept collapse to one accept action)
   {

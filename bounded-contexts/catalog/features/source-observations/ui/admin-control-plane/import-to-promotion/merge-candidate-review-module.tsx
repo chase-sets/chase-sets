@@ -28,6 +28,8 @@ import type {
 } from "../../../api/primary-workbench-admin-contracts";
 import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
 import { CommandFormButton, CommandHiddenInputs } from "./command-controls";
+import { CatalogMergeCandidateEditForm } from "./candidate-edit-form";
+import { CatalogScopeBulkReviewActions, catalogMergeCandidateReviewAnchorId } from "./scope-bulk-review-actions";
 import { BlockerList, stateLabel } from "./workbench-formatting";
 
 type MergeCandidateRow = CatalogPrimaryWorkbenchMergeCandidateReviewRow;
@@ -159,55 +161,59 @@ export function CatalogIntegrationMergeCandidateReviewModule({
   );
 
   return (
-    <WorkflowModule
-      title={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.title")}
-      description={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.description")}
-      status={
-        <BadgeCluster
-          items={[
-            { key: "freshness", label: stateLabel(review.freshness), tone: freshnessTone(review.freshness) },
-            {
-              key: "ready",
-              label: t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.ready.count", {
-                count: review.counts.ready,
-              }),
-              tone: review.counts.ready > 0 ? "success" : "neutral",
-            },
-            {
-              key: "conflict",
-              label: t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflict.count", {
-                count: review.counts.conflict,
-              }),
-              tone: review.counts.conflict > 0 ? "warning" : "neutral",
-            },
-          ]}
-        />
-      }
-      headingLevel={2}
-      density="compact"
-    >
-      <BadgeCluster
-        items={review.filters.map((filter) => ({
-          key: filter.key,
-          label: t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.filter.summary", {
-            label: filter.label,
-            value: filter.value ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
-          }),
-          tone: filter.serverApplied ? "info" : "neutral",
-        }))}
-      />
-      <DataTable
-        rows={[...review.rows]}
-        columns={columns}
-        caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.title")}
-        getRowId={(row) => row.candidateId}
+    <WorkbenchStack gap="md">
+      <CatalogScopeBulkReviewActions readModel={readModel} />
+      <WorkflowModule
+        id={catalogMergeCandidateReviewAnchorId}
+        title={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.title")}
+        description={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.description")}
+        status={
+          <BadgeCluster
+            items={[
+              { key: "freshness", label: stateLabel(review.freshness), tone: freshnessTone(review.freshness) },
+              {
+                key: "ready",
+                label: t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.ready.count", {
+                  count: review.counts.ready,
+                }),
+                tone: review.counts.ready > 0 ? "success" : "neutral",
+              },
+              {
+                key: "conflict",
+                label: t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflict.count", {
+                  count: review.counts.conflict,
+                }),
+                tone: review.counts.conflict > 0 ? "warning" : "neutral",
+              },
+            ]}
+          />
+        }
+        headingLevel={2}
         density="compact"
-        emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.empty.title")}
-        emptyDescription={t(
-          "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.empty.description",
-        )}
-      />
-    </WorkflowModule>
+      >
+        <BadgeCluster
+          items={review.filters.map((filter) => ({
+            key: filter.key,
+            label: t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.filter.summary", {
+              label: filter.label,
+              value: filter.value ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+            }),
+            tone: filter.serverApplied ? "info" : "neutral",
+          }))}
+        />
+        <DataTable
+          rows={[...review.rows]}
+          columns={columns}
+          caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.title")}
+          getRowId={(row) => row.candidateId}
+          density="compact"
+          emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.empty.title")}
+          emptyDescription={t(
+            "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.empty.description",
+          )}
+        />
+      </WorkflowModule>
+    </WorkbenchStack>
   );
 }
 
@@ -233,6 +239,7 @@ function MergeCandidateDetailSheet({
         {row.conflicts.blockingConflicts.length > 0 ? (
           <MergeCandidateConflictResolutionForm row={row} readModel={readModel} />
         ) : null}
+        <CatalogMergeCandidateEditForm row={row} readModel={readModel} />
         <KeyValueList
           items={[
             {

@@ -132,6 +132,22 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "{action} from the scope-first Catalog sync workbench.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.split": "Split",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.update": "Update",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.deferRemainder": "Defer remainder",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.deferReason": "Defer reason",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.description":
+    "Act on every candidate in this Catalog scope at once. Promote skips candidates with conflicts, stale, or already deferred.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.empty":
+    "No candidates in this scope yet.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.jumpToConflicts": "Jump to conflicts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.promoteAll": "Promote all ready",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.promoteAll.skip":
+    "Skips {count} not ready (conflicts, stale, or deferred).",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.summary.conflict":
+    "{count} need conflict resolution",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.summary.ready":
+    "{count} ready to promote",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.summary.remainder": "{count} remaining",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.title": "Scope review actions",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflict.count": "{count} with conflicts",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.chosenValue":
     "Chosen value",
@@ -177,6 +193,34 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.sourceComparison":
     "Source comparison",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.title": "Candidate detail: {name}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.blocked.description":
+    "This candidate cannot be edited: it is already promoted or rejected, missing source membership, or you lack manage access.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.blocked.title": "Editing unavailable",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.catalogItemId":
+    "Matched Catalog Item ID",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.description":
+    "Correct field values, references, and promotion intent before promoting. Field corrections are recorded as manual provenance.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.facts.empty":
+    "No editable field values.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.facts.title": "Field values",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.intent.create": "Create Catalog Item",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.intent.link":
+    "Link existing Catalog Item",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.intent.update": "Update Catalog Item",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.productIds": "Matched Product IDs",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.productIds.help":
+    "Comma-separated Product IDs.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.promotionIntent": "Promotion intent",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.reason": "Edit reason",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.references.catalogItem":
+    "External Catalog Item references",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.references.drop": "Remove {reference}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.references.empty": "None",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.references.product":
+    "External Product references",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.submit": "Save candidate edits",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.title": "Edit candidate",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.edit.trigger": "Edit",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.empty.description":
     "Run or refresh a Catalog sync for this scope, then generate merge candidates from the resulting Source Observations.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.empty.title": "No merged candidates",
