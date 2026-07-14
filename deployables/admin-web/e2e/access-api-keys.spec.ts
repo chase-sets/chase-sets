@@ -56,7 +56,7 @@ test.describe("access admin api keys", () => {
     await expect(page.getByText("active").first()).toBeVisible();
     await expect(page.getByText(rotatedSecret, { exact: true })).toHaveCount(0);
 
-    const revokeUrl = await clickApiKeyRedirectAction(page, apiKeyId, "Revoke");
+    const revokeUrl = await clickApiKeyRedirectAction(page, apiKeyId, apiKeyName);
     await waitForIdentityApiKeyProjection(page, revokeUrl, `revoke API key ${apiKeyId}`);
     await page.goto(revokeUrl.pathname, { waitUntil: "domcontentloaded" });
     await expectAdminPageReady(page, { heading: apiKeyName });
@@ -102,15 +102,19 @@ async function expectOneTimeSecretPanel(page: Page, heading: string) {
   return secret;
 }
 
-async function clickApiKeyRedirectAction(page: Page, apiKeyId: string, name: "Revoke") {
+async function clickApiKeyRedirectAction(page: Page, apiKeyId: string, apiKeyName: string) {
+  await page.getByRole("button", { name: "Revoke" }).click();
+  const confirmationDialog = page.getByRole("dialog", { name: `Revoke ${apiKeyName}?` });
+  await expect(confirmationDialog).toBeVisible();
+
   const [response] = await Promise.all([
     page.waitForResponse(
       (candidate) =>
         candidate.request().method() === "POST" && candidate.url().includes(`/access/api-keys/${apiKeyId}`),
     ),
-    page.getByRole("button", { name }).click(),
+    confirmationDialog.getByRole("button", { name: "Confirm revoke" }).click(),
   ]);
-  expect(response.status(), `${name} form post should redirect successfully`).toBeLessThan(400);
+  expect(response.status(), "Revoke form post should redirect successfully").toBeLessThan(400);
   await page.waitForURL((url) => url.pathname === `/access/api-keys/${apiKeyId}` && url.search.includes("afterWrite"), {
     timeout: 30_000,
   });
