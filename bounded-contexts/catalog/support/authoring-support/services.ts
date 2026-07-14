@@ -21,6 +21,7 @@ import { createReferenceDataRuntime } from "../../features/reference-data/api/ru
 import { createCatalogScopeRegistryRuntime } from "../../features/scope-registry/api/runtime";
 import { createCatalogProviderIntegrationProfileVersionStore } from "../../features/source-observations/api/provider-integration-profile-store";
 import { createSourceObservationRuntime } from "../../features/source-observations/api/runtime";
+import { createScopeSyncBatchRuntime } from "../../features/scope-sync-batches/api/runtime";
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
 import type { SourceObservationTelemetry } from "../../features/source-observations/api/catalog-integration-observability";
 import type { TcgplayerAutomationCatalogClient } from "../../features/source-observations/api/tcgplayer-automation-catalog-client";
@@ -48,6 +49,7 @@ export type CatalogServices = Readonly<{
   providerScopeDiscovery: ReturnType<typeof createProviderScopeDiscoveryRuntime>;
   providerIntegrationProfiles: ReturnType<typeof createCatalogProviderIntegrationProfileVersionStore>;
   sourceObservations: ReturnType<typeof createSourceObservationRuntime>;
+  scopeSyncBatches: ReturnType<typeof createScopeSyncBatchRuntime>;
   catalogAliases: ReturnType<typeof createCatalogAliasRuntime>;
   attentionQueue: ReturnType<typeof createCatalogAttentionQueueRuntime>;
   authoringBulkJobs: ReturnType<typeof createCatalogAuthoringBulkJobServices>;
@@ -94,7 +96,7 @@ export function createCatalogServices(
     catalogItemCommandHandler: items.commandHandler,
     referenceRecordCommandHandler: referenceData.referenceRecordCommandHandler,
   });
-  const sourceObservations = createSourceObservationRuntime(
+  const sourceObservationRuntime = createSourceObservationRuntime(
     deps,
     items,
     referenceData,
@@ -104,6 +106,23 @@ export function createCatalogServices(
     { catalogAliasCommandHandler: catalogAliases.catalogAliasCommandHandler },
     productContents,
   );
+  const scopeSyncBatches = createScopeSyncBatchRuntime({
+    db,
+    previewCatalogSyncScope: sourceObservationRuntime.previewCatalogSyncScope,
+    enqueueCatalogSyncRun: sourceObservationRuntime.enqueueCatalogSyncRun,
+    getCatalogSyncRun: sourceObservationRuntime.getCatalogSyncRun,
+    cancelIntegrationJob: sourceObservationRuntime.cancelIntegrationJob,
+  });
+  const sourceObservations = {
+    ...sourceObservationRuntime,
+    processNextIntegrationJob: async (
+      input: Parameters<typeof sourceObservationRuntime.processNextIntegrationJob>[0],
+    ) => {
+      const batchProcessed = await scopeSyncBatches.processNextScopeSyncBatch(input);
+      const integrationProcessed = await sourceObservationRuntime.processNextIntegrationJob(input);
+      return batchProcessed + integrationProcessed;
+    },
+  };
   const attentionQueue = createCatalogAttentionQueueRuntime(deps, {
     getReadiness: sourceObservations.getCatalogIntegrationControlPlaneReadiness,
     listActiveJobs: sourceObservations.listActiveIntegrationJobs,
@@ -131,6 +150,7 @@ export function createCatalogServices(
     providerScopeDiscovery,
     providerIntegrationProfiles,
     sourceObservations,
+    scopeSyncBatches,
     catalogAliases,
     attentionQueue,
     authoringBulkJobs,

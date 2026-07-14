@@ -437,6 +437,7 @@ export type SourceObservationIntegrationJobScope = Readonly<{
   productLineId?: string;
   setName?: string;
   productId?: string;
+  planningFingerprint?: string;
 }>;
 
 type SourceObservationIntegrationJobPayload = Readonly<{
@@ -1042,6 +1043,7 @@ export type IntegrationJobServices = Readonly<{
   previewCatalogSyncScope: (input: {
     scope: CatalogSyncScope;
     context: EventStoreContext;
+    includeOperationalGates?: boolean;
   }) => Promise<CatalogSyncProviderParticipationPreview>;
   enqueueCatalogSyncRun: (input: { scope: CatalogSyncScope; context: EventStoreContext }) => Promise<CatalogSyncRun>;
   getCatalogSyncRun: (input: { syncRunId: string; context: EventStoreContext }) => Promise<CatalogSyncRun | null>;
@@ -2986,6 +2988,7 @@ export function createSourceObservationRuntime(
   async function previewCatalogSyncScope(input: {
     scope: CatalogSyncScope;
     context: EventStoreContext;
+    includeOperationalGates?: boolean;
   }): Promise<CatalogSyncProviderParticipationPreview> {
     void input.context;
     const versions = await profileVersions.listProfileVersions();
@@ -2993,6 +2996,8 @@ export function createSourceObservationRuntime(
       scope: input.scope,
       providerProfileVersions: versions,
       providerAdapterRegistry,
+      rolloutControlPolicy,
+      includeOperationalGates: input.includeOperationalGates,
     });
   }
 
@@ -8497,6 +8502,7 @@ function normalizeIntegrationJobScope(
     productLineId: scope.productLineId?.trim() || undefined,
     setName: scope.setName?.trim() || undefined,
     productId: scope.productId?.trim() || undefined,
+    planningFingerprint: scope.planningFingerprint?.trim() || undefined,
   };
 }
 

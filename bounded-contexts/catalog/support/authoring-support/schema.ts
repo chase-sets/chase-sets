@@ -24,6 +24,7 @@ import { catalogProviderScopeMappingSchemaSql } from "../../features/provider-sc
 import { catalogReferenceDataSchemaSql } from "../../features/reference-data/read-model/schema";
 import { catalogScopeRegistrySchemaSql } from "../../features/scope-registry/read-model/schema";
 import { catalogScopeSyncStateSchemaSql } from "../../features/scope-sync-state/read-model/schema";
+import { catalogScopeSyncBatchSchemaSql } from "../../features/scope-sync-batches/read-model/schema";
 import {
   catalogSourceObservationSchemaMigrations,
   catalogSourceObservationSchemaSql,
@@ -41,6 +42,7 @@ export const catalogAuthoringSchemaSql = [
   catalogScopeRegistrySchemaSql,
   catalogProviderScopeMappingSchemaSql,
   catalogScopeSyncStateSchemaSql,
+  catalogScopeSyncBatchSchemaSql,
   catalogProviderScopeDiscoverySchemaSql,
   catalogCatalogItemSchemaSql,
   catalogProductContentsSchemaSql,

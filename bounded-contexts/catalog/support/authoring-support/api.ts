@@ -18,6 +18,7 @@ import { providerScopeDiscoveryRoutes } from "../../features/provider-scope-disc
 import { referenceDataRoutes } from "../../features/reference-data/api/route";
 import { catalogScopeRegistryRoutes } from "../../features/scope-registry/api/route";
 import { sourceObservationRoutes } from "../../features/source-observations/api/route";
+import { scopeSyncBatchRoutes } from "../../features/scope-sync-batches/api/route";
 
 export type CatalogAuthoringEnv = {
   Variables: {
@@ -101,6 +102,7 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
   app.route("/provider-scope-mappings", providerScopeMappingRoutes(services.providerScopeMappings));
   app.route("/scope-records", catalogScopeRegistryRoutes(services.scopeRegistry));
   app.route("/provider-scope-discovery", providerScopeDiscoveryRoutes(services.providerScopeDiscovery));
+  app.route("/scope-sync-batches", scopeSyncBatchRoutes(services.scopeSyncBatches));
 
   return app;
 }

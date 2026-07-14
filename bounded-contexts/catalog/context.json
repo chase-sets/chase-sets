@@ -15,7 +15,8 @@
     "provider-scope-mapping",
     "reference-type",
     "reference-record",
-    "scope-record"
+    "scope-record",
+    "scope-sync-batch"
   ],
   "streamPrefix": "catalog.",
   "apiBasePath": "/api/catalog",
@@ -35,6 +36,7 @@
     "provider-scope-mapping",
     "reference-data",
     "scope-registry",
+    "scope-sync-batches",
     "scope-sync-state",
     "source-observations"
   ],
@@ -369,6 +371,14 @@
           "section": "catalog"
         },
         {
+          "routeId": "scope-sync-batches",
+          "routePath": "scopes/sync-batches",
+          "fileExport": "./routes/admin/scope-sync-batches",
+          "routeType": "route",
+          "sourceContext": "catalog",
+          "section": "catalog"
+        },
+        {
           "routeId": "scope-detail",
           "routePath": "scopes/:id",
           "fileExport": "./routes/admin/scope-detail",
@@ -616,6 +626,11 @@
       "purpose": "Own durable per-(Catalog sync scope, provider unit) sync state that survives across sync runs, so a scope page can show who settled/failed/never-synced and a failed provider can be retried without re-running the whole scope.",
       "expectedConsumers": ["source-observations", "Internal catalog module composition"]
     },
+    "scope-sync-batches": {
+      "classification": "slice",
+      "purpose": "Own server-resolved Scope Sync Batch previews, stale-evidence confirmation, bounded durable progress, and recovery over existing Catalog Sync Runs.",
+      "expectedConsumers": ["source-observations", "routes", "Internal catalog module composition"]
+    },
     "provider-scope-discovery": {
       "classification": "slice",
       "purpose": "Own the scheduled provider source-option refresh: cadence policy, pausable per-provider schedule state, provider scope observations, and conservative matching of new options onto scope-record identities that feeds provider-scope-mapping proposals.",
@@ -770,6 +785,33 @@
     }
   },
   "mutationConsistencyInventory": [
+    {
+      "id": "catalog.scope-sync-batch-command-snapshots",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /preview",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /confirm",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/cancel",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/resume",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/units/:scopeRecordId/retry",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5b9ce2c17140#1",
+        "route-action:bounded-contexts/catalog/support/route-support/admin-scope-sync-batches/scope-sync-batches-route.ts"
+      ],
+      "visibleDestination": {
+        "routeId": "scope-sync-batches",
+        "description": "Preview returns the server-resolved plan snapshot; confirm and recovery commands return the directly persisted Scope Sync Batch snapshot before the route redirects to the same batch page, whose loader reads those same Catalog-owned batch tables."
+      },
+      "proof": {
+        "authoritativeResponse": "The API responds from the freshly resolved preview or the batch/unit rows written by the command. The admin route uses that response for preview and reloads the same direct read model after confirm, cancel, resume, or retry; no projection-backed read is involved.",
+        "tests": [
+          "bounded-contexts/catalog/features/scope-sync-batches/api/route.test.ts",
+          "bounded-contexts/catalog/features/scope-sync-batches/api/worker.test.ts",
+          "bounded-contexts/catalog/features/scope-sync-batches/ui/scope-sync-batch-page.test.tsx"
+        ]
+      }
+    },
     {
       "id": "catalog.provider-scope-discovery-refresh-schedule-commands",
       "owner": "catalog",

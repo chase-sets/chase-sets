@@ -12,6 +12,7 @@ import {
 } from "./provider-integration-profiles";
 import { unitKeyForCatalogProviderProfileVersion } from "./catalog-integration-impact-analysis";
 import { LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY } from "./provider-adapters/lorcanajson";
+import { createCatalogIntegrationRolloutControlPolicy } from "./catalog-integration-rollout-controls";
 
 describe("Catalog sync scope planner", () => {
   it("defaults every eligible mapped provider role into Pokemon Expansion participation", async () => {
@@ -140,6 +141,23 @@ describe("Catalog sync scope planner", () => {
       selected: true,
       childExecutionScope: null,
     });
+  });
+
+  it("captures rollout evidence and blocks batch planning when an import gate is closed", async () => {
+    const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
+    const preview = await previewCatalogSyncProviderParticipation({
+      scope: pokemonBaseSetScope(),
+      providerProfileVersions: [tcgdex],
+      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgdex", fakePlanImport(1))]),
+      rolloutControlPolicy: createCatalogIntegrationRolloutControlPolicy({ disabledImports: ["tcgdex"] }),
+      includeOperationalGates: true,
+    });
+
+    expect(preview.startAllowed).toBe(false);
+    expect(preview.units[0]?.blockers).toEqual([expect.objectContaining({ code: "provider-rollout-blocked" })]);
+    expect(preview.units[0]?.planningEvidence?.rollout).toEqual(
+      expect.arrayContaining([expect.objectContaining({ capability: "import", allowed: false })]),
+    );
   });
 
   it("blocks sync when a required provider unit has no profile inventory", async () => {

@@ -2001,6 +2001,33 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async previewScopeSyncBatch<T>(input: unknown): Promise<T> {
+      return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/preview", input);
+    },
+    async confirmScopeSyncBatch<T>(input: unknown): Promise<T> {
+      return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/confirm", input);
+    },
+    async getScopeSyncBatch<T>(batchId: string): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/scope-sync-batches/${encodeURIComponent(batchId)}`,
+        { method: "GET", headers: headersToRecord(headers) },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async cancelScopeSyncBatch<T>(batchId: string): Promise<T> {
+      return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, `/${encodeURIComponent(batchId)}/cancel`);
+    },
+    async resumeScopeSyncBatch<T>(batchId: string): Promise<T> {
+      return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, `/${encodeURIComponent(batchId)}/resume`);
+    },
+    async retryScopeSyncBatchUnit<T>(batchId: string, scopeRecordId: string): Promise<T> {
+      return scopeSyncBatchRequest<T>(
+        configuredFetch,
+        headers,
+        baseUrl,
+        `/${encodeURIComponent(batchId)}/units/${encodeURIComponent(scopeRecordId)}/retry`,
+      );
+    },
     async getCatalogAliasReviewReadModel<T>(query = ""): Promise<T> {
       const search = query ? `?${new URLSearchParams(queryFromString(query)).toString()}` : "";
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/alias-review${search}`, {
@@ -2529,6 +2556,21 @@ function waitForJobReconnect(ms: number, signal?: AbortSignal): Promise<void> {
       { once: true },
     );
   });
+}
+
+async function scopeSyncBatchRequest<T>(
+  fetch: typeof globalThis.fetch,
+  headers: HeadersInit | undefined,
+  baseUrl: string,
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const response = await fetch(`${baseUrl.replace(/\/$/, "")}/scope-sync-batches${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headersToRecord(headers) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  return parseJsonResponse<T>(response);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

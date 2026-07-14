@@ -798,6 +798,7 @@ export interface SourceObservationIntegrationJobScope {
   productLineId?: string;
   setName?: string;
   productId?: string;
+  planningFingerprint?: string;
 }
 
 export type CatalogSyncScopeReferenceKind = "product-line" | "series" | "expansion" | "set" | "catalog-item";

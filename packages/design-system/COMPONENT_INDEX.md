@@ -161,7 +161,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Label` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Label. | `No production consumer yet.` |
 | `layoutWidthClasses` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: layout Width Classes. | `No production consumer yet.` |
 | `LinkButton` | `packages/design-system/src/components/actions/button.tsx` | Purpose not documented; symbol name suggests: Link Button. | `bounded-contexts/auth/features/agent-grants/ui/agent-grant-list-page.tsx` |
-| `LinkText` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Link Text. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx` |
+| `LinkText` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Link Text. | `bounded-contexts/catalog/features/scope-sync-batches/ui/scope-sync-batch-page.tsx` |
 | `List` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: List. | `bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx` |
 | `ListingCard` | `packages/design-system/src/components/commerce/listings.tsx` | Purpose not documented; symbol name suggests: Listing Card. | `bounded-contexts/discovery/features/item-detail/ui/item-detail-similar-items.tsx` |
 | `ListingPurchasePanel` | `packages/design-system/src/components/checkout/marketplace.tsx` | Purpose not documented; symbol name suggests: Listing Purchase Panel. | `bounded-contexts/discovery/routes/public-listing.tsx` |

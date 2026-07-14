@@ -3,6 +3,7 @@ import type { CatalogIntegrationUnitKey } from "./integration-unit";
 import type { ProviderAdapterRegistry } from "./provider-adapters/registry";
 import type { ProviderUsageEstimate } from "./provider-adapters/provider-adapter";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "./provider-integration-profiles";
+import type { CatalogIntegrationRolloutControlPolicy } from "./catalog-integration-rollout-controls";
 import { unitKeyForCatalogProviderProfileVersion } from "./catalog-integration-impact-analysis";
 import type { SourceObservationIntegrationJobScope } from "./runtime";
 
@@ -25,6 +26,7 @@ export type CatalogSyncProviderScopeHint = Readonly<{
   setId?: string | null;
   setName?: string | null;
   productId?: string | null;
+  planningFingerprint?: string | null;
 }>;
 
 export type CatalogSyncProviderParticipationSelection = Readonly<{
@@ -54,6 +56,10 @@ export type CatalogSyncProviderParticipationBlocker = Readonly<{
     | "scope-reference-unsupported"
     | "scope-parent-required"
     | "provider-plan-unavailable"
+    | "provider-credential-not-ready"
+    | "provider-transport-blocked"
+    | "provider-rollout-blocked"
+    | "credited-provider-preflight-unavailable"
     | "required-provider-unit-missing";
   severity: "error" | "warning";
   message: string;
@@ -72,12 +78,36 @@ export type CatalogSyncProviderParticipationUnit = Readonly<{
   defaultSelected: boolean;
   selected: boolean;
   childExecutionScope: SourceObservationIntegrationJobScope | null;
+  planningEvidence?: Readonly<{
+    rollout: readonly Readonly<{
+      capability: "provider-transport" | "import";
+      allowed: boolean;
+      controls: readonly Readonly<{ controlId: string; status: string }>[];
+    }>[];
+    credentials: readonly Readonly<{
+      unitKey: string | null;
+      requirement: string;
+      sourceKind: string;
+      state: string;
+      importBlocking: boolean;
+      diagnosticCode: string | null;
+    }>[];
+    transport: readonly Readonly<{
+      unitKey: string | null;
+      code: string;
+      severity: string;
+      retryAfterSeconds: number | null;
+    }>[];
+  }>;
   estimate: Readonly<{
     targetCount: number | null;
     requestStrategy: ProviderUsageEstimate["requestStrategy"] | null;
     estimatedRequestCount: number | null;
     estimateState: ProviderUsageEstimate["estimateState"] | "not-requested" | "unavailable";
     estimateReason: string | null;
+    usageCheckState?: ProviderUsageEstimate["usageCheckState"] | null;
+    creditDiagnostic?: string | null;
+    degradedDiagnostic?: string | null;
     transportSteps: readonly string[];
   }>;
   blockers: readonly CatalogSyncProviderParticipationBlocker[];
@@ -110,6 +140,8 @@ export async function previewCatalogSyncProviderParticipation(input: {
   scope: CatalogSyncScope;
   providerProfileVersions: readonly CatalogProviderIntegrationProfileVersionRecord[];
   providerAdapterRegistry: ProviderAdapterRegistry;
+  rolloutControlPolicy?: CatalogIntegrationRolloutControlPolicy;
+  includeOperationalGates?: boolean;
 }): Promise<CatalogSyncProviderParticipationPreview> {
   const scope = normalizeCatalogSyncScope(input.scope);
   const selectedUnitKeys = new Set(scope.providerParticipation?.selectedUnitKeys ?? []);
@@ -161,6 +193,8 @@ export async function previewCatalogSyncProviderParticipation(input: {
         version,
         unitKey,
         registry: input.providerAdapterRegistry,
+        rolloutControlPolicy: input.rolloutControlPolicy,
+        includeOperationalGates: input.includeOperationalGates ?? false,
         required: requiredDefaults.has(unitKey),
         explicitlySelected: selectedUnitKeys.has(unitKey),
       }),
@@ -259,6 +293,7 @@ export function normalizeCatalogSyncScope(scope: CatalogSyncScope): CatalogSyncS
       setId: normalizeOptionalKey(hint.setId),
       setName: hint.setName?.trim() || null,
       productId: normalizeOptionalKey(hint.productId),
+      planningFingerprint: hint.planningFingerprint?.trim() || null,
     })),
     providerParticipation: scope.providerParticipation
       ? {
@@ -275,11 +310,46 @@ async function planProviderUnit(input: {
   version: CatalogProviderIntegrationProfileVersionRecord;
   unitKey: CatalogIntegrationUnitKey;
   registry: ProviderAdapterRegistry;
+  rolloutControlPolicy?: CatalogIntegrationRolloutControlPolicy;
+  includeOperationalGates: boolean;
   required: boolean;
   explicitlySelected: boolean;
 }): Promise<CatalogSyncProviderParticipationUnit> {
   const blockers = eligibilityBlockers(input.version, input.unitKey, input.scope);
   const adapter = input.registry.get(input.version.providerKey);
+  const rolloutEvidence: Array<
+    NonNullable<CatalogSyncProviderParticipationUnit["planningEvidence"]>["rollout"][number]
+  > = [];
+  for (const capability of input.includeOperationalGates ? (["provider-transport", "import"] as const) : []) {
+    const decision = input.rolloutControlPolicy?.decide({
+      capability,
+      providerKey: input.version.providerKey,
+      profileKey: input.version.profileKey,
+      profileVersion: input.version.profileVersion,
+      profileLifecycle: input.version.lifecycle,
+      unitKey: input.unitKey,
+    });
+    rolloutEvidence.push({
+      capability,
+      allowed: decision?.allowed ?? true,
+      controls: (decision?.controls ?? []).map((control) => ({
+        controlId: control.controlId,
+        status: control.status,
+      })),
+    });
+    if (decision && !decision.allowed) {
+      blockers.push({
+        code: "provider-rollout-blocked",
+        severity: "error",
+        message: decision.message ?? "Provider rollout controls block this unit.",
+        action: "Open the provider rollout gate before confirming this sync.",
+      });
+    }
+  }
+  let readinessEvidence: Awaited<ReturnType<typeof appendProviderReadinessBlockers>> = {
+    credentials: [],
+    transport: [],
+  };
   if (!adapter) {
     blockers.push({
       code: "provider-adapter-missing",
@@ -298,6 +368,8 @@ async function planProviderUnit(input: {
       }),
       action: "Enable import planning on the provider adapter or deselect this unit.",
     });
+  } else if (input.includeOperationalGates) {
+    readinessEvidence = await appendProviderReadinessBlockers(adapter, input.unitKey, blockers);
   }
 
   const childExecutionScope =
@@ -319,12 +391,16 @@ async function planProviderUnit(input: {
     defaultSelected: eligibility === "eligible",
     selected,
     childExecutionScope,
+    planningEvidence: { rollout: rolloutEvidence, ...readinessEvidence },
     estimate: estimate ?? {
       targetCount: null,
       requestStrategy: null,
       estimatedRequestCount: null,
       estimateState: "not-requested",
       estimateReason: null,
+      usageCheckState: null,
+      creditDiagnostic: null,
+      degradedDiagnostic: null,
       transportSteps: [],
     },
     blockers,
@@ -350,6 +426,9 @@ async function planEstimate(
       estimatedRequestCount: plan.usageEstimate?.estimatedRequestCount ?? null,
       estimateState: plan.usageEstimate?.estimateState ?? "unavailable",
       estimateReason: plan.usageEstimate?.estimateReason ?? null,
+      usageCheckState: plan.usageEstimate?.usageCheckState ?? null,
+      creditDiagnostic: plan.usageEstimate?.creditDiagnostic ?? null,
+      degradedDiagnostic: plan.usageEstimate?.degradedDiagnostic ?? null,
       transportSteps: plan.transportSteps,
     };
   } catch (error) {
@@ -361,6 +440,87 @@ async function planEstimate(
     });
     return null;
   }
+}
+
+async function appendProviderReadinessBlockers(
+  adapter: NonNullable<ReturnType<ProviderAdapterRegistry["get"]>>,
+  unitKey: CatalogIntegrationUnitKey,
+  blockers: CatalogSyncProviderParticipationBlocker[],
+): Promise<Pick<NonNullable<CatalogSyncProviderParticipationUnit["planningEvidence"]>, "credentials" | "transport">> {
+  const credentials: Array<
+    NonNullable<CatalogSyncProviderParticipationUnit["planningEvidence"]>["credentials"][number]
+  > = [];
+  const transport: Array<NonNullable<CatalogSyncProviderParticipationUnit["planningEvidence"]>["transport"][number]> =
+    [];
+  try {
+    const readiness = await adapter.getCredentialReadiness();
+    for (const item of readiness.filter((candidate) => !candidate.unitKey || candidate.unitKey === unitKey)) {
+      credentials.push({
+        unitKey: item.unitKey ?? null,
+        requirement: item.requirement,
+        sourceKind: item.sourceKind,
+        state: item.state,
+        importBlocking: item.importBlocking,
+        diagnosticCode: item.diagnosticCode,
+      });
+      if (item.importBlocking) {
+        blockers.push({
+          code: "provider-credential-not-ready",
+          severity: "error",
+          message: item.message,
+          action: "Restore provider credential readiness before confirming this sync.",
+        });
+      }
+    }
+  } catch {
+    credentials.push({
+      unitKey,
+      requirement: "unknown",
+      sourceKind: "unknown",
+      state: "unknown",
+      importBlocking: true,
+      diagnosticCode: "credential-readiness-unavailable",
+    });
+    blockers.push({
+      code: "provider-credential-not-ready",
+      severity: "error",
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.credentialReadinessUnavailable"),
+      action: "Restore provider credential readiness evidence before confirming this sync.",
+    });
+  }
+
+  try {
+    const diagnostics = await adapter.getTransportDiagnostics();
+    for (const diagnostic of diagnostics.filter((candidate) => !candidate.unitKey || candidate.unitKey === unitKey)) {
+      transport.push({
+        unitKey: diagnostic.unitKey ?? null,
+        code: diagnostic.code,
+        severity: diagnostic.severity,
+        retryAfterSeconds: diagnostic.retryAfterSeconds ?? null,
+      });
+      if (diagnostic.severity !== "error") continue;
+      blockers.push({
+        code: "provider-transport-blocked",
+        severity: "error",
+        message: diagnostic.message,
+        action: "Clear the provider transport blocker before confirming this sync.",
+      });
+    }
+  } catch {
+    transport.push({
+      unitKey,
+      code: "transport-diagnostics-unavailable",
+      severity: "error",
+      retryAfterSeconds: null,
+    });
+    blockers.push({
+      code: "provider-transport-blocked",
+      severity: "error",
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.transportDiagnosticsUnavailable"),
+      action: "Restore provider transport evidence before confirming this sync.",
+    });
+  }
+  return { credentials, transport };
 }
 
 function eligibilityBlockers(
@@ -457,6 +617,9 @@ function childScopeForProviderUnit(
     setId,
     setName: supportsSetName ? (hint?.setName ?? scope.reference.name ?? scope.reference.id ?? undefined) : undefined,
     productId: hint?.productId ?? undefined,
+    planningFingerprint: hint?.planningFingerprint
+      ? [`profile:${version.profileVersion}`, `mapping:${hint.planningFingerprint}`].join("|")
+      : undefined,
   };
 }
 
