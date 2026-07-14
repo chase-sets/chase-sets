@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const checkoutSellListSchemaSql = `
 CREATE TABLE IF NOT EXISTS checkout_sell_list_line_pages (
   seller_account_id text NOT NULL,
@@ -82,3 +84,23 @@ CREATE INDEX IF NOT EXISTS checkout_sell_offer_pages_product_idx
 CREATE INDEX IF NOT EXISTS checkout_sell_offer_pages_buyer_idx
   ON checkout_sell_offer_pages (buyer_account_id, updated_at DESC);
 `;
+
+// The Sell List base schema declares its final columns inline so fresh databases
+// create complete tables. Long-lived databases (e.g. the persistent staging
+// projection store) created a sell-list table before a column was added, and
+// `CREATE TABLE IF NOT EXISTS` never alters an already-existing table — so every
+// read SELECT of the newer column failed with "column ... does not exist" and 500'd
+// `/account/sell-list`. Reconcile the drift with explicit metadata-only migrations,
+// the same mechanism used by checkout session and marketplace schemas: a
+// single nullable `ADD COLUMN IF NOT EXISTS` is a catalog-only change that holds
+// ACCESS EXCLUSIVE only for an instant, so it is safe under live read traffic.
+export const checkoutSellListSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260714_checkout_sell_list_line_listing_id",
+    description: "Backfill the sell-list line listing_id column on databases created before it existed.",
+    statements: [
+      `ALTER TABLE checkout_sell_list_line_pages
+  ADD COLUMN IF NOT EXISTS listing_id text NULL;`,
+    ],
+  },
+];

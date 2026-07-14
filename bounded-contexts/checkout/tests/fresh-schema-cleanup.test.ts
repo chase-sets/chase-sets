@@ -10,7 +10,7 @@ import {
   checkoutMarketplaceSellerOptionsSchemaSql,
 } from "../features/cart/integrations/marketplace/marketplace-schema";
 import { checkoutCartSchemaSql } from "../features/cart/read-model/schema";
-import { checkoutSellListSchemaSql } from "../features/sell-list/read-model/schema";
+import { checkoutSellListSchemaMigrations, checkoutSellListSchemaSql } from "../features/sell-list/read-model/schema";
 import { checkoutSessionSchemaMigrations, checkoutSessionSchemaSql } from "../features/sessions/read-model/schema";
 
 const checkoutRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -74,6 +74,17 @@ describe("fresh checkout read-model schemas", () => {
       "selected_listing_snapshot_captured_at",
     ]);
     expect(checkoutSellListSchemaSql).not.toMatch(/ADD COLUMN IF NOT EXISTS/i);
+    // Sell-list keeps a pure base schema; column drift on long-lived databases is
+    // reconciled through explicit metadata-only migrations (see #4638 pattern), not
+    // inline ADD COLUMN in the base SQL.
+    expect(checkoutSellListSchemaMigrations).toEqual([
+      expect.objectContaining({
+        migrationId: "20260714_checkout_sell_list_line_listing_id",
+        statements: [expect.stringContaining("ADD COLUMN IF NOT EXISTS listing_id text NULL")],
+      }),
+    ]);
+    expect(checkoutSellListSchemaMigrations[0]?.statements).toHaveLength(1);
+    expect(checkoutSellListSchemaMigrations[0]?.statements.join("\n")).not.toMatch(/SET NOT NULL/);
     const sessionAddColumns = [...checkoutSessionSchemaSql.matchAll(/ADD COLUMN IF NOT EXISTS ([a-z_]+)/g)].map(
       ([, column]) => column,
     );
