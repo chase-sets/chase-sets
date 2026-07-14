@@ -271,6 +271,13 @@
     {
       "deployable": "admin-web",
       "section": "support",
+      "family": "csat",
+      "owningContext": "platform-operations",
+      "purpose": "Platform-staff CSAT operations dashboard (platform-operations)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "support",
       "family": "platform-feedback",
       "owningContext": "platform-operations",
       "purpose": "Operator platform-feedback intake (platform-operations)."

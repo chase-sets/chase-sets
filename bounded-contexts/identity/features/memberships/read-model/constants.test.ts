@@ -3,6 +3,16 @@ import { ROLE_PERMISSIONS } from "./constants";
 import { ROLE_KEYS } from "../../../support/runtime-support/common";
 
 describe("identity role permissions", () => {
+  it("keeps feedback operator authority on platform staff roles only", () => {
+    for (const roleKey of ["owner", "manager", "fulfillment", "viewer"] as const) {
+      expect(ROLE_PERMISSIONS[roleKey]).not.toEqual(
+        expect.arrayContaining(["platform-feedback.view", "platform-feedback.manage", "platform-feedback.export"]),
+      );
+    }
+    expect(ROLE_PERMISSIONS["platform-admin"]).toEqual(
+      expect.arrayContaining(["platform-feedback.view", "platform-feedback.manage", "platform-feedback.export"]),
+    );
+  });
   it("has permissions for every runtime role key", () => {
     expect(Object.keys(ROLE_PERMISSIONS).sort()).toEqual([...ROLE_KEYS].sort());
   });

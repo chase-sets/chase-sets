@@ -167,7 +167,8 @@ function relatedEntitiesFromQuery(c: { req: { query(name: string): string | unde
 
 function csvCell(value: unknown) {
   const text = Array.isArray(value) ? value.join("; ") : String(value ?? "");
-  return `"${text.replace(/"/g, '""')}"`;
+  const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  return `"${safeText.replace(/"/g, '""')}"`;
 }
 
 function feedbackIdsFromBody(value: unknown): readonly string[] {
@@ -340,45 +341,15 @@ export function registerPlatformFeedbackOperatorRoutes(
       workflow: c.req.query("workflow"),
     });
     const rows = [
-      [
-        "feedback_id",
-        "account_id",
-        "user_id",
-        "rating",
-        "topic",
-        "workflow",
-        "status",
-        "comment",
-        "follow_up_consent",
-        "source_route_path",
-        "related_entity_key",
-        "submitted_at",
-        "updated_at",
-        "reviewed_by_user_id",
-        "reviewed_at",
-        "archived_by_user_id",
-        "archived_at",
-        "operator_note_count",
-      ],
+      ["feedback_id", "rating", "topic", "workflow", "status", "follow_up_consent", "submitted_at"],
       ...result.items.map((item) => [
         item.feedback_id,
-        item.account_id,
-        item.user_id,
         item.rating,
         item.topic,
         item.workflow,
         item.status,
-        item.comment,
         item.follow_up_consent,
-        item.source_route_path,
-        item.related_entity_key,
         item.submitted_at,
-        item.updated_at,
-        item.reviewed_by_user_id,
-        item.reviewed_at,
-        item.archived_by_user_id,
-        item.archived_at,
-        item.operator_notes.length,
       ]),
     ];
 

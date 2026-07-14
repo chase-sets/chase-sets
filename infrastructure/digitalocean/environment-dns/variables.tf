@@ -43,7 +43,7 @@ variable "google_workspace_dkim_txt_value" {
 variable "staging_app_serving" {
   type        = string
   default     = "app-platform"
-  description = "Which platform serves the live staging hosts. \"app-platform\" (default) leaves App Platform as the DNS owner and is the rollback state. \"doks\" points the released staging hosts at the DOKS ingress load balancer for the cutover flip. Shadow validation hosts do not depend on this switch."
+  description = "Which platform serves the live staging hosts. The platform root owns the mutually exclusive live records; this value lets environment-dns enforce that a DOKS target is configured and report the active serving mode. Shadow validation hosts do not depend on this switch."
 
   validation {
     condition     = contains(["app-platform", "doks"], var.staging_app_serving)

@@ -39,7 +39,7 @@ This root owns the child-zone records that are not App Platform domains:
 - SES bounce, DKIM, and DMARC records used by staging transactional email.
 - Catalog asset CDN CNAME at `assets.staging.chasesets.com`.
 
-App Platform owns its own domain records inside the child zone, including `staging.chasesets.com`, `www.staging.chasesets.com`, `marketplace.staging.chasesets.com`, and `admin.staging.chasesets.com`.
+The sibling `platform` root owns the live serving records and App Platform domain attachments for `staging.chasesets.com`, `www.staging.chasesets.com`, `marketplace.staging.chasesets.com`, and `admin.staging.chasesets.com`. Keeping those records with their App Platform attachment graph makes the DOKS flip collision-free.
 
 ## DOKS Ingress Cutover
 
@@ -54,10 +54,11 @@ independent controls:
   issue real certificates and pass end-to-end HTTPS probes while App Platform keeps
   serving the live hosts. No live traffic moves.
 - `staging_app_serving` — `app-platform` (default, and the rollback state) or `doks`.
-  Flipping to `doks` creates the **live-host cutover records**: `A` records for the
-  staging apex plus `www`, `marketplace`, and `admin` pointing at the load balancer.
+  This root validates and reports the coordinated serving mode. The sibling
+  `platform` root performs the live-host replacement in the same state that owns
+  the App Platform CNAMEs and domain attachments.
 
-The records are `A` records because the staging environment root also receives
+The live DOKS records are `A` records because the staging zone apex also receives
 mail/TXT records and must not become a CNAME.
 
 ### Rehearse (both platforms serving)
@@ -73,10 +74,10 @@ ingress and certificate issuance before any live host moves.
 
 ### Flip (instant cutover)
 
-Release the matching App Platform records first so there is no CNAME/A collision:
-set `staging_app_serving=doks` in `infrastructure/digitalocean/platform` (which drops
-the `www`/`marketplace`/`admin` `staging_app_alias` CNAMEs) and release the App
-Platform apex domain. Then:
+Apply this root to publish or retain the shadow records, then apply the sibling
+`platform` root with the same serving mode and ingress target. Its plan destroys
+each leaf CNAME before creating its replacement A record and releases the App
+Platform apex attachment before creating the apex A:
 
 ```bash
 terraform apply \
@@ -85,12 +86,16 @@ terraform apply \
   -var=staging_app_serving=doks
 ```
 
+Run the live cutover apply from `infrastructure/digitalocean/platform`; this
+environment-DNS apply changes only stable and shadow records.
+
 ### Rollback
 
-Flip `staging_app_serving` back to `app-platform` in this root and the platform root.
-The live-host records are removed and the App Platform records return. App Platform is
-kept warm through the soak, so rollback is a DNS change only. Keep `doks_ingress_ttl`
-low (300s default) until rollback confidence and smoke evidence are recorded.
+Flip `staging_app_serving` back to `app-platform` in both roots and apply. The
+platform graph removes the DOKS records before restoring the App Platform domain
+attachments and CNAMEs. App Platform is kept warm through the soak, so rollback
+is a DNS change only. Keep `doks_ingress_ttl` low (300s default) until rollback
+confidence and smoke evidence are recorded.
 
 The full ordered flip + rollback sequence, including the App Platform apex release, is
 in [DOKS Platform Operations](../../../docs/runbooks/doks-platform-operations.md).

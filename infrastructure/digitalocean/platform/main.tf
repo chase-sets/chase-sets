@@ -4,6 +4,11 @@ moved {
 }
 
 moved {
+  from = digitalocean_record.staging_app_alias
+  to   = digitalocean_record.staging_app_serving
+}
+
+moved {
   from = digitalocean_database_cluster.postgres
   to   = digitalocean_database_cluster.postgres[0]
 }
@@ -52,6 +57,13 @@ check "staging_production_observability_export" {
       trimspace(var.observability_otlp_headers) != ""
     )
     error_message = "Staging and production telemetry export requires an OTLP endpoint and observability_otlp_headers write credential."
+  }
+}
+
+check "doks_ingress_serving_target" {
+  assert {
+    condition     = !local.serving_from_doks || trimspace(var.doks_ingress_target) != ""
+    error_message = "doks_ingress_target must be set to the DOKS ingress load balancer IPv4 address before staging_app_serving flips to \"doks\"."
   }
 }
 
@@ -431,7 +443,7 @@ resource "digitalocean_app" "platform" {
     region = var.app_region
 
     dynamic "domain" {
-      for_each = local.public_domains
+      for_each = local.app_platform_public_domains
       content {
         name = domain.value
         type = domain.value == local.app_primary_domain ? "PRIMARY" : "ALIAS"
@@ -449,7 +461,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "domain" {
-      for_each = local.marketplace_domains
+      for_each = local.app_platform_marketplace_domains
       content {
         name = domain.value
         type = "ALIAS"
@@ -458,7 +470,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "domain" {
-      for_each = local.staging_root_marketplace_domains
+      for_each = local.app_platform_staging_root_marketplace_domains
       content {
         name = domain.value
         type = domain.value == local.app_primary_domain ? "PRIMARY" : "ALIAS"
@@ -466,10 +478,13 @@ resource "digitalocean_app" "platform" {
       }
     }
 
-    domain {
-      name = local.admin_domain
-      type = "ALIAS"
-      zone = local.app_domain_zones[local.admin_domain]
+    dynamic "domain" {
+      for_each = local.app_platform_admin_domains
+      content {
+        name = domain.value
+        type = "ALIAS"
+        zone = local.app_domain_zones[domain.value]
+      }
     }
 
     alert {
@@ -1997,14 +2012,31 @@ resource "digitalocean_app" "platform" {
   ]
 }
 
-resource "digitalocean_record" "staging_app_alias" {
-  for_each = local.staging_app_alias_record_names
+resource "digitalocean_record" "staging_app_serving" {
+  for_each = local.staging_app_serving_record_names
 
   domain = local.environment_zone
-  type   = "CNAME"
+  type   = local.serving_from_doks ? "A" : "CNAME"
   name   = each.value
-  value  = "${trimsuffix(trimprefix(digitalocean_app.platform.default_ingress, "https://"), "/")}."
-  ttl    = 1800
+  value  = local.serving_from_doks ? var.doks_ingress_target : "${trimsuffix(trimprefix(digitalocean_app.platform.default_ingress, "https://"), "/")}."
+  ttl    = local.serving_from_doks ? var.doks_ingress_ttl : 1800
+
+  depends_on = [digitalocean_app.platform]
+}
+
+# App Platform owns the staging apex A/AAAA records while it is attached. The
+# live DOKS apex A is created only after the app update releases that attachment;
+# on rollback Terraform destroys this dependent record before reattaching it.
+resource "digitalocean_record" "staging_doks_apex" {
+  count = local.serving_from_doks ? 1 : 0
+
+  domain = local.environment_zone
+  type   = "A"
+  name   = "@"
+  value  = var.doks_ingress_target
+  ttl    = var.doks_ingress_ttl
+
+  depends_on = [digitalocean_record.staging_app_serving]
 }
 
 resource "digitalocean_uptime_check" "platform" {
@@ -2018,7 +2050,8 @@ resource "digitalocean_uptime_check" "platform" {
 
   depends_on = [
     digitalocean_app.platform,
-    digitalocean_record.staging_app_alias,
+    digitalocean_record.staging_app_serving,
+    digitalocean_record.staging_doks_apex,
   ]
 }
 

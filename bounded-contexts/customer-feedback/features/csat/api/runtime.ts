@@ -6,7 +6,14 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId, createInternalId } from "@chase-sets/primitives/typed-ids";
-import type { CsatAnalyticsQuery, CsatProjectionReadiness } from "./analytics-contract";
+import type {
+  CsatAdminExportAudit,
+  CsatAdminQueuePage,
+  CsatAdminQueueQuery,
+  CsatAnalyticsQuery,
+  CsatAnalyticsSnapshot,
+  CsatProjectionReadiness,
+} from "./analytics-contract";
 import {
   decideCsatInvitation,
   evolveCsatInvitation,
@@ -26,10 +33,17 @@ import {
   getCsatInvitationStreamIdByPublicReference,
   type CsatInvitationPageRow,
 } from "../read-model/queries";
+import { listCsatAdminQueue } from "../read-model/queries";
 
 export type CsatInvitationRuntimeDeps = Readonly<{
   eventStore: EventStore;
   db: PgQueryable;
+}>;
+
+export type CsatAdminReadPort = Readonly<{
+  readAdminAnalytics: (query: CsatAnalyticsQuery) => Promise<CsatAnalyticsSnapshot>;
+  listAdminQueue: (query: CsatAdminQueueQuery) => Promise<CsatAdminQueuePage>;
+  recordAdminExport: (audit: CsatAdminExportAudit) => Promise<void>;
 }>;
 
 export type IssueCsatInvitationParams = Readonly<{
@@ -230,6 +244,25 @@ export function createCsatInvitationRuntime(deps: CsatInvitationRuntimeDeps) {
     },
     readAnalytics: (query: CsatAnalyticsQuery, readiness: CsatProjectionReadiness) =>
       readCsatAnalytics(deps.db, query, readiness),
+    readAdminAnalytics: async (query: CsatAnalyticsQuery) =>
+      readCsatAnalytics(deps.db, query, await readCsatProjectionReadiness(deps.db, query.asOf)),
+    listAdminQueue: (query: CsatAdminQueueQuery) => listCsatAdminQueue(deps.db, query),
+    recordAdminExport: async (audit: CsatAdminExportAudit) => {
+      await deps.db.query(
+        `INSERT INTO customer_feedback_csat_export_audits
+          (export_id, actor_id, filters, started_at, completed_at, row_count, result)
+         VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)`,
+        [
+          createId("cse"),
+          audit.actorId,
+          JSON.stringify(audit.filters),
+          audit.startedAt,
+          audit.completedAt,
+          audit.rowCount,
+          audit.result,
+        ],
+      );
+    },
     getByPublicReference: getCsatInvitationByPublicReference.bind(null, deps.db),
     projectors: [
       createProjectionHandlerSet({
@@ -241,6 +274,24 @@ export function createCsatInvitationRuntime(deps: CsatInvitationRuntimeDeps) {
         handlers: buildCsatAnalyticsProjectionHandlers(deps.db),
       }),
     ] as readonly ProjectionHandlerSet[],
+  };
+}
+
+async function readCsatProjectionReadiness(db: PgQueryable, asOf: string): Promise<CsatProjectionReadiness> {
+  const result = await db.query<{ updated_at: string }>(
+    `SELECT updated_at::text AS updated_at
+     FROM event_projection_checkpoints
+     WHERE projector_name = $1`,
+    ["customer-feedback-csat-analytics-projection"],
+  );
+  const lastProjectedAt = result.rows[0]?.updated_at ?? null;
+  const projectionLagMs = lastProjectedAt === null ? null : Math.max(0, Date.parse(asOf) - Date.parse(lastProjectedAt));
+  return {
+    complete: lastProjectedAt !== null,
+    stale: projectionLagMs !== null && projectionLagMs > 15 * 60 * 1000,
+    lastProjectedAt,
+    projectionLagMs,
+    rejectedEventCount: 0,
   };
 }
 

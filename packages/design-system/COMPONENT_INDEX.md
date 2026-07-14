@@ -127,7 +127,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Fieldset` | `packages/design-system/src/components/forms/fieldset.tsx` | Purpose not documented; symbol name suggests: Fieldset. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-context-bar.tsx` |
 | `FileDropzone` | `packages/design-system/src/components/forms/file-dropzone.tsx` | Purpose not documented; symbol name suggests: File Dropzone. | `bounded-contexts/checkout/features/sell-list/ui/sell-list-line-rows.tsx` |
 | `FilterArea` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Filter Area. | `bounded-contexts/auth/features/sessions/ui/session-list-page.tsx` |
-| `FilterBar` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Filter Bar. | `bounded-contexts/platform-operations/features/platform-feedback/ui/admin-pages.tsx` |
+| `FilterBar` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Filter Bar. | `bounded-contexts/platform-operations/features/csat-dashboard/ui/admin-page.tsx` |
 | `FilterBottomSheet` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Filter Bottom Sheet. | `No production consumer yet.` |
 | `firstFieldError` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: first Field Error. | `No production consumer yet.` |
 | `FlexItem` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Flex Item. | `No production consumer yet.` |

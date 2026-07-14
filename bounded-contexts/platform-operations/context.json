@@ -32,11 +32,12 @@
     "reported-content",
     "risk-alerts",
     "support-reference-lookup",
-    "support-requests"
+    "support-requests",
+    "csat-dashboard"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ui-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
-  "allowedContextDependencies": [],
+  "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
   "eventSubscriptions": [
     {
@@ -706,6 +707,14 @@
           "section": "support"
         },
         {
+          "routeId": "csat-dashboard",
+          "routePath": "csat",
+          "fileExport": "./routes/admin/csat-dashboard",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "support"
+        },
+        {
           "routeId": "projection-operations",
           "routePath": "projections",
           "fileExport": "./routes/admin/projection-operations",
@@ -834,6 +843,18 @@
     {
       "deployable": "admin-web",
       "slot": "primary-nav",
+      "key": "csat-dashboard",
+      "label": "CSAT dashboard",
+      "icon": "dashboard",
+      "href": "/csat",
+      "section": "support",
+      "order": 19,
+      "visibility": "signed-in",
+      "requiredPermissions": ["platform-feedback.view"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
       "key": "projection-operations",
       "label": "Projection Operations",
       "icon": "refreshCcw",
@@ -900,6 +921,11 @@
         "MCP agent clients"
       ]
     },
+    "csat-dashboard": {
+      "classification": "slice",
+      "purpose": "Own the platform-operations csat-dashboard projection-backed analytics and invitation queue read port for the platform-staff operator dashboard.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
+    },
     "platform-feedback": {
       "classification": "slice",
       "purpose": "Own platform-feedback behavior, read models, UI contracts, and admin review surfaces.",
@@ -953,7 +979,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide Platform Operations request API clients shared by platform-feedback and support-requests route modules and prompt UI.",
-      "expectedConsumers": ["platform-feedback"],
+      "expectedConsumers": ["csat-dashboard", "platform-feedback"],
       "crossCuttingRuntimeComposition": true
     },
     "seed-support": {

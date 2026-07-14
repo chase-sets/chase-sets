@@ -93,12 +93,12 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
-      '@chase-sets/customer-feedback':
-        specifier: workspace:*
-        version: link:../customer-feedback
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
+      '@chase-sets/customer-feedback':
+        specifier: workspace:*
+        version: link:../customer-feedback
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -369,6 +369,9 @@ importers:
 
   bounded-contexts/customer-feedback:
     dependencies:
+      '@chase-sets/auth-context':
+        specifier: workspace:*
+        version: link:../../contracts/auth-context
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
@@ -387,6 +390,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      hono:
+        specifier: ^4.12.12
+        version: 4.12.18
 
   bounded-contexts/discovery:
     dependencies:
@@ -899,6 +905,9 @@ importers:
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
+      '@chase-sets/customer-feedback':
+        specifier: workspace:*
+        version: link:../customer-feedback
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -1544,6 +1553,9 @@ importers:
       '@chase-sets/commercial-terms':
         specifier: workspace:*
         version: link:../../bounded-contexts/commercial-terms
+      '@chase-sets/customer-feedback':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/customer-feedback
       '@chase-sets/discovery':
         specifier: workspace:*
         version: link:../../bounded-contexts/discovery
