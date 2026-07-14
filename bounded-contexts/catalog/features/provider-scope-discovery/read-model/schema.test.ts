@@ -23,8 +23,11 @@ describe("Provider Scope Discovery schema", () => {
     const migration = catalogProviderScopeDiscoverySchemaMigrations.find(
       (candidate) => candidate.migrationId === "20260714_catalog_provider_scope_observation_identity_v2",
     );
-    expect(migration?.statements.join("\n")).toContain("DROP TABLE IF EXISTS catalog_provider_scope_observations");
-    expect(migration?.statements.join("\n")).not.toContain("catalog_provider_scope_mappings");
-    expect(migration?.statements.join("\n")).not.toContain("catalog_scope_records");
+    const migrationSql = migration?.statements.join("\n") ?? "";
+    expect(migrationSql).toContain("DROP TABLE IF EXISTS catalog_provider_scope_observations");
+    expect(migrationSql.match(/CREATE INDEX CONCURRENTLY/g)).toHaveLength(3);
+    expect(migrationSql).not.toMatch(/CREATE INDEX(?! CONCURRENTLY)/);
+    expect(migrationSql).not.toContain("catalog_provider_scope_mappings");
+    expect(migrationSql).not.toContain("catalog_scope_records");
   });
 });

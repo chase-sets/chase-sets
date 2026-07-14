@@ -1,6 +1,6 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
-const catalogProviderScopeObservationSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_provider_scope_observations (
+const catalogProviderScopeObservationTableSql = `CREATE TABLE IF NOT EXISTS catalog_provider_scope_observations (
   provider_key text NOT NULL,
   unit_key text NOT NULL,
   scope_kind text NOT NULL,
@@ -19,9 +19,9 @@ const catalogProviderScopeObservationSchemaSql = `CREATE TABLE IF NOT EXISTS cat
   PRIMARY KEY (provider_key, unit_key, scope_kind, language_code, external_id),
   CONSTRAINT catalog_provider_scope_observations_scope_kind_check
     CHECK (scope_kind IN ('language', 'product-line', 'series', 'expansion', 'set'))
-);
+);`;
 
-CREATE INDEX IF NOT EXISTS catalog_provider_scope_observations_scan_idx
+const catalogProviderScopeObservationIndexesSql = `CREATE INDEX IF NOT EXISTS catalog_provider_scope_observations_scan_idx
   ON catalog_provider_scope_observations (scan_id);
 
 CREATE INDEX IF NOT EXISTS catalog_provider_scope_observations_lookup_idx
@@ -29,6 +29,11 @@ CREATE INDEX IF NOT EXISTS catalog_provider_scope_observations_lookup_idx
 
 CREATE INDEX IF NOT EXISTS catalog_provider_scope_observations_hash_idx
   ON catalog_provider_scope_observations (observation_hash);`;
+
+const catalogProviderScopeObservationSchemaSql = [
+  catalogProviderScopeObservationTableSql,
+  catalogProviderScopeObservationIndexesSql,
+].join("\n\n");
 
 const catalogScopeRecordProposalSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_scope_record_proposals (
   proposal_id text PRIMARY KEY,
@@ -101,7 +106,13 @@ export const catalogProviderScopeDiscoverySchemaMigrations: readonly BcSchemaMig
     statements: [
       "SET LOCAL lock_timeout = '5s';",
       "DROP TABLE IF EXISTS catalog_provider_scope_observations;",
-      catalogProviderScopeObservationSchemaSql,
+      catalogProviderScopeObservationTableSql,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_provider_scope_observations_scan_idx
+  ON catalog_provider_scope_observations (scan_id);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_provider_scope_observations_lookup_idx
+  ON catalog_provider_scope_observations (provider_key, unit_key, scope_kind, language_code);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_provider_scope_observations_hash_idx
+  ON catalog_provider_scope_observations (observation_hash);`,
     ],
   },
 ];
