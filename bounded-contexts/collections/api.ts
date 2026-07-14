@@ -3,6 +3,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createSavedListValuationRoutes } from "./features/saved-list-valuation/api/route";
 import { savedListQueryRoutes } from "./features/saved-lists/api/query-route";
 import type { CollectionsServices } from "./support/runtime-support/services";
+import { createSavedListRoutes } from "./features/saved-lists/api/route";
 
 export type CollectionsActor = Readonly<{
   accountId: string;
@@ -27,6 +28,8 @@ export function buildCollectionsApi(services: CollectionsServices) {
   });
 
   app.route("/saved-lists", savedListQueryRoutes(services.savedListReadModels));
+  app.route("/", createSavedListValuationRoutes(services.savedListValuation));
+  app.route("/", createSavedListRoutes(services.discovery, services.rateLimitPolicyResolver));
   app.route("/", createSavedListValuationRoutes(services.savedListValuation));
   return app;
 }

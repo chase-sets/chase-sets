@@ -7,6 +7,7 @@ import { discoveryItemRoutes } from "./support/item-support/route";
 import { discoveryMarketRoutes } from "./support/market-support/route";
 import { createGoogleShoppingSyncRoutes } from "./features/google-shopping-operations/api/route";
 import { createGuestProductAlertRoutes, createProductAlertRoutes } from "./features/product-alerts/api/route";
+import { createSavedListPickerRoutes } from "./features/saved-list-addition/api/route";
 
 export type DiscoveryApiEnv = AuthenticatedApiEnv;
 
@@ -14,6 +15,7 @@ export function buildDiscoveryApi(services: DiscoveryServices) {
   const app = new Hono<DiscoveryApiEnv>();
 
   app.route("/account", createProductAlertRoutes(services.productAlerts));
+  app.route("/account/saved-lists", createSavedListPickerRoutes(services.savedListPicker));
   app.route("/guest", createGuestProductAlertRoutes(services.productAlerts, services.rateLimitPolicyResolver));
   app.route("/items", discoveryItemRoutes(services.items));
   app.route("/categories", discoveryCategoryRoutes(services.categories));

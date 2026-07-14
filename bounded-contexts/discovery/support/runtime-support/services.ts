@@ -36,6 +36,11 @@ import {
   type DiscoverySearchEmbeddingEnrichment,
 } from "../../features/search/read-model/embedding-enrichment";
 import type { DiscoveryRetrievalMode } from "../../features/search/read-model/hybrid-retrieval";
+import {
+  createSavedListPickerRuntime,
+  type SavedListPickerServices,
+} from "../../features/saved-list-addition/api/runtime";
+import { buildDiscoverySavedListPickerProjectionHandlers } from "../../features/saved-list-addition/integrations/collections/projection";
 
 export type DiscoveryHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
@@ -66,6 +71,7 @@ export type DiscoveryServices = Readonly<{
   items: DiscoveryItemsServices;
   googleShoppingSync: GoogleShoppingSyncServices;
   productAlerts: ProductAlertServices;
+  savedListPicker: SavedListPickerServices;
   searchEmbeddings?: DiscoverySearchEmbeddingEnrichment;
   notificationOutbox: NotificationOutbox;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
@@ -93,6 +99,13 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
     }),
   ];
   const productAlerts = createProductAlertRuntime(deps);
+  const savedListPicker = createSavedListPickerRuntime(db);
+  const savedListPickerProjectors = [
+    createProjectionHandlerSet({
+      projectionName: "discovery-saved-list-picker-projection",
+      handlers: buildDiscoverySavedListPickerProjectionHandlers(db),
+    }),
+  ];
   const embeddingConfig = ports.searchEmbeddingConfig;
   const embeddingRolloutEnabled = discoverySearchEmbeddingEnrichmentEnabled({
     [DISCOVERY_SEARCH_EMBEDDINGS_ENV_VAR]: embeddingConfig?.rolloutValue ?? undefined,
@@ -142,6 +155,7 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
     items,
     googleShoppingSync,
     productAlerts,
+    savedListPicker,
     ...(searchEmbeddings ? { searchEmbeddings } : {}),
     notificationOutbox,
     rateLimitPolicyResolver: ports.rateLimitPolicyResolver,
@@ -150,6 +164,7 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
       ...googleShoppingProjectors,
       ...categories.projectors,
       ...productAlerts.projectors,
+      ...savedListPickerProjectors,
     ],
     db,
     pool,

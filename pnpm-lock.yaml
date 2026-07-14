@@ -295,6 +295,9 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/http':
+        specifier: workspace:*
+        version: link:../../contracts/http
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
@@ -420,6 +423,9 @@ importers:
       '@chase-sets/checkout':
         specifier: workspace:*
         version: link:../checkout
+      '@chase-sets/collections':
+        specifier: workspace:*
+        version: link:../collections
       '@chase-sets/customer-feedback':
         specifier: workspace:*
         version: link:../customer-feedback
@@ -1504,6 +1510,9 @@ importers:
       '@chase-sets/checkout':
         specifier: workspace:*
         version: link:../../bounded-contexts/checkout
+      '@chase-sets/collections':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/collections
       '@chase-sets/commercial-terms':
         specifier: workspace:*
         version: link:../../bounded-contexts/commercial-terms

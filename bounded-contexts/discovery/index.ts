@@ -13,6 +13,7 @@ import { buildProductAlertPageProjectionHandlers } from "./features/product-aler
 import { buildGoogleShoppingFeedRowProjectionHandlers } from "./features/google-shopping-operations/api/projection";
 import { buildDiscoveryMarketProjectionHandlers } from "./support/market-support/projection";
 import { buildDiscoverySearchItemProjectionHandlers } from "./features/search/read-model/projection";
+import { buildDiscoverySavedListPickerProjectionHandlers } from "./features/saved-list-addition/integrations/collections/projection";
 import { createDiscoveryServices, type DiscoveryHostPorts } from "./support/runtime-support/services";
 import { discoverySchemaMigrations, discoverySchemaSql } from "./support/runtime-support/schema";
 import { discoveryUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
@@ -38,6 +39,10 @@ export const module = defineBoundedContextModule<DiscoveryServices, PgTransactio
       manifest: contextManifest,
       handlers: {
         "discovery.discovery-product-alert-page-projection": () => buildProductAlertPageProjectionHandlers(services.db),
+        "collections.discovery-saved-list-picker-projection": {
+          subscriptionName: "discovery.collections-saved-list-picker-projection",
+          buildHandlers: () => buildDiscoverySavedListPickerProjectionHandlers(services.db),
+        },
         "catalog.discovery-category-projection": {
           subscriptionName: "discovery.catalog-category-projection",
           buildHandlers: () => buildDiscoveryCategoryProjectionHandlers(services.db),

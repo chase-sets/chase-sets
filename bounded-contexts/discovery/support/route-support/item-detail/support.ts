@@ -38,6 +38,7 @@ export const EMPTY_ITEM_DETAIL_RESULT = {
   listingSetupLoadError: null,
   canonicalUrl: null,
   productAlertClaimError: null,
+  savedListClaim: { preparation: null, error: null },
 } as const;
 
 export function selectItemImageUrl(

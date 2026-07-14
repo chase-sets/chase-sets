@@ -15,6 +15,7 @@ The context publishes the replay-stable Saved List aggregate, command contracts,
 - Versioned Saved List event and owner/viewer snapshot contracts.
 - Authorization and immutable selected-line source snapshots for Inventory handoff.
 - Current Saved List estimated market value and explicit estimate coverage.
+- Recent active Saved List picker rows and expiring Anonymous Saved List Intents used to resume registration.
 - Event-sourced sharing disclosure and revocable unlisted access policy.
 - Public-safe shared-page projection, access decisions, cache/SEO posture, and moderation adapter boundary.
 

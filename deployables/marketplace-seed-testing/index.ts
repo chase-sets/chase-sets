@@ -11,6 +11,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { afterAll, beforeAll, beforeEach, describe } from "vitest";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { module as checkoutModule } from "@chase-sets/checkout";
+import { module as collectionsModule } from "@chase-sets/collections";
 import { module as commercialTermsModule } from "@chase-sets/commercial-terms";
 import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { module as discoveryModule } from "@chase-sets/discovery";
@@ -30,6 +31,7 @@ import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement/test-
 export const marketplaceSeedContextNames = [
   "catalog",
   "checkout",
+  "collections",
   "commercial-terms",
   "discovery",
   "fulfillment",
@@ -144,6 +146,13 @@ export function createMarketplaceSeedRuntime(pools: MarketplaceSeedRuntimePools)
       contextName: "checkout",
       module: checkoutModule,
       pool: pools.checkout,
+      ports: undefined,
+    },
+    {
+      contextName: "collections",
+      mountRole: "source-only",
+      module: collectionsModule,
+      pool: pools.collections,
       ports: undefined,
     },
     {

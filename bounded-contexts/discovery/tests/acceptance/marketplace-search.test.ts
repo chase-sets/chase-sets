@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { module as checkoutModule } from "@chase-sets/checkout";
+import { module as collectionsModule } from "@chase-sets/collections";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as inventoryModule } from "@chase-sets/inventory";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
@@ -36,6 +37,7 @@ const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const discoveryContextNames = [
   "catalog",
   "checkout",
+  "collections",
   "identity",
   "inventory",
   "marketplace",
@@ -106,6 +108,7 @@ describe("marketplace search", () => {
     const checkoutServices = checkoutModule.createServices(pools.checkout, {
       commercialTermsResolver: createNoopCommercialTermsResolver(),
     });
+    const collectionsServices = collectionsModule.createServices(pools.collections, {});
     const identityServices = identityModule.createServices(pools.identity, {});
     const inventoryServices = inventoryModule.createServices(pools.inventory, {});
     const marketplaceServices = marketplaceModule.createServices(pools.marketplace, {
@@ -127,6 +130,14 @@ describe("marketplace search", () => {
         module: checkoutModule,
         services: checkoutServices,
         pool: pools.checkout,
+        projectionHandlerSets: [],
+      },
+      {
+        contextName: "collections",
+        mountRole: "source-only",
+        module: collectionsModule,
+        services: collectionsServices,
+        pool: pools.collections,
         projectionHandlerSets: [],
       },
       {
@@ -180,6 +191,7 @@ describe("marketplace search", () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(catalogModule, pools.catalog);
     await bootstrapContextDatabase(checkoutModule, pools.checkout);
+    await bootstrapContextDatabase(collectionsModule, pools.collections);
     await bootstrapContextDatabase(identityModule, pools.identity);
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
     await bootstrapContextDatabase(marketplaceModule, pools.marketplace);

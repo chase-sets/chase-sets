@@ -19,6 +19,7 @@ import {
   SellActionCard,
 } from "../../../features/item-detail/ui/commerce-sections";
 import type { DiscoveryItemDetailRouteData, DiscoveryItemDetailActionData } from "./types";
+import { AddToSavedListControl } from "../../../features/saved-list-addition/ui/add-to-saved-list";
 
 type PreferredSellAction = "selected-offer" | "add-product-to-sell-list" | "list-for-sale";
 
@@ -307,6 +308,25 @@ export function buildItemDetailCommerce(
       />
     );
     return {
+      save: context.selectedProductId ? (
+        <AddToSavedListControl
+          productKey={context.selectedProductId}
+          productLabel={[context.itemTitle, context.selectedProductSummary].filter(Boolean).join(" · ")}
+          prepareFields={{
+            productId: context.selectedProductId,
+            selectedOptions: JSON.stringify(context.selectedProductOptions),
+            productLabel: [context.itemTitle, context.selectedProductSummary].filter(Boolean).join(" · "),
+          }}
+          initialPreparation={
+            data.savedListClaim?.preparation?.product.productId === context.selectedProductId
+              ? data.savedListClaim.preparation
+              : null
+          }
+          initialError={data.savedListClaim?.error ?? null}
+          tone="secondary"
+          size="md"
+        />
+      ) : undefined,
       buy: renderBuyActionCard("buy-card", "plain"),
       offer: null,
       sell: data.showSellerTab ? renderSellActionCard("sell-card", "plain") : undefined,

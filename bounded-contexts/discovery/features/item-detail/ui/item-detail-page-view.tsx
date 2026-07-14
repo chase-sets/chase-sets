@@ -123,6 +123,7 @@ export function buildItemDetailPageView({
   );
   const commerce = commerceContent ? (
     <Stack gap={3}>
+      {commerceSections?.save}
       {renderMarketIntentControl(t("discovery.features.itemDetail.ui.itemDetailPage.choose.market.intent"))}
       {commerceContent}
     </Stack>

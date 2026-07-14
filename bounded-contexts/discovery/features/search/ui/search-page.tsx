@@ -39,6 +39,8 @@ import { imageVariantSrcSet } from "../../../support/client-support/assets";
 import { buildDiscoveryProductAssetImage } from "../../../support/client-support/product-assets";
 import { productAlertSettingsHref } from "./product-alert-settings-link";
 import { formatMoney } from "../../../support/ui-support/formatting";
+import { AddToSavedListControl } from "../../saved-list-addition/ui/add-to-saved-list";
+import type { SavedListClaimLoadState } from "../../saved-list-addition/ui/contracts";
 
 const AUTO_LOAD_ROOT_MARGIN = "900px";
 const FACET_OPTION_SEARCH_THRESHOLD = 8;
@@ -174,6 +176,7 @@ export interface SearchPageProps {
   loadMoreError?: string | null;
   error?: string | null;
   bulkAdd?: BulkAddSearchState;
+  savedListClaim?: SavedListClaimLoadState;
   restoreSearchFocus?: boolean;
   onSearchChange: (value: string) => void;
   onCategoryChange: (value: string) => void;
@@ -237,6 +240,7 @@ export function SearchPage({
   loadMoreError = null,
   error = null,
   bulkAdd,
+  savedListClaim,
   restoreSearchFocus = false,
   onSearchChange,
   onCategoryChange,
@@ -731,6 +735,13 @@ export function SearchPage({
             description={bulkAdd.error}
           />
         ) : null}
+        {savedListClaim?.error ? (
+          <Banner
+            tone="warning"
+            title={t("collections.features.savedLists.ui.addToList.claim.error.title")}
+            description={savedListClaim.error}
+          />
+        ) : null}
 
         {loading && !data ? (
           <LoadingSpinner label={t("discovery.features.search.ui.searchPage.searching")} />
@@ -794,6 +805,16 @@ export function SearchPage({
                 const buyHref = withMarketIntent(itemDetailHref, "buy");
                 const sellHref = withMarketIntent(itemDetailHref, "sell");
                 const watchHref = withMarketIntent(itemDetailHref, "watch");
+                const claimedPreparation =
+                  savedListClaim?.preparation?.product.catalogItemId === item.catalog_item_id
+                    ? savedListClaim.preparation
+                    : null;
+                const savedListProductKey =
+                  claimedPreparation?.product.productId ??
+                  JSON.stringify([
+                    item.catalog_item_id,
+                    dynamicFilters.filter((filter) => filter.kind === "dimension"),
+                  ]);
                 const primaryIntent = hasActiveListings
                   ? {
                       href: buyHref,
@@ -865,6 +886,12 @@ export function SearchPage({
                     }
                     secondaryAction={
                       <Inline gap={1}>
+                        <AddToSavedListControl
+                          productKey={savedListProductKey}
+                          productLabel={displayIdentity}
+                          prepareFields={{ slug: item.slug }}
+                          initialPreparation={claimedPreparation}
+                        />
                         {secondaryIntents.map((intent) => (
                           <LinkButton
                             key={intent.accessibleLabel}

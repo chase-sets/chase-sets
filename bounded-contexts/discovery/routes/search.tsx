@@ -11,6 +11,8 @@ import {
 } from "react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { formatDisplayIdentity } from "@chase-sets/localization";
+import type { SavedListProductSelection } from "@chase-sets/collections/server";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createDiscoveryRequestApiClient } from "../support/request-support/api-client";
@@ -27,6 +29,16 @@ import {
 import { applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
 import { SearchPage } from "../features/search/ui/search-page";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
+import {
+  createDiscoveryProductDescriptor,
+  summarizeSelections,
+} from "../features/saved-list-addition/api/product-selection";
+import {
+  commitSavedListAddition,
+  loadSavedListClaimPreparation,
+  prepareSavedListAddition,
+  savedListActionError,
+} from "../support/request-support/saved-list-addition";
 
 const PAGE_SIZE = 24;
 export const SEARCH_DEBOUNCE_MS = 300;
@@ -41,6 +53,7 @@ const EMPTY_SEARCH_RESULT = {
   dynamicFilters: [],
   data: null,
   categories: [],
+  savedListClaim: { preparation: null, error: null },
 } as const;
 const EMPTY_CATEGORY_LIST: CategoryListResponse = {
   items: [],
@@ -157,6 +170,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const data = await api
     .searchItems(buildSearchQuery({ search, category, tag, language, marketActivity, sort, dynamicFilters }))
     .catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE);
+  const savedListClaim = await loadSavedListClaimPreparation(request, (product) => product.productId);
   const canonicalPath =
     params.categorySlug && resolvedCategory
       ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
@@ -173,6 +187,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     data,
     categories: categories.items,
     canonicalUrl: new URL(canonicalPath, url.origin).toString(),
+    savedListClaim,
   };
 }
 
@@ -190,6 +205,50 @@ type BulkAddActionData =
 export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
+  if (intent === "commit-saved-list") {
+    return commitSavedListAddition(request, formData);
+  }
+  if (intent === "prepare-saved-list") {
+    try {
+      const discoveryApi = createDiscoveryRequestApiClient(request);
+      const slug = String(formData.get("slug") ?? "");
+      const item = await discoveryApi.getItemDetail(slug);
+      const url = new URL(request.url);
+      const selections = Object.fromEntries(
+        readDynamicSearchFilters(url.searchParams)
+          .filter((filter) => filter.kind === "dimension")
+          .map((filter) => [filter.id, filter.value]),
+      );
+      let descriptor;
+      try {
+        descriptor = createDiscoveryProductDescriptor({
+          catalogItemId: item.catalog_item_id,
+          productSchema: item.product_schema,
+          selection: Object.entries(selections).map(([dimensionId, optionId]) => ({ dimensionId, optionId })),
+        });
+      } catch {
+        const href = buildSearchItemDetailHref(slug, new URL(request.url).searchParams);
+        return Response.json({ status: "options-required", href } satisfies BulkOrSavedListActionData);
+      }
+      const summary = item.product_schema
+        ? summarizeSelections(item.product_schema, selections)
+            .map((selection) => `${selection.dimensionName}: ${selection.optionLabel}`)
+            .join(", ")
+        : "";
+      return prepareSavedListAddition({
+        request,
+        product: {
+          catalogItemId: item.catalog_item_id as SavedListProductSelection["catalogItemId"],
+          productId: descriptor.productId as SavedListProductSelection["productId"],
+          selectedOptions: descriptor.selection,
+        },
+        productLabel: [formatDisplayIdentity(item.title, item.subtitle), summary].filter(Boolean).join(" · "),
+        sourceSurface: "search",
+      });
+    } catch (error) {
+      return savedListActionError(error);
+    }
+  }
   if (intent !== "preview-bulk-add" && intent !== "commit-bulk-add") {
     return Response.json({ error: t("discovery.routes.search.unsupported.search.action") }, { status: 400 });
   }
@@ -660,6 +719,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         onPreview: () => void submitBulkAddIntent("preview-bulk-add"),
         onCommit: () => void submitBulkAddIntent("commit-bulk-add"),
       }}
+      savedListClaim={data.savedListClaim}
       restoreSearchFocus={restoreSearchFocusRef.current}
       onSearchChange={handleSearchChange}
       onCategoryChange={(value) => handleImmediateSearchParamChange({ category: value })}
@@ -672,6 +732,17 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       onLoadMore={handleLoadMore}
     />
   );
+}
+
+type BulkOrSavedListActionData = BulkAddActionData | Readonly<{ status: "options-required"; href: string }>;
+
+function buildSearchItemDetailHref(slug: string, searchParams: URLSearchParams) {
+  const next = new URLSearchParams();
+  for (const [key, value] of searchParams) {
+    if (key.startsWith("dimension.") && value) next.append(key, value);
+  }
+  next.set("collection", "add");
+  return `/items/${slug}?${next.toString()}`;
 }
 
 function mergeDiscoverySearchResponses(

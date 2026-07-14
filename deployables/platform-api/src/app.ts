@@ -26,7 +26,12 @@ import {
   discoveryRealtimeManifest,
   discoveryRealtimeTopicPolicyManifest,
 } from "@chase-sets/discovery/server";
-import { catalogRealtimeManifest, catalogRealtimeTopicPolicyManifest } from "@chase-sets/catalog/server";
+import {
+  catalogRealtimeManifest,
+  catalogRealtimeTopicPolicyManifest,
+  resolveCatalogProductSelection,
+} from "@chase-sets/catalog/server";
+import type { SavedListProductCatalog } from "@chase-sets/collections/server";
 import { pricingRealtimeManifest } from "@chase-sets/pricing/server";
 import { module as identityModule } from "@chase-sets/identity";
 import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
@@ -201,6 +206,7 @@ export function createPlatformApiHost(
   const platformOperationsPool = getPlatformApiPool(options.pools["platform-operations"]);
   const marketplacePool = getPlatformApiPool(options.pools.marketplace);
   const checkoutPool = getPlatformApiPool(options.pools.checkout);
+  const catalogPool = getPlatformApiPool(options.pools.catalog);
   const orderingPool = getPlatformApiPool(options.pools.ordering);
   const fulfillmentPool = getPlatformApiPool(options.pools.fulfillment);
   const pricingPool = getPlatformApiPool(options.pools.pricing);
@@ -255,6 +261,23 @@ export function createPlatformApiHost(
     : undefined;
   const rateLimitPolicyResolver = platformOperationsPool
     ? createRateLimitPolicyResolver(platformOperationsPool)
+    : undefined;
+  const savedListProductCatalog: SavedListProductCatalog | undefined = catalogPool
+    ? {
+        resolveProduct: async (selection) => {
+          const resolved = await resolveCatalogProductSelection(catalogPool, selection);
+          return {
+            availability: resolved.availability,
+            product: resolved.product
+              ? {
+                  catalogItemId: resolved.product.catalogItemId,
+                  productId: resolved.product.productId,
+                  selectedOptions: resolved.product.selectedOptions,
+                }
+              : null,
+          };
+        },
+      }
     : undefined;
   const configuredRegistrationAdmission = (options.hostPorts as Record<string, unknown> | undefined)
     ?.registrationAdmission as Record<string, unknown> | undefined;
@@ -453,6 +476,7 @@ export function createPlatformApiHost(
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
       ...(authenticityFeePolicyResolver ? { authenticityFeePolicyResolver } : {}),
       ...(rateLimitPolicyResolver ? { rateLimitPolicyResolver } : {}),
+      ...(savedListProductCatalog ? { savedListProductCatalog } : {}),
       registrationAdmission,
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),

@@ -19,6 +19,8 @@ export type {
   CreateAnonymousProductAlertIntentRequest,
   ProductAlertListResponse,
   ProductAlertPageRow,
+  DiscoveryRecentSavedList,
+  DiscoveryRecentSavedListsResponse,
 } from "../../client";
 import { createDiscoveryApiClient } from "../../client";
 

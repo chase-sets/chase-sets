@@ -27,6 +27,7 @@
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/checkout": "workspace:*",
+    "@chase-sets/collections": "workspace:*",
     "@chase-sets/customer-feedback": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
