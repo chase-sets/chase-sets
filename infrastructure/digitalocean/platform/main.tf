@@ -1657,6 +1657,11 @@ resource "digitalocean_app" "platform" {
         scope = "RUN_TIME"
       }
       env {
+        key   = "PLATFORM_DATA_PROFILES"
+        value = "critical-bootstrap,catalog-integration-bootstrap"
+        scope = "RUN_TIME"
+      }
+      env {
         key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
         value = local.event_store_wake_notifications_enabled
         scope = "RUN_TIME"
