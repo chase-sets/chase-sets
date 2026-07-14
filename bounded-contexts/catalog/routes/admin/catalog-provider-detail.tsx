@@ -23,5 +23,11 @@ export const meta: MetaFunction = () => [
 // lifecycle-recovery workspace.
 export default function CatalogProviderDetailRoute() {
   const routeData = useLoaderData<typeof loader>();
-  return <CatalogProviderDetailPage readModel={routeData.readModel} commandFeedback={routeData.commandFeedback} />;
+  return (
+    <CatalogProviderDetailPage
+      readModel={routeData.readModel}
+      commandFeedback={routeData.commandFeedback}
+      providerRefreshSchedules={routeData.providerRefreshSchedules}
+    />
+  );
 }

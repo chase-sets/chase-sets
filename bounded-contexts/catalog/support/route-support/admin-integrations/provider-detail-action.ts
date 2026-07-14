@@ -1,17 +1,18 @@
 import type { ActionFunctionArgs } from "react-router";
 import { redirect } from "react-router";
 import { catalogProviderDetailHref } from "../../../features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-links";
+import { createCatalogRequestApiClient } from "../../request-support/api-client";
 import { dispatchIntegrationsCommand } from "./integrations-command-dispatch";
 
-// Post-command action for the v2 Provider detail page (/catalog/providers/:providerKey).
-// Profile clone, section-edit, activate, rollback, deprecate, and retire
-// all land back on the one page they were submitted from — never a cross-surface
-// detour to the deprecated /catalog/integrations/providers or
-// /catalog/integrations/governance surfaces. Command dispatch itself
-// (dispatchIntegrationsCommand) is unchanged: it is intent-routed, not
-// route-routed, so the same provider-setup/governance command handlers run
-// regardless of which route submitted the form.
+const PROVIDER_REFRESH_INTENTS = new Set(["pause-provider-refresh", "resume-provider-refresh", "run-provider-refresh"]);
+
 export async function providerDetailAction(args: ActionFunctionArgs): Promise<Response> {
+  const formData = await args.request.clone().formData();
+  const intent = String(formData.get("_intent") ?? "");
+  if (PROVIDER_REFRESH_INTENTS.has(intent)) {
+    return handleProviderRefreshCommand(args, intent);
+  }
+
   const result = await dispatchIntegrationsCommand(args);
   const providerKey = result.context.providerKey ?? routeParamProviderKey(args);
 
@@ -24,6 +25,27 @@ export async function providerDetailAction(args: ActionFunctionArgs): Promise<Re
   });
 
   return redirect(href);
+}
+
+async function handleProviderRefreshCommand(args: ActionFunctionArgs, intent: string): Promise<Response> {
+  const requestUrl = new URL(args.request.url);
+  const providerKey = routeParamProviderKey(args);
+  if (providerKey) {
+    const api = createCatalogRequestApiClient(args.request);
+    if (intent === "run-provider-refresh") {
+      await api.runCatalogProviderRefreshNow(providerKey).catch(() => null);
+    } else {
+      await api
+        .setCatalogProviderRefreshPaused({ providerKey, paused: intent === "pause-provider-refresh" })
+        .catch(() => null);
+    }
+  }
+
+  return redirect(
+    catalogProviderDetailHref(providerKey, {
+      profileVersion: requestUrl.searchParams.get("profileVersion"),
+    }),
+  );
 }
 
 function routeParamProviderKey(args: ActionFunctionArgs): string | null {

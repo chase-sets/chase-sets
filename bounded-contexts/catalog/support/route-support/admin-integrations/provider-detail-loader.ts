@@ -1,4 +1,6 @@
 import type { LoaderFunctionArgs } from "react-router";
+import type { ProviderRefreshSchedulePanelItem } from "../../../features/provider-scope-discovery/ui/provider-refresh-schedule-panel";
+import { createCatalogRequestApiClient } from "../../request-support/api-client";
 import { loadHealthSurface } from "./integrations-loader-support";
 
 // Provider detail page loader (/catalog/providers/:providerKey, v2 IA). The
@@ -28,7 +30,35 @@ export async function loadProviderDetail(args: LoaderFunctionArgs) {
       ? args.request
       : new Request(url.toString(), { method: "GET", headers: args.request.headers });
 
-  return loadHealthSurface({ ...args, request });
+  const [surfaceData, providerRefreshSchedules] = await Promise.all([
+    loadHealthSurface({ ...args, request }),
+    loadProviderRefreshSchedules(request, providerKey),
+  ]);
+
+  return { ...surfaceData, providerRefreshSchedules };
+}
+
+async function loadProviderRefreshSchedules(
+  request: Request,
+  providerKey: string | null,
+): Promise<readonly ProviderRefreshSchedulePanelItem[] | null> {
+  if (!providerKey) {
+    return [];
+  }
+
+  const api = createCatalogRequestApiClient(request);
+  if (typeof api.listCatalogProviderRefreshSchedules !== "function") {
+    return null;
+  }
+
+  try {
+    const response = await api.listCatalogProviderRefreshSchedules<{
+      items: readonly ProviderRefreshSchedulePanelItem[];
+    }>();
+    return response.items.filter((schedule) => schedule.providerKey === providerKey);
+  } catch {
+    return null;
+  }
 }
 
 function routeParamProviderKey(args: LoaderFunctionArgs): string | null {

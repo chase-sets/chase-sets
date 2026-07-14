@@ -21,7 +21,7 @@ export const catalogSourceObservationsWorkbenchProviderDetailEnglishTranslations
   "catalog.features.sourceObservations.ui.providerDetail.units.activeProfile": "Active profile",
   "catalog.features.sourceObservations.ui.providerDetail.jobs.title": "Recent jobs",
   "catalog.features.sourceObservations.ui.providerDetail.jobs.description":
-    "The most recent import activity for this provider — the closest signal to a last-refresh time; there is no automatic option-sync schedule yet.",
+    "The most recent import activity for this provider, alongside the source-option refresh schedule above.",
   "catalog.features.sourceObservations.ui.providerDetail.jobs.scope": "Import scope",
   "catalog.features.sourceObservations.ui.providerDetail.jobs.emptyTitle": "No recent jobs",
   "catalog.features.sourceObservations.ui.providerDetail.jobs.emptyDescription":
