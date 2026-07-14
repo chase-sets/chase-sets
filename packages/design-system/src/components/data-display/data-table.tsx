@@ -299,7 +299,7 @@ export function DataTable<T>({
                         </dt>
                         <dd
                           className={cx(
-                            "max-w-[60%] text-right text-sm text-foreground",
+                            "max-w-[75%] text-right text-sm text-foreground",
                             column.align === "left" && "text-left",
                           )}
                         >

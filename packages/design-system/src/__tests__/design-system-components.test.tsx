@@ -383,6 +383,26 @@ describe("design system components", () => {
     expect(screen.getByText("Nothing to review")).toBeTruthy();
   });
 
+  it("gives stacked DataTable card values room for operator content", () => {
+    render(
+      <DataTable
+        rows={[{ jobId: "job_01JYZE8ZRQ6MR6AT7YSVQKPF4A" }]}
+        columns={[
+          {
+            key: "job",
+            header: "Job",
+            cell: (row: { jobId: string }) => row.jobId,
+          },
+        ]}
+      />,
+    );
+
+    const cardValue = within(screen.getByRole("list")).getByText("job_01JYZE8ZRQ6MR6AT7YSVQKPF4A").closest("dd");
+
+    expect(cardValue?.className).toContain("max-w-[75%]");
+    expect(cardValue?.className).not.toContain("max-w-[60%]");
+  });
+
   it("exposes DataTable loading state to assistive technology", () => {
     const columns = [{ key: "name", header: "Name", cell: (row: { name: string }) => row.name }];
     const { container, rerender } = render(<DataTable rows={[]} columns={columns} loading />);

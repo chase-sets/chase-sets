@@ -281,7 +281,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `selectCheckoutNotice` | `packages/design-system/src/components/checkout/notices.tsx` | Pick the single highest-priority active notice from the candidate ladder. | `No production consumer yet.` |
 | `SelectionToolbar` | `packages/design-system/src/patterns/app-shells/content-layouts.tsx` | Purpose not documented; symbol name suggests: Selection Toolbar. | `No production consumer yet.` |
 | `SellerBadge` | `packages/design-system/src/patterns/app-shells/commerce-atoms.tsx` | Purpose not documented; symbol name suggests: Seller Badge. | `bounded-contexts/catalog/support/shell-support/shell/layout.tsx` |
-| `Show` | `packages/design-system/src/primitives/layout.tsx` | Responsive visibility wrapper. | `bounded-contexts/checkout/features/sessions/ui/checkout-commit-actions.tsx` |
+| `Show` | `packages/design-system/src/primitives/layout.tsx` | Responsive visibility wrapper. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-jobs/import-jobs-module.tsx` |
 | `showToast` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: show Toast. | `No production consumer yet.` |
 | `Sidebar` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Sidebar. | `No production consumer yet.` |
 | `sidebarWidthClasses` | `packages/design-system/src/primitives/layout.tsx` | Named sidebar widths for use in grid layouts. | `No production consumer yet.` |
