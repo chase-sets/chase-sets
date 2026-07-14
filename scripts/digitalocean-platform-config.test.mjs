@@ -1176,8 +1176,10 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(stagingSmokeStep).toContain("timeout-minutes: 12");
     expect(stagingSmokeStep).toContain('SMOKE_FETCH_TIMEOUT_MS: "15000"');
+    expect(stagingSmokeStep).not.toContain("continue-on-error");
     expect(productionSmokeStep).toContain("timeout-minutes: 15");
     expect(productionSmokeStep).toContain('SMOKE_FETCH_TIMEOUT_MS: "15000"');
+    expect(productionSmokeStep).not.toContain("continue-on-error");
 
     const stagingApplyIndex = deployStagingJob.indexOf("- name: Terraform apply");
     const stagingKubeconfigIndex = deployStagingJob.indexOf("- name: Configure staging Kubernetes context");
@@ -1316,6 +1318,7 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(stagingDeployStep).not.toContain("scenario-seed");
     expect(stagingScenarioSeedStep).toContain("pnpm run platform:kubernetes-deployment -- scenario-seed");
+    expect(stagingScenarioSeedStep).toContain("continue-on-error: true");
     expect(stagingScenarioSeedStep).toContain("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}");
     expect(stagingScenarioSeedStep).toContain("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}");
     expect(stagingScenarioSeedStep).toContain('--runtime-env "DEPLOYMENT_ENVIRONMENT=staging"');
@@ -3572,7 +3575,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(doksPlatformOperationsRunbook).not.toContain("--namespace staging");
   });
 
-  it("gates production promotion on staging marketplace critical flows", () => {
+  it("keeps staging health and money smoke blocking while critical flows are advisory", () => {
     const stagingPlaywrightVersionStep = workflowStep(
       platformProductionWorkflow,
       "Resolve Playwright Chromium version",
@@ -3628,6 +3631,7 @@ describe("DigitalOcean platform configuration", () => {
       platformProductionWorkflow.indexOf("- name: Install Playwright Chromium for staging critical flows"),
     ).toBeLessThan(platformProductionWorkflow.indexOf("- name: Staging marketplace critical flows"));
     expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_SKIP_WEB_SERVER");
+    expect(stagingCriticalFlowStep).toContain("continue-on-error: true");
     expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
     expect(stagingCriticalFlowStep).toContain('admin_domain="$(terraform output -raw admin_domain)"');
     expect(stagingCriticalFlowStep).toContain('ADMIN_WEB_URL="https://${admin_domain}"');
@@ -3643,6 +3647,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingCriticalFlowStep).toContain("secrets.CATALOG_ADMIN_E2E_PASSWORD || ''");
     expect(stagingCriticalFlowStep).toContain("AWS_ACCESS_KEY_ID");
     expect(stagingCriticalFlowStep).toContain("AWS_SECRET_ACCESS_KEY");
+    expect(stagingMoneySmokeStep).not.toContain("continue-on-error");
     expect(platformProductionWorkflow).toContain("staging-playwright-critical-flow-artifacts");
     expect(stagingBuyNowProbesStep).toContain("GUEST_BUY_NOW_PROBE_SEARCH_QUERY");
     expect(stagingBuyNowProbesStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");

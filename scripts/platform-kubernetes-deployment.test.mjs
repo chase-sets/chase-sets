@@ -15,6 +15,7 @@ import {
   buildNamespaceGetArgs,
   buildPreviewWildcardSecretApplyArgs,
   buildPreviewWildcardSecretGetArgs,
+  buildScenarioSeedAccessManifest,
   buildScenarioSeedJobManifest,
   copyPreviewWildcardTlsSecret,
   deployPlatformToKubernetes,
@@ -93,7 +94,7 @@ describe("platform Kubernetes deployment", () => {
     expect(() => parsePlatformImageRef("chase-sets-platform:abc123")).toThrow("Platform image must look like");
   });
 
-  it("builds a staging-only post-deploy scenario seed Job without quiescing workers", () => {
+  it("builds a staging-only post-deploy scenario seed Job that quiesces workers", () => {
     const manifest = buildScenarioSeedJobManifest({
       release: "chase-sets-platform",
       namespace: "chase-sets-platform",
@@ -114,10 +115,26 @@ describe("platform Kubernetes deployment", () => {
     expect(manifest.spec.activeDeadlineSeconds).toBe(scenarioSeedMaxActiveDeadlineSeconds);
     expect(manifest.spec.backoffLimit).toBe(0);
     expect(manifest.spec.template.spec.imagePullSecrets).toEqual([{ name: "registry-chase-sets" }]);
-    expect(container.args).toEqual(["pnpm --filter @chase-sets/app-platform-api run bootstrap:production"]);
-    expect(container.args.join(" ")).not.toContain("bootstrap-quiesce");
+    expect(manifest.spec.template.spec.serviceAccountName).toBe(
+      "chase-sets-platform-chase-sets-platform-scenario-seed-quiesce",
+    );
+    expect(container.args).toEqual([
+      "node ./infrastructure/helm/platform/scripts/bootstrap-quiesce.mjs -- pnpm --filter @chase-sets/app-platform-api run bootstrap:production",
+    ]);
     expect(env.get("PLATFORM_DATA_PROFILES")).toEqual({ name: "PLATFORM_DATA_PROFILES", value: "scenario-seed" });
     expect(env.get("DEPLOYMENT_ENVIRONMENT")).toEqual({ name: "DEPLOYMENT_ENVIRONMENT", value: "staging" });
+    expect(env.get("CHASE_SETS_QUIESCE_DEPLOYMENTS")).toEqual({
+      name: "CHASE_SETS_QUIESCE_DEPLOYMENTS",
+      value: "chase-sets-platform-chase-sets-platform-platform-worker",
+    });
+    expect(env.get("CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS")).toEqual({
+      name: "CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS",
+      value: "3000",
+    });
+    expect(env.get("CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE")).toEqual({
+      name: "CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE",
+      value: "true",
+    });
     expect(env.get("DATABASE_URL_IDENTITY")).toEqual({
       name: "DATABASE_URL_IDENTITY",
       valueFrom: {
@@ -127,7 +144,6 @@ describe("platform Kubernetes deployment", () => {
         },
       },
     });
-    expect(container.env.map((entry) => entry.name)).not.toContain("CHASE_SETS_QUIESCE_DEPLOYMENTS");
 
     expect(() =>
       buildScenarioSeedJobManifest({
@@ -135,6 +151,34 @@ describe("platform Kubernetes deployment", () => {
         envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
       }),
     ).toThrow("staging-only");
+  });
+
+  it("limits scenario seed quiesce access to worker scaling and KEDA pause", () => {
+    const manifest = buildScenarioSeedAccessManifest({
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+    });
+    const [serviceAccount, role, roleBinding] = manifest.items;
+
+    expect(serviceAccount).toMatchObject({ kind: "ServiceAccount" });
+    expect(role.rules).toEqual([
+      {
+        apiGroups: ["apps"],
+        resources: ["deployments", "deployments/scale"],
+        resourceNames: ["chase-sets-platform-chase-sets-platform-platform-worker"],
+        verbs: ["get", "patch"],
+      },
+      {
+        apiGroups: ["keda.sh"],
+        resources: ["scaledobjects"],
+        resourceNames: ["chase-sets-platform-chase-sets-platform-platform-worker"],
+        verbs: ["patch"],
+      },
+    ]);
+    expect(roleBinding.roleRef.name).toBe(role.metadata.name);
+    expect(roleBinding.subjects).toEqual([
+      { kind: "ServiceAccount", name: serviceAccount.metadata.name, namespace: "chase-sets-platform" },
+    ]);
   });
 
   it("applies, streams, and verifies the post-deploy scenario seed Job", async () => {
@@ -149,7 +193,9 @@ describe("platform Kubernetes deployment", () => {
       spawn: completedSpawn(calls, [
         { code: 0 },
         { code: 0 },
+        { code: 0 },
         { code: 0, stdout: JSON.stringify({ status: { succeeded: 1 } }) },
+        { code: 0 },
       ]),
     });
 
@@ -160,11 +206,39 @@ describe("platform Kubernetes deployment", () => {
     });
     expect(calls.map((call) => [call.command, call.args[0]])).toEqual([
       ["kubectl", "apply"],
+      ["kubectl", "apply"],
       ["kubectl", "logs"],
       ["kubectl", "get"],
+      ["kubectl", "delete"],
     ]);
-    const appliedManifest = JSON.parse(calls[0].stdin);
+    const accessManifest = JSON.parse(calls[0].stdin);
+    const appliedManifest = JSON.parse(calls[1].stdin);
+    expect(accessManifest.kind).toBe("List");
     expect(appliedManifest.metadata.labels["app.kubernetes.io/component"]).toBe("scenario-seed");
+    expect(calls.at(-1).args).toContain("serviceaccount/chase-sets-platform-chase-sets-platform-scenario-seed-quiesce");
+  });
+
+  it("removes scenario seed quiesce access when the Job fails", async () => {
+    const calls = [];
+    await expect(
+      runScenarioSeedOnKubernetes({
+        release: "chase-sets-platform",
+        namespace: "chase-sets-platform",
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:proof",
+        timeout: "60m",
+        jobName: "staging-scenario-seed-proof",
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging" },
+        spawn: completedSpawn(calls, [
+          { code: 0 },
+          { code: 0 },
+          { code: 0 },
+          { code: 0, stdout: JSON.stringify({ status: { failed: 1 } }) },
+          { code: 0 },
+        ]),
+      }),
+    ).rejects.toThrow("Post-deploy scenario seed Job staging-scenario-seed-proof failed");
+
+    expect(calls.at(-1).args[0]).toBe("delete");
   });
 
   it("builds Helm upgrade arguments for atomic rollout-based deploys", () => {

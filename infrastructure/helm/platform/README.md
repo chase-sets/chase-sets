@@ -176,6 +176,8 @@ pnpm run platform:kubernetes-deployment -- diagnostics --namespace staging --rel
 
 Deploy uses `helm upgrade --install --wait --atomic`, waits for ordinary Deployments through `kubectl rollout status`, and waits for Argo Rollouts to reach the 10% analysis hold. `promote` and `abort` use the pinned Argo kubectl plugin; promotion then waits for `Healthy`. Helm rollback detects whether the restored revision contains a Rollout or Deployment before waiting, so rollback targets captured before Argo activation remain valid. Diagnostics include Rollouts and AnalysisRuns in addition to Kubernetes workloads, descriptions, events, and pod logs.
 
+The staging workflow runs `scenario-seed` as a separate post-deploy Job. That Job reuses the bootstrap quiesce wrapper to pause the platform-worker KEDA ScaledObject, scale the worker Deployment to zero while scenario data is reconciled, and resume KEDA before exiting. The deployment helper creates narrowly scoped, staging-only RBAC for that Job and removes it afterward. This keeps lock-heavy catalog seed work out of the rollout-critical Helm hook while preventing live worker reads from holding the catalog locks the seed needs; production does not run this path.
+
 ## Boundaries
 
 This chart intentionally does not own ingress controller installation, certificate issuer installation, external secrets, or App Platform removal. The cluster-scoped Argo controller contract lives with the other DOKS add-ons in `scripts/doks-cluster-addons.mjs`.
