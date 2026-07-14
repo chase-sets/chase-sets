@@ -268,6 +268,30 @@ export function buildSettlementSupportHoldProjectionHandlers(db: PgQueryable): P
         [data.supportRequestId, data.cancelledAt, event.streamVersion],
       );
     },
+    "settlement.protection-coverage.settled.v1": async (event) => {
+      // The correlated support hold releases only after Settlement's own allocation
+      // reconciliation is durable: the ProtectionCoverage aggregate emits this fact
+      // after the seller and platform postings are committed (ADR 0022, #5220), never
+      // merely because Payments reported a refund. Keyed by supportRequestId, released
+      // exactly once.
+      const data = event.data as {
+        supportRequestId: string;
+        occurredAt: string;
+      };
+
+      await db.query(
+        `UPDATE settlement_support_holds
+         SET status = 'reconciled',
+             active = FALSE,
+             updated_at = $2,
+             released_at = $2,
+             release_reason = 'coverage-reconciled',
+             last_stream_version = $3
+         WHERE support_request_id = $1
+           AND last_stream_version < $3`,
+        [data.supportRequestId, data.occurredAt, event.streamVersion],
+      );
+    },
     "payments.payment-fraud-warning-received": async (event) => {
       const data = event.data as {
         orderIds: string[];

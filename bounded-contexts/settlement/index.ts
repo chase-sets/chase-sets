@@ -16,6 +16,7 @@ import { settlementUnloggedProjectionSchemaMigrations } from "./support/runtime-
 import { seedSettlementDatabase } from "./support/runtime-support/seed";
 import { buildSettlementPaymentInputProjectionHandlers } from "./features/wallets/integrations/payment-source/payment-source-projection";
 import { buildSettlementSupportHoldProjectionHandlers } from "./features/wallets/integrations/support-source/support-source-projection";
+import { buildSettlementCoverageReservationHandlers } from "./features/liability-allocation/integrations/coverage-request/coverage-reservation-projection";
 import { buildSettlementFulfillmentSourceProjectionHandlers } from "./features/wallets/integrations/fulfillment-source/fulfillment-source-projection";
 import {
   buildSettlementIdentityAccountRiskSourceProjectionHandlers,
@@ -62,13 +63,21 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
       manifest: contextManifest,
       handlers: {
         "payments.settlement-payment-input-projection": () =>
-          buildSettlementPaymentInputProjectionHandlers(services.db, services.wallets),
+          buildSettlementPaymentInputProjectionHandlers(services.db, services.wallets, services.protectionCoverage),
         "platform-operations.settlement-support-hold-projection": {
           buildHandlers: () => buildSettlementSupportHoldProjectionHandlers(services.db),
           filterToEventTypes: true,
         },
         "payments.settlement-support-hold-projection": {
           buildHandlers: () => buildSettlementSupportHoldProjectionHandlers(services.db),
+          filterToEventTypes: true,
+        },
+        "settlement.settlement-support-hold-projection": {
+          buildHandlers: () => buildSettlementSupportHoldProjectionHandlers(services.db),
+          filterToEventTypes: true,
+        },
+        "platform-operations.settlement-liability-allocation-reserve-projection": {
+          buildHandlers: () => buildSettlementCoverageReservationHandlers(services.protectionCoverage),
           filterToEventTypes: true,
         },
         "fulfillment.settlement-fulfillment-source-projection": () =>

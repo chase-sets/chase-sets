@@ -30,6 +30,26 @@ Notes:
 - Refund reversals preserve the original funding split and converge to the full contribution on a full-order refund.
 - Replay uses deterministic fact identities, so a contribution or reversal is recorded at most once.
 
+## Protection Coverage
+
+A **Protection Coverage** is the Settlement-owned reservation of the platform-funded portion of a support remedy against available protection funds (ADR 0022). Settlement reserves it when Platform Operations requests coverage, consumes exactly the reserved amount when the correlated refund completes, and releases it for remedies that never refund.
+
+Notes:
+
+- A coverage belongs to exactly one remedy and one currency pool; its `coverageId` is present iff the platform-funded portion is positive.
+- Settling a coverage emits `settlement.protection-coverage.settled.v1` only after the seller and platform postings are durable, which is the single reconciliation point that releases the correlated support hold.
+- Reserve, settle, release, and expire are exactly-once by `coverageId`, so duplicate or replayed facts never double-consume the reserve.
+
+## Refund Liability Allocation
+
+A **Refund Liability Allocation** is the Settlement-owned reconciliation of a completed refund into its authorized seller-funded and platform-funded portions. Settlement posts the seller portion to the seller ledger, consumes the platform portion from the reserved Protection Coverage, and never charges the seller for a platform-covered remedy.
+
+Notes:
+
+- A refund with no authorized allocation is seller-funded by the documented compatibility default, preserving the legacy seller-debit behavior.
+- Allocation components are non-negative and sum exactly to the completed refund; a mismatched, over-reservation, or wrong-currency allocation is quarantined into an operator repair queue rather than charged to the seller.
+- A wrong or legacy seller debit is corrected only through the governed Wallet Adjustment mechanism (ADR 0020), append-only and correlated, never by rewriting history.
+
 ## Balance
 
 A **Balance** is the current computed financial position of an account derived from ledger entries.

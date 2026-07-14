@@ -15,6 +15,7 @@ import {
 } from "../../features/wallets/integrations/account-risk-source/account-risk-source-schema";
 import { settlementPayoutSchemaMigrations, settlementPayoutSchemaSql } from "../../features/payouts/read-model/schema";
 import { settlementProtectionCoverageSchemaSql } from "../../features/protection-coverage/read-model/protection-coverage-schema";
+import { settlementRefundLiabilityAllocationSchemaSql } from "../../features/liability-allocation/read-model/liability-allocation-schema";
 import {
   settlementPayoutReadinessSchemaMigrations,
   settlementPayoutReadinessSchemaSql,
@@ -52,6 +53,7 @@ export const settlementSchemaSql = [
   settlementPayoutReadinessSchemaSql,
   settlementPayoutSchemaSql,
   settlementProtectionCoverageSchemaSql,
+  settlementRefundLiabilityAllocationSchemaSql,
   settlementWorkClaimSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
   // for the clearance-window and payout-bounds policies -- see
