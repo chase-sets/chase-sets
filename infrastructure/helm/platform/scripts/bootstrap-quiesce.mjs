@@ -4,6 +4,7 @@ import https from "node:https";
 import process from "node:process";
 
 const serviceAccountPath = "/var/run/secrets/kubernetes.io/serviceaccount";
+const kedaPausedReplicasAnnotation = "autoscaling.keda.sh/paused-replicas";
 
 export function parseQuiesceOptions(argv, env = process.env) {
   const separatorIndex = argv.indexOf("--");
@@ -33,6 +34,16 @@ export async function runQuiescedBootstrap(options) {
   validateOptions(options);
 
   const originals = new Map();
+  const kedaManagedDeployments = new Set();
+  const pausedScaledObjects = new Set();
+
+  async function resumePausedScaledObjects() {
+    for (const deployment of pausedScaledObjects) {
+      await options.log(`Resuming KEDA autoscaling for ${deployment}.`);
+      await options.kubernetes.resumeScaledObject(deployment);
+      pausedScaledObjects.delete(deployment);
+    }
+  }
 
   for (const deployment of options.deployments) {
     try {
@@ -47,43 +58,58 @@ export async function runQuiescedBootstrap(options) {
     }
   }
 
-  for (const deployment of originals.keys()) {
-    await options.log(`Quiescing ${deployment} before bootstrap.`);
-    await options.kubernetes.scaleDeployment(deployment, 0);
-  }
-
-  for (const deployment of originals.keys()) {
-    await options.kubernetes.waitForReplicas(deployment, 0, {
-      timeoutMs: options.timeoutMs,
-      pollIntervalMs: options.pollIntervalMs,
-    });
-  }
-
-  const exitCode = await options.spawnCommand(options.command, {
-    timeoutMs: options.commandTimeoutMs,
-    log: options.log,
-  });
-  if (exitCode === 0) {
-    await options.log("Bootstrap completed with workers quiesced; Helm may continue the rollout.");
-    return 0;
-  }
-
-  await options.log(`Bootstrap failed with exit code ${exitCode}.`);
-  if (options.restoreOnFailure) {
-    for (const [deployment, replicas] of originals) {
-      await options.log(`Restoring ${deployment} to ${replicas} replicas after failed bootstrap.`);
-      await options.kubernetes.scaleDeployment(deployment, replicas);
+  try {
+    for (const deployment of originals.keys()) {
+      await options.log(`Quiescing ${deployment} before bootstrap.`);
+      if (await options.kubernetes.pauseScaledObject(deployment)) {
+        kedaManagedDeployments.add(deployment);
+        pausedScaledObjects.add(deployment);
+      } else {
+        await options.log(`No ScaledObject found for ${deployment}; scaling the Deployment directly.`);
+      }
+      await options.kubernetes.scaleDeployment(deployment, 0);
     }
 
-    for (const [deployment, replicas] of originals) {
-      await options.kubernetes.waitForReplicas(deployment, replicas, {
+    for (const deployment of originals.keys()) {
+      await options.kubernetes.waitForReplicas(deployment, 0, {
         timeoutMs: options.timeoutMs,
         pollIntervalMs: options.pollIntervalMs,
       });
     }
-  }
 
-  return exitCode;
+    const exitCode = await options.spawnCommand(options.command, {
+      timeoutMs: options.commandTimeoutMs,
+      log: options.log,
+    });
+    if (exitCode === 0) {
+      await options.log("Bootstrap completed; Helm may continue the rollout.");
+      return 0;
+    }
+
+    await options.log(`Bootstrap failed with exit code ${exitCode}.`);
+    if (options.restoreOnFailure) {
+      await resumePausedScaledObjects();
+
+      const directlyManagedDeployments = [...originals].filter(
+        ([deployment]) => !kedaManagedDeployments.has(deployment),
+      );
+      for (const [deployment, replicas] of directlyManagedDeployments) {
+        await options.log(`Restoring ${deployment} to ${replicas} replicas after failed bootstrap.`);
+        await options.kubernetes.scaleDeployment(deployment, replicas);
+      }
+
+      for (const [deployment, replicas] of directlyManagedDeployments) {
+        await options.kubernetes.waitForReplicas(deployment, replicas, {
+          timeoutMs: options.timeoutMs,
+          pollIntervalMs: options.pollIntervalMs,
+        });
+      }
+    }
+
+    return exitCode;
+  } finally {
+    await resumePausedScaledObjects();
+  }
 }
 
 export function createKubernetesClient(options = {}) {
@@ -152,6 +178,28 @@ export function createKubernetesClient(options = {}) {
     return `${deploymentPath(name)}/scale`;
   }
 
+  function scaledObjectPath(name) {
+    return `/apis/keda.sh/v1alpha1/namespaces/${encodeURIComponent(namespace)}/scaledobjects/${encodeURIComponent(name)}`;
+  }
+
+  async function patchScaledObjectPausedReplicas(name, pausedReplicas) {
+    try {
+      await request("PATCH", scaledObjectPath(name), {
+        metadata: {
+          annotations: {
+            [kedaPausedReplicasAnnotation]: pausedReplicas,
+          },
+        },
+      });
+      return true;
+    } catch (error) {
+      if (isKubernetesNotFound(error)) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
   return {
     async readScale(name) {
       const response = await request("GET", scalePath(name));
@@ -159,6 +207,12 @@ export function createKubernetesClient(options = {}) {
     },
     async scaleDeployment(name, replicas) {
       await request("PATCH", scalePath(name), { spec: { replicas } });
+    },
+    async pauseScaledObject(name) {
+      return patchScaledObjectPausedReplicas(name, "0");
+    },
+    async resumeScaledObject(name) {
+      return patchScaledObjectPausedReplicas(name, null);
     },
     async waitForReplicas(name, replicas, waitOptions) {
       const deadline = Date.now() + waitOptions.timeoutMs;
