@@ -593,6 +593,15 @@ export type ListingAutoUnlistedEvent = DomainEvent<
   }>
 >;
 export type ListingWithdrawnEvent = DomainEvent<"marketplace.listing.withdrawn", Readonly<Record<string, never>>>;
+export type ListingOfferCommitmentRecordedEvent = DomainEvent<
+  "marketplace.listing.offer-commitment-recorded",
+  Readonly<{
+    offerId: string;
+    quantity: number;
+    evidenceSnapshotHash: string;
+    committedAt: string;
+  }>
+>;
 
 export type MarketplaceListingEvent =
   | ListingCreatedEvent
@@ -608,7 +617,8 @@ export type MarketplaceListingEvent =
   | ListingPublishedEvent
   | ListingPausedEvent
   | ListingAutoUnlistedEvent
-  | ListingWithdrawnEvent;
+  | ListingWithdrawnEvent
+  | ListingOfferCommitmentRecordedEvent;
 
 export const decideMarketplaceListing: AggregateDecider<
   MarketplaceListingState,
@@ -980,6 +990,8 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
       return { ...state, status: "paused" };
     case "marketplace.listing.withdrawn":
       return { ...state, status: "withdrawn" };
+    case "marketplace.listing.offer-commitment-recorded":
+      return state;
     default:
       return assertNever(event);
   }

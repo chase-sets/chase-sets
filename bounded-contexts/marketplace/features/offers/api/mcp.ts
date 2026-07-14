@@ -195,6 +195,7 @@ export function createMarketplaceOfferMcpHandlers(services: MarketplaceOfferServ
       {
         offerId: readMcpTypedIdArgument(args, "offerId", "off"),
         sellerAccountId: scopedActor.accountId as AccountId,
+        listingId: readRequiredString(args, "listingId"),
         feeQuoteFingerprint: readMcpStringArgument(args, "feeQuoteFingerprint"),
         sourceActionKey: readMcpStringArgument(args, "sourceActionKey"),
       },

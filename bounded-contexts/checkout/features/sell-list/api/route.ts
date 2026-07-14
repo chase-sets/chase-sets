@@ -66,6 +66,7 @@ function parseSellListLineBody(body: Record<string, unknown>) {
   return {
     lineType: body.lineType === "selected-offer" ? ("selected-offer" as const) : ("product" as const),
     offerId: body.offerId === null || body.offerId === undefined ? null : String(body.offerId),
+    listingId: body.listingId === null || body.listingId === undefined ? null : String(body.listingId),
     buyerAccountId:
       body.buyerAccountId === null || body.buyerAccountId === undefined ? null : String(body.buyerAccountId),
     buyerDisplayName:

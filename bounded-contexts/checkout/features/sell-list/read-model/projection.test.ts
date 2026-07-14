@@ -34,7 +34,7 @@ class SellListProjectionDb implements PgQueryable {
         line_id: String(values[1]),
         line_type: String(values[2]),
         offer_id: values[3] === null ? null : String(values[3]),
-        quantity: Number(values[13]),
+        quantity: Number(values[14]),
       };
       if (sql.includes("ON CONFLICT (seller_account_id, offer_id)") && row.offer_id) {
         const existing = [...this.lines.values()].find(

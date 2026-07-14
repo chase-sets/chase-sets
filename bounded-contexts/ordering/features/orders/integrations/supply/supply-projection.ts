@@ -4,12 +4,14 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { ListingEvidenceSnapshot } from "../../../../support/request-support/listing-evidence";
 
 type AcceptedOfferParams = Readonly<{
   offerId: string;
   buyerAccountId: string;
   sellerAccountId: string;
+  listingId: string;
+  inventoryItemId: string;
+  listingVersion: number;
   catalogItemId: string;
   productId: string;
   itemTitle: string;
@@ -27,10 +29,14 @@ type AcceptedOfferParams = Readonly<{
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string;
+  feeQuoteFingerprint: string;
+  listingEvidencePolicyId: string | null;
+  listingEvidencePolicyVersion: number | null;
+  listingEvidencePolicyHash: string;
+  listingEvidenceSnapshot: ChaseSetsEventPayloads["marketplace.offer.accepted"]["listingEvidenceSnapshot"];
   quantityRequested: number;
   acceptanceBatchId: string | null;
   acceptanceBatchSize: number | null;
-  listingEvidenceSnapshot: ListingEvidenceSnapshot | null;
   context: EventStoreContext;
 }>;
 
@@ -48,13 +54,7 @@ type SellerOrderCapacityClearedProjectionPayload = Readonly<{
   accountId: string;
 }>;
 
-type MarketplaceOfferAcceptedProjectionPayload = ChaseSetsEventPayloads["marketplace.offer.accepted"] &
-  Readonly<{
-    /** Published by the Marketplace acceptance producer; optional until that producer lands. */
-    listingEvidenceSnapshot?: ListingEvidenceSnapshot | null;
-    listingId?: string;
-    inventoryItemId?: string;
-  }>;
+type MarketplaceOfferAcceptedProjectionPayload = ChaseSetsEventPayloads["marketplace.offer.accepted"];
 
 type OrderingMarketplaceSupplyProjectionEventPayloads = Pick<
   ChaseSetsEventPayloads,
@@ -442,6 +442,9 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            offer_id,
            buyer_account_id,
            seller_account_id,
+           listing_id,
+           inventory_item_id,
+           listing_version,
            catalog_catalog_item_id,
            product_id,
            item_title,
@@ -458,19 +461,26 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            terms_schedule_id,
            terms_agreement_id,
            terms_resolved_at,
+           fee_quote_fingerprint,
+           listing_evidence_policy_id,
+           listing_evidence_policy_version,
+           listing_evidence_policy_hash,
+           listing_evidence_snapshot,
            quantity_requested,
            shipping_destination_snapshot,
            accepted_at,
            acceptance_batch_id,
            acceptance_batch_size,
-           listing_evidence_snapshot,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33
          )
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              seller_account_id = EXCLUDED.seller_account_id,
+             listing_id = EXCLUDED.listing_id,
+             inventory_item_id = EXCLUDED.inventory_item_id,
+             listing_version = EXCLUDED.listing_version,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              item_title = EXCLUDED.item_title,
@@ -487,17 +497,24 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              terms_schedule_id = EXCLUDED.terms_schedule_id,
              terms_agreement_id = EXCLUDED.terms_agreement_id,
              terms_resolved_at = EXCLUDED.terms_resolved_at,
+             fee_quote_fingerprint = EXCLUDED.fee_quote_fingerprint,
+             listing_evidence_policy_id = EXCLUDED.listing_evidence_policy_id,
+             listing_evidence_policy_version = EXCLUDED.listing_evidence_policy_version,
+             listing_evidence_policy_hash = EXCLUDED.listing_evidence_policy_hash,
+             listing_evidence_snapshot = EXCLUDED.listing_evidence_snapshot,
              quantity_requested = EXCLUDED.quantity_requested,
              shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot,
              accepted_at = EXCLUDED.accepted_at,
              acceptance_batch_id = EXCLUDED.acceptance_batch_id,
              acceptance_batch_size = EXCLUDED.acceptance_batch_size,
-             listing_evidence_snapshot = EXCLUDED.listing_evidence_snapshot,
              updated_at = EXCLUDED.updated_at`,
         [
           data.offerId,
           data.buyerAccountId,
           data.sellerAccountId,
+          data.listingId,
+          data.inventoryItemId,
+          data.listingVersion,
           data.catalogItemId,
           data.productId,
           data.itemTitle,
@@ -514,12 +531,16 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.termsScheduleId,
           data.termsAgreementId,
           data.termsResolvedAt,
+          data.feeQuoteFingerprint,
+          data.listingEvidencePolicyId,
+          data.listingEvidencePolicyVersion,
+          data.listingEvidencePolicyHash,
+          JSON.stringify(data.listingEvidenceSnapshot),
           data.quantityRequested,
           JSON.stringify(data.shippingDestinationSnapshot),
           data.acceptedAt,
           data.acceptanceBatchId ?? null,
           data.acceptanceBatchSize ?? null,
-          data.listingEvidenceSnapshot ? JSON.stringify(data.listingEvidenceSnapshot) : null,
           event.timing.recordedAt,
         ],
       );

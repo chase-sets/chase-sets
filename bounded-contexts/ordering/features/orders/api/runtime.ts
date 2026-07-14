@@ -5,6 +5,7 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
+import type { MarketplaceOfferAcceptedPayload } from "@chase-sets/event-core";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { SourceCommitPosition } from "@chase-sets/http/responses";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
@@ -455,6 +456,9 @@ export type OrderingOrderServices = Readonly<{
       offerId: string;
       buyerAccountId: AccountId;
       sellerAccountId: AccountId;
+      listingId: string;
+      inventoryItemId: string;
+      listingVersion: number;
       catalogItemId: string;
       productId: string;
       itemTitle: string;
@@ -470,10 +474,14 @@ export type OrderingOrderServices = Readonly<{
       termsScheduleId: string | null;
       termsAgreementId: string | null;
       termsResolvedAt: string;
+      feeQuoteFingerprint: string;
+      listingEvidencePolicyId: string | null;
+      listingEvidencePolicyVersion: number | null;
+      listingEvidencePolicyHash: string;
+      listingEvidenceSnapshot: MarketplaceOfferAcceptedPayload["listingEvidenceSnapshot"];
       shippingAllowancePercentageBps?: number;
       shippingDestinationSnapshot: AddressSnapshot;
       quantityRequested: number;
-      listingEvidenceSnapshot?: ListingEvidenceSnapshot | null;
       orderIdsOverride?: readonly OrderId[];
     }>,
     context: EventStoreContext,
@@ -485,6 +493,9 @@ export type OrderingOrderServices = Readonly<{
         offerId: string;
         buyerAccountId: AccountId;
         sellerAccountId: AccountId;
+        listingId: string;
+        inventoryItemId: string;
+        listingVersion: number;
         catalogItemId: string;
         productId: string;
         itemTitle: string;
@@ -502,8 +513,12 @@ export type OrderingOrderServices = Readonly<{
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string;
+        feeQuoteFingerprint: string;
+        listingEvidencePolicyId: string | null;
+        listingEvidencePolicyVersion: number | null;
+        listingEvidencePolicyHash: string;
+        listingEvidenceSnapshot: MarketplaceOfferAcceptedPayload["listingEvidenceSnapshot"];
         quantityRequested: number;
-        listingEvidenceSnapshot?: ListingEvidenceSnapshot | null;
       }>[];
     }>,
     context: EventStoreContext,
@@ -1600,6 +1615,9 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       offerId: string;
       buyerAccountId: AccountId;
       sellerAccountId: AccountId;
+      listingId: string;
+      inventoryItemId: string;
+      listingVersion: number;
       catalogItemId: string;
       productId: string;
       itemTitle: string;
@@ -1615,10 +1633,14 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       termsScheduleId: string | null;
       termsAgreementId: string | null;
       termsResolvedAt: string;
+      feeQuoteFingerprint: string;
+      listingEvidencePolicyId: string | null;
+      listingEvidencePolicyVersion: number | null;
+      listingEvidencePolicyHash: string;
+      listingEvidenceSnapshot: MarketplaceOfferAcceptedPayload["listingEvidenceSnapshot"];
       shippingAllowancePercentageBps?: number;
       shippingDestinationSnapshot: AddressSnapshot;
       quantityRequested: number;
-      listingEvidenceSnapshot?: ListingEvidenceSnapshot | null;
     }>,
   ) => {
     const demandGroups: MarketplaceDemand[] = [
@@ -1632,7 +1654,41 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         quantity: params.quantityRequested,
       },
     ];
-    const demandOptions = await buildDemandOptions(deps.db, null, demandGroups, params.sellerAccountId);
+    const candidate = await getOrderingSupplyCandidateByListingId(deps.db, params.listingId, {
+      allowCommitted: true,
+    });
+    if (!candidate) {
+      throw new OrderingDomainError(`Committed Listing ${params.listingId} is not available in Ordering.`);
+    }
+    if (
+      candidate.sellerAccountId !== params.sellerAccountId ||
+      candidate.inventoryItemId !== params.inventoryItemId ||
+      candidate.catalogItemId !== params.catalogItemId ||
+      candidate.productId !== params.productId
+    ) {
+      throw new OrderingDomainError("Committed Listing references do not match the Marketplace acceptance fact.");
+    }
+    const limitedCandidates = await applyPurchaseLimitAvailability(
+      deps.db,
+      params.buyerAccountId,
+      [candidate],
+      "offer-acceptance",
+      params.offerId,
+    );
+    const committedCandidate = limitedCandidates[0] ?? candidate;
+    assertSupplyAvailable(
+      [committedCandidate],
+      params.quantityRequested,
+      `Committed Listing ${params.listingId} no longer has enough reservable supply.`,
+    );
+    const demandOptions: DemandPlan[][] = [
+      [
+        {
+          demand: demandGroups[0]!,
+          allocations: [{ candidate: committedCandidate, quantity: params.quantityRequested }],
+        },
+      ],
+    ];
     const postagePolicy = await postagePolicyResolver();
     const acceptedOfferPriceAmount = normalizeMoneyAmount(params.priceAmount, {
       fieldName: "Accepted offer price",
@@ -1694,6 +1750,9 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       offerId: string;
       buyerAccountId: AccountId;
       sellerAccountId: AccountId;
+      listingId: string;
+      inventoryItemId: string;
+      listingVersion: number;
       catalogItemId: string;
       productId: string;
       itemTitle: string;
@@ -1709,10 +1768,14 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       termsScheduleId: string | null;
       termsAgreementId: string | null;
       termsResolvedAt: string;
+      feeQuoteFingerprint: string;
+      listingEvidencePolicyId: string | null;
+      listingEvidencePolicyVersion: number | null;
+      listingEvidencePolicyHash: string;
+      listingEvidenceSnapshot: MarketplaceOfferAcceptedPayload["listingEvidenceSnapshot"];
       shippingAllowancePercentageBps?: number;
       shippingDestinationSnapshot: AddressSnapshot;
       quantityRequested: number;
-      listingEvidenceSnapshot?: ListingEvidenceSnapshot | null;
       orderIdsOverride?: readonly OrderId[];
     }>,
     context: EventStoreContext,

@@ -84,7 +84,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "checkout.sell-list-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": ["marketplace.offer.submitted", "marketplace.offer.accepted"],
       "order": 23,
       "projectionHandlerSetNames": ["checkout.sell-list-projection"]

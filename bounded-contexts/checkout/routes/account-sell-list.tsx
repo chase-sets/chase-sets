@@ -661,6 +661,7 @@ function selectedOfferLineFromOffer(offer: CheckoutSellOfferMatch): AddCheckoutS
   return {
     lineType: "selected-offer",
     offerId: offer.offer_id,
+    listingId: offer.listing_id,
     buyerAccountId: offer.buyer_account_id,
     buyerDisplayName: offer.buyer_display_name,
     offerPriceAmount: offer.price_amount,
@@ -678,18 +679,20 @@ function selectedOfferLineFromOffer(offer: CheckoutSellOfferMatch): AddCheckoutS
 
 function selectedOfferLineFromPostedSnapshot(formData: FormData): AddCheckoutSellListLineRequest {
   const offerId = limitedFormValue(formData, "offerId", 160);
+  const listingId = limitedFormValue(formData, "listingId", 160);
   const catalogItemId = limitedFormValue(formData, "catalogItemId", 160);
   const productId = limitedFormValue(formData, "productId", 240);
   const itemTitle = limitedFormValue(formData, "itemTitle", 240);
   const offerPriceAmount = limitedFormValue(formData, "offerPriceAmount", 40);
 
-  if (!offerId || !catalogItemId || !productId || !itemTitle || !offerPriceAmount) {
+  if (!offerId || !listingId || !catalogItemId || !productId || !itemTitle || !offerPriceAmount) {
     throw new Error(t("checkout.routes.accountSellList.sell.list.request.failed"));
   }
 
   return {
     lineType: "selected-offer",
     offerId,
+    listingId,
     buyerAccountId: null,
     buyerDisplayName: limitedFormValue(formData, "buyerDisplayName", 160) || null,
     offerPriceAmount,
@@ -716,8 +719,13 @@ type SellListReviewPlanLine = Readonly<{
   itemTitle: string;
   productId: string | null;
   quantity: number;
-  selectedOffer: Readonly<{ offerId: string; feeQuoteFingerprint: string }> | null;
-  productOfferTargets: readonly Readonly<{ offerId: string; feeQuoteFingerprint: string; quantity: number }>[];
+  selectedOffer: Readonly<{ offerId: string; listingId: string; feeQuoteFingerprint: string }> | null;
+  productOfferTargets: readonly Readonly<{
+    offerId: string;
+    listingId: string;
+    feeQuoteFingerprint: string;
+    quantity: number;
+  }>[];
   fallbackListing: Readonly<{ inventoryItemId: string; priceAmount: string; quantityCap: number }> | null;
   skippedReasons: readonly string[];
 }>;
@@ -735,7 +743,7 @@ async function buildSellListReviewPlan(
       const feeQuoteFingerprint = formValue(formData, `offerFeeQuoteFingerprint:${line.line_id}`);
       let selectedOffer: SellListReviewPlanLine["selectedOffer"] = null;
 
-      if (!line.offer_id) {
+      if (!line.offer_id || !line.listing_id) {
         skippedReasons.push(
           t("checkout.routes.accountSellList.selected.offer.missing.detail", { itemTitle: line.item_title }),
         );
@@ -744,7 +752,7 @@ async function buildSellListReviewPlan(
           t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", { itemTitle: line.item_title }),
         );
       } else {
-        selectedOffer = { offerId: line.offer_id, feeQuoteFingerprint };
+        selectedOffer = { offerId: line.offer_id, listingId: line.listing_id, feeQuoteFingerprint };
       }
 
       reviewLines.push({
@@ -762,7 +770,12 @@ async function buildSellListReviewPlan(
     }
 
     const skippedReasons: string[] = [];
-    const productOfferTargets: Array<{ offerId: string; feeQuoteFingerprint: string; quantity: number }> = [];
+    const productOfferTargets: Array<{
+      offerId: string;
+      listingId: string;
+      feeQuoteFingerprint: string;
+      quantity: number;
+    }> = [];
     let plannedRemainingQuantity = line.quantity;
 
     for (const offerId of formData
@@ -784,7 +797,12 @@ async function buildSellListReviewPlan(
           skippedReasons.push(`${line.item_title}: matching offer terms need refresh.`);
           continue;
         }
-        productOfferTargets.push({ offerId, feeQuoteFingerprint, quantity: offer.quantity_requested });
+        productOfferTargets.push({
+          offerId,
+          listingId: offer.listing_id,
+          feeQuoteFingerprint,
+          quantity: offer.quantity_requested,
+        });
         plannedRemainingQuantity -= offer.quantity_requested;
       } catch (error) {
         skippedReasons.push(`${line.item_title}: ${error instanceof Error ? error.message : "offer match failed"}`);

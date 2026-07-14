@@ -5,6 +5,7 @@ export function OfferMatchSellListSnapshotFields({ offer }: { offer: OfferMatchL
   return (
     <>
       <HiddenInput type="hidden" name="offerId" value={offer.offer_id} />
+      <HiddenInput type="hidden" name="listingId" value={offer.listing_id} />
       <HiddenInput type="hidden" name="buyerDisplayName" value={offer.buyer_display_name ?? ""} />
       <HiddenInput type="hidden" name="offerPriceAmount" value={offer.price_amount} />
       <HiddenInput type="hidden" name="catalogItemId" value={offer.catalog_catalog_item_id} />

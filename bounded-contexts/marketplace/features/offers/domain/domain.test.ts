@@ -14,6 +14,22 @@ const shippingDestinationSnapshot = {
   email: "jane@example.com",
 } as const;
 
+const listingCommitment = {
+  listingId: "lst_1",
+  inventoryItemId: "inv_1",
+  listingVersion: 3,
+  listingEvidencePolicyId: "pol_1",
+  listingEvidencePolicyVersion: 2,
+  listingEvidencePolicyHash: "sha256:policy",
+  listingEvidenceSnapshot: {
+    schemaVersion: 1,
+    policyHash: "sha256:policy",
+    snapshotHash: "sha256:evidence",
+    createdAt: "2026-03-31T00:00:00.000Z",
+    evidence: [],
+  },
+} as const;
+
 describe("marketplace offer domain", () => {
   it("submits an offer with a normalized buyer intent snapshot", () => {
     const events = decideMarketplaceOffer(initialMarketplaceOfferState, {
@@ -148,6 +164,7 @@ describe("marketplace offer domain", () => {
     const acceptedState = decideMarketplaceOffer(submittedState, {
       type: "AcceptOffer",
       sellerAccountId: "acc_seller" as never,
+      ...listingCommitment,
       acceptedAt: "2026-03-31T00:00:00.000Z",
       marketplaceSalesFeePercentageBps: 500,
       marketplaceSalesFeeFixedAmount: "0.00",
@@ -162,6 +179,8 @@ describe("marketplace offer domain", () => {
 
     expect(acceptedState.status).toBe("accepted");
     expect(acceptedState.acceptedSellerAccountId).toBe("acc_seller");
+    expect(acceptedState.acceptedListingId).toBe("lst_1");
+    expect(acceptedState.listingEvidenceSnapshot?.snapshotHash).toBe("sha256:evidence");
     expect(acceptedState.marketplaceSalesFeeUnitAmount).toBe("0.50");
     expect(acceptedState.sellerNetUnitAmount).toBe("9.50");
   });
@@ -186,6 +205,7 @@ describe("marketplace offer domain", () => {
       decideMarketplaceOffer(submittedState, {
         type: "AcceptOffer",
         sellerAccountId: "acc_same" as never,
+        ...listingCommitment,
         acceptedAt: "2026-03-31T00:00:00.000Z",
         marketplaceSalesFeePercentageBps: 500,
         marketplaceSalesFeeFixedAmount: "0.00",

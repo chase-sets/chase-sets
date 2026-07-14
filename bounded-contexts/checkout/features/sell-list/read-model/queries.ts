@@ -45,6 +45,7 @@ export type CheckoutSellListLineRow = Readonly<{
   line_id: string;
   line_type: "selected-offer" | "product";
   offer_id: string | null;
+  listing_id: string | null;
   buyer_account_id: string | null;
   buyer_display_name: string | null;
   offer_price_amount: string | null;
@@ -509,6 +510,7 @@ export async function listSellListLines(db: PgQueryable, sellerAccountId: string
        line_id,
        line_type,
        offer_id,
+       listing_id,
        buyer_account_id,
        buyer_display_name,
        offer_price_amount,

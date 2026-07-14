@@ -528,10 +528,11 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async previewOfferAcceptanceTerms(id: string): Promise<MarketplaceListingTermsPreview> {
+    async previewOfferAcceptanceTerms(id: string, listingId: string): Promise<MarketplaceListingTermsPreview> {
       return parseJsonResponse(
         await client.account.offers.matches[":id"]["terms-preview"].$get({
           param: { id },
+          query: { listingId },
           header: headers,
         }),
       );

@@ -16,6 +16,10 @@ export type MarketplaceOfferListRow = Readonly<{
   quantity_requested: number;
   status: string;
   accepted_seller_account_id: string | null;
+  accepted_listing_id: string | null;
+  accepted_inventory_item_id: string | null;
+  listing_evidence_policy_hash: string | null;
+  listing_evidence_snapshot_hash: string | null;
   accepted_seller_average_rating?: string | null;
   accepted_seller_review_count?: number;
   accepted_at: string | null;
@@ -63,6 +67,10 @@ type MarketplaceOfferPageRow = Readonly<{
   quantity_requested: number;
   status: string;
   accepted_seller_account_id: string | null;
+  accepted_listing_id: string | null;
+  accepted_inventory_item_id: string | null;
+  listing_evidence_policy_hash: string | null;
+  listing_evidence_snapshot_hash: string | null;
   accepted_seller_average_rating?: string | null;
   accepted_seller_review_count?: number;
   accepted_at: string | null;
@@ -144,6 +152,37 @@ function sellerBestListingJoinSql(sellerAccountSql: string) {
       listing.price_amount ASC,
       listing.updated_at DESC,
       listing.listing_id ASC
+    LIMIT 1
+  ) AS matched_listing ON TRUE`;
+}
+
+function sellerExactListingJoinSql(sellerAccountSql: string, listingIdSql: string) {
+  return `
+  INNER JOIN LATERAL (
+    SELECT
+      listing.listing_id,
+      listing.price_amount AS listing_price_amount,
+      listing.quantity_cap AS listing_quantity_cap,
+      LEAST(
+        listing.quantity_cap,
+        GREATEST(
+          item.total_quantity - COALESCE(active_holds.held_quantity, 0),
+          0
+        )
+      )::integer AS listing_visible_quantity
+    FROM marketplace_listing_pages AS listing
+    INNER JOIN marketplace_supply_items AS item
+      ON item.item_id = listing.inventory_item_id
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(supply_hold.quantity), 0)::integer AS held_quantity
+      FROM marketplace_supply_holds AS supply_hold
+      WHERE supply_hold.item_id = item.item_id
+        AND supply_hold.status = 'active'
+    ) AS active_holds ON TRUE
+    WHERE listing.account_id = ${sellerAccountSql}
+      AND listing.listing_id = ${listingIdSql}
+      AND listing.status = 'active'
+      AND listing.product_id = offer.product_id
     LIMIT 1
   ) AS matched_listing ON TRUE`;
 }
@@ -407,6 +446,33 @@ export async function getOfferMatch(
 
   const row = result.rows[0];
 
+  return row ? mapOfferMatchRow(row) : null;
+}
+
+export async function getOfferMatchForListing(
+  db: PgQueryable,
+  offerId: string,
+  sellerAccountId: string,
+  listingId: string,
+): Promise<OfferMatchRow | null> {
+  const result = await db.query<OfferMatchPageRow>(
+    `SELECT
+       ${sellerOfferSelectSql("$1")}
+     FROM marketplace_offer_pages AS offer
+     ${sellerExactListingJoinSql("$1", "$3")}
+     ${sellerOfferControlsJoinSql("$1")}
+     LEFT JOIN marketplace_account_pages AS buyer
+       ON buyer.account_id = offer.buyer_account_id
+     LEFT JOIN marketplace_seller_listing_availability_pages AS availability
+       ON availability.account_id = $1
+     WHERE offer.offer_id = $2
+       AND offer.status = 'submitted'
+       AND ${sellerVisibilitySql}
+       AND ${sellerOfferControlsWhereSql("$1")}`,
+    [sellerAccountId, offerId, listingId],
+  );
+
+  const row = result.rows[0];
   return row ? mapOfferMatchRow(row) : null;
 }
 

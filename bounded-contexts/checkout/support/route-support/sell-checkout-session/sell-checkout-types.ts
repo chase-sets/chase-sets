@@ -56,8 +56,13 @@ export type SellListReviewPlanLine = Readonly<{
   itemTitle: string;
   productId: string | null;
   quantity: number;
-  selectedOffer: Readonly<{ offerId: string; feeQuoteFingerprint: string }> | null;
-  productOfferTargets: readonly Readonly<{ offerId: string; feeQuoteFingerprint: string; quantity: number }>[];
+  selectedOffer: Readonly<{ offerId: string; listingId: string; feeQuoteFingerprint: string }> | null;
+  productOfferTargets: readonly Readonly<{
+    offerId: string;
+    listingId: string;
+    feeQuoteFingerprint: string;
+    quantity: number;
+  }>[];
   fallbackListing: Readonly<{ inventoryItemId: string; priceAmount: string; quantityCap: number }> | null;
   skippedReasons: readonly string[];
 }>;

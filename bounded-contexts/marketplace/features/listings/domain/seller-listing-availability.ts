@@ -183,11 +183,21 @@ export type SellerListingAvailabilityAwayWindowCancelledEvent = DomainEvent<
   }
 >;
 
+export type SellerListingAvailabilityCommitmentCheckedEvent = DomainEvent<
+  "marketplace.seller-listing-availability.commitment-checked",
+  {
+    offerId: string;
+    listingId: string;
+    checkedAt: string;
+  }
+>;
+
 export type SellerListingAvailabilityEvent =
   | SellerListingAvailabilityDisabledEvent
   | SellerListingAvailabilityEnabledEvent
   | SellerListingAvailabilityAwayWindowScheduledEvent
-  | SellerListingAvailabilityAwayWindowCancelledEvent;
+  | SellerListingAvailabilityAwayWindowCancelledEvent
+  | SellerListingAvailabilityCommitmentCheckedEvent;
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -525,6 +535,8 @@ export const evolveSellerListingAvailability: AggregateEvolver<
         ...state,
         pendingAwayWindow: null,
       };
+    case "marketplace.seller-listing-availability.commitment-checked":
+      return state;
     default:
       return assertNever(event);
   }

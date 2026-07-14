@@ -244,6 +244,9 @@ export type MarketplaceOfferAcceptedPayload = Readonly<{
   offerId: string;
   buyerAccountId: AccountId;
   sellerAccountId: AccountId;
+  listingId: string;
+  inventoryItemId: string;
+  listingVersion: number;
   catalogItemId: string;
   productId: string;
   itemTitle: string;
@@ -261,6 +264,36 @@ export type MarketplaceOfferAcceptedPayload = Readonly<{
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string;
+  feeQuoteFingerprint: string;
+  listingEvidencePolicyId: string | null;
+  listingEvidencePolicyVersion: number | null;
+  listingEvidencePolicyHash: string;
+  listingEvidenceSnapshot: Readonly<{
+    schemaVersion: 1;
+    policyHash: string | null;
+    snapshotHash: string;
+    createdAt: string;
+    evidence: readonly Readonly<{
+      photoId: string;
+      slotId: string | null;
+      viewKind: string | null;
+      sortOrder: number;
+      sourceHash: string;
+      assetRevision: string;
+      capturedAt: string | null;
+      uploadedAt: string;
+      assets: readonly Readonly<{
+        role: string;
+        storageKey: string;
+        publicUrl: string;
+        width: number;
+        height: number;
+        density: 1 | 2 | null;
+        mediaType: "image/webp";
+        byteSize: number;
+      }>[];
+    }>[];
+  }>;
   quantityRequested: number;
   acceptanceBatchId: string | null;
   acceptanceBatchSize: number | null;
@@ -279,6 +312,19 @@ export type MarketplaceOfferSubmittedPayload = Readonly<{
   shippingDestinationSnapshot: AddressSnapshot;
   priceAmount: string;
   quantityRequested: number;
+}>;
+
+export type MarketplaceListingOfferCommitmentRecordedPayload = Readonly<{
+  offerId: string;
+  quantity: number;
+  evidenceSnapshotHash: string;
+  committedAt: string;
+}>;
+
+export type MarketplaceSellerListingAvailabilityCommitmentCheckedPayload = Readonly<{
+  offerId: string;
+  listingId: string;
+  checkedAt: string;
 }>;
 
 export type MarketplacePurchaseLimitsPayload = Readonly<{
@@ -414,6 +460,8 @@ export type MarketplaceEventPayloads = Readonly<{
   "platform-operations.risk-alert.action-recorded": PlatformOperationsRiskAlertActionRecordedPayload;
   "marketplace.offer.accepted": MarketplaceOfferAcceptedPayload;
   "marketplace.offer.submitted": MarketplaceOfferSubmittedPayload;
+  "marketplace.listing.offer-commitment-recorded": MarketplaceListingOfferCommitmentRecordedPayload;
+  "marketplace.seller-listing-availability.commitment-checked": MarketplaceSellerListingAvailabilityCommitmentCheckedPayload;
 }>;
 
 export type CheckoutSessionPaymentStartedPayload = Readonly<{
