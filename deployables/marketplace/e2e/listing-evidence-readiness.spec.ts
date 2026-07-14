@@ -20,7 +20,7 @@ test.describe("seller Listing Evidence readiness", () => {
     await expect(page.getByText("Required view: front")).toBeVisible();
     await expect(page.getByText("Required view: back")).toBeVisible();
     await expect(page.getByText("Required view: slab")).toBeVisible();
-    await expect(page.getByText("Seller-supplied evidence")).toBeVisible();
+    await expect(page.getByText("Seller-supplied evidence", { exact: true })).toBeVisible();
   });
 
   test("keeps the draft path available with mobile camera capture @marketplace-seller", async ({ page }) => {
