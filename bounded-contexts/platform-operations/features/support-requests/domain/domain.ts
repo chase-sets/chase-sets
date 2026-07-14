@@ -45,6 +45,26 @@ import {
 } from "./responsibility";
 import { isHighValueReturnAmount, returnFlowPolicy } from "./return-flow-policy";
 import {
+  applyRemedyEffectFact,
+  applyRemedyEffectWaiver,
+  canCompleteRemedy,
+  canReleaseRemedyRefund,
+  createCoverageRequestedEvent,
+  createRefundReleasedEvent,
+  createRemedyCompletedEvent,
+  createRemedyEffectWaiver,
+  createRemedyExecution,
+  normalizeRemedyAuthorization,
+  normalizeRemedyEffectFact,
+  remedyHasProcessedFact,
+  type AuthorizeSupportRemedyCommand,
+  type OverrideSupportRemedyEffectCommand,
+  type RecordSupportRemedyEffectCommand,
+  type RemedyExecution,
+  type SupportRequestRemedyEffectRecordedEvent,
+  type SupportRequestRemedyEvent,
+} from "./remedy";
+import {
   createSupportCsatOutcomeFact,
   supportCsatOutcomeFactEventType,
 } from "../../../support/request-support/csat-outcome-fact";
@@ -88,6 +108,10 @@ export type SupportRequestState = Readonly<{
   returnDeliveredAt: string | null;
   returnRefundReleaseDueAt: string | null;
   returnConditionDisputedAt: string | null;
+  /** Null for legacy cases until the explicit remedy lifecycle is authorized. */
+  remedy: RemedyExecution | null;
+  /** Correlated facts may arrive before authorization; replay retains them until the remedy is known. */
+  deferredRemedyEffectFacts: readonly SupportRequestRemedyEffectRecordedEvent["data"][];
 }>;
 
 export const initialSupportRequestState: SupportRequestState = {
@@ -128,6 +152,8 @@ export const initialSupportRequestState: SupportRequestState = {
   returnDeliveredAt: null,
   returnRefundReleaseDueAt: null,
   returnConditionDisputedAt: null,
+  remedy: null,
+  deferredRemedyEffectFacts: [],
 };
 
 export type OpenSupportRequestCommand = Readonly<{
@@ -312,7 +338,10 @@ export type SupportRequestCommand =
   | EmitSupportReviewReminderCommand
   | RecordReturnDeliveryCommand
   | DisputeReturnConditionCommand
-  | ReleaseReturnRefundCommand;
+  | ReleaseReturnRefundCommand
+  | AuthorizeSupportRemedyCommand
+  | RecordSupportRemedyEffectCommand
+  | OverrideSupportRemedyEffectCommand;
 
 export type SupportRequestOpenedEvent = DomainEvent<
   "support.support-request.opened",
@@ -505,6 +534,7 @@ export type SupportRequestEvent =
   | SupportRequestReturnDeliveredEvent
   | SupportRequestReturnConditionDisputedEvent
   | SupportRequestReturnRefundReleasedEvent
+  | SupportRequestRemedyEvent
   | SupportCsatOutcomeFactPublishedEvent;
 
 function addHours(timestamp: string, hours: number | null) {
@@ -524,6 +554,58 @@ function autoCloseDueAtFor(resolvedAt: string): string {
   const date = new Date(resolvedAt);
   date.setDate(date.getDate() + AUTO_CLOSE_DAYS_AFTER_RESOLUTION);
   return date.toISOString();
+}
+
+function appendAutomaticRemedyEvents(
+  remedy: RemedyExecution,
+  occurredAt: string,
+  causationId: string,
+): readonly SupportRequestRemedyEvent[] {
+  const events: SupportRequestRemedyEvent[] = [];
+  let next = remedy;
+  if (canReleaseRemedyRefund(next)) {
+    const released = createRefundReleasedEvent(next, occurredAt, causationId);
+    events.push(released);
+    next = { ...next, refundReleasedAt: released.data.occurredAt };
+  }
+  if (canCompleteRemedy(next)) {
+    events.push(createRemedyCompletedEvent(next, occurredAt, causationId));
+  }
+  return events;
+}
+
+function assertRemedyEffectCompatibility(remedy: RemedyExecution, fact: ReturnType<typeof normalizeRemedyEffectFact>) {
+  if (fact.effect === "coverage-reservation" && fact.outcome === "satisfied") {
+    assert(fact.amount !== null, "Coverage reservation fact must include the reserved amount.");
+    assert(
+      fact.currencyCode === remedy.allocation.currencyCode,
+      "Coverage reservation currency must match the remedy.",
+    );
+    assert(
+      compareMoneyAmounts(fact.amount, remedy.allocation.platformFundedAmount) === 0,
+      "Coverage reservation amount must match the platform-funded allocation.",
+    );
+  }
+  if (fact.effect === "refund-completion" && fact.outcome === "satisfied") {
+    assert(fact.refundId !== null, "Refund completion fact must include the refund id.");
+    assert(fact.amount !== null, "Refund completion fact must include the refunded amount.");
+    assert(fact.currencyCode === remedy.remedy.currencyCode, "Refund completion currency must match the remedy.");
+    assert(
+      compareMoneyAmounts(fact.amount, remedy.remedy.amount) === 0,
+      "Refund completion amount must match the authorized remedy.",
+    );
+  }
+  if (fact.effect === "settlement-reconciliation" && fact.outcome === "satisfied") {
+    assert(fact.refundId !== null, "Settlement reconciliation fact must include the refund id.");
+    assert(fact.allocation !== null, "Settlement reconciliation fact must include the reserved allocation.");
+    assert(
+      fact.allocation.sellerFundedAmount === remedy.allocation.sellerFundedAmount &&
+        fact.allocation.platformFundedAmount === remedy.allocation.platformFundedAmount &&
+        fact.allocation.currencyCode === remedy.allocation.currencyCode &&
+        fact.allocation.fundingKind === remedy.allocation.fundingKind,
+      "Settlement reconciliation allocation must match the authorized remedy.",
+    );
+  }
 }
 
 function statusForOpenedRequest(
@@ -1322,12 +1404,133 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         },
       ];
     }
+    case "AuthorizeSupportRemedy": {
+      assert(state.supportRequestId !== null, "Support request must be opened first.");
+      assert(state.status === "resolved", "A remedy can only be authorized after the support decision is made.");
+      assert(state.resolution?.refundAmount, "Only a monetary support decision can authorize this remedy.");
+      const authorization = normalizeRemedyAuthorization(state.supportRequestId, command);
+      assert(
+        compareMoneyAmounts(authorization.remedy.amount, state.resolution.refundAmount) === 0,
+        "Authorized remedy amount must match the decided refund amount.",
+      );
+      if (state.remedy) {
+        assert(
+          state.remedy.authorizationIdempotencyKey === authorization.idempotencyKey,
+          "This support request already has a different authorized remedy.",
+        );
+        return [];
+      }
+
+      const deferredEntries = state.deferredRemedyEffectFacts.filter(
+        (entry) =>
+          entry.remedyId === authorization.remedyId &&
+          (entry.coverageId == null || entry.coverageId === authorization.coverageId),
+      );
+      for (const entry of deferredEntries) {
+        if (
+          authorization.coverageId !== null &&
+          (entry.fact.effect === "coverage-reservation" || entry.fact.effect === "settlement-reconciliation")
+        ) {
+          assert(
+            entry.coverageId === authorization.coverageId,
+            "Financial remedy fact requires the matching coverage id.",
+          );
+        }
+      }
+      const deferredFacts = deferredEntries.map((entry) => entry.fact);
+      const remedy = createRemedyExecution(authorization, deferredFacts);
+      for (const fact of deferredFacts) {
+        assertRemedyEffectCompatibility(remedy, fact);
+      }
+      const events: SupportRequestRemedyEvent[] = [
+        { type: "support.support-request.remedy-authorized.v1", data: authorization },
+      ];
+      const coverageRequested = createCoverageRequestedEvent(authorization);
+      if (coverageRequested) {
+        events.push(coverageRequested);
+      }
+      events.push(...appendAutomaticRemedyEvents(remedy, authorization.occurredAt, authorization.idempotencyKey));
+      return events;
+    }
+    case "RecordSupportRemedyEffect": {
+      assert(state.supportRequestId !== null, "Support request must be opened first.");
+      const fact = normalizeRemedyEffectFact(command);
+      const coverageId = command.coverageId ?? null;
+      if (
+        remedyHasProcessedFact(state.remedy, fact.idempotencyKey) ||
+        state.deferredRemedyEffectFacts.some((entry) => entry.fact.idempotencyKey === fact.idempotencyKey)
+      ) {
+        return [];
+      }
+      if (state.remedy) {
+        assert(state.remedy.remedyId === command.remedyId, "Remedy effect belongs to a different remedy.");
+        assert(
+          coverageId == null || state.remedy.coverageId === coverageId,
+          "Remedy effect coverage id does not match the authorized remedy.",
+        );
+        if (
+          state.remedy.coverageId !== null &&
+          (fact.effect === "coverage-reservation" || fact.effect === "settlement-reconciliation")
+        ) {
+          assert(coverageId === state.remedy.coverageId, "Financial remedy fact requires the matching coverage id.");
+        }
+        assert(
+          state.remedy.effects.some((effect) => effect.effect === fact.effect),
+          "Remedy effect is not required by the authorized policy.",
+        );
+        assert(
+          fact.refundId == null || state.remedy.refundId == null || fact.refundId === state.remedy.refundId,
+          "Remedy effects must reconcile to the same refund id.",
+        );
+        assertRemedyEffectCompatibility(state.remedy, fact);
+      }
+      const recorded: SupportRequestRemedyEffectRecordedEvent = {
+        type: "support.support-request.remedy-effect-recorded",
+        data: {
+          supportRequestId: state.supportRequestId,
+          remedyId: command.remedyId,
+          coverageId,
+          fact,
+        },
+      };
+      if (!state.remedy) {
+        return [recorded];
+      }
+      const remedy = applyRemedyEffectFact(state.remedy, fact);
+      return [recorded, ...appendAutomaticRemedyEvents(remedy, fact.occurredAt, fact.sourceFactId)];
+    }
+    case "OverrideSupportRemedyEffect": {
+      assert(state.supportRequestId !== null, "Support request must be opened first.");
+      assert(state.remedy !== null, "A remedy must be authorized before an effect can be overridden.");
+      assert(state.remedy.remedyId === command.remedyId, "Remedy override belongs to a different remedy.");
+      const { effect, waiver } = createRemedyEffectWaiver(command);
+      const current = state.remedy.effects.find((candidate) => candidate.effect === effect);
+      assert(current, "Remedy effect is not required by the authorized policy.");
+      if (current.waiver?.idempotencyKey === waiver.idempotencyKey) {
+        return [];
+      }
+      const waivedEvent: SupportRequestRemedyEvent = {
+        type: "support.support-request.remedy-effect-waived",
+        data: {
+          supportRequestId: state.supportRequestId,
+          remedyId: command.remedyId,
+          effect,
+          waiver,
+        },
+      };
+      const remedy = applyRemedyEffectWaiver(state.remedy, effect, waiver);
+      return [waivedEvent, ...appendAutomaticRemedyEvents(remedy, waiver.waivedAt, waiver.idempotencyKey)];
+    }
     case "CloseSupportRequest": {
       assert(state.supportRequestId !== null, "Support request must be opened first.");
       if (state.status === "closed") {
         return [];
       }
       assert(state.status === "resolved", "Only resolved support requests can be closed.");
+      assert(
+        state.remedy === null || state.remedy.status === "completed",
+        "A support request cannot close until every required remedy effect is complete.",
+      );
       return [
         {
           type: "support.support-request.closed",
@@ -1517,6 +1720,8 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         returnDeliveredAt: null,
         returnRefundReleaseDueAt: null,
         returnConditionDisputedAt: null,
+        remedy: null,
+        deferredRemedyEffectFacts: [],
       };
     case "support.support-request.affected-line-items-recorded":
       return {
@@ -1623,6 +1828,53 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         ...state,
         returnRefundGateStatus: "return-refund-released",
       };
+    case "support.support-request.remedy-authorized.v1": {
+      const deferred = state.deferredRemedyEffectFacts
+        .filter(
+          (entry) =>
+            entry.remedyId === event.data.remedyId &&
+            (entry.coverageId == null || entry.coverageId === event.data.coverageId),
+        )
+        .map((entry) => entry.fact);
+      return {
+        ...state,
+        remedy: createRemedyExecution(event.data, deferred),
+        autoCloseDueAt: null,
+      };
+    }
+    case "support.support-request.platform-coverage-requested.v1":
+      return state;
+    case "support.support-request.remedy-effect-recorded":
+      if (state.remedy?.remedyId === event.data.remedyId) {
+        return { ...state, remedy: applyRemedyEffectFact(state.remedy, event.data.fact) };
+      }
+      if (
+        state.deferredRemedyEffectFacts.some((entry) => entry.fact.idempotencyKey === event.data.fact.idempotencyKey)
+      ) {
+        return state;
+      }
+      return { ...state, deferredRemedyEffectFacts: [...state.deferredRemedyEffectFacts, event.data] };
+    case "support.support-request.remedy-effect-waived":
+      return state.remedy?.remedyId === event.data.remedyId
+        ? { ...state, remedy: applyRemedyEffectWaiver(state.remedy, event.data.effect, event.data.waiver) }
+        : state;
+    case "support.support-request.refund-released.v1":
+      return state.remedy?.remedyId === event.data.remedyId
+        ? { ...state, remedy: { ...state.remedy, refundReleasedAt: event.data.occurredAt } }
+        : state;
+    case "support.support-request.remedy-completed.v1":
+      return state.remedy?.remedyId === event.data.remedyId
+        ? {
+            ...state,
+            remedy: {
+              ...state.remedy,
+              status: "completed",
+              completedAt: event.data.completedAt,
+              refundId: event.data.refundId,
+            },
+            autoCloseDueAt: autoCloseDueAtFor(event.data.completedAt),
+          }
+        : state;
     case supportCsatOutcomeFactEventType:
       return state;
     default:

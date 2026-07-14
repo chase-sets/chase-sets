@@ -68,6 +68,15 @@ ALTER TABLE support_request_pages
   ADD COLUMN IF NOT EXISTS return_refund_release_due_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS return_condition_disputed_at timestamptz NULL;
 
+ALTER TABLE support_request_pages
+  ADD COLUMN IF NOT EXISTS remedy jsonb NULL,
+  ADD COLUMN IF NOT EXISTS deferred_remedy_effect_facts jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS case_presentation text NOT NULL DEFAULT 'decision-pending',
+  ADD COLUMN IF NOT EXISTS closure_eligible boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS closure_blocking_reasons jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS next_remedy_action text NULL,
+  ADD COLUMN IF NOT EXISTS remedy_repair_guidance jsonb NOT NULL DEFAULT '[]'::jsonb;
+
 CREATE INDEX IF NOT EXISTS support_request_pages_buyer_idx
   ON support_request_pages (buyer_account_id, updated_at DESC, support_request_id DESC);
 
@@ -92,6 +101,10 @@ CREATE INDEX IF NOT EXISTS support_request_pages_review_sweep_idx
 CREATE INDEX IF NOT EXISTS support_request_pages_return_refund_disputed_idx
   ON support_request_pages (updated_at DESC)
   WHERE return_refund_gate_status = 'return-condition-disputed';
+
+CREATE INDEX IF NOT EXISTS support_request_pages_remedy_attention_idx
+  ON support_request_pages (updated_at ASC)
+  WHERE case_presentation = 'action-required';
 
 `;
 

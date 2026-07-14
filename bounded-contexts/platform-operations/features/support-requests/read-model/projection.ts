@@ -11,6 +11,97 @@ import type {
 import { normalizeSupportResolutionForReplay } from "../domain/responsibility";
 import { withSupportRequestDisplayReference } from "./display-reference";
 import type { SupportRequestId } from "@chase-sets/primitives/typed-ids";
+import {
+  applyRemedyEffectFact,
+  applyRemedyEffectWaiver,
+  createRemedyExecution,
+  remedyCasePresentation,
+  remedyClosureBlockingReasons,
+  remedyNextAction,
+  type RemedyExecution,
+  type SupportRequestRemedyEffectRecordedEvent,
+  type SupportRequestRemedyEffectWaivedEvent,
+} from "../domain/remedy";
+
+type RemedyProjectionRow = Readonly<{
+  status: string;
+  resolution: unknown | null;
+  remedy: RemedyExecution | null;
+  deferred_remedy_effect_facts: readonly SupportRequestRemedyEffectRecordedEvent["data"][];
+}>;
+
+function addAutoCloseWindow(completedAt: string): string {
+  const dueAt = new Date(completedAt);
+  dueAt.setDate(dueAt.getDate() + 7);
+  return dueAt.toISOString();
+}
+
+function repairGuidance(remedy: RemedyExecution | null): readonly string[] {
+  if (!remedy) {
+    return [];
+  }
+  return remedy.effects.flatMap((effect) => {
+    if (effect.status !== "failed-retryable" && effect.status !== "failed-terminal") {
+      return [];
+    }
+    const latest = effect.facts.at(-1);
+    return [
+      `${effect.status === "failed-retryable" ? "retry" : "repair"}:${effect.effect}:${latest?.reasonCode ?? "unknown"}`,
+    ];
+  });
+}
+
+async function loadRemedyProjection(db: PgQueryable, supportRequestId: string): Promise<RemedyProjectionRow | null> {
+  const result = await db.query<RemedyProjectionRow>(
+    `SELECT status, resolution, remedy, deferred_remedy_effect_facts
+     FROM support_request_pages
+     WHERE support_request_id = $1`,
+    [supportRequestId],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function writeRemedyProjection(
+  db: PgQueryable,
+  params: Readonly<{
+    supportRequestId: string;
+    row: RemedyProjectionRow;
+    remedy: RemedyExecution | null;
+    deferredFacts: readonly SupportRequestRemedyEffectRecordedEvent["data"][];
+    updatedAt: string;
+    autoCloseDueAt?: string | null;
+  }>,
+) {
+  const blockingReasons = remedyClosureBlockingReasons(params.remedy);
+  const closureEligible =
+    params.row.status === "resolved" && (params.remedy === null || params.remedy.status === "completed");
+  await db.query(
+    `UPDATE support_request_pages
+     SET remedy = $2::jsonb,
+         deferred_remedy_effect_facts = $3::jsonb,
+         case_presentation = $4,
+         closure_eligible = $5,
+         closure_blocking_reasons = $6::jsonb,
+         next_remedy_action = $7,
+         remedy_repair_guidance = $8::jsonb,
+         updated_at = GREATEST(updated_at, $9::timestamptz),
+         auto_close_due_at = CASE WHEN $10::boolean THEN $11::timestamptz ELSE auto_close_due_at END
+     WHERE support_request_id = $1`,
+    [
+      params.supportRequestId,
+      params.remedy ? JSON.stringify(params.remedy) : null,
+      JSON.stringify(params.deferredFacts),
+      remedyCasePresentation(params.row.status, params.row.resolution !== null, params.remedy),
+      closureEligible,
+      JSON.stringify(blockingReasons),
+      remedyNextAction(params.remedy),
+      JSON.stringify(repairGuidance(params.remedy)),
+      params.updatedAt,
+      params.autoCloseDueAt !== undefined,
+      params.autoCloseDueAt ?? null,
+    ],
+  );
+}
 
 export function buildSupportRequestProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -251,7 +342,10 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
              updated_at = $2,
              resolution = $3::jsonb,
              auto_close_due_at = $4,
-             return_refund_gate_status = $5
+             return_refund_gate_status = $5,
+             case_presentation = 'decision-made',
+             closure_eligible = true,
+             closure_blocking_reasons = '[]'::jsonb
          WHERE support_request_id = $1`,
         [
           data.supportRequestId,
@@ -272,7 +366,9 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
         `UPDATE support_request_pages
          SET status = 'closed',
              updated_at = $2,
-             closed_at = $2
+             closed_at = $2,
+             case_presentation = 'closed',
+             closure_eligible = false
          WHERE support_request_id = $1`,
         [data.supportRequestId, data.closedAt],
       );
@@ -361,6 +457,105 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
          WHERE support_request_id = $1`,
         [data.supportRequestId],
       );
+    },
+    "support.support-request.remedy-authorized.v1": async (event) => {
+      const data = event.data as Parameters<typeof createRemedyExecution>[0];
+      const row = await loadRemedyProjection(db, data.supportRequestId);
+      if (!row) {
+        return;
+      }
+      const deferred = row.deferred_remedy_effect_facts ?? [];
+      const matchingFacts = deferred
+        .filter(
+          (entry) =>
+            entry.remedyId === data.remedyId && (entry.coverageId == null || entry.coverageId === data.coverageId),
+        )
+        .map((entry) => entry.fact);
+      await writeRemedyProjection(db, {
+        supportRequestId: data.supportRequestId,
+        row,
+        remedy: createRemedyExecution(data, matchingFacts),
+        deferredFacts: deferred,
+        updatedAt: data.occurredAt,
+        autoCloseDueAt: null,
+      });
+    },
+    "support.support-request.platform-coverage-requested.v1": async () => {},
+    "support.support-request.remedy-effect-recorded": async (event) => {
+      const data = event.data as SupportRequestRemedyEffectRecordedEvent["data"];
+      const row = await loadRemedyProjection(db, data.supportRequestId);
+      if (!row) {
+        return;
+      }
+      const deferred = row.deferred_remedy_effect_facts ?? [];
+      if (row.remedy?.remedyId === data.remedyId) {
+        await writeRemedyProjection(db, {
+          supportRequestId: data.supportRequestId,
+          row,
+          remedy: applyRemedyEffectFact(row.remedy, data.fact),
+          deferredFacts: deferred,
+          updatedAt: data.fact.occurredAt,
+        });
+        return;
+      }
+      const nextDeferred = deferred.some((entry) => entry.fact.idempotencyKey === data.fact.idempotencyKey)
+        ? deferred
+        : [...deferred, data];
+      await writeRemedyProjection(db, {
+        supportRequestId: data.supportRequestId,
+        row,
+        remedy: row.remedy,
+        deferredFacts: nextDeferred,
+        updatedAt: data.fact.occurredAt,
+      });
+    },
+    "support.support-request.remedy-effect-waived": async (event) => {
+      const data = event.data as SupportRequestRemedyEffectWaivedEvent["data"];
+      const row = await loadRemedyProjection(db, data.supportRequestId);
+      if (!row?.remedy || row.remedy.remedyId !== data.remedyId) {
+        return;
+      }
+      await writeRemedyProjection(db, {
+        supportRequestId: data.supportRequestId,
+        row,
+        remedy: applyRemedyEffectWaiver(row.remedy, data.effect, data.waiver),
+        deferredFacts: row.deferred_remedy_effect_facts ?? [],
+        updatedAt: data.waiver.waivedAt,
+      });
+    },
+    "support.support-request.refund-released.v1": async (event) => {
+      const data = event.data as { supportRequestId: string; remedyId: string; occurredAt: string };
+      const row = await loadRemedyProjection(db, data.supportRequestId);
+      if (!row?.remedy || row.remedy.remedyId !== data.remedyId) {
+        return;
+      }
+      await writeRemedyProjection(db, {
+        supportRequestId: data.supportRequestId,
+        row,
+        remedy: { ...row.remedy, refundReleasedAt: data.occurredAt },
+        deferredFacts: row.deferred_remedy_effect_facts ?? [],
+        updatedAt: data.occurredAt,
+      });
+    },
+    "support.support-request.remedy-completed.v1": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        remedyId: string;
+        completedAt: string;
+        refundId: string | null;
+      };
+      const row = await loadRemedyProjection(db, data.supportRequestId);
+      if (!row?.remedy || row.remedy.remedyId !== data.remedyId) {
+        return;
+      }
+      await writeRemedyProjection(db, {
+        supportRequestId: data.supportRequestId,
+        row,
+        remedy: { ...row.remedy, status: "completed", completedAt: data.completedAt, refundId: data.refundId },
+        deferredFacts: row.deferred_remedy_effect_facts ?? [],
+        updatedAt: data.completedAt,
+        autoCloseDueAt: addAutoCloseWindow(data.completedAt),
+      });
     },
   };
 }

@@ -16,4 +16,13 @@ describe("support request read-model schema", () => {
       }),
     );
   });
+
+  it("stores the remedy summary, closure blockers, next action, and repair guidance in the slice read model", () => {
+    expect(supportRequestSchemaSql).toContain("remedy jsonb NULL");
+    expect(supportRequestSchemaSql).toContain("case_presentation text NOT NULL DEFAULT 'decision-pending'");
+    expect(supportRequestSchemaSql).toContain("closure_eligible boolean NOT NULL DEFAULT false");
+    expect(supportRequestSchemaSql).toContain("closure_blocking_reasons jsonb NOT NULL DEFAULT '[]'::jsonb");
+    expect(supportRequestSchemaSql).toContain("next_remedy_action text NULL");
+    expect(supportRequestSchemaSql).toContain("remedy_repair_guidance jsonb NOT NULL DEFAULT '[]'::jsonb");
+  });
 });

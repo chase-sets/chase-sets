@@ -85,6 +85,19 @@ The **Foregone Fee Estimate** is the offer-economics monitor's projection of wha
 
 A **Support Remedy** is the action selected to resolve a Support Request, such as a full or partial refund, return for refund, replacement, cancellation, or no remedy. A remedy describes what happens next; it does not imply who was responsible.
 
+## Remedy Execution
+
+**Remedy Execution** is the Support Request-owned, `remedyId`-correlated lifecycle that begins when a monetary remedy is
+authorized and ends only after every required physical and financial effect is satisfied or permissibly waived. A made
+decision is not execution completion.
+
+## Remedy Effect
+
+A **Remedy Effect** is one required outcome derived from the authorized liability allocation, return directive, and refund
+trigger, such as coverage reservation, label availability, a carrier or facility milestone, refund completion, or
+Settlement reconciliation. Effect state is projected from correlated facts as pending, satisfied, retryably failed,
+terminally failed, or waived. Financial truth cannot be created by a Support override.
+
 ## Support Responsibility
 
 **Support Responsibility** is Support's factual, auditable finding of whose controllable action primarily caused the order problem: `seller`, `buyer`, `carrier`, `platform`, `shared`, or `undetermined`. `shared` means both transaction parties materially contributed. `undetermined` is used when evidence cannot support another value. Support owns this fact but does not own rating weights, review eligibility, public reputation labels, or other Marketplace consequences.

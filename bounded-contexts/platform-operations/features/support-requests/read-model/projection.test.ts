@@ -305,4 +305,61 @@ describe("support request projection", () => {
     } as never);
     expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining("return-refund-released"), ["sup_01"]);
   });
+
+  it("projects remedy blockers and cancels the adjudication-based auto-close timer", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) =>
+        sql.includes("SELECT status, resolution, remedy")
+          ? {
+              rows: [
+                {
+                  status: "resolved",
+                  resolution: { resolutionType: "full-refund" },
+                  remedy: null,
+                  deferred_remedy_effect_facts: [],
+                },
+              ],
+            }
+          : { rows: [] },
+      ),
+    };
+    const handlers = buildSupportRequestProjectionHandlers(db);
+    await handlers["support.support-request.remedy-authorized.v1"]?.({
+      type: "support.support-request.remedy-authorized.v1",
+      data: {
+        factSchemaVersion: 1,
+        supportRequestId: "sup_1",
+        remedyId: "rmd_1",
+        coverageId: "cov_1",
+        remedy: { kind: "full-refund", amount: "10.00", currencyCode: "usd" },
+        allocation: {
+          sellerFundedAmount: "0.00",
+          platformFundedAmount: "10.00",
+          currencyCode: "usd",
+          fundingKind: "platform-funded",
+        },
+        returnDirective: "no-return",
+        refundTrigger: "immediate",
+        reasonCode: "ambiguous-carrier-loss",
+        idempotencyKey: "authorize-1",
+        causationId: null,
+        policyVersion: "coverage-2026-07",
+        occurredAt: "2026-07-04T00:00:00.000Z",
+      },
+    } as never);
+
+    expect(db.query).toHaveBeenLastCalledWith(
+      expect.stringContaining("auto_close_due_at = CASE"),
+      expect.arrayContaining([
+        "sup_1",
+        expect.stringContaining('"status":"in-progress"'),
+        "remedy-in-progress",
+        false,
+        expect.stringContaining("coverage-reservation:pending"),
+        "await:coverage-reservation",
+        true,
+        null,
+      ]),
+    );
+  });
 });
