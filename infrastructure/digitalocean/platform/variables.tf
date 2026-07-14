@@ -465,7 +465,7 @@ variable "platform_image_digest" {
 variable "platform_bootstrap_owner" {
   type        = string
   default     = "app-platform"
-  description = "Schema-bootstrap owner for the App Platform platform-bootstrap job. Set to \"doks\" when the DOKS estate owns bootstrap and App Platform must skip its pre-deploy bootstrap."
+  description = "Exactly one schema-bootstrap owner. Staging and production workflows pass their explicit environment-scoped contract; when set to \"doks\", App Platform skips bootstrap and omits its worker."
 
   validation {
     condition     = contains(["app-platform", "doks"], var.platform_bootstrap_owner)

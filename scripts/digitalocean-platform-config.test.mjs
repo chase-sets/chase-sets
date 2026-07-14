@@ -472,23 +472,41 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain('dynamic "worker" {');
     expect(platformMain).toContain("for_each = local.app_platform_worker_instances");
     expect(platformMain).not.toContain("instance_count     = local.app_platform_worker_instances");
-    expect(platformProductionWorkflow).toContain(
-      "TF_VAR_platform_bootstrap_owner: ${{ vars.DOKS_INGRESS_TARGET != '' && 'doks' || 'app-platform' }}",
-    );
     expect(platformWorker).toContain("instance_count     = worker.value");
     expect(platformWorker).not.toContain("local.public_web_instances");
     expect(platformWorker).not.toContain("local.marketplace_web_instances");
     expect(platformWorker).not.toContain("local.api_instances");
     expect(platformBootstrapJob).toContain('key   = "PLATFORM_BOOTSTRAP_OWNER"');
     expect(platformBootstrapJob).toContain("value = var.platform_bootstrap_owner");
-    expect(platformBootstrapJob).toContain("PLATFORM_BOOTSTRAP_OWNER:-app-platform");
+    expect(platformBootstrapJob).toContain("PLATFORM_BOOTSTRAP_OWNER:-}");
     expect(platformBootstrapJob).toContain(
       "Skipping App Platform platform-bootstrap because PLATFORM_BOOTSTRAP_OWNER=doks; DOKS is the schema-bootstrap owner.",
+    );
+    expect(platformBootstrapJob).toContain("exit 0");
+    expect(platformBootstrapJob).toContain(
+      "app-platform) exec pnpm --filter @chase-sets/app-platform-api run bootstrap:production",
+    );
+    expect(platformBootstrapJob).toContain(
+      "Invalid or missing PLATFORM_BOOTSTRAP_OWNER; expected app-platform or doks.",
     );
     expect(platformBootstrapJob).toContain('key   = "DEPLOYMENT_ENVIRONMENT"');
     expect(platformBootstrapJob).toContain("value = var.environment");
     expect(platformBootstrapJob).toContain('key   = "PLATFORM_DATA_PROFILES"');
     expect(platformBootstrapJob).toContain('value = "critical-bootstrap,catalog-integration-bootstrap"');
+  });
+
+  it("gives staging and production one explicit bootstrap-owner contract", () => {
+    const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const deployProductionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const ownerContract = "TF_VAR_platform_bootstrap_owner: ${{ vars.PLATFORM_BOOTSTRAP_OWNER || 'doks' }}";
+
+    for (const deployJob of [deployStagingJob, deployProductionJob]) {
+      expect(occurrenceCount(deployJob, "TF_VAR_platform_bootstrap_owner:")).toBe(1);
+      expect(deployJob).toContain(ownerContract);
+      expect(deployJob).not.toContain("TF_VAR_platform_bootstrap_owner: ${{ vars.DOKS_INGRESS_TARGET");
+    }
+
+    expect(deployProductionJob).toContain("environment: production");
   });
 
   it("parses the production Postgres cluster id from indented Terraform state fallback output", () => {

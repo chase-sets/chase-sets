@@ -237,6 +237,12 @@ Staging and production observability deployment secrets and variables:
 - `OBSERVABILITY_ENABLED`: optional override; set to `false` only during an observability incident when the protected OTLP endpoint is unavailable.
 - `OBSERVABILITY_OTLP_ENDPOINT`: optional override. By default staging uses `https://otel.staging.chasesets.com` and production uses `https://otel.chasesets.com`.
 
+Staging and production schema-bootstrap authority:
+
+- `PLATFORM_BOOTSTRAP_OWNER` is the single environment-scoped ownership contract. Its only valid values are `app-platform` and `doks`; the Platform Deploy workflow passes the resolved value to Terraform as `TF_VAR_platform_bootstrap_owner` in both deploy jobs. The checked-in default is `doks` for both normal and manual/emergency releases, including production. Never derive this authority from `DOKS_INGRESS_TARGET` or another ingress/DNS setting.
+- Exactly one control plane runs schema bootstrap in an environment. When the value is `doks`, the retained App Platform `platform-bootstrap` pre-deploy job logs a no-op without loading API/database configuration, and Terraform omits the App Platform worker component. The DOKS bootstrap hook remains the sole schema-bootstrap path.
+- To transfer authority to DOKS, first prove its bootstrap hook can complete, then change `PLATFORM_BOOTSTRAP_OWNER` on only the affected GitHub Environment and run Platform Deploy. Confirm the Terraform plan resolves `doks`, the App Platform job is a logged no-op, its worker is absent, and bootstrap executes exactly once before treating the transition as complete. Returning authority to App Platform requires a reviewed deployment change that first disables the DOKS bootstrap path; never flip the variable alone, enable both paths, or use an ingress change as the handoff signal.
+
 Additional `staging` variables:
 
 - `GOOGLE_WORKSPACE_DKIM_TXT_VALUE`: the Google Admin Console-provided DKIM TXT value for `google._domainkey.staging.chasesets.com`. Leave unset until Google generates the key; MX and SPF remain managed without it.
