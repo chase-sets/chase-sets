@@ -99,6 +99,15 @@
       "@chase-sets/checkout/server": [
         "./bounded-contexts/checkout/server.ts"
       ],
+      "@chase-sets/collections": [
+        "./bounded-contexts/collections/index.ts"
+      ],
+      "@chase-sets/collections/context": [
+        "./bounded-contexts/collections/context.json"
+      ],
+      "@chase-sets/collections/server": [
+        "./bounded-contexts/collections/server.ts"
+      ],
       "@chase-sets/commercial-terms": [
         "./bounded-contexts/commercial-terms/index.ts"
       ],
