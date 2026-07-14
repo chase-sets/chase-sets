@@ -5,8 +5,8 @@
   "streamPrefix": "collections.",
   "apiBasePath": "/api/collections",
   "slices": ["saved-lists"],
-  "allowedSupportDirectories": ["runtime-support"],
-  "publicExports": [".", "./context", "./server"],
+  "allowedSupportDirectories": ["runtime-support", "ui-support"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "hostPorts": [
@@ -35,6 +35,11 @@
       "classification": "support",
       "purpose": "Provide the Collections event-store schema and runtime service composition seam without taking Saved List behavior out of its slice.",
       "expectedConsumers": ["Root Collections module composition"]
+    },
+    "ui-support": {
+      "classification": "support",
+      "purpose": "Provide privacy-safe display formatting for the shared Saved List view (value, tracked quantity, and as-of date) so the same helpers serve the page, its metadata, and deployable route composition without duplicating locale logic.",
+      "expectedConsumers": ["saved-lists"]
     },
     "routes": {
       "classification": "routes",

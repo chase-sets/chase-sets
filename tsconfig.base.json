@@ -105,8 +105,14 @@
       "@chase-sets/collections/context": [
         "./bounded-contexts/collections/context.json"
       ],
+      "@chase-sets/collections/routes/*": [
+        "./bounded-contexts/collections/routes/*.tsx"
+      ],
       "@chase-sets/collections/server": [
         "./bounded-contexts/collections/server.ts"
+      ],
+      "@chase-sets/collections/web": [
+        "./bounded-contexts/collections/web.ts"
       ],
       "@chase-sets/commercial-terms": [
         "./bounded-contexts/commercial-terms/index.ts"
