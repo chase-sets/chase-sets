@@ -17,7 +17,13 @@ class SellerMetricsSourceProjectionDb implements PgQueryable {
   >();
   public readonly supportRequests = new Map<
     string,
-    { order_id: string; seller_account_id: string; resolution_type: string | null; flow_type: string | null }
+    {
+      order_id: string;
+      seller_account_id: string;
+      resolution_type: string | null;
+      flow_type: string | null;
+      responsibility: string | null;
+    }
   >();
   public refreshCalls: Array<{ sellerAccountId: string; now: string }> = [];
 
@@ -65,6 +71,7 @@ class SellerMetricsSourceProjectionDb implements PgQueryable {
         seller_account_id: String(values[2]),
         resolution_type: String(values[3]),
         flow_type: values[4] === null ? null : String(values[4]),
+        responsibility: values[5] === null ? null : String(values[5]),
       });
       return { rows: [], rowCount: 1 };
     }
@@ -163,7 +170,7 @@ describe("marketplace seller-metrics source projection", () => {
     expect(db.shipments.get("ship_1")?.dispatched_at).toBe("2026-07-02T00:00:00.000Z");
   });
 
-  it("records a resolved support request with resolution and flow type", async () => {
+  it("records a resolved support request with its Support responsibility fact", async () => {
     const db = new SellerMetricsSourceProjectionDb();
     const handlers = buildSellerMetricsSupportSourceProjectionHandlers(db);
 
@@ -175,7 +182,11 @@ describe("marketplace seller-metrics source projection", () => {
         orderId: "ord_1",
         sellerAccountId: "acc_seller",
         flowType: "seller-cannot-fulfill",
-        resolution: { resolutionType: "cancel-order", resolvedAt: "2026-07-04T00:00:00.000Z" },
+        resolution: {
+          resolutionType: "cancel-order",
+          responsibility: "seller",
+          resolvedAt: "2026-07-04T00:00:00.000Z",
+        },
       },
       timing: { recordedAt: "2026-07-04T00:00:00.000Z", occurredAt: "2026-07-04T00:00:00.000Z" },
     } as never);
@@ -183,5 +194,51 @@ describe("marketplace seller-metrics source projection", () => {
     const row = db.supportRequests.get("sr_1");
     expect(row?.resolution_type).toBe("cancel-order");
     expect(row?.flow_type).toBe("seller-cannot-fulfill");
+    expect(row?.responsibility).toBe("seller");
+  });
+
+  it("normalizes an excluded-cause responsibility verbatim (never inferred from the remedy)", async () => {
+    const db = new SellerMetricsSourceProjectionDb();
+    const handlers = buildSellerMetricsSupportSourceProjectionHandlers(db);
+
+    await handlers["support.support-request.resolved"]?.({
+      streamId: "support.support-request-sr_carrier",
+      type: "support.support-request.resolved",
+      data: {
+        supportRequestId: "sr_carrier",
+        orderId: "ord_carrier",
+        sellerAccountId: "acc_seller",
+        flowType: "product-not-received",
+        resolution: {
+          resolutionType: "full-refund",
+          responsibility: "carrier",
+          resolvedAt: "2026-07-04T00:00:00.000Z",
+        },
+      },
+      timing: { recordedAt: "2026-07-04T00:00:00.000Z", occurredAt: "2026-07-04T00:00:00.000Z" },
+    } as never);
+
+    expect(db.supportRequests.get("sr_carrier")?.responsibility).toBe("carrier");
+  });
+
+  it("stores a missing or unrecognized responsibility as null (fail-safe), never as seller", async () => {
+    const db = new SellerMetricsSourceProjectionDb();
+    const handlers = buildSellerMetricsSupportSourceProjectionHandlers(db);
+
+    await handlers["support.support-request.resolved"]?.({
+      streamId: "support.support-request-sr_legacy",
+      type: "support.support-request.resolved",
+      data: {
+        supportRequestId: "sr_legacy",
+        orderId: "ord_legacy",
+        sellerAccountId: "acc_seller",
+        flowType: "product-not-as-described",
+        // A pre-responsibility (legacy) resolved event carries no responsibility.
+        resolution: { resolutionType: "full-refund", resolvedAt: "2026-07-04T00:00:00.000Z" },
+      },
+      timing: { recordedAt: "2026-07-04T00:00:00.000Z", occurredAt: "2026-07-04T00:00:00.000Z" },
+    } as never);
+
+    expect(db.supportRequests.get("sr_legacy")?.responsibility).toBeNull();
   });
 });

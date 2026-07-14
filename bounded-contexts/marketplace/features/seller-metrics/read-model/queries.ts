@@ -10,8 +10,12 @@ export type SellerBehavioralMetricsSummaryRow = Readonly<{
   shipments_on_time_count: number;
   on_time_shipment_rate: string | null;
   disputes_resolved_count: number;
+  /** Distinct seller orders with a resolved Support outcome whose responsibility fact is `seller` (the seller-responsible issue numerator). */
   disputes_against_seller_count: number;
+  /** Seller-responsible issue rate, published under the "dispute rate" product name. Never derived from remedy direction. */
   dispute_rate: string | null;
+  /** Operational signal: resolved outcomes in the window whose responsibility fact was missing or unrecognized (excluded from the numerator). */
+  missing_responsibility_count: number;
   computed_at: string;
   updated_at: string;
 }>;
@@ -34,6 +38,7 @@ export async function getSellerBehavioralMetricsSummary(
        disputes_resolved_count,
        disputes_against_seller_count,
        dispute_rate::text AS dispute_rate,
+       missing_responsibility_count,
        computed_at::text AS computed_at,
        updated_at::text AS updated_at
      FROM marketplace_seller_metrics_summary_pages
@@ -42,6 +47,35 @@ export async function getSellerBehavioralMetricsSummary(
   );
 
   return result.rows[0] ?? null;
+}
+
+export type SellerMetricsResponsibilityHealthRow = Readonly<{
+  seller_account_id: string;
+  missing_responsibility_count: number;
+  computed_at: string;
+}>;
+
+/**
+ * Operational monitoring read: sellers whose latest recompute saw one or more
+ * resolved support outcomes with a missing/unrecognized responsibility fact.
+ * A non-empty result means the upstream Support contract is not delivering
+ * responsibility for some resolutions -- those outcomes fail safe to exclusion,
+ * so the numerator is never inflated, but the gap must be investigated.
+ */
+export async function listSellersWithMissingResponsibility(
+  db: PgQueryable,
+  limit = 100,
+): Promise<readonly SellerMetricsResponsibilityHealthRow[]> {
+  const result = await db.query<SellerMetricsResponsibilityHealthRow>(
+    `SELECT seller_account_id, missing_responsibility_count, computed_at::text AS computed_at
+     FROM marketplace_seller_metrics_summary_pages
+     WHERE missing_responsibility_count > 0
+     ORDER BY missing_responsibility_count DESC, seller_account_id ASC
+     LIMIT $1`,
+    [limit],
+  );
+
+  return result.rows;
 }
 
 export type SellerBehavioralMetricsChips = Readonly<{

@@ -1,6 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { normalizeConsumedResponsibility } from "../../domain/common";
 import { refreshSellerBehavioralMetrics } from "../../read-model/projection";
 
 type SourceProjectionOptions = Readonly<{
@@ -132,8 +133,14 @@ export function buildSellerMetricsSupportSourceProjectionHandlers(
         orderId: string;
         sellerAccountId: string;
         flowType?: string | null;
-        resolution: { resolutionType: string; resolvedAt: string };
+        resolution: { resolutionType: string; resolvedAt: string; responsibility?: unknown };
       };
+
+      // The seller-responsible issue rate keys off Support's explicit
+      // responsibility fact -- never the remedy. A missing or unrecognized
+      // value normalizes to NULL: excluded from the numerator and later
+      // reported as a missing-responsibility signal, never inferred as fault.
+      const responsibility = normalizeConsumedResponsibility(data.resolution.responsibility);
 
       await db.query(
         `INSERT INTO marketplace_seller_metrics_support_request_sources (
@@ -142,14 +149,16 @@ export function buildSellerMetricsSupportSourceProjectionHandlers(
            seller_account_id,
            resolution_type,
            flow_type,
+           responsibility,
            resolved_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $6)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
          ON CONFLICT (support_request_id) DO UPDATE SET
            order_id = EXCLUDED.order_id,
            seller_account_id = EXCLUDED.seller_account_id,
            resolution_type = EXCLUDED.resolution_type,
            flow_type = EXCLUDED.flow_type,
+           responsibility = EXCLUDED.responsibility,
            resolved_at = EXCLUDED.resolved_at,
            updated_at = EXCLUDED.updated_at`,
         [
@@ -158,6 +167,7 @@ export function buildSellerMetricsSupportSourceProjectionHandlers(
           data.sellerAccountId,
           data.resolution.resolutionType,
           data.flowType ?? null,
+          responsibility,
           data.resolution.resolvedAt,
         ],
       );

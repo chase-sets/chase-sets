@@ -1,6 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
-import { isResolutionAgainstSeller, type SupportRequestSnapshot } from "@chase-sets/review-eligibility";
 import {
   marketplaceSellerBehavioralMetricsPolicy,
   MARKETPLACE_SELLER_BEHAVIORAL_METRICS_LAUNCH_POLICY_VALUE,
@@ -27,12 +26,19 @@ function rate(numerator: number, denominator: number): string | null {
  *   metric's -- conflating the two would penalize a seller twice for one
  *   failure and blur two distinct signals the AC asks for separately).
  * - Cancellation rate: all orders created in the window.
- * - Dispute rate: all orders created in the window, same denominator as
- *   cancellation rate (not the count of orders whose support request
- *   resolved in the window) -- bounding the denominator by resolution date
- *   instead would let a seller dilute the rate by driving order volume up
- *   without changing dispute count, since a busy window could out-run the
- *   resolutions that trail it.
+ * - Seller-responsible issue rate (the externally-named "dispute rate"): all
+ *   orders created in the window, same denominator as cancellation rate (not
+ *   the count of orders whose support request resolved in the window) --
+ *   bounding the denominator by resolution date instead would let a seller
+ *   dilute the rate by driving order volume up without changing the issue
+ *   count, since a busy window could out-run the resolutions that trail it.
+ *
+ * The numerator measures seller-controlled outcomes, not remedy direction: it
+ * counts distinct seller orders whose resolved Support responsibility fact is
+ * `seller`. Carrier, platform, buyer, shared, and undetermined causes are
+ * excluded, and one order counts at most once no matter how many support
+ * requests it accrued. A missing/unrecognized responsibility fails safe to
+ * exclusion and is surfaced as `missing_responsibility_count`.
  */
 export async function refreshSellerBehavioralMetrics(
   db: PgQueryable,
@@ -82,32 +88,47 @@ export async function refreshSellerBehavioralMetrics(
   );
   const shipments = shipmentsResult.rows[0] ?? { shipments_dispatched_count: "0", shipments_on_time_count: "0" };
 
-  // Dispute classification is a business-rule predicate (the shared,
-  // already-reviewed review-eligibility resolution taxonomy), not a
-  // timestamp comparison -- applied in TS against the small per-seller
-  // window slice rather than duplicated as a second, driftable SQL
-  // expression of the same rule.
+  // Seller-responsibility classification comes straight from Support's
+  // explicit responsibility fact -- no remedy inference. The numerator is an
+  // order-level rollup: COUNT(DISTINCT order_id) so multiple requests on one
+  // order (or duplicate/replayed events) can never count twice, and only the
+  // `seller` cause contributes. Excluded causes and missing facts are counted
+  // separately for reporting.
   const supportResult = await db.query<{
-    resolution_type: string | null;
-    flow_type: string | null;
-    resolved_at: string;
+    resolved_count: string;
+    resolved_order_count: string;
+    seller_responsible_order_count: string;
+    missing_responsibility_count: string;
   }>(
-    `SELECT resolution_type, flow_type, resolved_at::text AS resolved_at
+    `SELECT
+       COUNT(*)::int AS resolved_count,
+       COUNT(DISTINCT order_id)::int AS resolved_order_count,
+       COUNT(DISTINCT order_id) FILTER (WHERE responsibility = 'seller')::int AS seller_responsible_order_count,
+       COUNT(*) FILTER (WHERE responsibility IS NULL)::int AS missing_responsibility_count
      FROM marketplace_seller_metrics_support_request_sources
      WHERE seller_account_id = $1
        AND resolved_at IS NOT NULL
        AND resolved_at >= $2::timestamptz - make_interval(days => $3)`,
     [sellerAccountId, now, policyValue.windowDays],
   );
-  const disputesResolvedCount = supportResult.rows.length;
-  const disputesAgainstSellerCount = supportResult.rows.filter((row) =>
-    isResolutionAgainstSeller({
-      status: "resolved",
-      resolutionType: row.resolution_type,
-      flowType: row.flow_type,
-      resolvedAt: row.resolved_at,
-    } satisfies SupportRequestSnapshot),
-  ).length;
+  const support = supportResult.rows[0] ?? {
+    resolved_count: "0",
+    resolved_order_count: "0",
+    seller_responsible_order_count: "0",
+    missing_responsibility_count: "0",
+  };
+  const disputesResolvedCount = Number(support.resolved_count);
+  const disputesAgainstSellerCount = Number(support.seller_responsible_order_count);
+  const missingResponsibilityCount = Number(support.missing_responsibility_count);
+
+  // Impossible-double-count guard: an order-level numerator can never exceed
+  // the count of distinct orders that resolved in the window. A violation
+  // signals a projection bug (e.g. row-level counting creeping back in).
+  if (disputesAgainstSellerCount > Number(support.resolved_order_count)) {
+    throw new Error(
+      "Seller-responsible issue count exceeded the distinct resolved-order count; numerator is double-counting.",
+    );
+  }
 
   const ordersCreatedCount = Number(orders.orders_created_count);
   const sellerCancelledCount = Number(orders.seller_cancelled_count);
@@ -127,9 +148,10 @@ export async function refreshSellerBehavioralMetrics(
        disputes_resolved_count,
        disputes_against_seller_count,
        dispute_rate,
+       missing_responsibility_count,
        computed_at,
        updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
      ON CONFLICT (seller_account_id) DO UPDATE SET
        window_days = EXCLUDED.window_days,
        orders_created_count = EXCLUDED.orders_created_count,
@@ -141,6 +163,7 @@ export async function refreshSellerBehavioralMetrics(
        disputes_resolved_count = EXCLUDED.disputes_resolved_count,
        disputes_against_seller_count = EXCLUDED.disputes_against_seller_count,
        dispute_rate = EXCLUDED.dispute_rate,
+       missing_responsibility_count = EXCLUDED.missing_responsibility_count,
        computed_at = EXCLUDED.computed_at,
        updated_at = EXCLUDED.updated_at`,
     [
@@ -155,6 +178,7 @@ export async function refreshSellerBehavioralMetrics(
       disputesResolvedCount,
       disputesAgainstSellerCount,
       rate(disputesAgainstSellerCount, ordersCreatedCount),
+      missingResponsibilityCount,
       now,
     ],
   );
