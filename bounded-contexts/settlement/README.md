@@ -34,6 +34,7 @@ Account-money navigation and Wallet/Payouts placement are documented in [Account
 - Ledger Entry
 - Payout
 - Payout Batch
+- ProtectionCoverage (protection-reserve pool; one event-sourced stream per currency)
 
 ## Incoming Dependencies
 
@@ -86,6 +87,21 @@ wallet adjustment remains a correction-only path per
 - **Consumes** — `support.support-request.platform-coverage-requested.v1`,
   `support.support-request.refund-released.v1`, and Payments' refund completion fact,
   correlated by `remedyId`/`coverageId`.
+
+The reservation aggregate and read models are implemented in
+`features/protection-coverage` (#5214). Availability is
+`funded − outstanding-reserved − consumed`; the funded ceiling stays owned by the
+contribution read model (`settlement_protection_reserve_facts`) and is never turned
+into a transactional aggregate. Every reservation, settlement, and release for a
+currency folds into a single pool stream (`settlement.protection-reserve-{currency}`),
+so optimistic concurrency serializes competing reservations and two approvals cannot
+overdraw. Reserve/settle are keyed by `coverageId`, so redelivery is idempotent and a
+fully platform-funded refund consumes the reserve exactly once; a split refund consumes
+only its platform allocation, and the seller ledger is never touched by a reservation.
+Internal `settlement.protection-coverage.released.v1`/`.expired.v1` events (not
+cross-context facts) return an unconsumed reservation to availability. The
+`settlement_protection_coverage` read model exposes reconciliation status, blocking
+reason, and lifecycle metrics for operators without exposing internal ledger postings.
 
 ## Open Extraction Candidates
 
