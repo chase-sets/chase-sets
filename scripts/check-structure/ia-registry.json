@@ -402,6 +402,12 @@
     },
     {
       "deployable": "public-web",
+      "family": "developers",
+      "owningContext": "public-presence",
+      "purpose": "Gated developer documentation and machine-readable MCP catalog surface (public-presence)."
+    },
+    {
+      "deployable": "public-web",
       "family": "faq",
       "owningContext": "public-presence",
       "purpose": "FAQ surface (public-presence)."
@@ -417,6 +423,12 @@
       "family": "help",
       "owningContext": "public-presence",
       "purpose": "Help surface (public-presence)."
+    },
+    {
+      "deployable": "public-web",
+      "family": "llms.txt",
+      "owningContext": "public-presence",
+      "purpose": "Gated agent-readable developer documentation index (public-presence)."
     },
     {
       "deployable": "public-web",

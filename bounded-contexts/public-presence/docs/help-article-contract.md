@@ -1,6 +1,8 @@
 # Help article contract
 
-Public Presence owns the public help corpus under `features/help/domain/articles`. Each article is a locale-suffixed Markdown file named `<slug>.<locale>.md`; English is the first supported corpus and uses `.en.md`.
+Public Presence owns the consumer help corpus under `features/help/domain/articles`. Each article is a locale-suffixed Markdown file named `<slug>.<locale>.md`; English is the first supported corpus and uses `.en.md`. This corpus accepts only buyer and seller audiences and is the sole input to `publicHelpArticles`.
+
+Developer content is intentionally separate under `features/developer-portal/domain/articles`; see [Developer article contract](./developer-article-contract.md). UCP, agent-commerce, and planned-language exemptions apply only to that gated corpus and never weaken consumer help guards.
 
 The build compiler validates every source and generates `features/help/domain/generated/articles.ts`. Public routes import that typed manifest, so request handling never reads or parses Markdown. Run `pnpm --filter @chase-sets/public-presence run compile:help-articles` after editing an article. Public Presence tests fail when the committed manifest is stale, while public-web's production build compiles the corpus before bundling and fails on invalid source.
 

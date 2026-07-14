@@ -147,7 +147,65 @@ function ArticleCard({ article }: { article: HelpArticle }) {
 
 export function HelpArticlePage({ article, related }: { article: HelpArticle; related: readonly HelpArticle[] }) {
   const hasTableOfContents = article.headings.length >= 3;
-  const articleBody = (
+  const articleBody = <CompiledArticleBody article={article} />;
+
+  return (
+    <PublicPresencePageShell>
+      <Page width="wide">
+        <Breadcrumbs
+          items={[
+            { label: t("publicPresence.help.breadcrumb"), href: "/help" },
+            { label: helpCategoryLabel(article.category), href: `/help/${article.category}` },
+            { label: article.title },
+          ]}
+        />
+        <PageHeader
+          eyebrow={helpAudienceLabel(article.audience)}
+          title={article.title}
+          description={article.description}
+        />
+        <Text size="sm" tone="tertiary">
+          {t("publicPresence.help.lastReviewed", { date: formatArticleReviewedAt(article.reviewedAt, article.locale) })}
+        </Text>
+        {article.policyChanges?.map((change) => (
+          <Banner
+            key={change.effectiveFrom}
+            tone="info"
+            title={t("publicPresence.help.changingOn", {
+              date: formatArticleReviewedAt(change.effectiveFrom.slice(0, 10), article.locale),
+            })}
+            description={change.description}
+          />
+        ))}
+        {hasTableOfContents ? (
+          <SplitPane
+            primary={articleBody}
+            secondary={<ArticleTableOfContents article={article} />}
+            secondaryWidth="nav"
+            secondarySticky
+          />
+        ) : (
+          articleBody
+        )}
+        {related.length > 0 ? (
+          <PageSection
+            title={t("publicPresence.help.related.title")}
+            description={t("publicPresence.help.related.description")}
+          >
+            <Grid columns={{ base: 1, md: 2, lg: 3 }} gap={4}>
+              {related.map((candidate) => (
+                <ArticleCard key={candidate.href} article={candidate} />
+              ))}
+            </Grid>
+          </PageSection>
+        ) : null}
+      </Page>
+    </PublicPresencePageShell>
+  );
+}
+
+export function CompiledArticleBody({ article }: { article: HelpArticle }) {
+  return (
     <Surface element="article" elevated>
       <Stack gap={4}>
         {article.blocks.map((block, index) => {
@@ -178,63 +236,9 @@ export function HelpArticlePage({ article, related }: { article: HelpArticle; re
       </Stack>
     </Surface>
   );
-
-  return (
-    <PublicPresencePageShell>
-      <Page width="wide">
-        <Breadcrumbs
-          items={[
-            { label: t("publicPresence.help.breadcrumb"), href: "/help" },
-            { label: helpCategoryLabel(article.category), href: `/help/${article.category}` },
-            { label: article.title },
-          ]}
-        />
-        <PageHeader
-          eyebrow={helpAudienceLabel(article.audience)}
-          title={article.title}
-          description={article.description}
-        />
-        <Text size="sm" tone="tertiary">
-          {t("publicPresence.help.lastReviewed", { date: formatReviewedAt(article.reviewedAt, article.locale) })}
-        </Text>
-        {article.policyChanges?.map((change) => (
-          <Banner
-            key={change.effectiveFrom}
-            tone="info"
-            title={t("publicPresence.help.changingOn", {
-              date: formatReviewedAt(change.effectiveFrom.slice(0, 10), article.locale),
-            })}
-            description={change.description}
-          />
-        ))}
-        {hasTableOfContents ? (
-          <SplitPane
-            primary={articleBody}
-            secondary={<TableOfContents article={article} />}
-            secondaryWidth="nav"
-            secondarySticky
-          />
-        ) : (
-          articleBody
-        )}
-        {related.length > 0 ? (
-          <PageSection
-            title={t("publicPresence.help.related.title")}
-            description={t("publicPresence.help.related.description")}
-          >
-            <Grid columns={{ base: 1, md: 2, lg: 3 }} gap={4}>
-              {related.map((candidate) => (
-                <ArticleCard key={candidate.href} article={candidate} />
-              ))}
-            </Grid>
-          </PageSection>
-        ) : null}
-      </Page>
-    </PublicPresencePageShell>
-  );
 }
 
-function TableOfContents({ article }: { article: HelpArticle }) {
+export function ArticleTableOfContents({ article }: { article: HelpArticle }) {
   return (
     <Surface element="nav" tone="subtle" aria-label={t("publicPresence.help.toc.title")}>
       <Stack gap={3}>
@@ -272,7 +276,7 @@ function InlineContent({ content }: { content: readonly HelpArticleInline[] }) {
   });
 }
 
-function formatReviewedAt(reviewedAt: string, locale: string) {
+export function formatArticleReviewedAt(reviewedAt: string, locale: string) {
   return new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(
     new Date(`${reviewedAt}T00:00:00Z`),
   );

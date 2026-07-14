@@ -1,10 +1,17 @@
 {
   "contextName": "public-presence",
   "packageName": "@chase-sets/public-presence",
-  "ownedNouns": ["public-presence", "waitlist-signup", "promo-bar-message", "help-article", "help-category"],
+  "ownedNouns": [
+    "public-presence",
+    "waitlist-signup",
+    "promo-bar-message",
+    "help-article",
+    "help-category",
+    "developer-article"
+  ],
   "streamPrefix": "public-presence.",
   "apiBasePath": "/api/public-presence",
-  "slices": ["waitlist", "promo-bar", "help"],
+  "slices": ["waitlist", "promo-bar", "help", "developer-portal"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "shell-support", "ui-support"],
   "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [],
@@ -319,6 +326,38 @@
           "placement": "root"
         },
         {
+          "routeId": "developer-portal",
+          "routePath": "developers",
+          "fileExport": "./routes/developers/portal",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "developer-article",
+          "routePath": "developers/:slug",
+          "fileExport": "./routes/developers/article",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "developer-manifest",
+          "routePath": "developers/manifest.json",
+          "fileExport": "./routes/developers/manifest",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "developer-llms",
+          "routePath": "llms.txt",
+          "fileExport": "./routes/developers/llms",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
           "routeId": "faq",
           "routePath": "faq",
           "fileExport": "./routes/marketplace/faq",
@@ -469,6 +508,11 @@
     }
   ],
   "directoryIntent": {
+    "developer-portal": {
+      "classification": "slice",
+      "purpose": "Own the developer-portal slice: gated Developer Articles, generated MCP documentation, and agent-readable manifests.",
+      "expectedConsumers": ["Public web developer routes"]
+    },
     "help": {
       "classification": "slice",
       "purpose": "Own the compiled public Help Article corpus, Help Category taxonomy, and public help routes.",

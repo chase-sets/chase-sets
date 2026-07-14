@@ -28,6 +28,10 @@ describe("public web deployable", () => {
       "help",
       "help/:category",
       "help/:category/:slug",
+      "developers",
+      "developers/:slug",
+      "developers/manifest.json",
+      "llms.txt",
       "faq",
       "contact",
       "terms",
@@ -81,6 +85,8 @@ describe("public web deployable", () => {
     expect(sitemapBody).toContain("<loc>https://chasesets.com/help/selling</loc>");
     expect(sitemapBody).not.toContain("https://chasesets.com/search");
     expect(sitemapBody).not.toContain("/items/");
+    expect(sitemapBody).not.toContain("/developers");
+    expect(sitemapBody).not.toContain("/llms.txt");
 
     const robots = robotsLoader({
       request: new Request("https://example.test/robots.txt"),

@@ -3,6 +3,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { format } from "prettier";
 import { parse } from "yaml";
+import { assertPublicCopyGuard } from "../domain/public-copy-guard.mjs";
 import { publicPolicyValueKeys, publicPolicyValueWhitelist } from "../domain/public-policy-value-whitelist.mjs";
 
 const integrationsDirectory = dirname(fileURLToPath(import.meta.url));
@@ -37,7 +38,7 @@ const publicPolicyPermissionsByKey = new Map(
   publicPolicyValueWhitelist.map((permission) => [permission.key, permission]),
 );
 
-export function compileHelpArticleSource(fileName, source) {
+export function compileHelpArticleSource(fileName, source, options = {}) {
   const match = /^(.+)\.([a-z]{2}(?:-[A-Z]{2})?)\.md$/.exec(fileName);
   assert(match, fileName, "file name must be <slug>.<locale>.md");
   const [, fileSlug, locale] = match;
@@ -95,7 +96,9 @@ export function compileHelpArticleSource(fileName, source) {
     .map(({ level, id, text }) => ({ level, id, text }));
 
   const path =
-    frontmatter.path === undefined ? `/help/${category}/${slug}` : requiredString(frontmatter.path, fileName, "path");
+    frontmatter.path === undefined
+      ? (options.defaultPath?.({ category, slug }) ?? `/help/${category}/${slug}`)
+      : requiredString(frontmatter.path, fileName, "path");
   assert(/^\/[a-z0-9]+(?:[/-][a-z0-9]+)*$/.test(path), fileName, "path must be an absolute kebab-case public path");
   const policyValueKeys = [...new Set(blocks.flatMap(blockPolicyValueKeys))];
   for (const key of policyValueKeys) {
@@ -127,27 +130,42 @@ export function compileHelpArticleSource(fileName, source) {
   };
 }
 
-export function compileHelpArticleCorpus(sources) {
+export function compileHelpArticleCorpus(sources, options = {}) {
   assert(sources.length > 0, "help corpus", "must contain at least one article");
   const articles = sources
-    .map(({ fileName, source }) => compileHelpArticleSource(fileName, source))
+    .map(({ fileName, source }) => compileHelpArticleSource(fileName, source, options))
     .sort((left, right) => left.href.localeCompare(right.href) || left.locale.localeCompare(right.locale));
   const identities = new Set();
   for (const article of articles) {
+    if (options.expectedAudience) {
+      assert(
+        article.audience === options.expectedAudience,
+        article.href,
+        `audience must be '${options.expectedAudience}' for this corpus`,
+      );
+    }
+    if (options.allowedAudiences) {
+      assert(
+        options.allowedAudiences.includes(article.audience),
+        article.href,
+        `audience must be one of ${options.allowedAudiences.join(", ")} for this corpus`,
+      );
+    }
     const identity = `${article.locale}:${article.href}`;
     assert(!identities.has(identity), article.href, `duplicates article identity '${identity}'`);
     identities.add(identity);
   }
 
-  const validHelpPaths = new Set(["/help"]);
+  const rootPath = options.rootPath ?? "/help";
+  const validCorpusPaths = new Set([rootPath]);
   for (const article of articles) {
-    validHelpPaths.add(`/help/${article.category}`);
-    validHelpPaths.add(article.href);
+    if (options.includeCategoryPaths !== false) validCorpusPaths.add(`${rootPath}/${article.category}`);
+    validCorpusPaths.add(article.href);
   }
   for (const article of articles) {
     const headingIds = new Set(article.headings.map((heading) => heading.id));
     for (const link of article.blocks.flatMap(blockLinks)) {
-      validateLink(article, link, validHelpPaths, headingIds);
+      validateLink(article, link, validCorpusPaths, headingIds, rootPath);
     }
   }
   return articles;
@@ -302,16 +320,17 @@ function blockPolicyValueKeys(block) {
   );
 }
 
-function validateLink(article, link, validHelpPaths, headingIds) {
+function validateLink(article, link, validCorpusPaths, headingIds, rootPath) {
   if (/^https:\/\//.test(link.href) || /^mailto:/.test(link.href)) return;
   if (link.href.startsWith("#")) {
     assert(headingIds.has(link.href.slice(1)), article.href, `broken heading link '${link.href}'`);
     return;
   }
   assert(link.href.startsWith("/"), article.href, `relative link '${link.href}' is not allowed`);
-  if (link.href.startsWith("/help")) {
+  if (link.href === rootPath || link.href.startsWith(`${rootPath}/`)) {
     const [path, hash] = link.href.split("#");
-    assert(validHelpPaths.has(path), article.href, `broken help link '${link.href}'`);
+    const linkKind = rootPath === "/help" ? "help" : "corpus";
+    assert(validCorpusPaths.has(path), article.href, `broken ${linkKind} link '${link.href}'`);
     if (hash && path === article.href) assert(headingIds.has(hash), article.href, `broken heading link '#${hash}'`);
   }
 }
@@ -380,7 +399,11 @@ export async function compileRepositoryCorpus() {
       source: await readFile(join(articlesDirectory, fileName), "utf8"),
     })),
   );
-  return compileHelpArticleCorpus(sources);
+  const articles = compileHelpArticleCorpus(sources, { allowedAudiences: ["buyer", "seller"] });
+  const copy = JSON.stringify(articles);
+  assertPublicCopyGuard({ corpus: "consumer", copy, guard: "launch-language" });
+  assertPublicCopyGuard({ corpus: "consumer", copy, guard: "agent-commerce" });
+  return articles;
 }
 
 async function main() {

@@ -34,6 +34,12 @@ variable "production_marketplace_public_enabled" {
   }
 }
 
+variable "m86_developer_portal_ready" {
+  type        = bool
+  default     = false
+  description = "Certification readiness gate for serving the noindex Developer Portal. Public indexing is controlled separately."
+}
+
 variable "production_runtime_profile" {
   type        = string
   default     = "landing"

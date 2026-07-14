@@ -23,6 +23,25 @@ Notes:
 - Public Presence owns the category taxonomy and its localized navigation labels.
 - Audience identifies who an article helps; Help Category identifies what the article explains.
 
+## Developer Article
+
+A **Developer Article** is a locale-specific guide for integrating with Chase Sets agent-facing protocols. Developer Articles compile from a corpus separate from consumer Help Articles and publish only through the readiness-gated Developer Portal.
+
+Notes:
+
+- Developer Articles may accurately describe UCP, agent-commerce, and planned MCP capabilities before certification because every Developer Portal route remains gated and noindex.
+- Generated MCP tool descriptors come from the platform runtime registry rather than article prose.
+- Developer Articles never enter the consumer `publicHelpArticles` manifest or consumer launch-copy guards.
+
+## Developer Portal
+
+The **Developer Portal** is the `/developers` route family plus its agent-readable manifest and `llms.txt` index.
+
+Notes:
+
+- The m86 certification readiness flag defaults off.
+- Enabled routes still emit `noindex,nofollow` and remain absent from sitemaps until a separate public-indexing change.
+
 ## Waitlist Signup
 
 A **Waitlist Signup** is a request for Chase Sets early access, qualified by account intent and product interests. Joining implies consent to early-access emails; consent to additional product updates beyond early-access notifications is a separate, optional opt-in.

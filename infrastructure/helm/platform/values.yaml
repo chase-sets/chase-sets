@@ -92,6 +92,8 @@ components:
         secretKey: "CHASE_SETS_DISCORD_INVITE_URL"
       - name: "CHASE_SETS_INTERNAL_API_ORIGIN"
         value: "http://chase-sets-platform-chase-sets-platform-platform-api:8080"
+      - name: "CHASE_SETS_M86_DEVELOPER_PORTAL_READY"
+        value: "false"
       - name: "CHASE_SETS_PUBLIC_INDEXING"
         value: "false"
       - name: "CHASE_SETS_PUBLIC_ORIGIN"

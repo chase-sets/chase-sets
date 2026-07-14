@@ -459,6 +459,10 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["marketplace_browse"],
   },
   {
+    pattern: /^bounded-contexts\/public-presence\/routes\/developers\//,
+    suites: ["marketplace_browse"],
+  },
+  {
     pattern: /^bounded-contexts\/public-presence\/features\/waitlist\/ui\/public-pages\./,
     suites: ["marketplace_browse"],
   },
