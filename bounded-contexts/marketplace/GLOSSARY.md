@@ -259,15 +259,19 @@ A **Review Summary** is the canonical aggregate snapshot for an account derived 
 
 ## Seller Reliability
 
-**Seller Reliability** is the marketplace-owned rolling-window view of a seller Account's objective, event-derived transaction-outcome behavior: On-Time Shipment Rate, Cancellation Rate, and Dispute Rate. It is a projected read model, not an emitted domain event, computed from `ordering`, `fulfillment`, and `support` events -- never from Review content, and never from data a party can unilaterally game. Support's factual responsibility classification is the attribution authority; remedies and refunds are not responsibility signals. Every metric carries a minimum-order-count display threshold; a metric with too few underlying orders is withheld rather than shown as a misleading rate. The seller's own dashboard shows the full metrics unconditionally; buyer-facing surfaces show only threshold-gated qualitative chips (never raw percentages), behind a rollout gate.
+**Seller Reliability** is the marketplace-owned rolling-window view of a seller Account's objective, event-derived transaction-outcome behavior: On-Time Shipment Rate, Cancellation Rate, and the Seller-Responsible Issue Rate. It is a projected read model, not an emitted domain event, computed from `ordering`, `fulfillment`, and `support` events -- never from Review content, and never from data a party can unilaterally game. Behavioral standing measures seller-controlled outcomes: Support's factual responsibility classification is the attribution authority, so a remedy or refund the platform issued for a carrier, platform, buyer, shared, or undetermined cause never degrades the seller. Every metric carries a minimum-order-count display threshold; a metric with too few underlying orders is withheld rather than shown as a misleading rate. The seller's own dashboard shows the full metrics unconditionally; buyer-facing surfaces show only threshold-gated qualitative chips (never raw percentages), behind a rollout gate.
 
 ## On-Time Shipment Rate
 
 **On-Time Shipment Rate** is the Seller Reliability metric measuring the share of a seller's dispatched shipments (in the rolling window) that dispatched within the platform's dispatch window of the order becoming ready for fulfillment.
 
-## Dispute Rate
+## Seller-Responsible Issue Rate
 
-**Dispute Rate** is the Seller Reliability metric measuring the share of a seller's orders in the rolling window with explicit seller responsibility recorded by Support.
+**Seller-Responsible Issue Rate** is the Seller Reliability metric measuring the share of a seller's orders (in the rolling window) that had a resolved support outcome whose Support responsibility fact is `seller`. It is the responsibility-based replacement for the former refund-derived dispute rate: the numerator is a controllable-outcome measure, not a remedy tally. A seller-misdescription outcome counts once whether it was resolved by refund, replacement, or no monetary remedy; carrier, platform, buyer, shared, and undetermined outcomes never count; open requests never count; and multiple support requests on one order count that order at most once. A missing or unrecognized responsibility fact fails safe to exclusion and raises a missing-responsibility operational signal rather than being read as seller fault.
+
+Where an externally-established product name must remain "dispute rate" (for example the seller dashboard label and its `dispute_rate` API field), that name still denotes this seller-responsible measure and must not be described as counting every dispute or every refund against the seller.
+
+**Seller-Responsible Issue Rate** is distinct from two neighboring concepts that must not be conflated with it: the **Transaction Review Rating** (a Review Summary's average star rating, derived from party-authored reviews of an order) measures perceived experience, and **Support CSAT** (owned by the support-experience feedback slice) measures satisfaction with the support interaction itself. The Seller-Responsible Issue Rate is neither: it is an objective, event-derived count of orders the platform determined the seller was responsible for.
 
 ## Cancellation Rate
 
@@ -349,7 +353,7 @@ An **Account Trust Signal** is the planned account-level input Marketplace may c
 
 **Buyer Reliability** is the planned transaction-outcome reputation view focused on payment, cancellation, dispute, and offer behavior.
 
-Seller Reliability, On-Time Shipment Rate, Dispute Rate, and Cancellation Rate moved out of this Planned section (m108, #4271): they are shipped behavior now -- see the main glossary body above.
+Seller Reliability, On-Time Shipment Rate, the Seller-Responsible Issue Rate, and Cancellation Rate moved out of this Planned section (m108, #4271): they are shipped behavior now -- see the main glossary body above.
 
 Scheduled Restore moved out of this Planned section (m127 seller time-away audit's auto-resume sweep): it is shipped behavior now -- see the main glossary body above. Away Window also moved out of this Planned section (m127 seller time-away audit's scheduled-window feature): it is shipped behavior now -- see the main glossary body above.
 

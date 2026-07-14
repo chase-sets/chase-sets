@@ -35,12 +35,20 @@ CREATE INDEX IF NOT EXISTS marketplace_seller_metrics_shipment_sources_seller_id
 CREATE INDEX IF NOT EXISTS marketplace_seller_metrics_shipment_sources_order_idx
   ON marketplace_seller_metrics_shipment_sources (order_id);
 
+-- The responsibility column is the canonical Support factual-responsibility
+-- fact and is the sole input to the seller-responsible issue rate. resolution_type
+-- and flow_type are retained only as private operational context for excluded
+-- causes (carrier, platform, buyer, shared, or undetermined); they never decide
+-- responsibility. A NULL responsibility marks a resolution whose Support fact
+-- was missing or unrecognized -- excluded from the numerator and reported as a
+-- missing-responsibility signal, never reinterpreted as seller fault.
 CREATE TABLE IF NOT EXISTS marketplace_seller_metrics_support_request_sources (
   support_request_id text PRIMARY KEY,
   order_id text NOT NULL,
   seller_account_id text NOT NULL,
   resolution_type text NULL,
   flow_type text NULL,
+  responsibility text NULL,
   resolved_at timestamptz NULL,
   updated_at timestamptz NOT NULL
 );

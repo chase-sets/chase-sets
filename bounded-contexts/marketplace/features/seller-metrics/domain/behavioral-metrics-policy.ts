@@ -5,8 +5,9 @@ import type { JsonValue } from "@chase-sets/primitives/json";
  * The marketplace seller-behavioral-metrics policy (m108 reputation): the
  * windowing and display-gating dials for the objective, event-derived
  * seller reliability signals -- on-time-shipment rate, seller-caused
- * cancellation rate, and dispute rate -- plus the rollout gate for
- * buyer-facing qualitative chips built from them.
+ * cancellation rate, and the seller-responsible issue rate (published under
+ * the "dispute rate" product name) -- plus the rollout gate for buyer-facing
+ * qualitative chips built from them.
  *
  * Scoped interpretation -- no persisted "promised ship-by" deadline exists
  * anywhere in `ordering` or `fulfillment` today (neither context stores a
@@ -26,7 +27,7 @@ import type { JsonValue } from "@chase-sets/primitives/json";
  * applied per-metric at query time (read-model/queries.ts) against each
  * metric's own denominator -- not a single blended order count -- so a
  * seller with 12 shipments but only 3 support-request outcomes sees an
- * on-time-shipment rate but not a dispute rate yet.
+ * on-time-shipment rate but not a seller-responsible issue rate yet.
  *
  * `buyerFacingChipsEnabled` is the AC's "buyer-facing chips ... flag-gated"
  * requirement. This codebase has no feature-flag system pre-launch (m114 is

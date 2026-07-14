@@ -15,7 +15,11 @@ import {
   buildSellerMetricsShipmentSourceProjectionHandlers,
   buildSellerMetricsSupportSourceProjectionHandlers,
 } from "../integrations/source/source-projection";
-import { getSellerBehavioralMetricsChips, getSellerBehavioralMetricsSummary } from "../read-model/queries";
+import {
+  getSellerBehavioralMetricsChips,
+  getSellerBehavioralMetricsSummary,
+  listSellersWithMissingResponsibility,
+} from "../read-model/queries";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -74,6 +78,35 @@ describeDb("marketplace seller behavioral-metrics SQL persistence boundary", () 
     sellerAccountId = "acc_seller",
   ) {
     await handlers.order["ordering.order.created"]!(event("ordering.order.created", { orderId, sellerAccountId }));
+  }
+
+  async function resolveSupport(
+    handlers: ReturnType<typeof buildHandlers>,
+    input: Readonly<{
+      supportRequestId: string;
+      orderId: string;
+      flowType: string;
+      resolutionType: string;
+      responsibility?: string;
+      resolvedAt?: string;
+      sellerAccountId?: string;
+    }>,
+  ) {
+    await handlers.support["support.support-request.resolved"]!(
+      event("support.support-request.resolved", {
+        supportRequestId: input.supportRequestId,
+        orderId: input.orderId,
+        sellerAccountId: input.sellerAccountId ?? "acc_seller",
+        flowType: input.flowType,
+        resolution: {
+          resolutionType: input.resolutionType,
+          // `responsibility` intentionally omitted when undefined -- mirrors a
+          // legacy pre-responsibility resolved event carrying no fact.
+          ...(input.responsibility === undefined ? {} : { responsibility: input.responsibility }),
+          resolvedAt: input.resolvedAt ?? "2026-07-02T00:00:00.000Z",
+        },
+      }),
+    );
   }
 
   it("computes on-time-shipment rate from ready-for-fulfillment to dispatch against the policy's dispatch window", async () => {
@@ -165,60 +198,214 @@ describeDb("marketplace seller behavioral-metrics SQL persistence boundary", () 
     expect(summary?.cancellation_rate).toBe("0.2500");
   });
 
-  it("counts a refund-class support resolution against the seller but a no-action resolution for the seller", async () => {
+  it("counts only seller-responsible outcomes, excluding carrier, buyer, and undetermined causes regardless of remedy", async () => {
     const pool = pools.marketplace;
     const handlers = buildHandlers(pool);
 
-    await createOrder(handlers, "ord_refunded");
-    await handlers.support["support.support-request.resolved"]!(
-      event("support.support-request.resolved", {
-        supportRequestId: "sup_refunded",
-        orderId: "ord_refunded",
-        sellerAccountId: "acc_seller",
-        flowType: "product-not-as-described",
-        resolution: { resolutionType: "full-refund", resolvedAt: "2026-07-02T00:00:00.000Z" },
-      }),
-    );
+    // Seller-misdescription refund -- seller responsible, counts.
+    await createOrder(handlers, "ord_seller_refund");
+    await resolveSupport(handlers, {
+      supportRequestId: "sup_seller_refund",
+      orderId: "ord_seller_refund",
+      flowType: "product-not-as-described",
+      resolutionType: "full-refund",
+      responsibility: "seller",
+    });
 
-    await createOrder(handlers, "ord_no_action");
-    await handlers.support["support.support-request.resolved"]!(
-      event("support.support-request.resolved", {
-        supportRequestId: "sup_no_action",
-        orderId: "ord_no_action",
-        sellerAccountId: "acc_seller",
-        flowType: "item-not-received",
-        resolution: { resolutionType: "no-action", resolvedAt: "2026-07-02T00:00:00.000Z" },
-      }),
-    );
+    // Carrier-loss refund -- carrier responsible, excluded even though a refund was issued.
+    await createOrder(handlers, "ord_carrier_refund");
+    await resolveSupport(handlers, {
+      supportRequestId: "sup_carrier_refund",
+      orderId: "ord_carrier_refund",
+      flowType: "product-not-received",
+      resolutionType: "full-refund",
+      responsibility: "carrier",
+    });
 
-    await createOrder(handlers, "ord_seller_cannot_fulfill");
-    await handlers.support["support.support-request.resolved"]!(
-      event("support.support-request.resolved", {
-        supportRequestId: "sup_seller_cannot_fulfill",
-        orderId: "ord_seller_cannot_fulfill",
-        sellerAccountId: "acc_seller",
-        flowType: "seller-cannot-fulfill",
-        resolution: { resolutionType: "cancel-order", resolvedAt: "2026-07-02T00:00:00.000Z" },
-      }),
-    );
+    // Buyer-remorse return refund -- buyer responsible, excluded.
+    await createOrder(handlers, "ord_buyer_remorse");
+    await resolveSupport(handlers, {
+      supportRequestId: "sup_buyer_remorse",
+      orderId: "ord_buyer_remorse",
+      flowType: "return-request",
+      resolutionType: "return-for-refund",
+      responsibility: "buyer",
+    });
 
-    await createOrder(handlers, "ord_buyer_cancel_request");
-    await handlers.support["support.support-request.resolved"]!(
-      event("support.support-request.resolved", {
-        supportRequestId: "sup_buyer_cancel_request",
-        orderId: "ord_buyer_cancel_request",
-        sellerAccountId: "acc_seller",
-        flowType: "buyer-cancel-request",
-        resolution: { resolutionType: "cancel-order", resolvedAt: "2026-07-02T00:00:00.000Z" },
-      }),
-    );
+    // Undetermined outcome -- excluded.
+    await createOrder(handlers, "ord_undetermined");
+    await resolveSupport(handlers, {
+      supportRequestId: "sup_undetermined",
+      orderId: "ord_undetermined",
+      flowType: "product-damaged",
+      resolutionType: "partial-refund",
+      responsibility: "undetermined",
+    });
 
     const summary = await getSellerBehavioralMetricsSummary(pool, "acc_seller");
     expect(summary?.orders_created_count).toBe(4);
     expect(summary?.disputes_resolved_count).toBe(4);
-    // Against seller: full-refund and the seller-cannot-fulfill cancel-order. Not against: no-action, buyer-cancel-request.
+    expect(summary?.disputes_against_seller_count).toBe(1);
+    expect(summary?.dispute_rate).toBe("0.2500");
+    expect(summary?.missing_responsibility_count).toBe(0);
+  });
+
+  it("counts a seller-responsible outcome once whether the remedy is refund, replacement, or no monetary remedy", async () => {
+    const pool = pools.marketplace;
+    const handlers = buildHandlers(pool);
+
+    await createOrder(handlers, "ord_replacement");
+    await resolveSupport(handlers, {
+      supportRequestId: "sup_replacement",
+      orderId: "ord_replacement",
+      flowType: "product-not-as-described",
+      resolutionType: "replacement",
+      responsibility: "seller",
+    });
+
+    await createOrder(handlers, "ord_no_remedy");
+    await resolveSupport(handlers, {
+      supportRequestId: "sup_no_remedy",
+      orderId: "ord_no_remedy",
+      flowType: "product-not-as-described",
+      resolutionType: "no-action",
+      responsibility: "seller",
+    });
+
+    const summary = await getSellerBehavioralMetricsSummary(pool, "acc_seller");
     expect(summary?.disputes_against_seller_count).toBe(2);
-    expect(summary?.dispute_rate).toBe("0.5000");
+  });
+
+  it("counts an order at most once even with multiple seller-responsible resolved requests", async () => {
+    const pool = pools.marketplace;
+    const handlers = buildHandlers(pool);
+
+    await createOrder(handlers, "ord_multi");
+    await resolveSupport(handlers, {
+      supportRequestId: "sup_multi_a",
+      orderId: "ord_multi",
+      flowType: "product-not-as-described",
+      resolutionType: "full-refund",
+      responsibility: "seller",
+    });
+    await resolveSupport(handlers, {
+      supportRequestId: "sup_multi_b",
+      orderId: "ord_multi",
+      flowType: "product-damaged",
+      resolutionType: "partial-refund",
+      responsibility: "seller",
+    });
+
+    const summary = await getSellerBehavioralMetricsSummary(pool, "acc_seller");
+    expect(summary?.orders_created_count).toBe(1);
+    expect(summary?.disputes_resolved_count).toBe(2);
+    expect(summary?.disputes_against_seller_count).toBe(1);
+    expect(summary?.dispute_rate).toBe("1.0000");
+  });
+
+  it("excludes legacy resolutions with no responsibility fact and reports them as a missing-responsibility signal", async () => {
+    const pool = pools.marketplace;
+    const handlers = buildHandlers(pool);
+
+    // A pre-responsibility (legacy) refund carrying no responsibility fact.
+    await createOrder(handlers, "ord_legacy_refund");
+    await resolveSupport(handlers, {
+      supportRequestId: "sup_legacy_refund",
+      orderId: "ord_legacy_refund",
+      flowType: "product-not-as-described",
+      resolutionType: "full-refund",
+      // responsibility omitted
+    });
+
+    const summary = await getSellerBehavioralMetricsSummary(pool, "acc_seller");
+    expect(summary?.disputes_against_seller_count).toBe(0);
+    expect(summary?.dispute_rate).toBe("0.0000");
+    expect(summary?.missing_responsibility_count).toBe(1);
+
+    const health = await listSellersWithMissingResponsibility(pool);
+    expect(health).toEqual([
+      { seller_account_id: "acc_seller", missing_responsibility_count: 1, computed_at: expect.any(String) },
+    ]);
+  });
+
+  it("converges to the same buckets across duplicate delivery and an authorized responsibility correction", async () => {
+    const pool = pools.marketplace;
+    const handlers = buildHandlers(pool);
+
+    await createOrder(handlers, "ord_correct");
+
+    // Initial resolution attributes the seller.
+    await resolveSupport(handlers, {
+      supportRequestId: "sup_correct",
+      orderId: "ord_correct",
+      flowType: "product-not-received",
+      resolutionType: "full-refund",
+      responsibility: "seller",
+    });
+    // Duplicate delivery of the same event -- must not double-count.
+    await resolveSupport(handlers, {
+      supportRequestId: "sup_correct",
+      orderId: "ord_correct",
+      flowType: "product-not-received",
+      resolutionType: "full-refund",
+      responsibility: "seller",
+    });
+
+    let summary = await getSellerBehavioralMetricsSummary(pool, "acc_seller");
+    expect(summary?.disputes_resolved_count).toBe(1);
+    expect(summary?.disputes_against_seller_count).toBe(1);
+
+    // An authorized correction re-attributes the same request to the carrier.
+    await resolveSupport(handlers, {
+      supportRequestId: "sup_correct",
+      orderId: "ord_correct",
+      flowType: "product-not-received",
+      resolutionType: "full-refund",
+      responsibility: "carrier",
+    });
+
+    summary = await getSellerBehavioralMetricsSummary(pool, "acc_seller");
+    expect(summary?.disputes_resolved_count).toBe(1);
+    expect(summary?.disputes_against_seller_count).toBe(0);
+    expect(summary?.dispute_rate).toBe("0.0000");
+  });
+
+  it("rebuilds identical buckets when the same source events are replayed after a schema reset", async () => {
+    const pool = pools.marketplace;
+
+    async function project(handlers: ReturnType<typeof buildHandlers>) {
+      await createOrder(handlers, "ord_r1");
+      await resolveSupport(handlers, {
+        supportRequestId: "sup_r1",
+        orderId: "ord_r1",
+        flowType: "product-not-as-described",
+        resolutionType: "full-refund",
+        responsibility: "seller",
+      });
+      await createOrder(handlers, "ord_r2");
+      await resolveSupport(handlers, {
+        supportRequestId: "sup_r2",
+        orderId: "ord_r2",
+        flowType: "product-not-received",
+        resolutionType: "full-refund",
+        responsibility: "carrier",
+      });
+    }
+
+    await project(buildHandlers(pool));
+    const first = await getSellerBehavioralMetricsSummary(pool, "acc_seller");
+
+    await resetMultiContextTestSchemas(pools);
+    await pool.query(marketplaceModule.schemaSql);
+
+    await project(buildHandlers(pool));
+    const rebuilt = await getSellerBehavioralMetricsSummary(pool, "acc_seller");
+
+    expect(rebuilt?.orders_created_count).toBe(first?.orders_created_count);
+    expect(rebuilt?.disputes_resolved_count).toBe(first?.disputes_resolved_count);
+    expect(rebuilt?.disputes_against_seller_count).toBe(first?.disputes_against_seller_count);
+    expect(rebuilt?.dispute_rate).toBe(first?.dispute_rate);
+    expect(rebuilt?.disputes_against_seller_count).toBe(1);
   });
 
   it("gates buyer-facing chips to null under the display threshold and returns booleans once past it", async () => {

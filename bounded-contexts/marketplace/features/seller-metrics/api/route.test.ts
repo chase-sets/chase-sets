@@ -72,6 +72,7 @@ describe("marketplace seller-metrics API routes", () => {
         disputes_resolved_count: 2,
         disputes_against_seller_count: 0,
         dispute_rate: "0.0000",
+        missing_responsibility_count: 0,
         computed_at: "2026-07-01T00:00:00.000Z",
         updated_at: "2026-07-01T00:00:00.000Z",
       })),

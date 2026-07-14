@@ -72,6 +72,7 @@ export function createAccountSellerMetricsRoutes(services: SellerMetricsServices
         disputes_resolved_count: 0,
         disputes_against_seller_count: 0,
         dispute_rate: null,
+        missing_responsibility_count: 0,
         computed_at: null,
         updated_at: null,
       },
