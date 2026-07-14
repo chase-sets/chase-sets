@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { RemedyId } from "@chase-sets/primitives/typed-ids";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { SupportApiEnv } from "./http";
 import type { SupportRequestServices } from "./runtime";
 
@@ -479,7 +479,7 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       const result = await services.recordRemedyEffect(
         {
           supportRequestId: c.req.param("id"),
-          remedyId: c.req.param("remedyId") as RemedyId,
+          remedyId: parseTypedIdBoundary(c.req.param("remedyId"), "rmd", "remedyId"),
           coverageId: null,
           effect,
           outcome: "satisfied",
@@ -523,7 +523,7 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       const result = await services.overrideRemedyEffect(
         {
           supportRequestId: c.req.param("id"),
-          remedyId: c.req.param("remedyId") as RemedyId,
+          remedyId: parseTypedIdBoundary(c.req.param("remedyId"), "rmd", "remedyId"),
           accountId: access.actor.accountId,
           effect: c.req.param("effect"),
           reasonCode: String(body.reasonCode ?? ""),

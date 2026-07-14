@@ -157,6 +157,18 @@ describe("support request routes", () => {
     });
     expect(fabricatedFinancialFact.status).toBe(400);
     expect(recordRemedyEffect).toHaveBeenCalledTimes(1);
+
+    const invalidRemedyId = await app.request("/support-requests/ops/sup_1/remedies/not-a-remedy/effects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        effect: "operator-release",
+        idempotencyKey: "operator-release-invalid-remedy",
+        reasonCode: "operator-reviewed-return-evidence",
+      }),
+    });
+    expect(invalidRemedyId.status).toBe(400);
+    expect(recordRemedyEffect).toHaveBeenCalledTimes(1);
   });
 
   it("requires the support-manage permission for remedy overrides", async () => {
