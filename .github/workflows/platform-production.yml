@@ -165,6 +165,99 @@ jobs:
             --out artifacts/release-health/production-recovery-mode.json \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Resolve deployment contract inputs
+        id: deployment_contract_inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo_variables="$(mktemp)"
+          staging_variables="$(mktemp)"
+          production_variables="$(mktemp)"
+          trap 'rm -f "$repo_variables" "$staging_variables" "$production_variables"' EXIT
+
+          gh api "repos/${{ github.repository }}/actions/variables?per_page=100" > "$repo_variables"
+          gh api "repos/${{ github.repository }}/environments/staging/variables?per_page=100" > "$staging_variables"
+          gh api "repos/${{ github.repository }}/environments/production/variables?per_page=100" > "$production_variables"
+
+          resolve_variable() {
+            local environment_variables="$1"
+            local name="$2"
+            local value
+            if jq -e --arg name "$name" '.variables | any(.name == $name)' "$environment_variables" > /dev/null; then
+              value="$(jq -r --arg name "$name" 'first(.variables[] | select(.name == $name) | .value) // ""' "$environment_variables")"
+            else
+              value="$(jq -r --arg name "$name" '.variables[] | select(.name == $name) | .value' "$repo_variables")"
+            fi
+            printf '%s' "$value"
+          }
+
+          contract_root="${RUNNER_TEMP}/deployment-contract-release"
+          mkdir -p \
+            "$contract_root/.github/workflows" \
+            "$contract_root/infrastructure/digitalocean/platform"
+          cp .github/workflows/platform-production.yml "$contract_root/.github/workflows/platform-production.yml"
+          for source_path in \
+            infrastructure/digitalocean/platform/main.tf \
+            infrastructure/digitalocean/platform/locals.tf \
+            infrastructure/digitalocean/platform/variables.tf
+          do
+            git show "${{ steps.release.outputs.release_commit }}:${source_path}" > "$contract_root/${source_path}"
+          done
+
+          {
+            echo "contract_root=${contract_root}"
+            echo "staging_bootstrap_owner=$(resolve_variable "$staging_variables" PLATFORM_BOOTSTRAP_OWNER)"
+            echo "staging_argo_rollouts_enabled=$(resolve_variable "$staging_variables" STAGING_ARGO_ROLLOUTS_ENABLED)"
+            echo "staging_app_platform_lane=$(resolve_variable "$staging_variables" APP_PLATFORM_LANE)"
+            echo "production_bootstrap_owner=$(resolve_variable "$production_variables" PLATFORM_BOOTSTRAP_OWNER)"
+            echo "production_runtime_profile=$(resolve_variable "$production_variables" PRODUCTION_RUNTIME_PROFILE)"
+            echo "production_marketplace_public_enabled=$(resolve_variable "$production_variables" PRODUCTION_MARKETPLACE_PUBLIC_ENABLED)"
+            echo "production_argo_rollouts_enabled=$(resolve_variable "$production_variables" PRODUCTION_ARGO_ROLLOUTS_ENABLED)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Preflight staging deployment contract
+        id: staging_deployment_contract
+        continue-on-error: true
+        run: |
+          node ./scripts/deployment-contract-preflight.mjs \
+            --root-dir "${{ steps.deployment_contract_inputs.outputs.contract_root }}" \
+            --environment staging \
+            --bootstrap-owner-override "${{ steps.deployment_contract_inputs.outputs.staging_bootstrap_owner }}" \
+            --argo-rollouts-enabled "${{ steps.deployment_contract_inputs.outputs.staging_argo_rollouts_enabled }}" \
+            --app-platform-lane "${{ steps.deployment_contract_inputs.outputs.staging_app_platform_lane }}" \
+            --out artifacts/deployment-contract/staging.json \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Preflight production deployment contract
+        id: production_deployment_contract
+        continue-on-error: true
+        run: |
+          node ./scripts/deployment-contract-preflight.mjs \
+            --root-dir "${{ steps.deployment_contract_inputs.outputs.contract_root }}" \
+            --environment production \
+            --bootstrap-owner-override "${{ steps.deployment_contract_inputs.outputs.production_bootstrap_owner }}" \
+            --production-runtime-profile-override "${{ steps.deployment_contract_inputs.outputs.production_runtime_profile }}" \
+            --production-marketplace-public-enabled "${{ steps.deployment_contract_inputs.outputs.production_marketplace_public_enabled }}" \
+            --argo-rollouts-enabled "${{ steps.deployment_contract_inputs.outputs.production_argo_rollouts_enabled }}" \
+            --out artifacts/deployment-contract/production.json \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload failed deployment contracts
+        if: steps.staging_deployment_contract.outcome == 'failure' || steps.production_deployment_contract.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deployment-contract-preflight
+          path: artifacts/deployment-contract/*.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce deployment contract preflight
+        if: steps.staging_deployment_contract.outcome == 'failure' || steps.production_deployment_contract.outcome == 'failure'
+        run: |
+          echo "A staging or production deployment contract is invalid; refusing image build and environment mutation." >&2
+          exit 1
+
   build-image:
     name: Build Release Image
     runs-on: ubuntu-latest

@@ -1,0 +1,22 @@
+{
+  "environment": "production",
+  "runtimeProfile": "landing",
+  "runtimeOwner": "doks",
+  "bootstrapOwner": "app-platform",
+  "bootstrapOwnerSource": "terraform-default",
+  "paths": {
+    "app-platform": {
+      "runtimeMode": "compatibility",
+      "bootstrapMode": "active"
+    },
+    "doks": {
+      "runtimeMode": "primary",
+      "bootstrapMode": "active"
+    }
+  },
+  "rolloutMode": "doks-helm",
+  "imageIdentity": {
+    "tagSource": "release-commit",
+    "digestSource": "staging-verified-image-digest"
+  }
+}
