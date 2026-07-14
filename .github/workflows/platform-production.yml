@@ -381,6 +381,8 @@ jobs:
       # doks.<zone> shadow validation hosts so the rollout lane can prove DOKS
       # ingress + cert-manager before any live-host flip.
       DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}
+      TF_VAR_staging_app_serving: ${{ vars.STAGING_APP_SERVING || 'app-platform' }}
+      TF_VAR_doks_ingress_target: ${{ vars.DOKS_INGRESS_TARGET || '' }}
     steps:
       - name: Record staging start
         id: staging_started
@@ -616,7 +618,7 @@ jobs:
       # Legacy App Platform lane: only reconcile App Platform's alias CNAMEs
       # while the lane is enabled. The #4055 kill switch (APP_PLATFORM_LANE
       # = disabled) skips this without affecting the DOKS rollout below.
-      - name: Reconcile staging App Platform alias DNS state
+      - name: Reconcile staging serving DNS state
         if: env.SHOULD_DEPLOY != 'false' && env.APP_PLATFORM_LANE != 'disabled'
         working-directory: infrastructure/digitalocean/platform
         env:
@@ -677,14 +679,22 @@ jobs:
 
           records_json="$(doctl compute domain records list "$zone" --output json)"
           for name in admin marketplace www; do
-            address="digitalocean_record.staging_app_alias[\"${name}\"]"
-            if terraform state show "$address" >/dev/null 2>&1; then
+            address="digitalocean_record.staging_app_serving[\"${name}\"]"
+            legacy_address="digitalocean_record.staging_app_alias[\"${name}\"]"
+            if terraform state show "$address" >/dev/null 2>&1 || terraform state show "$legacy_address" >/dev/null 2>&1; then
               continue
             fi
 
-            record_id="$(printf '%s' "$records_json" | jq -r --arg name "$name" --arg target "$target" 'first(.[] | select(.type == "CNAME" and .name == $name and (.data | rtrimstr(".")) == $target) | .id) // empty')"
+            record_type="CNAME"
+            record_target="$target"
+            if [ "$STAGING_APP_SERVING" = "doks" ]; then
+              record_type="A"
+              record_target="$DOKS_INGRESS_TARGET"
+            fi
+
+            record_id="$(printf '%s' "$records_json" | jq -r --arg name "$name" --arg type "$record_type" --arg target "$record_target" 'first(.[] | select(.type == $type and .name == $name and (.data | rtrimstr(".")) == $target) | .id) // empty')"
             if [ -z "$record_id" ]; then
-              echo "No live CNAME found for ${name}.${zone}; Terraform will create it."
+              echo "No live ${record_type} found for ${name}.${zone}; Terraform will create it."
               continue
             fi
 

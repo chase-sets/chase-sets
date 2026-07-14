@@ -1026,7 +1026,7 @@ describe("DigitalOcean platform configuration", () => {
     const appDependsOn = platformMain.slice(
       platformMain.lastIndexOf(
         "depends_on",
-        platformMain.indexOf('resource "digitalocean_record" "staging_app_alias"'),
+        platformMain.indexOf('resource "digitalocean_record" "staging_app_serving"'),
       ),
     );
     expect(platformMain).toMatch(
@@ -1626,19 +1626,30 @@ describe("DigitalOcean platform configuration", () => {
       '"marketplace-${replace("marketplace.${var.root_domain}", ".", "-")}" = "https://marketplace.${var.root_domain}/health/ready"',
     );
     expect(platformLocals).toContain("}, local.production_retained_marketplace_uptime_check_targets)");
-    expect(platformMain).toContain("for_each = local.staging_root_marketplace_domains");
+    expect(platformMain).toContain("for_each = local.app_platform_staging_root_marketplace_domains");
     expect(platformMain).toContain("for_each = local.all_marketplace_domains");
     expect(platformMain).toContain('type = domain.value == local.app_primary_domain ? "PRIMARY" : "ALIAS"');
     expect(platformLocals).toContain("app_domain_zones = merge(");
     expect(platformLocals).toContain("domain => local.is_staging ? local.environment_zone : var.root_domain");
     expect(platformMain).toContain("zone = local.app_domain_zones[domain.value]");
-    expect(platformMain).toContain("zone = local.app_domain_zones[local.admin_domain]");
-    expect(platformLocals).toContain("staging_app_alias_record_names");
+    expect(platformMain).toContain("for_each = local.app_platform_admin_domains");
+    expect(platformMain).toContain("zone = local.app_domain_zones[domain.value]");
+    expect(platformLocals).toContain("staging_app_serving_record_names");
+    expect(platformLocals).toContain('serving_from_doks   = local.is_staging && var.staging_app_serving == "doks"');
+    expect(platformLocals).toContain("app_platform_public_domains");
+    expect(platformLocals).toContain("app_platform_marketplace_domains");
+    expect(platformLocals).toContain("app_platform_staging_root_marketplace_domains");
+    expect(platformLocals).toContain("app_platform_admin_domains");
     expect(platformLocals).not.toContain("staging_root_app_platform_ipv4_records");
     expect(platformLocals).not.toContain("staging_root_app_platform_ipv6_records");
-    expect(platformMain).toContain('resource "digitalocean_record" "staging_app_alias"');
-    expect(platformMain).toContain('type   = "CNAME"');
+    expect(platformMain).toContain('resource "digitalocean_record" "staging_app_serving"');
+    expect(platformMain).toContain('type   = local.serving_from_doks ? "A" : "CNAME"');
     expect(platformMain).toContain("digitalocean_app.platform.default_ingress");
+    expect(platformMain).toContain("depends_on = [digitalocean_app.platform]");
+    expect(platformMain).toContain('resource "digitalocean_record" "staging_doks_apex"');
+    expect(platformMain).toContain("depends_on = [digitalocean_record.staging_app_serving]");
+    expect(platformMain).toContain("from = digitalocean_record.staging_app_alias");
+    expect(platformMain).toContain("to   = digitalocean_record.staging_app_serving");
     expect(platformMain).not.toContain('resource "digitalocean_record" "staging_root_app_platform_ipv4"');
     expect(platformMain).not.toContain('resource "digitalocean_record" "staging_root_app_platform_ipv6"');
     expect(platformMain).toContain('name                 = "marketplace"');
@@ -2902,6 +2913,8 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {
+    const cutoverPlanStep = workflowStep(platformPrWorkflow, "Terraform plan staging platform DOKS cutover");
+
     expect(environmentDnsVariables).toContain('condition     = var.environment == "staging"');
     expect(environmentDnsLocals).toContain('environment_zone = "${var.environment}.${var.root_domain}"');
     expect(environmentDnsMain).toContain('resource "digitalocean_domain" "environment"');
@@ -2920,41 +2933,60 @@ describe("DigitalOcean platform configuration", () => {
     expect(environmentDnsVariables).toContain('variable "doks_ingress_target"');
     expect(environmentDnsVariables).toContain("DOKS ingress load balancer IPv4 address");
     expect(environmentDnsLocals).toContain("doks_shadow_records = local.doks_ingress_target_configured");
-    expect(environmentDnsLocals).toContain("local.doks_ingress_target_configured && local.serving_from_doks");
     expect(environmentDnsLocals).toContain('fqdn = "marketplace.doks.${local.environment_zone}"');
     expect(environmentDnsMain).toContain('check "doks_ingress_serving_target"');
     expect(environmentDnsMain).toContain('resource "digitalocean_record" "doks_ingress_shadow"');
-    expect(environmentDnsMain).toContain('resource "digitalocean_record" "doks_ingress_serving"');
     expect(environmentDnsMain).toContain("for_each = local.doks_shadow_records");
-    expect(environmentDnsMain).toContain("for_each = local.doks_serving_records");
     expect(environmentDnsMain).toContain('type   = "A"');
+    expect(environmentDnsMain).not.toContain('resource "digitalocean_record" "doks_ingress_serving"');
+    expect(environmentDnsLocals).not.toContain("doks_serving_records");
     expect(environmentDnsOutputs).toContain('output "doks_ingress_shadow_domains"');
-    expect(environmentDnsOutputs).toContain('output "doks_ingress_serving_domains"');
+    expect(environmentDnsOutputs).not.toContain('output "doks_ingress_serving_domains"');
+    expect(platformVariables).toContain('variable "doks_ingress_target"');
+    expect(platformMain).toContain('check "doks_ingress_serving_target"');
+    expect(platformMain).toContain('resource "digitalocean_record" "staging_app_serving"');
+    expect(platformMain).toContain('type   = local.serving_from_doks ? "A" : "CNAME"');
+    expect(platformMain).toContain('resource "digitalocean_record" "staging_doks_apex"');
+    expect(cutoverPlanStep).toContain("-var=doks_ingress_target=203.0.113.10");
+    expect(cutoverPlanStep).toContain("-var=staging_app_serving=doks");
     expect(platformProductionWorkflow).toContain("Terraform apply staging environment DNS");
     expect(platformStagingResetWorkflow).toContain("Terraform apply staging environment DNS");
-    expect(platformProductionWorkflow).toContain("Reconcile staging App Platform alias DNS state");
+    expect(platformProductionWorkflow).toContain("Reconcile staging serving DNS state");
     expect(platformProductionWorkflow).toContain('doctl apps get "$app_id" --format DefaultIngress --no-header');
     expect(platformProductionWorkflow).toContain("TF_VAR_platform_internal_auth_secret");
     expect(platformProductionWorkflow).toContain('terraform import "$address" "${zone},${record_id}"');
-    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
+    expect(platformProductionWorkflow).toContain('address="digitalocean_record.staging_app_serving[\\"${name}\\"]"');
+    expect(platformProductionWorkflow).toContain(
+      'legacy_address="digitalocean_record.staging_app_alias[\\"${name}\\"]"',
+    );
+    expect(platformProductionWorkflow).toContain('if [ "$STAGING_APP_SERVING" = "doks" ]');
+    expect(platformProductionWorkflow).toContain('record_type="A"');
+    expect(platformProductionWorkflow).toContain('record_target="$DOKS_INGRESS_TARGET"');
+    expect(workflowStep(platformProductionWorkflow, "Reconcile staging serving DNS state")).toContain(
       "TF_VAR_digitalocean_token",
     );
-    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
+    expect(workflowStep(platformProductionWorkflow, "Reconcile staging serving DNS state")).toContain(
       "TF_VAR_platform_admin_password",
     );
-    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
+    expect(workflowStep(platformProductionWorkflow, "Reconcile staging serving DNS state")).toContain(
       "TF_VAR_stripe_secret_key",
     );
-    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
+    expect(workflowStep(platformProductionWorkflow, "Reconcile staging serving DNS state")).toContain(
       "TF_VAR_easypost_api_key",
     );
-    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
+    expect(workflowStep(platformProductionWorkflow, "Reconcile staging serving DNS state")).toContain(
       "TF_VAR_easypost_webhook_secret",
     );
-    expect(platformStagingResetWorkflow).toContain("Reconcile staging App Platform alias DNS state");
+    expect(platformStagingResetWorkflow).toContain("Reconcile staging serving DNS state");
     expect(platformStagingResetWorkflow).toContain('doctl apps get "$app_id" --format DefaultIngress --no-header');
     expect(platformStagingResetWorkflow).toContain("TF_VAR_platform_internal_auth_secret");
     expect(platformStagingResetWorkflow).toContain('terraform import "$address" "${zone},${record_id}"');
+    expect(platformStagingResetWorkflow).toContain('address="digitalocean_record.staging_app_serving[\\"${name}\\"]"');
+    expect(platformStagingResetWorkflow).toContain(
+      'legacy_address="digitalocean_record.staging_app_alias[\\"${name}\\"]"',
+    );
+    expect(platformStagingResetWorkflow).toContain('if [ "$STAGING_APP_SERVING" = "doks" ]');
+    expect(platformStagingResetWorkflow).toContain('record_target="$DOKS_INGRESS_TARGET"');
     expect(platformProductionWorkflow).not.toContain("Reset stale staging root domain attachment");
     expect(platformProductionWorkflow).not.toContain('reset-domain "$app_id" staging.chasesets.com');
     expect(platformStagingResetWorkflow).toContain("Reset stale staging root domain attachment");
@@ -2963,7 +2995,7 @@ describe("DigitalOcean platform configuration", () => {
 
   it("makes DOKS the primary rollout lane with a single-flag App Platform kill switch (#4049)", () => {
     const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
-    const reconcileStep = workflowStep(deployStagingJob, "Reconcile staging App Platform alias DNS state");
+    const reconcileStep = workflowStep(deployStagingJob, "Reconcile staging serving DNS state");
     const envDnsApplyStep = workflowStep(deployStagingJob, "Terraform apply staging environment DNS");
     const shadowStep = workflowStep(deployStagingJob, "Verify staging DOKS shadow hosts");
     const smokeStep = workflowSteps(deployStagingJob, "Smoke check").at(-1);
@@ -2983,6 +3015,8 @@ describe("DigitalOcean platform configuration", () => {
     // deploy lane can publish shadow hosts and flip live-host serving.
     expect(deployStagingJob).toContain("STAGING_APP_SERVING: ${{ vars.STAGING_APP_SERVING || 'app-platform' }}");
     expect(deployStagingJob).toContain("DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}");
+    expect(deployStagingJob).toContain("TF_VAR_staging_app_serving: ${{ vars.STAGING_APP_SERVING || 'app-platform' }}");
+    expect(deployStagingJob).toContain("TF_VAR_doks_ingress_target: ${{ vars.DOKS_INGRESS_TARGET || '' }}");
     expect(envDnsApplyStep).toContain("TF_VAR_staging_app_serving: ${{ env.STAGING_APP_SERVING }}");
     expect(envDnsApplyStep).toContain("TF_VAR_doks_ingress_target: ${{ env.DOKS_INGRESS_TARGET }}");
 
