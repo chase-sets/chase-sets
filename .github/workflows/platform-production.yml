@@ -1944,7 +1944,7 @@ jobs:
             attempt_phase="queue"
             attempt_reason="candidate-superseded-before-staging-mutation"
             superseded_by_commit="${STAGING_SUPERSEDED_BY_COMMIT:-}"
-            export RELEASE_STATE_TRANSITIONS="$(jq -cn \
+            RELEASE_STATE_TRANSITIONS="$(jq -cn \
               --arg commit "$RELEASE_COMMIT" \
               --arg pending "$superseded_by_commit" \
               --arg mode "$RELEASE_STATE_MODE" \
@@ -1954,7 +1954,7 @@ jobs:
                 {type:"superseded", commit:$commit, supersededByCommit:$pending, mode:$mode}
               ]')"
           elif [ -n "${ACTIVE_RELEASE_COMMIT:-}" ]; then
-            export RELEASE_STATE_TRANSITIONS="$(jq -cn \
+            RELEASE_STATE_TRANSITIONS="$(jq -cn \
               --arg commit "$ACTIVE_RELEASE_COMMIT" \
               --arg digest "$ACTIVE_IMAGE_DIGEST" \
               --arg mode "$RELEASE_STATE_MODE" \
@@ -1963,11 +1963,12 @@ jobs:
                 {type:"failed", commit:$commit, imageDigest:$digest, mode:$mode}
               ]')"
           else
-            export RELEASE_STATE_TRANSITIONS="$(jq -cn \
+            RELEASE_STATE_TRANSITIONS="$(jq -cn \
               --arg commit "$RELEASE_COMMIT" \
               --arg mode "$RELEASE_STATE_MODE" \
               '[{type:"candidate", commit:$commit, mode:$mode}, {type:"failed", commit:$commit, mode:$mode}]')"
           fi
+          export RELEASE_STATE_TRANSITIONS
 
           export STAGING_RESULT="$staging_result"
           if [ "${CANARY_RESULT:-skipped}" = "skipped" ]; then
