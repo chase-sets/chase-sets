@@ -5,6 +5,7 @@ import {
   Form,
   Button,
   Inline,
+  ModalDialog,
   NativeSelect,
   Stack,
   Text,
@@ -60,12 +61,26 @@ export function UserDetailPage({ data, oneTimeSecret }: { data: User; oneTimeSec
               </Stack>
             </Form>
             {data.status === "active" ? (
-              <Form spacing="none" method="post">
-                <HiddenInput type="hidden" name="intent" value="suspend" readOnly />
-                <Button type="submit" tone="danger">
-                  {t("identity.features.users.ui.userDetailPage.suspend")}
-                </Button>
-              </Form>
+              <ModalDialog
+                title={t("identity.features.users.ui.userDetailPage.suspend.confirm.title", {
+                  user: data.display_name,
+                })}
+                description={t("identity.features.users.ui.userDetailPage.suspend.confirm.description", {
+                  user: data.display_name,
+                })}
+                trigger={
+                  <Button type="button" tone="danger">
+                    {t("identity.features.users.ui.userDetailPage.suspend")}
+                  </Button>
+                }
+              >
+                <Form spacing="none" method="post">
+                  <HiddenInput type="hidden" name="intent" value="suspend" readOnly />
+                  <Button type="submit" tone="danger">
+                    {t("identity.features.users.ui.userDetailPage.suspend.confirm.action")}
+                  </Button>
+                </Form>
+              </ModalDialog>
             ) : (
               <Form spacing="none" method="post">
                 <HiddenInput type="hidden" name="intent" value="reactivate" readOnly />

@@ -6,6 +6,7 @@ import {
   Button,
   Inline,
   LinkButton,
+  ModalDialog,
   NativeSelect,
   Stack,
   TextInput,
@@ -90,12 +91,26 @@ export function AccountDetailPage({
               );
             })}
           {data.status === "active" ? (
-            <Form spacing="none" method="post">
-              <HiddenInput type="hidden" name="intent" value="suspend" readOnly />
-              <Button type="submit" tone="danger">
-                {t("identity.features.accounts.ui.accountDetailPage.suspend")}
-              </Button>
-            </Form>
+            <ModalDialog
+              title={t("identity.features.accounts.ui.accountDetailPage.suspend.confirm.title", {
+                account: data.display_name,
+              })}
+              description={t("identity.features.accounts.ui.accountDetailPage.suspend.confirm.description", {
+                account: data.display_name,
+              })}
+              trigger={
+                <Button type="button" tone="danger">
+                  {t("identity.features.accounts.ui.accountDetailPage.suspend")}
+                </Button>
+              }
+            >
+              <Form spacing="none" method="post">
+                <HiddenInput type="hidden" name="intent" value="suspend" readOnly />
+                <Button type="submit" tone="danger">
+                  {t("identity.features.accounts.ui.accountDetailPage.suspend.confirm.action")}
+                </Button>
+              </Form>
+            </ModalDialog>
           ) : null}
           {data.status === "suspended" ? (
             <Form spacing="none" method="post">

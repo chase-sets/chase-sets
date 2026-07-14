@@ -5,6 +5,7 @@ import {
   Form,
   Button,
   Inline,
+  ModalDialog,
   NativeSelect,
   Stack,
 } from "@chase-sets/design-system";
@@ -43,12 +44,25 @@ export function SessionDetailPage({ data }: { data: Session }) {
                   </Button>
                 </Stack>
               </Form>
-              <Form spacing="none" method="post">
-                <HiddenInput type="hidden" name="intent" value="revoke" readOnly />
-                <Button type="submit" tone="danger">
-                  {t("auth.features.sessions.ui.sessionDetailPage.revoke")}
-                </Button>
-              </Form>
+              <ModalDialog
+                title={t("auth.features.sessions.ui.sessionDetailPage.revoke.confirm.title", { user })}
+                description={t("auth.features.sessions.ui.sessionDetailPage.revoke.confirm.description", {
+                  user,
+                  account,
+                })}
+                trigger={
+                  <Button type="button" tone="danger">
+                    {t("auth.features.sessions.ui.sessionDetailPage.revoke")}
+                  </Button>
+                }
+              >
+                <Form spacing="none" method="post">
+                  <HiddenInput type="hidden" name="intent" value="revoke" readOnly />
+                  <Button type="submit" tone="danger">
+                    {t("auth.features.sessions.ui.sessionDetailPage.revoke.confirm.action")}
+                  </Button>
+                </Form>
+              </ModalDialog>
             </>
           ) : null}
         </Inline>
