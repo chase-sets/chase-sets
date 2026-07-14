@@ -1618,7 +1618,7 @@ describe("DigitalOcean platform configuration", () => {
       "app_primary_domain      = local.is_staging ? local.staging_root_marketplace_domains[0] : local.public_domains[0]",
     );
     expect(platformLocals).toContain(
-      "concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains)",
+      "concat(local.app_platform_public_domains, local.app_platform_admin_domains, local.app_platform_all_marketplace_domains)",
     );
     expect(platformLocals).toContain("for domain in local.all_marketplace_domains");
     expect(platformLocals).toContain("production_retained_marketplace_uptime_check_targets = local.is_production");
@@ -1627,7 +1627,7 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformLocals).toContain("}, local.production_retained_marketplace_uptime_check_targets)");
     expect(platformMain).toContain("for_each = local.app_platform_staging_root_marketplace_domains");
-    expect(platformMain).toContain("for_each = local.all_marketplace_domains");
+    expect(platformMain).toContain("for_each = local.app_platform_all_marketplace_domains");
     expect(platformMain).toContain('type = domain.value == local.app_primary_domain ? "PRIMARY" : "ALIAS"');
     expect(platformLocals).toContain("app_domain_zones = merge(");
     expect(platformLocals).toContain("domain => local.is_staging ? local.environment_zone : var.root_domain");
@@ -1640,6 +1640,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("app_platform_marketplace_domains");
     expect(platformLocals).toContain("app_platform_staging_root_marketplace_domains");
     expect(platformLocals).toContain("app_platform_admin_domains");
+    expect(platformLocals).toContain(
+      "app_platform_all_marketplace_domains          = concat(local.app_platform_marketplace_domains, local.app_platform_staging_root_marketplace_domains)",
+    );
+    expect(occurrenceCount(platformMain, "for_each = local.app_platform_public_domains")).toBe(3);
+    expect(occurrenceCount(platformMain, "for_each = local.app_platform_admin_domains")).toBe(3);
+    expect(occurrenceCount(platformMain, "for_each = local.app_platform_all_marketplace_domains")).toBe(2);
+    expect(platformMain).not.toContain("for_each = local.public_domains");
+    expect(platformMain).not.toContain("for_each = local.all_marketplace_domains");
+    expect(platformMain).not.toContain("exact = local.admin_domain");
     expect(platformLocals).not.toContain("staging_root_app_platform_ipv4_records");
     expect(platformLocals).not.toContain("staging_root_app_platform_ipv6_records");
     expect(platformMain).toContain('resource "digitalocean_record" "staging_app_serving"');
