@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DiscoveryItemSearchServices } from "./runtime";
 import { discoveryItemSearchRoutes } from "./route";
+import { DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS } from "../domain/normalization";
 
 function createServices(): DiscoveryItemSearchServices {
   return {
@@ -69,5 +70,32 @@ describe("discovery item search routes", () => {
     expect(services.searchItems).toHaveBeenCalledWith(
       expect.objectContaining({ priceMin: undefined, priceMax: undefined, inStock: false }),
     );
+  });
+
+  it.each([
+    {
+      label: "10 KB Latin text",
+      search: "a".repeat(10_000),
+      expected: "a".repeat(DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS),
+    },
+    {
+      label: "5 KB CJK text",
+      search: "検索".repeat(2_500),
+      expected: "検索".repeat(DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS / 2),
+    },
+    {
+      label: "tsquery metacharacters",
+      search: `Charizard' & :* "quoted"`,
+      expected: `Charizard' & :* "quoted"`,
+    },
+  ])("bounds and preserves well-formed $label search input", async ({ search, expected }) => {
+    const services = createServices();
+    const app = discoveryItemSearchRoutes(services);
+
+    const response = await app.request(`/?search=${encodeURIComponent(search)}`);
+
+    expect(response.status).toBe(200);
+    expect(services.searchItems).toHaveBeenCalledWith(expect.objectContaining({ search: expected }));
+    expect([...expected]).toHaveLength(Math.min([...search].length, DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS));
   });
 });

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { DiscoveryItemSearchServices } from "./runtime";
 import type { DiscoveryMarketActivityFilter } from "../read-model/queries";
+import { truncateDiscoverySearchQuery } from "../domain/normalization";
 
 export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices) {
   const app = new Hono<AuthenticatedApiEnv>();
@@ -60,7 +61,7 @@ function searchParamsFromRequest(requestUrl: string, query: (name: string) => st
   const includeTotal = query("includeTotal");
 
   return {
-    search: search || undefined,
+    search: search ? truncateDiscoverySearchQuery(search) : undefined,
     category: category || undefined,
     tag: tag || undefined,
     blueprintId: blueprintId || undefined,

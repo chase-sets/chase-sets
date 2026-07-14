@@ -659,7 +659,7 @@ export async function searchDiscoveryItems(
           db,
           rows.map((row) => row.catalog_item_id),
         );
-  const facets = options.loadFacets === false ? [] : await loadSearchFacets(db, params);
+  const facets = options.loadFacets === false || params.cursor ? [] : await loadSearchFacets(db, params);
 
   return {
     items: rows.map(({ lowest_price_amount: _lowestPriceAmount, visible_quantity: _visibleQuantity, ...row }) => ({
@@ -1068,13 +1068,17 @@ export async function previewBulkAddSearchResults(
   params: DiscoverySearchParams = {},
   limit = 250,
 ): Promise<DiscoveryBulkCartPreview> {
-  const result = await searchDiscoveryItems(db, {
-    ...params,
-    limit: limit + 1,
-    offset: 0,
-    cursor: undefined,
-    includeTotal: true,
-  });
+  const result = await searchDiscoveryItems(
+    db,
+    {
+      ...params,
+      limit: limit + 1,
+      offset: 0,
+      cursor: undefined,
+      includeTotal: true,
+    },
+    { loadFacets: false },
+  );
   const items = result.items.slice(0, limit);
   const schemas = await loadProductSchemasForBlueprints(
     db,
@@ -1186,24 +1190,27 @@ async function loadSearchFacets(db: PgQueryable, params: DiscoverySearchParams):
     chosen.set(facetKey(summary.kind, summary.id), summary);
   }
 
-  const groups: DiscoveryFacetGroup[] = [];
-  for (const summary of chosen.values()) {
-    const values =
-      summary.kind === "field"
-        ? await loadFieldFacetValues(db, params, summary.id, selectedFields.get(summary.id) ?? [])
-        : summary.kind === "reference"
-          ? await loadReferenceFacetValues(db, params, summary.id, selectedReferences.get(summary.id) ?? [])
-          : await loadDimensionFacetValues(db, params, summary.id, selectedDimensions.get(summary.id) ?? []);
+  const groups = (
+    await Promise.all(
+      [...chosen.values()].map(async (summary): Promise<DiscoveryFacetGroup | null> => {
+        const values =
+          summary.kind === "field"
+            ? await loadFieldFacetValues(db, params, summary.id, selectedFields.get(summary.id) ?? [])
+            : summary.kind === "reference"
+              ? await loadReferenceFacetValues(db, params, summary.id, selectedReferences.get(summary.id) ?? [])
+              : await loadDimensionFacetValues(db, params, summary.id, selectedDimensions.get(summary.id) ?? []);
 
-    if (values.length > 0) {
-      groups.push({
-        id: summary.id,
-        kind: summary.kind,
-        label: summary.label,
-        values,
-      });
-    }
-  }
+        return values.length > 0
+          ? {
+              id: summary.id,
+              kind: summary.kind,
+              label: summary.label,
+              values,
+            }
+          : null;
+      }),
+    )
+  ).filter((group): group is DiscoveryFacetGroup => group !== null);
 
   return groups.sort((left, right) => {
     const leftSummary = chosen.get(facetKey(left.kind, left.id));

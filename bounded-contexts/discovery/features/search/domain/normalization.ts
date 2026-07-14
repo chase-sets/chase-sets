@@ -10,6 +10,16 @@ const CJK_CLASS = "　-〿぀-ゟ゠-ヿ㐀-䶿一-鿿豈-﫿＀-￯가-힯";
 const CJK_RUN_PATTERN = new RegExp(`[${CJK_CLASS}]+`, "gu");
 const HAS_CJK_PATTERN = new RegExp(`[${CJK_CLASS}]`, "u");
 
+/**
+ * Maximum search-text size accepted by Discovery's public search routes.
+ * Bounding Unicode code points here also bounds CJK bigram expansion downstream.
+ */
+export const DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS = 256;
+
+export function truncateDiscoverySearchQuery(value: string): string {
+  return [...value].slice(0, DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS).join("");
+}
+
 export function normalizeSimpleSearchText(value: string): string {
   return value
     .replace(/[^\p{L}\p{N}]+/gu, " ")
