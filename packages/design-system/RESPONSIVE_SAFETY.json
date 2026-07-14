@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "generatedBy": "node ./scripts/check-responsive-safety.mjs --write",
+  "description": "Ratcheted responsive-safety findings for production TSX. Error findings must remain zero; warning findings may only decrease until reviewed and rewritten.",
+  "classification": {
+    "governed": ["bounded-contexts/**/*.tsx", "deployables/**/*.tsx", "packages/design-system/src/**/*.tsx"],
+    "excluded": ["tests", "stories", "fixtures"],
+    "exempt": "leading @responsive-exempt <reason> marker comment",
+    "breakpointTokens": ["sm", "md", "lg", "xl", "2xl"]
+  },
+  "categories": {
+    "arbitraryPixelDimensionUtility": {
+      "severity": "error",
+      "description": "Arbitrary pixel width, height, basis, or grid-column utility"
+    },
+    "inlinePixelDimensionStyle": {
+      "severity": "error",
+      "description": "Inline pixel-valued width, height, minWidth, or maxWidth style"
+    },
+    "bareHiddenInteractiveContent": {
+      "severity": "warning",
+      "description": "Bare hidden utility removes interactive content without a token-breakpoint display counterpart"
+    },
+    "customPixelBreakpoint": {
+      "severity": "warning",
+      "description": "Custom pixel breakpoint bypasses the design-system breakpoint token scale"
+    }
+  },
+  "summary": {
+    "scannedFileCount": 565,
+    "exemptFileCount": 0,
+    "findingFileCount": 1,
+    "findingCount": 4,
+    "severity": { "error": 0, "warning": 4 },
+    "categories": { "customPixelBreakpoint": 4 }
+  },
+  "budgets": { "packages/design-system/src/patterns/app-shells/facets.tsx": { "customPixelBreakpoint": 4 } },
+  "inventory": [
+    {
+      "file": "packages/design-system/src/patterns/app-shells/facets.tsx",
+      "findings": [
+        {
+          "category": "customPixelBreakpoint",
+          "severity": "warning",
+          "line": 440,
+          "column": 24,
+          "detail": "min-[420px]:grid-cols-[minmax(0,1fr)_auto]"
+        },
+        {
+          "category": "customPixelBreakpoint",
+          "severity": "warning",
+          "line": 440,
+          "column": 24,
+          "detail": "min-[420px]:items-center"
+        },
+        {
+          "category": "customPixelBreakpoint",
+          "severity": "warning",
+          "line": 453,
+          "column": 26,
+          "detail": "min-[420px]:flex"
+        },
+        {
+          "category": "customPixelBreakpoint",
+          "severity": "warning",
+          "line": 453,
+          "column": 26,
+          "detail": "min-[420px]:items-center"
+        }
+      ]
+    }
+  ],
+  "exemptions": []
+}

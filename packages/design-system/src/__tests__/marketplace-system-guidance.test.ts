@@ -20,6 +20,13 @@ const marketplaceSystemGuidance = readFileSync(
 );
 
 describe("marketplace system guidance", () => {
+  it("documents responsive-safety enforcement", () => {
+    expect(marketplaceSystemGuidance).toContain("## Responsive Design Rules");
+    expect(marketplaceSystemGuidance).toContain("All functionality must remain available");
+    expect(marketplaceSystemGuidance).toContain("pnpm run check:responsive-safety");
+    expect(marketplaceSystemGuidance).toContain("RESPONSIVE_SAFETY.json");
+  });
+
   it("documents object-first item-detail rail actions", () => {
     expect(marketplaceSystemGuidance).toContain("Item detail should use an action accordion rail");
     expect(marketplaceSystemGuidance).toContain("Buy this listing");
