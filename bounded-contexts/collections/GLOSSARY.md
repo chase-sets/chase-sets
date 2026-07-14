@@ -72,6 +72,16 @@ Notes:
 
 **Estimate Coverage** states how many Saved List Lines and tracked units have a current eligible estimate, alongside missing, stale, and low-confidence counts.
 
+## Saved List Summary
+
+A **Saved List Summary** is the Collections-owned account read model for a Saved List's title, visibility, lifecycle, cover reference, line total, and Tracked Quantity total.
+
+Notes:
+
+- It is derived from Saved List events and can be rebuilt by replay.
+- Catalog display identity is joined from Collections' consumer-owned Catalog mirror; it is not copied into Saved List events.
+- It is private owner data. Public-safe projection and disclosure policy are separate behavior.
+
 ## Saved List Sharing
 
 **Saved List Sharing** governs who may view an active Saved List and independently controls whether the shared view reveals Tracked Quantity and Current Estimated Value.

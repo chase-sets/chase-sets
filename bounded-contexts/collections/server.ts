@@ -10,3 +10,4 @@ export * from "./features/saved-lists/api";
 export * from "./features/saved-lists/integrations/inventory-handoff";
 export * from "./features/saved-list-valuation/domain";
 export * from "./features/saved-list-valuation/api";
+export * from "./features/saved-lists/read-model";

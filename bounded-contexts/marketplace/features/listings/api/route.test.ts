@@ -122,6 +122,7 @@ function createServices(): MarketplaceListingServices {
       },
     ]),
     listSellerListings: vi.fn(async () => ({ items: [], total: 0 })),
+    getSellerListingStatusCounts: vi.fn(async () => ({ active: 2, draft: 1, paused: 3, withdrawn: 4 })),
     getSellerListingAvailability: vi.fn(async () => ({
       account_id: "acc_seller",
       status: "available",
@@ -651,10 +652,14 @@ describe("marketplace listing routes", () => {
       services,
     });
 
-    await app.fetch(
+    const response = await app.fetch(
       new Request("http://marketplace.test/account/listings?status=paused&search=Charizard&limit=25&offset=0"),
     );
 
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      statusCounts: { active: 2, draft: 1, paused: 3, withdrawn: 4 },
+    });
     expect(services.listSellerListings).toHaveBeenCalledWith({
       accountId: "acc_seller",
       limit: 25,
@@ -662,6 +667,7 @@ describe("marketplace listing routes", () => {
       status: "paused",
       search: "Charizard",
     });
+    expect(services.getSellerListingStatusCounts).toHaveBeenCalledWith("acc_seller");
 
     vi.mocked(services.listSellerListings).mockClear();
     await app.fetch(new Request("http://marketplace.test/account/listings?status=all"));

@@ -180,6 +180,7 @@ export const sourceContextWakeRegistry = [
       "catalog:catalog-source-observation-projection",
       "checkout:checkout-catalog-item-projection",
       "checkout:checkout-marketplace-listing-options-projection",
+      "collections:collections-catalog-product-projection",
       "discovery:discovery-category-projection",
       "discovery:discovery-google-shopping-feed-row-projection",
       "discovery:discovery-item-detail-projection",
@@ -237,12 +238,18 @@ export const sourceContextWakeRegistry = [
     rolloutWave: "wave-4-deferred-or-not-eligible",
     priorityLane: "standard",
     expectedEventVolume: "medium",
-    wakeStoreLoadEstimate: "low",
+    wakeStoreLoadEstimate: "medium",
     affectedProjectionNames: [
+      "collections:collections-saved-list-projection",
       "collections:collections-saved-list-valuation-projection",
       "collections:collections.saved-list-shared-page-projection",
     ],
-    routeDependencyIds: [],
+    routeDependencyIds: [
+      "collections.saved-list-bulk-to-detail",
+      "collections.saved-list-create-to-detail",
+      "collections.saved-list-detail-self-refresh",
+      "collections.saved-list-list-self-refresh",
+    ],
   }),
   registryEntry({
     sourceContextName: "commercial-terms",

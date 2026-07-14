@@ -4,7 +4,7 @@
 
 Collections owns Saved Lists: account-owned, ordered sets of exact Catalog Products kept for curation, tracking, sharing, copying, and later account workflows. A Saved List records intent, not stock or financial truth. My Collection may compose Saved Lists with Inventory-owned Owned Cards, but the customer surface does not move behavior between contexts.
 
-The context publishes the replay-stable Saved List aggregate and command contracts through `@chase-sets/collections/server`. The Saved List Inventory handoff snapshots selected owner lines into Inventory's review-first import. The valuation slice consumes those contracts and Pricing estimate facts without changing Saved List state or importing slice internals.
+The context publishes the replay-stable Saved List aggregate, command contracts, and owner read models through `@chase-sets/collections/server`. The Saved List Inventory handoff snapshots selected owner lines into Inventory's review-first import. The valuation slice consumes those contracts and Pricing estimate facts without changing Saved List state or importing slice internals.
 
 ## Owns
 
@@ -53,6 +53,16 @@ Collections terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - `collections.saved-list.line-changed`
 - `collections.saved-list.line-removed`
 - `collections.saved-list.line-reordered`
+
+## Read Models
+
+- `collections_saved_list_summaries` and `collections_saved_list_lines` replay Saved List events into owner-scoped summaries and deterministic line order.
+- `collections_catalog_*` mirrors display identity and Product-option labels from Catalog events. Collections queries join only these consumer-owned tables; they never read Catalog tables on the request path.
+- Account list queries use an immutable creation keyset and a captured creation-position fence. The cursor carries the original total and filter fingerprint so a page sequence stays stable while new Lists are created.
+- Missing, retired, and temporarily unavailable Products remain distinct display states. Catalog changes update the consumer mirror and never rewrite Saved List events.
+- Projection groups use owned-table truncation followed by source replay. Catalog and Collections subscriptions can replay in either order because enrichment is joined at read time.
+
+The authenticated query API is mounted at `/api/collections/saved-lists`. Its list response is a `saved-lists` module so My Collection can compose it beside Inventory-owned Overview and Owned Cards without copying Inventory rows into Collections.
 
 ## Invariants
 

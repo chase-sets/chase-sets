@@ -1,6 +1,6 @@
 # Push-First Projection Migration Inventory
 
-Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-07-13.
+Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-07-14.
 
 This is the migration report that classifies every projection group and every read-after-write route inventory entry into an explicit push-first disposition. The machine-readable source of truth is `@chase-sets/platform-runtime/projection-push-migration`, which derives every row below from the [source-context wake registry](./source-context-wake-registry.md) (#1245); registry tests pin that registry to `bounded-contexts/*/context.json`, and `projection-push-migration.test.ts` pins this document to the same inventory, so a new projection group or route entry fails CI until both are classified here.
 
@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (122)
+## Projection Groups (126)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -61,6 +61,8 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `checkout:checkout.sell-list-projection` | Checkout | **marketplace** | push-enabled | 1/1 |
 | `checkout:checkout.session-projection` | Checkout | **checkout** | push-enabled | 1/1 |
 | `collections:collections-saved-list-valuation-projection` | Collections | collections, pricing | push-eligible | 0/2 |
+| `collections:collections-catalog-product-projection` | Collections | **catalog** | push-enabled | 1/1 |
+| `collections:collections-saved-list-projection` | Collections | collections | push-eligible | 0/1 |
 | `collections:collections.saved-list-shared-page-projection` | Collections | collections | push-eligible | 0/1 |
 | `commercial-terms:commercial-terms-account-projection` | Commercial Terms | **identity** | push-enabled | 1/1 |
 | `commercial-terms:commercial-terms-founders-window-reaction` | Commercial Terms | **identity** | push-enabled | 1/1 |
@@ -162,9 +164,9 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations** | push-enabled | 2/2 |
 
-Totals: 101 `push-enabled`, 21 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 102 `push-enabled`, 24 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (71)
+## Read-After-Write Route Inventory (75)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -183,6 +185,10 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `checkout.session-payment-handoff` | checkout | critical | exact wait | push-accelerated |
 | `checkout.session-self-refresh` | checkout | critical | exact wait | push-accelerated |
 | `checkout.session-start-to-detail` | checkout | critical | exact wait | push-accelerated |
+| `collections.saved-list-bulk-to-detail` | collections | important | exact wait | deferred until wave 4 |
+| `collections.saved-list-create-to-detail` | collections | important | exact wait | deferred until wave 4 |
+| `collections.saved-list-detail-self-refresh` | collections | important | exact wait | deferred until wave 4 |
+| `collections.saved-list-list-self-refresh` | collections | important | exact wait | deferred until wave 4 |
 | `commercial-terms.account-agreement-create-to-list` | commercial-terms | important | exact wait | push-accelerated |
 | `commercial-terms.agreement-create-to-list` | commercial-terms | important | exact wait | push-accelerated |
 | `commercial-terms.agreement-update-to-detail` | commercial-terms | important | exact wait | push-accelerated |
@@ -250,7 +256,7 @@ Wave membership lives in the registry; this report records the enablement timeli
 - **Production follow** — production stays inert (`PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED=false`, `WORKER_PROJECTION_WAKE_RELAY_ENABLED=false`, `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED=false`) until the production gates pass: a green steady-state production proof canary per the #1237 miss analysis and hold-then-gate action set in the SLO/load-proof doc, plus #1243 topology parity evidence. Flipping is a deliberate operator decision via the [rollout-controls runbook](../runbooks/push-wake-rollout-controls.md), not a registry side effect.
 - **Wave 2 (`catalog`, `commercial-terms`, `fulfillment`, `identity`, `inventory`)** — `catalog` is staging-enabled for Source Observation import/review freshness and Catalog-sourced consumer projections; `commercial-terms` is staging-enabled for policy-revision-driven public-document review freshness; `identity` is staging-enabled and direct-listened for User presentation preference and account/security freshness; and `inventory` is staging-enabled and direct-listened for reservation outcome and supply freshness consumed by Ordering, Marketplace, Pricing, and Inventory. `fulfillment` remains eligible. The remaining high-volume contexts still need the listener/connection-budget expansion decision and wake-store capacity evidence (#1246 gates in the registry doc) before enablement.
 - **Wave 3 (`auth`, `customer-feedback`, `discovery`, `platform-operations`, `public-presence`, `settlement`)** — `settlement` is staging-enabled for seller payout-readiness freshness, `platform-operations` is staging-enabled for admin platform-feedback lifecycle freshness, and `public-presence` is staging-enabled for waitlist signup-to-admin-review freshness. Auth and Customer Feedback are eligible and follow wave 2 with owner approval. The Customer Feedback edge into the Notifications outbox is explicitly inventoried and remains partially push-eligible until every source context is enabled.
-- **Wave 4 (`authenticity`, `collections`, `experience`, `insights`, `notifications`, `pricing`, `tax`)** — deferred or not currently source-enabled. Collections registers its shared-page projection but remains relay-disabled until an owner-approved rollout.
+- **Wave 4 (`authenticity`, `collections`, `experience`, `insights`, `notifications`, `pricing`, `tax`)** — deferred or not currently source-enabled. Collections registers its owner-read and shared-page projections plus their exact read-after-write routes but remains relay-disabled until an owner-approved rollout.
 
 ## Documented Polling Exceptions
 

@@ -14,6 +14,7 @@ import type { SavedListInventoryImportBatchCreator } from "../../features/saved-
 import type { SavedListProductCatalog } from "../../features/saved-lists/domain/contracts";
 import { createSavedListValuationRuntime } from "../../features/saved-list-valuation/api/runtime";
 import type { SavedListCapabilityService } from "../../features/saved-lists/domain/sharing-contracts";
+import { createSavedListReadModelRuntime } from "../../features/saved-lists/read-model/runtime";
 import { buildSavedListSharedPageProjectionHandlers } from "../../features/saved-lists/read-model/shared-page-projection";
 import { loadSavedListSharedPage } from "../../features/saved-lists/read-model/shared-page-queries";
 
@@ -30,6 +31,7 @@ export type CollectionsServices = Readonly<{
   savedLists: ReturnType<typeof createSavedListRuntime>;
   savedListInventory: ReturnType<typeof createSavedListInventoryHandoff>;
   savedListValuation: ReturnType<typeof createSavedListValuationRuntime>;
+  savedListReadModels: ReturnType<typeof createSavedListReadModelRuntime>;
   savedListSharing: ReturnType<typeof createSavedListSharingRuntime>;
   savedListSharedAccess: ReturnType<typeof createSavedListSharedAccess>;
   projectors: readonly ProjectionHandlerSet[];
@@ -71,15 +73,16 @@ export function createCollectionsServices(
   pool: PgTransactionalPool,
   ports: CollectionsHostPorts = {},
 ): CollectionsServices {
+  const db = pool as PgQueryable;
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "collections" }),
   });
-  const db = pool as PgQueryable;
   const savedLists = createSavedListRuntime({
     eventStore,
     productCatalog: ports.savedListProductCatalog ?? unavailableProductCatalog,
   });
+  const savedListReadModels = createSavedListReadModelRuntime(db);
   const capabilities = ports.savedListCapabilities ?? unavailableCapabilities;
   const savedListSharing = createSavedListSharingRuntime({
     eventStore,
@@ -93,6 +96,7 @@ export function createCollectionsServices(
       inventoryImportBatchCreator: ports.inventorySavedListImportBatchCreator ?? unavailableInventoryImportBatchCreator,
     }),
     savedListValuation: createSavedListValuationRuntime(pool),
+    savedListReadModels,
     savedListSharing,
     savedListSharedAccess: createSavedListSharedAccess({
       sharedPages: { load: (listId) => loadSavedListSharedPage(db, listId) },
@@ -103,6 +107,7 @@ export function createCollectionsServices(
       abuseReports: ports.savedListAbuseReports ?? unavailableAbuseReports,
     }),
     projectors: [
+      ...savedListReadModels.projectors,
       createProjectionHandlerSet({
         projectionName: "collections.saved-list-shared-page-projection",
         handlers: buildSavedListSharedPageProjectionHandlers(db),

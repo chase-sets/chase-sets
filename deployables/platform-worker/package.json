@@ -23,6 +23,7 @@
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/catalog": "workspace:*",
     "@chase-sets/checkout": "workspace:*",
+    "@chase-sets/collections": "workspace:*",
     "@chase-sets/commercial-terms": "workspace:*",
     "@chase-sets/discovery": "workspace:*",
     "@chase-sets/easypost-postage": "workspace:*",
