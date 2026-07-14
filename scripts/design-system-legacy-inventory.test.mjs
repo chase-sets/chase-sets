@@ -214,6 +214,24 @@ export function WorkspacePage() {
     expect(entries[0].issueTargets).toEqual(["#1666"]);
   });
 
+  it("leaves pixel-valued dimension styles to the responsive-safety guard", async () => {
+    const rootDir = createRepo();
+    writeSource(
+      rootDir,
+      "bounded-contexts/example/features/workspace/ui/fixed-workspace-page.tsx",
+      `
+export function FixedWorkspacePage() {
+  return <div style={{ width: "500px", height: 300 }}>Workspace</div>;
+}
+`,
+    );
+
+    const entries = await collectDesignSystemLegacyInventory({ rootDir });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].categories).toEqual({ rawStructuralElement: 1 });
+  });
+
   it("does not flag sanctioned mount primitives or documented permanent structural exceptions", async () => {
     const rootDir = createRepo();
     writeSource(

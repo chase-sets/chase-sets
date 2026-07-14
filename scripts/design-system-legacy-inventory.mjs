@@ -311,6 +311,52 @@ function hasJsxAttribute(node, name) {
   return node.attributes.properties.some((property) => ts.isJsxAttribute(property) && property.name.text === name);
 }
 
+function jsxAttribute(node, name) {
+  return node.attributes.properties.find((property) => ts.isJsxAttribute(property) && property.name.text === name);
+}
+
+const responsiveDimensionStyleKeys = new Set(["width", "height", "minWidth", "maxWidth"]);
+
+function propertyNameText(name) {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+  return null;
+}
+
+function isPixelStyleValue(node) {
+  if (ts.isNumericLiteral(node)) return Number(node.text) !== 0;
+  if (
+    ts.isPrefixUnaryExpression(node) &&
+    (node.operator === ts.SyntaxKind.MinusToken || node.operator === ts.SyntaxKind.PlusToken) &&
+    ts.isNumericLiteral(node.operand)
+  ) {
+    return Number(node.operand.text) !== 0;
+  }
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return /^[-+]?(?:\d+(?:\.\d+)?|\.\d+)px$/i.test(node.text.trim());
+  }
+  return false;
+}
+
+/**
+ * Responsive safety owns pixel-valued dimension styles so the legacy inventory
+ * does not report the same JSX style attribute a second time.
+ */
+export function inlineStyleHasPixelDimension(node) {
+  if (!ts.isJsxOpeningElement(node) && !ts.isJsxSelfClosingElement(node)) return false;
+  const attribute = jsxAttribute(node, "style");
+  if (!attribute || !ts.isJsxAttribute(attribute) || !attribute.initializer) return false;
+  if (!ts.isJsxExpression(attribute.initializer) || !attribute.initializer.expression) return false;
+
+  const expression = attribute.initializer.expression;
+  if (!ts.isObjectLiteralExpression(expression)) return false;
+
+  return expression.properties.some((property) => {
+    if (!ts.isPropertyAssignment(property)) return false;
+    const name = propertyNameText(property.name);
+    return name !== null && responsiveDimensionStyleKeys.has(name) && isPixelStyleValue(property.initializer);
+  });
+}
+
 export function rawClassNameJsxElementFinding(sourceFile, node) {
   if (!ts.isJsxOpeningElement(node) && !ts.isJsxSelfClosingElement(node)) return null;
   if (!hasJsxAttribute(node, "className")) return null;
@@ -487,6 +533,7 @@ function collectFileInventory(filePath, rootDir) {
       if (
         isFeatureUiFile(relativeFile) &&
         hasJsxAttribute(node, "style") &&
+        !inlineStyleHasPixelDimension(node) &&
         !isInlineStyleAllowed(relativeFile, tagName, sourceFile, node)
       ) {
         addFinding(fileResult, sourceFile, node.tagName, "inlineStyle", tagName ?? "member JSX tag");

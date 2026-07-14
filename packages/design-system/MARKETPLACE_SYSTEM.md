@@ -20,6 +20,12 @@ Design for accounts that can both buy and sell. Buyer and seller labels are cont
 6. Accessibility before aesthetics.
 7. Conversion through confidence, not pressure.
 
+## Responsive Design Rules
+
+All functionality must remain available on every supported form factor. Compose layouts from design-system primitives and token breakpoints (`sm`, `md`, `lg`, `xl`, and `2xl`); do not introduce fixed pixel dimensions, custom pixel breakpoints, or hide interactive functionality without a responsive counterpart. Deliberate fixed-format contracts such as print layouts require a leading `@responsive-exempt <reason>` comment.
+
+`pnpm run check:responsive-safety` machine-enforces these rules with the ratcheted [`RESPONSIVE_SAFETY.json`](./RESPONSIVE_SAFETY.json) ledger. The check runs through `verify:static` in scope-gated CI for every pull request that touches production UI paths.
+
 ## Visual Language
 
 The system uses polished utility: IBM Plex Sans, neutral surfaces, high contrast type, restrained borders, calm shadows, and one dominant marketplace-blue primary action. Teal is reserved for trust and protection, amber for ratings, deals, and warnings, red for destructive or error states, and neutral surfaces for most UI.
