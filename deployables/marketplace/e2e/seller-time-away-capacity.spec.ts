@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { signInThroughMarketplaceForm } from "./support/auth";
-import { marketplaceBrowserE2eBuyerCredentials } from "./support/seed-contract";
+import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
 // Charter scope: this spec drives the m127 "Time away & order capacity" card
 // end to end through the real seller listings workspace and the
@@ -11,8 +11,9 @@ import { marketplaceBrowserE2eBuyerCredentials } from "./support/seed-contract";
 // browser round-trip: SSR of the single card, the post/redirect/fresh-read
 // cycle for each seller control, and the DS form wiring.
 //
-// The seeded account both buys and sells (accounts are encouraged to do both),
-// so the buyer seed credentials reach /account/listings with seller controls.
+// The verified seeded seller can both buy and sell (accounts are encouraged to
+// do both). The unverified buyer fixture intentionally cannot use restricted
+// listings.manage mutations, so this seller-management charter must not use it.
 //
 // CI lane: tagged @marketplace-account so the change-scope account suite runs
 // it. Playwright auto-discovers this file via the marketplace testMatch glob.
@@ -24,7 +25,7 @@ test.describe("marketplace seller time away & order capacity", () => {
     test.setTimeout(120_000);
 
     await page.goto("/sign-in?returnTo=%2Faccount%2Flistings", { waitUntil: "domcontentloaded" });
-    await signInThroughMarketplaceForm(page, marketplaceBrowserE2eBuyerCredentials());
+    await signInThroughMarketplaceForm(page, marketplaceBrowserE2eSellerCredentials());
     await expect(page).toHaveURL(/\/account\/listings(?:\?|$)/);
 
     // The single settings surface renders as one card under its section title.

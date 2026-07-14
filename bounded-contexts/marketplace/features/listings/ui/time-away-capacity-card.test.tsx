@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { TimeAwayCapacityCard, type TimeAwayCapacitySnapshot } from "./time-away-capacity-card";
 import type { MarketplaceSellerListingAvailability, MarketplaceSellerOrderCapacity } from "./contracts";
@@ -63,6 +63,28 @@ describe("TimeAwayCapacityCard states", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Schedule away window" })).toBeTruthy();
     expect(screen.getByText("No cap set — you'll accept unlimited open orders.")).toBeTruthy();
+  });
+
+  it("populates seller-local away-window instants from the submitted date fields", () => {
+    render(<TimeAwayCapacityCard {...snapshot()} />);
+
+    const submit = screen.getByRole("button", { name: "Schedule away window" });
+    const form = submit.closest("form");
+    expect(form).not.toBeNull();
+
+    const startsOn = form?.elements.namedItem("awayWindowStartsOn") as HTMLInputElement;
+    const endsOn = form?.elements.namedItem("awayWindowEndsOn") as HTMLInputElement;
+    const startsAt = form?.elements.namedItem("awayWindowStartsAt") as HTMLInputElement;
+    const endsAt = form?.elements.namedItem("awayWindowEndsAt") as HTMLInputElement;
+
+    // Assign the DOM values directly to cover a user filling the SSR form
+    // before React has attached change handlers.
+    startsOn.value = "2026-08-01";
+    endsOn.value = "2026-08-10";
+    fireEvent.submit(form as HTMLFormElement);
+
+    expect(startsAt.value).toBe(new Date("2026-08-01T00:00:00").toISOString());
+    expect(endsAt.value).toBe(new Date("2026-08-10T00:00:00").toISOString());
   });
 
   // State 2: away-with-date -- the scheduled-restore notice makes the

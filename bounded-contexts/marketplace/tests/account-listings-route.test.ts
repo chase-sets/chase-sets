@@ -165,4 +165,84 @@ describe("account listings route", () => {
       statusCounts: { active: 0, draft: 0, paused: 0, withdrawn: 0 },
     });
   });
+
+  it("recovers a scheduled away window from stale reads when its fresh read times out", async () => {
+    const projectionTimeout = new MarketplaceApiError(503, {
+      error: {
+        code: "projection_freshness_timeout",
+        message: "Projection freshness timed out.",
+      },
+    });
+    mockResolveRequiredActorFromAuthApi.mockResolvedValue({
+      kind: "authorized",
+      actor: {
+        accountId: "acc_seller",
+        permissions: ["listings.view", "listings.manage"],
+      },
+    });
+    mockCreateMarketplaceRequestApiClient
+      .mockReturnValueOnce({
+        listSellerListings: vi.fn().mockRejectedValue(projectionTimeout),
+        listSellerListingFeeLockReport: vi.fn().mockRejectedValue(projectionTimeout),
+        getSellerListingAvailability: vi.fn().mockRejectedValue(projectionTimeout),
+        getSellerOrderCapacity: vi.fn().mockRejectedValue(projectionTimeout),
+      })
+      .mockReturnValueOnce({
+        listSellerListings: vi.fn().mockResolvedValue({
+          items: [],
+          total: 0,
+          count: 0,
+          limit: 100,
+          offset: 0,
+          statusCounts: { active: 0, draft: 0, paused: 0, withdrawn: 0 },
+        }),
+        listSellerListingFeeLockReport: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+        getSellerListingAvailability: vi.fn().mockResolvedValue({
+          account_id: "acc_seller",
+          status: "available",
+          disabled_reason_category: null,
+          available_again_on: null,
+          available_again_at: null,
+          disabled_at: null,
+          enabled_at: "2026-07-01T00:00:00.000Z",
+          away_window_starts_at: null,
+          away_window_ends_at: null,
+          away_window_reason_category: null,
+          updated_at: "2026-07-01T00:00:00.000Z",
+        }),
+        getSellerOrderCapacity: vi.fn().mockResolvedValue({
+          account_id: "acc_seller",
+          max_open_orders: null,
+          updated_at: "2026-07-01T00:00:00.000Z",
+        }),
+      });
+
+    const destination =
+      "/account/listings?settingsAction=schedule-away-window" +
+      "&awayWindowReasonCategory=travel" +
+      "&awayWindowStartsAt=2026-08-01T05%3A00%3A00.000Z" +
+      "&awayWindowEndsAt=2026-08-10T05%3A00%3A00.000Z";
+    const path = appendFreshWriteToken(destination, {
+      commitPositions: [
+        {
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "53",
+          eventIds: ["evt_marketplace_53"],
+        },
+      ],
+      commitEventIds: ["evt_marketplace_53"],
+    });
+
+    const result = await loader({
+      request: new Request(`http://localhost${path}`),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(result.listingAvailability).toMatchObject({
+      away_window_starts_at: "2026-08-01T05:00:00.000Z",
+      away_window_ends_at: "2026-08-10T05:00:00.000Z",
+      away_window_reason_category: "travel",
+    });
+  });
 });

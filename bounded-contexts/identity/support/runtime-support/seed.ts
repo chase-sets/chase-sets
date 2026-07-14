@@ -7,6 +7,7 @@ import { provisionAdminQaActorFixtures } from "./admin-qa-actor-fixtures";
 import type { AccountId, ConsentId, MembershipId, ShippingAddressId, UserId } from "@chase-sets/primitives/typed-ids";
 
 const DEMO_CONTACT_METHOD_ID = "ctm_seed_demo_sms";
+const DEMO_PRIMARY_EMAIL_CONTACT_METHOD_ID = "ctm_seed_demo_email";
 const DEMO_PASSKEY_ID = "crd_seed_demo_passkey";
 const SUPPORT_CONTACT_METHOD_ID = "ctm_seed_support_email";
 const DEMO_PRIMARY_KEY_PREFIX = "sk_seed_demo_primary";
@@ -382,6 +383,12 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
       userId: demo.userId,
       displayName: "Demo Account",
       primaryEmail: "demo@chasesets.test",
+      primaryContactMethod: {
+        contactMethodId: DEMO_PRIMARY_EMAIL_CONTACT_METHOD_ID,
+        type: "email",
+        value: "demo@chasesets.test",
+        verifiedAt: isoDate("2026-03-01T09:00:00.000Z"),
+      },
       givenName: "Demo",
       familyName: "Account",
     },

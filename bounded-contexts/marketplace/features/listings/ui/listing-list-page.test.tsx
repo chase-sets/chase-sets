@@ -230,6 +230,7 @@ describe("marketplace listings workbench", () => {
 
     const dateInput = screen.getByLabelText("Available again on") as HTMLInputElement;
     fireEvent.change(dateInput, { target: { value: "2026-07-20" } });
+    fireEvent.submit(dateInput.closest("form") as HTMLFormElement);
 
     const hiddenInstant = container.querySelector(
       'input[type="hidden"][name="availableAgainAt"]',
@@ -247,12 +248,17 @@ describe("marketplace listings workbench", () => {
     );
 
     const dateInput = screen.getByLabelText("Available again on") as HTMLInputElement;
-    fireEvent.change(dateInput, { target: { value: "2026-07-20" } });
-    fireEvent.change(dateInput, { target: { value: "" } });
-
+    const form = dateInput.closest("form") as HTMLFormElement;
     const hiddenInstant = container.querySelector(
       'input[type="hidden"][name="availableAgainAt"]',
     ) as HTMLInputElement | null;
+
+    fireEvent.change(dateInput, { target: { value: "2026-07-20" } });
+    fireEvent.submit(form);
+    expect(hiddenInstant?.value).toBe(new Date("2026-07-20T00:00:00").toISOString());
+
+    fireEvent.change(dateInput, { target: { value: "" } });
+    fireEvent.submit(form);
     expect(hiddenInstant?.value).toBe("");
   });
 

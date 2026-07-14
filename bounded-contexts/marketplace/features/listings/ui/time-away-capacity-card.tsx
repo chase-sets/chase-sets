@@ -1,5 +1,5 @@
 import { formatDateTime, t } from "@chase-sets/localization";
-import { useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   Badge,
   Button,
@@ -55,8 +55,8 @@ function availabilityReasonLabel(reason: string | null) {
 // timezone server-side, so the date `<input>` is converted here, in the
 // browser, using the seller's own local clock -- "back on July 20" means
 // listings resume the morning of the 20th in the seller's own timezone. This
-// only ever runs from a real `onChange` event, so it never executes during
-// server rendering (where "local" would mean the server's timezone).
+// only ever runs from a hydrated browser form submission, so it never executes
+// during server rendering (where "local" would mean the server's timezone).
 function localDateInputToInstant(value: string): string {
   if (!value) {
     return "";
@@ -64,6 +64,35 @@ function localDateInputToInstant(value: string): string {
 
   const localMidnight = new Date(`${value}T00:00:00`);
   return Number.isNaN(localMidnight.valueOf()) ? "" : localMidnight.toISOString();
+}
+
+type LocalDateInstantField = Readonly<{
+  dateFieldName: string;
+  instantFieldName: string;
+}>;
+
+function populateLocalDateInstants(
+  event: FormEvent<HTMLFormElement>,
+  fields: readonly LocalDateInstantField[],
+): void {
+  for (const { dateFieldName, instantFieldName } of fields) {
+    const dateField = event.currentTarget.elements.namedItem(dateFieldName);
+    const instantField = event.currentTarget.elements.namedItem(instantFieldName);
+
+    if (dateField instanceof HTMLInputElement && instantField instanceof HTMLInputElement) {
+      instantField.value = localDateInputToInstant(dateField.value);
+    }
+  }
+}
+
+function useFormHydrated(): boolean {
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  return isHydrated;
 }
 
 function reasonItems() {
@@ -77,7 +106,7 @@ function reasonItems() {
 }
 
 function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapacitySnapshot) {
-  const [availableAgainAt, setAvailableAgainAt] = useState("");
+  const isFormHydrated = useFormHydrated();
   const isAvailable = availability.status === "available";
 
   return (
@@ -132,7 +161,15 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
             </Form>
           )}
         </Stack>
-        <Form spacing="none" method="post">
+        <Form
+          spacing="none"
+          method="post"
+          onSubmit={(event) =>
+            populateLocalDateInstants(event, [
+              { dateFieldName: "availableAgainOn", instantFieldName: "availableAgainAt" },
+            ])
+          }
+        >
           <Stack gap={3}>
             <Grid columns={{ base: 1, md: 2 }} gap={3}>
               <NativeSelect
@@ -146,12 +183,17 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
                 name="availableAgainOn"
                 type="date"
                 defaultValue={availability.available_again_on ?? undefined}
-                onChange={(changeEvent) => setAvailableAgainAt(localDateInputToInstant(changeEvent.target.value))}
               />
             </Grid>
-            <HiddenInput type="hidden" name="availableAgainAt" value={availableAgainAt} />
+            <HiddenInput type="hidden" name="availableAgainAt" defaultValue="" />
             <Inline>
-              <Button type="submit" name="intent" value="disable-listing-availability" tone="secondary">
+              <Button
+                type="submit"
+                name="intent"
+                value="disable-listing-availability"
+                tone="secondary"
+                disabled={!isFormHydrated}
+              >
                 {isAvailable
                   ? t("marketplace.features.listings.ui.listingListPage.turn.off.listings")
                   : t("marketplace.features.listings.ui.listingListPage.update.away.settings")}
@@ -165,8 +207,7 @@ function AvailabilitySection({ availability, activeListingCount }: TimeAwayCapac
 }
 
 function AwayWindowSection({ availability }: TimeAwayCapacitySnapshot) {
-  const [awayWindowStartsAt, setAwayWindowStartsAt] = useState("");
-  const [awayWindowEndsAt, setAwayWindowEndsAt] = useState("");
+  const isFormHydrated = useFormHydrated();
 
   return (
     <Stack gap={3}>
@@ -203,7 +244,16 @@ function AwayWindowSection({ availability }: TimeAwayCapacitySnapshot) {
           </Form>
         </Stack>
       ) : availability.status === "available" ? (
-        <Form spacing="none" method="post">
+        <Form
+          spacing="none"
+          method="post"
+          onSubmit={(event) =>
+            populateLocalDateInstants(event, [
+              { dateFieldName: "awayWindowStartsOn", instantFieldName: "awayWindowStartsAt" },
+              { dateFieldName: "awayWindowEndsOn", instantFieldName: "awayWindowEndsAt" },
+            ])
+          }
+        >
           <Stack gap={3}>
             <Text tone="secondary">
               {t("marketplace.features.listings.ui.listingListPage.away.window.description")}
@@ -219,19 +269,23 @@ function AwayWindowSection({ availability }: TimeAwayCapacitySnapshot) {
                 label={t("marketplace.features.listings.ui.listingListPage.away.window.starts.on")}
                 name="awayWindowStartsOn"
                 type="date"
-                onChange={(changeEvent) => setAwayWindowStartsAt(localDateInputToInstant(changeEvent.target.value))}
               />
               <TextInput
                 label={t("marketplace.features.listings.ui.listingListPage.away.window.ends.on")}
                 name="awayWindowEndsOn"
                 type="date"
-                onChange={(changeEvent) => setAwayWindowEndsAt(localDateInputToInstant(changeEvent.target.value))}
               />
             </Grid>
-            <HiddenInput type="hidden" name="awayWindowStartsAt" value={awayWindowStartsAt} />
-            <HiddenInput type="hidden" name="awayWindowEndsAt" value={awayWindowEndsAt} />
+            <HiddenInput type="hidden" name="awayWindowStartsAt" defaultValue="" />
+            <HiddenInput type="hidden" name="awayWindowEndsAt" defaultValue="" />
             <Inline>
-              <Button type="submit" name="intent" value="schedule-away-window" tone="secondary">
+              <Button
+                type="submit"
+                name="intent"
+                value="schedule-away-window"
+                tone="secondary"
+                disabled={!isFormHydrated}
+              >
                 {t("marketplace.features.listings.ui.listingListPage.schedule.away.window")}
               </Button>
             </Inline>

@@ -81,8 +81,9 @@ describe("marketplace root layout", () => {
     vi.unstubAllGlobals();
   });
 
-  it("falls back to a safe origin when loader data is unavailable", () => {
+  it("falls back to a safe client layout when loader data is unavailable", () => {
     mockUseLoaderData.mockReturnValue(undefined);
+    vi.stubGlobal("process", undefined);
 
     const html = renderToString(
       <Layout>
@@ -95,6 +96,7 @@ describe("marketplace root layout", () => {
     expect(html).toContain('rel="manifest" href="/manifest.webmanifest"');
     expect(html).toContain('rel="icon" href="/favicon.svg"');
     expect(html).toContain('rel="alternate icon" href="/favicon.ico"');
+    expect(html).toContain('name="robots" content="noindex,nofollow"');
     expect(html).toContain("Marketplace Search");
   });
 
