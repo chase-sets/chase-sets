@@ -565,7 +565,6 @@ locals {
     "checkout",
     "collections",
     "commercial-terms",
-    "customer-feedback",
     "control",
     "customer-feedback",
     "discovery",
