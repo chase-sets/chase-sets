@@ -563,6 +563,12 @@ resource "digitalocean_app" "platform" {
       }
 
       env {
+        key   = "CHASE_SETS_M86_DEVELOPER_PORTAL_READY"
+        value = tostring(var.m86_developer_portal_ready)
+        scope = "RUN_TIME"
+      }
+
+      env {
         key   = "CHASE_SETS_DISCORD_INVITE_URL"
         value = var.discord_invite_url
         type  = "SECRET"

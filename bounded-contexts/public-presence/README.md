@@ -9,6 +9,7 @@ Public Presence owns Chase Sets public product pages, prelaunch policy surfaces,
 - Public product pages
 - Prelaunch policy surfaces
 - Public help articles and their category taxonomy
+- Gated developer articles, MCP catalog rendering, and agent-readable documentation manifests
 - Waitlist capture and waitlist entries
 - Beta wave policy, cohort selection, and waitlist admission
 - Internal waitlist review
@@ -41,6 +42,8 @@ Public Presence terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 Public Presence does publish one build-time contract rather than an event: the Help Article compiler derives `@chase-sets/public-docs` article-to-policy citations from canonical frontmatter for Platform Operations' policy-revision review queue.
 
+Developer Articles are a separate, readiness-gated corpus. Their compiler generates a typed article manifest and the MCP tool catalog directly from platform-runtime descriptors. Developer copy never enters the consumer `publicHelpArticles` export.
+
 ## Invariants
 
 1. A Waitlist Signup id is derived deterministically from the normalized email address, so a repeat submission from the same email updates the existing signup instead of creating a duplicate.
@@ -62,4 +65,5 @@ The marketplace and admin deployables only compose routes from this context. Pro
 - [Landing page analytics](docs/landing-page-analytics.md)
 - [Beta wave exposure runbook](../../docs/runbooks/beta-wave-exposure.md)
 - [Help article contract](docs/help-article-contract.md)
+- [Developer article contract](docs/developer-article-contract.md)
 - [Seller migration and bulk-listing proof walkthrough](docs/seller-migration-bulk-listing-proof.md)

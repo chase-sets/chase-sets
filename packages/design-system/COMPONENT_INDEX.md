@@ -294,7 +294,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Spacer` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Spacer. | `No production consumer yet.` |
 | `Sparkline` | `packages/design-system/src/components/data-display/chart.tsx` | Purpose not documented; symbol name suggests: Sparkline. | `No production consumer yet.` |
 | `SpecificationList` | `packages/design-system/src/components/commerce/detail.tsx` | Purpose not documented; symbol name suggests: Specification List. | `bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx` |
-| `SplitPane` | `packages/design-system/src/patterns/app-shells/page-layouts.tsx` | Purpose not documented; symbol name suggests: Split Pane. | `bounded-contexts/public-presence/features/help/ui/help-pages.tsx` |
+| `SplitPane` | `packages/design-system/src/patterns/app-shells/page-layouts.tsx` | Purpose not documented; symbol name suggests: Split Pane. | `bounded-contexts/public-presence/features/developer-portal/ui/developer-pages.tsx` |
 | `Stack` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Stack. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
 | `Stagger` | `packages/design-system/src/motion/primitives.tsx` | Purpose not documented; symbol name suggests: Stagger. | `No production consumer yet.` |
 | `Stat` | `packages/design-system/src/components/data-display/stat.tsx` | Purpose not documented; symbol name suggests: Stat. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/alias-review/alias-review-workspace.tsx` |

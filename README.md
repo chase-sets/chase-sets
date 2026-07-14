@@ -64,7 +64,7 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 - `payments` ([README](bounded-contexts/payments/README.md), `@chase-sets/payments`): owned nouns `payment`, `refund`.
 - `platform-operations` ([README](bounded-contexts/platform-operations/README.md), `@chase-sets/platform-operations`): owned nouns `projection-operation`, `platform-operation-attention`, `sales-performance-kpi`, `fulfillment-latency-kpi`, `conversion-order-kpi`, `dashboard-read-model`, `ops-dashboard`, `gmv-reconciliation-run`, `offer-economics-summary`, `platform-feedback`, `platform-feedback-prompt`, `public-doc-article-review`, `rate-limit-policy`, `reported-content`, `risk-alert`, `support-request`.
 - `pricing` ([README](bounded-contexts/pricing/README.md), `@chase-sets/pricing`): owned nouns `market-price-snapshot`, `price-recommendation`, `price-signal`, `trades-tape`, `daily-product-rollup`, `platform-daily-rollup`, `gross-merchandise-value`, `market-state-snapshot`, `repricing-policy`, `repricing-policy-assignment`, `bulk-reprice-job`.
-- `public-presence` ([README](bounded-contexts/public-presence/README.md), `@chase-sets/public-presence`): owned nouns `public-presence`, `waitlist-signup`, `promo-bar-message`, `help-article`, `help-category`.
+- `public-presence` ([README](bounded-contexts/public-presence/README.md), `@chase-sets/public-presence`): owned nouns `public-presence`, `waitlist-signup`, `promo-bar-message`, `help-article`, `help-category`, `developer-article`.
 - `settlement` ([README](bounded-contexts/settlement/README.md), `@chase-sets/settlement`): owned nouns `wallet`, `wallet-adjustment`, `payout`, `payout-readiness`, `ledger-entry`.
 
 ## Deployables
