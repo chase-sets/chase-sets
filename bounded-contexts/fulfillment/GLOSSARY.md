@@ -94,6 +94,45 @@ Notes:
 - The window closes when packing starts.
 - After the cutoff, buyer cancellation requests use Support instead of direct cancellation.
 
+## Return Shipment
+
+A **Return Shipment** is the buyer-to-platform reverse movement that routes an item from a buyer directly to a platform-controlled facility when a support resolution requires platform custody, inspection, or recovery.
+
+Notes:
+
+- A Return Shipment is a distinct aggregate with its own identity, origin, destination, label, tracking, custody milestones, deadlines, exceptions, and cost payer.
+- It is not the outbound Shipment's terminal `returned` state. Overloading the outbound Shipment would blur its invariants.
+- Creation is idempotent by remedy and return directive; reusing a stream for a different remedy or directive is rejected.
+- `Delivered` (the carrier handed the parcel to the facility address) and `Received` (the facility acknowledged intake) remain separate facts.
+
+## Return Destination Directory
+
+A **Return Destination Directory** is the Fulfillment-owned, typed and validated configuration of active platform return facilities a Return Shipment can be routed to.
+
+Notes:
+
+- Selection is deterministic and policy-versioned, with an explicit no-eligible-facility result.
+- Operational contact and internal routing metadata are restricted to authorized consumers and never placed on broadly consumed contracts.
+- Reverse logistics is generic Fulfillment behavior; the directory does not move ownership into Authenticity.
+
+## Return Destination Snapshot
+
+A **Return Destination Snapshot** is the immutable, label-safe destination captured onto a Return Shipment when a facility is selected.
+
+Notes:
+
+- It carries the postal address needed to create a label plus display-safe copy and the facility id and configuration version for audit.
+- It excludes facility secrets, so later directory configuration changes never rewrite history.
+
+## Facility Intake
+
+**Facility Intake** is the platform-facility workflow that acknowledges receipt of a Return Shipment, distinct from carrier delivery.
+
+Notes:
+
+- Intake establishes platform custody; carrier `Delivered` alone does not.
+- Discrepancy evidence and chain-of-custody detail are added by later reverse-logistics work.
+
 ## Planned Multi-Location Fulfillment
 
 These planned terms pre-register upcoming multi-location fulfillment language. They are not shipped behavior until Fulfillment adds the corresponding assignment, packing, handoff, and shipment execution facts.

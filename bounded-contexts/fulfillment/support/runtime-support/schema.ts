@@ -5,12 +5,20 @@ import {
   fulfillmentShipmentSchemaMigrations,
   fulfillmentShipmentSchemaSql,
 } from "../../features/shipments/read-model/schema";
+import {
+  fulfillmentReturnShipmentSchemaMigrations,
+  fulfillmentReturnShipmentSchemaSql,
+} from "../../features/return-shipments/read-model/schema";
 
 export const fulfillmentSchemaSql = [
   eventCorePostgresSchemaSql,
   notificationOutboxSchemaSql,
   fulfillmentSourceProjectionSchemaSql,
   fulfillmentShipmentSchemaSql,
+  fulfillmentReturnShipmentSchemaSql,
 ].join("\n\n");
 
-export const fulfillmentSchemaMigrations = [...fulfillmentShipmentSchemaMigrations] as const;
+export const fulfillmentSchemaMigrations = [
+  ...fulfillmentShipmentSchemaMigrations,
+  ...fulfillmentReturnShipmentSchemaMigrations,
+] as const;

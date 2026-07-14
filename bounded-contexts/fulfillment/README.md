@@ -17,6 +17,9 @@ Fulfillment owns the physical execution of shipping and delivery.
 - Dispatch and in-transit status
 - Delivery, loss, return, and exception handling
 - Shipment cancellation before package preparation
+- Return Shipment (buyer-to-platform reverse movement) aggregate and read models
+- Platform return-facility destination directory and immutable destination snapshots
+- Reverse-shipment custody milestones, deadlines, and carrier exceptions
 
 ## Does Not Own
 
@@ -36,6 +39,7 @@ Buyer self-service purchase cancellation cutoff policy is documented in [Purchas
 - Shipment
 - Package
 - Fulfillment Exception
+- Return Shipment
 
 ## Incoming Dependencies
 
@@ -56,6 +60,15 @@ Postage provider configuration and label smoke checks live in [Postage Operation
 - `ShipmentDelivered`
 - `ShipmentReturned`
 - `ShipmentExceptionRaised`
+- `fulfillment.return-shipment.requested.v1`
+- `fulfillment.return-shipment.label-ready.v1`
+- `fulfillment.return-shipment.carrier-accepted.v1`
+- `fulfillment.return-shipment.in-transit-recorded.v1`
+- `fulfillment.return-shipment.delivered.v1`
+- `fulfillment.return-shipment.received.v1`
+- `fulfillment.return-shipment.cancelled.v1`
+- `fulfillment.return-shipment.expired.v1`
+- `fulfillment.return-shipment.exception-raised.v1`
 
 ## Invariants
 
@@ -75,10 +88,30 @@ For platform-covered resolutions (epic #5210), Fulfillment owns any buyer-to-pla
 reverse shipment and its physical delivery/intake facts (`returnShipmentId`); those
 facts gate the `delivered` and `facility-intake` refund triggers a remedy may choose.
 The existing `ShipmentReturned` terminal state is the outbound shipment reaching
-"returned" — it is **not** a reverse shipment. The reverse-logistics model and its
-intake facts are delivered by the sibling epic #5211; this context publishes those facts
-and consumes none of the coverage facts. Ownership and the refund-trigger contract are
+"returned" — it is **not** a reverse shipment. Ownership and the refund-trigger contract are
 ratified in [ADR 0022: Platform-Covered Resolution Ownership and Contracts](../../docs/adr/0022-platform-covered-resolution-contracts.md).
+
+## Return Shipment (buyer-to-platform reverse logistics)
+
+The `return-shipments` slice owns a dedicated, event-sourced **Return Shipment**
+aggregate for buyer-to-platform reverse movements, kept separate from the outbound
+`Shipment` on purpose: a reverse movement has its own origin, destination, label,
+tracking, custody milestones, deadlines, cost payer, and exception paths, so
+overloading the outbound aggregate would blur its invariants and make retries,
+claims, and reconciliation unsafe. The `fulfillment.shipment.returned` state stays
+exactly what it is — an outbound shipment turned back to the seller — and its tests
+are unchanged.
+
+The slice also owns a typed platform return-facility destination directory with
+deterministic, policy-versioned selection and an explicit no-eligible-facility
+result. The chosen facility is captured as an immutable destination snapshot on the
+`requested` fact, so later directory changes never rewrite history, and facility
+secrets never reach the event log or the customer read model. Customer-safe and
+operator read models are projected separately, so protected facility and party
+metadata cannot leak to buyers by construction. The design is recorded in
+[ADR 0023: ReturnShipment Aggregate and Platform Return-Facility Directory](../../docs/adr/0023-return-shipment-aggregate.md).
+Label purchase, tracking ingestion, refund release, and facility intake evidence
+are delivered by sibling leaves that build on this foundation.
 
 ## Open Extraction Candidates
 

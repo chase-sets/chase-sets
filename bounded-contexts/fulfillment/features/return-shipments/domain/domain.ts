@@ -1,0 +1,714 @@
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import { assertReturnDirective } from "@chase-sets/primitives/platform-coverage";
+import type {
+  OrderId,
+  RemedyId,
+  ReturnShipmentId,
+  ShipmentId,
+  SupportRequestId,
+} from "@chase-sets/primitives/typed-ids";
+import { normalizeReturnDestinationSnapshot, type ReturnDestinationSnapshot } from "./facility-directory";
+import {
+  assert,
+  assertNever,
+  ensureIsoTimestamp,
+  isTerminalReturnShipmentStatus,
+  normalizeOptionalText,
+  normalizeRequiredText,
+  normalizeReturnShipmentCostPayer,
+  normalizeReturnShipmentExceptionType,
+  returnShipmentDeliveryStageRank,
+  type ReturnShipmentCostPayer,
+  type ReturnShipmentExceptionType,
+  type ReturnShipmentLabelStatus,
+  type ReturnShipmentStatus,
+} from "./common";
+
+/** Parcel the buyer must send back. Snapshotted so facility-fit is auditable independent of the outbound package. */
+export type ReturnShipmentPackageRequirements = Readonly<{
+  weightOunces: number;
+  lengthInches: number;
+  widthInches: number;
+  heightInches: number;
+}>;
+
+/** One custody/status milestone on the reverse-shipment timeline. */
+export type ReturnShipmentMilestone = Readonly<{
+  status: ReturnShipmentStatus;
+  occurredAt: string;
+  detail: string | null;
+}>;
+
+export type ReturnShipmentException = Readonly<{
+  exceptionType: ReturnShipmentExceptionType;
+  notes: string | null;
+  raisedAt: string;
+}>;
+
+/** Cross-cutting evidence metadata carried on every reverse-shipment fact. The acting operator is the event envelope's audit block, not duplicated here. */
+export type ReturnShipmentFactMetadata = Readonly<{
+  correlationRemedyId: RemedyId;
+  causationId: string | null;
+  idempotencyKey: string;
+  policyVersion: string;
+}>;
+
+export type ReturnShipmentState = Readonly<{
+  returnShipmentId: ReturnShipmentId | null;
+  remedyId: RemedyId | null;
+  supportRequestId: SupportRequestId | null;
+  orderId: OrderId | null;
+  outboundShipmentId: ShipmentId | null;
+  returnDirective: string | null;
+  shipFromSnapshot: AddressSnapshot | null;
+  destinationSnapshot: ReturnDestinationSnapshot | null;
+  packageRequirements: ReturnShipmentPackageRequirements | null;
+  labelStatus: ReturnShipmentLabelStatus | null;
+  labelProviderReference: string | null;
+  trackingIdentifier: string | null;
+  carrierName: string | null;
+  costPayer: ReturnShipmentCostPayer | null;
+  costAllocationReference: string | null;
+  shipByDeadlineAt: string | null;
+  returnByDeadlineAt: string | null;
+  policyVersion: string | null;
+  idempotencyKey: string | null;
+  status: ReturnShipmentStatus | null;
+  milestones: readonly ReturnShipmentMilestone[];
+  exceptions: readonly ReturnShipmentException[];
+  currentExceptionType: ReturnShipmentExceptionType | null;
+  currentExceptionNotes: string | null;
+  requestedAt: string | null;
+  labelReadyAt: string | null;
+  carrierAcceptedAt: string | null;
+  deliveredAt: string | null;
+  receivedAt: string | null;
+  cancelledAt: string | null;
+  expiredAt: string | null;
+}>;
+
+export const initialReturnShipmentState: ReturnShipmentState = {
+  returnShipmentId: null,
+  remedyId: null,
+  supportRequestId: null,
+  orderId: null,
+  outboundShipmentId: null,
+  returnDirective: null,
+  shipFromSnapshot: null,
+  destinationSnapshot: null,
+  packageRequirements: null,
+  labelStatus: null,
+  labelProviderReference: null,
+  trackingIdentifier: null,
+  carrierName: null,
+  costPayer: null,
+  costAllocationReference: null,
+  shipByDeadlineAt: null,
+  returnByDeadlineAt: null,
+  policyVersion: null,
+  idempotencyKey: null,
+  status: null,
+  milestones: [],
+  exceptions: [],
+  currentExceptionType: null,
+  currentExceptionNotes: null,
+  requestedAt: null,
+  labelReadyAt: null,
+  carrierAcceptedAt: null,
+  deliveredAt: null,
+  receivedAt: null,
+  cancelledAt: null,
+  expiredAt: null,
+};
+
+// -------------------------------------------------------------------------------------------------
+// Commands
+// -------------------------------------------------------------------------------------------------
+
+export type RequestReturnShipmentCommand = Readonly<{
+  type: "RequestReturnShipment";
+  returnShipmentId: ReturnShipmentId;
+  remedyId: RemedyId;
+  supportRequestId: SupportRequestId;
+  orderId: OrderId;
+  outboundShipmentId: ShipmentId;
+  returnDirective: string;
+  shipFromSnapshot: AddressSnapshot;
+  destinationSnapshot: ReturnDestinationSnapshot;
+  packageRequirements: ReturnShipmentPackageRequirements;
+  costPayer: string;
+  costAllocationReference?: string | null;
+  shipByDeadlineAt: string;
+  returnByDeadlineAt: string;
+  metadata: ReturnShipmentFactMetadata;
+  requestedAt: string;
+}>;
+
+export type MarkReturnShipmentLabelReadyCommand = Readonly<{
+  type: "MarkReturnShipmentLabelReady";
+  carrierName: string;
+  trackingIdentifier: string;
+  labelProviderReference: string;
+  metadata: ReturnShipmentFactMetadata;
+  readyAt: string;
+}>;
+
+export type RecordReturnShipmentCarrierAcceptedCommand = Readonly<{
+  type: "RecordReturnShipmentCarrierAccepted";
+  detail?: string | null;
+  metadata: ReturnShipmentFactMetadata;
+  occurredAt: string;
+}>;
+
+export type RecordReturnShipmentInTransitCommand = Readonly<{
+  type: "RecordReturnShipmentInTransit";
+  detail?: string | null;
+  metadata: ReturnShipmentFactMetadata;
+  occurredAt: string;
+}>;
+
+export type RecordReturnShipmentDeliveredCommand = Readonly<{
+  type: "RecordReturnShipmentDelivered";
+  detail?: string | null;
+  metadata: ReturnShipmentFactMetadata;
+  occurredAt: string;
+}>;
+
+export type RecordReturnShipmentReceivedCommand = Readonly<{
+  type: "RecordReturnShipmentReceived";
+  detail?: string | null;
+  metadata: ReturnShipmentFactMetadata;
+  receivedAt: string;
+}>;
+
+export type CancelReturnShipmentCommand = Readonly<{
+  type: "CancelReturnShipment";
+  reason: string | null;
+  metadata: ReturnShipmentFactMetadata;
+  cancelledAt: string;
+}>;
+
+export type ExpireReturnShipmentCommand = Readonly<{
+  type: "ExpireReturnShipment";
+  reason: string | null;
+  metadata: ReturnShipmentFactMetadata;
+  expiredAt: string;
+}>;
+
+export type RaiseReturnShipmentExceptionCommand = Readonly<{
+  type: "RaiseReturnShipmentException";
+  exceptionType: string;
+  notes: string | null;
+  metadata: ReturnShipmentFactMetadata;
+  raisedAt: string;
+}>;
+
+export type ReturnShipmentCommand =
+  | RequestReturnShipmentCommand
+  | MarkReturnShipmentLabelReadyCommand
+  | RecordReturnShipmentCarrierAcceptedCommand
+  | RecordReturnShipmentInTransitCommand
+  | RecordReturnShipmentDeliveredCommand
+  | RecordReturnShipmentReceivedCommand
+  | CancelReturnShipmentCommand
+  | ExpireReturnShipmentCommand
+  | RaiseReturnShipmentExceptionCommand;
+
+// -------------------------------------------------------------------------------------------------
+// Events — versioned facts (.v1), following the native-event versioning precedent (ADR 0021).
+// -------------------------------------------------------------------------------------------------
+
+export type ReturnShipmentRequestedEvent = DomainEvent<
+  "fulfillment.return-shipment.requested.v1",
+  Readonly<{
+    returnShipmentId: ReturnShipmentId;
+    remedyId: RemedyId;
+    supportRequestId: SupportRequestId;
+    orderId: OrderId;
+    outboundShipmentId: ShipmentId;
+    returnDirective: string;
+    shipFromSnapshot: AddressSnapshot;
+    destinationSnapshot: ReturnDestinationSnapshot;
+    packageRequirements: ReturnShipmentPackageRequirements;
+    costPayer: ReturnShipmentCostPayer;
+    costAllocationReference: string | null;
+    shipByDeadlineAt: string;
+    returnByDeadlineAt: string;
+    metadata: ReturnShipmentFactMetadata;
+    requestedAt: string;
+  }>
+>;
+
+export type ReturnShipmentLabelReadyEvent = DomainEvent<
+  "fulfillment.return-shipment.label-ready.v1",
+  Readonly<{
+    returnShipmentId: ReturnShipmentId;
+    carrierName: string;
+    trackingIdentifier: string;
+    labelProviderReference: string;
+    metadata: ReturnShipmentFactMetadata;
+    readyAt: string;
+  }>
+>;
+
+export type ReturnShipmentCarrierAcceptedEvent = DomainEvent<
+  "fulfillment.return-shipment.carrier-accepted.v1",
+  Readonly<{
+    returnShipmentId: ReturnShipmentId;
+    detail: string | null;
+    metadata: ReturnShipmentFactMetadata;
+    occurredAt: string;
+  }>
+>;
+
+export type ReturnShipmentInTransitRecordedEvent = DomainEvent<
+  "fulfillment.return-shipment.in-transit-recorded.v1",
+  Readonly<{
+    returnShipmentId: ReturnShipmentId;
+    detail: string | null;
+    metadata: ReturnShipmentFactMetadata;
+    occurredAt: string;
+  }>
+>;
+
+export type ReturnShipmentDeliveredEvent = DomainEvent<
+  "fulfillment.return-shipment.delivered.v1",
+  Readonly<{
+    returnShipmentId: ReturnShipmentId;
+    detail: string | null;
+    metadata: ReturnShipmentFactMetadata;
+    deliveredAt: string;
+  }>
+>;
+
+export type ReturnShipmentReceivedEvent = DomainEvent<
+  "fulfillment.return-shipment.received.v1",
+  Readonly<{
+    returnShipmentId: ReturnShipmentId;
+    detail: string | null;
+    metadata: ReturnShipmentFactMetadata;
+    receivedAt: string;
+  }>
+>;
+
+export type ReturnShipmentCancelledEvent = DomainEvent<
+  "fulfillment.return-shipment.cancelled.v1",
+  Readonly<{
+    returnShipmentId: ReturnShipmentId;
+    reason: string | null;
+    metadata: ReturnShipmentFactMetadata;
+    cancelledAt: string;
+  }>
+>;
+
+export type ReturnShipmentExpiredEvent = DomainEvent<
+  "fulfillment.return-shipment.expired.v1",
+  Readonly<{
+    returnShipmentId: ReturnShipmentId;
+    reason: string | null;
+    metadata: ReturnShipmentFactMetadata;
+    expiredAt: string;
+  }>
+>;
+
+export type ReturnShipmentExceptionRaisedEvent = DomainEvent<
+  "fulfillment.return-shipment.exception-raised.v1",
+  Readonly<{
+    returnShipmentId: ReturnShipmentId;
+    exceptionType: ReturnShipmentExceptionType;
+    notes: string | null;
+    metadata: ReturnShipmentFactMetadata;
+    raisedAt: string;
+  }>
+>;
+
+export type ReturnShipmentEvent =
+  | ReturnShipmentRequestedEvent
+  | ReturnShipmentLabelReadyEvent
+  | ReturnShipmentCarrierAcceptedEvent
+  | ReturnShipmentInTransitRecordedEvent
+  | ReturnShipmentDeliveredEvent
+  | ReturnShipmentReceivedEvent
+  | ReturnShipmentCancelledEvent
+  | ReturnShipmentExpiredEvent
+  | ReturnShipmentExceptionRaisedEvent;
+
+// -------------------------------------------------------------------------------------------------
+// Helpers
+// -------------------------------------------------------------------------------------------------
+
+function ensureNonNegativeNumber(value: number, message: string): number {
+  assert(typeof value === "number" && Number.isFinite(value) && value > 0, message);
+  return value;
+}
+
+function normalizePackageRequirements(input: ReturnShipmentPackageRequirements): ReturnShipmentPackageRequirements {
+  return {
+    weightOunces: ensureNonNegativeNumber(input.weightOunces, "Return package weight must be a positive number."),
+    lengthInches: ensureNonNegativeNumber(input.lengthInches, "Return package length must be a positive number."),
+    widthInches: ensureNonNegativeNumber(input.widthInches, "Return package width must be a positive number."),
+    heightInches: ensureNonNegativeNumber(input.heightInches, "Return package height must be a positive number."),
+  };
+}
+
+function normalizeMetadata(remedyId: RemedyId, input: ReturnShipmentFactMetadata): ReturnShipmentFactMetadata {
+  assert(input.correlationRemedyId === remedyId, "Fact metadata must correlate to the return shipment's remedy.");
+  return {
+    correlationRemedyId: remedyId,
+    causationId:
+      input.causationId == null
+        ? null
+        : normalizeRequiredText(input.causationId, "Causation id must be non-empty when present."),
+    idempotencyKey: normalizeRequiredText(input.idempotencyKey, "Fact metadata requires an idempotency key."),
+    policyVersion: normalizeRequiredText(input.policyVersion, "Fact metadata requires a policy version."),
+  };
+}
+
+/**
+ * A carrier milestone only advances the recorded status when its target stage is
+ * strictly ahead of the furthest stage already reached. This makes duplicate and
+ * out-of-order carrier scans converge without regressing custody state.
+ */
+function shouldAdvanceTo(state: ReturnShipmentState, target: ReturnShipmentStatus): boolean {
+  return returnShipmentDeliveryStageRank(target) > returnShipmentDeliveryStageRank(state.status);
+}
+
+function assertActiveForMilestone(state: ReturnShipmentState): void {
+  assert(state.returnShipmentId !== null, "Return shipment must be requested first.");
+  assert(state.remedyId !== null, "Return shipment must reference a remedy.");
+  assert(
+    state.status !== "cancelled" && state.status !== "expired",
+    "A cancelled or expired return shipment cannot record carrier milestones.",
+  );
+}
+
+// -------------------------------------------------------------------------------------------------
+// Decider
+// -------------------------------------------------------------------------------------------------
+
+export const decideReturnShipment: AggregateDecider<ReturnShipmentState, ReturnShipmentCommand, ReturnShipmentEvent> = (
+  state,
+  command,
+) => {
+  switch (command.type) {
+    case "RequestReturnShipment": {
+      const returnDirective = assertReturnDirective(command.returnDirective);
+      assert(
+        returnDirective === "return-to-platform",
+        "A ReturnShipment models a buyer-to-platform reverse movement; its directive must be return-to-platform.",
+      );
+      if (state.returnShipmentId !== null) {
+        // Idempotent by remedy + directive: replaying creation is a no-op, but reusing this
+        // stream for a different remedy or directive is a conflict that must be rejected.
+        assert(
+          state.remedyId === command.remedyId && state.returnDirective === returnDirective,
+          "Return shipment already exists for a different remedy or directive; conflicting reuse is rejected.",
+        );
+        return [];
+      }
+      const metadata = normalizeMetadata(command.remedyId, command.metadata);
+      const requestedAt = ensureIsoTimestamp(command.requestedAt, "Return shipment request must record a timestamp.");
+      const shipByDeadlineAt = ensureIsoTimestamp(command.shipByDeadlineAt, "Ship-by deadline must be a timestamp.");
+      const returnByDeadlineAt = ensureIsoTimestamp(
+        command.returnByDeadlineAt,
+        "Return-by deadline must be a timestamp.",
+      );
+      assert(
+        Date.parse(returnByDeadlineAt) >= Date.parse(shipByDeadlineAt),
+        "Return-by deadline cannot precede the ship-by deadline.",
+      );
+      return [
+        {
+          type: "fulfillment.return-shipment.requested.v1",
+          data: {
+            returnShipmentId: command.returnShipmentId,
+            remedyId: command.remedyId,
+            supportRequestId: command.supportRequestId,
+            orderId: command.orderId,
+            outboundShipmentId: command.outboundShipmentId,
+            returnDirective,
+            shipFromSnapshot: normalizeAddressSnapshot(command.shipFromSnapshot, "Return ship-from"),
+            destinationSnapshot: normalizeReturnDestinationSnapshot(command.destinationSnapshot),
+            packageRequirements: normalizePackageRequirements(command.packageRequirements),
+            costPayer: normalizeReturnShipmentCostPayer(command.costPayer),
+            costAllocationReference: normalizeOptionalText(command.costAllocationReference),
+            shipByDeadlineAt,
+            returnByDeadlineAt,
+            metadata,
+            requestedAt,
+          },
+        },
+      ];
+    }
+    case "MarkReturnShipmentLabelReady": {
+      assertActiveForMilestone(state);
+      if (state.labelStatus === "ready" && state.status !== "requested") {
+        return [];
+      }
+      assert(state.status === "requested", "Only a requested return shipment can become ready to ship.");
+      const metadata = normalizeMetadata(state.remedyId!, command.metadata);
+      return [
+        {
+          type: "fulfillment.return-shipment.label-ready.v1",
+          data: {
+            returnShipmentId: state.returnShipmentId!,
+            carrierName: normalizeRequiredText(command.carrierName, "Carrier name is required."),
+            trackingIdentifier: normalizeRequiredText(command.trackingIdentifier, "Tracking identifier is required."),
+            labelProviderReference: normalizeRequiredText(
+              command.labelProviderReference,
+              "Label provider reference is required.",
+            ),
+            metadata,
+            readyAt: ensureIsoTimestamp(command.readyAt, "Label readiness must record a timestamp."),
+          },
+        },
+      ];
+    }
+    case "RecordReturnShipmentCarrierAccepted": {
+      assertActiveForMilestone(state);
+      if (!shouldAdvanceTo(state, "carrier-accepted")) {
+        return [];
+      }
+      const metadata = normalizeMetadata(state.remedyId!, command.metadata);
+      return [
+        {
+          type: "fulfillment.return-shipment.carrier-accepted.v1",
+          data: {
+            returnShipmentId: state.returnShipmentId!,
+            detail: normalizeOptionalText(command.detail),
+            metadata,
+            occurredAt: ensureIsoTimestamp(command.occurredAt, "Carrier acceptance must record a timestamp."),
+          },
+        },
+      ];
+    }
+    case "RecordReturnShipmentInTransit": {
+      assertActiveForMilestone(state);
+      if (!shouldAdvanceTo(state, "in-transit")) {
+        return [];
+      }
+      const metadata = normalizeMetadata(state.remedyId!, command.metadata);
+      return [
+        {
+          type: "fulfillment.return-shipment.in-transit-recorded.v1",
+          data: {
+            returnShipmentId: state.returnShipmentId!,
+            detail: normalizeOptionalText(command.detail),
+            metadata,
+            occurredAt: ensureIsoTimestamp(command.occurredAt, "In-transit scan must record a timestamp."),
+          },
+        },
+      ];
+    }
+    case "RecordReturnShipmentDelivered": {
+      assertActiveForMilestone(state);
+      if (!shouldAdvanceTo(state, "delivered")) {
+        return [];
+      }
+      const metadata = normalizeMetadata(state.remedyId!, command.metadata);
+      return [
+        {
+          type: "fulfillment.return-shipment.delivered.v1",
+          data: {
+            returnShipmentId: state.returnShipmentId!,
+            detail: normalizeOptionalText(command.detail),
+            metadata,
+            deliveredAt: ensureIsoTimestamp(command.occurredAt, "Delivery must record a timestamp."),
+          },
+        },
+      ];
+    }
+    case "RecordReturnShipmentReceived": {
+      assertActiveForMilestone(state);
+      if (!shouldAdvanceTo(state, "received")) {
+        return [];
+      }
+      const metadata = normalizeMetadata(state.remedyId!, command.metadata);
+      return [
+        {
+          type: "fulfillment.return-shipment.received.v1",
+          data: {
+            returnShipmentId: state.returnShipmentId!,
+            detail: normalizeOptionalText(command.detail),
+            metadata,
+            receivedAt: ensureIsoTimestamp(command.receivedAt, "Facility receipt must record a timestamp."),
+          },
+        },
+      ];
+    }
+    case "CancelReturnShipment": {
+      assert(state.returnShipmentId !== null, "Return shipment must be requested first.");
+      if (state.status === "cancelled") {
+        return [];
+      }
+      assert(
+        state.status === "requested" || state.status === "ready-to-ship",
+        "Only a return shipment that is not yet in carrier custody can be cancelled.",
+      );
+      const metadata = normalizeMetadata(state.remedyId!, command.metadata);
+      return [
+        {
+          type: "fulfillment.return-shipment.cancelled.v1",
+          data: {
+            returnShipmentId: state.returnShipmentId!,
+            reason: normalizeOptionalText(command.reason),
+            metadata,
+            cancelledAt: ensureIsoTimestamp(command.cancelledAt, "Cancellation must record a timestamp."),
+          },
+        },
+      ];
+    }
+    case "ExpireReturnShipment": {
+      assert(state.returnShipmentId !== null, "Return shipment must be requested first.");
+      if (state.status === "expired") {
+        return [];
+      }
+      assert(
+        state.status === "requested" || state.status === "ready-to-ship",
+        "Only a return shipment that never entered carrier custody can expire.",
+      );
+      const metadata = normalizeMetadata(state.remedyId!, command.metadata);
+      return [
+        {
+          type: "fulfillment.return-shipment.expired.v1",
+          data: {
+            returnShipmentId: state.returnShipmentId!,
+            reason: normalizeOptionalText(command.reason),
+            metadata,
+            expiredAt: ensureIsoTimestamp(command.expiredAt, "Expiry must record a timestamp."),
+          },
+        },
+      ];
+    }
+    case "RaiseReturnShipmentException": {
+      assert(state.returnShipmentId !== null, "Return shipment must be requested first.");
+      assert(
+        !isTerminalReturnShipmentStatus(state.status),
+        "A received, cancelled, or expired return shipment cannot raise an exception.",
+      );
+      const metadata = normalizeMetadata(state.remedyId!, command.metadata);
+      return [
+        {
+          type: "fulfillment.return-shipment.exception-raised.v1",
+          data: {
+            returnShipmentId: state.returnShipmentId!,
+            exceptionType: normalizeReturnShipmentExceptionType(command.exceptionType),
+            notes: normalizeOptionalText(command.notes),
+            metadata,
+            raisedAt: ensureIsoTimestamp(command.raisedAt, "Exception must record a timestamp."),
+          },
+        },
+      ];
+    }
+    default:
+      return assertNever(command);
+  }
+};
+
+// -------------------------------------------------------------------------------------------------
+// Evolver
+// -------------------------------------------------------------------------------------------------
+
+function withMilestone(
+  state: ReturnShipmentState,
+  status: ReturnShipmentStatus,
+  occurredAt: string,
+  detail: string | null,
+): readonly ReturnShipmentMilestone[] {
+  return [...state.milestones, { status, occurredAt, detail }];
+}
+
+export const evolveReturnShipment: AggregateEvolver<ReturnShipmentState, ReturnShipmentEvent> = (state, event) => {
+  switch (event.type) {
+    case "fulfillment.return-shipment.requested.v1":
+      return {
+        ...initialReturnShipmentState,
+        returnShipmentId: event.data.returnShipmentId,
+        remedyId: event.data.remedyId,
+        supportRequestId: event.data.supportRequestId,
+        orderId: event.data.orderId,
+        outboundShipmentId: event.data.outboundShipmentId,
+        returnDirective: event.data.returnDirective,
+        shipFromSnapshot: event.data.shipFromSnapshot,
+        destinationSnapshot: event.data.destinationSnapshot,
+        packageRequirements: event.data.packageRequirements,
+        labelStatus: "pending",
+        costPayer: event.data.costPayer,
+        costAllocationReference: event.data.costAllocationReference,
+        shipByDeadlineAt: event.data.shipByDeadlineAt,
+        returnByDeadlineAt: event.data.returnByDeadlineAt,
+        policyVersion: event.data.metadata.policyVersion,
+        idempotencyKey: event.data.metadata.idempotencyKey,
+        status: "requested",
+        milestones: [{ status: "requested", occurredAt: event.data.requestedAt, detail: null }],
+        requestedAt: event.data.requestedAt,
+      };
+    case "fulfillment.return-shipment.label-ready.v1":
+      return {
+        ...state,
+        status: "ready-to-ship",
+        labelStatus: "ready",
+        carrierName: event.data.carrierName,
+        trackingIdentifier: event.data.trackingIdentifier,
+        labelProviderReference: event.data.labelProviderReference,
+        labelReadyAt: event.data.readyAt,
+        milestones: withMilestone(state, "ready-to-ship", event.data.readyAt, null),
+      };
+    case "fulfillment.return-shipment.carrier-accepted.v1":
+      return {
+        ...state,
+        status: "carrier-accepted",
+        carrierAcceptedAt: event.data.occurredAt,
+        milestones: withMilestone(state, "carrier-accepted", event.data.occurredAt, event.data.detail),
+      };
+    case "fulfillment.return-shipment.in-transit-recorded.v1":
+      return {
+        ...state,
+        status: "in-transit",
+        milestones: withMilestone(state, "in-transit", event.data.occurredAt, event.data.detail),
+      };
+    case "fulfillment.return-shipment.delivered.v1":
+      return {
+        ...state,
+        status: "delivered",
+        deliveredAt: event.data.deliveredAt,
+        milestones: withMilestone(state, "delivered", event.data.deliveredAt, event.data.detail),
+      };
+    case "fulfillment.return-shipment.received.v1":
+      return {
+        ...state,
+        status: "received",
+        receivedAt: event.data.receivedAt,
+        currentExceptionType: null,
+        currentExceptionNotes: null,
+        milestones: withMilestone(state, "received", event.data.receivedAt, event.data.detail),
+      };
+    case "fulfillment.return-shipment.cancelled.v1":
+      return {
+        ...state,
+        status: "cancelled",
+        cancelledAt: event.data.cancelledAt,
+        milestones: withMilestone(state, "cancelled", event.data.cancelledAt, event.data.reason),
+      };
+    case "fulfillment.return-shipment.expired.v1":
+      return {
+        ...state,
+        status: "expired",
+        expiredAt: event.data.expiredAt,
+        milestones: withMilestone(state, "expired", event.data.expiredAt, event.data.reason),
+      };
+    case "fulfillment.return-shipment.exception-raised.v1":
+      return {
+        ...state,
+        currentExceptionType: event.data.exceptionType,
+        currentExceptionNotes: event.data.notes,
+        exceptions: [
+          ...state.exceptions,
+          { exceptionType: event.data.exceptionType, notes: event.data.notes, raisedAt: event.data.raisedAt },
+        ],
+      };
+    default:
+      return assertNever(event);
+  }
+};
