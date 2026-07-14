@@ -71,6 +71,33 @@ describe("auth role permissions", () => {
     expect(AUTH_ROLE_PERMISSIONS.manager).toContain("payouts.manage");
   });
 
+  it("restricts customer feedback operator capabilities to platform-staff, with export granted separately (#5145)", () => {
+    // Must stay identical to Identity's ROLE_PERMISSIONS -- see the mirrored
+    // assertion in
+    // bounded-contexts/identity/features/memberships/read-model/constants.test.ts.
+    const operatorCapabilities = [
+      "platform-feedback.view",
+      "platform-feedback.manage",
+      "platform-feedback.export",
+    ] as const;
+
+    for (const capability of operatorCapabilities) {
+      expect(AUTH_ROLE_PERMISSIONS["platform-admin"]).toContain(capability);
+    }
+    for (const [roleKey, permissions] of Object.entries(AUTH_ROLE_PERMISSIONS)) {
+      if (roleKey === "platform-admin") {
+        continue;
+      }
+      for (const capability of operatorCapabilities) {
+        expect(permissions).not.toContain(capability);
+      }
+    }
+    // Ordinary roles keep their non-feedback grants intact.
+    expect(AUTH_ROLE_PERMISSIONS.owner).toContain("support.manage");
+    expect(AUTH_ROLE_PERMISSIONS.fulfillment).toContain("support.manage");
+    expect(AUTH_ROLE_PERMISSIONS.viewer).toContain("support.view");
+  });
+
   it("mirrors commercial terms authority for live actor permissions", () => {
     expect(AUTH_ROLE_PERMISSIONS.owner).toEqual(
       expect.arrayContaining([

@@ -130,11 +130,18 @@ export function PlatformFeedbackAdminListPage({
   metrics,
   filters,
   exportHref,
+  // Nav/action controls reflect capability state; server-side authz on
+  // the platform API remains the authoritative gate. Default to true so
+  // isolated component tests render the full surface.
+  canExport = true,
+  canManage = true,
 }: {
   feedback: ListResponse<PlatformFeedbackListItem>;
   metrics: PlatformFeedbackMetrics;
   filters: Readonly<{ status: string; topic: string; workflow: string }>;
   exportHref: string;
+  canExport?: boolean;
+  canManage?: boolean;
 }) {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
   const selectedFeedbackIds = [...selectedKeys];
@@ -183,9 +190,11 @@ export function PlatformFeedbackAdminListPage({
               <Button type="submit" leadingIcon="filter">
                 {t("experience.platformFeedbackAdmin.applyFilters")}
               </Button>
-              <LinkButton href={exportHref} tone="secondary" leadingIcon="externalLink">
-                {t("experience.platformFeedbackAdmin.export")}
-              </LinkButton>
+              {canExport ? (
+                <LinkButton href={exportHref} tone="secondary" leadingIcon="externalLink">
+                  {t("experience.platformFeedbackAdmin.export")}
+                </LinkButton>
+              ) : null}
             </ActionBar>
           </Stack>
         </Form>
@@ -193,26 +202,33 @@ export function PlatformFeedbackAdminListPage({
 
       <PageSection title={t("experience.platformFeedbackAdmin.reviewQueue")}>
         <Stack gap={3}>
-          <ActionBar>
-            <Form spacing="none" method="post">
-              <HiddenInput type="hidden" name="intent" value="bulk-review" readOnly />
-              {selectedFeedbackIds.map((feedbackId) => (
-                <HiddenInput key={feedbackId} type="hidden" name="feedbackIds" value={feedbackId} readOnly />
-              ))}
-              <Button type="submit" leadingIcon="check" disabled={selectedFeedbackIds.length === 0}>
-                {t("experience.platformFeedbackAdmin.bulkReview")}
-              </Button>
-            </Form>
-            <Form spacing="none" method="post">
-              <HiddenInput type="hidden" name="intent" value="bulk-archive" readOnly />
-              {selectedFeedbackIds.map((feedbackId) => (
-                <HiddenInput key={feedbackId} type="hidden" name="feedbackIds" value={feedbackId} readOnly />
-              ))}
-              <Button type="submit" tone="secondary" leadingIcon="package" disabled={selectedFeedbackIds.length === 0}>
-                {t("experience.platformFeedbackAdmin.bulkArchive")}
-              </Button>
-            </Form>
-          </ActionBar>
+          {canManage ? (
+            <ActionBar>
+              <Form spacing="none" method="post">
+                <HiddenInput type="hidden" name="intent" value="bulk-review" readOnly />
+                {selectedFeedbackIds.map((feedbackId) => (
+                  <HiddenInput key={feedbackId} type="hidden" name="feedbackIds" value={feedbackId} readOnly />
+                ))}
+                <Button type="submit" leadingIcon="check" disabled={selectedFeedbackIds.length === 0}>
+                  {t("experience.platformFeedbackAdmin.bulkReview")}
+                </Button>
+              </Form>
+              <Form spacing="none" method="post">
+                <HiddenInput type="hidden" name="intent" value="bulk-archive" readOnly />
+                {selectedFeedbackIds.map((feedbackId) => (
+                  <HiddenInput key={feedbackId} type="hidden" name="feedbackIds" value={feedbackId} readOnly />
+                ))}
+                <Button
+                  type="submit"
+                  tone="secondary"
+                  leadingIcon="package"
+                  disabled={selectedFeedbackIds.length === 0}
+                >
+                  {t("experience.platformFeedbackAdmin.bulkArchive")}
+                </Button>
+              </Form>
+            </ActionBar>
+          ) : null}
           <DataTable<PlatformFeedbackListItem>
             columns={[
               {
@@ -272,9 +288,13 @@ export function PlatformFeedbackAdminListPage({
 export function PlatformFeedbackAdminDetailPage({
   feedback,
   marketplaceOrigin,
+  // Reflects platform-feedback.manage; server-side authz stays
+  // authoritative. Defaults true for isolated component tests.
+  canManage = true,
 }: {
   feedback: PlatformFeedbackDetail;
   marketplaceOrigin?: string | null;
+  canManage?: boolean;
 }) {
   return (
     <Page>
@@ -289,7 +309,7 @@ export function PlatformFeedbackAdminDetailPage({
         <LinkButton href="/support/platform-feedback" tone="secondary">
           {t("experience.platformFeedbackAdmin.back")}
         </LinkButton>
-        {feedback.status === "new" ? (
+        {canManage && feedback.status === "new" ? (
           <Form spacing="none" method="post">
             <HiddenInput type="hidden" name="intent" value="review" readOnly />
             <Button type="submit" leadingIcon="check">
@@ -297,7 +317,7 @@ export function PlatformFeedbackAdminDetailPage({
             </Button>
           </Form>
         ) : null}
-        {feedback.status !== "archived" ? (
+        {canManage && feedback.status !== "archived" ? (
           <Form spacing="none" method="post">
             <HiddenInput type="hidden" name="intent" value="archive" readOnly />
             <Button type="submit" tone="secondary" leadingIcon="package">
@@ -338,13 +358,15 @@ export function PlatformFeedbackAdminDetailPage({
         <Stack gap={4}>
           <DetailPanel title={t("experience.platformFeedbackAdmin.operatorNotes")}>
             <Stack gap={3}>
-              <Form spacing="md" method="post">
-                <HiddenInput type="hidden" name="intent" value="record-note" readOnly />
-                <Textarea name="body" label={t("experience.platformFeedbackAdmin.operatorNote")} required rows={4} />
-                <Button type="submit" leadingIcon="message">
-                  {t("experience.platformFeedbackAdmin.recordNote")}
-                </Button>
-              </Form>
+              {canManage ? (
+                <Form spacing="md" method="post">
+                  <HiddenInput type="hidden" name="intent" value="record-note" readOnly />
+                  <Textarea name="body" label={t("experience.platformFeedbackAdmin.operatorNote")} required rows={4} />
+                  <Button type="submit" leadingIcon="message">
+                    {t("experience.platformFeedbackAdmin.recordNote")}
+                  </Button>
+                </Form>
+              ) : null}
               {feedback.operator_notes.length === 0 ? (
                 <Text tone="secondary">{t("experience.platformFeedbackAdmin.noOperatorNotes")}</Text>
               ) : (

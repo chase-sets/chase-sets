@@ -30,6 +30,10 @@ export const AUTH_ROLE_PERMISSIONS = {
     "projection-operations.operate",
     "projection-operations.rebuild",
     "projection-operations.view",
+    // Customer feedback operator capabilities: platform-staff only.
+    // Export is granted separately from view/manage. Must stay identical to
+    // Identity's ROLE_PERMISSIONS platform-admin entry (contract-tested).
+    "platform-feedback.export",
     "platform-feedback.manage",
     "platform-feedback.view",
     "platform-policy.manage",
@@ -77,8 +81,7 @@ export const AUTH_ROLE_PERMISSIONS = {
     "projection-operations.rebuild",
     "projection-operations.view",
     ...AUTH_PERMISSION_PRESETS.payoutsOperator,
-    "platform-feedback.manage",
-    "platform-feedback.view",
+    // Customer feedback operator capabilities are platform-staff only.
     "platform-policy.view",
     "public-presence.manage",
     "public-presence.view",
@@ -113,8 +116,7 @@ export const AUTH_ROLE_PERMISSIONS = {
     "postage-policies.manage",
     "postage-policies.view",
     ...AUTH_PERMISSION_PRESETS.payoutsOperator,
-    "platform-feedback.manage",
-    "platform-feedback.view",
+    // Customer feedback operator capabilities are platform-staff only.
     "platform-policy.view",
     "public-presence.manage",
     "public-presence.view",
@@ -132,7 +134,7 @@ export const AUTH_ROLE_PERMISSIONS = {
     "listings.view",
     "offers.view",
     "orders.view",
-    "platform-feedback.view",
+    // No platform-feedback.* -- operator feedback is platform-staff only.
     "public-presence.view",
     "reputation.view",
     "support.manage",
@@ -147,7 +149,7 @@ export const AUTH_ROLE_PERMISSIONS = {
     "offers.view",
     "orders.view",
     ...AUTH_PERMISSION_PRESETS.payoutsViewer,
-    "platform-feedback.view",
+    // No platform-feedback.* -- operator feedback is platform-staff only.
     "public-presence.view",
     "reputation.view",
     "support.view",

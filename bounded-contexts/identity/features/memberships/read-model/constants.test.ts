@@ -111,6 +111,36 @@ describe("identity role permissions", () => {
     expect(ROLE_PERMISSIONS.manager).toContain("payouts.manage");
   });
 
+  it("restricts customer feedback operator capabilities to platform-staff, with export granted separately (#5145)", () => {
+    const operatorCapabilities = [
+      "platform-feedback.view",
+      "platform-feedback.manage",
+      "platform-feedback.export",
+    ] as const;
+
+    // Platform-staff hold the full operator surface, including the separately
+    // named export grant.
+    for (const capability of operatorCapabilities) {
+      expect(ROLE_PERMISSIONS["platform-admin"]).toContain(capability);
+    }
+
+    // Ordinary account roles never enumerate/export/mutate customer feedback --
+    // submitting one's own experience feedback is an authenticated-subject
+    // authority, not a role capability.
+    for (const roleKey of ROLE_KEYS) {
+      if (roleKey === "platform-admin") {
+        continue;
+      }
+      for (const capability of operatorCapabilities) {
+        expect(ROLE_PERMISSIONS[roleKey]).not.toContain(capability);
+      }
+    }
+
+    // Export is an independent grant, so a view-only staff assignment cannot
+    // download the free-text comment corpus.
+    expect(new Set(operatorCapabilities).size).toBe(operatorCapabilities.length);
+  });
+
   it("separates Listing Evidence Policy review from drafting, validation, and activation", () => {
     const elevated = [
       "listing-evidence-policy.draft",
