@@ -92,6 +92,24 @@ describe("sign-in page two-step journey", () => {
     expect(document.querySelector('input[name="password"]')).toBeTruthy();
   });
 
+  it("rehydrates the failed method step and focuses the announced error", () => {
+    render(
+      <SignInPage
+        errorMessage="Invalid email or password."
+        initialIdentifier="buyer@example.com"
+        initialMethod="password"
+      />,
+    );
+
+    const error = screen.getByRole("alert");
+    expect(error.getAttribute("aria-live")).toBe("assertive");
+    expect(error).toBe(document.activeElement);
+    expect(screen.getByText("Signing in with buyer@example.com")).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Password" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByLabelText("Password")).toBeTruthy();
+    expect(screen.queryByLabelText(/Email or phone/)).toBeNull();
+  });
+
   it("preserves return targets when the identifier form falls back to a GET submit", () => {
     render(<SignInPage returnTo="/account/sell-list" />);
 
@@ -241,6 +259,7 @@ describe("sign-in page magic link recovery", () => {
       } as never),
     ).resolves.toEqual({
       error: "Magic link token entry is not available here.",
+      method: "magic-link",
     });
     expect(fetch).not.toHaveBeenCalled();
   });

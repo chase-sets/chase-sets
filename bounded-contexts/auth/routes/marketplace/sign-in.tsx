@@ -28,15 +28,16 @@ export function loader({ request }: LoaderFunctionArgs) {
 export default function MarketplaceSignInRoute() {
   const actionData = useActionData<typeof action>();
   const data = useLoaderData<typeof loader>();
+  const actionError = actionData && "error" in actionData ? actionData : null;
   return (
     <Container width="narrow" paddingX={0}>
       <SignInPage
-        errorMessage={actionData && "error" in actionData ? actionData.error : data.socialLoginError}
+        errorMessage={actionError?.error ?? data.socialLoginError}
         contextMessage={data.contextMessage}
         notice={actionData && "status" in actionData ? actionData : null}
         action={data.formAction}
-        initialIdentifier={data.initialIdentifier}
-        initialMethod={data.initialMethod}
+        initialIdentifier={actionError?.identifier ?? data.initialIdentifier}
+        initialMethod={actionError?.method ?? data.initialMethod}
         returnTo={data.returnTo}
         signInMethods={marketplaceAuthHostConfig.signInMethods}
         allowManualMagicLinkTokenEntry={marketplaceAuthHostConfig.allowManualMagicLinkTokenEntry}

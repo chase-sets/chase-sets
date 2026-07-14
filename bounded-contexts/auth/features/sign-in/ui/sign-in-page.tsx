@@ -15,7 +15,7 @@ import {
   type SegmentedControlItem,
 } from "@chase-sets/design-system";
 import type { FormEvent } from "react";
-import { useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   DEFAULT_SIGN_IN_METHODS,
   type AuthActionNotice,
@@ -126,6 +126,7 @@ export function SignInPage(
   const [passkeyPayload, setPasskeyPayload] = useState<PasskeyCredentialPayload | null>(null);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const errorBannerId = useId();
   const passkeyFormRef = useRef<HTMLFormElement | null>(null);
   const challengeMethods = identifierKind ? methodItemsForIdentifier(identifierKind, signInMethods) : [];
   const hasIdentifier = identifier.trim().length > 0 && identifierKind !== null;
@@ -143,6 +144,12 @@ export function SignInPage(
         icon: "users",
       },
     ] as const satisfies readonly SocialLoginLink[]);
+
+  useEffect(() => {
+    if (props.errorMessage) {
+      document.getElementById(errorBannerId)?.focus();
+    }
+  }, [errorBannerId, props.errorMessage]);
 
   function handleIdentifierSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -214,10 +221,12 @@ export function SignInPage(
 
       {props.errorMessage ? (
         <Banner
+          id={errorBannerId}
           title={t("auth.features.signIn.ui.signInPage.sign.in.failed")}
           description={props.errorMessage}
           tone="danger"
           role="alert"
+          tabIndex={-1}
         />
       ) : null}
       {statusMessage ? (
@@ -381,6 +390,7 @@ export function SignInPage(
                 <Stack gap={3}>
                   <HiddenFields fields={props.hiddenFields} />
                   <HiddenInput type="hidden" name="intent" value="magic-link-consume" readOnly />
+                  <HiddenInput type="hidden" name="email" value={identifier} readOnly />
                   <TextInput label={t("auth.features.signIn.ui.signInPage.magic.link.token")} name="token" required />
                   <Button type="submit" tone="secondary">
                     {t("auth.features.signIn.ui.signInPage.continue.with.token")}
