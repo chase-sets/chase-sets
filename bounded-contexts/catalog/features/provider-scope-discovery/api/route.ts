@@ -81,13 +81,48 @@ export function providerScopeDiscoveryRoutes(services: ProviderScopeDiscoverySer
 
     const items = await services.listScopeObservations({
       providerKey: c.req.query("providerKey"),
-      queryKind: c.req.query("queryKind"),
+      unitKey: c.req.query("unitKey"),
+      scopeKind: scopeKindQueryValue(c.req.query("scopeKind")),
+      limit: positiveIntegerQueryValue(c.req.query("limit")) ?? undefined,
+    });
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
+  app.get("/canonical-scope-record-proposals", async (c) => {
+    const permissionError = requirePermission(c, "catalog.view");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    const items = await services.listCanonicalScopeRecordProposals({
+      reviewStatus: proposalReviewStatusQueryValue(c.req.query("reviewStatus")),
+      productDomain: productDomainQueryValue(c.req.query("productDomain")),
       limit: positiveIntegerQueryValue(c.req.query("limit")) ?? undefined,
     });
     return c.json({ items, total: items.length, count: items.length });
   });
 
   return app;
+}
+
+function scopeKindQueryValue(value: string | undefined) {
+  return value === "language" ||
+    value === "product-line" ||
+    value === "series" ||
+    value === "expansion" ||
+    value === "set"
+    ? value
+    : null;
+}
+
+function proposalReviewStatusQueryValue(value: string | undefined) {
+  return value === "proposed" || value === "accepted" || value === "rejected" ? value : null;
+}
+
+function productDomainQueryValue(value: string | undefined) {
+  return value === "pokemon" || value === "magic" || value === "yugioh" || value === "one-piece" || value === "lorcana"
+    ? value
+    : null;
 }
 
 function requirePermission(c: Context<CatalogAuthoringEnv>, permission: "catalog.view" | "catalog.manage") {

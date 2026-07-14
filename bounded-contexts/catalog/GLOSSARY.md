@@ -18,6 +18,7 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Source Observation`
 - `Catalog Sync Scope`
 - `Catalog Scope Record`
+- `Provider Scope Observation`
 - `Provider Scope Mapping`
 - `Scope Coverage`
 - `Scope Sync`
@@ -67,6 +68,7 @@ The current implementation also uses four supporting authoring concepts:
 - `Source Observation` — a provider-sourced candidate record reviewed before it becomes Catalog truth
 - `Catalog Sync Scope` — a provider-neutral Catalog sync intent, such as Pokemon TCG / English / Expansion, resolved before provider pulls create Source Observations
 - `Catalog Scope Record` — a canonical Catalog-owned sync identity row derived from a Reference Record for a product line, series, Pokemon Expansion, or set-style product-domain scope
+- `Provider Scope Observation` — hash-deduped evidence that one provider unit currently exposes a product-line, series, expansion, set, or language option in provider vocabulary
 - `Provider Scope Mapping` — a reviewed mapping from provider vocabulary, such as a product-line/category id, set id, or set name, to one Catalog Scope Record
 - `Scope Coverage` — the read model answer showing which provider units can cover a Catalog Scope Record and which mappings or provider capabilities are missing
 - `Scope Sync` — the workflow that starts from a Catalog Scope Record, applies approved Provider Scope Mappings, and then plans provider pulls
@@ -110,6 +112,10 @@ Expansion and set scope records carry canonical `release-date`, `official-set-co
 ## Provider Scope Mapping
 
 A `Provider Scope Mapping` is a reviewed, Catalog-owned mapping from provider vocabulary — a product-line or category id, set id, or set name — to exactly one Catalog Scope Record. Mappings carry review status and provenance; Scope Sync consumes only approved mappings and never rebuilds scope identity from provider hints.
+
+## Provider Scope Observation
+
+A `Provider Scope Observation` records the provider, ingestion unit, scope kind, external id, label, parent coordinates, language, provider metadata, and deterministic hash returned by an option sync. Observations are provider evidence, not canonical Scope Records. The matcher may auto-accept a unique exact canonical match, propose ambiguous mappings, or create one reviewable canonical Scope Record proposal for unmatched evidence. Accepted, rejected, and revoked mapping dispositions survive later observation refreshes.
 
 ## Alias Model
 

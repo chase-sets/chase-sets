@@ -140,6 +140,18 @@ export const decideProviderScopeMapping: AggregateDecider<
       assert(command.actor.trim().length > 0, "Proposing a Provider Scope Mapping requires an actor.");
       assert(candidate.mappingId === computeProviderScopeMappingId(candidate), "Provider Scope Mapping id is invalid.");
 
+      // Provider refreshes may carry newer labels, hashes, or scan provenance,
+      // but review disposition is durable. A refresh must never downgrade an
+      // accepted mapping or resurrect a rejected/revoked proposal.
+      if (
+        state.reviewStatus === "accepted" ||
+        state.reviewStatus === "auto-accepted" ||
+        state.reviewStatus === "rejected" ||
+        state.reviewStatus === "revoked"
+      ) {
+        return [];
+      }
+
       if (isIdenticalProposal(state, candidate)) {
         return [];
       }
@@ -291,13 +303,7 @@ function isIdenticalProposal(state: ProviderScopeMappingState, candidate: Provid
     return false;
   }
 
-  return (
-    state.reviewStatus === candidate.reviewStatus ||
-    state.reviewStatus === "accepted" ||
-    state.reviewStatus === "auto-accepted" ||
-    state.reviewStatus === "rejected" ||
-    state.reviewStatus === "revoked"
-  );
+  return state.reviewStatus === candidate.reviewStatus;
 }
 
 function requireProposed(

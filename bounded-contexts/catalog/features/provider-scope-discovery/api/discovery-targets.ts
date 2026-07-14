@@ -17,11 +17,14 @@ import {
 export type ProviderScopeDiscoveryTarget = Readonly<{
   providerKey: string;
   profileKey: string;
-  ingestionUnitKey: string | null;
+  ingestionUnitKey: string;
   productDomain: CatalogProviderIngestionUnitProductDomain | null;
   queryKind: string;
+  scopeKind: ProviderScopeObservationKind;
   languageCode: string;
 }>;
+
+export type ProviderScopeObservationKind = "language" | "product-line" | "series" | "expansion" | "set";
 
 const SCOPE_DISCOVERY_QUERY_SCOPES: readonly CatalogProviderScope[] = [
   "language",
@@ -52,24 +55,42 @@ export function listProviderScopeDiscoveryTargets(
       }
 
       const providerKey = version.providerKey.trim().toLowerCase();
-      const key = `${providerKey}:${query.queryKind}`;
+      const unitKey = catalogProviderProfileVersionIngestionUnitKey(version);
+      const key = `${providerKey}:${unitKey}:${query.queryKind}:${DEFAULT_DISCOVERY_LANGUAGE}`;
       if (targets.has(key)) {
         continue;
       }
 
-      const unitKey = catalogProviderProfileVersionIngestionUnitKey(version);
       targets.set(key, {
         providerKey,
         profileKey: version.profileKey,
         ingestionUnitKey: unitKey,
         productDomain: productDomainForUnitKey(unitKey),
         queryKind: query.queryKind,
+        scopeKind: scopeKindForQuery(query),
         languageCode: DEFAULT_DISCOVERY_LANGUAGE,
       });
     }
   }
 
   return [...targets.values()];
+}
+
+function scopeKindForQuery(query: CatalogProviderOptionQuery): ProviderScopeObservationKind {
+  switch (query.scope) {
+    case "language":
+      return "language";
+    case "product-line/category":
+      return "product-line";
+    case "series":
+      return "series";
+    case "expansion":
+      return "expansion";
+    case "set-name":
+      return "set";
+    default:
+      throw new Error(`Provider option query '${query.queryKind}' is not a scope-discovery query.`);
+  }
 }
 
 function productDomainForUnitKey(unitKey: string): CatalogProviderIngestionUnitProductDomain | null {
