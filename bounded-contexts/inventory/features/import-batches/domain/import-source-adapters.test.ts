@@ -4,6 +4,7 @@ import {
   ebayCsvImportAdapter,
   getInventoryImportSourceAdapter,
   nativeCsvImportAdapter,
+  savedListImportAdapter,
   shopifyCsvImportAdapter,
   tcgplayerCsvImportAdapter,
   whatnotCsvImportAdapter,
@@ -46,6 +47,44 @@ describe("inventory import source adapters", () => {
         sellerSku: "Box-A-001",
       },
     });
+  });
+
+  it("preserves immutable Saved List source evidence without applying a location default", () => {
+    const rows = savedListImportAdapter.normalize({
+      parsedRows: [
+        {
+          rowNumber: 1,
+          values: {
+            sourceListId: "svl_1",
+            sourceListVersion: "4",
+            sourceLineId: "sll_1",
+            sourceRowId: "saved-list:svl_1:v4:sll_1",
+            catalogItemId: "cat_1",
+            productId: "product_1",
+            totalQuantity: "2",
+            "option:condition": "near_mint",
+          },
+        },
+      ],
+      quantityMode: "add",
+      defaultStorageLocationId: "loc_ignored",
+    });
+
+    expect(rows[0]).toMatchObject({
+      rowNumber: 1,
+      values: {
+        sourceListId: "svl_1",
+        sourceListVersion: "4",
+        sourceLineId: "sll_1",
+        sourceRowId: "saved-list:svl_1:v4:sll_1",
+        catalogItemId: "cat_1",
+        productId: "product_1",
+        totalQuantity: "2",
+      },
+      selectedOptionCandidates: [{ dimensionKey: "condition", value: "near_mint" }],
+    });
+    expect(rows[0]?.values).not.toHaveProperty("storageLocationId");
+    expect(rows[0]?.values).not.toHaveProperty("acquisitionCostAmount");
   });
 
   it("normalizes TCGplayer seller portal rows to external references", () => {

@@ -137,6 +137,7 @@ Notes:
 - A profile defines the source key, label, file/API kind, header aliases, quantity and price fields, seller SKU fields, listing draft fields, external reference candidates, candidate target intent, and selected option inference rules.
 - Small connectors parse files or fetch rows; profiles decide row semantics.
 - Profiles are seeded in code today so common platform migration paths work without manual setup.
+- `saved-list` is an API-only source profile. It preserves the selected Saved List version and line evidence, never copies acquisition cost, and requires location review instead of inventing a default.
 
 ## External Reference Candidate
 

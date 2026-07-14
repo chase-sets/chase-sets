@@ -46,6 +46,7 @@ CSV import row formats and examples are documented in [Inventory CSV Import Exam
 
 - Identity for account references
 - Catalog for canonical item identity
+- Collections supplies owner-authorized immutable Saved List source snapshots; Inventory owns their review and stock intake.
 
 ## Outgoing Integration Events
 

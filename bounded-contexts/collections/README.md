@@ -4,7 +4,7 @@
 
 Collections owns Saved Lists: account-owned, ordered sets of exact Catalog Products kept for curation, tracking, sharing, copying, and later account workflows. A Saved List records intent, not stock or financial truth. My Collection may compose Saved Lists with Inventory-owned Owned Cards, but the customer surface does not move behavior between contexts.
 
-This foundation publishes the replay-stable Saved List aggregate and command contracts through `@chase-sets/collections/server`. Later slices add read models, routes, sharing, valuation, Inventory handoff, and presentation without importing slice internals.
+This foundation publishes the replay-stable Saved List aggregate and command contracts through `@chase-sets/collections/server`. The Saved List Inventory handoff snapshots selected owner lines into Inventory's review-first import; later slices add read models, routes, sharing, valuation, and presentation without importing slice internals.
 
 ## Owns
 
@@ -13,6 +13,7 @@ This foundation publishes the replay-stable Saved List aggregate and command con
 - Tracked Quantity and private line notes/tags.
 - Expected-version concurrency, command idempotency receipts, and bounded line batches.
 - Versioned Saved List event and owner/viewer snapshot contracts.
+- Authorization and immutable selected-line source snapshots for Inventory handoff.
 
 ## Does Not Own
 
@@ -34,6 +35,7 @@ Collections terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 - Identity supplies the account reference carried by event audit context.
 - Catalog validates exact Product selections through the `savedListProductCatalog` host port. Collections never reads Catalog tables.
+- Inventory accepts authorized Saved List source snapshots through the `inventorySavedListImportBatchCreator` host port and remains authoritative for validation, locations, stock changes, durable work, and review status.
 
 ## Outgoing Integration Events
 

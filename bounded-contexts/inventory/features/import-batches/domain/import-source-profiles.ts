@@ -1,5 +1,6 @@
 export type InventoryImportSourceKey =
   | "native-csv"
+  | "saved-list"
   | "tcgplayer-csv"
   | "ebay-csv"
   | "shopify-csv"
@@ -89,6 +90,17 @@ export const inventoryImportSourceProfiles = [
         targetIntent: "account-sku",
       },
     ],
+    selectedOptionInference: [],
+  },
+  {
+    sourceKey: "saved-list",
+    label: "Saved List",
+    kind: "api",
+    adapterVersion: 1,
+    nativePassthrough: true,
+    displayNameValueKeys: [],
+    values: [],
+    externalReferenceCandidates: [],
     selectedOptionInference: [],
   },
   {

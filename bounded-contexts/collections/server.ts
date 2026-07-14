@@ -7,3 +7,4 @@
  */
 export * from "./features/saved-lists/domain";
 export * from "./features/saved-lists/api";
+export * from "./features/saved-lists/integrations/inventory-handoff";
