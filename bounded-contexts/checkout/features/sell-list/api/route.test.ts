@@ -14,7 +14,7 @@ const readySellerReadiness: SellListReadinessSnapshot["sellerReadiness"] = {
   payout: "ready",
   shipFrom: "ready",
   label: "ready",
-  conditionReview: "ready",
+  listingEvidence: "ready",
   risk: "ready",
   provider: "ready",
   freshness: "ready",
@@ -22,7 +22,7 @@ const readySellerReadiness: SellListReadinessSnapshot["sellerReadiness"] = {
     { dimension: "ship-from", status: "ready", reason: "ready" },
     { dimension: "payout", status: "ready", reason: "ready" },
     { dimension: "label", status: "ready", reason: "ready" },
-    { dimension: "condition-review", status: "ready", reason: "ready" },
+    { dimension: "listing-evidence", status: "ready", reason: "ready" },
     { dimension: "risk", status: "ready", reason: "ready" },
     { dimension: "provider", status: "ready", reason: "ready" },
     { dimension: "freshness", status: "ready", reason: "ready" },
@@ -133,10 +133,6 @@ function sellerEvidence(): SellListSellerConfirmationEvidence {
     label: {
       status: "ready",
       preference: "prepaid-label",
-    },
-    conditionReview: {
-      status: "accepted",
-      acceptedAt: "2026-05-30T00:00:00.000Z",
     },
     risk: { status: "clear" },
     provider: { status: "ready" },

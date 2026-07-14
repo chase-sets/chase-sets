@@ -142,10 +142,6 @@ export type SellListSellerConfirmationEvidence = Readonly<{
     status: "ready";
     preference: "prepaid-label" | "seller-label-later";
   }>;
-  conditionReview: Readonly<{
-    status: "accepted";
-    acceptedAt: string;
-  }>;
   risk: Readonly<{
     status: "clear";
   }>;

@@ -232,10 +232,6 @@ function sellerEvidence() {
       status: "ready" as const,
       preference: "prepaid-label" as const,
     },
-    conditionReview: {
-      status: "accepted" as const,
-      acceptedAt: "2026-05-19T00:00:00.000Z",
-    },
     risk: { status: "clear" as const },
     provider: { status: "ready" as const },
     freshness: { status: "current" as const },

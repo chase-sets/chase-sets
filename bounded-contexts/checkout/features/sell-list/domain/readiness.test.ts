@@ -8,6 +8,17 @@ import {
 } from "./readiness";
 import type { SellListSellerConfirmationEvidence } from "./domain";
 
+const readyListingEvidence = {
+  listingId: "lst_ready",
+  ready: true,
+  policyHash: "ph_v1",
+  policyVersion: 1,
+  unmetCodes: [] as const,
+  requiredSlotCount: 2,
+  satisfiedSlotCount: 2,
+  updatedAt: "2026-06-09T00:00:00.000Z",
+} as const;
+
 const selectedOfferLine: SellListReadinessLine = {
   seller_account_id: "acc_seller",
   line_id: "sll_offer",
@@ -21,6 +32,7 @@ const selectedOfferLine: SellListReadinessLine = {
   fallback_mode: "none",
   minimum_listing_price_amount: null,
   updated_at: "2026-06-09T00:00:00.000Z",
+  listing_evidence: readyListingEvidence,
 };
 
 const productLine: SellListReadinessLine = {
@@ -55,10 +67,6 @@ const sellerEvidence: SellListSellerConfirmationEvidence = {
   label: {
     status: "ready",
     preference: "prepaid-label",
-  },
-  conditionReview: {
-    status: "accepted",
-    acceptedAt: "2026-06-09T00:00:00.000Z",
   },
   risk: { status: "clear" },
   provider: { status: "ready" },
@@ -226,6 +234,90 @@ describe("sell list readiness snapshots", () => {
         { lineId: "sll_fallback", action: "fallback-listing" },
       ],
     });
+  });
+
+  it("cannot satisfy Listing Evidence with a Checkout timestamp when the exact Listing's evidence is incomplete", () => {
+    const evidenceIncompleteLine: SellListReadinessLine = {
+      ...selectedOfferLine,
+      listing_evidence: {
+        ...readyListingEvidence,
+        ready: false,
+        unmetCodes: ["slot-missing"],
+        satisfiedSlotCount: 1,
+      },
+    };
+    // sellerEvidence is fully "ready" (the old timestamp-only condition review),
+    // yet the offer cannot be accepted because Marketplace evidence is unmet.
+    const snapshot = createSellListReadinessSnapshot([evidenceIncompleteLine], null, sellerEvidence);
+
+    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.includedLineIds).toEqual([]);
+    expect(snapshot.lineOutcomes).toContainEqual({
+      lineId: "sll_offer",
+      outcome: "checkout",
+      reason: "missing-listing-evidence",
+      action: "selected-offer",
+    });
+    expect(snapshot.sellerReadiness.listingEvidence).toBe("blocked");
+    expect(snapshot.sellerReadiness.status).toBe("blocked");
+    expect(snapshot.sellerReadiness.outcomes).toContainEqual({
+      dimension: "listing-evidence",
+      status: "blocked",
+      reason: "listing-evidence-incomplete",
+    });
+  });
+
+  it("blocks Listing Evidence readiness when Marketplace requirements are unavailable", () => {
+    const evidenceUnavailableLine: SellListReadinessLine = { ...selectedOfferLine, listing_evidence: null };
+    const snapshot = createSellListReadinessSnapshot([evidenceUnavailableLine], null, sellerEvidence);
+
+    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.sellerReadiness.outcomes).toContainEqual({
+      dimension: "listing-evidence",
+      status: "blocked",
+      reason: "listing-evidence-unavailable",
+    });
+  });
+
+  it("does not let an evidence-incomplete line corrupt other completed lines when kept in the list", () => {
+    const evidenceIncompleteLine: SellListReadinessLine = {
+      ...selectedOfferLine,
+      line_id: "sll_blocked",
+      offer_id: "off_blocked",
+      listing_id: "lst_blocked",
+      listing_evidence: {
+        ...readyListingEvidence,
+        listingId: "lst_blocked",
+        ready: false,
+        unmetCodes: ["slot-missing"],
+      },
+    };
+    const snapshot = createSellListReadinessSnapshot(
+      [selectedOfferLine, evidenceIncompleteLine],
+      { lineOutcomes: [{ lineId: "sll_blocked", outcome: "keep-in-list" }] },
+      sellerEvidence,
+    );
+
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.includedLineIds).toEqual(["sll_offer"]);
+    expect(snapshot.sellerReadiness.status).toBe("ready");
+    expect(snapshot.sellerReadiness.listingEvidence).toBe("ready");
+  });
+
+  it("rejects a readiness token when the exact Listing's evidence freshness changes", () => {
+    const snapshot = createSellListReadinessSnapshot([selectedOfferLine], null, sellerEvidence);
+    const refreshedEvidenceLine: SellListReadinessLine = {
+      ...selectedOfferLine,
+      listing_evidence: { ...readyListingEvidence, updatedAt: "2026-06-10T00:00:00.000Z" },
+    };
+
+    expect(
+      validateSellListReadinessSnapshot([refreshedEvidenceLine], {
+        snapshotId: snapshot.snapshotId,
+        sourceRevision: snapshot.sourceRevision,
+        sellerEvidence,
+      }),
+    ).toMatchObject({ valid: false });
   });
 
   it("rejects stale sell-list readiness tokens when line facts change", () => {

@@ -6,6 +6,7 @@ import {
   type ResolvedListingEvidenceRequirements,
 } from "../../../support/request-support/marketplace-listing-evidence";
 import type { VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
+import type { SellListLineEvidenceReadiness, SellListReadinessLine } from "../domain/readiness";
 
 type CheckoutCommercialAccountType = "personal" | "business" | "enterprise";
 
@@ -561,6 +562,47 @@ export function createEmptySellPayoutReadiness(accountId: string): CheckoutSellP
     missing_requirements: ["provider-onboarding", "seller-agreement"],
     updated_at: null,
   };
+}
+
+function toSellListLineEvidenceReadiness(coverage: MarketplaceListingEvidenceCoverage): SellListLineEvidenceReadiness {
+  const slots = coverage.coverage.slots;
+  return {
+    listingId: coverage.listingId,
+    ready: coverage.coverage.complete,
+    policyHash: coverage.policyHash,
+    policyVersion: coverage.policyVersion,
+    unmetCodes: coverage.coverage.unmetCodes,
+    requiredSlotCount: slots.length,
+    satisfiedSlotCount: slots.filter((slot) => slot.satisfied).length,
+    updatedAt: coverage.updatedAt,
+  };
+}
+
+/**
+ * Sell List lines enriched with Marketplace Listing Evidence readiness for the
+ * exact Listing each selected-offer line commits to. Checkout consumes the
+ * marketplace-owned coverage verbatim (no policy evaluation here) so the
+ * readiness snapshot can gate acceptance on real evidence rather than a
+ * Checkout timestamp. Product / Smart Match lines carry no single Listing, so
+ * their evidence is resolved per Offer in the composite review instead.
+ */
+export async function listSellListReadinessLines(
+  db: PgQueryable,
+  sellerAccountId: string,
+): Promise<SellListReadinessLine[]> {
+  const lines = await listSellListLines(db, sellerAccountId);
+  return Promise.all(
+    lines.map(async (line): Promise<SellListReadinessLine> => {
+      if (line.line_type !== "selected-offer" || !line.listing_id) {
+        return { ...line, listing_evidence: null };
+      }
+      const coverage = await getCheckoutListingEvidenceCoverage(db, line.listing_id);
+      return {
+        ...line,
+        listing_evidence: coverage ? toSellListLineEvidenceReadiness(coverage) : null,
+      };
+    }),
+  );
 }
 
 export async function listSellListLines(db: PgQueryable, sellerAccountId: string): Promise<CheckoutSellListLineRow[]> {

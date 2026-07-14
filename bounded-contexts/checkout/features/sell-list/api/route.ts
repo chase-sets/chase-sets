@@ -174,11 +174,10 @@ function parseSellerEvidence(value: unknown): SellListSellerConfirmationEvidence
   const shipFrom = objectValue(source?.shipFrom);
   const payout = objectValue(source?.payout);
   const label = objectValue(source?.label);
-  const conditionReview = objectValue(source?.conditionReview);
   const risk = objectValue(source?.risk);
   const provider = objectValue(source?.provider);
   const freshness = objectValue(source?.freshness);
-  if (!shipFrom || !payout || !label || !conditionReview || !risk || !provider || !freshness) {
+  if (!shipFrom || !payout || !label || !risk || !provider || !freshness) {
     return null;
   }
   if (
@@ -187,7 +186,6 @@ function parseSellerEvidence(value: unknown): SellListSellerConfirmationEvidence
     payout.method !== "saved-payout" ||
     label.status !== "ready" ||
     (label.preference !== "prepaid-label" && label.preference !== "seller-label-later") ||
-    conditionReview.status !== "accepted" ||
     risk.status !== "clear" ||
     provider.status !== "ready" ||
     freshness.status !== "current"
@@ -198,8 +196,7 @@ function parseSellerEvidence(value: unknown): SellListSellerConfirmationEvidence
   const shipFromRegion = stringValue(shipFrom.region);
   const shipFromPostalCode = stringValue(shipFrom.postalCode);
   const payoutReadinessStatus = stringValue(payout.readinessStatus);
-  const acceptedAt = stringValue(conditionReview.acceptedAt);
-  if (!shipFromCountry || !shipFromRegion || !shipFromPostalCode || payoutReadinessStatus !== "ready" || !acceptedAt) {
+  if (!shipFromCountry || !shipFromRegion || !shipFromPostalCode || payoutReadinessStatus !== "ready") {
     return null;
   }
 
@@ -222,10 +219,6 @@ function parseSellerEvidence(value: unknown): SellListSellerConfirmationEvidence
     label: {
       status: "ready",
       preference: label.preference,
-    },
-    conditionReview: {
-      status: "accepted",
-      acceptedAt,
     },
     risk: { status: "clear" },
     provider: { status: "ready" },

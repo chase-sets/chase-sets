@@ -13,6 +13,7 @@ import type {
 import { objectValue, stringValue } from "./sell-checkout-form";
 import { reviewedListingId } from "./sell-checkout-readiness";
 import {
+  staleReviewPlanError,
   type MarketplaceRequestApiClient,
   type SellListMarketplaceHandoff,
   type SellListReviewedLine,
@@ -61,7 +62,6 @@ export function confirmationSideEffects(
 export function buildSellerEvidence(
   values: SignedInSellCheckoutFormValues,
   payoutSummary: SignedInSellCheckoutPayoutSummary | null,
-  confirmedAt: string,
 ): SellListSellerConfirmationEvidence {
   return {
     shipFrom: {
@@ -80,10 +80,6 @@ export function buildSellerEvidence(
     label: {
       status: "ready",
       preference: values.labelPreference === "seller-label-later" ? "seller-label-later" : "prepaid-label",
-    },
-    conditionReview: {
-      status: "accepted",
-      acceptedAt: confirmedAt,
     },
     risk: { status: "clear" },
     provider: { status: "ready" },
@@ -116,6 +112,59 @@ function isAlreadyActiveListingPublishReplay(error: unknown) {
   return error instanceof MarketplaceApiError && errorBodyMessage(error.body).includes("already active");
 }
 
+function marketplaceErrorCode(error: unknown): string {
+  if (!(error instanceof MarketplaceApiError)) {
+    return "";
+  }
+  const body = objectValue(error.body);
+  const bodyError = objectValue(body?.error);
+  return stringValue(bodyError?.code);
+}
+
+/**
+ * Codes Marketplace returns when the exact Listing / Offer it revalidates at
+ * acceptance no longer matches what the seller reviewed: stale fee quote, stale
+ * or incomplete Listing Evidence, or an ineligible Listing. Each maps to a
+ * "re-review" recovery so the seller sees the refreshed requirement before any
+ * further side effects run.
+ */
+const OFFER_ACCEPTANCE_STALE_CODES = new Set([
+  "fee_quote_stale",
+  "listing_evidence_incomplete",
+  "listing_seller_trust_incomplete",
+  "listing_not_eligible",
+]);
+
+/**
+ * Accept one Offer against its exact Listing, tolerating idempotent replays and
+ * converting Marketplace revalidation failures into a re-review recovery.
+ *
+ * `offer_already_accepted` is a benign replay (duplicate submit, browser
+ * refresh, or a partially completed batch being retried): the acceptance
+ * already exists in Marketplace, so the line counts as completed with a `null`
+ * write (no new side effect). Stale / ineligible responses abort the remaining
+ * batch and surface the refreshed requirement for review.
+ */
+async function acceptOfferMatchWithRecovery(
+  marketplaceApi: MarketplaceRequestApiClient,
+  offerId: string,
+  itemTitle: string,
+  body: Parameters<MarketplaceRequestApiClient["acceptOfferMatch"]>[1],
+): Promise<unknown | null> {
+  try {
+    return await marketplaceApi.acceptOfferMatch(offerId, body);
+  } catch (error) {
+    const code = marketplaceErrorCode(error);
+    if (code === "offer_already_accepted") {
+      return null;
+    }
+    if (OFFER_ACCEPTANCE_STALE_CODES.has(code)) {
+      throw staleReviewPlanError(itemTitle);
+    }
+    throw error;
+  }
+}
+
 export async function performMarketplaceHandoff(
   marketplaceApi: MarketplaceRequestApiClient,
   confirmationId: string,
@@ -134,12 +183,14 @@ export async function performMarketplaceHandoff(
     let completedQuantity = 0;
 
     if (readinessAction === "selected-offer" && review.selectedOffer) {
-      const result = await marketplaceApi.acceptOfferMatch(review.selectedOffer.offerId, {
+      const result = await acceptOfferMatchWithRecovery(marketplaceApi, review.selectedOffer.offerId, line.item_title, {
         listingId: review.selectedOffer.listingId,
         feeQuoteFingerprint: review.selectedOffer.feeQuoteFingerprint,
         sourceActionKey: `sell-confirm:${confirmationId}:${line.line_id}:selected:${review.selectedOffer.offerId}`,
       });
-      writeResults.push(result);
+      if (result) {
+        writeResults.push(result);
+      }
       acceptedOfferIds.push(review.selectedOffer.offerId);
       completedQuantity += line.quantity;
       acceptedOfferCount += 1;
@@ -148,14 +199,16 @@ export async function performMarketplaceHandoff(
     if (readinessAction === "smart-match") {
       const acceptanceBatchId = `offer-acceptance:${confirmationId}:${line.line_id}`;
       for (const target of review.productOfferTargets) {
-        const result = await marketplaceApi.acceptOfferMatch(target.offerId, {
+        const result = await acceptOfferMatchWithRecovery(marketplaceApi, target.offerId, line.item_title, {
           listingId: target.listingId,
           feeQuoteFingerprint: target.feeQuoteFingerprint,
           sourceActionKey: `sell-confirm:${confirmationId}:${line.line_id}:match:${target.offerId}`,
           acceptanceBatchId,
           acceptanceBatchSize: review.productOfferTargets.length,
         });
-        writeResults.push(result);
+        if (result) {
+          writeResults.push(result);
+        }
         acceptedOfferIds.push(target.offerId);
         completedQuantity += target.quantity;
         acceptedOfferCount += 1;

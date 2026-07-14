@@ -13,8 +13,26 @@ import type {
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createSellListReadinessSnapshot } from "../domain/readiness";
 import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
-import type { CheckoutSellListLineRow } from "../read-model/queries";
+import { listSellListReadinessLines, type CheckoutSellListLineRow } from "../read-model/queries";
 import { createCheckoutSellListRuntime } from "./runtime";
+
+/**
+ * Seed row for the marketplace evidence read-model the confirm path consults.
+ * Empty requirements resolve to complete coverage, so the exact Listing a
+ * selected-offer line commits to reads as evidence-ready in both the
+ * client-issued snapshot and the server-side revalidation.
+ */
+const readyListingEvidenceRow = {
+  listing_id: "lst_ready",
+  status: "active",
+  evidence_requirements: {
+    policyHash: "ph_seed",
+    policyVersion: 1,
+    requirements: { requiredSlots: [], minimumPhotoCount: 0, sellerTrustRequirements: [] },
+  },
+  evidence: [] as unknown[],
+  updated_at: "2026-06-09T00:00:00.000Z",
+};
 
 const context = {
   tenantId: "tnt_test" as never,
@@ -157,6 +175,10 @@ function createDb(lines: readonly CheckoutSellListLineRow[], catalogItems: reado
       if (sql.includes("checkout_sell_list_confirmation_pages")) {
         return { rows: [] };
       }
+      if (sql.includes("checkout_marketplace_seller_options")) {
+        const listingId = String(params?.[0] ?? "");
+        return { rows: listingId === readyListingEvidenceRow.listing_id ? [readyListingEvidenceRow] : [] };
+      }
       if (sql.includes("checkout_sell_list_line_pages")) {
         if (/INSERT\s+INTO\s+checkout_sell_list_line_pages/i.test(sql)) {
           const row: CheckoutSellListLineRow = {
@@ -277,10 +299,6 @@ const sellerEvidence: SellListSellerConfirmationEvidence = {
     status: "ready",
     preference: "prepaid-label",
   },
-  conditionReview: {
-    status: "accepted",
-    acceptedAt: "2026-06-09T00:00:00.000Z",
-  },
   risk: { status: "clear" },
   provider: { status: "ready" },
   freshness: { status: "current" },
@@ -303,14 +321,21 @@ const handoffSummary: SellListConfirmationSummary = {
 
 describe("sell list checkout runtime readiness boundary", () => {
   it("rejects unresolved sale-action readiness before seller checkout can confirm", async () => {
-    const readiness = createSellListReadinessSnapshot([selectedOfferLine, productLine], null, sellerEvidence);
     const { allEvents, eventStore } = createInMemoryEventStore();
+    const db = createDb([selectedOfferLine, productLine]);
     const services = createCheckoutSellListRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: createDb([selectedOfferLine, productLine]) as never,
+      db: db as never,
     });
     await seedSellListAggregate(services, [selectedOfferLine, productLine], allEvents);
+    // The selected offer's exact Listing is evidence-ready, so the only thing
+    // holding checkout back is the product line's unresolved sale action.
+    const readiness = createSellListReadinessSnapshot(
+      await listSellListReadinessLines(db as never, "acc_seller"),
+      null,
+      sellerEvidence,
+    );
 
     await expect(
       services.confirmSellListCheckout(

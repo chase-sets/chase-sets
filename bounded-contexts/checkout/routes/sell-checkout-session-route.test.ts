@@ -574,6 +574,59 @@ describe("checkout web routes: sell checkout session", () => {
     });
   });
 
+  it("treats an already-accepted Offer as an idempotent replay and still records the confirmation", async () => {
+    mockSignedInSellCheckoutState();
+    mockAcceptOfferMatch.mockRejectedValueOnce(
+      new MockMarketplaceApiError(409, { error: { code: "offer_already_accepted" } }),
+    );
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: signedInSellCheckoutForm().toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    await expectSellConfirmationRedirect(result);
+    expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(1);
+    expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmationId: "slc_chk_sell_1",
+        completedLineIds: ["sll_1"],
+        remainingLineQuantities: [],
+        handoffSummary: expect.objectContaining({ acceptedOfferCount: 1 }),
+      }),
+    );
+  });
+
+  it("surfaces a re-review recovery when Marketplace reports incomplete Listing Evidence at acceptance", async () => {
+    mockSignedInSellCheckoutState();
+    mockAcceptOfferMatch.mockRejectedValueOnce(
+      new MockMarketplaceApiError(409, { error: { code: "listing_evidence_incomplete" } }),
+    );
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: signedInSellCheckoutForm().toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result).not.toBeInstanceOf(Response);
+    expect(result).toMatchObject({
+      status: "error",
+      recovery: { kind: "readiness-stale" },
+    });
+    expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(1);
+    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+  });
+
   it("redirects duplicate seller confirmation posts to the existing confirmation without replaying handoff", async () => {
     mockSignedInSellCheckoutState();
     mockGetSellListConfirmation.mockResolvedValue({
