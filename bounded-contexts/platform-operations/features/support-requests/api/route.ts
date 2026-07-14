@@ -331,6 +331,12 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
             ? { affectedLineIds: (body.affectedLineIds as readonly unknown[]).map((entry) => String(entry)) }
             : {}),
           ...(typeof body.refundCurrencyCode === "string" ? { refundCurrencyCode: body.refundCurrencyCode } : {}),
+          responsibility: String(body.responsibility ?? ""),
+          evidenceBasis: {
+            type: String(body.evidenceBasis?.type ?? ""),
+            reference: String(body.evidenceBasis?.reference ?? ""),
+          },
+          responsibilityReasonCode: String(body.responsibilityReasonCode ?? ""),
           scope: "operations",
         },
         contextResult.context,
@@ -779,6 +785,12 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
             ? { affectedLineIds: (body.affectedLineIds as readonly unknown[]).map((entry) => String(entry)) }
             : {}),
           ...(typeof body.refundCurrencyCode === "string" ? { refundCurrencyCode: body.refundCurrencyCode } : {}),
+          responsibility: String(body.responsibility ?? ""),
+          evidenceBasis: {
+            type: String(body.evidenceBasis?.type ?? ""),
+            reference: String(body.evidenceBasis?.reference ?? ""),
+          },
+          responsibilityReasonCode: String(body.responsibilityReasonCode ?? ""),
         },
         context,
       );

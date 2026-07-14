@@ -4,6 +4,7 @@ import type {
   SupportFlowType,
   SupportRequesterRole,
   SupportResolutionType,
+  SupportResponsibilityFact,
   SupportResponseType,
 } from "./common";
 import { SupportDomainError } from "./common";
@@ -31,6 +32,9 @@ export type SupportFlowDefinition = Readonly<{
    */
   autoResolvesOnSellerSilence: boolean;
   automationSummary: string;
+  /** Present only when the flow and named party action themselves establish cause. */
+  confirmedResponseResponsibility?: SupportResponsibilityFact;
+  automatedResolutionResponsibility?: SupportResponsibilityFact;
 }>;
 
 const buyerAttestation = {
@@ -321,6 +325,22 @@ export const supportFlowCatalog = [
     autoResolvesOnSellerSilence: true,
     automationSummary:
       "If the order has not shipped, cancellation can be confirmed through structured seller action. If the seller does not respond by the deadline, the cancellation is confirmed automatically.",
+    confirmedResponseResponsibility: {
+      responsibility: "buyer",
+      evidenceBasis: {
+        type: "party-accepted-resolution",
+        reference: "support-policy.confirmed-buyer-cancellation.v1",
+      },
+      responsibilityReasonCode: "buyer-cancel-request.buyer-requested-cancellation",
+    },
+    automatedResolutionResponsibility: {
+      responsibility: "buyer",
+      evidenceBasis: {
+        type: "deterministic-policy",
+        reference: "support-policy.buyer-cancellation-seller-silence.v1",
+      },
+      responsibilityReasonCode: "buyer-cancel-request.buyer-requested-cancellation",
+    },
   },
   {
     flowType: "seller-cannot-fulfill",

@@ -292,9 +292,21 @@ describe("platform operations mutation consistency route actions", () => {
         resolutionType: "support-reviewed",
         summary: "Reviewed",
         refundAmount: "",
+        responsibilityFinding: "undetermined|product-not-received.conflicting-evidence",
+        evidenceBasisType: "insufficient-evidence",
       }),
       "http://localhost/api/marketplace/support-requests/ops/sup_1/resolve",
-      { resolutionType: "support-reviewed", summary: "Reviewed", refundAmount: null },
+      {
+        resolutionType: "support-reviewed",
+        summary: "Reviewed",
+        refundAmount: null,
+        responsibility: "undetermined",
+        evidenceBasis: {
+          type: "insufficient-evidence",
+          reference: "support-workbench.insufficient-evidence.v1",
+        },
+        responsibilityReasonCode: "product-not-received.conflicting-evidence",
+      },
     ],
     [
       "close",

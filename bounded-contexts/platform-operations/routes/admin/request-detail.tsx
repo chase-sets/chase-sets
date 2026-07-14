@@ -51,10 +51,24 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }
 
     if (intent === "resolve") {
+      const [responsibility = "", responsibilityReasonCode = ""] = formValue(formData, "responsibilityFinding").split(
+        "|",
+        2,
+      );
+      const evidenceBasisType = formValue(formData, "evidenceBasisType");
       await api.resolveSupportOperationsRequest(supportRequestId, {
         resolutionType: formValue(formData, "resolutionType"),
         summary: formValue(formData, "summary"),
         refundAmount: formValue(formData, "refundAmount") || null,
+        responsibility,
+        evidenceBasis: {
+          type: evidenceBasisType,
+          reference:
+            evidenceBasisType === "insufficient-evidence"
+              ? "support-workbench.insufficient-evidence.v1"
+              : "support-workbench.operator-adjudication.v1",
+        },
+        responsibilityReasonCode,
       });
       return redirect(`/support/requests/${supportRequestId}?action=resolve`);
     }

@@ -31,6 +31,12 @@ const context = {
   },
 };
 
+const operatorSellerNonShipmentFinding = {
+  responsibility: "seller",
+  evidenceBasis: { type: "operator-finding", reference: "support-test.operator-adjudication.v1" },
+  responsibilityReasonCode: "product-not-received.seller-did-not-ship",
+} as const;
+
 describe("support request runtime", () => {
   it("sources listFlowDefinitions' response-window copy from the resolved support-deadline policy", async () => {
     const db = { query: vi.fn(async () => ({ rows: [] })) };
@@ -595,6 +601,12 @@ describe("support request runtime", () => {
           resolutionType: "full-refund",
           resolvedByAccountId: null,
           resolvedByRole: null,
+          responsibility: "undetermined",
+          evidenceBasis: {
+            type: "deterministic-policy",
+            reference: "support-policy.seller-response-deadline.v1",
+          },
+          responsibilityReasonCode: "product-not-received.seller-response-deadline-expired",
         },
         autoCloseDueAt: new Date(Date.parse(dueAt) + 7 * 24 * 60 * 60 * 1000).toISOString(),
       });
@@ -865,6 +877,7 @@ describe("support request runtime", () => {
           accountId: "acc_support",
           resolutionType: "full-refund",
           summary: "Support review completed.",
+          ...operatorSellerNonShipmentFinding,
           scope: "operations",
         },
         context,
@@ -971,6 +984,9 @@ describe("support request runtime", () => {
           accountId: "acc_support",
           resolutionType: "return-for-refund",
           summary: "Return accepted.",
+          responsibility: "buyer",
+          evidenceBasis: { type: "operator-finding", reference: "support-test.operator-adjudication.v1" },
+          responsibilityReasonCode: "return-request.buyer-remorse",
           scope: "operations",
         },
         context,

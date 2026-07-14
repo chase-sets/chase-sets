@@ -80,6 +80,10 @@ Platform Operations hosts the former Support bounded context as the `support-req
 
 Support consumes Ordering's published line totals and Payments' payment currency through the local affected-line amount source projection. That contract gives offers and adjudications a canonical line-level cap; Payments and Settlement remain the owners of refund accounting and ledger effects.
 
+Support is the source of the factual responsibility recorded when a request resolves. Every terminal resolution records the remedy independently from `seller`, `buyer`, `carrier`, `platform`, `shared`, or `undetermined` responsibility, together with a structured evidence basis and a flow-specific reason code. Accepted offers and automated decisions publish the same fact shape as operator findings; automated decisions also name the policy rule that established the result. A refund never implies seller responsibility, and legacy resolution events replay as explicitly `undetermined` with a legacy evidence basis.
+
+Support does not assign rating weights, review eligibility, or public reputation labels. Marketplace owns those consequences and decides which privacy-safe interpretation, if any, may be shown to customers. Evidence contents and internal notes remain Support-private; the published resolution fact carries only stable codes and audit references needed by authorized consumers.
+
 Cross-context outcomes stay with the context that owns the consequence:
 
 - Payments listens for refund-producing support resolutions and issues order-scoped refunds.

@@ -81,6 +81,26 @@ The **Foregone Fee Estimate** is the offer-economics monitor's projection of wha
 - Seller Condition Attestation: Seller-supplied support evidence confirming the returned item's condition after return delivery.
 - Return Investigation: Support-owned review opened when return discrepancy evidence indicates the returned item may not match the original sale condition.
 
+## Support Remedy
+
+A **Support Remedy** is the action selected to resolve a Support Request, such as a full or partial refund, return for refund, replacement, cancellation, or no remedy. A remedy describes what happens next; it does not imply who was responsible.
+
+## Support Responsibility
+
+**Support Responsibility** is Support's factual, auditable finding of whose controllable action primarily caused the order problem: `seller`, `buyer`, `carrier`, `platform`, `shared`, or `undetermined`. `shared` means both transaction parties materially contributed. `undetermined` is used when evidence cannot support another value. Support owns this fact but does not own rating weights, review eligibility, public reputation labels, or other Marketplace consequences.
+
+## Support Evidence Basis
+
+A **Support Evidence Basis** is the structured indication of how Support established responsibility: `party-accepted-resolution`, `deterministic-policy`, `operator-finding`, `insufficient-evidence`, or `legacy`. It includes a stable reference to the accepted offer, policy rule, adjudication workflow, insufficiency finding, or compatibility rule without exposing private evidence contents or internal notes.
+
+## Responsibility Reason Code
+
+A **Responsibility Reason Code** is the stable, machine-readable, flow-prefixed cause supporting a Support Responsibility finding. The selected support flow defines which reason codes and responsibility values are consistent; for example, `product-not-received.carrier-loss` supports carrier responsibility while `product-not-as-described.seller-misdescription` supports seller responsibility.
+
+## Case Status
+
+A **Case Status** describes where a Support Request is in its lifecycle, such as waiting on a party, ready for Support, resolved, closed, or cancelled. It is independent from the remedy and responsibility facts recorded at resolution.
+
 ## Planned Platform Policy Enforcement
 
 These planned terms pre-register upcoming platform policy and enforcement language. They are not shipped behavior until Platform Operations adds the corresponding queues, operator workflows, and audit facts.

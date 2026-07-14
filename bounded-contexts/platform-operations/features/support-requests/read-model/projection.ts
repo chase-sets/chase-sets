@@ -3,10 +3,12 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type {
   SupportChecklistItem,
   SupportEvidence,
+  SupportFlowType,
   SupportOffer,
   SupportResolution,
   SupportResponse,
 } from "../domain/common";
+import { normalizeSupportResolutionForReplay } from "../domain/responsibility";
 import { withSupportRequestDisplayReference } from "./display-reference";
 import type { SupportRequestId } from "@chase-sets/primitives/typed-ids";
 
@@ -235,11 +237,13 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
     "support.support-request.resolved": async (event) => {
       const data = event.data as {
         supportRequestId: string;
+        flowType: SupportFlowType;
         resolution: SupportResolution;
         autoCloseDueAt: string;
       };
+      const resolution = normalizeSupportResolutionForReplay(data.resolution, data.flowType);
       const returnRefundGateStatus =
-        data.resolution.resolutionType === "return-for-refund" ? "awaiting-return-delivery" : null;
+        resolution.resolutionType === "return-for-refund" ? "awaiting-return-delivery" : null;
 
       await db.query(
         `UPDATE support_request_pages
@@ -251,8 +255,8 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
          WHERE support_request_id = $1`,
         [
           data.supportRequestId,
-          data.resolution.resolvedAt,
-          JSON.stringify(data.resolution),
+          resolution.resolvedAt,
+          JSON.stringify(resolution),
           data.autoCloseDueAt,
           returnRefundGateStatus,
         ],

@@ -69,6 +69,30 @@ export type SupportResolutionType =
   | "no-action"
   | "support-reviewed";
 
+export type SupportResponsibility = "seller" | "buyer" | "carrier" | "platform" | "shared" | "undetermined";
+
+export type SupportEvidenceBasisType =
+  | "party-accepted-resolution"
+  | "deterministic-policy"
+  | "operator-finding"
+  | "insufficient-evidence"
+  | "legacy";
+
+export type SupportEvidenceBasis = Readonly<{
+  type: SupportEvidenceBasisType;
+  /** Stable offer, policy/rule, operator workflow, or compatibility reference. */
+  reference: string;
+}>;
+
+/** Flow-prefixed, stable machine-readable cause selected from Support's catalog. */
+export type SupportResponsibilityReasonCode = `${SupportFlowType}.${string}`;
+
+export type SupportResponsibilityFact = Readonly<{
+  responsibility: SupportResponsibility;
+  evidenceBasis: SupportEvidenceBasis;
+  responsibilityReasonCode: SupportResponsibilityReasonCode;
+}>;
+
 export type SupportOfferStatus = "pending" | "accepted" | "declined";
 
 export type SupportAffectedLineItemAmount = AffectedLineItemAmountInput;
@@ -140,7 +164,8 @@ export type SupportResolution = Readonly<{
   resolvedByAccountId: AccountId | null;
   resolvedByRole: SupportRequesterRole | null;
   resolvedAt: string;
-}>;
+}> &
+  SupportResponsibilityFact;
 
 export type SupportOrderReturnContextLine = Readonly<{
   lineId: string;

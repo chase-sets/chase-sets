@@ -172,6 +172,9 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         resolutionType: string;
         summary: string;
         refundAmount?: string | null;
+        responsibility: string;
+        evidenceBasis: Readonly<{ type: string; reference: string }>;
+        responsibilityReasonCode: string;
       }>,
     ) =>
       parseJsonResponse<SupportRequestCommandSnapshot>(

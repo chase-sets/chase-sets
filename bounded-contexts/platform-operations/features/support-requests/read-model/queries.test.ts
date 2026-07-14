@@ -1,6 +1,10 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
-import { getSupportRequestByDisplayReference, listSupportOperationsQueue } from "./queries";
+import {
+  getSupportOperationsRequest,
+  getSupportRequestByDisplayReference,
+  listSupportOperationsQueue,
+} from "./queries";
 
 type QueryCall = Readonly<{ sql: string; params: readonly unknown[] }>;
 
@@ -121,5 +125,31 @@ describe("support operations queue read-model query", () => {
       20,
     ]);
     expect(calls[1]?.sql).toContain("LIMIT $6 OFFSET $7");
+  });
+
+  it("exposes an explicit legacy responsibility interpretation from pre-change read-model JSON", async () => {
+    const calls: QueryCall[] = [];
+    const db = buildDb(calls, "0", [
+      {
+        support_request_id: "sup_legacy",
+        flow_type: "product-not-received",
+        resolution: {
+          resolutionType: "full-refund",
+          summary: "Historical refund.",
+          refundAmount: "25.00",
+          resolvedByAccountId: null,
+          resolvedByRole: null,
+          resolvedAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    ]);
+
+    await expect(getSupportOperationsRequest(db, "sup_legacy")).resolves.toMatchObject({
+      resolution: {
+        responsibility: "undetermined",
+        evidenceBasis: { type: "legacy" },
+        responsibilityReasonCode: "product-not-received.legacy-resolution-without-responsibility",
+      },
+    });
   });
 });

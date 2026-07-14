@@ -148,6 +148,9 @@ describe("platform operations request API clients", () => {
       client.resolveSupportOperationsRequest("sup_1", {
         resolutionType: "support-reviewed",
         summary: "Reviewed",
+        responsibility: "undetermined",
+        evidenceBasis: { type: "insufficient-evidence", reference: "support-test.conflicting-evidence.v1" },
+        responsibilityReasonCode: "product-not-received.conflicting-evidence",
       }),
     ).resolves.toEqual({ id: "sup_1", version: 2, status: "resolved" });
     await expect(client.closeSupportOperationsRequest("sup_1")).resolves.toEqual({

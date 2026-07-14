@@ -6,6 +6,8 @@ import type {
   SupportResolution,
   SupportResponse,
 } from "../domain/common";
+import { normalizeFlowType } from "../domain/common";
+import { normalizeSupportResolutionForReplay } from "../domain/responsibility";
 
 export type SupportRequestListRow = Readonly<{
   support_request_id: string;
@@ -130,6 +132,16 @@ function normalizePageParams(params: Readonly<{ limit?: number; offset?: number 
   };
 }
 
+function withCompatibleResolution<T extends SupportRequestListRow>(row: T): T {
+  if (row.resolution == null || typeof row.flow_type !== "string") {
+    return row;
+  }
+  return {
+    ...row,
+    resolution: normalizeSupportResolutionForReplay(row.resolution, normalizeFlowType(row.flow_type)),
+  };
+}
+
 export async function listBuyerSupportRequests(
   db: PgQueryable,
   params: Readonly<{ buyerAccountId: string; limit?: number; offset?: number }>,
@@ -152,7 +164,7 @@ export async function listBuyerSupportRequests(
   ]);
 
   return {
-    items: itemsResult.rows,
+    items: itemsResult.rows.map(withCompatibleResolution),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
@@ -179,7 +191,7 @@ export async function listSellerSupportRequests(
   ]);
 
   return {
-    items: itemsResult.rows,
+    items: itemsResult.rows.map(withCompatibleResolution),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
@@ -286,7 +298,7 @@ export async function listSupportOperationsQueue(
   ]);
 
   return {
-    items: itemsResult.rows,
+    items: itemsResult.rows.map(withCompatibleResolution),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
@@ -334,7 +346,7 @@ export async function getAccountSupportRequest(
     [supportRequestId, accountId],
   );
 
-  return result.rows[0] ?? null;
+  return result.rows[0] ? withCompatibleResolution(result.rows[0]) : null;
 }
 
 export async function getSupportOperationsRequest(
@@ -347,7 +359,7 @@ export async function getSupportOperationsRequest(
     [supportRequestId],
   );
 
-  return result.rows[0] ?? null;
+  return result.rows[0] ? withCompatibleResolution(result.rows[0]) : null;
 }
 
 export type SupportRequestSweepCandidateRow = Readonly<{
@@ -548,7 +560,7 @@ export async function listSupportRequestsAwaitingReturnDelivery(
   ]);
 
   return {
-    items: itemsResult.rows,
+    items: itemsResult.rows.map(withCompatibleResolution),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
