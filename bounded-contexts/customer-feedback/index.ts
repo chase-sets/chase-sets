@@ -3,6 +3,7 @@ export { default as contextManifest } from "./context.json";
 import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
+import { customerFeedbackRetentionExemptions } from "./support/runtime-support/retention-policy";
 import { customerFeedbackSchemaSql } from "./support/runtime-support/schema";
 import {
   createCustomerFeedbackServices,
@@ -11,12 +12,11 @@ import {
 } from "./support/runtime-support/services";
 
 /**
- * Customer Feedback bounded-context module (start gate,).
+ * Customer Feedback bounded-context module.
  *
  * The context is established as an event-sourced source context that owns the
- * versioned CSAT contract. It mounts no API and owns no projection yet — the
- * invitation aggregate + API and the presentation/CSAT projection
- * activate those surfaces on this foundation.
+ * versioned CSAT contract and the invitation aggregate/query projection. Survey
+ * UI and aggregate CSAT analytics compose on this foundation separately.
  */
 export const module = defineBoundedContextModule<
   CustomerFeedbackServices,
@@ -25,6 +25,8 @@ export const module = defineBoundedContextModule<
 >({
   manifest: contextManifest,
   schemaSql: customerFeedbackSchemaSql,
+  retentionExemptions: customerFeedbackRetentionExemptions,
   createServices: (pool, ports) => createCustomerFeedbackServices(pool, ports),
   buildApis: () => [],
+  projectionHandlerSets: (services) => services.projectors,
 });

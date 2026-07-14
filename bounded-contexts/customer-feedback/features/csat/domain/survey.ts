@@ -9,8 +9,8 @@
  *     experience-pulse / CES / NPS / public-review kinds) can never be mixed in.
  *
  * This module is the canonical, versioned survey registry for the context and is
- * consumed by the invitation, recording/CSAT, and dashboard
- * leaves via the `./server` barrel.
+ * consumed by the invitation, recording/CSAT, and dashboard slices via the
+ * `./server` barrel.
  */
 
 /** The instrument family a response belongs to. Only `transactional-csat` feeds CSAT. */
@@ -20,7 +20,7 @@ export type SurveyKind = (typeof surveyKinds)[number];
 /**
  * Instrument families reserved for future work and DELIBERATELY excluded from the
  * `SurveyKind` union so their data can never be typed into a CSAT calculation.
- * These are non-goals of the epic: NPS, CES, public reviews, experience
+ * These are non-goals of the current capability: NPS, CES, public reviews, experience
  * pulse. Kept here as a documented allow-list, never as a `SurveyKind`.
  */
 export const reservedFutureSurveyKinds = ["experience-pulse", "ces", "nps", "public-review"] as const;
@@ -46,7 +46,7 @@ export const csatRatingValues = [1, 2, 3, 4, 5] as const satisfies readonly Csat
  * so the (later) design-system rating component renders from a single source of
  * truth: visible endpoint anchors, a semantic label for every value, and — the
  * critical anti-bias rule — no preselected answer (`defaultSelection: null`).
- * A submission is impossible until a value is deliberately chosen ( AC5/AC6).
+ * A submission is impossible until a value is deliberately chosen.
  */
 export type CsatRatingScale = Readonly<{
   min: 1;

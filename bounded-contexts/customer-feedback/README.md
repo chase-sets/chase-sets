@@ -9,7 +9,7 @@ It is the start-gate context for the launch-ready CSAT capability (epic #5144) a
 supersedes the acknowledged mixed-responsibility `platform-feedback` slice inside
 Platform Operations.
 
-This slice (#5146) establishes the context and its **versioned CSAT contract**.
+The foundation establishes the context and its **versioned CSAT contract**.
 Source contexts publish completed Outcome Facts; Customer Feedback consumes them
 and decides whether to issue an invitation. Customer Feedback never reaches into
 another context's aggregate or database, and no downstream context imports its
@@ -29,8 +29,8 @@ internals.
 
 ## Does Not Own
 
-- Issuing invitations with eligibility/sampling/expiry (#5147).
-- Recording presentation/dismissal/submission and projecting CSAT (#5148).
+- Projecting aggregate CSAT/response-rate analytics and composing the survey UI
+  (#5148); the invitation query projection belongs to this lifecycle slice.
 - The closed-loop feedback case lifecycle and operator UI (#5149/#5153/#5154).
 - The source-context outcomes themselves (checkout, fulfillment, settlement, …):
   those contexts own and publish their Outcome Facts.
@@ -43,9 +43,9 @@ Customer Feedback terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Core Aggregates and Process Managers
 
-- CSAT Invitation (aggregate; issued by #5147, lifecycle recorded by #5148). This
-  gate defines its versioned event contracts; the decider/evolver land with those
-  leaves.
+- CSAT Invitation (aggregate): redeems an authoritative Outcome Fact, records
+  eligibility and a sampling decision, then governs issuance, presentation,
+  dismissal, single-use submission, expiry, suppression, and revocation.
 
 ## Incoming Dependencies
 
@@ -56,14 +56,23 @@ Customer Feedback terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Outgoing Integration Events
 
+- `customer-feedback.invitation.eligible`
 - `customer-feedback.invitation.issued`
 - `customer-feedback.invitation.presented`
 - `customer-feedback.survey.submitted`
 - `customer-feedback.invitation.dismissed`
 - `customer-feedback.invitation.expired`
+- `customer-feedback.invitation.suppressed`
+- `customer-feedback.invitation.revoked`
 
-(Event type contracts are defined at this gate; the aggregate that emits them is
-built by #5147/#5148.)
+Every native lifecycle event carries `eventSchemaVersion: 1`. Issuance includes an
+opaque public reference and the complete persisted sampling decision plus policy
+schema version.
+
+`customer-feedback.sampling.cooldown-claimed` is an internal versioned policy
+fact. It is atomically appended with an issued invitation on a deterministic
+per-subject/workflow stream, so concurrent outcome delivery cannot bypass the
+cooldown.
 
 ## Invariants
 
@@ -82,6 +91,25 @@ built by #5147/#5148.)
    reset).
 6. Customer Feedback never reaches into another context's aggregate or database,
    and no downstream context imports Customer Feedback internals.
+7. `issuanceEnabled` is the sampling-policy kill switch. `sampleRate: 0` remains
+   an explicit sampling configuration and never changes the meaning of past
+   events.
+8. Submission is single-use. An identical retry is a no-op; a changed retry is a
+   deterministic conflict. Dismissal records prompt behavior but does not revoke
+   an otherwise valid invitation before expiry.
+9. Invitation issuance and its cooldown claim commit atomically across streams;
+   a concurrency loser reloads the claim and is suppressed deterministically.
+10. Outcome code, owning source context, source entity type, and subject account id
+    are validated before eligibility is written. Routes and arbitrary entity
+    labels never enter the invitation stream.
+
+## Invitation Projection
+
+`customer-feedback-csat-invitation-projection` is the context's first query
+projection. It owns `customer_feedback_csat_invitations`, is replay-safe through
+stream-version guards, and supports account-scoped lookup by opaque public
+reference plus per-subject/workflow cooldown decisions. The projection is listed
+in the source-context wake registry and the push-first migration inventory.
 
 ## Tests
 

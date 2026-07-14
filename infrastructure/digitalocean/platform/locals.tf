@@ -555,6 +555,7 @@ locals {
     "checkout",
     "commercial-terms",
     "control",
+    "customer-feedback",
     "discovery",
     "fulfillment",
     "identity",
