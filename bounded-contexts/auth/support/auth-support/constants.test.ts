@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 import { AUTH_ROLE_PERMISSIONS } from "./constants";
 
 describe("auth role permissions", () => {
+  it("keeps feedback operator authority on platform staff roles only", () => {
+    for (const roleKey of ["owner", "manager", "fulfillment", "viewer"] as const) {
+      expect(AUTH_ROLE_PERMISSIONS[roleKey]).not.toEqual(
+        expect.arrayContaining(["platform-feedback.view", "platform-feedback.manage", "platform-feedback.export"]),
+      );
+    }
+    expect(AUTH_ROLE_PERMISSIONS["platform-admin"]).toEqual(
+      expect.arrayContaining(["platform-feedback.view", "platform-feedback.manage", "platform-feedback.export"]),
+    );
+  });
   it("grants the legacy operator wallet-mutation authority to no live actor role", () => {
     // The legacy operator wallet-mutation routes still require this dedicated
     // authority. It must never be resolved onto a live actor via a role until

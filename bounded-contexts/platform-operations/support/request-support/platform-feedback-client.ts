@@ -14,6 +14,11 @@ import type {
   RecordPlatformFeedbackOperatorNoteRequest,
   SubmitPlatformFeedbackRequest,
 } from "../../features/platform-feedback/api/contracts";
+import type {
+  CsatAdminQueueFilters,
+  CsatAdminQueuePage,
+  CsatAnalyticsSnapshot,
+} from "@chase-sets/customer-feedback/server";
 
 const DEFAULT_BASE_URL = "/api/experience";
 
@@ -32,6 +37,11 @@ export type {
   RecordPlatformFeedbackOperatorNoteRequest,
   SubmitPlatformFeedbackRequest,
 } from "../../features/platform-feedback/api/contracts";
+export type {
+  CsatAdminQueueFilters,
+  CsatAdminQueuePage,
+  CsatAnalyticsSnapshot,
+} from "@chase-sets/customer-feedback/server";
 
 export class ExperienceApiError extends Error {
   public constructor(
@@ -48,6 +58,7 @@ export class ExperienceApiError extends Error {
 
 export interface ExperienceApiClientOptions {
   baseUrl?: string;
+  customerFeedbackBaseUrl?: string;
   fetch?: typeof globalThis.fetch;
   headers?: HeadersInit | (() => HeadersInit);
   credentials?: RequestCredentials;
@@ -79,6 +90,7 @@ function toQuery(params: Record<string, string | number | boolean | null | undef
 
 export function createExperienceApiClient({
   baseUrl = DEFAULT_BASE_URL,
+  customerFeedbackBaseUrl = "/api/customer-feedback",
   fetch = globalThis.fetch,
   headers: initialHeaders,
   credentials = "include",
@@ -95,6 +107,15 @@ export function createExperienceApiClient({
     });
 
   return {
+    async getCsatDashboard(query = ""): Promise<{
+      analytics: CsatAnalyticsSnapshot;
+      queue: CsatAdminQueuePage;
+      filters: CsatAdminQueueFilters;
+    }> {
+      return parseJsonResponse(
+        await configuredFetch(`${customerFeedbackBaseUrl}${query ? `?${query}` : ""}`, { method: "GET" }),
+      );
+    },
     async getPromptEligibility(
       params: Readonly<{
         workflow: string;

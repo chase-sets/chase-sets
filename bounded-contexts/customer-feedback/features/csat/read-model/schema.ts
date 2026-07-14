@@ -115,3 +115,18 @@ CREATE INDEX IF NOT EXISTS customer_feedback_csat_analytics_dimensions_idx
   ON customer_feedback_csat_analytics_facts
   (outcome_code, customer_role, sampling_cohort, invitation_id);
 `;
+
+export const csatAdminExportSchemaSql = `
+CREATE TABLE IF NOT EXISTS customer_feedback_csat_export_audits (
+  export_id text PRIMARY KEY,
+  actor_id text NOT NULL,
+  filters jsonb NOT NULL,
+  started_at timestamptz NOT NULL,
+  completed_at timestamptz NOT NULL,
+  row_count integer NOT NULL CHECK (row_count >= 0),
+  result text NOT NULL CHECK (result IN ('completed', 'failed'))
+);
+
+CREATE INDEX IF NOT EXISTS customer_feedback_csat_export_audits_started_idx
+  ON customer_feedback_csat_export_audits (started_at DESC);
+`;

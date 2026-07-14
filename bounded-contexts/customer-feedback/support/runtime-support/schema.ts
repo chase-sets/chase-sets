@@ -1,5 +1,6 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import {
+  csatAdminExportSchemaSql,
   csatAnalyticsProjectionSchemaSql,
   csatInvitationProjectionSchemaSql,
 } from "../../features/csat/read-model/schema";
@@ -15,5 +16,6 @@ export const customerFeedbackSchemaSql = [
   eventCorePostgresSchemaSql,
   csatInvitationProjectionSchemaSql,
   csatAnalyticsProjectionSchemaSql,
+  csatAdminExportSchemaSql,
   feedbackCaseProjectionSchemaSql,
 ].join("\n\n");

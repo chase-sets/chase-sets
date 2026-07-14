@@ -77,6 +77,7 @@ export type PermissionKey =
   | "platform-feedback.export"
   | "platform-feedback.manage"
   | "platform-feedback.view"
+  | "platform-feedback.export"
   | "platform-policy.manage"
   | "platform-policy.view"
   | "public-presence.manage"

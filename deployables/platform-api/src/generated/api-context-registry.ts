@@ -6,6 +6,7 @@ import { contextManifest as catalogManifest, module as catalogModule } from "@ch
 import { contextManifest as checkoutManifest, module as checkoutModule } from "@chase-sets/checkout";
 import { contextManifest as collectionsManifest, module as collectionsModule } from "@chase-sets/collections";
 import { contextManifest as commercialTermsManifest, module as commercialTermsModule } from "@chase-sets/commercial-terms";
+import { contextManifest as customerFeedbackManifest, module as customerFeedbackModule } from "@chase-sets/customer-feedback";
 import { contextManifest as discoveryManifest, module as discoveryModule } from "@chase-sets/discovery";
 import { contextManifest as fulfillmentManifest, module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { contextManifest as identityManifest, module as identityModule } from "@chase-sets/identity";
@@ -55,6 +56,12 @@ export const apiContextRegistry = [
     packageName: "@chase-sets/commercial-terms",
     manifest: commercialTermsManifest,
     module: commercialTermsModule,
+  },
+  {
+    contextName: "customer-feedback",
+    packageName: "@chase-sets/customer-feedback",
+    manifest: customerFeedbackManifest,
+    module: customerFeedbackModule,
   },
   {
     contextName: "discovery",

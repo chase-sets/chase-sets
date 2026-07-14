@@ -69,10 +69,15 @@
     }
   ],
   "hostPorts": [],
-  "apiDeployables": [],
-  "apiRuntimeProfiles": [],
-  "apiMounts": [],
-  "workerRuntimeProfiles": [],
+  "apiDeployables": ["platform-api"],
+  "apiRuntimeProfiles": ["public"],
+  "apiMounts": [
+    {
+      "mountPath": "/api/customer-feedback",
+      "kind": "primary",
+      "requiresAuth": true
+    }
+  ],
   "deployableContributions": [],
   "shellContributions": [],
   "directoryIntent": {
