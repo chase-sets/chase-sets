@@ -21,6 +21,7 @@ import {
 import { buildFeedbackCaseProjectionHandlers } from "../read-model/projection";
 import { getFeedbackCaseStreamId } from "../read-model/queries";
 import { getSubmittedCsatResponseForCase } from "../integrations/csat/submitted-response-source";
+import { buildFeedbackAttentionProjectionHandlers } from "../../attention/read-model/projection";
 
 export type FeedbackCaseRuntimeDeps = Readonly<{ eventStore: EventStore; db: PgQueryable }>;
 
@@ -115,6 +116,10 @@ export function createFeedbackCaseRuntime(deps: FeedbackCaseRuntimeDeps) {
       createProjectionHandlerSet({
         projectionName: "customer-feedback-feedback-case-projection",
         handlers: buildFeedbackCaseProjectionHandlers(deps.db),
+      }),
+      createProjectionHandlerSet({
+        projectionName: "customer-feedback-case-attention-projection",
+        handlers: buildFeedbackAttentionProjectionHandlers(deps.db),
       }),
     ] as readonly ProjectionHandlerSet[],
   };

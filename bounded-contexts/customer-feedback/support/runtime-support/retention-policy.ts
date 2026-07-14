@@ -23,4 +23,10 @@ export const customerFeedbackRetentionExemptions: readonly BcRetentionExemption[
     owner: "customer-feedback",
     reason: "Case timeline rows preserve attributed lifecycle history and rebuild from the retained case event stream.",
   },
+  {
+    tableName: "customer_feedback_case_attention",
+    owner: "customer-feedback",
+    reason:
+      "Attention rows are replayable SLA and operator-queue projections rebuilt from the retained case event stream.",
+  },
 ];

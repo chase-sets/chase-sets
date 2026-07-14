@@ -375,6 +375,9 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
+      '@chase-sets/design-system':
+        specifier: workspace:*
+        version: link:../../packages/design-system
       '@chase-sets/event-core':
         specifier: workspace:*
         version: link:../../contracts/event-core
@@ -393,6 +396,12 @@ importers:
       hono:
         specifier: ^4.12.12
         version: 4.12.18
+      react:
+        specifier: ^19.2.5
+        version: 19.2.6
+      react-router:
+        specifier: ^7.14.0
+        version: 7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
 
   bounded-contexts/discovery:
     dependencies:
@@ -1316,6 +1325,9 @@ importers:
       '@chase-sets/commercial-terms':
         specifier: workspace:*
         version: link:../../bounded-contexts/commercial-terms
+      '@chase-sets/customer-feedback':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/customer-feedback
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system

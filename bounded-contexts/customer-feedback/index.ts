@@ -15,7 +15,7 @@ import {
   type CustomerFeedbackServices,
 } from "./support/runtime-support/services";
 import { buildFeedbackCaseOpeningReactionHandlers } from "./features/cases/integrations/csat/submission-reaction";
-import { buildCustomerFeedbackApi } from "./features/csat/api/admin-http";
+import { buildCustomerFeedbackApi } from "./api";
 
 const customerFeedbackContextManifest = contextManifest as BcContextManifest;
 
@@ -36,7 +36,7 @@ export const module = defineBoundedContextModule<
   schemaSql: customerFeedbackSchemaSql,
   retentionExemptions: customerFeedbackRetentionExemptions,
   createServices: (pool, ports) => createCustomerFeedbackServices(pool, ports),
-  buildApis: (services) => [buildCustomerFeedbackApi(services.invitations)],
+  buildApis: (services) => [buildCustomerFeedbackApi(services)],
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventReactionsFromManifest({

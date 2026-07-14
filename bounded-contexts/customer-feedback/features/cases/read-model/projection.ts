@@ -32,10 +32,10 @@ async function applyCurrentState(db: PgQueryable, event: ProjectedEvent): Promis
            case_id, stream_id, invitation_id, survey_kind, survey_version, question_version,
            rating, submission_idempotency_key, submitted_at, open_reason, status, priority,
            consent_status, consent_version, consent_granted_at, consent_withdrawn_at,
-           follow_up_status, opened_at, created_at, updated_at, last_stream_version
+           follow_up_status, follow_up_delivery_status, opened_at, created_at, updated_at, last_stream_version
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'new', $11,
-           $12, $13, $14, $15, 'not-requested', $16, $17, $17, $18
+           $12, $13, $14, $15, 'not-requested', 'not-requested', $16, $17, $17, $18
          )
          ON CONFLICT (case_id) DO UPDATE
          SET updated_at = EXCLUDED.updated_at,
@@ -111,13 +111,47 @@ async function applyCurrentState(db: PgQueryable, event: ProjectedEvent): Promis
         [JSON.stringify(workItemIdentity(unlinked.workItem))],
       );
     }
-    case "customer-feedback.case.follow-up-requested":
-      return update(db, event, "follow_up_status = 'requested'", []);
+    case "customer-feedback.case.follow-up-requested": {
+      const requested = data as Extract<FeedbackCaseEvent, { type: typeof event.type }>["data"];
+      return update(
+        db,
+        event,
+        `follow_up_status = 'requested', follow_up_delivery_status = $4,
+         follow_up_channel = $5, follow_up_template_version = $6`,
+        [
+          requested.recipientAccountId ? "pending" : "no-recipient",
+          requested.channel ?? "web",
+          requested.templateVersion ?? 1,
+        ],
+      );
+    }
     case "customer-feedback.case.follow-up-sent": {
       const sent = data as Extract<FeedbackCaseEvent, { type: typeof event.type }>["data"];
-      return update(db, event, `follow_up_status = 'sent', follow_up_delivery_reference = $4`, [
-        sent.deliveryReference,
-      ]);
+      return update(
+        db,
+        event,
+        `follow_up_status = 'sent', follow_up_delivery_status = 'sent', follow_up_delivery_reference = $4,
+         follow_up_channel = $5, follow_up_template_version = $6, follow_up_sent_at = $7`,
+        [sent.deliveryReference, sent.channel ?? "web", sent.templateVersion ?? 1, sent.actedAt],
+      );
+    }
+    case "customer-feedback.case.follow-up-delivery-outcome-recorded": {
+      const outcome = data as Extract<FeedbackCaseEvent, { type: typeof event.type }>["data"];
+      return update(
+        db,
+        event,
+        `follow_up_delivery_status = $4, follow_up_delivery_reference = COALESCE($5, follow_up_delivery_reference),
+         follow_up_channel = COALESCE($6, follow_up_channel), follow_up_template_version = COALESCE($7, follow_up_template_version),
+         follow_up_sent_at = CASE WHEN $4 = 'sent' THEN $8 ELSE follow_up_sent_at END,
+         follow_up_status = CASE WHEN $4 = 'sent' THEN 'sent' ELSE follow_up_status END`,
+        [
+          outcome.outcome,
+          outcome.deliveryReference,
+          outcome.channel ?? null,
+          outcome.templateVersion ?? null,
+          outcome.actedAt,
+        ],
+      );
     }
     case "customer-feedback.case.follow-up-outcome-recorded": {
       const outcome = data as Extract<FeedbackCaseEvent, { type: typeof event.type }>["data"];
@@ -145,6 +179,8 @@ async function applyCurrentState(db: PgQueryable, event: ProjectedEvent): Promis
          follow_up_status = CASE WHEN follow_up_status = 'cancelled' THEN 'not-requested' ELSE follow_up_status END`,
         [data.actedAt],
       );
+    case "customer-feedback.case.attention-requested":
+      return update(db, event, "updated_at = $2", []);
     default:
       return assertNever(event.type);
   }

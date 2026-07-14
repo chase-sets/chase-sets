@@ -1,6 +1,8 @@
 import type { AggregateDecider, AggregateEvolver } from "@chase-sets/event-core";
 import type { CsatSurveySubmittedEvent } from "../../csat/domain/invitation";
+import { classifyFeedbackAttention } from "../../attention/domain/attention";
 import {
+  feedbackCaseFollowUpChannels,
   feedbackCaseDispositions,
   feedbackCaseFollowUpOutcomes,
   feedbackCasePriorities,
@@ -9,7 +11,10 @@ import {
   type FeedbackCaseActor,
   type FeedbackCaseDisposition,
   type FeedbackCaseEvent,
+  type FeedbackCaseOpenedEvent,
   type FeedbackCaseFollowUpOutcome,
+  type FeedbackCaseFollowUpChannel,
+  type FeedbackCaseFollowUpDeliveryOutcome,
   type FeedbackCaseId,
   type FeedbackCaseOpenReason,
   type FeedbackCasePriority,
@@ -43,9 +48,28 @@ export type LinkFeedbackCaseWorkItemCommand = AttributedCommand &
 export type UnlinkFeedbackCaseWorkItemCommand = AttributedCommand &
   Readonly<{ type: "UnlinkFeedbackCaseWorkItem"; workItem: FeedbackCaseWorkItem }>;
 export type RequestFeedbackCaseFollowUpCommand = AttributedCommand &
-  Readonly<{ type: "RequestFeedbackCaseFollowUp"; consentVersion: string }>;
+  Readonly<{
+    type: "RequestFeedbackCaseFollowUp";
+    consentVersion: string;
+    recipientAccountId?: string | null;
+    channel?: FeedbackCaseFollowUpChannel;
+    templateVersion?: number;
+  }>;
 export type MarkFeedbackCaseFollowUpSentCommand = AttributedCommand &
-  Readonly<{ type: "MarkFeedbackCaseFollowUpSent"; deliveryReference: string }>;
+  Readonly<{
+    type: "MarkFeedbackCaseFollowUpSent";
+    deliveryReference: string;
+    channel?: FeedbackCaseFollowUpChannel;
+    templateVersion?: number;
+  }>;
+export type RecordFeedbackCaseFollowUpDeliveryOutcomeCommand = AttributedCommand &
+  Readonly<{
+    type: "RecordFeedbackCaseFollowUpDeliveryOutcome";
+    deliveryReference?: string | null;
+    outcome: FeedbackCaseFollowUpDeliveryOutcome;
+    channel?: FeedbackCaseFollowUpChannel | null;
+    templateVersion?: number | null;
+  }>;
 export type RecordFeedbackCaseFollowUpOutcomeCommand = AttributedCommand &
   Readonly<{ type: "RecordFeedbackCaseFollowUpOutcome"; outcome: FeedbackCaseFollowUpOutcome }>;
 export type WithdrawFeedbackCaseFollowUpConsentCommand = AttributedCommand &
@@ -65,6 +89,7 @@ export type FeedbackCaseCommand =
   | UnlinkFeedbackCaseWorkItemCommand
   | RequestFeedbackCaseFollowUpCommand
   | MarkFeedbackCaseFollowUpSentCommand
+  | RecordFeedbackCaseFollowUpDeliveryOutcomeCommand
   | RecordFeedbackCaseFollowUpOutcomeCommand
   | WithdrawFeedbackCaseFollowUpConsentCommand
   | CloseFeedbackCaseCommand
@@ -100,7 +125,7 @@ export const decideFeedbackCase: AggregateDecider<
   FeedbackCaseCommand,
   FeedbackCaseEvent
 > = (state, command) => {
-  requireManager(command.actor, state.feedbackCase?.status ?? null);
+  requireCommandAuthority(command, state.feedbackCase?.status ?? null);
   const actedAt = requireTimestamp(command.actedAt, "Case action timestamp");
   const actorId = requireText(command.actor.actorId, "Case action requires an actor.");
 
@@ -108,31 +133,54 @@ export const decideFeedbackCase: AggregateDecider<
     if (state.feedbackCase) fail("case-already-opened", "Feedback case has already been opened.", state.feedbackCase);
     validateOpening(command);
     const consentGranted = command.submission.followUpConsent && command.submission.followUpConsentAt !== null;
-    return [
-      {
-        type: "customer-feedback.case.opened",
-        data: {
-          eventSchemaVersion: 1,
-          caseId: command.caseId,
-          sourceResponse: {
-            invitationId: command.submission.invitationId,
-            surveyVersion: command.submission.surveyVersion,
-            rating: command.submission.rating,
-            submissionIdempotencyKey: command.submission.submissionIdempotencyKey,
-            submittedAt: command.submission.submittedAt,
-          },
-          openReason: command.openReason,
-          priority: command.openReason === "flagged" ? "normal" : priorityForRating(command.submission.rating),
-          consent: {
-            status: consentGranted ? "granted" : "not-granted",
-            version: requireText(command.submission.followUpConsentVersion, "Follow-up consent version is required."),
-            grantedAt: consentGranted ? command.submission.followUpConsentAt : null,
-            withdrawnAt: null,
-          },
-          actorId,
-          actedAt,
+    const opened: FeedbackCaseOpenedEvent = {
+      type: "customer-feedback.case.opened" as const,
+      data: {
+        eventSchemaVersion: 1 as const,
+        caseId: command.caseId,
+        sourceResponse: {
+          invitationId: command.submission.invitationId,
+          surveyVersion: command.submission.surveyVersion,
+          rating: command.submission.rating,
+          submissionIdempotencyKey: command.submission.submissionIdempotencyKey,
+          submittedAt: command.submission.submittedAt,
         },
+        openReason: command.openReason,
+        priority: command.openReason === "flagged" ? "normal" : priorityForRating(command.submission.rating),
+        consent: {
+          status: consentGranted ? "granted" : "not-granted",
+          version: requireText(command.submission.followUpConsentVersion, "Follow-up consent version is required."),
+          grantedAt: consentGranted ? command.submission.followUpConsentAt : null,
+          withdrawnAt: null,
+        },
+        actorId,
+        actedAt,
       },
+    };
+    const attention = classifyFeedbackAttention(command.submission.rating);
+    return [
+      opened,
+      ...(command.openReason === "low-score" && attention.requiresAttention
+        ? [
+            {
+              type: "customer-feedback.case.attention-requested" as const,
+              data: {
+                eventSchemaVersion: 1 as const,
+                caseId: command.caseId,
+                attentionId: `${command.caseId}:opened`,
+                reason: "low-score" as const,
+                ruleVersion: attention.ruleVersion,
+                rating: command.submission.rating,
+                priority: opened.data.priority,
+                ownerId: null,
+                dueAt: null,
+                adminHref: "/support/customer-feedback/attention",
+                actorId,
+                actedAt,
+              },
+            },
+          ]
+        : []),
     ];
   }
 
@@ -259,6 +307,8 @@ export const decideFeedbackCase: AggregateDecider<
       );
       requireFollowUpConsent(feedbackCase, command.consentVersion);
       requireFollowUpAllowedDisposition(feedbackCase);
+      const requestChannel = command.channel ?? "web";
+      requireMember(feedbackCaseFollowUpChannels, requestChannel, "Unsupported follow-up delivery channel.");
       if (feedbackCase.followUpStatus !== "not-requested") {
         fail("invalid-transition", "Follow-up has already been requested for this feedback case.", feedbackCase);
       }
@@ -269,6 +319,9 @@ export const decideFeedbackCase: AggregateDecider<
             eventSchemaVersion: 1,
             caseId: feedbackCase.caseId,
             consentVersion: feedbackCase.consent.version,
+            recipientAccountId: command.recipientAccountId ?? null,
+            channel: requestChannel,
+            templateVersion: command.templateVersion ?? 1,
             actorId,
             actedAt,
           },
@@ -282,10 +335,45 @@ export const decideFeedbackCase: AggregateDecider<
         command.deliveryReference,
         "Sent follow-up requires a stable delivery reference.",
       );
+      const channel = command.channel ?? feedbackCase.followUpChannel ?? "web";
+      requireMember(feedbackCaseFollowUpChannels, channel, "Unsupported follow-up delivery channel.");
       return [
         {
           type: "customer-feedback.case.follow-up-sent",
-          data: { eventSchemaVersion: 1, caseId: feedbackCase.caseId, deliveryReference, actorId, actedAt },
+          data: {
+            eventSchemaVersion: 1,
+            caseId: feedbackCase.caseId,
+            deliveryReference,
+            channel,
+            templateVersion: command.templateVersion ?? feedbackCase.followUpTemplateVersion ?? 1,
+            actorId,
+            actedAt,
+          },
+        },
+      ];
+    }
+    case "RecordFeedbackCaseFollowUpDeliveryOutcome": {
+      if (command.outcome === "sent") requireFollowUpConsent(feedbackCase, feedbackCase.consent.version);
+      if (
+        feedbackCase.followUpStatus !== "requested" &&
+        feedbackCase.followUpStatus !== "sent" &&
+        feedbackCase.followUpStatus !== "cancelled"
+      ) {
+        fail("invalid-transition", "Follow-up delivery outcome requires a requested follow-up.", feedbackCase);
+      }
+      return [
+        {
+          type: "customer-feedback.case.follow-up-delivery-outcome-recorded",
+          data: {
+            eventSchemaVersion: 1,
+            caseId: feedbackCase.caseId,
+            deliveryReference: command.deliveryReference ?? feedbackCase.followUpDeliveryReference,
+            outcome: command.outcome,
+            channel: command.channel ?? feedbackCase.followUpChannel,
+            templateVersion: command.templateVersion ?? feedbackCase.followUpTemplateVersion,
+            actorId,
+            actedAt,
+          },
         },
       ];
     }
@@ -335,9 +423,29 @@ export const decideFeedbackCase: AggregateDecider<
         );
       }
       return [attributed("customer-feedback.case.closed", feedbackCase.caseId, actorId, actedAt)];
-    case "ReopenFeedbackCase":
+    case "ReopenFeedbackCase": {
       requireStatus(feedbackCase, ["closed"], "Only a closed feedback case can be reopened.");
-      return [attributed("customer-feedback.case.reopened", feedbackCase.caseId, actorId, actedAt)];
+      return [
+        attributed("customer-feedback.case.reopened", feedbackCase.caseId, actorId, actedAt),
+        {
+          type: "customer-feedback.case.attention-requested",
+          data: {
+            eventSchemaVersion: 1,
+            caseId: feedbackCase.caseId,
+            attentionId: `${feedbackCase.caseId}:reopened:${actedAt}`,
+            reason: "reopened",
+            ruleVersion: "low-score-v1",
+            rating: feedbackCase.sourceResponse.rating,
+            priority: feedbackCase.priority,
+            ownerId: feedbackCase.ownerId,
+            dueAt: feedbackCase.dueAt,
+            adminHref: "/support/customer-feedback/attention",
+            actorId,
+            actedAt,
+          },
+        },
+      ];
+    }
     default:
       return assertNever(command);
   }
@@ -359,7 +467,11 @@ export const evolveFeedbackCase: AggregateEvolver<FeedbackCaseAggregateState, Fe
         workItems: [],
         consent: event.data.consent,
         followUpStatus: "not-requested",
+        followUpDeliveryStatus: "not-requested",
         followUpDeliveryReference: null,
+        followUpChannel: null,
+        followUpTemplateVersion: null,
+        followUpSentAt: null,
         followUpOutcome: null,
         openedAt: event.data.actedAt,
         triagedAt: null,
@@ -400,11 +512,29 @@ export const evolveFeedbackCase: AggregateEvolver<FeedbackCaseAggregateState, Fe
         workItems: feedbackCase.workItems.filter((item) => !workItemsEqual(item, event.data.workItem)),
       });
     case "customer-feedback.case.follow-up-requested":
-      return update(feedbackCase, { followUpStatus: "requested" });
+      return update(feedbackCase, {
+        followUpStatus: "requested",
+        followUpDeliveryStatus: event.data.recipientAccountId ? "pending" : "no-recipient",
+        followUpChannel: event.data.channel ?? "web",
+        followUpTemplateVersion: event.data.templateVersion ?? 1,
+      });
     case "customer-feedback.case.follow-up-sent":
       return update(feedbackCase, {
         followUpStatus: "sent",
+        followUpDeliveryStatus: "sent",
         followUpDeliveryReference: event.data.deliveryReference,
+        followUpChannel: event.data.channel ?? feedbackCase.followUpChannel,
+        followUpTemplateVersion: event.data.templateVersion ?? feedbackCase.followUpTemplateVersion,
+        followUpSentAt: event.data.actedAt,
+      });
+    case "customer-feedback.case.follow-up-delivery-outcome-recorded":
+      return update(feedbackCase, {
+        followUpDeliveryStatus: event.data.outcome,
+        followUpDeliveryReference: event.data.deliveryReference ?? feedbackCase.followUpDeliveryReference,
+        followUpChannel: event.data.channel ?? feedbackCase.followUpChannel,
+        followUpTemplateVersion: event.data.templateVersion ?? feedbackCase.followUpTemplateVersion,
+        followUpSentAt: event.data.outcome === "sent" ? event.data.actedAt : feedbackCase.followUpSentAt,
+        followUpStatus: event.data.outcome === "sent" ? "sent" : feedbackCase.followUpStatus,
       });
     case "customer-feedback.case.follow-up-outcome-recorded":
       return update(feedbackCase, { followUpStatus: "completed", followUpOutcome: event.data.outcome });
@@ -428,6 +558,8 @@ export const evolveFeedbackCase: AggregateEvolver<FeedbackCaseAggregateState, Fe
         reopenedAt: event.data.actedAt,
         followUpStatus: feedbackCase.followUpStatus === "cancelled" ? "not-requested" : feedbackCase.followUpStatus,
       });
+    case "customer-feedback.case.attention-requested":
+      return state;
     default:
       return assertNever(event);
   }
@@ -452,8 +584,13 @@ function validateOpening(command: OpenFeedbackCaseCommand): void {
   }
 }
 
-function requireManager(actor: FeedbackCaseActor, status: FeedbackCase["status"] | null): void {
-  if (actor.authority !== "manage-feedback-cases") {
+function requireCommandAuthority(command: FeedbackCaseCommand, status: FeedbackCase["status"] | null): void {
+  const deliveryCommand =
+    command.type === "MarkFeedbackCaseFollowUpSent" || command.type === "RecordFeedbackCaseFollowUpDeliveryOutcome";
+  const allowed = deliveryCommand
+    ? command.actor.authority === "manage-feedback-cases" || command.actor.authority === "notify-feedback-cases"
+    : command.actor.authority === "manage-feedback-cases";
+  if (!allowed) {
     throw new FeedbackCaseDecisionError("forbidden", "Managing feedback cases requires manager authority.", status);
   }
 }

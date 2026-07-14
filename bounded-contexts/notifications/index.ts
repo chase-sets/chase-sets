@@ -19,6 +19,7 @@ import {
   buildNotificationsSettlementProjectionHandlers,
   NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
 } from "./features/notification-center/integrations/source-events/notification-projector";
+import { buildNotificationsCustomerFeedbackProjectionHandlers } from "./features/notification-center/integrations/source-events/customer-feedback-notifications";
 
 export const module = defineBoundedContextModule<NotificationsServices, PgTransactionalPool, NotificationsHostPorts>({
   manifest: contextManifest,
@@ -56,6 +57,14 @@ export const module = defineBoundedContextModule<NotificationsServices, PgTransa
           subscriptionName: "notifications.marketplace-facts-projection",
           buildHandlers: (subscription) =>
             buildNotificationsMarketplaceProjectionHandlers(services.notificationOutbox, subscription.projectionName),
+        },
+        [`customer-feedback.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: {
+          subscriptionName: "notifications.customer-feedback-facts-projection",
+          buildHandlers: (subscription) =>
+            buildNotificationsCustomerFeedbackProjectionHandlers(
+              services.notificationOutbox,
+              subscription.projectionName,
+            ),
         },
       },
     }),
