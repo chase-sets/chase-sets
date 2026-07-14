@@ -199,6 +199,10 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
       throw error;
     }
 
+    if (!(Date.parse(invitation.expiresAt) > Date.now())) {
+      return c.json(invalidInvitationToken(), 401);
+    }
+
     let user = await services.identity.getUserByEmail(invitation.email);
     if (!user) {
       let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
