@@ -11,7 +11,7 @@ import {
 import { paymentsPaymentSchemaMigrations, paymentsPaymentSchemaSql } from "../../features/payments/read-model/schema";
 import { paymentsOrderCancellationRefundEffectSchemaSql } from "../../features/refunds/integrations/ordering/order-cancellation-refund-effect-schema";
 import { paymentsSupportRefundEffectSchemaSql } from "../../features/refunds/integrations/support/support-refund-effect-schema";
-import { paymentsRefundSchemaSql } from "../../features/refunds/read-model/schema";
+import { paymentsRefundSchemaMigrations, paymentsRefundSchemaSql } from "../../features/refunds/read-model/schema";
 
 export const paymentsWorkClaimSchemaSql = `
 CREATE TABLE IF NOT EXISTS payments_work_claims (
@@ -49,4 +49,5 @@ export const paymentsSchemaMigrations = [
   ...paymentsOrderInputSchemaMigrations,
   ...paymentsDisputeEvidenceSourceSchemaMigrations,
   ...paymentsPaymentSchemaMigrations,
+  ...paymentsRefundSchemaMigrations,
 ] as const;

@@ -1,6 +1,41 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
+type RefundCausationData = Readonly<{
+  remedyId?: string | null;
+  coverageId?: string | null;
+  allocation?: Readonly<{
+    sellerFundedAmount?: string | null;
+    platformFundedAmount?: string | null;
+    fundingKind?: string | null;
+  }> | null;
+  refundTrigger?: string | null;
+  reasonCode?: string | null;
+}>;
+
+type RefundCausationColumns = Readonly<{
+  remedyId: string | null;
+  coverageId: string | null;
+  fundingKind: string | null;
+  sellerFundedAmount: string | null;
+  platformFundedAmount: string | null;
+  refundTrigger: string | null;
+  reasonCode: string | null;
+}>;
+
+/** Flattens the optional causation payload into read-model columns; all null for a legacy seller-funded refund with no causation. */
+function causationColumns(causation: RefundCausationData | null | undefined): RefundCausationColumns {
+  return {
+    remedyId: causation?.remedyId ?? null,
+    coverageId: causation?.coverageId ?? null,
+    fundingKind: causation?.allocation?.fundingKind ?? null,
+    sellerFundedAmount: causation?.allocation?.sellerFundedAmount ?? null,
+    platformFundedAmount: causation?.allocation?.platformFundedAmount ?? null,
+    refundTrigger: causation?.refundTrigger ?? null,
+    reasonCode: causation?.reasonCode ?? null,
+  };
+}
+
 export function buildRefundProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "payments.refund-requested": async (event) => {
@@ -12,8 +47,10 @@ export function buildRefundProjectionHandlers(db: PgQueryable): ProjectorHandler
         currencyCode: string;
         reason: string;
         processorName: string;
+        causation?: RefundCausationData | null;
         requestedAt: string;
       };
+      const causation = causationColumns(data.causation);
 
       await db.query(
         `INSERT INTO payments_refund_pages (
@@ -29,13 +66,21 @@ export function buildRefundProjectionHandlers(db: PgQueryable): ProjectorHandler
            status,
            failure_code,
            failure_message,
+           remedy_id,
+           coverage_id,
+           liability_funding_kind,
+           seller_funded_amount,
+           platform_funded_amount,
+           refund_trigger,
+           reason_code,
            requested_at,
            updated_at,
            issued_at,
            failed_at,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, NULL, 'requested', 'requested', NULL, NULL, $8, $8, NULL, NULL, $9
+           $1, $2, $3, $4, $5, $6, $7, NULL, 'requested', 'requested', NULL, NULL,
+           $8, $9, $10, $11, $12, $13, $14, $15, $15, NULL, NULL, $16
          )
          ON CONFLICT (refund_id) DO UPDATE
          SET payment_id = EXCLUDED.payment_id,
@@ -46,6 +91,13 @@ export function buildRefundProjectionHandlers(db: PgQueryable): ProjectorHandler
              processor_name = EXCLUDED.processor_name,
              processor_status = EXCLUDED.processor_status,
              status = EXCLUDED.status,
+             remedy_id = EXCLUDED.remedy_id,
+             coverage_id = EXCLUDED.coverage_id,
+             liability_funding_kind = EXCLUDED.liability_funding_kind,
+             seller_funded_amount = EXCLUDED.seller_funded_amount,
+             platform_funded_amount = EXCLUDED.platform_funded_amount,
+             refund_trigger = EXCLUDED.refund_trigger,
+             reason_code = EXCLUDED.reason_code,
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
          WHERE payments_refund_pages.last_stream_version < EXCLUDED.last_stream_version`,
@@ -57,6 +109,13 @@ export function buildRefundProjectionHandlers(db: PgQueryable): ProjectorHandler
           data.currencyCode,
           data.reason,
           data.processorName,
+          causation.remedyId,
+          causation.coverageId,
+          causation.fundingKind,
+          causation.sellerFundedAmount,
+          causation.platformFundedAmount,
+          causation.refundTrigger,
+          causation.reasonCode,
           data.requestedAt,
           event.streamVersion,
         ],

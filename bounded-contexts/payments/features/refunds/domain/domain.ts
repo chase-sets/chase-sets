@@ -16,6 +16,12 @@ import {
   type RefundId,
   type RefundStatus,
 } from "../../../support/runtime-support/common";
+import {
+  normalizeRefundCausation,
+  refundCausationsEqual,
+  type RefundCausation,
+  type RefundCausationInput,
+} from "./causation";
 
 export type RefundState = Readonly<{
   refundId: RefundId | null;
@@ -30,6 +36,7 @@ export type RefundState = Readonly<{
   status: RefundStatus | null;
   failureCode: string | null;
   failureMessage: string | null;
+  causation: RefundCausation | null;
   requestedAt: string | null;
   issuedAt: string | null;
   failedAt: string | null;
@@ -48,6 +55,7 @@ export const initialRefundState: RefundState = {
   status: null,
   failureCode: null,
   failureMessage: null,
+  causation: null,
   requestedAt: null,
   issuedAt: null,
   failedAt: null,
@@ -62,6 +70,7 @@ export type RequestRefundCommand = Readonly<{
   currencyCode: CurrencyCode;
   reason: string;
   processorName: PaymentProcessorName;
+  causation?: RefundCausationInput | null;
   requestedAt: string;
 }>;
 
@@ -92,6 +101,7 @@ export type RefundRequestedEvent = DomainEvent<
     currencyCode: CurrencyCode;
     reason: string;
     processorName: PaymentProcessorName;
+    causation?: RefundCausation;
     requestedAt: string;
   }>
 >;
@@ -108,6 +118,7 @@ export type RefundIssuedEvent = DomainEvent<
     processorName: PaymentProcessorName;
     processorRefundReference: string;
     processorStatus: string;
+    causation?: RefundCausation;
     issuedAt: string;
   }>
 >;
@@ -125,6 +136,7 @@ export type RefundFailedEvent = DomainEvent<
     processorStatus: string;
     failureCode: string | null;
     failureMessage: string | null;
+    causation?: RefundCausation;
     failedAt: string;
   }>
 >;
@@ -146,6 +158,7 @@ export const decideRefund: AggregateDecider<RefundState, RefundCommand, RefundEv
       const reason = normalizeRequiredText(command.reason, "Refund reason is required.");
       const processorName = normalizeProcessorName(command.processorName);
       const requestedAt = ensureIsoTimestamp(command.requestedAt, "Refund request must include a timestamp.");
+      const causation = command.causation ? normalizeRefundCausation(command.causation, amount, currencyCode) : null;
       if (state.refundId !== null) {
         assert(
           state.refundId === command.refundId &&
@@ -154,7 +167,8 @@ export const decideRefund: AggregateDecider<RefundState, RefundCommand, RefundEv
             state.amount === amount &&
             state.currencyCode === currencyCode &&
             state.reason === reason &&
-            state.processorName === processorName,
+            state.processorName === processorName &&
+            refundCausationsEqual(state.causation, causation),
           "Refund request does not match the existing refund.",
         );
         return [];
@@ -170,6 +184,7 @@ export const decideRefund: AggregateDecider<RefundState, RefundCommand, RefundEv
             currencyCode,
             reason,
             processorName,
+            ...(causation ? { causation } : {}),
             requestedAt,
           },
         },
@@ -196,6 +211,7 @@ export const decideRefund: AggregateDecider<RefundState, RefundCommand, RefundEv
               "Processor refund reference is required.",
             ),
             processorStatus: normalizeRequiredText(command.processorStatus, "Processor refund status is required."),
+            ...(state.causation ? { causation: state.causation } : {}),
             issuedAt: ensureIsoTimestamp(command.issuedAt, "Refund issuance must include a timestamp."),
           },
         },
@@ -220,6 +236,7 @@ export const decideRefund: AggregateDecider<RefundState, RefundCommand, RefundEv
             processorStatus: normalizeRequiredText(command.processorStatus, "Processor refund status is required."),
             failureCode: normalizeOptionalText(command.failureCode),
             failureMessage: normalizeOptionalText(command.failureMessage),
+            ...(state.causation ? { causation: state.causation } : {}),
             failedAt: ensureIsoTimestamp(command.failedAt, "Refund failure must include a timestamp."),
           },
         },
@@ -245,6 +262,7 @@ export const evolveRefund: AggregateEvolver<RefundState, RefundEvent> = (state, 
         status: "requested",
         failureCode: null,
         failureMessage: null,
+        causation: event.data.causation ?? null,
         requestedAt: event.data.requestedAt,
         issuedAt: null,
         failedAt: null,

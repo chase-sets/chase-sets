@@ -13,6 +13,13 @@ export type RefundDetailRow = Readonly<{
   status: string;
   failure_code: string | null;
   failure_message: string | null;
+  remedy_id: string | null;
+  coverage_id: string | null;
+  liability_funding_kind: string | null;
+  seller_funded_amount: string | null;
+  platform_funded_amount: string | null;
+  refund_trigger: string | null;
+  reason_code: string | null;
   requested_at: string;
   updated_at: string;
   issued_at: string | null;
@@ -28,15 +35,15 @@ function mapRefundRow(row: RefundPageRow): RefundDetailRow {
   return {
     ...row,
     amount: String(row.amount),
+    seller_funded_amount: row.seller_funded_amount === null ? null : String(row.seller_funded_amount),
+    platform_funded_amount: row.platform_funded_amount === null ? null : String(row.platform_funded_amount),
     order_ids: Array.isArray(row.order_ids)
       ? row.order_ids.filter((value): value is string => typeof value === "string")
       : [],
   };
 }
 
-export async function getRefund(db: PgQueryable, refundId: string): Promise<RefundDetailRow | null> {
-  const result = await db.query<RefundPageRow>(
-    `SELECT
+const refundColumns = `
        refund_id,
        payment_id,
        order_ids,
@@ -49,10 +56,21 @@ export async function getRefund(db: PgQueryable, refundId: string): Promise<Refu
        status,
        failure_code,
        failure_message,
+       remedy_id,
+       coverage_id,
+       liability_funding_kind,
+       seller_funded_amount::text AS seller_funded_amount,
+       platform_funded_amount::text AS platform_funded_amount,
+       refund_trigger,
+       reason_code,
        requested_at,
        updated_at,
        issued_at,
-       failed_at
+       failed_at`;
+
+export async function getRefund(db: PgQueryable, refundId: string): Promise<RefundDetailRow | null> {
+  const result = await db.query<RefundPageRow>(
+    `SELECT${refundColumns}
      FROM payments_refund_pages
      WHERE refund_id = $1`,
     [refundId],
@@ -60,4 +78,28 @@ export async function getRefund(db: PgQueryable, refundId: string): Promise<Refu
 
   const row = result.rows[0];
   return row ? mapRefundRow(row) : null;
+}
+
+/**
+ * Operational query: refunds stuck between authorization and confirmation. A refund
+ * that is still `requested` (provider submitted, no issued/failed confirmation) past
+ * a staleness threshold has not converged and needs attention. Ordered oldest-first
+ * so the longest-stuck refunds surface at the top; causation columns let an operator
+ * see the owning remedy and allocation without joining another context.
+ */
+export async function getStuckRefunds(
+  db: PgQueryable,
+  params: Readonly<{ stuckBefore: string; limit?: number }>,
+): Promise<readonly RefundDetailRow[]> {
+  const result = await db.query<RefundPageRow>(
+    `SELECT${refundColumns}
+     FROM payments_refund_pages
+     WHERE status NOT IN ('issued', 'failed')
+       AND updated_at < $1
+     ORDER BY updated_at ASC, refund_id ASC
+     LIMIT $2`,
+    [params.stuckBefore, params.limit ?? 100],
+  );
+
+  return result.rows.map(mapRefundRow);
 }

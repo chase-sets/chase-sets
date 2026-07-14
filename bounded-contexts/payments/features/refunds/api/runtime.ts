@@ -34,6 +34,7 @@ import {
   type RefundEvent,
   type RefundState,
 } from "../domain/domain";
+import type { RefundCausationInput } from "../domain/causation";
 import { decidePayment, evolvePayment, initialPaymentState, type PaymentEvent } from "../../payments/domain/domain";
 
 type RefundRuntimeDeps = Readonly<{
@@ -57,6 +58,7 @@ export type RefundServices = Readonly<{
       orderIds: readonly string[];
       amount: string;
       reason: string;
+      causation?: RefundCausationInput | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ refundId: RefundId; version: number }>;
@@ -153,6 +155,7 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
           currencyCode,
           reason,
           processorName,
+          causation: params.causation ?? null,
           requestedAt,
         },
         context,
