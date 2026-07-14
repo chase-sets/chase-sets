@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const checkoutSellListSchemaSql = `
 CREATE TABLE IF NOT EXISTS checkout_sell_list_line_pages (
   seller_account_id text NOT NULL,
@@ -29,22 +31,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS checkout_sell_list_line_pages_offer_unique_idx
   ON checkout_sell_list_line_pages (seller_account_id, offer_id)
   WHERE offer_id IS NOT NULL;
 
--- Self-heal columns added after the table was first created. CREATE TABLE IF NOT
--- EXISTS never alters an already-existing table, so long-lived databases (e.g. the
--- persistent staging projection store) miss later columns and every read SELECT
--- fails. These idempotent ADD COLUMN IF NOT EXISTS statements reconcile the drift on
--- schema apply. Only NULLable / DEFAULTed columns are self-healed so the ALTER
--- succeeds against populated tables.
-ALTER TABLE checkout_sell_list_line_pages
-  ADD COLUMN IF NOT EXISTS listing_id text NULL,
-  ADD COLUMN IF NOT EXISTS buyer_display_name text NULL,
-  ADD COLUMN IF NOT EXISTS offer_price_amount text NULL,
-  ADD COLUMN IF NOT EXISTS item_subtitle text NULL,
-  ADD COLUMN IF NOT EXISTS selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
-  ADD COLUMN IF NOT EXISTS product_summary text NULL,
-  ADD COLUMN IF NOT EXISTS fallback_mode text NOT NULL DEFAULT 'none',
-  ADD COLUMN IF NOT EXISTS minimum_listing_price_amount text NULL;
-
 CREATE TABLE IF NOT EXISTS checkout_sell_list_confirmation_pages (
   seller_account_id text NOT NULL,
   confirmation_id text NOT NULL,
@@ -61,11 +47,6 @@ CREATE INDEX IF NOT EXISTS checkout_sell_list_confirmation_pages_seller_latest_i
 
 CREATE INDEX IF NOT EXISTS checkout_sell_list_confirmation_pages_reference_idx
   ON checkout_sell_list_confirmation_pages (confirmation_id, confirmed_at DESC);
-
-ALTER TABLE checkout_sell_list_confirmation_pages
-  ADD COLUMN IF NOT EXISTS readiness_evidence jsonb NOT NULL DEFAULT '{}'::jsonb,
-  ADD COLUMN IF NOT EXISTS seller_evidence jsonb NOT NULL DEFAULT '{}'::jsonb,
-  ADD COLUMN IF NOT EXISTS handoff_summary jsonb NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS checkout_sell_payout_readiness_pages (
   account_id text PRIMARY KEY,
@@ -102,12 +83,24 @@ CREATE INDEX IF NOT EXISTS checkout_sell_offer_pages_product_idx
 
 CREATE INDEX IF NOT EXISTS checkout_sell_offer_pages_buyer_idx
   ON checkout_sell_offer_pages (buyer_account_id, updated_at DESC);
-
-ALTER TABLE checkout_sell_offer_pages
-  ADD COLUMN IF NOT EXISTS item_subtitle text NULL,
-  ADD COLUMN IF NOT EXISTS selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
-  ADD COLUMN IF NOT EXISTS product_summary text NULL,
-  ADD COLUMN IF NOT EXISTS accepted_seller_account_id text NULL,
-  ADD COLUMN IF NOT EXISTS accepted_at timestamptz NULL,
-  ADD COLUMN IF NOT EXISTS last_stream_version bigint NOT NULL DEFAULT 0;
 `;
+
+// The Sell List base schema declares its final columns inline so fresh databases
+// create complete tables. Long-lived databases (e.g. the persistent staging
+// projection store) created a sell-list table before a column was added, and
+// `CREATE TABLE IF NOT EXISTS` never alters an already-existing table — so every
+// read SELECT of the newer column failed with "column ... does not exist" and 500'd
+// `/account/sell-list`. Reconcile the drift with explicit metadata-only migrations,
+// the same mechanism used by checkout session/marketplace schemas (see #4638): a
+// single nullable `ADD COLUMN IF NOT EXISTS` is a catalog-only change that holds
+// ACCESS EXCLUSIVE only for an instant, so it is safe under live read traffic.
+export const checkoutSellListSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260714_checkout_sell_list_line_listing_id",
+    description: "Backfill the sell-list line listing_id column on databases created before it existed.",
+    statements: [
+      `ALTER TABLE checkout_sell_list_line_pages
+  ADD COLUMN IF NOT EXISTS listing_id text NULL;`,
+    ],
+  },
+];
