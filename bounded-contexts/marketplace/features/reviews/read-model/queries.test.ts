@@ -23,7 +23,6 @@ function reviewRow(overrides: Partial<ReviewListRow> = {}): ReviewListRow {
     rating: 5,
     feedback: "Great transaction.",
     status: "active",
-    resolution_context: null,
     submitted_at: "2026-04-02T00:00:00.000Z",
     updated_at: "2026-04-02T00:00:00.000Z",
     withdrawn_at: null,

@@ -110,7 +110,7 @@ describeDb("marketplace review eligibility SQL persistence boundary", () => {
     };
   }
 
-  it("restores only the buyer direction with the refund marker on a full-refund resolution", async () => {
+  it("restores both submission directions after a carrier-responsible full refund", async () => {
     const pool = pools.marketplace;
     const handlers = buildHandlers(pool);
 
@@ -145,8 +145,11 @@ describeDb("marketplace review eligibility SQL persistence boundary", () => {
       event("support.support-request.resolved", {
         supportRequestId: "sup_1",
         orderId: "ord_1",
-        flowType: "product-not-as-described",
-        resolution: { resolutionType: "full-refund", resolvedAt: "2026-04-06T00:00:00.000Z" },
+        resolution: {
+          resolutionType: "full-refund",
+          responsibility: "carrier",
+          resolvedAt: "2026-04-06T00:00:00.000Z",
+        },
       }),
     );
 
@@ -157,7 +160,6 @@ describeDb("marketplace review eligibility SQL persistence boundary", () => {
     });
     expect(eligibility).toMatchObject({
       author_role: "buyer",
-      resolution_context: "resolved-via-refund",
     });
 
     const sellerDirection = await getReviewEligibility(pool, {
@@ -165,7 +167,7 @@ describeDb("marketplace review eligibility SQL persistence boundary", () => {
       authorAccountId: "acc_seller",
       subjectAccountId: "acc_buyer",
     });
-    expect(sellerDirection).toBeNull();
+    expect(sellerDirection).toMatchObject({ author_role: "seller" });
   });
 
   it("restores the buyer without a delivery for a seller-caused cancellation", async () => {
@@ -186,20 +188,26 @@ describeDb("marketplace review eligibility SQL persistence boundary", () => {
       event("support.support-request.resolved", {
         supportRequestId: "sup_2",
         orderId: "ord_2",
-        flowType: "seller-cannot-fulfill",
-        resolution: { resolutionType: "cancel-order", resolvedAt: "2026-04-04T00:00:00.000Z" },
+        resolution: {
+          resolutionType: "cancel-order",
+          responsibility: "seller",
+          resolvedAt: "2026-04-04T00:00:00.000Z",
+        },
       }),
     );
+    await handlers.order["ordering.order.cancelled"]!(
+      event("ordering.order.cancelled", { orderId: "ord_2", cancelledAt: "2026-04-05T00:00:00.000Z" }),
+    );
 
-    const rows = await pool.query<{ author_role: string; resolution_context: string | null }>(
-      `SELECT author_role, resolution_context
+    const rows = await pool.query<{ author_role: string }>(
+      `SELECT author_role
        FROM marketplace_review_eligibility_pages
        WHERE order_id = 'ord_2'`,
     );
-    expect(rows.rows).toEqual([{ author_role: "buyer", resolution_context: "resolved-via-refund" }]);
+    expect(rows.rows).toEqual([{ author_role: "buyer" }]);
   });
 
-  it("persists the marker on review pages and surfaces it through the list queries", async () => {
+  it("persists submitted reviews and surfaces them through the list queries", async () => {
     const pool = pools.marketplace;
     const handlers = buildHandlers(pool);
 
@@ -212,7 +220,6 @@ describeDb("marketplace review eligibility SQL persistence boundary", () => {
         authorRole: "buyer",
         rating: 1,
         feedback: "Refunded after the card arrived misdescribed.",
-        resolutionContext: "resolved-via-refund",
         submittedAt: "2026-04-07T00:00:00.000Z",
         reviewWindowExpiresAt: "2026-06-06T00:00:00.000Z",
       }),
@@ -222,11 +229,9 @@ describeDb("marketplace review eligibility SQL persistence boundary", () => {
     expect(written.items).toHaveLength(1);
     expect(written.items[0]).toMatchObject({
       review_id: "rev_1",
-      resolution_context: "resolved-via-refund",
     });
 
-    // Double-blind reveal (m108 #4267): the resolution-context review is a
-    // review like any other for reveal purposes -- no counterpart, so it
+    // Double-blind reveal (m108 #4267): no counterpart, so the review
     // reveals on window expiry.
     await handlers.review["marketplace.review.revealed"]!(
       event("marketplace.review.revealed", {
@@ -236,7 +241,9 @@ describeDb("marketplace review eligibility SQL persistence boundary", () => {
       }),
     );
 
-    // Summary math treats the refund-context review like any other review.
+    // Scoring-disposition persistence and summary rebuilding belong to
+    // #5216. This pre-disposition review event remains included for replay
+    // compatibility until that migration lands.
     const summary = await pool.query<{ review_count_as_seller: number; rating_1_count_as_seller: number }>(
       `SELECT review_count_as_seller, rating_1_count_as_seller
        FROM marketplace_review_summary_pages

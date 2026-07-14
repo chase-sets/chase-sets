@@ -14,7 +14,6 @@ const review = {
   rating: 4,
   feedback: "Prompt payment and clear communication.",
   status: "active",
-  resolution_context: null,
   submitted_at: "2026-04-02T00:00:00.000Z",
   updated_at: "2026-04-02T00:00:00.000Z",
   withdrawn_at: null,
@@ -40,18 +39,6 @@ describe("review detail page", () => {
     expect(markup).toContain("Reviewed account:");
     expect(markup).toContain("Reviewed Account");
     expect(markup).not.toContain("Subject:");
-    expect(markup).not.toContain("Resolved via refund");
-  });
-
-  it("shows the neutral resolved-via-refund badge for refund-context reviews", () => {
-    const markup = renderToString(
-      <ReviewDetailPage
-        backHref="/account/reviews/written"
-        review={{ ...review, author_role: "buyer", resolution_context: "resolved-via-refund" }}
-      />,
-    );
-
-    expect(markup).toContain("Resolved via refund");
   });
 
   it("redacts rating and feedback for a not-yet-revealed review viewed by the subject (m108 #4267)", () => {

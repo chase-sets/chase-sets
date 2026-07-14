@@ -241,7 +241,17 @@ Notes:
 
 ## Review Eligibility
 
-**Review Eligibility** is the rule that determines when a review may be submitted for an order. Eligibility depends on completed commerce and is unlocked by delivery-complete signals by default.
+**Review Eligibility** is the order-lifecycle fact that determines whether a transaction can support directional feedback. Delivery establishes eligibility by default. A seller-responsible cancellation can establish buyer-to-seller eligibility without delivery once the cancellation is recorded; a buyer-caused, mutually agreed, external, or indeterminate cancellation does not automatically establish it.
+
+## Directional Review Disposition
+
+A **Directional Review Disposition** is Marketplace's canonical policy decision for one reviewer and subject on an Order. It combines transaction eligibility, submission state (`allowed`, `held`, `expired`, or `ineligible`), visibility state (`double-blind-pending`, `held`, `revealed`, or `suppressed`), Scoring Disposition, a neutral reason code, and any effective submission deadline. Buyer and Seller are transaction roles, so the same Account may receive either direction on different Orders.
+
+Support owns factual Resolved Responsibility (`seller`, `buyer`, `carrier`, `platform`, `shared`, or `undetermined`). Marketplace alone maps that fact to a Directional Review Disposition. Buyer-to-seller feedback is Included only for seller responsibility or normal completion; seller-to-buyer feedback is Included only for buyer responsibility or normal completion. All other resolved responsibility values are Context-only in both directions. A remedy, refund amount, return, replacement, or monetary outcome never determines the disposition.
+
+## Scoring Disposition
+
+A **Scoring Disposition** states whether an otherwise publishable Review is **Included** in aggregate reputation or is **Context-only**. Context-only Review text and rating may be displayed with neutral explanatory status, but its stars do not contribute to rating aggregates or rank/risk consumers. Scoring is binary: there are no fractional weights or hidden penalties. Moderation and double-blind reveal remain independent visibility decisions.
 
 ## Review Summary
 
@@ -249,7 +259,7 @@ A **Review Summary** is the canonical aggregate snapshot for an account derived 
 
 ## Seller Reliability
 
-**Seller Reliability** is the marketplace-owned rolling-window view of a seller Account's objective, event-derived transaction-outcome behavior: On-Time Shipment Rate, Cancellation Rate, and Dispute Rate. It is a projected read model, not an emitted domain event, computed from `ordering`, `fulfillment`, and `support` events -- never from Review content, and never from data a party can unilaterally game (attribution reuses the same resolution-class taxonomy the review-eligibility matrix already applies). Every metric carries a minimum-order-count display threshold; a metric with too few underlying orders is withheld rather than shown as a misleading rate. The seller's own dashboard shows the full metrics unconditionally; buyer-facing surfaces show only threshold-gated qualitative chips (never raw percentages), behind a rollout gate.
+**Seller Reliability** is the marketplace-owned rolling-window view of a seller Account's objective, event-derived transaction-outcome behavior: On-Time Shipment Rate, Cancellation Rate, and Dispute Rate. It is a projected read model, not an emitted domain event, computed from `ordering`, `fulfillment`, and `support` events -- never from Review content, and never from data a party can unilaterally game. Support's factual responsibility classification is the attribution authority; remedies and refunds are not responsibility signals. Every metric carries a minimum-order-count display threshold; a metric with too few underlying orders is withheld rather than shown as a misleading rate. The seller's own dashboard shows the full metrics unconditionally; buyer-facing surfaces show only threshold-gated qualitative chips (never raw percentages), behind a rollout gate.
 
 ## On-Time Shipment Rate
 
@@ -257,7 +267,7 @@ A **Review Summary** is the canonical aggregate snapshot for an account derived 
 
 ## Dispute Rate
 
-**Dispute Rate** is the Seller Reliability metric measuring the share of a seller's orders (in the rolling window) with a support request resolved against the seller (a refund-class resolution, or a seller-caused cancellation resolved through support).
+**Dispute Rate** is the Seller Reliability metric measuring the share of a seller's orders in the rolling window with explicit seller responsibility recorded by Support.
 
 ## Cancellation Rate
 

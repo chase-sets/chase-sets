@@ -206,7 +206,6 @@ describe("marketplace review domain", () => {
         authorRole: "buyer",
         rating: 5,
         feedback: "Pre-launch review.",
-        resolutionContext: null,
         submittedAt: "2026-01-02T00:00:00.000Z",
         // reviewWindowExpiresAt intentionally omitted: pre-migration shape.
       },

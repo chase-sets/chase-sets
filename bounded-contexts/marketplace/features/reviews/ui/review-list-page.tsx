@@ -91,11 +91,6 @@ export function ReviewListPage({
                             {t("reputation.features.reviews.ui.reviewListPage.pending.reveal")}
                           </Badge>
                         ) : null}
-                        {review.resolution_context === "resolved-via-refund" ? (
-                          <Badge tone="neutral">
-                            {t("reputation.features.reviews.ui.reviewListPage.resolved.via.refund")}
-                          </Badge>
-                        ) : null}
                       </Stack>
                     }
                     verified

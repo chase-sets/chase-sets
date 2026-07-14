@@ -16,7 +16,6 @@ import {
   type ReviewRole,
   type ReviewStatus,
 } from "./common";
-import { normalizeResolutionContext, type ReviewResolutionContext } from "@chase-sets/review-eligibility";
 import {
   createReputationCsatOutcomeFact,
   reputationCsatOutcomeFactEventType,
@@ -31,7 +30,6 @@ export type ReviewState = Readonly<{
   rating: number | null;
   feedback: string | null;
   status: ReviewStatus | null;
-  resolutionContext: ReviewResolutionContext | null;
   submittedAt: string | null;
   updatedAt: string | null;
   withdrawnAt: string | null;
@@ -68,7 +66,6 @@ export const initialReviewState: ReviewState = {
   rating: null,
   feedback: null,
   status: null,
-  resolutionContext: null,
   submittedAt: null,
   updatedAt: null,
   withdrawnAt: null,
@@ -95,9 +92,6 @@ export type SubmitReviewCommand = Readonly<{
   authorRole: ReviewRole;
   rating: number;
   feedback?: string | null;
-  // Neutral display marker copied from the review-eligibility row when the
-  // transaction was unlocked by a refund-class support resolution.
-  resolutionContext?: string | null;
   submittedAt: string;
   // The submission-eligibility deadline (eligible_at + REVIEW_WINDOW_DAYS),
   // computed by the runtime from the eligibility row. Rejected here too (not
@@ -199,7 +193,6 @@ export type ReviewSubmittedEvent = DomainEvent<
     authorRole: ReviewRole;
     rating: number;
     feedback: string | null;
-    resolutionContext: ReviewResolutionContext | null;
     submittedAt: string;
     reviewWindowExpiresAt: string;
   }>
@@ -312,7 +305,6 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
             authorRole,
             rating: normalizeRating(command.rating),
             feedback: normalizeFeedback(command.feedback),
-            resolutionContext: normalizeResolutionContext(command.resolutionContext),
             submittedAt,
             reviewWindowExpiresAt,
           },
@@ -484,8 +476,6 @@ export const evolveReview: AggregateEvolver<ReviewState, ReviewEvent> = (state, 
         authorRole: normalizeReviewRole(event.data.authorRole),
         rating: normalizeRating(event.data.rating),
         feedback: normalizeFeedback(event.data.feedback),
-        // Events persisted before the marker existed replay with undefined.
-        resolutionContext: normalizeResolutionContext(event.data.resolutionContext ?? null),
         status: "active",
         submittedAt: event.data.submittedAt,
         updatedAt: event.data.submittedAt,

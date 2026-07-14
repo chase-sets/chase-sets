@@ -65,14 +65,30 @@ CREATE TABLE IF NOT EXISTS marketplace_review_support_request_sources (
   support_request_id text PRIMARY KEY,
   order_id text NOT NULL,
   status text NOT NULL,
+  responsibility text NULL,
   resolution_type text NULL,
-  flow_type text NULL,
   opened_at timestamptz NULL,
   updated_at timestamptz NOT NULL,
   cancelled_at timestamptz NULL,
   resolved_at timestamptz NULL
 );
 
+ALTER TABLE marketplace_review_support_request_sources
+  ADD COLUMN IF NOT EXISTS responsibility text NULL,
+  ADD COLUMN IF NOT EXISTS resolution_type text NULL;
+
 CREATE INDEX IF NOT EXISTS marketplace_review_support_request_sources_order_idx
   ON marketplace_review_support_request_sources (order_id, updated_at DESC, support_request_id DESC);
+
+-- ADR 0022 remedy/coverage correlation arrives independently from the
+-- support-request lifecycle and can be delivered first. These identifiers
+-- are retained for convergence and audit; rating policy never treats remedy
+-- kind, refund direction, allocation, or coverage as responsibility.
+CREATE UNLOGGED TABLE IF NOT EXISTS marketplace_review_remedy_sources (
+  support_request_id text PRIMARY KEY,
+  remedy_id text NOT NULL,
+  coverage_id text NULL,
+  remedy_kind text NOT NULL,
+  updated_at timestamptz NOT NULL
+);
 `;

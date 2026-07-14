@@ -1,6 +1,8 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
+import { normalizeSupportRequestRemedyAuthorizedV1 } from "@chase-sets/event-core/platform-coverage-facts";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { syncReviewEligibilityForOrder, type ReviewEligibilityNotify } from "./eligibility-sync";
 
 const ID_SUFFIX_LABEL_LENGTH = 24;
@@ -200,6 +202,8 @@ export function buildReviewOrderSourceProjectionHandlers(
          WHERE order_id = $1`,
         [data.orderId, data.cancelledAt],
       );
+
+      await syncReviewEligibilityForOrder(db, data.orderId, data.cancelledAt, notify);
     },
     "ordering.order.ready-for-fulfillment-recorded": async (event) => {
       const data = event.data as {
@@ -329,8 +333,8 @@ export function buildReviewSupportSourceProjectionHandlers(
            support_request_id,
            order_id,
            status,
+           responsibility,
            resolution_type,
-           flow_type,
            opened_at,
            updated_at,
            cancelled_at,
@@ -339,8 +343,8 @@ export function buildReviewSupportSourceProjectionHandlers(
          ON CONFLICT (support_request_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
              status = EXCLUDED.status,
+             responsibility = EXCLUDED.responsibility,
              resolution_type = EXCLUDED.resolution_type,
-             flow_type = EXCLUDED.flow_type,
              opened_at = COALESCE(marketplace_review_support_request_sources.opened_at, EXCLUDED.opened_at),
              updated_at = EXCLUDED.updated_at,
              cancelled_at = EXCLUDED.cancelled_at,
@@ -358,8 +362,8 @@ export function buildReviewSupportSourceProjectionHandlers(
            support_request_id,
            order_id,
            status,
+           responsibility,
            resolution_type,
-           flow_type,
            opened_at,
            updated_at,
            cancelled_at,
@@ -368,8 +372,8 @@ export function buildReviewSupportSourceProjectionHandlers(
          ON CONFLICT (support_request_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
              status = EXCLUDED.status,
+             responsibility = EXCLUDED.responsibility,
              resolution_type = EXCLUDED.resolution_type,
-             flow_type = EXCLUDED.flow_type,
              updated_at = EXCLUDED.updated_at,
              cancelled_at = EXCLUDED.cancelled_at,
              resolved_at = EXCLUDED.resolved_at`,
@@ -382,8 +386,7 @@ export function buildReviewSupportSourceProjectionHandlers(
       const data = event.data as {
         supportRequestId: string;
         orderId: string;
-        flowType?: string | null;
-        resolution: { resolutionType: string; resolvedAt: string };
+        resolution: { resolutionType: string; responsibility?: unknown; resolvedAt: string };
       };
 
       await db.query(
@@ -391,8 +394,8 @@ export function buildReviewSupportSourceProjectionHandlers(
            support_request_id,
            order_id,
            status,
+           responsibility,
            resolution_type,
-           flow_type,
            opened_at,
            updated_at,
            cancelled_at,
@@ -401,21 +404,55 @@ export function buildReviewSupportSourceProjectionHandlers(
          ON CONFLICT (support_request_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
              status = EXCLUDED.status,
+             responsibility = EXCLUDED.responsibility,
              resolution_type = EXCLUDED.resolution_type,
-             flow_type = EXCLUDED.flow_type,
              updated_at = EXCLUDED.updated_at,
              cancelled_at = EXCLUDED.cancelled_at,
              resolved_at = EXCLUDED.resolved_at`,
         [
           data.supportRequestId,
           data.orderId,
+          typeof data.resolution.responsibility === "string" ? data.resolution.responsibility : null,
           data.resolution.resolutionType,
-          data.flowType ?? null,
           data.resolution.resolvedAt,
         ],
       );
 
       await syncReviewEligibilityForOrder(db, data.orderId, data.resolution.resolvedAt, notify);
+    },
+    "support.support-request.remedy-authorized.v1": async (event) => {
+      const data = normalizeSupportRequestRemedyAuthorizedV1(
+        event.data as Parameters<typeof normalizeSupportRequestRemedyAuthorizedV1>[0],
+      );
+      const remedyId = parseTypedId(data.remedyId, "rmd");
+      const coverageId = data.coverageId === null ? null : parseTypedId(data.coverageId, "cov");
+
+      await db.query(
+        `INSERT INTO marketplace_review_remedy_sources (
+           support_request_id,
+           remedy_id,
+           coverage_id,
+           remedy_kind,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (support_request_id) DO UPDATE
+         SET remedy_id = EXCLUDED.remedy_id,
+             coverage_id = EXCLUDED.coverage_id,
+             remedy_kind = EXCLUDED.remedy_kind,
+             updated_at = EXCLUDED.updated_at`,
+        [data.supportRequestId, remedyId, coverageId, data.remedy.kind, data.occurredAt],
+      );
+
+      const supportResult = await db.query<{ order_id: string }>(
+        `SELECT order_id
+         FROM marketplace_review_support_request_sources
+         WHERE support_request_id = $1`,
+        [data.supportRequestId],
+      );
+      const orderId = supportResult.rows[0]?.order_id;
+      if (orderId) {
+        await syncReviewEligibilityForOrder(db, orderId, data.occurredAt, notify);
+      }
     },
   };
 }

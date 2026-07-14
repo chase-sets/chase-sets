@@ -79,8 +79,8 @@ describe("marketplace review runtime", () => {
       deliveredAt: "2026-04-02T00:00:00.000Z",
     });
     expect(inserts).toEqual([
-      ["ord_1", "acc_buyer", "acc_seller", "buyer", null, "2026-04-02T00:00:00.000Z", "2026-04-02T00:00:00.000Z"],
-      ["ord_1", "acc_seller", "acc_buyer", "seller", null, "2026-04-02T00:00:00.000Z", "2026-04-02T00:00:00.000Z"],
+      ["ord_1", "acc_buyer", "acc_seller", "buyer", "2026-04-02T00:00:00.000Z", "2026-04-02T00:00:00.000Z"],
+      ["ord_1", "acc_seller", "acc_buyer", "seller", "2026-04-02T00:00:00.000Z", "2026-04-02T00:00:00.000Z"],
     ]);
   });
 
@@ -146,7 +146,6 @@ describe("marketplace review runtime", () => {
       authorRole: "seller",
       rating: 4,
       feedback: "Prompt payment and clear communication.",
-      resolutionContext: null,
     });
     expect(outcomeFact?.payload).toMatchObject({
       factSchemaVersion: 1,
@@ -159,7 +158,7 @@ describe("marketplace review runtime", () => {
     });
   });
 
-  it("carries the refund resolution marker from the eligibility row onto the submitted review", async () => {
+  it("does not copy Support remedy metadata into submitted review events", async () => {
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("FROM marketplace_review_eligibility_pages") && sql.includes("author_account_id = $2")) {
@@ -170,7 +169,6 @@ describe("marketplace review runtime", () => {
                 author_account_id: "acc_buyer",
                 subject_account_id: "acc_seller",
                 author_role: "buyer",
-                resolution_context: "resolved-via-refund",
                 eligible_at: new Date().toISOString(),
               },
             ],
@@ -197,7 +195,7 @@ describe("marketplace review runtime", () => {
         authorAccountId: "acc_buyer",
         subjectAccountId: "acc_seller",
         rating: 1,
-        feedback: "Card arrived misdescribed; refunded after support review.",
+        feedback: "Support resolved the order issue.",
       },
       context,
     );
@@ -210,7 +208,6 @@ describe("marketplace review runtime", () => {
     const outcomeFact = allEvents.find((event) => event.eventType === "marketplace.csat-outcome-fact.v1");
     expect(reviewEvent?.payload).toMatchObject({
       authorRole: "buyer",
-      resolutionContext: "resolved-via-refund",
     });
     expect(outcomeFact?.payload).toMatchObject({
       outcomeCode: "reputation.review-received",

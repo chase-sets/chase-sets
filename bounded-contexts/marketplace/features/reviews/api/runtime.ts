@@ -249,7 +249,6 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
           authorRole: inferAuthorRoleFromEligibility(eligibility.author_role),
           rating: normalizeRating(params.rating),
           feedback: params.feedback ?? null,
-          resolutionContext: eligibility.resolution_context,
           submittedAt,
           reviewWindowExpiresAt,
         },
