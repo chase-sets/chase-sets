@@ -1902,40 +1902,7 @@ resource "digitalocean_app" "platform" {
       }
 
       dynamic "rule" {
-        for_each = local.public_domains
-        content {
-          match {
-            authority {
-              exact = rule.value
-            }
-            path {
-              prefix = "/api"
-            }
-          }
-          component {
-            name                 = "platform-api"
-            preserve_path_prefix = true
-          }
-        }
-      }
-
-      rule {
-        match {
-          authority {
-            exact = local.admin_domain
-          }
-          path {
-            prefix = "/api"
-          }
-        }
-        component {
-          name                 = "platform-api"
-          preserve_path_prefix = true
-        }
-      }
-
-      dynamic "rule" {
-        for_each = local.all_marketplace_domains
+        for_each = local.app_platform_public_domains
         content {
           match {
             authority {
@@ -1953,7 +1920,43 @@ resource "digitalocean_app" "platform" {
       }
 
       dynamic "rule" {
-        for_each = local.public_domains
+        for_each = local.app_platform_admin_domains
+        content {
+          match {
+            authority {
+              exact = rule.value
+            }
+            path {
+              prefix = "/api"
+            }
+          }
+          component {
+            name                 = "platform-api"
+            preserve_path_prefix = true
+          }
+        }
+      }
+
+      dynamic "rule" {
+        for_each = local.app_platform_all_marketplace_domains
+        content {
+          match {
+            authority {
+              exact = rule.value
+            }
+            path {
+              prefix = "/api"
+            }
+          }
+          component {
+            name                 = "platform-api"
+            preserve_path_prefix = true
+          }
+        }
+      }
+
+      dynamic "rule" {
+        for_each = local.app_platform_public_domains
         content {
           match {
             authority {
@@ -1970,23 +1973,26 @@ resource "digitalocean_app" "platform" {
         }
       }
 
-      rule {
-        match {
-          authority {
-            exact = local.admin_domain
+      dynamic "rule" {
+        for_each = local.app_platform_admin_domains
+        content {
+          match {
+            authority {
+              exact = rule.value
+            }
+            path {
+              prefix = "/"
+            }
           }
-          path {
-            prefix = "/"
+          component {
+            name                 = "admin-web"
+            preserve_path_prefix = true
           }
-        }
-        component {
-          name                 = "admin-web"
-          preserve_path_prefix = true
         }
       }
 
       dynamic "rule" {
-        for_each = local.all_marketplace_domains
+        for_each = local.app_platform_all_marketplace_domains
         content {
           match {
             authority {

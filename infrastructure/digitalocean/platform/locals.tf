@@ -61,6 +61,7 @@ locals {
   app_platform_marketplace_domains              = local.serving_from_doks ? [] : local.marketplace_domains
   app_platform_staging_root_marketplace_domains = local.serving_from_doks ? [] : local.staging_root_marketplace_domains
   app_platform_admin_domains                    = local.serving_from_doks ? [] : [local.admin_domain]
+  app_platform_all_marketplace_domains          = concat(local.app_platform_marketplace_domains, local.app_platform_staging_root_marketplace_domains)
 
   admin_domain       = local.is_production ? "admin.${var.root_domain}" : local.is_staging ? "admin.${var.environment}.${var.root_domain}" : "admin.${local.environment_slug}.preview.${var.root_domain}"
   landing_domain     = local.public_domains[0]
@@ -732,14 +733,14 @@ locals {
 
   all_public_hostnames = concat(local.public_domains, keys(local.legacy_domain_redirects), local.all_marketplace_domains)
   ucp_route_prefixes   = ["/.well-known", "/ucp"]
-  ucp_route_domains    = local.platform_enabled ? concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains) : []
+  ucp_route_domains    = local.platform_enabled ? concat(local.app_platform_public_domains, local.app_platform_admin_domains, local.app_platform_all_marketplace_domains) : []
   native_mcp_route_prefixes = [
     "/mcp",
   ]
   native_mcp_route_domains = local.platform_enabled ? distinct(concat(
-    local.public_domains,
-    [local.admin_domain],
-    local.all_marketplace_domains,
+    local.app_platform_public_domains,
+    local.app_platform_admin_domains,
+    local.app_platform_all_marketplace_domains,
   )) : []
   native_mcp_ingress_routes = {
     for route in setproduct(local.native_mcp_route_domains, local.native_mcp_route_prefixes) :
@@ -755,9 +756,9 @@ locals {
     "/api/fulfillment/provider/postage/webhooks",
   ]
   provider_webhook_route_domains = local.platform_enabled ? distinct(concat(
-    local.public_domains,
-    [local.admin_domain],
-    local.all_marketplace_domains,
+    local.app_platform_public_domains,
+    local.app_platform_admin_domains,
+    local.app_platform_all_marketplace_domains,
   )) : []
   provider_webhook_ingress_routes = {
     for route in setproduct(local.provider_webhook_route_domains, local.provider_webhook_route_prefixes) :
