@@ -1,0 +1,45 @@
+{
+  "contextName": "collections",
+  "packageName": "@chase-sets/collections",
+  "ownedNouns": ["saved-list", "saved-list-line", "tracked-quantity", "saved-list-visibility", "saved-list-cover"],
+  "streamPrefix": "collections.",
+  "apiBasePath": "/api/collections",
+  "slices": ["saved-lists"],
+  "allowedSupportDirectories": ["runtime-support"],
+  "publicExports": [".", "./context", "./server"],
+  "allowedContextDependencies": [],
+  "seedRequirements": [],
+  "hostPorts": [
+    {
+      "portName": "savedListProductCatalog",
+      "providedBy": "platform-api",
+      "purpose": "Validates exact Catalog Product selections before they enter a Saved List without Collections reading Catalog tables."
+    }
+  ],
+  "apiDeployables": [],
+  "apiRuntimeProfiles": [],
+  "apiMounts": [],
+  "workerRuntimeProfiles": [],
+  "deployableContributions": [],
+  "shellContributions": [],
+  "directoryIntent": {
+    "saved-lists": {
+      "classification": "slice",
+      "purpose": "The saved-lists slice owns the event-sourced Saved List lifecycle, exact Product membership, tracked quantity, private line metadata, deterministic ordering, visibility state, cover selection, and versioned command/event contracts.",
+      "expectedConsumers": [
+        "Internal Collections module composition",
+        "Saved List projection, valuation, sharing, Inventory handoff, sell-through, and My Collection slices"
+      ]
+    },
+    "runtime-support": {
+      "classification": "support",
+      "purpose": "Provide the Collections event-store schema and runtime service composition seam without taking Saved List behavior out of its slice.",
+      "expectedConsumers": ["Root Collections module composition"]
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Reserve Collections route metadata for later My Collection and shared Saved List route contributions.",
+      "expectedConsumers": ["Future generated deployable route adapters"]
+    }
+  }
+}

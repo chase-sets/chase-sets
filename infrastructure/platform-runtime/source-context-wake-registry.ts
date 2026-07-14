@@ -229,6 +229,18 @@ export const sourceContextWakeRegistry = [
     ],
   }),
   registryEntry({
+    sourceContextName: "collections",
+    owner: "Collections",
+    rolloutState: "not-eligible",
+    phase: "phase-3-expansion",
+    rolloutWave: "wave-4-deferred-or-not-eligible",
+    priorityLane: "standard",
+    expectedEventVolume: "medium",
+    wakeStoreLoadEstimate: "none",
+    affectedProjectionNames: [],
+    routeDependencyIds: [],
+  }),
+  registryEntry({
     sourceContextName: "commercial-terms",
     owner: "Commercial Terms",
     rolloutState: "staging-enabled",
