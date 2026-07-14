@@ -329,6 +329,293 @@ export const helpArticles = [
     policyValueKeys: ["support-deadlines.product-not-received.seller-response.hours"],
   },
   {
+    slug: "payment-problems",
+    locale: "en",
+    title: "Payment problems",
+    description:
+      "What to do about a declined payment, a charge you do not recognize, a wrong or duplicate charge, and how payment issues are handled.",
+    audience: "buyer",
+    category: "buying",
+    reviewedAt: "2026-07-13",
+    citedPolicies: [],
+    relatedFlows: ["payment-problem"],
+    claimCategories: ["protection"],
+    promiseTable: [
+      {
+        claim: "Refunds are always returned to the original payment and can never exceed the amount actually paid.",
+        issues: ["#3560"],
+        tests: [
+          "bounded-contexts/payments/features/payments/domain/domain.test.ts",
+          "bounded-contexts/payments/features/refunds/api/runtime.test.ts",
+        ],
+      },
+      {
+        claim:
+          "Order problems open structured support cases that stamp a response deadline at open time and route to support when they need review.",
+        issues: ["#3722", "#4288"],
+        tests: [
+          "bounded-contexts/platform-operations/features/support-requests/domain/domain.test.ts",
+          "bounded-contexts/platform-operations/features/support-requests/api/runtime.test.ts",
+        ],
+      },
+    ],
+    href: "/help/buying/payment-problems",
+    headings: [
+      {
+        level: 2,
+        id: "before-you-open-a-request",
+        text: "Before you open a request",
+      },
+      {
+        level: 2,
+        id: "when-to-raise-a-payment-problem",
+        text: "When to raise a payment problem",
+      },
+      {
+        level: 2,
+        id: "what-to-include",
+        text: "What to include",
+      },
+      {
+        level: 2,
+        id: "how-it-is-handled",
+        text: "How it is handled",
+      },
+      {
+        level: 2,
+        id: "recognizing-a-real-charge",
+        text: "Recognizing a real charge",
+      },
+      {
+        level: 2,
+        id: "related",
+        text: "Related",
+      },
+    ],
+    blocks: [
+      {
+        type: "heading",
+        level: 2,
+        id: "before-you-open-a-request",
+        text: "Before you open a request",
+        content: [
+          {
+            type: "text",
+            value: "Before you open a request",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Marketplace checkout opens at launch. Until then, the public site does not create purchases or charges, so there is nothing to dispute yet.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Once checkout is live, your final total is always shown before you confirm, and card payments may ask for an extra verification step from your bank before the charge completes. If a charge did not go through, it usually means that verification was not finished or your bank declined it — retrying checkout is the fastest fix, and no money moves until a charge actually completes.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "when-to-raise-a-payment-problem",
+        text: "When to raise a payment problem",
+        content: [
+          {
+            type: "text",
+            value: "When to raise a payment problem",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Open a payment problem from the order when something is wrong with the money itself rather than the item:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value: "A charge you do not recognize.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "A charge for the wrong amount.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "What looks like a duplicate charge for one order.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "A refund that has not arrived.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "If your issue is instead about the item — it never arrived, arrived damaged, or is not as described — use the matching order problem instead. See ",
+          },
+          {
+            type: "link",
+            label: "Refunds and returns",
+            href: "/help/buying/refunds-and-returns",
+          },
+          {
+            type: "text",
+            value: ".",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "what-to-include",
+        text: "What to include",
+        content: [
+          {
+            type: "text",
+            value: "What to include",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "A payment problem asks you to attach the charge reference or the payment error you saw, plus a refund reference if your question is about a refund. Those details let support and the payment team trace the exact charge without a back-and-forth.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "how-it-is-handled",
+        text: "How it is handled",
+        content: [
+          {
+            type: "text",
+            value: "How it is handled",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "A payment problem is an urgent case that goes straight to support and the payment team — it does not wait on the seller, because the seller does not control the charge. Payments and refunds run through the payment provider, so support works from the provider's record of your charge rather than a manual guess.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Every refund is returned to the original payment method and is capped at what was actually paid; there is no way for refunds to add up to more than your charge. Card holds that never became a completed charge are released by your bank on its own schedule.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "recognizing-a-real-charge",
+        text: "Recognizing a real charge",
+        content: [
+          {
+            type: "text",
+            value: "Recognizing a real charge",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Chase Sets charges appear against the order you placed. If a bank statement shows a charge with no matching order in your account, open a payment problem with the charge reference so support can confirm whether it belongs to Chase Sets at all. For anything that looks like account fraud, also reach support@chasesets.com.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "related",
+        text: "Related",
+        content: [
+          {
+            type: "text",
+            value: "Related",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "link",
+              label: "Order protection",
+              href: "/help/buying/order-protection",
+            },
+            {
+              type: "text",
+              value: " explains how payments, disputes, and chargebacks are handled.",
+            },
+          ],
+          [
+            {
+              type: "link",
+              label: "Refunds and returns",
+              href: "/help/buying/refunds-and-returns",
+            },
+            {
+              type: "text",
+              value: " covers where refunds come from and how returns release.",
+            },
+          ],
+        ],
+      },
+    ],
+    policyValueKeys: [],
+  },
+  {
     slug: "refunds-and-returns",
     locale: "en",
     title: "Refunds and returns",
@@ -336,9 +623,17 @@ export const helpArticles = [
       "How cancellations, order problems, returns, and refunds work — what each side provides and what happens on the deadlines.",
     audience: "buyer",
     category: "buying",
-    reviewedAt: "2026-07-12",
+    reviewedAt: "2026-07-13",
     citedPolicies: ["platform-operations.support-deadlines"],
-    relatedFlows: ["return-request", "buyer-cancel-request", "product-not-received", "refund-status"],
+    relatedFlows: [
+      "return-request",
+      "buyer-cancel-request",
+      "product-not-received",
+      "product-damaged",
+      "wrong-product-received",
+      "missing-products",
+      "refund-status",
+    ],
     claimCategories: ["protection", "shipping"],
     promiseTable: [
       {
@@ -945,6 +1240,227 @@ export const helpArticles = [
       "settlement.clearance.base.days",
       "settlement.clearance.extended.days",
     ],
+  },
+  {
+    slug: "cannot-fulfill-an-order",
+    locale: "en",
+    title: "When you cannot fulfill an order",
+    description:
+      "How to release an order you cannot ship, what the buyer gets, and what it costs your wallet and standing.",
+    audience: "seller",
+    category: "selling",
+    reviewedAt: "2026-07-13",
+    citedPolicies: [],
+    relatedFlows: ["seller-cannot-fulfill"],
+    claimCategories: ["protection", "payouts"],
+    promiseTable: [
+      {
+        claim:
+          "A seller who cannot fulfill an order raises an urgent support case that routes straight to support review without a buyer-seller negotiation.",
+        issues: ["#3722"],
+        tests: [
+          "bounded-contexts/platform-operations/features/support-requests/domain/domain.test.ts",
+          "bounded-contexts/platform-operations/features/support-requests/api/runtime.test.ts",
+        ],
+      },
+      {
+        claim:
+          "A refund reverses the seller's share of the order proportionally along with the order's Order Protection contribution.",
+        issues: ["#3560"],
+        tests: [
+          "bounded-contexts/payments/features/refunds/api/runtime.test.ts",
+          "bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.test.ts",
+        ],
+      },
+      {
+        claim: "New sale proceeds offset a negative wallet balance before entering the clearance pipeline.",
+        issues: ["#4534"],
+        tests: [
+          "bounded-contexts/settlement/features/wallets/domain/domain.test.ts",
+          "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.test.ts",
+        ],
+      },
+    ],
+    href: "/help/selling/cannot-fulfill-an-order",
+    headings: [
+      {
+        level: 2,
+        id: "the-honest-move",
+        text: "The honest move",
+      },
+      {
+        level: 2,
+        id: "what-happens-next",
+        text: "What happens next",
+      },
+      {
+        level: 2,
+        id: "what-it-costs-you",
+        text: "What it costs you",
+      },
+      {
+        level: 2,
+        id: "keep-it-rare",
+        text: "Keep it rare",
+      },
+    ],
+    blocks: [
+      {
+        type: "heading",
+        level: 2,
+        id: "the-honest-move",
+        text: "The honest move",
+        content: [
+          {
+            type: "text",
+            value: "The honest move",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Sometimes you cannot ship an order you accepted — the item sold elsewhere, it was damaged in storage, or it cannot be found. The right move is to say so quickly rather than let the order sit. Chase Sets treats this as its own support case so the buyer is made whole and your inventory is cleaned up without a drawn-out exchange.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Raise it from the order as a cannot-fulfill case. Confirm that the order cannot be filled, and the case is created for you.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "what-happens-next",
+        text: "What happens next",
+        content: [
+          {
+            type: "text",
+            value: "What happens next",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "A cannot-fulfill case is urgent and goes straight to support review — there is no seller-response clock to wait out, because you have already given the answer. The default outcome is a full refund to the buyer. Because it routes directly to support, the buyer's refund and any inventory cleanup are not held up by messaging.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Reach for this flow only when the order genuinely cannot be shipped. If you can still ship but there is a label or tracking snag, use the shipping problem flow instead — see ",
+          },
+          {
+            type: "link",
+            label: "Shipping requirements",
+            href: "/help/selling/shipping-requirements",
+          },
+          {
+            type: "text",
+            value: ". If the buyer asked to call the order off, that is a cancellation, covered in ",
+          },
+          {
+            type: "link",
+            label: "Refunds and returns",
+            href: "/help/buying/refunds-and-returns",
+          },
+          {
+            type: "text",
+            value: ".",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "what-it-costs-you",
+        text: "What it costs you",
+        content: [
+          {
+            type: "text",
+            value: "What it costs you",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "A full refund reverses your share of the order proportionally, and the order's Order Protection contribution is reversed with it. If the proceeds had not yet cleared, the pending entry simply does not release. If they had already been paid out, the reversal draws against your wallet and can push the balance negative.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "A negative balance is not a penalty on its own: your next sale proceeds offset it first, before anything enters the normal clearance pipeline, and payout requests pause until the wallet recovers. See ",
+          },
+          {
+            type: "link",
+            label: "Getting paid",
+            href: "/help/selling/getting-paid",
+          },
+          {
+            type: "text",
+            value: " for how holds and negative balances interact with payouts.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "keep-it-rare",
+        text: "Keep it rare",
+        content: [
+          {
+            type: "text",
+            value: "Keep it rare",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Cannot-fulfill cases are the cleanest way out of an order you cannot ship, but they are a fulfillment failure, and repeated failures weigh on your seller standing and the trust signals that shorten your clearance window. The durable fix is keeping listed quantities in step with what you actually hold. See ",
+          },
+          {
+            type: "link",
+            label: "Shipping requirements",
+            href: "/help/selling/shipping-requirements",
+          },
+          {
+            type: "text",
+            value: " for how committing to ship starts the clock the platform measures you against.",
+          },
+        ],
+      },
+    ],
+    policyValueKeys: [],
   },
   {
     slug: "condition-and-photo-standards",
