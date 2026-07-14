@@ -12,6 +12,7 @@ import type {
   SourceObservationOnePieceCardPrintNormalized,
   SourceObservationOnePieceSealedProductNormalized,
   SourceObservationPokemonCardNormalized,
+  SourceObservationPokemonSealedProductNormalized,
   SourceObservationProviderProductNormalized,
 } from "../domain/domain";
 import {
@@ -21,6 +22,7 @@ import {
   scrydexOnePieceSealedProductProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
+  tcgplayerPokemonSealedProductProviderProfile,
   type CatalogProviderIntegrationProfile,
 } from "./provider-integration-profiles";
 import {
@@ -184,6 +186,134 @@ describe("planCatalogProviderPromotionCommands", () => {
       type: "SetCatalogItemProductAssetSets",
       productAssetSets: [],
     });
+  });
+
+  it("plans Pokemon sealed-product creation with images, asset sets, and external references", () => {
+    const assetSet = pokemonSealedProductAssetSet();
+    const result = planCatalogProviderPromotionCommands({
+      profile: tcgplayerPokemonSealedProductProviderProfile,
+      profileKey: "pokemon-sealed-product-sku",
+      profileVersion: "2026.07.13",
+      providerKey: "tcgplayer",
+      externalKey: "497105",
+      mode: "create",
+      catalogItemId: "cat_pokemon_sealed_497105" as CatalogItemId,
+      normalized: pokemonSealedProductObservation(),
+      catalog: pokemonSealedProductCatalogMapping(),
+      expansionReferenceId: "ref_expansion_scarlet_violet" as ReferenceRecordId,
+      metadata: {
+        title: "Scarlet & Violet Elite Trainer Box",
+        subtitle: "Scarlet & Violet sealed product",
+      },
+      productAssetSet: assetSet,
+      preflight: { status: "ready" },
+    });
+
+    expect(result.status).toBe("planned");
+    expect(result.plan?.review).toEqual({
+      normalizedKind: "pokemon-sealed-product",
+      commandCount: 13,
+      catalogItemReferencesLinked: 1,
+      sourceProductReferencesLinked: 2,
+    });
+    expect(result.plan?.commands.map((command) => command.type)).toEqual([
+      "CreateCatalogItem",
+      "AssignBlueprintToCatalogItem",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "AssignCatalogItemToCategory",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+      "LinkExternalCatalogItemReference",
+      "LinkExternalProductReference",
+    ]);
+    expect(result.plan?.commands).toEqual(
+      expect.arrayContaining([
+        {
+          type: "SetCatalogItemFieldValue",
+          fieldId: "field_expansion",
+          value: { referenceId: "ref_expansion_scarlet_violet" },
+        },
+        { type: "SetCatalogItemFieldValue", fieldId: "field_pack_count", value: 9 },
+        {
+          type: "SetCatalogItemTags",
+          tags: ["pokemon", "tcgplayer", "set:scarlet-violet", "kind:pokemon-sealed-product", "form:elite-trainer-box"],
+        },
+        { type: "SetCatalogItemImageUrls", imageUrls: ["https://assets.example/detail.webp"] },
+        { type: "SetCatalogItemProductAssetSets", productAssetSets: [assetSet] },
+        {
+          type: "LinkExternalProductReference",
+          providerKey: "tcgplayer",
+          externalKey: "en:497105",
+        },
+        {
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "tcgplayer",
+          externalKey: "product:497105",
+        },
+        {
+          type: "LinkExternalProductReference",
+          providerKey: "tcgplayer",
+          externalKey: "sku:15501001",
+          selectedOptions: [{ dimensionId: "dim_product_form", optionId: "opt_unopened" }],
+        },
+      ]),
+    );
+  });
+
+  it("plans Pokemon sealed-product refresh without recreating Catalog structure", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: tcgplayerPokemonSealedProductProviderProfile,
+      profileKey: "pokemon-sealed-product-sku",
+      profileVersion: "2026.07.13",
+      providerKey: "tcgplayer",
+      externalKey: "497105",
+      mode: "refresh",
+      catalogItemId: "cat_pokemon_sealed_497105" as CatalogItemId,
+      normalized: pokemonSealedProductObservation(),
+      catalog: pokemonSealedProductCatalogMapping(),
+      expansionReferenceId: "ref_expansion_scarlet_violet" as ReferenceRecordId,
+      metadata: {
+        title: "Scarlet & Violet Elite Trainer Box",
+        subtitle: "Scarlet & Violet sealed product",
+      },
+      productAssetSet: null,
+    });
+
+    expect(result.status).toBe("planned");
+    expect(result.plan?.commands.map((command) => command.type)).toEqual([
+      "ReviseCatalogItemMetadata",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+      "LinkExternalCatalogItemReference",
+      "LinkExternalProductReference",
+    ]);
+    expect(result.plan?.commands).toEqual(
+      expect.arrayContaining([
+        {
+          type: "SetCatalogItemImageUrls",
+          imageUrls: ["https://images.example/pokemon/scarlet-violet-etb.jpg"],
+        },
+        { type: "SetCatalogItemProductAssetSets", productAssetSets: [] },
+      ]),
+    );
+    expect(result.plan?.commands).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "CreateCatalogItem" }),
+        expect.objectContaining({ type: "AssignBlueprintToCatalogItem" }),
+        expect.objectContaining({ type: "AssignCatalogItemToCategory" }),
+      ]),
+    );
   });
 
   it("omits optional Pokemon card field commands when normalized values are absent", () => {
@@ -934,6 +1064,23 @@ function catalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
   };
 }
 
+function pokemonSealedProductCatalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
+  return {
+    blueprintId: "bp_pokemon_sealed_product" as BlueprintId,
+    categoryId: "cat_sealed_products" as CategoryId,
+    fieldIds: {
+      cardNumber: "field_card_number" as FieldId,
+      cardName: "field_card_name" as FieldId,
+      expansion: "field_expansion" as FieldId,
+      rarity: "field_rarity" as FieldId,
+      cardVariant: "field_card_variant" as FieldId,
+      cardIllustrator: "field_card_illustrator" as FieldId,
+      releaseYear: "field_release_year" as FieldId,
+      packCount: "field_pack_count" as FieldId,
+    },
+  };
+}
+
 function magicCardPrintCatalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
   return {
     blueprintId: "bp_magic_card_print" as BlueprintId,
@@ -1071,6 +1218,48 @@ function pokemonCardObservation(
     ],
     ...overrides,
   });
+}
+
+function pokemonSealedProductObservation(
+  overrides: Partial<SourceObservationPokemonSealedProductNormalized> = {},
+): SourceObservationPokemonSealedProductNormalized {
+  return {
+    kind: "pokemon-sealed-product",
+    tcg: "pokemon",
+    languageCode: "en",
+    name: "Scarlet & Violet Elite Trainer Box",
+    setId: "10001",
+    setCode: "svi",
+    setName: "Scarlet & Violet",
+    expansionName: "Scarlet & Violet",
+    cardNumber: null,
+    sealedProductForm: "elite-trainer-box",
+    packCount: 9,
+    releaseDate: "2023-03-31",
+    releaseYear: 2023,
+    productLineName: "Pokemon",
+    barcode: "0820650851234",
+    imageUrls: ["https://images.example/pokemon/scarlet-violet-etb.jpg"],
+    mergeIdentity: {
+      tcg: "pokemon",
+      productLineName: "Pokemon",
+      setName: "Scarlet & Violet",
+      printedProductName: "Scarlet & Violet Elite Trainer Box",
+      collectorNumber: "ETB",
+      languageCode: "en",
+      productForm: "sealed",
+      barcode: "0820650851234",
+    },
+    externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:497105" }],
+    externalProductReferences: [
+      {
+        providerKey: "tcgplayer",
+        externalKey: "sku:15501001",
+        selectedOptions: [{ dimensionId: "dim_product_form", optionId: "opt_unopened" }],
+      },
+    ],
+    ...overrides,
+  };
 }
 
 function providerProductObservation(): SourceObservationProviderProductNormalized {
@@ -1440,5 +1629,17 @@ function productAssetSet(): ProductAssetSet {
         generatedAt: "2026-06-03T00:00:00.000Z",
       },
     ],
+  };
+}
+
+function pokemonSealedProductAssetSet(): ProductAssetSet {
+  const assetSet = productAssetSet();
+  return {
+    ...assetSet,
+    sourcePolicy: {
+      ...assetSet.sourcePolicy,
+      sourceProviderKey: "tcgplayer",
+      sourceUrlHost: "images.tcgplayer.com",
+    },
   };
 }

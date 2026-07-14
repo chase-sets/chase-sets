@@ -51,6 +51,7 @@ import {
   runTcgplayerLorcanaSingleCardSourceObservationImportProofDryRun,
   runTcgplayerOnePieceSealedProductSourceObservationImportProofDryRun,
   runTcgplayerOnePieceSingleCardSourceObservationImportProofDryRun,
+  runTcgplayerPokemonSealedProductSourceObservationImportProofDryRun,
   runTcgplayerPokemonSingleCardSourceObservationImportProofDryRun,
   runTcgplayerYugiohSingleCardSourceObservationImportProofDryRun,
   TCGPLAYER_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
@@ -59,6 +60,7 @@ import {
   TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./provider-adapters/tcgplayer";
@@ -112,6 +114,10 @@ export function createCatalogIntegrationDryRunProofRegistry(
     [
       TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       runTcgplayerPokemonSingleCardSourceObservationImportProofDryRun,
+    ],
+    [
+      TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      runTcgplayerPokemonSealedProductSourceObservationImportProofDryRun,
     ],
     [
       TCGPLAYER_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,

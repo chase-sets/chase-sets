@@ -4,6 +4,7 @@ import type { SourceObservationNormalized } from "../domain/domain";
 import type { SourceObservationListRow } from "../read-model/queries";
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
 import { buildCatalogMergeCandidatesFromObservations } from "./catalog-merge-candidate-matcher";
+import { TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./provider-adapters/tcgplayer";
 
 describe("Catalog Merge Candidate matcher", () => {
   it("merges aligned provider observations into one ready candidate with provenance", () => {
@@ -159,6 +160,59 @@ describe("Catalog Merge Candidate matcher", () => {
       conflicts: [],
       promotionIntent: "create-catalog-item",
     });
+  });
+
+  it("groups Pokemon sealed observations by product form and barcode through an accepted scope mapping", () => {
+    const observations = [
+      pokemonSealedObservationRow("obs_pokemon_sealed_primary", "497105", "0820650851234"),
+      pokemonSealedObservationRow("obs_pokemon_sealed_refresh", "497105-refresh", "0820650851234"),
+      pokemonSealedObservationRow("obs_pokemon_sealed_alternate", "497105-alt", "0820650859999"),
+    ];
+    const result = buildCatalogMergeCandidatesFromObservations(observations, {
+      addedAt: "2026-07-14T12:00:00.000Z",
+      acceptedScopeMappings: [
+        mappingRow({
+          provider_key: "tcgplayer",
+          unit_key: TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+          scope_record_id: "scope_scarlet_violet",
+          set_id: "10001",
+          set_name: "Scarlet & Violet",
+        }),
+      ],
+      providerUnitKeyByObservationId: Object.fromEntries(
+        observations.map((observation) => [
+          observation.observation_id,
+          TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        ]),
+      ),
+    });
+
+    expect(result.exclusions).toEqual([]);
+    expect(result.candidates).toHaveLength(2);
+    const groupedCandidate = result.candidates.find((candidate) => candidate.snapshot.membership.length === 2);
+    expect(groupedCandidate?.snapshot).toMatchObject({
+      identity: {
+        scopeRecordId: "scope_scarlet_violet",
+        collectorNumber: "ETB",
+        languageCode: "en",
+        productForm: "sealed",
+        barcode: "0820650851234",
+      },
+      membership: [{ observationId: "obs_pokemon_sealed_primary" }, { observationId: "obs_pokemon_sealed_refresh" }],
+      proposedCatalogItemFacts: {
+        name: "Scarlet & Violet Elite Trainer Box",
+        setName: "Scarlet & Violet",
+        productForm: "elite-trainer-box",
+        barcode: "0820650851234",
+      },
+      conflicts: [],
+      promotionIntent: "create-catalog-item",
+    });
+    expect(
+      result.candidates.find((candidate) =>
+        candidate.snapshot.membership.some((member) => member.observationId === "obs_pokemon_sealed_alternate"),
+      )?.snapshot.identity.barcode,
+    ).toBe("0820650859999");
   });
 
   it("merges different provider set names through accepted mappings to one canonical scope record", () => {
@@ -425,3 +479,71 @@ function providerProductObservationRow(
 }
 
 type ProviderProductObservation = Extract<SourceObservationNormalized, { kind: "provider-product" }>;
+
+function pokemonSealedObservationRow(
+  observationId: string,
+  externalKey: string,
+  barcode: string,
+): SourceObservationListRow {
+  const normalized: Extract<SourceObservationNormalized, { kind: "pokemon-sealed-product" }> = {
+    kind: "pokemon-sealed-product",
+    tcg: "pokemon",
+    languageCode: "en",
+    name: "Scarlet & Violet Elite Trainer Box",
+    setId: "10001",
+    setCode: "svi",
+    setName: "Scarlet & Violet",
+    expansionName: "Scarlet & Violet",
+    cardNumber: null,
+    sealedProductForm: "elite-trainer-box",
+    packCount: 9,
+    releaseDate: "2023-03-31",
+    releaseYear: 2023,
+    productLineName: "Pokemon",
+    barcode,
+    imageUrls: ["https://images.example/pokemon/scarlet-violet-etb.jpg"],
+    mergeIdentity: {
+      tcg: "pokemon",
+      productLineName: "Pokemon",
+      setName: "Scarlet & Violet",
+      printedProductName: "Scarlet & Violet Elite Trainer Box",
+      collectorNumber: "ETB",
+      languageCode: "en",
+      productForm: "sealed",
+      barcode,
+    },
+    externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: `product:${externalKey}` }],
+    externalProductReferences: [
+      {
+        providerKey: "tcgplayer",
+        externalKey: `sku:${externalKey}`,
+        selectedOptions: [{ dimensionId: "dim_product_form", optionId: "opt_unopened" }],
+      },
+    ],
+  };
+
+  return {
+    observation_id: observationId,
+    sync_run_id: "job_pokemon_sealed_sync",
+    provider_key: "tcgplayer",
+    external_key: externalKey,
+    source_url: `https://www.tcgplayer.com/product/${externalKey}`,
+    language_code: "en",
+    source_record_hash: `${observationId}-hash`,
+    source_updated_at: null,
+    observed_at: "2026-07-14T11:59:00.000Z",
+    source_profile_key: "pokemon-sealed-product-sku",
+    source_profile_version: "2026.07.13",
+    source_mapping_fingerprint: "tcgplayer-pokemon-sealed-mapping",
+    normalized,
+    status: "observed",
+    status_reason: null,
+    promoted_catalog_item_id: null,
+    promoted_reference_record_id: null,
+    promoted_at: null,
+    promotion_profile_key: null,
+    promotion_profile_version: null,
+    promotion_plan_fingerprint: null,
+    updated_at: "2026-07-14T11:59:00.000Z",
+  };
+}
