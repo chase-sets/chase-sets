@@ -1,6 +1,15 @@
 import type { AddressSnapshot } from "../primitives/address-snapshot";
 import type { JsonObject, JsonValue } from "../primitives/json";
 import type { AccountId, CheckoutSessionId, PaymentId, SessionId, UserId } from "../primitives/typed-ids";
+import type {
+  ProtectionCoverageRejectedV1Payload,
+  ProtectionCoverageReservedV1Payload,
+  ProtectionCoverageSettledV1Payload,
+  SupportRequestPlatformCoverageRequestedV1Payload,
+  SupportRequestRefundReleasedV1Payload,
+  SupportRequestRemedyAuthorizedV1Payload,
+  SupportRequestRemedyCompletedV1Payload,
+} from "./platform-coverage-facts";
 
 export type EmptyEventPayload = Readonly<Record<string, never>>;
 
@@ -653,6 +662,23 @@ export type SettlementEventPayloads = Readonly<{
   "settlement.wallet.negative-balance-entered": SettlementNegativeBalanceEnteredPayload;
   "settlement.wallet.negative-balance-collections-opened": SettlementNegativeBalanceCollectionsOpenedPayload;
   "settlement.wallet.negative-balance-recovered": SettlementNegativeBalanceRecoveredPayload;
+  // Platform-covered resolution — Settlement owns protection-coverage financial truth (ADR 0022).
+  "settlement.protection-coverage.reserved.v1": ProtectionCoverageReservedV1Payload;
+  "settlement.protection-coverage.rejected.v1": ProtectionCoverageRejectedV1Payload;
+  "settlement.protection-coverage.settled.v1": ProtectionCoverageSettledV1Payload;
+}>;
+
+/**
+ * Support-owned platform-covered resolution facts (ADR 0022). The `support.*` stream
+ * prefix is the ubiquitous name for the support-request aggregate that Platform
+ * Operations hosts; payload types and runtime validators live in
+ * `./platform-coverage-facts`.
+ */
+export type SupportRequestPlatformCoverageEventPayloads = Readonly<{
+  "support.support-request.remedy-authorized.v1": SupportRequestRemedyAuthorizedV1Payload;
+  "support.support-request.platform-coverage-requested.v1": SupportRequestPlatformCoverageRequestedV1Payload;
+  "support.support-request.refund-released.v1": SupportRequestRefundReleasedV1Payload;
+  "support.support-request.remedy-completed.v1": SupportRequestRemedyCompletedV1Payload;
 }>;
 
 export type WaitlistSourcePayload = Readonly<{
@@ -784,5 +810,6 @@ export type ChaseSetsEventPayloads = AuthEventPayloads &
   MarketplaceEventPayloads &
   PaymentsEventPayloads &
   SettlementEventPayloads &
+  SupportRequestPlatformCoverageEventPayloads &
   PublicPresenceEventPayloads &
   PlatformOperationsEventPayloads;

@@ -67,6 +67,26 @@ Run `pnpm --filter @chase-sets/settlement run test:watch` for the sub-second wat
 
 Stripe Connect configuration, embedded payout setup target state, payout smoke tests, reconciliation, and incident workflows live in [Money Operations](../../docs/runbooks/money-operations.md). The cross-context responsibility decision lives in [ADR 0006: Stripe Connect Custom Account Experience](../../docs/adr/0006-stripe-connect-custom-account-experience.md). The Wallet Adjustment vocabulary, cash-equivalent balance scope, and control policy decision lives in [ADR 0020: Wallet Adjustment Authority And Balance Types](../../docs/adr/0020-wallet-adjustment-authority-and-balance-types.md).
 
+## Platform-Covered Resolutions
+
+Settlement owns the `ProtectionCoverage` financial boundary for platform-covered
+support resolutions (epic #5210): reservation, rejection, consumption, release, and
+reconciliation against the protection reserve. It owns `coverageId`. Support owns the
+remedy decision and `remedyId`; Payments owns the provider refund and `refundId`.
+Settlement decides who is funded and posts the seller-funded portion and the
+platform-funded consumption exactly once — it never charges the seller merely because
+Payments reports a refund. Ownership, stable ids, and versioned contracts are ratified
+in [ADR 0022: Platform-Covered Resolution Ownership and Contracts](../../docs/adr/0022-platform-covered-resolution-contracts.md);
+wallet adjustment remains a correction-only path per
+[ADR 0020](../../docs/adr/0020-wallet-adjustment-authority-and-balance-types.md).
+
+- **Publishes** — `settlement.protection-coverage.reserved.v1`,
+  `settlement.protection-coverage.rejected.v1`,
+  `settlement.protection-coverage.settled.v1`.
+- **Consumes** — `support.support-request.platform-coverage-requested.v1`,
+  `support.support-request.refund-released.v1`, and Payments' refund completion fact,
+  correlated by `remedyId`/`coverageId`.
+
 ## Open Extraction Candidates
 
 - Treasury operations can be extracted later if cash management becomes materially more complex.

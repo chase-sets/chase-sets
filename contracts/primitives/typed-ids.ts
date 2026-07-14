@@ -75,6 +75,12 @@ export type ReviewId = TypedUlid<"rev">;
 
 export type SupportRequestId = TypedUlid<"sup">;
 
+/** Support-owned handle for a single authorized remedy on a support request (ADR 0022). */
+export type RemedyId = TypedUlid<"rmd">;
+
+/** Settlement-owned handle for one protection-coverage reservation. Belongs to exactly one remedy (ADR 0022). */
+export type CoverageId = TypedUlid<"cov">;
+
 export type PaymentId = TypedUlid<"pay">;
 
 export type LedgerEntryId = TypedUlid<"led">;

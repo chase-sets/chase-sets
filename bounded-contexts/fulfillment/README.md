@@ -69,6 +69,17 @@ Postage provider configuration and label smoke checks live in [Postage Operation
 
 Run `pnpm --filter @chase-sets/fulfillment run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/fulfillment run test` before opening a PR.
 
+## Platform-Covered Resolutions
+
+For platform-covered resolutions (epic #5210), Fulfillment owns any buyer-to-platform
+reverse shipment and its physical delivery/intake facts (`returnShipmentId`); those
+facts gate the `delivered` and `facility-intake` refund triggers a remedy may choose.
+The existing `ShipmentReturned` terminal state is the outbound shipment reaching
+"returned" — it is **not** a reverse shipment. The reverse-logistics model and its
+intake facts are delivered by the sibling epic #5211; this context publishes those facts
+and consumes none of the coverage facts. Ownership and the refund-trigger contract are
+ratified in [ADR 0022: Platform-Covered Resolution Ownership and Contracts](../../docs/adr/0022-platform-covered-resolution-contracts.md).
+
 ## Open Extraction Candidates
 
 - Returns management can be extracted later if reverse logistics becomes a large standalone workflow.

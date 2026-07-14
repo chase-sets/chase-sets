@@ -17,6 +17,7 @@
     "./consistency": "./consistency.ts",
     "./domain": "./domain.ts",
     "./event-store": "./event-store.ts",
+    "./platform-coverage-facts": "./platform-coverage-facts.ts",
     "./projector": "./projector.ts",
     "./public-event-payloads": "./public-event-payloads.ts",
     "./storage": "./storage.ts",

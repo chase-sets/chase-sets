@@ -6,6 +6,7 @@ export * from "./command-handler";
 export * from "./consistency";
 export * from "./domain";
 export * from "./event-store";
+export * from "./platform-coverage-facts";
 export * from "./projector";
 export * from "./public-event-payloads";
 export * from "./storage";
