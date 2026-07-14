@@ -4,7 +4,7 @@
 
 Collections owns Saved Lists: account-owned, ordered sets of exact Catalog Products kept for curation, tracking, sharing, copying, and later account workflows. A Saved List records intent, not stock or financial truth. My Collection may compose Saved Lists with Inventory-owned Owned Cards, but the customer surface does not move behavior between contexts.
 
-This foundation publishes the replay-stable Saved List aggregate and command contracts through `@chase-sets/collections/server`. The Saved List Inventory handoff snapshots selected owner lines into Inventory's review-first import; later slices add read models, routes, sharing, valuation, and presentation without importing slice internals.
+The context publishes the replay-stable Saved List aggregate and command contracts through `@chase-sets/collections/server`. The Saved List Inventory handoff snapshots selected owner lines into Inventory's review-first import. The valuation slice consumes those contracts and Pricing estimate facts without changing Saved List state or importing slice internals.
 
 ## Owns
 
@@ -14,6 +14,7 @@ This foundation publishes the replay-stable Saved List aggregate and command con
 - Expected-version concurrency, command idempotency receipts, and bounded line batches.
 - Versioned Saved List event and owner/viewer snapshot contracts.
 - Authorization and immutable selected-line source snapshots for Inventory handoff.
+- Current Saved List estimated market value and explicit estimate coverage.
 
 ## Does Not Own
 
@@ -21,6 +22,7 @@ This foundation publishes the replay-stable Saved List aggregate and command con
 - Asking prices, Listings, realized or unrealized profit and loss, or account-wide value history.
 - Catalog Product identity or selected Option validity; Catalog is consulted through a host port before a Product enters a list.
 - Public rendering, unlisted capabilities, disclosure policy, collaboration, or ownership transfer.
+- Market estimation algorithms, estimate publication, cost basis, gain/loss, or valuation history.
 - My Collection shell/navigation composition.
 
 ## Ubiquitous Language
@@ -36,6 +38,7 @@ Collections terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - Identity supplies the account reference carried by event audit context.
 - Catalog validates exact Product selections through the `savedListProductCatalog` host port. Collections never reads Catalog tables.
 - Inventory accepts authorized Saved List source snapshots through the `inventorySavedListImportBatchCreator` host port and remains authoritative for validation, locations, stock changes, durable work, and review status.
+- Pricing publishes current Product-scoped market estimates. Collections projects disclosure-approved fields and never reads Pricing tables.
 
 ## Outgoing Integration Events
 
@@ -58,6 +61,8 @@ Collections terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 5. Only the owner account can use the command API or receive an owner snapshot.
 6. Viewer snapshots omit private notes and tags by construction and can independently hide Tracked Quantity.
 7. Inventory, cost, Listing, availability, and profit fields never enter Saved List state or events.
+8. A missing or stale estimate is never represented as zero, and low-confidence coverage remains explicit.
+9. Shared valuation is absent whenever tracked quantities are hidden or Pricing has not approved public disclosure.
 
 ## Tests
 

@@ -4,6 +4,7 @@ import { createSavedListRuntime } from "../../features/saved-lists/api/runtime";
 import { createSavedListInventoryHandoff } from "../../features/saved-lists/integrations/inventory-handoff";
 import type { SavedListInventoryImportBatchCreator } from "../../features/saved-lists/integrations/inventory-handoff";
 import type { SavedListProductCatalog } from "../../features/saved-lists/domain/contracts";
+import { createSavedListValuationRuntime } from "../../features/saved-list-valuation/api/runtime";
 
 export type CollectionsHostPorts = Readonly<{
   savedListProductCatalog?: SavedListProductCatalog;
@@ -13,6 +14,7 @@ export type CollectionsHostPorts = Readonly<{
 export type CollectionsServices = Readonly<{
   savedLists: ReturnType<typeof createSavedListRuntime>;
   savedListInventory: ReturnType<typeof createSavedListInventoryHandoff>;
+  savedListValuation: ReturnType<typeof createSavedListValuationRuntime>;
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;
@@ -43,6 +45,7 @@ export function createCollectionsServices(
       savedLists,
       inventoryImportBatchCreator: ports.inventorySavedListImportBatchCreator ?? unavailableInventoryImportBatchCreator,
     }),
+    savedListValuation: createSavedListValuationRuntime(pool),
     pool,
     db: pool as PgQueryable,
   };

@@ -43,11 +43,11 @@ describe("push wake capacity evidence", () => {
     ]);
 
     expect(evidence.environments.staging).toMatchObject({ upgradeTriggerPercent: 80, upgradeTrigger: 75 });
-    expect(evidence.environments.staging.steadyState).toMatchObject({ total: 53, limit: 94, headroom: 41 });
+    expect(evidence.environments.staging.steadyState).toMatchObject({ total: 54, limit: 94, headroom: 40 });
     expect(evidence.environments.staging.deployOverlap).toMatchObject({
-      total: 64,
+      total: 65,
       limit: 94,
-      headroom: 30,
+      headroom: 29,
       additionalDirectListenerContextsBeforeUpgradeTrigger: 5,
     });
     expect(evidence.terraformDefaults.doksStagingWorkerDatabasePoolMax).toBe(12);
@@ -77,24 +77,24 @@ describe("push wake capacity evidence", () => {
     });
     // #4655 converged production query traffic onto managed transaction pools:
     // production now uses the PgBouncer server-side allocation branch (summed
-    // production pool sizes = 31) instead of direct App Platform bindings, so
+    // production pool sizes = 32) instead of direct App Platform bindings, so
     // apiPoolDemand/workerPoolDemand are client-side only and the rolling-deploy
-    // overlap (65) is well clear of the 75 tier-upgrade trigger and no longer
+    // overlap (66) is well clear of the 75 tier-upgrade trigger and no longer
     // moves when worker/API instances scale.
     expect(evidence.environments.production).toMatchObject({
       apiPoolDemand: 12,
       workerPoolDemand: 8,
-      pgbouncerServerBackendAllocation: 31,
+      pgbouncerServerBackendAllocation: 32,
       upgradeTriggerPercent: 80,
       upgradeTrigger: 75,
       apiWaiterListenerDemand: 8,
-      steadyState: { total: 50, limit: 94, headroom: 44 },
+      steadyState: { total: 51, limit: 94, headroom: 43 },
       deployOverlap: {
-        total: 65,
+        total: 66,
         limit: 94,
-        headroom: 29,
+        headroom: 28,
         additionalDirectListenerContextsAtCurrentTier: 14,
-        additionalDirectListenerContextsBeforeUpgradeTrigger: 5,
+        additionalDirectListenerContextsBeforeUpgradeTrigger: 4,
       },
     });
   });
@@ -118,14 +118,14 @@ describe("push wake capacity evidence", () => {
     expect(evidence.expansionDecision.wave2DirectListenerExpansion).toMatchObject({
       additionalListenerContextCount: 3,
       additionalOverlapDemand: 6,
-      expandedOverlapDemand: 71,
+      expandedOverlapDemand: 72,
       fitsCurrentTier: true,
       requiredDatabaseSize: null,
     });
     expect(evidence.volumeLoadProofPosture.posture).toBe("not-proven-by-this-ci-evidence");
 
     const markdown = renderPushWakeCapacityMarkdown(evidence);
-    expect(markdown).toContain("Rolling-deploy overlap: 65/94");
+    expect(markdown).toContain("Rolling-deploy overlap: 66/94");
     expect(markdown).toContain("Worker pool: 8 -> 12; wake max 3; standard lane 2");
     expect(markdown).toContain("Query connection mode: `direct`");
     expect(markdown).toContain("Tier-upgrade trigger: 75/94 (80%)");

@@ -56,3 +56,18 @@ Notes:
 - It includes deterministic source row IDs, Saved List Line IDs, exact Products and selected Options, and Tracked Quantities.
 - It excludes acquisition cost, private notes, private tags, stock state, and workflow state.
 - The owner-authorized snapshot starts Inventory work, but its list correlation is navigation and audit metadata rather than authority for later Inventory access.
+
+## Saved List Estimated Market Value
+
+**Saved List Estimated Market Value** is the current sum of eligible Pricing estimates multiplied by each Saved List Line's Tracked Quantity.
+
+Notes:
+
+- It is an estimate of current market value, not owned stock, cost basis, profit and loss, or a historical valuation.
+- Missing and stale estimates are excluded rather than treated as zero.
+- Low-confidence estimates may contribute to the total but remain explicitly counted.
+- A shared view receives valuation only when it also receives Tracked Quantity and Pricing approves the estimate for public disclosure.
+
+## Estimate Coverage
+
+**Estimate Coverage** states how many Saved List Lines and tracked units have a current eligible estimate, alongside missing, stale, and low-confidence counts.

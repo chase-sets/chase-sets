@@ -237,8 +237,8 @@ export const sourceContextWakeRegistry = [
     rolloutWave: "wave-4-deferred-or-not-eligible",
     priorityLane: "standard",
     expectedEventVolume: "medium",
-    wakeStoreLoadEstimate: "none",
-    affectedProjectionNames: [],
+    wakeStoreLoadEstimate: "low",
+    affectedProjectionNames: ["collections:collections-saved-list-valuation-projection"],
     routeDependencyIds: [],
   }),
   registryEntry({
@@ -620,8 +620,8 @@ export const sourceContextWakeRegistry = [
     rolloutWave: "wave-4-deferred-or-not-eligible",
     priorityLane: "bulk",
     expectedEventVolume: "medium",
-    wakeStoreLoadEstimate: "none",
-    affectedProjectionNames: [],
+    wakeStoreLoadEstimate: "low",
+    affectedProjectionNames: ["collections:collections-saved-list-valuation-projection"],
     routeDependencyIds: [],
   }),
   registryEntry({

@@ -15,13 +15,20 @@
   },
   "types": "./index.ts",
   "dependencies": {
+    "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
+    "@chase-sets/localization": "workspace:*",
+    "@chase-sets/market-estimate-display": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
-    "@chase-sets/primitives": "workspace:*"
+    "@chase-sets/primitives": "workspace:*",
+    "hono": "^4.12.12",
+    "react": "^19.2.5"
   },
   "devDependencies": {
+    "react-dom": "^19.2.5",
     "vitest": "^4.1.4"
   }
 }
