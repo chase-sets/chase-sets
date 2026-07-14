@@ -1,6 +1,7 @@
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
 import {
   authenticateAdmin,
+  authenticatePlatformAdmin,
   expectAdminPageReady,
   expectPageOk,
   skipDeployedAdminE2e,
@@ -67,14 +68,40 @@ test.describe("access admin account badges", () => {
     }
   });
 
-  test("operator assigns and removes every operator-managed account badge @admin-access", async ({ page }) => {
+  test("account owner cannot assign or remove operator-managed account badges @admin-access", async ({ page }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true",
+      "The local browser-e2e owner fixture is required to verify owner rejection.",
+    );
+
+    await authenticateAdmin(page, "/access/accounts", "/access/sign-in");
+    const actor = await getCurrentActorDisplay(page);
+    const accountId = actor.account.account_id;
+
+    const responses = [
+      await page.request.post(`/api/identity/accounts/${accountId}/badges`, {
+        data: { badgeKey: "trusted-seller" },
+      }),
+      await page.request.delete(`/api/identity/accounts/${accountId}/badges/manual-payout-review`),
+    ];
+
+    for (const response of responses) {
+      expect(response.status(), "account owner badge mutation should be forbidden").toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: "authorization_forbidden" },
+      });
+    }
+  });
+
+  test("platform admin assigns and removes every operator-managed account badge @admin-access", async ({ page }) => {
     test.setTimeout(300_000);
     test.skip(
       skipDeployedAdminE2e,
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/access/accounts", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/access/accounts", "/access/sign-in");
     await expectPageOk(page, "/access/accounts");
     await expectAdminPageReady(page, { heading: "Accounts" });
 

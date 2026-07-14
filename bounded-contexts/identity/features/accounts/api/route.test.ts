@@ -16,15 +16,22 @@ const actor: ResolvedActor = {
   permissions: ["accounts.manage", "accounts.view"],
 };
 
-function buildApp(services: AccountServices) {
+const platformAdminActor: ResolvedActor = {
+  ...actor,
+  accountId: "acc_platform",
+  membershipId: "mbr_platform",
+  roleKey: "platform-admin",
+};
+
+function buildApp(services: AccountServices, resolvedActor: ResolvedActor = actor) {
   const app = new Hono<IdentityApiEnv>();
   app.use("*", async (c, next) => {
-    c.set("actor", actor);
+    c.set("actor", resolvedActor);
     c.set("context", {
       tenantId: "tnt_identity" as never,
       audit: {
-        performedByUserId: actor.userId as never,
-        forAccountId: actor.accountId as never,
+        performedByUserId: resolvedActor.userId as never,
+        forAccountId: resolvedActor.accountId as never,
       },
       trace: {},
     } as EventStoreContext);
@@ -50,25 +57,48 @@ function buildServices(overrides: Partial<AccountServices> = {}) {
 }
 
 describe("account API route", () => {
-  it("assigns a founding account badge", async () => {
+  it.each([
+    ["assign", "/accounts/acc_1/badges", { method: "POST", body: JSON.stringify({ badgeKey: "trusted-seller" }) }],
+    ["remove", "/accounts/acc_1/badges/manual-payout-review", { method: "DELETE" }],
+  ])("rejects an account owner attempting to %s a badge on their own account", async (_action, path, init) => {
     const services = buildServices();
 
-    const response = await buildApp(services).request("/accounts/acc_1/badges", {
+    const response = await buildApp(services).request(path, {
+      ...init,
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "authorization_forbidden" },
+    });
+    expect(services.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("allows a platform admin to assign an account badge", async () => {
+    const services = buildServices({
+      commandHandler: vi.fn(async () => ({
+        state: { status: "active", badges: ["trusted-seller"] },
+        version: 2,
+      })) as never,
+    });
+
+    const response = await buildApp(services, platformAdminActor).request("/accounts/acc_1/badges", {
       method: "POST",
-      body: JSON.stringify({ badgeKey: "founding-account" }),
+      body: JSON.stringify({ badgeKey: "trusted-seller" }),
       headers: { "Content-Type": "application/json" },
     });
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       id: "acc_1",
-      badges: ["founding-account"],
+      badges: ["trusted-seller"],
     });
     expect(services.commandHandler).toHaveBeenCalledWith(
       expect.objectContaining({
         command: {
           type: "AssignAccountBadge",
-          badgeKey: "founding-account",
+          badgeKey: "trusted-seller",
         },
         streamId: "identity.account-acc_1",
       }),
@@ -78,7 +108,7 @@ describe("account API route", () => {
   it("rejects unsupported account badge keys", async () => {
     const services = buildServices();
 
-    const response = await buildApp(services).request("/accounts/acc_1/badges", {
+    const response = await buildApp(services, platformAdminActor).request("/accounts/acc_1/badges", {
       method: "POST",
       body: JSON.stringify({ badgeKey: "vip" }),
       headers: { "Content-Type": "application/json" },
@@ -88,7 +118,7 @@ describe("account API route", () => {
     expect(services.commandHandler).not.toHaveBeenCalled();
   });
 
-  it("removes a founding account badge", async () => {
+  it("allows a platform admin to remove an account badge", async () => {
     const services = buildServices({
       commandHandler: vi.fn(async () => ({
         state: { status: "active", badges: [] },
@@ -96,7 +126,10 @@ describe("account API route", () => {
       })) as never,
     });
 
-    const response = await buildApp(services).request("/accounts/acc_1/badges/founding-account", { method: "DELETE" });
+    const response = await buildApp(services, platformAdminActor).request(
+      "/accounts/acc_1/badges/manual-payout-review",
+      { method: "DELETE" },
+    );
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -107,7 +140,7 @@ describe("account API route", () => {
       expect.objectContaining({
         command: {
           type: "RemoveAccountBadge",
-          badgeKey: "founding-account",
+          badgeKey: "manual-payout-review",
         },
         streamId: "identity.account-acc_1",
       }),
