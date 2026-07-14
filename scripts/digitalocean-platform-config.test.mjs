@@ -1309,7 +1309,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformHelmStagingValues).not.toContain("WORKER_PROJECTION_OPERATION_RUNNER_COUNT");
     expect(stagingDeployStep).toContain('--runtime-env "CHASE_SETS_RUNTIME_PROFILE=public"');
     expect(stagingDeployStep).toContain(
-      '--runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap"',
+      '--runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap,scenario-seed"',
     );
     // Regression guard for the admin.doks.staging shadow host 404ing before
     // reaching Google OAuth: the Helm chart's static ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS

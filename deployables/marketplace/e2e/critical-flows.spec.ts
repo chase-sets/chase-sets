@@ -230,15 +230,12 @@ test.describe("marketplace critical flows", () => {
     const browseAction = page.getByRole("link", { name: /^Browse marketplace$/i });
     await expect(browseAction).toBeVisible();
 
-    const nextResponsePromise = page.waitForResponse((response) => {
-      const url = new URL(response.url());
-      return url.pathname === "/search" && response.request().resourceType() === "document";
-    });
+    // The hydrated marketplace follows this link with client-side routing, so
+    // the safe recovery contract must not depend on a full document request.
     await browseAction.click();
-    const nextResponse = await nextResponsePromise;
 
-    expect(nextResponse.status(), "safe recovery action should not land on a server error").toBeLessThan(500);
     await expect(page).toHaveURL(/\/search(?:$|\?)/);
+    await expect(page.getByRole("searchbox").first()).toBeVisible();
     await expect(page.getByRole("heading", { name: /^Marketplace error$/i })).toHaveCount(0);
   });
 
