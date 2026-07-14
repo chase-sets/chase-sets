@@ -1316,6 +1316,8 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(stagingDeployStep).not.toContain("scenario-seed");
     expect(stagingScenarioSeedStep).toContain("pnpm run platform:kubernetes-deployment -- scenario-seed");
+    expect(stagingScenarioSeedStep).toContain("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}");
+    expect(stagingScenarioSeedStep).toContain("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}");
     expect(stagingScenarioSeedStep).toContain('--runtime-env "DEPLOYMENT_ENVIRONMENT=staging"');
     expect(stagingScenarioSeedStep).toContain('--runtime-env "CHASE_SETS_RUNTIME_PROFILE=public"');
     expect(stagingScenarioSeedStep).toContain('--image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME"');

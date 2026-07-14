@@ -1080,6 +1080,8 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         env:
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           catalog_asset_public_base_url="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_public_base_url)"
