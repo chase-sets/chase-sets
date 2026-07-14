@@ -43,6 +43,7 @@ import {
   getSellPayoutReadiness,
   getCheckoutSellOfferMatch,
   listSellListLines,
+  listSellListReadinessLines,
   loadCheckoutGuestSellListOfferReviews,
   loadCheckoutSellListCompositeReview,
   type CheckoutCommercialTermsResolver,
@@ -77,7 +78,6 @@ function assertSellerEvidenceReady(evidence: SellListSellerConfirmationEvidence)
     evidence.shipFrom.status !== "ready" ||
     evidence.payout.status !== "ready" ||
     evidence.label.status !== "ready" ||
-    evidence.conditionReview.status !== "accepted" ||
     evidence.risk.status !== "clear" ||
     evidence.provider.status !== "ready" ||
     evidence.freshness.status !== "current"
@@ -89,9 +89,6 @@ function assertSellerEvidenceReady(evidence: SellListSellerConfirmationEvidence)
   }
   if (evidence.payout.readinessStatus !== "ready") {
     throw new CheckoutDomainError("Seller confirmation evidence must include payout readiness facts.");
-  }
-  if (!evidence.conditionReview.acceptedAt) {
-    throw new CheckoutDomainError("Seller confirmation evidence must include condition review acceptance.");
   }
 }
 
@@ -426,7 +423,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       }
 
       assertSellerEvidenceReady(params.sellerEvidence);
-      const currentLines = await listSellListLines(deps.db, params.sellerAccountId);
+      const currentLines = await listSellListReadinessLines(deps.db, params.sellerAccountId);
       const readiness = validateSellListReadinessSnapshot(currentLines, {
         snapshotId: params.readinessSnapshotId,
         sourceRevision: params.readinessSourceRevision,
@@ -592,7 +589,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       };
     },
     createReadinessSnapshot: async (params) => {
-      const lines = await listSellListLines(deps.db, params.sellerAccountId);
+      const lines = await listSellListReadinessLines(deps.db, params.sellerAccountId);
       return createSellListReadinessSnapshot(lines, params.decisions, params.sellerEvidence);
     },
     listLines: (sellerAccountId) => listSellListLines(deps.db, sellerAccountId),

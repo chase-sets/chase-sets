@@ -1,6 +1,25 @@
 import { parseReadinessDecisionInputBase } from "../../../support/request-support/readiness-decision-parser";
 import type { SellListSellerConfirmationEvidence } from "./domain";
 
+/**
+ * Marketplace-owned Listing Evidence readiness for the exact Listing a
+ * selected-offer line commits to. Checkout consumes this read model verbatim;
+ * it never re-evaluates evidence policy. `ready` reflects whether every
+ * configured evidence slot for the exact Listing is satisfied, and `updatedAt`
+ * carries the freshness that lets a stale readiness token be detected and
+ * re-reviewed before acceptance.
+ */
+export type SellListLineEvidenceReadiness = Readonly<{
+  listingId: string;
+  ready: boolean;
+  policyHash: string | null;
+  policyVersion: number | null;
+  unmetCodes: readonly string[];
+  requiredSlotCount: number;
+  satisfiedSlotCount: number;
+  updatedAt: string;
+}>;
+
 export type SellListReadinessLine = Readonly<{
   seller_account_id: string;
   line_id: string;
@@ -14,6 +33,13 @@ export type SellListReadinessLine = Readonly<{
   fallback_mode: "none" | "create-listing";
   minimum_listing_price_amount: string | null;
   updated_at: string;
+  /**
+   * Marketplace Listing Evidence readiness for the exact Listing a
+   * selected-offer line commits to. Null when the line does not reference a
+   * single Listing (product / Smart Match lines resolve evidence per Offer in
+   * review) or when Marketplace requirements could not be resolved.
+   */
+  listing_evidence?: SellListLineEvidenceReadiness | null;
 }>;
 
 export type SellListReadinessLineOutcome = "checkout" | "keep-in-list" | "removed";
@@ -22,7 +48,7 @@ export type SellListSellerReadinessDimension =
   | "ship-from"
   | "payout"
   | "label"
-  | "condition-review"
+  | "listing-evidence"
   | "risk"
   | "provider"
   | "freshness";
@@ -32,7 +58,8 @@ export type SellListSellerReadinessReason =
   | "ship-from-not-ready"
   | "payout-not-ready"
   | "label-not-ready"
-  | "condition-review-not-accepted"
+  | "listing-evidence-incomplete"
+  | "listing-evidence-unavailable"
   | "risk-not-clear"
   | "provider-not-ready"
   | "seller-evidence-stale";
@@ -60,7 +87,12 @@ export type SellListReadinessSnapshot = Readonly<{
   lineOutcomes: readonly Readonly<{
     lineId: string;
     outcome: SellListReadinessLineOutcome;
-    reason: "ready" | "missing-selected-offer" | "missing-sale-action" | "missing-listing-price";
+    reason:
+      | "ready"
+      | "missing-selected-offer"
+      | "missing-sale-action"
+      | "missing-listing-price"
+      | "missing-listing-evidence";
     action: SellListReadinessLineAction | null;
   }>[];
   sellerReadiness: Readonly<{
@@ -69,7 +101,7 @@ export type SellListReadinessSnapshot = Readonly<{
     payout: "ready" | "blocked";
     shipFrom: "ready" | "blocked";
     label: "ready" | "blocked";
-    conditionReview: "ready" | "blocked";
+    listingEvidence: "ready" | "blocked";
     risk: "ready" | "blocked";
     provider: "ready" | "blocked";
     freshness: "ready" | "blocked";
@@ -121,11 +153,41 @@ function sellerEvidenceRevisionFor(evidence: SellListSellerConfirmationEvidence)
     shipFrom: evidence.shipFrom,
     payout: evidence.payout,
     label: evidence.label,
-    conditionReview: evidence.conditionReview,
     risk: evidence.risk,
     provider: evidence.provider,
     freshness: evidence.freshness,
   });
+}
+
+type ListingEvidenceReadinessOutcome = Readonly<{
+  status: "ready" | "blocked";
+  reason: SellListSellerReadinessReason;
+}>;
+
+function lineListingEvidenceReady(line: SellListReadinessLine): boolean {
+  return line.line_type !== "selected-offer" || line.listing_evidence?.ready === true;
+}
+
+/**
+ * Aggregate account-level Listing Evidence readiness across the selected-offer
+ * lines heading to checkout. This replaces the former timestamp-only
+ * "condition review" attestation: readiness is derived from Marketplace
+ * evidence coverage, so a Checkout timestamp can never satisfy it.
+ */
+function aggregateListingEvidenceReadiness(
+  lines: readonly SellListReadinessLine[],
+  checkoutLineIds: ReadonlySet<string>,
+): ListingEvidenceReadinessOutcome {
+  const selectedOfferLines = lines.filter(
+    (line) => line.line_type === "selected-offer" && checkoutLineIds.has(line.line_id),
+  );
+  if (selectedOfferLines.some((line) => !line.listing_evidence)) {
+    return { status: "blocked", reason: "listing-evidence-unavailable" };
+  }
+  if (selectedOfferLines.some((line) => line.listing_evidence && !line.listing_evidence.ready)) {
+    return { status: "blocked", reason: "listing-evidence-incomplete" };
+  }
+  return { status: "ready", reason: "ready" };
 }
 
 function sellerOutcome(
@@ -140,21 +202,24 @@ function sellerOutcome(
   } as const;
 }
 
-function createMissingSellerReadiness() {
-  const dimensions: readonly SellListSellerReadinessDimension[] = [
-    "ship-from",
-    "payout",
-    "label",
-    "condition-review",
-    "risk",
-    "provider",
-    "freshness",
+function listingEvidenceDimensionOutcome(listingEvidence: ListingEvidenceReadinessOutcome) {
+  return {
+    dimension: "listing-evidence" as const,
+    status: listingEvidence.status,
+    reason: listingEvidence.reason,
+  };
+}
+
+function createMissingSellerReadiness(listingEvidence: ListingEvidenceReadinessOutcome) {
+  const outcomes = [
+    sellerOutcome("ship-from", false, "missing-seller-evidence"),
+    sellerOutcome("payout", false, "missing-seller-evidence"),
+    sellerOutcome("label", false, "missing-seller-evidence"),
+    listingEvidenceDimensionOutcome(listingEvidence),
+    sellerOutcome("risk", false, "missing-seller-evidence"),
+    sellerOutcome("provider", false, "missing-seller-evidence"),
+    sellerOutcome("freshness", false, "missing-seller-evidence"),
   ];
-  const outcomes = dimensions.map((dimension) => ({
-    dimension,
-    status: "blocked" as const,
-    reason: "missing-seller-evidence" as const,
-  }));
 
   return {
     status: "blocked" as const,
@@ -162,7 +227,7 @@ function createMissingSellerReadiness() {
     payout: "blocked" as const,
     shipFrom: "blocked" as const,
     label: "blocked" as const,
-    conditionReview: "blocked" as const,
+    listingEvidence: listingEvidence.status,
     risk: "blocked" as const,
     provider: "blocked" as const,
     freshness: "blocked" as const,
@@ -170,9 +235,12 @@ function createMissingSellerReadiness() {
   };
 }
 
-function createSellerReadiness(evidence: SellListSellerConfirmationEvidence | null | undefined) {
+function createSellerReadiness(
+  evidence: SellListSellerConfirmationEvidence | null | undefined,
+  listingEvidence: ListingEvidenceReadinessOutcome,
+) {
   if (!evidence) {
-    return createMissingSellerReadiness();
+    return createMissingSellerReadiness(listingEvidence);
   }
 
   const shipFromReady =
@@ -187,8 +255,7 @@ function createSellerReadiness(evidence: SellListSellerConfirmationEvidence | nu
   const labelReady =
     evidence.label.status === "ready" &&
     (evidence.label.preference === "prepaid-label" || evidence.label.preference === "seller-label-later");
-  const conditionReviewReady =
-    evidence.conditionReview.status === "accepted" && Boolean(evidence.conditionReview.acceptedAt);
+  const listingEvidenceReady = listingEvidence.status === "ready";
   const riskReady = evidence.risk.status === "clear";
   const providerReady = evidence.provider.status === "ready";
   const freshnessReady = evidence.freshness.status === "current";
@@ -196,7 +263,7 @@ function createSellerReadiness(evidence: SellListSellerConfirmationEvidence | nu
     sellerOutcome("ship-from", shipFromReady, "ship-from-not-ready"),
     sellerOutcome("payout", payoutReady, "payout-not-ready"),
     sellerOutcome("label", labelReady, "label-not-ready"),
-    sellerOutcome("condition-review", conditionReviewReady, "condition-review-not-accepted"),
+    listingEvidenceDimensionOutcome(listingEvidence),
     sellerOutcome("risk", riskReady, "risk-not-clear"),
     sellerOutcome("provider", providerReady, "provider-not-ready"),
     sellerOutcome("freshness", freshnessReady, "seller-evidence-stale"),
@@ -209,7 +276,7 @@ function createSellerReadiness(evidence: SellListSellerConfirmationEvidence | nu
     payout: payoutReady ? ("ready" as const) : ("blocked" as const),
     shipFrom: shipFromReady ? ("ready" as const) : ("blocked" as const),
     label: labelReady ? ("ready" as const) : ("blocked" as const),
-    conditionReview: conditionReviewReady ? ("ready" as const) : ("blocked" as const),
+    listingEvidence: listingEvidenceReady ? ("ready" as const) : ("blocked" as const),
     risk: riskReady ? ("ready" as const) : ("blocked" as const),
     provider: providerReady ? ("ready" as const) : ("blocked" as const),
     freshness: freshnessReady ? ("ready" as const) : ("blocked" as const),
@@ -270,6 +337,12 @@ function lineReason(
   action: SellListReadinessLineAction | null,
 ): SellListReadinessSnapshot["lineOutcomes"][number]["reason"] {
   if (action) {
+    // A selected-offer commitment is only ready once Marketplace reports the
+    // exact Listing's evidence is complete. A Checkout timestamp cannot make
+    // an evidence-incomplete Listing ready.
+    if (action === "selected-offer" && !lineListingEvidenceReady(line)) {
+      return "missing-listing-evidence";
+    }
     return "ready";
   }
 
@@ -297,6 +370,19 @@ function sourceRevisionFor(lines: readonly SellListReadinessLine[]) {
       fallbackMode: line.fallback_mode,
       minimumListingPriceAmount: line.minimum_listing_price_amount,
       updatedAt: line.updated_at,
+      // Listing Evidence freshness participates in the source revision so a
+      // policy or photo change invalidates a previously issued readiness token
+      // and forces an explicit re-review before acceptance.
+      listingEvidence: line.listing_evidence
+        ? {
+            listingId: line.listing_evidence.listingId,
+            ready: line.listing_evidence.ready,
+            policyHash: line.listing_evidence.policyHash,
+            policyVersion: line.listing_evidence.policyVersion,
+            unmetCodes: line.listing_evidence.unmetCodes,
+            updatedAt: line.listing_evidence.updatedAt,
+          }
+        : null,
     })),
   );
 }
@@ -332,7 +418,11 @@ export function createSellListReadinessSnapshot(
   const status =
     includedLineIds.length === 0 ? "blocked" : unresolvedLineIds.length > 0 ? "needs-resolution" : ("ready" as const);
   const sourceRevision = sourceRevisionFor(sortedLines);
-  const sellerReadiness = createSellerReadiness(sellerEvidence);
+  const checkoutLineIds = new Set(
+    lineOutcomes.filter((outcome) => outcome.outcome === "checkout").map((outcome) => outcome.lineId),
+  );
+  const listingEvidence = aggregateListingEvidenceReadiness(sortedLines, checkoutLineIds);
+  const sellerReadiness = createSellerReadiness(sellerEvidence, listingEvidence);
   const snapshotSeed = {
     sourceRevision,
     includedLineIds,

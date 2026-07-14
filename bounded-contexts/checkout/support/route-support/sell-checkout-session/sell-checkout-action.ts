@@ -108,8 +108,7 @@ export async function action({
       const reviewPlan = parseSellListReviewPlan(state.sellListReviewPlan);
       const reviewedLines = reviewedLinesForConfirmation(state.lines, state.readiness, reviewPlan);
       const marketplaceApi = createMarketplaceRequestApiClient(request);
-      const confirmedAt = new Date().toISOString();
-      const sellerEvidence = buildSellerEvidence(values, state.payoutSummary, confirmedAt);
+      const sellerEvidence = buildSellerEvidence(values, state.payoutSummary);
       const sellerReadiness = await api.createSellListReadiness({ ...readinessDecisions, sellerEvidence });
       if (
         sellerReadiness.readiness.status !== "ready" ||
