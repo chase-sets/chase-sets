@@ -19,7 +19,7 @@ import {
   SellActionCard,
 } from "../../../features/item-detail/ui/commerce-sections";
 import type { DiscoveryItemDetailRouteData, DiscoveryItemDetailActionData } from "./types";
-import { AddToSavedListControl } from "../../ui-support/add-to-saved-list";
+import { AddToSavedListControl } from "../../../features/saved-list-addition/ui/add-to-saved-list";
 
 type PreferredSellAction = "selected-offer" | "add-product-to-sell-list" | "list-for-sale";
 

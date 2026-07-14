@@ -11,7 +11,7 @@ import {
   Text,
   TextInput,
 } from "@chase-sets/design-system";
-import type { SavedListPickerPreparation, SavedListRouteActionData } from "./saved-list-contracts";
+import type { SavedListPickerPreparation, SavedListRouteActionData } from "./contracts";
 
 const NEW_LIST_VALUE = "__new_saved_list__";
 

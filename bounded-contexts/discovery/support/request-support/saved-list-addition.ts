@@ -17,7 +17,7 @@ import type {
   SavedListClaimLoadState,
   SavedListPickerPreparation,
   SavedListRouteActionData,
-} from "../ui-support/saved-list-contracts";
+} from "../../features/saved-list-addition/ui/contracts";
 
 export async function prepareSavedListAddition(
   input: Readonly<{

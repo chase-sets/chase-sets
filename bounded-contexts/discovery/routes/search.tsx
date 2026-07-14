@@ -29,13 +29,16 @@ import {
 import { applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
 import { SearchPage } from "../features/search/ui/search-page";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
-import { createDiscoveryProductDescriptor, summarizeSelections } from "../support/route-support/saved-list-product";
+import {
+  createDiscoveryProductDescriptor,
+  summarizeSelections,
+} from "../features/saved-list-addition/api/product-selection";
 import {
   commitSavedListAddition,
   loadSavedListClaimPreparation,
   prepareSavedListAddition,
   savedListActionError,
-} from "../support/route-support/saved-list-addition";
+} from "../support/request-support/saved-list-addition";
 
 const PAGE_SIZE = 24;
 export const SEARCH_DEBOUNCE_MS = 300;

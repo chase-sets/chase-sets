@@ -2,7 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SavedListPickerPreparation } from "./saved-list-contracts";
+import type { SavedListPickerPreparation } from "./contracts";
 import { AddToSavedListControl } from "./add-to-saved-list";
 
 const preparation: SavedListPickerPreparation = {

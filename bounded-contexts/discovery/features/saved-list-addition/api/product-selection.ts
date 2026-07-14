@@ -1,4 +1,4 @@
 export {
   createDiscoveryProductDescriptor,
   summarizeSelections,
-} from "../../features/item-detail/domain/product-resolution";
+} from "../../item-detail/domain/product-resolution";

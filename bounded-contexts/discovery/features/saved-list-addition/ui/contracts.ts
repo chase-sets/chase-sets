@@ -5,7 +5,7 @@ import type {
   SavedListDestination,
   SavedListDiscoverySurface,
   SavedListProductSelection,
-} from "../route-support/collections-saved-list-contracts";
+} from "../../../support/request-support/collections-saved-list-contracts";
 
 export type SavedListPickerPreparation = Readonly<{
   product: SavedListProductSelection;

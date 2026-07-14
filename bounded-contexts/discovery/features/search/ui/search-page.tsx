@@ -39,8 +39,8 @@ import { imageVariantSrcSet } from "../../../support/client-support/assets";
 import { buildDiscoveryProductAssetImage } from "../../../support/client-support/product-assets";
 import { productAlertSettingsHref } from "./product-alert-settings-link";
 import { formatMoney } from "../../../support/ui-support/formatting";
-import { AddToSavedListControl } from "../../../support/ui-support/add-to-saved-list";
-import type { SavedListClaimLoadState } from "../../../support/ui-support/saved-list-contracts";
+import { AddToSavedListControl } from "../../saved-list-addition/ui/add-to-saved-list";
+import type { SavedListClaimLoadState } from "../../saved-list-addition/ui/contracts";
 
 const AUTO_LOAD_ROOT_MARGIN = "900px";
 const FACET_OPTION_SEARCH_THRESHOLD = 8;

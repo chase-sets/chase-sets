@@ -26,7 +26,7 @@ import {
   readExplicitMarketSelectionId,
   readInitialSelectedOptions,
 } from "./support";
-import { loadSavedListClaimPreparation } from "../saved-list-addition";
+import { loadSavedListClaimPreparation } from "../../request-support/saved-list-addition";
 
 const SELECTED_SELLER_LISTING_HANDOFF_EXPECTATIONS = {
   "marketplace.listing.publish": "resource-present",

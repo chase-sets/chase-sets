@@ -55,7 +55,11 @@ import {
 } from "./action-helpers";
 import type { DiscoveryItemDetail } from "../../client-support/contracts";
 import type { SavedListProductSelection } from "@chase-sets/collections/server";
-import { commitSavedListAddition, prepareSavedListAddition, savedListActionError } from "../saved-list-addition";
+import {
+  commitSavedListAddition,
+  prepareSavedListAddition,
+  savedListActionError,
+} from "../../request-support/saved-list-addition";
 
 type ListingCommandResult = {
   id?: string;
