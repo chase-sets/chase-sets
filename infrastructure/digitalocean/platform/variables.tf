@@ -23,6 +23,12 @@ variable "environment" {
   }
 }
 
+variable "environment_project_id" {
+  type        = string
+  default     = ""
+  description = "Optional DigitalOcean project ID override. Leave empty to resolve the environment project by name; offline validation plans supply a synthetic ID to avoid live API reads."
+}
+
 variable "production_marketplace_public_enabled" {
   type        = bool
   default     = false

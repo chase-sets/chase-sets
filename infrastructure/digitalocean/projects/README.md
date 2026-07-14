@@ -66,8 +66,9 @@ locals {
 }
 
 data "digitalocean_project" "environment" {
-  name = local.project_names[var.environment]
+  count = trimspace(var.environment_project_id) == "" ? 1 : 0
+  name  = local.project_names[var.environment]
 }
 ```
 
-Use `data.digitalocean_project.environment.id` for resources that accept `project_id`. For other assignable resource types, declare `digitalocean_project_resources` beside the owned resource and pass its URN. The outputs in this root are for operator inspection and module composition only; they are not a cross-state contract.
+Resolve the project ID from the data source by default, with an optional `environment_project_id` input for offline validation plans. The PR workflow supplies a synthetic ID so `terraform plan -refresh=false` never authenticates against the live account. For assignable resource types, declare `digitalocean_project_resources` beside the owned resource and pass its URN. The outputs in this root are for operator inspection and module composition only; they are not a cross-state contract.

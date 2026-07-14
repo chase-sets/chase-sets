@@ -9,6 +9,7 @@ const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
 const platformOutputs = readFileSync(resolve("infrastructure/digitalocean/platform/outputs.tf"), "utf8");
 const platformVariables = readFileSync(resolve("infrastructure/digitalocean/platform/variables.tf"), "utf8");
+const platformProjects = readFileSync(resolve("infrastructure/digitalocean/platform/projects.tf"), "utf8");
 const doksMain = readFileSync(resolve("infrastructure/digitalocean/doks/main.tf"), "utf8");
 const observabilityMain = readFileSync(resolve("infrastructure/digitalocean/observability/main.tf"), "utf8");
 const observabilityLocals = readFileSync(resolve("infrastructure/digitalocean/observability/locals.tf"), "utf8");
@@ -49,6 +50,7 @@ const environmentDnsVariables = readFileSync(
   resolve("infrastructure/digitalocean/environment-dns/variables.tf"),
   "utf8",
 );
+const environmentDnsProjects = readFileSync(resolve("infrastructure/digitalocean/environment-dns/projects.tf"), "utf8");
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
 const platformCoverageWorkflow = readFileSync(resolve(".github/workflows/platform-coverage.yml"), "utf8");
@@ -402,6 +404,20 @@ function platformApiContextNames() {
 }
 
 describe("DigitalOcean platform configuration", () => {
+  it("keeps merge-group project assignment plans offline", () => {
+    const validationProjectId = "TF_VAR_environment_project_id: 00000000-0000-0000-0000-000000000000";
+
+    expect(occurrenceCount(platformPrWorkflow, validationProjectId)).toBe(3);
+    for (const [variables, projects] of [
+      [platformVariables, platformProjects],
+      [environmentDnsVariables, environmentDnsProjects],
+    ]) {
+      expect(variables).toContain('variable "environment_project_id"');
+      expect(projects).toContain('count = trimspace(var.environment_project_id) == "" ? 1 : 0');
+      expect(projects).toMatch(/project\s+= local\.environment_project_id/);
+    }
+  });
+
   it("keeps staging landing under the environment namespace and redirects the legacy dash host", () => {
     expect(platformLocals).toContain('local.is_staging ? "www.${var.environment}.${var.root_domain}"');
     expect(platformLocals).not.toContain('local.is_staging ? "${var.environment}.${var.root_domain}"');
