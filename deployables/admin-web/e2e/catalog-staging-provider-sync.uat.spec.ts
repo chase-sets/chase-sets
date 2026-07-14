@@ -19,6 +19,12 @@ const supportedProviderUatJourneyScopes = [
   "tcgplayer-pokemon-targeted",
   "all-provider-regression",
   "staging-representative-catalog",
+  "pokemon-matrix",
+  "mtg-matrix",
+  "yugioh-matrix",
+  "one-piece-matrix",
+  "lorcana-matrix",
+  "full-matrix-uat",
 ] as const;
 
 type SelectChoice = Readonly<{
@@ -200,6 +206,87 @@ const tcgplayerFifthDawnSetChoice: SelectChoice = {
 
 const tcgplayerTimeSpiralSetChoice: SelectChoice = {
   labels: ["Time Spiral"],
+  fallbackToFirstAvailableOption: {},
+};
+
+// --- Full provider x product-line x form matrix option selectors ---------------
+// The matrix proves every current provider and product line through at least two
+// expansions AND a sealed form per game, plus Pokemon English + Japanese with
+// localization matching. These selectors declare the preferred set/expansion for
+// each cell; live staging option lists resolve the concrete id via the shared
+// label -> value -> fallback resolution, and any substitution the operator makes
+// against live selectors is recorded on the tracking issue during preflight.
+
+// Pokemon English: two Scarlet & Violet-era expansions synced through both TCGdex
+// and TCGplayer so cross-provider candidates merge into one Catalog Item per card.
+const tcgplayerPokemonProductLineChoice: SelectChoice = { labels: ["Pokemon"], values: ["3"] };
+const tcgplayerPokemonSurgingSparksSetChoice: SelectChoice = {
+  labels: ["Surging Sparks"],
+  fallbackToFirstAvailableOption: {},
+};
+const tcgplayerPokemonBattlePartnersSetChoice: SelectChoice = {
+  labels: ["Battle Partners", "Journey Together"],
+  fallbackToFirstAvailableOption: {},
+};
+
+// Pokemon Japanese: the same two expansions as the English rows, addressed by
+// their Japanese-language editions so set-equivalent aliases link EN <-> JA.
+const tcgdexJapaneseSurgingSparksExpansionChoice: SelectChoice = {
+  labels: ["Super Electric Breaker", "Surging Sparks"],
+  values: ["SV8", "SV08"],
+  fallbackToFirstAvailableOption: { valuePattern: /^SV0?8[a-z]?$/i },
+};
+const tcgdexJapaneseBattlePartnersExpansionChoice: SelectChoice = {
+  labels: ["Battle Partners"],
+  values: ["SV9", "SV09"],
+  fallbackToFirstAvailableOption: { valuePattern: /^SV0?9[a-z]?$/i },
+};
+
+// MTG: split the MTGJSON set-reference pull into two explicit expansions so the
+// reference-data, image-evidence, and source-observation roles all participate in
+// the same per-game sync run across two expansions.
+const mtgjsonFifthDawnSetChoice: SelectChoice = {
+  labels: ["Fifth Dawn"],
+  values: ["5DN"],
+  fallbackToFirstAvailableOption: { valuePattern: /^5DN$/i },
+};
+const mtgjsonTimeSpiralSetChoice: SelectChoice = {
+  labels: ["Time Spiral"],
+  values: ["TSP"],
+  fallbackToFirstAvailableOption: { valuePattern: /^TSP$/i },
+};
+
+// Yu-Gi-Oh!: a second expansion per provider so pack-reference and sealed kinds
+// promote cleanly alongside single-card imports.
+const yugiohSecondSetChoice: SelectChoice = {
+  labels: ["Metal Raiders", "Pharaoh's Servant"],
+  fallbackToFirstAvailableOption: {},
+};
+const ygojsonSecondSetChoice: SelectChoice = {
+  labels: ["Metal Raiders", "Pharaoh's Servant"],
+  fallbackToFirstAvailableOption: {
+    valuePattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  },
+};
+const tcgplayerYugiohSecondSetChoice: SelectChoice = {
+  labels: ["Metal Raiders", "Pharaoh's Servant"],
+  fallbackToFirstAvailableOption: {},
+};
+
+// One Piece: a second expansion so the credit-aware bulk-first preflight is proven
+// across more than a single Scrydex expansion.
+const onePieceScrydexSecondSetChoice: SelectChoice = {
+  labels: ["Paramount War"],
+  values: ["op-02", "OP02", "OP-02"],
+  fallbackToFirstAvailableOption: { valuePattern: /^(?:OP|ST|EB|PRB)-?0?2$/i },
+};
+const onePieceScrydexSecondSealedSetChoice: SelectChoice = {
+  labels: ["Paramount War"],
+  values: ["op-02", "OP02", "OP-02"],
+  fallbackToFirstAvailableOption: { valuePattern: /^(?:OP|ST|EB|PRB)-?0?2$/i },
+};
+const tcgplayerOnePieceSecondSetChoice: SelectChoice = {
+  labels: ["Paramount War"],
   fallbackToFirstAvailableOption: {},
 };
 
@@ -580,6 +667,442 @@ const stagingRepresentativeCatalogProviderSyncJourneys: readonly ProviderSyncJou
   ...tcgplayerRepresentativeMtgJourneys,
 ];
 
+// --- Full provider x product-line x form matrix journeys -----------------------
+// Each per-game array runs the scope-first journey end-to-end for every provider
+// the game supports, across two expansions and the sealed form, sized to fit the
+// per-game 60-minute workflow timeout. The English/Japanese Pokemon rows carry
+// the localization pair the matrix links by accepted alias records.
+
+// Pokemon EN + JA: two Scarlet & Violet-era expansions (Surging Sparks, Battle
+// Partners) through TCGdex and TCGplayer, TCGplayer sealed, and the Japanese
+// editions of the same two expansions through TCGdex for EN <-> JA aliasing.
+const pokemonMatrixProviderSyncJourneys: readonly ProviderSyncJourney[] = [
+  {
+    name: "Pokemon English Surging Sparks through TCGdex",
+    providerKey: "tcgdex",
+    unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+    scope: [
+      { label: "Language", choice: { labels: ["English"], values: ["en"] } },
+      { label: "Series", choice: { labels: ["Scarlet & Violet"], values: ["SV"] } },
+      { label: "Expansion", choice: tcgdexSurgingSparksExpansionChoice },
+    ],
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Pokemon English Battle Partners through TCGdex",
+    providerKey: "tcgdex",
+    unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+    scope: [
+      { label: "Language", choice: { labels: ["English"], values: ["en"] } },
+      { label: "Series", choice: { labels: ["Scarlet & Violet"], values: ["SV"] } },
+      { label: "Expansion", choice: tcgdexBattlePartnersExpansionChoice },
+    ],
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Pokemon English Surging Sparks through the shared TCGplayer provider",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: tcgplayerPokemonProductLineChoice },
+      { label: "Set Name", choice: tcgplayerPokemonSurgingSparksSetChoice },
+    ],
+    requiresTerminalSync: true,
+    allowPartialWithReview: true,
+  },
+  {
+    name: "Pokemon English Battle Partners through the shared TCGplayer provider",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: tcgplayerPokemonProductLineChoice },
+      { label: "Set Name", choice: tcgplayerPokemonBattlePartnersSetChoice },
+    ],
+    requiresTerminalSync: true,
+    allowPartialWithReview: true,
+  },
+  {
+    name: "Pokemon English Surging Sparks sealed products through the shared TCGplayer provider",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:pokemon:sealed-product:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: tcgplayerPokemonProductLineChoice },
+      { label: "Set Name", choice: tcgplayerPokemonSurgingSparksSetChoice },
+    ],
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Pokemon Japanese Surging Sparks through TCGdex",
+    providerKey: "tcgdex",
+    unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+    scope: [
+      { label: "Language", choice: { labels: ["Japanese"], values: ["ja"] } },
+      { label: "Series", choice: { labels: ["Scarlet & Violet"], values: ["SV"] } },
+      { label: "Expansion", choice: tcgdexJapaneseSurgingSparksExpansionChoice },
+    ],
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Pokemon Japanese Battle Partners through TCGdex",
+    providerKey: "tcgdex",
+    unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+    scope: [
+      { label: "Language", choice: { labels: ["Japanese"], values: ["ja"] } },
+      { label: "Series", choice: { labels: ["Scarlet & Violet"], values: ["SV"] } },
+      { label: "Expansion", choice: tcgdexJapaneseBattlePartnersExpansionChoice },
+    ],
+    requiresTerminalSync: true,
+  },
+];
+
+// MTG: MTGJSON set-reference, Scryfall single-card reference + image-evidence, and
+// TCGplayer single-card + sealed, all across two expansions (Fifth Dawn, Time
+// Spiral) so reference-data and image-evidence roles ride the same sync run.
+const mtgMatrixProviderSyncJourneys: readonly ProviderSyncJourney[] = [
+  {
+    name: "MTG Fifth Dawn set reference through MTGJSON shared importer",
+    providerKey: "mtgjson",
+    unitKey: "mtgjson:mtg:set:reference-data",
+    scope: [{ label: "Set", choice: mtgjsonFifthDawnSetChoice }],
+    requiresTerminalSync: true,
+  },
+  {
+    name: "MTG Time Spiral set reference through MTGJSON shared importer",
+    providerKey: "mtgjson",
+    unitKey: "mtgjson:mtg:set:reference-data",
+    scope: [{ label: "Set", choice: mtgjsonTimeSpiralSetChoice }],
+    requiresTerminalSync: true,
+  },
+  ...scryfallRepresentativeMtgJourneys,
+  {
+    name: "MTG Fifth Dawn card images through Scryfall image-evidence role",
+    providerKey: "scryfall",
+    unitKey: "scryfall:mtg:single-card:image-evidence",
+    scope: [{ label: "Set", choice: scryfallFifthDawnSetChoice }],
+    requiresTerminalSync: true,
+    allowPartialWithReview: true,
+  },
+  ...tcgplayerRepresentativeMtgJourneys,
+];
+
+// Yu-Gi-Oh!: YGOPRODeck and TCGplayer single-card, plus YGOJSON set-reference,
+// pack-reference, and sealed kinds, across two expansions so pack-reference kinds
+// promote cleanly alongside single cards.
+const yugiohMatrixProviderSyncJourneys: readonly ProviderSyncJourney[] = [
+  {
+    name: "Yu-Gi-Oh set through YGOPRODeck",
+    providerKey: "ygoprodeck",
+    unitKey: "ygoprodeck:yugioh:single-card:reference-data",
+    scope: [{ label: "Set", choice: yugiohSetChoice }],
+  },
+  {
+    name: "Yu-Gi-Oh second set through YGOPRODeck",
+    providerKey: "ygoprodeck",
+    unitKey: "ygoprodeck:yugioh:single-card:reference-data",
+    scope: [{ label: "Set", choice: yugiohSecondSetChoice }],
+  },
+  {
+    name: "Yu-Gi-Oh set through YGOJSON / YAML Yugi upstream data",
+    providerKey: "ygojson",
+    unitKey: "ygojson:yugioh:set:reference-data",
+    scope: [{ label: "Set", choice: ygojsonSetChoice }],
+  },
+  {
+    name: "Yu-Gi-Oh second set through YGOJSON / YAML Yugi upstream data",
+    providerKey: "ygojson",
+    unitKey: "ygojson:yugioh:set:reference-data",
+    scope: [{ label: "Set", choice: ygojsonSecondSetChoice }],
+  },
+  {
+    name: "Yu-Gi-Oh pack reference through YGOJSON",
+    providerKey: "ygojson",
+    unitKey: "ygojson:yugioh:pack:reference-data",
+    scope: [{ label: "Set", choice: ygojsonSetChoice }],
+    allowPartialWithReview: true,
+  },
+  {
+    name: "Yu-Gi-Oh sealed products through YGOJSON",
+    providerKey: "ygojson",
+    unitKey: "ygojson:yugioh:sealed-product:reference-data",
+    scope: [{ label: "Set", choice: ygojsonSetChoice }],
+    allowPartialWithReview: true,
+  },
+  {
+    name: "Yu-Gi-Oh set through the shared TCGplayer provider",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:yugioh:single-card:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: { labels: ["Yu-Gi-Oh!", "Yu-Gi-Oh", "YuGiOh"], values: ["2"] } },
+      { label: "Set Name", choice: tcgplayerYugiohSetChoice },
+    ],
+    allowPartialWithReview: true,
+  },
+  {
+    name: "Yu-Gi-Oh second set through the shared TCGplayer provider",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:yugioh:single-card:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: { labels: ["Yu-Gi-Oh!", "Yu-Gi-Oh", "YuGiOh"], values: ["2"] } },
+      { label: "Set Name", choice: tcgplayerYugiohSecondSetChoice },
+    ],
+    allowPartialWithReview: true,
+  },
+];
+
+// One Piece: Scrydex single-card + sealed (bulk-first, credit-aware preflight) and
+// TCGplayer single-card across two expansions (Romance Dawn, Paramount War).
+const onePieceMatrixProviderSyncJourneys: readonly ProviderSyncJourney[] = [
+  ...onePieceLaunchProviderSyncJourneys.filter((journey) => journey.unitKey.startsWith("scrydex:one-piece:")),
+  {
+    name: "One Piece Paramount War card set through Scrydex bulk-first shared importer",
+    providerKey: "scrydex",
+    unitKey: "scrydex:one-piece:single-card:source-observation-import",
+    scope: [{ label: "Set", choice: onePieceScrydexSecondSetChoice }],
+    preflight: {
+      requestStrategy: "bulk-first",
+      allowedUsageStates: ["checked", "not-configured", "unknown"],
+      visibleText: [
+        "Import preflight",
+        "250",
+        "id, name, number, printed_number, rarity, rarity_code, type, images, language, language_code, expansion, printings, variants",
+        "Bulk-first",
+        /Scrydex One Piece cards .*max page size/i,
+        /scrydex:one-piece:expansion:[a-z0-9-]+:cards/i,
+      ],
+    },
+    requiresTerminalSync: true,
+  },
+  {
+    name: "One Piece Paramount War sealed products through Scrydex bulk-first shared importer",
+    providerKey: "scrydex",
+    unitKey: "scrydex:one-piece:sealed-product:source-observation-import",
+    scope: [{ label: "Set", choice: onePieceScrydexSecondSealedSetChoice }],
+    preflight: {
+      requestStrategy: "bulk-first",
+      allowedUsageStates: ["checked", "not-configured", "unknown"],
+      visibleText: [
+        "Import preflight",
+        "100",
+        "id, name, type, images, language, language_code, expansion",
+        "Bulk-first",
+        "Fetch Scrydex One Piece expansion sealed products with max page size",
+        /scrydex:one-piece:expansion:[a-z0-9-]+:sealed/i,
+      ],
+    },
+    requiresTerminalSync: true,
+  },
+  {
+    name: "One Piece Romance Dawn set through the shared TCGplayer provider",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: { labels: ["One Piece Card Game"], values: ["68"] } },
+      { label: "Set Name", choice: tcgplayerOnePieceSetChoice },
+    ],
+    requiresTerminalSync: true,
+    allowPartialWithReview: true,
+  },
+  {
+    name: "One Piece Paramount War set through the shared TCGplayer provider",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: { labels: ["One Piece Card Game"], values: ["68"] } },
+      { label: "Set Name", choice: tcgplayerOnePieceSecondSetChoice },
+    ],
+    requiresTerminalSync: true,
+    allowPartialWithReview: true,
+  },
+];
+
+// Lorcana: the full four-provider merge (Scrydex, LorcanaJSON, Lorcast, TCGplayer)
+// across two expansions (First Chapter, Rise of the Floodborn), TCGplayer + Scrydex
+// sealed, exercising at least one conflict resolution during candidate review.
+const lorcanaMatrixProviderSyncJourneys: readonly ProviderSyncJourney[] = [
+  ...lorcanaLaunchProviderSyncJourneys,
+  {
+    name: "Lorcana sealed products through Scrydex bulk-first shared importer",
+    providerKey: "scrydex",
+    unitKey: "scrydex:lorcana:sealed-product:source-observation-import",
+    scope: [{ label: "Set", choice: lorcanaSetChoice }],
+    preflight: {
+      requestStrategy: "bulk-first",
+      allowedUsageStates: ["checked", "not-configured", "unknown"],
+      visibleText: ["Import preflight", "Bulk-first"],
+    },
+    requiresTerminalSync: true,
+    allowPartialWithReview: true,
+  },
+  ...lorcanaFloodbornProviderSyncJourneys,
+];
+
+// The full matrix, one entry per product line, sized to run per game inside the
+// workflow timeout. `full-matrix-uat` fans this out across every game.
+const providerProductLineFormMatrixJourneys: readonly ProviderSyncJourney[] = [
+  ...pokemonMatrixProviderSyncJourneys,
+  ...mtgMatrixProviderSyncJourneys,
+  ...yugiohMatrixProviderSyncJourneys,
+  ...onePieceMatrixProviderSyncJourneys,
+  ...lorcanaMatrixProviderSyncJourneys,
+];
+
+// Every provider unit key the matrix is allowed to reference. Mirrors the units
+// the catalog context actually registers; a matrix journey that names a unit
+// outside this set is a typo or a reference to a unit that no longer exists.
+const knownProviderUnitKeys = new Set<string>([
+  "lorcanajson:lorcana:set:reference-data",
+  "lorcanajson:lorcana:single-card:reference-data",
+  "lorcast:lorcana:set:reference-data",
+  "lorcast:lorcana:single-card:reference-data",
+  "mtgjson:mtg:set:reference-data",
+  "mtgjson:mtg:single-card:reference-data",
+  "scrydex:lorcana:sealed-product:source-observation-import",
+  "scrydex:lorcana:set:reference-data",
+  "scrydex:lorcana:single-card:source-observation-import",
+  "scrydex:one-piece:sealed-product:source-observation-import",
+  "scrydex:one-piece:set:reference-data",
+  "scrydex:one-piece:single-card:source-observation-import",
+  "scrydex:pokemon:single-card:source-observation-import",
+  "scryfall:mtg:single-card:image-evidence",
+  "scryfall:mtg:single-card:reference-data",
+  "scryfall:mtg:single-card:source-observation-import",
+  "tcgdex:pokemon:single-card:source-observation-import",
+  "tcgplayer:lorcana:sealed-product:source-observation-import",
+  "tcgplayer:lorcana:single-card:source-observation-import",
+  "tcgplayer:mtg:sealed-product:source-observation-import",
+  "tcgplayer:mtg:single-card:source-observation-import",
+  "tcgplayer:one-piece:sealed-product:source-observation-import",
+  "tcgplayer:one-piece:single-card:source-observation-import",
+  "tcgplayer:pokemon:sealed-product:source-observation-import",
+  "tcgplayer:pokemon:single-card:source-observation-import",
+  "tcgplayer:yugioh:single-card:source-observation-import",
+  "ygojson:yugioh:pack:reference-data",
+  "ygojson:yugioh:sealed-product:reference-data",
+  "ygojson:yugioh:set:reference-data",
+  "ygoprodeck:yugioh:set:reference-data",
+  "ygoprodeck:yugioh:single-card:reference-data",
+]);
+
+// A matrix row is the acceptance contract for one product line: the providers that
+// must all participate, the minimum expansions, the providers whose sealed form
+// must be exercised, the localization editions (Pokemon EN/JA), and the extra
+// verification the redesign must prove for that game.
+type ProviderProductLineFormMatrixRow = Readonly<{
+  productLine: string;
+  journeys: readonly ProviderSyncJourney[];
+  scope: (typeof supportedProviderUatJourneyScopes)[number];
+  requiredProviders: readonly string[];
+  minExpansions: number;
+  sealedProviders: readonly string[];
+  localizations?: readonly string[];
+  extraVerification: string;
+}>;
+
+const providerProductLineFormMatrix: readonly ProviderProductLineFormMatrixRow[] = [
+  {
+    productLine: "pokemon",
+    journeys: pokemonMatrixProviderSyncJourneys,
+    scope: "pokemon-matrix",
+    requiredProviders: ["tcgdex", "tcgplayer"],
+    minExpansions: 2,
+    sealedProviders: ["tcgplayer"],
+    localizations: ["english", "japanese"],
+    extraVerification:
+      "cross-provider candidates merge into one Catalog Item per card; EN and JA editions linked by set-equivalent alias",
+  },
+  {
+    productLine: "mtg",
+    journeys: mtgMatrixProviderSyncJourneys,
+    scope: "mtg-matrix",
+    requiredProviders: ["mtgjson", "scryfall", "tcgplayer"],
+    minExpansions: 2,
+    sealedProviders: ["tcgplayer"],
+    extraVerification: "reference-data and image-evidence roles participate in the same sync run",
+  },
+  {
+    productLine: "yugioh",
+    journeys: yugiohMatrixProviderSyncJourneys,
+    scope: "yugioh-matrix",
+    requiredProviders: ["ygojson", "ygoprodeck", "tcgplayer"],
+    minExpansions: 2,
+    sealedProviders: ["ygojson"],
+    extraVerification: "pack-reference kinds promote cleanly",
+  },
+  {
+    productLine: "one-piece",
+    journeys: onePieceMatrixProviderSyncJourneys,
+    scope: "one-piece-matrix",
+    requiredProviders: ["scrydex", "tcgplayer"],
+    minExpansions: 2,
+    sealedProviders: ["scrydex"],
+    extraVerification: "credit-aware bulk-first preflight asserted (no per-record fallback without reason)",
+  },
+  {
+    productLine: "lorcana",
+    journeys: lorcanaMatrixProviderSyncJourneys,
+    scope: "lorcana-matrix",
+    requiredProviders: ["scrydex", "lorcanajson", "lorcast", "tcgplayer"],
+    minExpansions: 2,
+    sealedProviders: ["tcgplayer", "scrydex"],
+    extraVerification: "four-provider merge exercised incl. at least one conflict resolution",
+  },
+];
+
+// The support-safe evidence packet contract (one packet per game): only these
+// fields are posted on the tracking issue. Nothing here can carry raw provider
+// payloads, credentials, or provider URLs.
+const providerUatEvidencePacketFields = [
+  "providerKey",
+  "unitKey",
+  "profileVersion",
+  "setLabel",
+  "jobTerminalState",
+  "observationCount",
+  "candidateCount",
+  "promotionCount",
+  "conflictOutcome",
+  "aliasOutcome",
+] as const;
+
+const forbiddenEvidencePacketFields = ["rawPayload", "credential", "authorization", "providerUrl", "cookie"] as const;
+
+const unitFormLabelKinds = new Set(["set", "set name", "expansion"]);
+
+function providerUnitFormOf(unitKey: string): string {
+  return unitKey.split(":")[2] ?? "";
+}
+
+function providerUnitRoleOf(unitKey: string): string {
+  return unitKey.split(":")[3] ?? "";
+}
+
+function providerUnitProductLineOf(unitKey: string): string {
+  return unitKey.split(":")[1] ?? "";
+}
+
+function expansionKeyOfProviderSyncJourney(journey: ProviderSyncJourney): string | null {
+  const selection = [...journey.scope]
+    .reverse()
+    .find((candidate) => unitFormLabelKinds.has(scopeSelectionLabelText(candidate)));
+  return scopeSelectionChoiceKey(selection ?? journey.scope[journey.scope.length - 1]);
+}
+
+function localizationOfProviderSyncJourney(journey: ProviderSyncJourney): string | null {
+  const selection = journey.scope.find((candidate) => scopeSelectionLabelText(candidate) === "language");
+  return scopeSelectionChoiceKey(selection)?.toLowerCase() ?? null;
+}
+
+function distinctExpansionKeysForJourneys(journeys: readonly ProviderSyncJourney[]): ReadonlySet<string> {
+  const keys = new Set<string>();
+  for (const journey of journeys) {
+    const key = expansionKeyOfProviderSyncJourney(journey);
+    if (key) {
+      keys.add(key.toLowerCase());
+    }
+  }
+  return keys;
+}
+
 const providerSyncJourneys =
   providerUatJourneyScope === "all-provider-regression"
     ? [...lorcanaLaunchProviderSyncJourneys, ...onePieceLaunchProviderSyncJourneys, ...yugiohProviderSyncJourneys]
@@ -589,7 +1112,19 @@ const providerSyncJourneys =
         ? lorcanaLaunchProviderSyncJourneys
         : providerUatJourneyScope === "staging-representative-catalog"
           ? stagingRepresentativeCatalogProviderSyncJourneys
-          : onePieceLaunchProviderSyncJourneys;
+          : providerUatJourneyScope === "pokemon-matrix"
+            ? pokemonMatrixProviderSyncJourneys
+            : providerUatJourneyScope === "mtg-matrix"
+              ? mtgMatrixProviderSyncJourneys
+              : providerUatJourneyScope === "yugioh-matrix"
+                ? yugiohMatrixProviderSyncJourneys
+                : providerUatJourneyScope === "one-piece-matrix"
+                  ? onePieceMatrixProviderSyncJourneys
+                  : providerUatJourneyScope === "lorcana-matrix"
+                    ? lorcanaMatrixProviderSyncJourneys
+                    : providerUatJourneyScope === "full-matrix-uat"
+                      ? providerProductLineFormMatrixJourneys
+                      : onePieceLaunchProviderSyncJourneys;
 
 const lorcanaDownstreamCatalogItemsJourney: ProviderSyncJourney = {
   name: "Lorcana downstream Catalog Items projection through LorcanaJSON",
@@ -817,6 +1352,145 @@ test.describe("catalog staging provider sync UAT helpers", () => {
         expect.objectContaining({ providerKey: "tcgplayer", name: expect.stringContaining("Floodborn") }),
       ]),
     );
+  });
+
+  test("registers a dispatchable per-game scope for every matrix row and one full-matrix fan-out", () => {
+    for (const row of providerProductLineFormMatrix) {
+      expect(supportedProviderUatJourneyScopes, row.productLine).toContain(row.scope);
+      expect(row.journeys.length, row.productLine).toBeGreaterThan(0);
+    }
+    expect(supportedProviderUatJourneyScopes).toContain("full-matrix-uat");
+    // The full-matrix fan-out is exactly the concatenation of every game so a
+    // single dispatch proves the whole matrix, and each per-game scope stays
+    // runnable on its own inside the 60-minute workflow timeout.
+    expect(providerProductLineFormMatrixJourneys).toEqual(
+      providerProductLineFormMatrix.flatMap((row) => [...row.journeys]),
+    );
+  });
+
+  test("every matrix journey references a real registered provider unit key", () => {
+    for (const journey of providerProductLineFormMatrixJourneys) {
+      expect(knownProviderUnitKeys, `${journey.name} (${journey.unitKey})`).toContain(journey.unitKey);
+    }
+  });
+
+  test("each matrix row runs every required provider through at least two expansions", () => {
+    for (const row of providerProductLineFormMatrix) {
+      const providers = new Set(row.journeys.map((journey) => journey.providerKey));
+      for (const requiredProvider of row.requiredProviders) {
+        expect(providers, `${row.productLine} is missing provider ${requiredProvider}`).toContain(requiredProvider);
+      }
+      for (const journey of row.journeys) {
+        expect(providerUnitProductLineOf(journey.unitKey), journey.name).toBe(row.productLine);
+      }
+      const expansions = distinctExpansionKeysForJourneys(row.journeys);
+      expect(expansions.size, `${row.productLine} covers ${[...expansions].join(", ")}`).toBeGreaterThanOrEqual(
+        row.minExpansions,
+      );
+    }
+  });
+
+  test("each matrix row exercises the sealed form through its designated providers", () => {
+    for (const row of providerProductLineFormMatrix) {
+      for (const sealedProvider of row.sealedProviders) {
+        const sealedJourney = row.journeys.find(
+          (journey) =>
+            journey.providerKey === sealedProvider && providerUnitFormOf(journey.unitKey) === "sealed-product",
+        );
+        expect(sealedJourney, `${row.productLine} is missing a ${sealedProvider} sealed-product journey`).toBeTruthy();
+      }
+    }
+  });
+
+  test("Pokemon matrix covers English and Japanese with matching expansion counts for alias linking", () => {
+    const pokemon = providerProductLineFormMatrix.find((row) => row.productLine === "pokemon")!;
+    expect(pokemon.localizations).toEqual(["english", "japanese"]);
+    const englishJourneys = pokemon.journeys.filter(
+      (journey) => localizationOfProviderSyncJourney(journey) === "english",
+    );
+    const japaneseJourneys = pokemon.journeys.filter(
+      (journey) => localizationOfProviderSyncJourney(journey) === "japanese",
+    );
+    const englishExpansions = distinctExpansionKeysForJourneys(englishJourneys);
+    const japaneseExpansions = distinctExpansionKeysForJourneys(japaneseJourneys);
+    expect(englishExpansions.size).toBeGreaterThanOrEqual(2);
+    // JA carries the same number of expansions as EN so every English edition has
+    // a Japanese counterpart to link by accepted set-equivalent alias.
+    expect(japaneseExpansions.size).toBe(englishExpansions.size);
+  });
+
+  test("Pokemon matrix merges TCGdex and TCGplayer cards for the shared Surging Sparks expansion", () => {
+    const pokemon = providerProductLineFormMatrix.find((row) => row.productLine === "pokemon")!;
+    const surgingSparksProviders = new Set(
+      pokemon.journeys
+        .filter(
+          (journey) =>
+            providerUnitFormOf(journey.unitKey) === "single-card" &&
+            expansionKeyOfProviderSyncJourney(journey)?.toLowerCase() === "surging sparks",
+        )
+        .map((journey) => journey.providerKey),
+    );
+    expect(surgingSparksProviders).toContain("tcgdex");
+    expect(surgingSparksProviders).toContain("tcgplayer");
+  });
+
+  test("MTG matrix runs reference-data and image-evidence roles in the same sync run", () => {
+    const mtg = providerProductLineFormMatrix.find((row) => row.productLine === "mtg")!;
+    expect(mtg.journeys.some((journey) => providerUnitRoleOf(journey.unitKey) === "reference-data")).toBe(true);
+    expect(mtg.journeys.some((journey) => providerUnitRoleOf(journey.unitKey) === "image-evidence")).toBe(true);
+  });
+
+  test("Yu-Gi-Oh matrix promotes pack-reference and sealed kinds through YGOJSON", () => {
+    const yugioh = providerProductLineFormMatrix.find((row) => row.productLine === "yugioh")!;
+    expect(yugioh.journeys.some((journey) => providerUnitFormOf(journey.unitKey) === "pack")).toBe(true);
+    expect(
+      yugioh.journeys.some(
+        (journey) => journey.providerKey === "ygojson" && providerUnitFormOf(journey.unitKey) === "sealed-product",
+      ),
+    ).toBe(true);
+  });
+
+  test("One Piece matrix asserts credit-aware bulk-first preflight on every Scrydex journey", () => {
+    const onePiece = providerProductLineFormMatrix.find((row) => row.productLine === "one-piece")!;
+    const scrydexJourneys = onePiece.journeys.filter((journey) => journey.providerKey === "scrydex");
+    expect(scrydexJourneys.length).toBeGreaterThan(0);
+    for (const journey of scrydexJourneys) {
+      expect(journey.preflight?.requestStrategy, journey.name).toBe("bulk-first");
+    }
+  });
+
+  test("Lorcana matrix exercises the four-provider merge across two expansions", () => {
+    const lorcana = providerProductLineFormMatrix.find((row) => row.productLine === "lorcana")!;
+    const providers = new Set(lorcana.journeys.map((journey) => journey.providerKey));
+    expect([...providers].sort()).toEqual(["lorcanajson", "lorcast", "scrydex", "tcgplayer"]);
+    expect(distinctExpansionKeysForJourneys(lorcana.journeys).size).toBeGreaterThanOrEqual(2);
+  });
+
+  test("keeps the per-game evidence packet contract support-safe", () => {
+    // The packet documents only support-safe fields and never a raw-payload,
+    // credential, or provider-URL field.
+    for (const forbidden of forbiddenEvidencePacketFields) {
+      expect(providerUatEvidencePacketFields as readonly string[]).not.toContain(forbidden);
+    }
+    expect(providerUatEvidencePacketFields).toEqual(
+      expect.arrayContaining([
+        "providerKey",
+        "unitKey",
+        "jobTerminalState",
+        "observationCount",
+        "candidateCount",
+        "promotionCount",
+        "conflictOutcome",
+        "aliasOutcome",
+      ]),
+    );
+  });
+
+  test("matrix scopes accept settled fast-forward coverage so re-dispatch converges", () => {
+    for (const row of providerProductLineFormMatrix) {
+      expect(providerUatScopeAcceptsSettledNoPromotableCoverage(row.scope), row.scope).toBe(true);
+    }
+    expect(providerUatScopeAcceptsSettledNoPromotableCoverage("full-matrix-uat")).toBe(true);
   });
 });
 
@@ -2372,8 +3046,19 @@ async function expectCommandQueuedOrSettledNoPromotable(
   );
 }
 
+const settledNoPromotableCoverageScopes = new Set<string>([
+  "all-provider-regression",
+  "lorcana-launch",
+  "pokemon-matrix",
+  "mtg-matrix",
+  "yugioh-matrix",
+  "one-piece-matrix",
+  "lorcana-matrix",
+  "full-matrix-uat",
+]);
+
 function providerUatScopeAcceptsSettledNoPromotableCoverage(scope: string = providerUatJourneyScope): boolean {
-  return scope === "all-provider-regression" || scope === "lorcana-launch";
+  return settledNoPromotableCoverageScopes.has(scope);
 }
 
 async function settledNoPromotableSkipReason(page: Page, selectedScope: SelectedProviderScope): Promise<string | null> {
