@@ -2,6 +2,8 @@ import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { MarketplaceListingFeeLock } from "../domain/fee-lock";
 import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
+import type { EvidenceCoverageResult } from "../domain/evidence-coverage";
+import type { ResolvedListingEvidenceRequirements } from "../../listing-evidence-policy/domain/policy";
 
 export type MarketplaceListingPhotoAssetRole = "source" | "thumbnail" | "search-card" | "catalog-detail";
 
@@ -122,6 +124,17 @@ export interface MarketplaceGradedCardDetails {
 }
 
 export interface MarketplaceListingDetail extends MarketplaceListingListItem {}
+
+export type MarketplaceListingEvidenceCoverage = Readonly<{
+  listingId: string;
+  listingStatus: string;
+  evidence: readonly MarketplaceListingPhoto[];
+  policyHash: string;
+  policyVersion: number | null;
+  requirements: ResolvedListingEvidenceRequirements;
+  coverage: EvidenceCoverageResult;
+  updatedAt: string;
+}>;
 
 export interface MarketplaceSellerListingAvailability {
   account_id: string;

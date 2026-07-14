@@ -13,6 +13,10 @@ CREATE TABLE IF NOT EXISTS marketplace_offer_pages (
   quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
   status text NOT NULL DEFAULT 'submitted',
   accepted_seller_account_id text NULL,
+  accepted_listing_id text NULL,
+  accepted_inventory_item_id text NULL,
+  listing_evidence_policy_hash text NULL,
+  listing_evidence_snapshot_hash text NULL,
   accepted_at timestamptz NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -32,6 +36,12 @@ CREATE INDEX IF NOT EXISTS marketplace_offer_pages_selected_options_idx
 
 ALTER TABLE marketplace_offer_pages
   ADD COLUMN IF NOT EXISTS shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE marketplace_offer_pages
+  ADD COLUMN IF NOT EXISTS accepted_listing_id text NULL,
+  ADD COLUMN IF NOT EXISTS accepted_inventory_item_id text NULL,
+  ADD COLUMN IF NOT EXISTS listing_evidence_policy_hash text NULL,
+  ADD COLUMN IF NOT EXISTS listing_evidence_snapshot_hash text NULL;
 
 CREATE TABLE IF NOT EXISTS marketplace_offer_seller_controls (
   seller_account_id text NOT NULL,

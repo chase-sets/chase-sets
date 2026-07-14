@@ -4,7 +4,7 @@
  * Decision: MIGRATE (transform), do NOT reset.
  *
  * The pre-existing `experience.platform-feedback.*` events remain in place and
- * replayable (event-sourced systems never delete events, and must not break
+ * replayable (event-sourced systems never delete events, and the migration must not break
  * their replay). Rather than discard them, Customer Feedback classifies every
  * legacy generic 1–5 rating under an explicit, inspectable survey kind —
  * `legacy-experience-rating` (v0) — which is `csatEligible: false`.

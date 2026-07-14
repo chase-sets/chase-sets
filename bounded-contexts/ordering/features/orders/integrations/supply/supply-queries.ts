@@ -1,9 +1,9 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { MarketplaceOfferAcceptedPayload } from "@chase-sets/event-core";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId } from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
-import type { ListingEvidenceSnapshot } from "../../../../support/request-support/listing-evidence";
 import type { MarketplaceDemand, MarketplaceSupplyCandidate, MarketplaceSupplyFeeLock } from "../../domain/policies";
 
 type VersionSelectedOptionEntry = Readonly<{
@@ -190,7 +190,12 @@ export async function listOrderingSupplyCandidates(
 export async function getOrderingSupplyCandidateByListingId(
   db: PgQueryable,
   listingId: string,
+  options: Readonly<{ allowCommitted?: boolean }> = {},
 ): Promise<MarketplaceSupplyCandidate | null> {
+  const currentEligibilitySql = options.allowCommitted
+    ? ""
+    : `AND listing.status = 'active'
+       AND listing.seller_listing_availability_status = 'available'`;
   const result = await db.query<OrderingSupplyCandidateRow>(
     `SELECT
        listing.listing_id,
@@ -248,15 +253,14 @@ export async function getOrderingSupplyCandidateByListingId(
        GROUP BY seller_account_id
      ) AS open_claims
        ON open_claims.seller_account_id = listing.seller_account_id
-     WHERE listing.status = 'active'
-       AND listing.seller_listing_availability_status = 'available'
-       AND listing.terms_resolved_at IS NOT NULL
+     WHERE listing.terms_resolved_at IS NOT NULL
        AND listing.listing_id = $1
        -- Order Capacity enforcement (m127): see
        -- listOrderingSupplyCandidates above -- the locked-listing lookup
        -- must fail closed the same way so a stale locked listing whose
        -- seller has since hit capacity re-checks as unavailable.
-       AND (capacity.max_open_orders IS NULL OR COALESCE(open_claims.open_count, 0) < capacity.max_open_orders)`,
+       AND (capacity.max_open_orders IS NULL OR COALESCE(open_claims.open_count, 0) < capacity.max_open_orders)
+       ${currentEligibilitySql}`,
     [listingId],
   );
 
@@ -408,6 +412,9 @@ export type OrderingAcceptedOfferBatchInputRow = Readonly<{
   offer_id: string;
   buyer_account_id: string;
   seller_account_id: string;
+  listing_id: string;
+  inventory_item_id: string;
+  listing_version: number;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string;
@@ -425,10 +432,14 @@ export type OrderingAcceptedOfferBatchInputRow = Readonly<{
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string;
+  fee_quote_fingerprint: string;
+  listing_evidence_policy_id: string | null;
+  listing_evidence_policy_version: number | null;
+  listing_evidence_policy_hash: string;
+  listing_evidence_snapshot: MarketplaceOfferAcceptedPayload["listingEvidenceSnapshot"];
   quantity_requested: number;
   acceptance_batch_id: string | null;
   acceptance_batch_size: number | null;
-  listing_evidence_snapshot: ListingEvidenceSnapshot | null;
 }>;
 
 export async function listAcceptedOfferBatchInputs(
@@ -445,6 +456,9 @@ export async function listAcceptedOfferBatchInputs(
        offer_id,
        buyer_account_id,
        seller_account_id,
+       listing_id,
+       inventory_item_id,
+       listing_version,
        catalog_catalog_item_id,
        product_id,
        item_title,
@@ -462,10 +476,14 @@ export async function listAcceptedOfferBatchInputs(
        terms_schedule_id,
        terms_agreement_id,
        terms_resolved_at::text AS terms_resolved_at,
+       fee_quote_fingerprint,
+       listing_evidence_policy_id,
+       listing_evidence_policy_version,
+       listing_evidence_policy_hash,
+       listing_evidence_snapshot,
        quantity_requested,
        acceptance_batch_id,
-       acceptance_batch_size,
-       listing_evidence_snapshot
+       acceptance_batch_size
      FROM ordering_offer_acceptance_inputs
      WHERE acceptance_batch_id = $1
      ORDER BY buyer_account_id ASC, offer_id ASC`,
@@ -477,5 +495,6 @@ export async function listAcceptedOfferBatchInputs(
     selected_options: Array.isArray(row.selected_options)
       ? normalizeVersionSelection(row.selected_options as VersionSelectedOptionEntry[])
       : [],
+    listing_evidence_snapshot: row.listing_evidence_snapshot,
   }));
 }

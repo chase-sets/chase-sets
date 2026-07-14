@@ -1,4 +1,5 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { MarketplaceOfferAcceptedPayload } from "@chase-sets/event-core";
 import { catalogScenarioItems, catalogSeedIds } from "@chase-sets/catalog-seed";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
@@ -177,6 +178,9 @@ function logWaitingForActiveSupply(itemTitle: string, dependentOrder: "checkout 
 
 async function getAcceptedOfferInput(services: ReturnType<typeof createOrderingServices>, offerId: string) {
   const result = await services.db.query<{
+    listing_id: string;
+    inventory_item_id: string;
+    listing_version: number;
     product_id: string;
     marketplace_sales_fee_percentage_bps: number;
     marketplace_sales_fee_fixed_amount: string;
@@ -186,8 +190,16 @@ async function getAcceptedOfferInput(services: ReturnType<typeof createOrderingS
     terms_schedule_id: string | null;
     terms_agreement_id: string | null;
     terms_resolved_at: string;
+    fee_quote_fingerprint: string;
+    listing_evidence_policy_id: string | null;
+    listing_evidence_policy_version: number | null;
+    listing_evidence_policy_hash: string;
+    listing_evidence_snapshot: MarketplaceOfferAcceptedPayload["listingEvidenceSnapshot"];
   }>(
     `SELECT
+       listing_id,
+       inventory_item_id,
+       listing_version,
        product_id,
        marketplace_sales_fee_percentage_bps,
        marketplace_sales_fee_fixed_amount::text AS marketplace_sales_fee_fixed_amount,
@@ -196,7 +208,12 @@ async function getAcceptedOfferInput(services: ReturnType<typeof createOrderingS
        seller_net_unit_amount::text AS seller_net_unit_amount,
        terms_schedule_id,
        terms_agreement_id,
-       terms_resolved_at::text AS terms_resolved_at
+       terms_resolved_at::text AS terms_resolved_at,
+       fee_quote_fingerprint,
+       listing_evidence_policy_id,
+       listing_evidence_policy_version,
+       listing_evidence_policy_hash,
+       listing_evidence_snapshot
      FROM ordering_offer_acceptance_inputs
      WHERE offer_id = $1`,
     [offerId],
@@ -366,6 +383,9 @@ export async function seedOrderingDatabase(
               offerId: acceptedOfferSeed.offerId,
               buyerAccountId,
               sellerAccountId: identitySeedIds.demo.accountId,
+              listingId: acceptedOfferInput.listing_id,
+              inventoryItemId: acceptedOfferInput.inventory_item_id,
+              listingVersion: acceptedOfferInput.listing_version,
               catalogItemId: acceptedOfferSeed.catalogItemId,
               productId: acceptedOfferInput.product_id,
               itemTitle: acceptedOfferSeed.itemTitle,
@@ -381,6 +401,11 @@ export async function seedOrderingDatabase(
               termsScheduleId: acceptedOfferInput.terms_schedule_id,
               termsAgreementId: acceptedOfferInput.terms_agreement_id,
               termsResolvedAt: acceptedOfferInput.terms_resolved_at,
+              feeQuoteFingerprint: acceptedOfferInput.fee_quote_fingerprint,
+              listingEvidencePolicyId: acceptedOfferInput.listing_evidence_policy_id,
+              listingEvidencePolicyVersion: acceptedOfferInput.listing_evidence_policy_version,
+              listingEvidencePolicyHash: acceptedOfferInput.listing_evidence_policy_hash,
+              listingEvidenceSnapshot: acceptedOfferInput.listing_evidence_snapshot,
               shippingDestinationSnapshot: seedShippingAddress,
               quantityRequested: acceptedOfferSeed.quantityRequested,
               orderIdsOverride: [orderingReservedSeedIds.orders.acceptedOfferReady],
@@ -413,6 +438,9 @@ export async function seedOrderingDatabase(
               offerId: reviewEligibleOfferSeed.offerId,
               buyerAccountId,
               sellerAccountId: identitySeedIds.demo.accountId,
+              listingId: reviewEligibleOfferInput.listing_id,
+              inventoryItemId: reviewEligibleOfferInput.inventory_item_id,
+              listingVersion: reviewEligibleOfferInput.listing_version,
               catalogItemId: reviewEligibleOfferSeed.catalogItemId,
               productId: reviewEligibleOfferInput.product_id,
               itemTitle: reviewEligibleOfferSeed.itemTitle,
@@ -428,6 +456,11 @@ export async function seedOrderingDatabase(
               termsScheduleId: reviewEligibleOfferInput.terms_schedule_id,
               termsAgreementId: reviewEligibleOfferInput.terms_agreement_id,
               termsResolvedAt: reviewEligibleOfferInput.terms_resolved_at,
+              feeQuoteFingerprint: reviewEligibleOfferInput.fee_quote_fingerprint,
+              listingEvidencePolicyId: reviewEligibleOfferInput.listing_evidence_policy_id,
+              listingEvidencePolicyVersion: reviewEligibleOfferInput.listing_evidence_policy_version,
+              listingEvidencePolicyHash: reviewEligibleOfferInput.listing_evidence_policy_hash,
+              listingEvidenceSnapshot: reviewEligibleOfferInput.listing_evidence_snapshot,
               shippingDestinationSnapshot: seedShippingAddress,
               quantityRequested: reviewEligibleOfferSeed.quantityRequested,
               orderIdsOverride: [reputationReservedSeedIds.orders.reviewEligibleDelivered],

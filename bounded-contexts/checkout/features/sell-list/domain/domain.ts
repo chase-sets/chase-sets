@@ -16,6 +16,7 @@ export type CheckoutSellListLine = Readonly<{
   sellerAccountId: AccountId;
   lineType: "selected-offer" | "product";
   offerId: string | null;
+  listingId: string | null;
   buyerAccountId: string | null;
   buyerDisplayName: string | null;
   offerPriceAmount: string | null;
@@ -263,7 +264,11 @@ export const decideCheckoutSellList: AggregateDecider<
       assert(!state.lines.some((line) => line.lineId === command.lineId), "Sell list line has already been added.");
       const lineType = normalizeLineType(command.lineType);
       const offerId = normalizeOptionalText(command.offerId);
-      assert(lineType === "product" || Boolean(offerId), "Selected offer sell-list lines must reference an offer.");
+      const listingId = normalizeOptionalText(command.listingId);
+      assert(
+        lineType === "product" || (Boolean(offerId) && Boolean(listingId)),
+        "Selected offer sell-list lines must reference an Offer and exact Listing.",
+      );
 
       return [
         {
@@ -273,6 +278,7 @@ export const decideCheckoutSellList: AggregateDecider<
             lineId: command.lineId,
             lineType,
             offerId,
+            listingId,
             buyerAccountId: normalizeOptionalText(command.buyerAccountId),
             buyerDisplayName: normalizeOptionalText(command.buyerDisplayName),
             offerPriceAmount: normalizeOptionalText(command.offerPriceAmount),

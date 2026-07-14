@@ -76,6 +76,9 @@ CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
   offer_id text PRIMARY KEY,
   buyer_account_id text NOT NULL,
   seller_account_id text NOT NULL,
+  listing_id text NOT NULL,
+  inventory_item_id text NOT NULL,
+  listing_version integer NOT NULL CHECK (listing_version > 0),
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
   item_title text NOT NULL,
@@ -92,12 +95,16 @@ CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
   terms_schedule_id text NULL,
   terms_agreement_id text NULL,
   terms_resolved_at timestamptz NOT NULL,
+  fee_quote_fingerprint text NOT NULL,
+  listing_evidence_policy_id text NULL,
+  listing_evidence_policy_version integer NULL,
+  listing_evidence_policy_hash text NOT NULL,
+  listing_evidence_snapshot jsonb NOT NULL,
   quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
   shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   accepted_at timestamptz NOT NULL,
   acceptance_batch_id text NULL,
   acceptance_batch_size integer NULL,
-  listing_evidence_snapshot jsonb NULL,
   updated_at timestamptz NOT NULL
 );
 
@@ -133,7 +140,15 @@ ALTER TABLE ordering_offer_acceptance_inputs
 
 ALTER TABLE ordering_offer_acceptance_inputs
   ADD COLUMN IF NOT EXISTS shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
+
 ALTER TABLE ordering_offer_acceptance_inputs
+  ADD COLUMN IF NOT EXISTS listing_id text NULL,
+  ADD COLUMN IF NOT EXISTS inventory_item_id text NULL,
+  ADD COLUMN IF NOT EXISTS listing_version integer NULL,
+  ADD COLUMN IF NOT EXISTS fee_quote_fingerprint text NULL,
+  ADD COLUMN IF NOT EXISTS listing_evidence_policy_id text NULL,
+  ADD COLUMN IF NOT EXISTS listing_evidence_policy_version integer NULL,
+  ADD COLUMN IF NOT EXISTS listing_evidence_policy_hash text NULL,
   ADD COLUMN IF NOT EXISTS listing_evidence_snapshot jsonb NULL;
 
 CREATE TABLE IF NOT EXISTS ordering_payment_capture_inputs (
@@ -181,6 +196,24 @@ export const orderingSupplySourceSchemaMigrations: readonly BcSchemaMigration[] 
   ADD COLUMN IF NOT EXISTS marketplace_sales_fee_percentage_bps integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS marketplace_sales_fee_fixed_amount numeric(12, 2) NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS marketplace_sales_fee_cap_amount numeric(12, 2) NULL`,
+    ],
+  },
+  {
+    migrationId: "20260713_ordering_exact_offer_commitment_input",
+    description:
+      "Replace ambiguous accepted-offer inputs with exact Listing, Inventory, policy, and evidence commitments.",
+    statements: [
+      `TRUNCATE TABLE ordering_offer_acceptance_inputs`,
+      `ALTER TABLE ordering_offer_acceptance_inputs
+  ALTER COLUMN listing_id SET NOT NULL,
+  ALTER COLUMN inventory_item_id SET NOT NULL,
+  ALTER COLUMN listing_version SET NOT NULL,
+  ALTER COLUMN fee_quote_fingerprint SET NOT NULL,
+  ALTER COLUMN listing_evidence_policy_hash SET NOT NULL,
+  ALTER COLUMN listing_evidence_snapshot SET NOT NULL`,
+      `ALTER TABLE ordering_offer_acceptance_inputs
+  DROP CONSTRAINT IF EXISTS ordering_offer_acceptance_inputs_listing_version_check,
+  ADD CONSTRAINT ordering_offer_acceptance_inputs_listing_version_check CHECK (listing_version > 0)`,
     ],
   },
 ];

@@ -173,6 +173,7 @@ export const sourceContextWakeRegistry = [
     affectedProjectionNames: [
       "catalog:catalog-admin-catalog-item-projection",
       "catalog:catalog-attention-dismissal-projection",
+      "catalog:catalog-item-projection",
       "catalog:catalog-product-contents-projection",
       "catalog:catalog-provider-scope-mapping-projection",
       "catalog:catalog-scope-registry-projection",
@@ -229,6 +230,18 @@ export const sourceContextWakeRegistry = [
     ],
   }),
   registryEntry({
+    sourceContextName: "collections",
+    owner: "Collections",
+    rolloutState: "not-eligible",
+    phase: "phase-3-expansion",
+    rolloutWave: "wave-4-deferred-or-not-eligible",
+    priorityLane: "standard",
+    expectedEventVolume: "medium",
+    wakeStoreLoadEstimate: "none",
+    affectedProjectionNames: [],
+    routeDependencyIds: [],
+  }),
+  registryEntry({
     sourceContextName: "commercial-terms",
     owner: "Commercial Terms",
     rolloutState: "staging-enabled",
@@ -256,13 +269,16 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "customer-feedback",
     owner: "Customer Feedback",
-    rolloutState: "not-eligible",
+    rolloutState: "eligible",
     phase: "phase-3-expansion",
-    rolloutWave: "wave-4-deferred-or-not-eligible",
+    rolloutWave: "wave-3-platform-expansion",
     priorityLane: "bulk",
     expectedEventVolume: "low",
-    wakeStoreLoadEstimate: "none",
-    affectedProjectionNames: [],
+    wakeStoreLoadEstimate: "low",
+    affectedProjectionNames: [
+      "customer-feedback:customer-feedback-csat-analytics-projection",
+      "customer-feedback:customer-feedback-csat-invitation-projection",
+    ],
     routeDependencyIds: [],
   }),
   registryEntry({

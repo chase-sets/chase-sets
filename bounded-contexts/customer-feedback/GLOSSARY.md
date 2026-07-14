@@ -44,14 +44,20 @@ CSAT figure only when they share the identical `transactional-csat` survey versi
 
 ## CSAT Invitation
 
-A **CSAT Invitation** is the server-issued token that presents a survey to a
-subject. It redeems a source-context Outcome Fact and carries authoritative
-provenance; it is never created from client-supplied workflow or entity claims.
+A **CSAT Invitation** is the server-controlled aggregate that redeems a
+source-context Outcome Fact and may issue an opaque public reference to a subject.
+It carries authoritative provenance and is never created from client-supplied
+workflow, route, entity, account, or subject claims.
 
 Notes:
 
-- Lifecycle states: `issued` → `presented` → `submitted` / `dismissed` /
-  `expired`.
+- Lifecycle states: `eligible` → `issued` → `presented` → `submitted`, with
+  `dismissed`, `expired`, `suppressed`, and `revoked` closure paths. A dismissed
+  invitation remains redeemable until expiry or revocation.
+- The public reference is unguessable and distinct from the aggregate id.
+- Each outcome code has an invitation-owned allow-list of source entity types;
+  route strings and arbitrary entity labels are rejected before eligibility.
+- Submission is single-use and idempotent for an identical retry.
 - Presented and submitted invitations are the denominator and numerator of the
   response rate.
 
@@ -79,14 +85,29 @@ context's aggregate or database.
 ## Sampling Policy
 
 A **Sampling Policy** decides which eligible outcomes receive a survey and records
-the cohort key that explains inclusion, so the presentation denominator is
-trustworthy and every invitation is explainable. Launch sampling never depends on
-post-launch beta cohorts or feature flags.
+the complete deterministic decision: policy/schema id, algorithm version, cohort,
+bucket, sample rate, inclusion, and reason. `issuanceEnabled` is the explicit kill
+switch; `sampleRate: 0` is not overloaded as one. The policy also defines the
+per-subject cooldown and invitation expiry interval. Launch sampling never depends
+on post-launch beta cohorts or feature flags.
 
 ## Response Rate
 
 **Response Rate** is unique submitted invitations divided by unique presented
 invitations, over the trailing 7-day and 30-day windows.
+
+The denominator is a presentation cohort in a half-open UTC interval. The
+numerator is the subset of those same invitations submitted before the interval
+ends. A submission whose presentation belongs to an earlier interval does not
+enter the current interval's numerator.
+
+## CSAT Analytics Fact
+
+A **CSAT Analytics Fact** is the replayable, invitation-unique read-model row that
+records independently observed eligibility, issuance, presentation, dismissal,
+expiry, and submission timestamps plus the submitted rating and authoritative
+dimensions. Duplicate and out-of-order lifecycle delivery converges on the same
+row without incrementing counters.
 
 ## Legacy Experience Rating
 

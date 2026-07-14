@@ -1801,6 +1801,35 @@ export type CatalogPrimaryWorkbenchMergeCandidateReviewRow = Readonly<{
     reasonRequired: boolean;
     commandPreview: CatalogMergeCandidateReviewCommandPreview | null;
   }>[];
+  // The typed candidate edit surface. `state` gates the inline editor:
+  // when it is not `available`, `baseSnapshotJson` is null and the drawer renders
+  // the blockers instead of inputs. Operator field corrections submitted from this
+  // surface are recorded as `manual` provenance and carried through promotion.
+  editForm: CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel;
+}>;
+
+export type CatalogPrimaryWorkbenchMergeCandidateEditFieldOverride = Readonly<{
+  key: string;
+  fieldPath: string;
+  label: string;
+  value: string;
+}>;
+
+export type CatalogPrimaryWorkbenchMergeCandidateEditReference = Readonly<{
+  index: number;
+  label: string;
+}>;
+
+export type CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel = Readonly<{
+  state: CatalogPrimaryWorkbenchActionState;
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  baseSnapshotJson: string | null;
+  promotionIntent: "create-catalog-item" | "update-catalog-item" | "link-existing-catalog-item";
+  catalogItemId: string | null;
+  productIds: readonly string[];
+  editableFacts: readonly CatalogPrimaryWorkbenchMergeCandidateEditFieldOverride[];
+  externalCatalogItemReferences: readonly CatalogPrimaryWorkbenchMergeCandidateEditReference[];
+  externalProductReferences: readonly CatalogPrimaryWorkbenchMergeCandidateEditReference[];
 }>;
 
 export type CatalogPrimaryWorkbenchConflictResolutionStatus = "ready" | "empty" | "blocked" | "unavailable";

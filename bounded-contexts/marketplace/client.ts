@@ -3,6 +3,13 @@ import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type { buildMarketplaceApi } from "./api";
 
+export { evidenceCoverageCodeLocaleKey } from "./features/listings/domain/evidence-coverage";
+export type {
+  EvidenceCoverageCode,
+  EvidenceCoverageResult,
+  EvidenceSlotCoverage,
+} from "./features/listings/domain/evidence-coverage";
+
 export type {
   MarketplaceBulkListingPriceUpdateInput,
   MarketplaceBulkListingPriceUpdateOutcome,
@@ -18,6 +25,7 @@ export type {
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
   MarketplaceMarketSummary,
+  MarketplaceListingEvidenceCoverage,
 } from "./features/listings/api/contracts";
 export type {
   MarketplaceReportSubmissionSnapshot,
@@ -50,6 +58,7 @@ import type {
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
   MarketplaceMarketSummary,
+  MarketplaceListingEvidenceCoverage,
 } from "./features/listings/api/contracts";
 import type {
   MarketplaceReportSubmissionSnapshot,
@@ -330,6 +339,15 @@ export function createMarketplaceApiClient({
         }),
       );
     },
+    async getSellerListingEvidenceCoverage(id: string, now?: string): Promise<MarketplaceListingEvidenceCoverage> {
+      const query = now ? `?now=${encodeURIComponent(now)}` : "";
+      return parseJsonResponse(
+        await configuredFetch(
+          joinApiPath(baseUrl, `/account/listings/${encodeURIComponent(id)}/evidence-coverage${query}`),
+          { headers },
+        ),
+      );
+    },
     async getSellerListingFeeHistory(
       id: string,
     ): Promise<{ items: MarketplaceListingFeeHistoryEntry[]; total: number; count: number }> {
@@ -377,6 +395,39 @@ export function createMarketplaceApiClient({
           headers,
           body: formData,
         }),
+      );
+    },
+    async updateListingPhotoClassification(id: string, photoId: string, body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await configuredFetch(
+          joinApiPath(
+            baseUrl,
+            `/account/listings/${encodeURIComponent(id)}/photos/${encodeURIComponent(photoId)}/classify`,
+          ),
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              ...headersToRecord(headers),
+            },
+            body: JSON.stringify(body),
+          },
+        ),
+      );
+    },
+    async replaceListingPhoto(id: string, photoId: string, formData: FormData) {
+      return parseJsonResponse(
+        await configuredFetch(
+          joinApiPath(
+            baseUrl,
+            `/account/listings/${encodeURIComponent(id)}/photos/${encodeURIComponent(photoId)}/replace`,
+          ),
+          {
+            method: "POST",
+            headers,
+            body: formData,
+          },
+        ),
       );
     },
     async previewListingTerms(
@@ -528,10 +579,11 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async previewOfferAcceptanceTerms(id: string): Promise<MarketplaceListingTermsPreview> {
+    async previewOfferAcceptanceTerms(id: string, listingId: string): Promise<MarketplaceListingTermsPreview> {
       return parseJsonResponse(
         await client.account.offers.matches[":id"]["terms-preview"].$get({
           param: { id },
+          query: { listingId },
           header: headers,
         }),
       );

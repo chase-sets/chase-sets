@@ -46,7 +46,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       return {
         offerMatch,
         acceptanceTerms:
-          offerMatch.status === "submitted" ? await api.previewOfferAcceptanceTerms(params.offerId!) : null,
+          offerMatch.status === "submitted"
+            ? await api.previewOfferAcceptanceTerms(params.offerId!, offerMatch.listing_id)
+            : null,
       };
     },
     telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
@@ -94,6 +96,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
   try {
     if (intent === "accept-offer") {
       const result = await api.acceptOfferMatch(params.offerId!, {
+        listingId: String(formData.get("listingId") ?? ""),
         feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? ""),
       });
       return redirect(

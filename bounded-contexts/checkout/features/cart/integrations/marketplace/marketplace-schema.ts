@@ -18,7 +18,9 @@ CREATE TABLE IF NOT EXISTS checkout_marketplace_seller_options (
   seller_review_count integer NULL,
   supply_total_quantity integer NULL,
   active_held_quantity integer NULL,
-  inventory_item_id text NULL
+  inventory_item_id text NULL,
+  evidence_requirements jsonb NULL,
+  evidence jsonb NOT NULL DEFAULT '[]'::jsonb
 );
 
 CREATE INDEX IF NOT EXISTS checkout_marketplace_seller_options_product_idx
@@ -35,9 +37,25 @@ ALTER TABLE checkout_marketplace_seller_options
 -- at_capacity = false alongside status = 'active'.
 ALTER TABLE checkout_marketplace_seller_options
   ADD COLUMN IF NOT EXISTS at_capacity boolean NOT NULL DEFAULT false;
+
+ALTER TABLE checkout_marketplace_seller_options
+  ADD COLUMN IF NOT EXISTS evidence_requirements jsonb NULL;
+
+ALTER TABLE checkout_marketplace_seller_options
+  ADD COLUMN IF NOT EXISTS evidence jsonb NOT NULL DEFAULT '[]'::jsonb;
 `;
 
 export const checkoutMarketplaceSellerOptionsSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260714_checkout_seller_options_listing_evidence",
+    description: "Mirror Marketplace listing evidence into Checkout seller options for local Sell List review.",
+    statements: [
+      `ALTER TABLE checkout_marketplace_seller_options
+  ADD COLUMN IF NOT EXISTS evidence_requirements jsonb NULL`,
+      `ALTER TABLE checkout_marketplace_seller_options
+  ADD COLUMN IF NOT EXISTS evidence jsonb NOT NULL DEFAULT '[]'::jsonb`,
+    ],
+  },
   {
     migrationId: "20260703_checkout_seller_options_hot_update_indexes",
     description: "Create checkout seller-option indexes for hot projection update predicates.",

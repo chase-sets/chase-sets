@@ -6,6 +6,7 @@ export type SellListReadinessLine = Readonly<{
   line_id: string;
   line_type: "selected-offer" | "product";
   offer_id: string | null;
+  listing_id: string | null;
   offer_price_amount: string | null;
   product_id: string;
   item_title: string;
@@ -244,7 +245,12 @@ function normalizeDecisions(decisions: SellListReadinessDecisionInput | null | u
 }
 
 function defaultLineAction(line: SellListReadinessLine): SellListReadinessLineAction | null {
-  if (line.line_type === "selected-offer" && line.offer_id && moneyValue(line.offer_price_amount) !== null) {
+  if (
+    line.line_type === "selected-offer" &&
+    line.offer_id &&
+    line.listing_id &&
+    moneyValue(line.offer_price_amount) !== null
+  ) {
     return "selected-offer";
   }
 
@@ -284,6 +290,7 @@ function sourceRevisionFor(lines: readonly SellListReadinessLine[]) {
       lineId: line.line_id,
       lineType: line.line_type,
       offerId: line.offer_id,
+      listingId: line.listing_id,
       offerPriceAmount: line.offer_price_amount,
       productId: line.product_id,
       quantity: line.quantity,

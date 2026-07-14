@@ -163,6 +163,10 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
       const data = event.data as {
         offerId: string;
         sellerAccountId: string;
+        listingId: string;
+        inventoryItemId: string;
+        listingEvidencePolicyHash: string;
+        listingEvidenceSnapshot: { snapshotHash: string };
         acceptedAt: string;
       };
 
@@ -170,10 +174,22 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
         `UPDATE marketplace_offer_pages
          SET status = 'accepted',
              accepted_seller_account_id = $2,
-             accepted_at = $3,
-             updated_at = $3
+             accepted_listing_id = $3,
+             accepted_inventory_item_id = $4,
+             listing_evidence_policy_hash = $5,
+             listing_evidence_snapshot_hash = $6,
+             accepted_at = $7,
+             updated_at = $7
          WHERE offer_id = $1`,
-        [data.offerId, data.sellerAccountId, data.acceptedAt],
+        [
+          data.offerId,
+          data.sellerAccountId,
+          data.listingId,
+          data.inventoryItemId,
+          data.listingEvidencePolicyHash,
+          data.listingEvidenceSnapshot.snapshotHash,
+          data.acceptedAt,
+        ],
       );
       await emitOfferPatch(db, event, data.offerId);
     },

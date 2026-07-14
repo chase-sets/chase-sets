@@ -13,6 +13,7 @@ import {
   previewCatalogMergeCandidateReviewCommand,
   type CatalogMergeCandidateReviewCommandBlocker,
 } from "../api/catalog-merge-candidate-review-command-payloads";
+import { catalogMergeCandidateEditFormFor } from "../api/catalog-merge-candidate-edit";
 import type { CatalogMergeCandidateListItem } from "./contracts";
 import { actionStateForBlockers } from "./primary-workbench-read-model-support";
 import { scopeDisplayLabel } from "./primary-workbench-scope-context";
@@ -160,7 +161,53 @@ function mergeCandidateReviewRowFor(
     fieldProvenance,
     proposedFacts: proposedFactsFor(candidate.proposed_catalog_item_facts_json),
     actions: mergeCandidateActionsFor(candidate, canManage, blockers),
+    editForm: mergeCandidateEditFormFor(candidate, canManage),
   };
+}
+
+function mergeCandidateEditFormFor(
+  candidate: CatalogMergeCandidateListItem,
+  canManage: boolean,
+): CatalogPrimaryWorkbenchMergeCandidateReviewRow["editForm"] {
+  const editForm = catalogMergeCandidateEditFormFor(candidate, { canManage });
+  const blockers = editFormBlockers(candidate, canManage);
+
+  return {
+    state: editForm.editable ? "available" : editFormBlockedState(canManage),
+    blockers,
+    baseSnapshotJson: editForm.baseSnapshotJson,
+    promotionIntent: editForm.promotionIntent,
+    catalogItemId: editForm.catalogItemId,
+    productIds: editForm.productIds,
+    editableFacts: editForm.editableFacts,
+    externalCatalogItemReferences: editForm.externalCatalogItemReferences,
+    externalProductReferences: editForm.externalProductReferences,
+  };
+}
+
+// Editing replaces the review snapshot through UpdateCatalogMergeCandidate, which
+// the domain rejects on terminal candidates and cannot run without membership
+// provenance. Surface those as blockers so the drawer explains why the editor is
+// unavailable instead of rendering dead inputs.
+function editFormBlockers(
+  candidate: CatalogMergeCandidateListItem,
+  canManage: boolean,
+): readonly CatalogPrimaryWorkbenchBlockerCategory[] {
+  const blockers: CatalogPrimaryWorkbenchBlockerCategory[] = [];
+  if (!canManage) {
+    blockers.push("permission-denied");
+  }
+  if (candidate.status === "promoted" || candidate.status === "rejected") {
+    blockers.push("no-promotion-eligible-observations");
+  }
+  if (candidate.membership_json.length === 0) {
+    blockers.push("unsupported-command");
+  }
+  return blockers;
+}
+
+function editFormBlockedState(canManage: boolean): CatalogPrimaryWorkbenchActionState {
+  return canManage ? "blocked" : "denied";
 }
 
 function mergeCandidateBlockersFor(

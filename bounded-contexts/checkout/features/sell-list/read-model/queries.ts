@@ -1,5 +1,10 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import {
+  evaluateEvidenceCoverage,
+  type MarketplaceListingEvidenceCoverage,
+  type ResolvedListingEvidenceRequirements,
+} from "../../../support/request-support/marketplace-listing-evidence";
 import type { VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
 
 type CheckoutCommercialAccountType = "personal" | "business" | "enterprise";
@@ -45,6 +50,7 @@ export type CheckoutSellListLineRow = Readonly<{
   line_id: string;
   line_type: "selected-offer" | "product";
   offer_id: string | null;
+  listing_id: string | null;
   buyer_account_id: string | null;
   buyer_display_name: string | null;
   offer_price_amount: string | null;
@@ -189,6 +195,7 @@ export type CheckoutSellListOfferReview = Readonly<{
   terms: CheckoutSellListTermsPreview | CheckoutSellListPublicStandardTermsPreview | null;
   comparison: CheckoutSellListOfferTermsComparison | null;
   message: string | null;
+  evidence: MarketplaceListingEvidenceCoverage | null;
 }>;
 
 export type CheckoutSellListOfferTermsComparisonField =
@@ -209,6 +216,7 @@ export type CheckoutSellListProductOfferReview = Readonly<{
   offers: readonly Readonly<{
     offer: CheckoutSellOfferMatch;
     terms: CheckoutSellListTermsPreview;
+    evidence: MarketplaceListingEvidenceCoverage | null;
   }>[];
   message: string | null;
 }>;
@@ -260,6 +268,59 @@ type SellInventoryItemRow = Omit<
   ship_from_address: unknown;
   product_measure_snapshot: unknown;
 };
+
+type ListingEvidenceProjectionRow = Readonly<{
+  listing_id: string;
+  status: string;
+  evidence_requirements: unknown;
+  evidence: unknown;
+  updated_at: string;
+}>;
+
+type ListingEvidenceRequirementSnapshot = Readonly<{
+  policyHash: string;
+  policyVersion: number | null;
+  requirements: ResolvedListingEvidenceRequirements;
+}>;
+
+async function getCheckoutListingEvidenceCoverage(
+  db: PgQueryable,
+  listingId: string,
+): Promise<MarketplaceListingEvidenceCoverage | null> {
+  const result = await db.query<ListingEvidenceProjectionRow>(
+    `SELECT
+       listing_id,
+       status,
+       evidence_requirements,
+       evidence,
+       updated_at::text AS updated_at
+     FROM checkout_marketplace_seller_options
+     WHERE listing_id = $1
+     LIMIT 1`,
+    [listingId],
+  );
+  const row = result.rows[0];
+  if (!row || !row.evidence_requirements || typeof row.evidence_requirements !== "object") {
+    return null;
+  }
+
+  const snapshot = row.evidence_requirements as ListingEvidenceRequirementSnapshot;
+  if (!snapshot.requirements || typeof snapshot.requirements !== "object") {
+    return null;
+  }
+  const evidence = Array.isArray(row.evidence) ? (row.evidence as Parameters<typeof evaluateEvidenceCoverage>[1]) : [];
+
+  return {
+    listingId: row.listing_id,
+    listingStatus: row.status === "seller-unavailable" ? "active" : row.status,
+    evidence: evidence as MarketplaceListingEvidenceCoverage["evidence"],
+    policyHash: snapshot.policyHash,
+    policyVersion: snapshot.policyVersion,
+    requirements: snapshot.requirements,
+    coverage: evaluateEvidenceCoverage(snapshot.requirements, evidence, { now: new Date().toISOString() }),
+    updatedAt: row.updated_at,
+  };
+}
 
 function mapSellListLine(row: SellListPageRow): CheckoutSellListLineRow {
   return {
@@ -509,6 +570,7 @@ export async function listSellListLines(db: PgQueryable, sellerAccountId: string
        line_id,
        line_type,
        offer_id,
+       listing_id,
        buyer_account_id,
        buyer_display_name,
        offer_price_amount,
@@ -845,6 +907,8 @@ export async function loadCheckoutSellListCompositeReview(
     selectedOfferLines.map(async (line): Promise<CheckoutSellListOfferReview> => {
       const offer = offerRows.get(line.offer_id!) ?? null;
       const standardPreviewPromise = standardPreviewForPrice(line.offer_price_amount);
+      const match = await getCheckoutSellOfferMatch(db, params.sellerAccountId, line.offer_id!);
+      const evidence = match ? await getCheckoutListingEvidenceCoverage(db, match.listing_id) : null;
       try {
         if (!offer) {
           throw new Error("Offer not found.");
@@ -865,6 +929,7 @@ export async function loadCheckoutSellListCompositeReview(
           terms,
           comparison: params.includeStandardComparison ? compareTermsWithStandard(terms, standardPreview) : null,
           message: null,
+          evidence,
         };
       } catch (error) {
         const standardPreview = await standardPreviewPromise;
@@ -876,6 +941,7 @@ export async function loadCheckoutSellListCompositeReview(
             ? { status: "final-unavailable", standardPreview, changedFields: [] }
             : null,
           message: selectedOfferUnavailableMessage(offer, error),
+          evidence,
         };
       }
     }),
@@ -911,6 +977,7 @@ export async function loadCheckoutSellListCompositeReview(
           offers.push({
             offer,
             terms: await quoteSellerTerms(commercialTermsResolver, params.sellerAccountId, offer.price_amount),
+            evidence: await getCheckoutListingEvidenceCoverage(db, offer.listing_id),
           });
           remainingQuantity -= offer.quantity_requested;
         } catch {
@@ -967,6 +1034,7 @@ export async function loadCheckoutGuestSellListOfferReviews(
         terms,
         comparison: null,
         message: terms ? null : "Public standard seller terms are temporarily unavailable.",
+        evidence: null,
       };
     }),
   );

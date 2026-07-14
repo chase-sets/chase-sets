@@ -593,6 +593,15 @@ export type ListingAutoUnlistedEvent = DomainEvent<
   }>
 >;
 export type ListingWithdrawnEvent = DomainEvent<"marketplace.listing.withdrawn", Readonly<Record<string, never>>>;
+export type ListingOfferCommitmentRecordedEvent = DomainEvent<
+  "marketplace.listing.offer-commitment-recorded",
+  Readonly<{
+    offerId: string;
+    quantity: number;
+    evidenceSnapshotHash: string;
+    committedAt: string;
+  }>
+>;
 
 export type MarketplaceListingEvent =
   | ListingCreatedEvent
@@ -608,7 +617,8 @@ export type MarketplaceListingEvent =
   | ListingPublishedEvent
   | ListingPausedEvent
   | ListingAutoUnlistedEvent
-  | ListingWithdrawnEvent;
+  | ListingWithdrawnEvent
+  | ListingOfferCommitmentRecordedEvent;
 
 export const decideMarketplaceListing: AggregateDecider<
   MarketplaceListingState,
@@ -721,7 +731,7 @@ export const decideMarketplaceListing: AggregateDecider<
       ];
     case "ClassifyListingPhoto": {
       assert(state.listingId !== null, "Listing must be created first.");
-      assert(state.status === "draft", "Listing evidence can only be reclassified while the listing is a draft.");
+      assert(state.status !== "withdrawn", "Withdrawn listings cannot be reclassified.");
       const target = state.evidence.find((photo) => photo.photoId === command.photoId && photo.status === "active");
       assert(target, "Listing evidence entry was not found.");
       const slotId = normalizeSlotToken(command.slotId, "Listing evidence slot");
@@ -742,7 +752,7 @@ export const decideMarketplaceListing: AggregateDecider<
     }
     case "ReplaceListingPhoto": {
       assert(state.listingId !== null, "Listing must be created first.");
-      assert(state.status === "draft", "Listing evidence can only be replaced while the listing is a draft.");
+      assert(state.status !== "withdrawn", "Withdrawn listings cannot have evidence replaced.");
       const target = state.evidence.find(
         (photo) => photo.photoId === command.replacedPhotoId && photo.status === "active",
       );
@@ -772,14 +782,14 @@ export const decideMarketplaceListing: AggregateDecider<
     }
     case "RemoveListingPhoto": {
       assert(state.listingId !== null, "Listing must be created first.");
-      assert(state.status === "draft", "Listing evidence can only be removed while the listing is a draft.");
+      assert(state.status !== "withdrawn", "Withdrawn listings cannot have evidence removed.");
       const target = state.evidence.find((photo) => photo.photoId === command.photoId && photo.status === "active");
       assert(target, "Listing evidence entry was not found.");
       return [{ type: "marketplace.listing.photo-removed", data: { photoId: target.photoId } }];
     }
     case "ReorderListingPhotos": {
       assert(state.listingId !== null, "Listing must be created first.");
-      assert(state.status === "draft", "Listing evidence can only be reordered while the listing is a draft.");
+      assert(state.status !== "withdrawn", "Withdrawn listings cannot have evidence reordered.");
       const activeIds = activeListingPhotos(state.evidence).map((photo) => photo.photoId);
       const requested = command.orderedPhotoIds.map((id) => normalizeRequiredText(id, "Evidence id is required."));
       assert(requested.length === new Set(requested).size, "Reorder must not repeat an evidence id.");
@@ -980,6 +990,8 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
       return { ...state, status: "paused" };
     case "marketplace.listing.withdrawn":
       return { ...state, status: "withdrawn" };
+    case "marketplace.listing.offer-commitment-recorded":
+      return state;
     default:
       return assertNever(event);
   }

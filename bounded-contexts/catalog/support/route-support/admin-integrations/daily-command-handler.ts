@@ -13,6 +13,7 @@ import {
 } from "./integrations-command-context";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 import { stringValue } from "./integrations-form-values";
+import { editedSnapshotFromFormData } from "../../../features/source-observations/api/catalog-merge-candidate-edit";
 
 type Api = ReturnType<typeof createCatalogRequestApiClient>;
 type RouteContext = CatalogIntegrationsCommandResult["context"];
@@ -36,6 +37,8 @@ export type DailyCommandIntent =
   | "update-merge-candidate"
   | "ignore-merge-candidate"
   | "defer-merge-candidate"
+  | "bulk-promote-merge-candidates"
+  | "bulk-defer-merge-candidates"
   | "start-reapply"
   | "start-replay";
 
@@ -54,6 +57,8 @@ const DAILY_COMMAND_INTENTS = new Set<string>([
   "update-merge-candidate",
   "ignore-merge-candidate",
   "defer-merge-candidate",
+  "bulk-promote-merge-candidates",
+  "bulk-defer-merge-candidates",
   "start-reapply",
   "start-replay",
 ] satisfies DailyCommandIntent[]);
@@ -240,8 +245,50 @@ export async function handleDailyCommand(input: {
         promotionPreviewId: null,
       });
     }
-    case "split-merge-candidate":
     case "update-merge-candidate": {
+      const candidateId = String(formData.get("candidateId") ?? "").trim();
+      if (!candidateId) {
+        return dailyResult(intent, "error", "command-failed", {
+          ...context,
+          selectedObservationIds,
+          promotionPreviewId: null,
+        });
+      }
+
+      // Edit-form path: the operator authored a typed candidate edit. The
+      // embedded base snapshot plus overrides reconstruct the replacement snapshot
+      // the UpdateCatalogMergeCandidate command carries, with a required reason.
+      const editedSnapshot = editedSnapshotFromFormData(formData);
+      if (editedSnapshot) {
+        const reason = String(formData.get("reason") ?? "").trim();
+        if (!reason) {
+          return dailyResult(intent, "error", "reason-required", { ...context, selectedObservationIds });
+        }
+        await api.updateCatalogMergeCandidate(candidateId, { reason, snapshot: editedSnapshot });
+        return dailyResult(intent, "success", "job-queued", {
+          ...context,
+          selectedObservationIds,
+          promotionPreviewId: null,
+        });
+      }
+
+      // Typed command-preview path: the workbench precomputed the update body.
+      const body = mergeCandidateCommandBody(formData);
+      if (!body) {
+        return dailyResult(intent, "error", "command-failed", {
+          ...context,
+          selectedObservationIds,
+          promotionPreviewId: null,
+        });
+      }
+      await api.updateCatalogMergeCandidate(candidateId, body);
+      return dailyResult(intent, "success", "job-queued", {
+        ...context,
+        selectedObservationIds,
+        promotionPreviewId: null,
+      });
+    }
+    case "split-merge-candidate": {
       const candidateId = String(formData.get("candidateId") ?? "").trim();
       const body = mergeCandidateCommandBody(formData);
       if (!candidateId || !body) {
@@ -252,17 +299,44 @@ export async function handleDailyCommand(input: {
         });
       }
 
-      if (intent === "split-merge-candidate") {
-        await api.splitCatalogMergeCandidate(candidateId, body);
-      } else {
-        await api.updateCatalogMergeCandidate(candidateId, body);
-      }
+      await api.splitCatalogMergeCandidate(candidateId, body);
 
       return dailyResult(intent, "success", "job-queued", {
         ...context,
         selectedObservationIds,
         promotionPreviewId: null,
       });
+    }
+    case "bulk-promote-merge-candidates": {
+      // Scope-level promote-all-ready. Only the candidate IDs the read
+      // model classified as ready reach this set, so blocking-conflict resolution
+      // requirements stay intact: has-conflicts / stale / deferred candidates are
+      // never bulk-promoted. Ready candidates carry no blocking conflicts, so no
+      // conflict resolutions are required.
+      const candidateIds = candidateIdList(formData);
+      if (candidateIds.length === 0) {
+        return dailyResult(intent, "error", "command-failed", { ...context, selectedObservationIds });
+      }
+      const reason =
+        String(formData.get("reason") ?? "").trim() || "Bulk promote all ready candidates in the current scope.";
+      for (const candidateId of candidateIds) {
+        await api.promoteCatalogMergeCandidate(candidateId, { reason });
+      }
+      return dailyResult(intent, "success", "job-queued", { ...context, selectedObservationIds });
+    }
+    case "bulk-defer-merge-candidates": {
+      const candidateIds = candidateIdList(formData);
+      const reason = String(formData.get("reason") ?? "").trim();
+      if (!reason) {
+        return dailyResult(intent, "error", "reason-required", { ...context, selectedObservationIds });
+      }
+      if (candidateIds.length === 0) {
+        return dailyResult(intent, "error", "command-failed", { ...context, selectedObservationIds });
+      }
+      for (const candidateId of candidateIds) {
+        await api.deferCatalogMergeCandidate(candidateId, { reason });
+      }
+      return dailyResult(intent, "success", "job-queued", { ...context, selectedObservationIds });
     }
     case "start-reapply":
     case "start-replay": {
@@ -287,6 +361,23 @@ export async function handleDailyCommand(input: {
 
 function hasSelectedImportScope(context: RouteContext): boolean {
   return Boolean(context.providerKey && context.unitKey && context.importScope);
+}
+
+// The bulk review forms submit the candidate IDs to act on as a comma-separated
+// list, deduplicated. The read model partitions candidates by status so the
+// promote form only ever carries `ready` IDs and the defer form the remainder.
+function candidateIdList(formData: FormData): readonly string[] {
+  const raw = String(formData.get("bulkCandidateIds") ?? "");
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const entry of raw.split(",")) {
+    const candidateId = entry.trim();
+    if (candidateId && !seen.has(candidateId)) {
+      seen.add(candidateId);
+      ids.push(candidateId);
+    }
+  }
+  return ids;
 }
 
 function mergeCandidateCommandBody(formData: FormData): Record<string, unknown> | null {

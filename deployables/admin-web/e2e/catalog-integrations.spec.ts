@@ -328,6 +328,26 @@ test.describe.serial("catalog admin integrations", () => {
     const mergeCandidateReviewHeading = page.getByRole("heading", { name: "Merged candidate review" });
     if (await mergeCandidateReviewHeading.count()) {
       await expect(mergeCandidateReviewHeading.first()).toBeVisible({ timeout: 30_000 });
+
+      // The scope-level bulk review toolbar renders above the candidate
+      // table whenever the review surface is present. It offers promote-all-ready,
+      // jump-to-conflicts, and defer-remainder as scope-level actions; the
+      // promote-all form only ever carries `ready` candidate IDs so has-conflicts /
+      // stale / deferred candidates are never bulk-promoted. The bulk forms render
+      // only when the scope has candidates (guarded, since the browser-e2e review
+      // queue can legitimately be empty — same root cause noted above).
+      await expect(page.getByRole("heading", { name: "Scope review actions" }).first()).toBeVisible({
+        timeout: 30_000,
+      });
+      const bulkPromoteForm = page.locator('form[data-catalog-merge-candidate-bulk-promote="true"]');
+      if (await bulkPromoteForm.count()) {
+        await expect(bulkPromoteForm.first()).toBeVisible();
+        await expect(page.getByRole("button", { name: "Promote all ready" }).first()).toBeVisible();
+        await expect(page.getByRole("button", { name: "Defer remainder" }).first()).toBeVisible();
+      } else {
+        await expect(page.getByText("No candidates in this scope yet.").first()).toBeVisible({ timeout: 30_000 });
+      }
+
       const candidateEvidenceTrigger = page
         .getByRole("table", { name: "Merged candidate review" })
         .getByRole("button", { name: "Evidence" });
@@ -339,6 +359,19 @@ test.describe.serial("catalog admin integrations", () => {
           timeout: 30_000,
         });
         await expect(page.getByText(/raw JSON/i)).toHaveCount(0);
+
+        // The candidate edit form renders inline in the review drawer. When
+        // the candidate is editable it exposes typed inputs (promotion intent,
+        // field-value overrides, references) submitted through
+        // update-merge-candidate; when it is not, it explains why in place. Either
+        // way the operator never edits raw JSON.
+        const candidateEditForm = page.locator('form[data-catalog-merge-candidate-edit-form="true"]');
+        if (await candidateEditForm.count()) {
+          await expect(page.getByText("Promotion intent").first()).toBeVisible({ timeout: 30_000 });
+          await expect(page.getByRole("button", { name: "Save candidate edits" }).first()).toBeVisible();
+        } else {
+          await expect(page.getByText("Editing unavailable").first()).toBeVisible({ timeout: 30_000 });
+        }
         await page.keyboard.press("Escape");
       }
     } else {

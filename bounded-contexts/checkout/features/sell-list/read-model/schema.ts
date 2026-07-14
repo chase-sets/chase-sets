@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS checkout_sell_list_line_pages (
   line_id text NOT NULL,
   line_type text NOT NULL,
   offer_id text NULL,
+  listing_id text NULL,
   buyer_account_id text NULL,
   buyer_display_name text NULL,
   offer_price_amount text NULL,

@@ -828,6 +828,7 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockGetOfferMatch.mockResolvedValue({
       offer_id: "off_1",
+      listing_id: "lst_1",
       buyer_account_id: "acc_buyer",
       buyer_display_name: "Collector123",
       price_amount: "40.00",
@@ -853,6 +854,7 @@ describe("checkout web routes: account sell list", () => {
     const form = new URLSearchParams();
     form.set("intent", "add-selected-offer");
     form.set("offerId", "off_1");
+    form.set("listingId", "lst_1");
 
     const response = (await accountSellListAction({
       request: new Request("http://localhost/account/sell-list", {
@@ -868,6 +870,7 @@ describe("checkout web routes: account sell list", () => {
     expect(mockAddSellListLine).toHaveBeenCalledWith({
       lineType: "selected-offer",
       offerId: "off_1",
+      listingId: "lst_1",
       buyerAccountId: "acc_buyer",
       buyerDisplayName: "Collector123",
       offerPriceAmount: "40.00",
@@ -900,6 +903,7 @@ describe("checkout web routes: account sell list", () => {
     const form = new URLSearchParams();
     form.set("intent", "add-selected-offer");
     form.set("offerId", "off_1");
+    form.set("listingId", "lst_1");
     form.set("buyerDisplayName", "Collector123");
     form.set("buyerAccountId", "acc_buyer_private");
     form.set("offerPriceAmount", "40.00");
@@ -925,6 +929,7 @@ describe("checkout web routes: account sell list", () => {
     expect(mockAddGuestSellListLine).toHaveBeenCalledWith(expect.stringMatching(/^anon_/), {
       lineType: "selected-offer",
       offerId: "off_1",
+      listingId: "lst_1",
       buyerAccountId: null,
       buyerDisplayName: "Collector123",
       offerPriceAmount: "40.00",
@@ -964,6 +969,7 @@ describe("checkout web routes: account sell list", () => {
       line_id: "sll_1",
       line_type: "selected-offer",
       offer_id: "off_1",
+      listing_id: "lst_1",
       item_title: "Mewtwo",
       quantity: 1,
     };
@@ -1002,7 +1008,7 @@ describe("checkout web routes: account sell list", () => {
     expect((redirect.sellListReviewPlan.lines as unknown[])[0]).toEqual(
       expect.objectContaining({
         lineId: "sll_1",
-        selectedOffer: { offerId: "off_1", feeQuoteFingerprint: "quote_1" },
+        selectedOffer: { offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
       }),
     );
     expectNoSellerCommitSideEffects();
@@ -1036,6 +1042,7 @@ describe("checkout web routes: account sell list", () => {
             line_id: "sll_1",
             line_type: "selected-offer",
             offer_id: "off_1",
+            listing_id: "lst_1",
             item_title: "Mewtwo",
             quantity: 1,
           },
@@ -1078,6 +1085,7 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockGetOfferMatch.mockResolvedValue({
       offer_id: "off_product_1",
+      listing_id: "lst_product_1",
       product_id: "cat_mewtwo::raw:nm",
       quantity_requested: 2,
     });
@@ -1129,7 +1137,14 @@ describe("checkout web routes: account sell list", () => {
     expect((redirect.sellListReviewPlan.lines as unknown[])[0]).toEqual(
       expect.objectContaining({
         lineId: "sll_product",
-        productOfferTargets: [{ offerId: "off_product_1", feeQuoteFingerprint: "quote_product_1", quantity: 2 }],
+        productOfferTargets: [
+          {
+            offerId: "off_product_1",
+            listingId: "lst_product_1",
+            feeQuoteFingerprint: "quote_product_1",
+            quantity: 2,
+          },
+        ],
         fallbackListing: null,
       }),
     );
@@ -1197,6 +1212,7 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockGetOfferMatch.mockResolvedValue({
       offer_id: "off_product_1",
+      listing_id: "lst_product_1",
       product_id: "cat_mewtwo::raw:nm",
       quantity_requested: 2,
     });
@@ -1297,6 +1313,7 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockGetOfferMatch.mockResolvedValue({
       offer_id: "off_product_1",
+      listing_id: "lst_product_1",
       product_id: "cat_mewtwo::raw:nm",
       quantity_requested: 1,
     });
@@ -1345,7 +1362,14 @@ describe("checkout web routes: account sell list", () => {
     expect((redirect.sellListReviewPlan.lines as unknown[])[0]).toEqual(
       expect.objectContaining({
         lineId: "sll_product",
-        productOfferTargets: [{ offerId: "off_product_1", feeQuoteFingerprint: "quote_product_1", quantity: 1 }],
+        productOfferTargets: [
+          {
+            offerId: "off_product_1",
+            listingId: "lst_product_1",
+            feeQuoteFingerprint: "quote_product_1",
+            quantity: 1,
+          },
+        ],
         fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
       }),
     );
@@ -1369,6 +1393,7 @@ describe("checkout web routes: account sell list", () => {
       line_id: "sll_1",
       line_type: "selected-offer",
       offer_id: "off_1",
+      listing_id: "lst_1",
       item_title: "Mewtwo",
       quantity: 1,
     };

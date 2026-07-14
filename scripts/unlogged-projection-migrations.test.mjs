@@ -47,7 +47,10 @@ const durableTables = [
 ];
 
 const catalogExclusions = new Map([
-  ["catalog_items", "Canonical Catalog authoring state without a declared projection reset contract"],
+  [
+    "catalog_items",
+    "Event-projected; FK-coupled to API-computed catalog_resolved_product_contents; component lacks a complete crash-rebuild contract",
+  ],
   [
     "catalog_item_display_identity_recompute_work",
     "Operational recompute work queue without a declared projection reset contract",

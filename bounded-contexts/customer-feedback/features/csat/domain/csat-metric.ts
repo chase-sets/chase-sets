@@ -10,7 +10,7 @@
  *   - the hard rule that other instrument kinds and incompatible question
  *     versions are NEVER mixed into the numerator or denominator.
  *
- * feeds projected submissions/presentations into these pure functions; the
+ * The analytics slice feeds projected submissions/presentations into these pure functions; the
  * exclusion of non-CSAT data is enforced structurally, not by convention.
  */
 import type { SurveyVersionId } from "./survey";

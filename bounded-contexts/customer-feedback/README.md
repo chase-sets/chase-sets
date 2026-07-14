@@ -9,7 +9,7 @@ It is the start-gate context for the launch-ready CSAT capability (epic #5144) a
 supersedes the acknowledged mixed-responsibility `platform-feedback` slice inside
 Platform Operations.
 
-This slice (#5146) establishes the context and its **versioned CSAT contract**.
+The foundation establishes the context and its **versioned CSAT contract**.
 Source contexts publish completed Outcome Facts; Customer Feedback consumes them
 and decides whether to issue an invitation. Customer Feedback never reaches into
 another context's aggregate or database, and no downstream context imports its
@@ -24,13 +24,15 @@ internals.
 - Sampling-policy / cohort metadata.
 - The invitation shape, its authoritative provenance, and its versioned lifecycle
   event contracts.
-- The CSAT and response-rate calculation contract and their operating windows.
+- The CSAT and response-rate calculation contract, recording flow, replayable
+  analytics facts, operating windows, distributions, trends, and data-quality
+  states.
 - The migrate-not-reset legacy classification and the replay-compatibility base.
 
 ## Does Not Own
 
-- Issuing invitations with eligibility/sampling/expiry (#5147).
-- Recording presentation/dismissal/submission and projecting CSAT (#5148).
+- Composing the survey UI. Customer Feedback owns the server-side recording and
+  analytics behavior; deployables only compose those surfaces.
 - The closed-loop feedback case lifecycle and operator UI (#5149/#5153/#5154).
 - The source-context outcomes themselves (checkout, fulfillment, settlement, …):
   those contexts own and publish their Outcome Facts.
@@ -43,9 +45,9 @@ Customer Feedback terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Core Aggregates and Process Managers
 
-- CSAT Invitation (aggregate; issued by #5147, lifecycle recorded by #5148). This
-  gate defines its versioned event contracts; the decider/evolver land with those
-  leaves.
+- CSAT Invitation (aggregate): redeems an authoritative Outcome Fact, records
+  eligibility and a sampling decision, then governs issuance, presentation,
+  dismissal, single-use submission, expiry, suppression, and revocation.
 
 ## Incoming Dependencies
 
@@ -56,14 +58,23 @@ Customer Feedback terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Outgoing Integration Events
 
+- `customer-feedback.invitation.eligible`
 - `customer-feedback.invitation.issued`
 - `customer-feedback.invitation.presented`
 - `customer-feedback.survey.submitted`
 - `customer-feedback.invitation.dismissed`
 - `customer-feedback.invitation.expired`
+- `customer-feedback.invitation.suppressed`
+- `customer-feedback.invitation.revoked`
 
-(Event type contracts are defined at this gate; the aggregate that emits them is
-built by #5147/#5148.)
+Every native lifecycle event carries `eventSchemaVersion: 1`. Issuance includes an
+opaque public reference and the complete persisted sampling decision plus policy
+schema version.
+
+`customer-feedback.sampling.cooldown-claimed` is an internal versioned policy
+fact. It is atomically appended with an issued invitation on a deterministic
+per-subject/workflow stream, so concurrent outcome delivery cannot bypass the
+cooldown.
 
 ## Invariants
 
@@ -82,6 +93,70 @@ built by #5147/#5148.)
    reset).
 6. Customer Feedback never reaches into another context's aggregate or database,
    and no downstream context imports Customer Feedback internals.
+7. `issuanceEnabled` is the sampling-policy kill switch. `sampleRate: 0` remains
+   an explicit sampling configuration and never changes the meaning of past
+   events.
+8. Submission is single-use. An identical retry is a no-op; a changed retry is a
+   deterministic conflict. Dismissal records prompt behavior but does not revoke
+   an otherwise valid invitation before expiry.
+9. Invitation issuance and its cooldown claim commit atomically across streams;
+   a concurrency loser reloads the claim and is suppressed deterministically.
+10. Outcome code, owning source context, source entity type, and subject account id
+    are validated before eligibility is written. Routes and arbitrary entity
+    labels never enter the invitation stream.
+
+## Invitation Projection
+
+`customer-feedback-csat-invitation-projection` is the context's first query
+projection. It owns `customer_feedback_csat_invitations`, is replay-safe through
+stream-version guards, and supports account-scoped lookup by opaque public
+reference plus per-subject/workflow cooldown decisions. The projection is listed
+in the source-context wake registry and the push-first migration inventory.
+
+## Recording and Analytics Projection
+
+Presentation, dismissal, and submission are recorded through account-scoped
+server operations that accept the opaque public reference and load the
+authoritative survey identity from the invitation projection. Browser inputs
+cannot restate workflow, outcome, account provenance, or survey identity.
+Presentation and dismissal are idempotent, and a submission is single-use with
+an identical retry treated as a no-op by the invitation aggregate.
+
+`customer-feedback-csat-analytics-projection` owns
+`customer_feedback_csat_analytics_facts`. It stores one row per invitation and an
+independent timestamp for every lifecycle fact. `COALESCE`-based upserts make
+duplicate delivery harmless and allow out-of-order lifecycle facts to converge;
+there are no mutable event counters and no client-side counting.
+
+Analytics use UTC and half-open `[from, to)` ranges. A day begins at 00:00 UTC;
+a week begins Monday at 00:00 UTC. Trailing windows are the exact 7 or 30 days
+ending at `asOf`, so daylight-saving changes do not add or remove an hour. CSAT
+groups submissions by `submittedAt`. Response rate is presentation-cohort based:
+the denominator is unique invitations presented in the interval, and the
+numerator is those same invitations with a valid submission before the interval
+end. This keeps a submission for an invitation presented before the interval out
+of the interval's numerator and prevents rates above 100%.
+
+Native submissions without a presentation are rejected by the aggregate. During
+out-of-order projection delivery, a temporarily observed submission without its
+presentation is excluded from the response numerator and reported as a
+denominator anomaly until replay converges. Legacy generic feedback and any
+unregistered or non-CSAT instrument are excluded structurally.
+
+Filtered analytics are bounded to 366 days and support deterministic UTC
+daily/weekly keyset pagination by bucket start. Supported dimensions are exact
+survey version, workflow outcome, customer role, and persisted sampling cohort.
+Device and delivery channel are intentionally absent until a lifecycle contract
+legitimately records them. Query results expose zero-denominator,
+insufficient-sample, incomplete, and stale availability states, plus projection
+lag/rejected-event inputs from the generic projection runtime, denominator
+anomalies, and invitation-to-submission latency.
+
+Partial composite indexes for each lifecycle timestamp begin with the compatible
+survey identity and let PostgreSQL combine the bounded lifecycle predicates with
+bitmap-OR plans; the dimension index narrows workflow, role, and cohort filters.
+The query returns only invitation-unique facts and sorts by invitation id before
+bucket aggregation, so planner choice cannot change output order.
 
 ## Tests
 

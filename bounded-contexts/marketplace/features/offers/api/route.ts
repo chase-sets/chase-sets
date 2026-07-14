@@ -9,6 +9,7 @@ import { parseOptionalTypedIdBoundary, parseTypedIdBoundary } from "@chase-sets/
 import type { MarketplaceApiEnv } from "../../../api";
 import {
   MarketplaceOfferAbuseControlError,
+  MarketplaceOfferAcceptanceReadinessError,
   MarketplaceOfferFeeQuoteStaleError,
   type MarketplaceOfferServices,
 } from "./runtime";
@@ -98,6 +99,19 @@ function validationError(
           code: "fee_quote_stale",
           message: error.message,
           currentQuote: error.currentQuote,
+        },
+      },
+      409,
+    );
+  }
+
+  if (error instanceof MarketplaceOfferAcceptanceReadinessError) {
+    return c.json(
+      {
+        error: {
+          code: error.code,
+          message: error.message,
+          details: error.details,
         },
       },
       409,
@@ -429,6 +443,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
       const quote = await services.previewOfferAcceptanceTerms({
         offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
         sellerAccountId: access.actor.accountId as AccountId,
+        listingId: parseTypedIdBoundary(c.req.query("listingId") ?? "", "lst", "listingId"),
       });
 
       return c.json(quote);
@@ -478,17 +493,38 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
         {
           offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
           sellerAccountId: access.actor.accountId as AccountId,
+          listingId: parseTypedIdBoundary(
+            body && typeof body === "object" && "listingId" in body ? String(body.listingId ?? "") : "",
+            "lst",
+            "listingId",
+          ),
           feeQuoteFingerprint:
             body && typeof body === "object" && "feeQuoteFingerprint" in body
               ? String(body.feeQuoteFingerprint ?? "")
               : null,
           sourceActionKey:
             body && typeof body === "object" && "sourceActionKey" in body ? String(body.sourceActionKey ?? "") : null,
+          acceptanceBatchId:
+            body && typeof body === "object" && "acceptanceBatchId" in body
+              ? String(body.acceptanceBatchId ?? "")
+              : null,
+          acceptanceBatchSize:
+            body && typeof body === "object" && "acceptanceBatchSize" in body ? Number(body.acceptanceBatchSize) : null,
         },
         context,
       );
 
-      return c.json({ id: result.offerId, version: result.version, status: "accepted" }, 201);
+      return c.json(
+        {
+          id: result.offerId,
+          listingId: result.listingId,
+          inventoryItemId: result.inventoryItemId,
+          evidenceSnapshotHash: result.listingEvidenceSnapshot.snapshotHash,
+          version: result.version,
+          status: "accepted",
+        },
+        201,
+      );
     } catch (error) {
       return validationError(c, error);
     }

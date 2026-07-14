@@ -173,6 +173,7 @@ describe("marketplace offer MCP handlers", () => {
         mcpRequest({
           accountId: "acc_1",
           offerId: "off_1",
+          listingId: "lst_1",
           feeQuoteFingerprint: "20.00|1.00|19.00|cts_default|",
           sourceActionKey: "mcp:accept:off_1",
         }),
@@ -186,6 +187,7 @@ describe("marketplace offer MCP handlers", () => {
       {
         offerId: "off_1",
         sellerAccountId: "acc_1",
+        listingId: "lst_1",
         feeQuoteFingerprint: "20.00|1.00|19.00|cts_default|",
         sourceActionKey: "mcp:accept:off_1",
       },

@@ -115,7 +115,11 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
 
       await projectionDb.query(
         `UPDATE catalog_items
-         SET category_ids = category_ids || $2::jsonb, updated_at = $3
+         SET category_ids = CASE
+               WHEN category_ids @> $2::jsonb THEN category_ids
+               ELSE category_ids || $2::jsonb
+             END,
+             updated_at = $3
          WHERE catalog_item_id = $1`,
         [itemId, JSON.stringify([categoryId]), event.timing.recordedAt],
       );

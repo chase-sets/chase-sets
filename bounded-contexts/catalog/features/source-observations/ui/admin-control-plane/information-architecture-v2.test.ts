@@ -22,12 +22,13 @@ const capabilityMap: readonly CatalogControlPlaneCapabilityMapEntry[] = CATALOG_
 
 // The complete inventory of the current (deprecated) form intents this blueprint
 // replaces, sourced directly from the four command handlers:
-//   daily-command-handler.ts      (16)
+//   daily-command-handler.ts      (18)
 //   alias-review-command-handler  (5)
 //   provider-setup-command-handler(3)
 //   governance-command-handler    (3)
-// The 2026-07-03 review estimated ~31; the live handlers carry 27. Every one must
-// map to exactly one v2 action.
+// The 2026-07-03 review estimated ~31; the live handlers carry 29. Every one must
+// map to exactly one v2 action. The two scope-level bulk candidate intents
+// fold into the same candidate.promote / candidate.defer entity verbs.
 const CURRENT_FORM_INTENTS = [
   // daily
   "start-catalog-sync",
@@ -44,6 +45,8 @@ const CURRENT_FORM_INTENTS = [
   "update-merge-candidate",
   "ignore-merge-candidate",
   "defer-merge-candidate",
+  "bulk-promote-merge-candidates",
+  "bulk-defer-merge-candidates",
   "start-reapply",
   "start-replay",
   // alias-review
@@ -185,7 +188,7 @@ describe("Catalog Control Plane v2 — action vocabulary carries entity, permiss
 });
 
 describe("Catalog Control Plane v2 — every current intent maps to exactly one action", () => {
-  it("covers all 27 current form intents with no orphans", () => {
+  it("covers all 29 current form intents with no orphans", () => {
     for (const intent of CURRENT_FORM_INTENTS) {
       const action = catalogControlPlaneActionByLegacyIntent(intent);
       expect(action, `intent ${intent} has no v2 action`).toBeDefined();

@@ -1,0 +1,27 @@
+{
+  "name": "@chase-sets/collections",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:watch": "vitest --config ./tests/vitest.config.mjs",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs"
+  },
+  "exports": {
+    ".": "./index.ts",
+    "./context": "./context.json",
+    "./server": "./server.ts"
+  },
+  "types": "./index.ts",
+  "dependencies": {
+    "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/event-core": "workspace:*",
+    "@chase-sets/event-core-postgres": "workspace:*",
+    "@chase-sets/platform-runtime": "workspace:*",
+    "@chase-sets/primitives": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.4"
+  }
+}

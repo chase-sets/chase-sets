@@ -1,78 +1,135 @@
-/**
- * CSAT invitation identity, provenance, and versioned lifecycle event contracts.
- *
- * The invitation is the server-issued token that ties a presented survey back to
- * a real, sampled outcome fact. Its provenance is authoritative: it redeems a
- * source-context outcome fact rather than trusting client-supplied workflow or
- * entity references.
- *
- * This module defines the shape (`CsatInvitation`) and the VERSIONED lifecycle
- * event contracts. The aggregate that emits them is implemented downstream:
- *   - issues invitations (eligibility, sampling, expiry, provenance);
- *   - records presentation / dismissal / submission and projects CSAT.
- * They build their decider/evolver against these contracts so event shapes are
- * fixed at the gate and stay replay-stable.
- *
- * Versioning convention (this codebase has no event envelope version field): every
- * native `customer-feedback.*` event carries an explicit `eventSchemaVersion` in
- * its `data`, and all future fields are added as optional so stored events keep
- * decoding. See `../domain/replay-compat`.
- */
 import type { DomainEvent } from "@chase-sets/event-core";
-import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
+import type { InternalId, TypedUlid } from "@chase-sets/primitives/typed-ids";
+import type { CsatSamplingDecision } from "./sampling";
 import type { CsatWorkflowOutcomeCode } from "./workflow-outcomes";
-import type { SurveyVersionId } from "./survey";
+import type { CsatRatingValue, SurveyVersionId } from "./survey";
 import type { OutcomeSubjectKind, OutcomeSubjectRef } from "./outcome-fact";
 
 export type CsatInvitationId = TypedUlid<"csatinv">;
 
-/** Current native-event schema version for the customer-feedback stream. */
+/** Unguessable redemption authority exposed to browsers instead of the aggregate id. */
+export type CsatInvitationPublicReference = InternalId<"csatref">;
+
+/** Outcome-specific source entity allow-list for invitation provenance. */
+export const csatInvitationSourceEntityTypes = {
+  "checkout.completed": ["checkout-session"],
+  "checkout.recovered": ["checkout-session"],
+  "order.delivered": ["shipment"],
+  "return.resolved": ["return"],
+  "support.request-resolved": ["support-request"],
+  "reputation.review-received": ["review"],
+  "listing.published": ["listing"],
+  "offer.accepted": ["offer"],
+  "inventory.item-adjusted": ["inventory-item"],
+  "payout.completed": ["payout"],
+  "discovery.search-completed": ["search-session"],
+  "registration.completed": ["account"],
+  "authentication.completed": ["session"],
+  "onboarding.completed": ["account"],
+} as const satisfies Record<CsatWorkflowOutcomeCode, readonly string[]>;
+
+export function isCsatInvitationSourceEntityType(code: CsatWorkflowOutcomeCode, entityType: string): boolean {
+  return (csatInvitationSourceEntityTypes[code] as readonly string[]).includes(entityType);
+}
+
 export const customerFeedbackEventSchemaVersion = 1 as const;
 export type CustomerFeedbackEventSchemaVersion = typeof customerFeedbackEventSchemaVersion;
 
-/**
- * Server-issued provenance. Every field is derived from the redeemed outcome fact,
- * never from the client. `outcomeIdempotencyKey` ties the invitation back to the
- * exact fact that authorized it (dedupe + audit).
- */
+/** Server-authoritative provenance copied only from a redeemed outcome fact. */
 export type CsatInvitationProvenance = Readonly<{
   outcomeCode: CsatWorkflowOutcomeCode;
   sourceContext: string;
   subject: OutcomeSubjectRef;
+  outcomeOccurredAt: string;
   outcomeIdempotencyKey: string;
+  correlationId: string | null;
   samplingCohortKey: string;
 }>;
 
-export type CsatInvitationLifecycleState = "issued" | "presented" | "submitted" | "dismissed" | "expired";
+export const csatInvitationLifecycleStates = [
+  "eligible",
+  "issued",
+  "presented",
+  "submitted",
+  "dismissed",
+  "expired",
+  "suppressed",
+  "revoked",
+] as const;
+export type CsatInvitationLifecycleState = (typeof csatInvitationLifecycleStates)[number];
 
-/** The projected invitation read-model shape ( owns the projection). */
+export const csatSuppressionReasons = [
+  "issuance-disabled",
+  "sampled-out",
+  "subject-cooldown",
+  "subject-ineligible",
+  "consent-revoked",
+  "automated-or-test-traffic",
+] as const;
+export type CsatSuppressionReason = (typeof csatSuppressionReasons)[number];
+
+/** Safe operational diagnostics. Never include comments, tokens, or source entity identifiers. */
+export type CsatSuppressionDiagnostic = Readonly<{
+  reason: CsatSuppressionReason;
+  outcomeCode: CsatWorkflowOutcomeCode;
+  policyId: string;
+  policySchemaVersion: number;
+  cohortKey: string;
+  cooldownUntil: string | null;
+}>;
+
+export const csatRevocationReasons = ["policy-revoked", "consent-revoked", "account-ineligible"] as const;
+export type CsatRevocationReason = (typeof csatRevocationReasons)[number];
+
+/** Persisted aggregate shape; account-scoped public queries omit source entity identifiers. */
 export type CsatInvitation = Readonly<{
   invitationId: CsatInvitationId;
+  publicReference: CsatInvitationPublicReference | null;
   surveyVersion: SurveyVersionId;
   provenance: CsatInvitationProvenance;
   subjectAccountId: string;
   subjectKind: OutcomeSubjectKind;
   state: CsatInvitationLifecycleState;
-  issuedAt: string;
-  expiresAt: string;
+  samplingDecision: CsatSamplingDecision | null;
+  samplingPolicySchemaVersion: number | null;
+  eligibleAt: string;
+  issuedAt: string | null;
+  expiresAt: string | null;
   presentedAt: string | null;
   submittedAt: string | null;
   dismissedAt: string | null;
   expiredAt: string | null;
+  suppressedAt: string | null;
+  revokedAt: string | null;
+  revocationReason: CsatRevocationReason | null;
+  suppressionDiagnostic: CsatSuppressionDiagnostic | null;
 }>;
 
 type Versioned<TData> = TData & Readonly<{ eventSchemaVersion: CustomerFeedbackEventSchemaVersion }>;
 
-// --- Versioned invitation lifecycle event contracts (emitted by /) ---
-
-export type CsatInvitationIssuedEvent = DomainEvent<
-  "customer-feedback.invitation.issued",
+export type CsatInvitationEligibleEvent = DomainEvent<
+  "customer-feedback.invitation.eligible",
   Versioned<{
     invitationId: CsatInvitationId;
     surveyVersion: SurveyVersionId;
     provenance: CsatInvitationProvenance;
     subjectAccountId: string;
     subjectKind: OutcomeSubjectKind;
+    eligibleAt: string;
+  }>
+>;
+
+export type CsatInvitationIssuedEvent = DomainEvent<
+  "customer-feedback.invitation.issued",
+  Versioned<{
+    invitationId: CsatInvitationId;
+    publicReference: CsatInvitationPublicReference;
+    surveyVersion: SurveyVersionId;
+    provenance: CsatInvitationProvenance;
+    subjectAccountId: string;
+    subjectKind: OutcomeSubjectKind;
+    samplingDecision: CsatSamplingDecision;
+    samplingPolicySchemaVersion: number;
     issuedAt: string;
     expiresAt: string;
   }>
@@ -88,11 +145,12 @@ export type CsatSurveySubmittedEvent = DomainEvent<
   Versioned<{
     invitationId: CsatInvitationId;
     surveyVersion: SurveyVersionId;
-    rating: 1 | 2 | 3 | 4 | 5;
+    rating: CsatRatingValue;
     comment: string | null;
     followUpConsent: boolean;
     followUpConsentVersion: string;
     followUpConsentAt: string | null;
+    submissionIdempotencyKey: string;
     submittedAt: string;
   }>
 >;
@@ -107,20 +165,39 @@ export type CsatInvitationExpiredEvent = DomainEvent<
   Versioned<{ invitationId: CsatInvitationId; expiredAt: string }>
 >;
 
-/** The complete native invitation-lifecycle event union for the context. */
+export type CsatInvitationSuppressedEvent = DomainEvent<
+  "customer-feedback.invitation.suppressed",
+  Versioned<{
+    invitationId: CsatInvitationId;
+    samplingDecision: CsatSamplingDecision;
+    diagnostic: CsatSuppressionDiagnostic;
+    suppressedAt: string;
+  }>
+>;
+
+export type CsatInvitationRevokedEvent = DomainEvent<
+  "customer-feedback.invitation.revoked",
+  Versioned<{ invitationId: CsatInvitationId; reason: CsatRevocationReason; revokedAt: string }>
+>;
+
 export type CustomerFeedbackInvitationEvent =
+  | CsatInvitationEligibleEvent
   | CsatInvitationIssuedEvent
   | CsatInvitationPresentedEvent
   | CsatSurveySubmittedEvent
   | CsatInvitationDismissedEvent
-  | CsatInvitationExpiredEvent;
+  | CsatInvitationExpiredEvent
+  | CsatInvitationSuppressedEvent
+  | CsatInvitationRevokedEvent;
 
-/** All native invitation-lifecycle event type strings (for subscription wiring). */
 export const customerFeedbackInvitationEventTypes = [
+  "customer-feedback.invitation.eligible",
   "customer-feedback.invitation.issued",
   "customer-feedback.invitation.presented",
   "customer-feedback.survey.submitted",
   "customer-feedback.invitation.dismissed",
   "customer-feedback.invitation.expired",
+  "customer-feedback.invitation.suppressed",
+  "customer-feedback.invitation.revoked",
 ] as const;
 export type CustomerFeedbackInvitationEventType = (typeof customerFeedbackInvitationEventTypes)[number];

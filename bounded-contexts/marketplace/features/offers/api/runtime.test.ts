@@ -1,14 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type {
-  AppendToStreamInput,
-  GlobalPosition,
-  ReadAllInput,
-  ReadStreamInput,
-  StoredEvent,
-} from "@chase-sets/event-core/storage";
-import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import { createMarketplaceOfferRuntime } from "./runtime";
 import { MarketplaceOfferAbuseControlError } from "../domain/offer-abuse-policy";
 
@@ -313,6 +306,7 @@ describe("marketplace offer runtime", () => {
   });
 
   it("keeps offer acceptance gated by matching active supply", async () => {
+    const { eventStore } = createInMemoryEventStore();
     const db = {
       query: vi.fn(async () => ({
         rows: [
@@ -351,13 +345,32 @@ describe("marketplace offer runtime", () => {
     });
     const services = createMarketplaceOfferRuntime({
       db,
-      eventStore: {
-        appendToStream: vi.fn(async () => []),
-        readStream: vi.fn(async () => []),
-        readAll: vi.fn(async () => []),
-      } satisfies EventStore,
+      eventStore,
       checkpointStore: {} as never,
       commercialTermsResolver: commercialTermsResolver as never,
+    });
+    const context = {
+      tenantId: "tnt_marketplace" as never,
+      audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+    };
+    await seedActiveListing(eventStore, context);
+    await services.commandHandler({
+      streamId: "marketplace.offer-off_1",
+      command: {
+        type: "SubmitOffer",
+        offerId: "off_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        catalogItemId: "cat_charizard" as never,
+        productId: "cat_charizard::" as never,
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
+        priceAmount: "350.00",
+        quantityRequested: 1,
+      },
+      context,
     });
 
     await expect(
@@ -365,9 +378,10 @@ describe("marketplace offer runtime", () => {
         {
           offerId: "off_1" as never,
           sellerAccountId: "acc_seller" as never,
+          listingId: "lst_1",
           feeQuoteFingerprint: "quote",
         },
-        {} as never,
+        context,
       ),
     ).rejects.toThrow("Seller does not have enough active supply to accept this offer.");
     expect(commercialTermsResolver).not.toHaveBeenCalled();
@@ -418,11 +432,69 @@ describe("marketplace offer runtime", () => {
         {
           offerId: "off_1" as never,
           sellerAccountId: "acc_same" as never,
+          listingId: "lst_1",
           feeQuoteFingerprint: "quote",
         },
         {} as never,
       ),
     ).rejects.toThrow("Accounts cannot accept their own offers.");
+    expect(resolveListingTerms).not.toHaveBeenCalled();
+  });
+
+  it("rejects an exact Listing whose evidence does not satisfy the acceptance policy", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = { query: vi.fn(async () => ({ rows: [acceptedOfferMatch] })) };
+    const resolveListingTerms = vi.fn(async () => {
+      throw new Error("Terms should not be quoted for incomplete Listing Evidence.");
+    });
+    const services = createMarketplaceOfferRuntime({
+      db,
+      eventStore,
+      checkpointStore: {} as never,
+      commercialTermsResolver: { resolveListingTerms } as never,
+      listingEvidencePolicyEvaluator: {
+        evaluate: vi.fn(async () => ({
+          ...noEvidenceRequirementsEvaluation,
+          matchedRuleIds: ["minimum-evidence"],
+          requirements: { ...noEvidenceRequirementsEvaluation.requirements, minimumPhotoCount: 1 },
+        })),
+      },
+    });
+    const context = {
+      tenantId: "tnt_marketplace" as never,
+      audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+    };
+    await seedActiveListing(eventStore, context);
+    await services.commandHandler({
+      streamId: "marketplace.offer-off_1",
+      command: {
+        type: "SubmitOffer",
+        offerId: "off_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        catalogItemId: "cat_charizard" as never,
+        productId: "cat_charizard::" as never,
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
+        priceAmount: "350.00",
+        quantityRequested: 1,
+      },
+      context,
+    });
+
+    await expect(
+      services.acceptOffer(
+        {
+          offerId: "off_1" as never,
+          sellerAccountId: "acc_seller" as never,
+          listingId: "lst_1",
+          feeQuoteFingerprint: "quote",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "listing_evidence_incomplete" });
     expect(resolveListingTerms).not.toHaveBeenCalled();
   });
 
@@ -530,22 +602,52 @@ describe("marketplace offer runtime", () => {
       {
         offerId: "off_1" as never,
         sellerAccountId: "acc_seller" as never,
+        listingId: "lst_1",
         feeQuoteFingerprint: "350.00|17.50|332.50|500|sch_standard|",
       },
       context,
     );
+    const listingEvents = await eventStore.readStream({ streamId: "marketplace.listing-lst_1" });
+    expect(listingEvents.slice(-2).map((event) => event.eventType)).toEqual([
+      "marketplace.listing.evidence-requirements-refreshed",
+      "marketplace.listing.offer-commitment-recorded",
+    ]);
+    const offerEvents = await eventStore.readStream({ streamId: "marketplace.offer-off_1" });
+    expect(offerEvents.at(-1)).toMatchObject({
+      eventType: "marketplace.offer.accepted",
+      payload: {
+        listingId: "lst_1",
+        inventoryItemId: "inv_1",
+        listingVersion: 3,
+        listingEvidencePolicyHash: "sha256:policy",
+        listingEvidenceSnapshot: { snapshotHash: first.listingEvidenceSnapshot.snapshotHash },
+      },
+    });
     vi.mocked(db.query).mockResolvedValue({ rows: [] });
     const retry = await services.acceptOffer(
       {
         offerId: "off_1" as never,
         sellerAccountId: "acc_seller" as never,
+        listingId: "lst_1",
         feeQuoteFingerprint: "350.00|17.50|332.50|500|sch_standard|",
       },
       context,
     );
 
-    expect(first).toEqual({ offerId: "off_1", version: 2 });
-    expect(retry).toEqual({ offerId: "off_1", version: 2 });
+    expect(first).toMatchObject({ offerId: "off_1", listingId: "lst_1", inventoryItemId: "inv_1", version: 2 });
+    expect(retry).toEqual(first);
+    expect(first.listingEvidenceSnapshot.snapshotHash).toMatch(/^sha256:/);
+    await expect(
+      services.acceptOffer(
+        {
+          offerId: "off_1" as never,
+          sellerAccountId: "acc_seller" as never,
+          listingId: "lst_other",
+          feeQuoteFingerprint: "350.00|17.50|332.50|500|sch_standard|",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "offer_already_accepted" });
     expect(resolveListingTerms).toHaveBeenCalledTimes(1);
   });
 
@@ -602,11 +704,12 @@ describe("marketplace offer runtime", () => {
         {
           offerId: "off_1" as never,
           sellerAccountId: "acc_seller" as never,
+          listingId: "lst_1",
           feeQuoteFingerprint: "unused",
         },
         context,
       ),
-    ).rejects.toThrow("Listing evidence requirements are not met.");
+    ).rejects.toMatchObject({ code: "listing_evidence_incomplete" });
     expect(listingEvidencePolicyEvaluator.evaluate).toHaveBeenCalledOnce();
     expect(resolveListingTerms).not.toHaveBeenCalled();
   });

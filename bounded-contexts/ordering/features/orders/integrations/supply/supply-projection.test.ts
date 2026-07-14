@@ -40,6 +40,9 @@ type AcceptedOfferInputRow = {
   offer_id: string;
   buyer_account_id: string;
   seller_account_id: string;
+  listing_id: string;
+  inventory_item_id: string;
+  listing_version: number;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string;
@@ -56,6 +59,11 @@ type AcceptedOfferInputRow = {
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string;
+  fee_quote_fingerprint: string;
+  listing_evidence_policy_id: string | null;
+  listing_evidence_policy_version: number | null;
+  listing_evidence_policy_hash: string;
+  listing_evidence_snapshot: string;
   quantity_requested: number;
   shipping_destination_snapshot: string;
   accepted_at: string;
@@ -125,28 +133,36 @@ class ProjectionDb implements PgQueryable {
         offer_id: String(values[0]),
         buyer_account_id: String(values[1]),
         seller_account_id: String(values[2]),
-        catalog_catalog_item_id: String(values[3]),
-        product_id: String(values[4]),
-        item_title: String(values[5]),
-        item_subtitle: values[6] === null ? null : String(values[6]),
-        selected_options: String(values[7]),
-        product_summary: values[8] === null ? null : String(values[8]),
-        price_amount: String(values[9]),
-        marketplace_sales_fee_percentage_bps: Number(values[10]),
-        marketplace_sales_fee_fixed_amount: String(values[11]),
-        marketplace_sales_fee_cap_amount: values[12] === null ? null : String(values[12]),
-        marketplace_sales_fee_unit_amount: String(values[13]),
-        seller_net_unit_amount: String(values[14]),
-        shipping_allowance_percentage_bps: Number(values[15]),
-        terms_schedule_id: values[16] === null ? null : String(values[16]),
-        terms_agreement_id: values[17] === null ? null : String(values[17]),
-        terms_resolved_at: String(values[18]),
-        quantity_requested: Number(values[19]),
-        shipping_destination_snapshot: String(values[20]),
-        accepted_at: String(values[21]),
-        acceptance_batch_id: values[22] === null ? null : String(values[22]),
-        acceptance_batch_size: values[23] === null ? null : Number(values[23]),
-        updated_at: String(values[24]),
+        listing_id: String(values[3]),
+        inventory_item_id: String(values[4]),
+        listing_version: Number(values[5]),
+        catalog_catalog_item_id: String(values[6]),
+        product_id: String(values[7]),
+        item_title: String(values[8]),
+        item_subtitle: values[9] === null ? null : String(values[9]),
+        selected_options: String(values[10]),
+        product_summary: values[11] === null ? null : String(values[11]),
+        price_amount: String(values[12]),
+        marketplace_sales_fee_percentage_bps: Number(values[13]),
+        marketplace_sales_fee_fixed_amount: String(values[14]),
+        marketplace_sales_fee_cap_amount: values[15] === null ? null : String(values[15]),
+        marketplace_sales_fee_unit_amount: String(values[16]),
+        seller_net_unit_amount: String(values[17]),
+        shipping_allowance_percentage_bps: Number(values[18]),
+        terms_schedule_id: values[19] === null ? null : String(values[19]),
+        terms_agreement_id: values[20] === null ? null : String(values[20]),
+        terms_resolved_at: String(values[21]),
+        fee_quote_fingerprint: String(values[22]),
+        listing_evidence_policy_id: values[23] === null ? null : String(values[23]),
+        listing_evidence_policy_version: values[24] === null ? null : Number(values[24]),
+        listing_evidence_policy_hash: String(values[25]),
+        listing_evidence_snapshot: String(values[26]),
+        quantity_requested: Number(values[27]),
+        shipping_destination_snapshot: String(values[28]),
+        accepted_at: String(values[29]),
+        acceptance_batch_id: values[30] === null ? null : String(values[30]),
+        acceptance_batch_size: values[31] === null ? null : Number(values[31]),
+        updated_at: String(values[32]),
       };
       this.acceptedOffers.set(row.offer_id, row);
       return { rows: [], rowCount: 1 };
@@ -228,6 +244,9 @@ function offerAcceptedEvent(overrides: Partial<Record<string, unknown>> = {}) {
     offerId: "off_1",
     buyerAccountId: "acc_buyer",
     sellerAccountId: "acc_seller",
+    listingId: "lst_1",
+    inventoryItemId: "inv_1",
+    listingVersion: 3,
     catalogItemId: "cat_1",
     productId: "prd_1",
     itemTitle: "Charizard",
@@ -258,6 +277,16 @@ function offerAcceptedEvent(overrides: Partial<Record<string, unknown>> = {}) {
     termsAgreementId: null,
     termsResolvedAt: "2026-05-09T00:01:00.000Z",
     feeQuoteFingerprint: "quote_1",
+    listingEvidencePolicyId: "pol_1",
+    listingEvidencePolicyVersion: 2,
+    listingEvidencePolicyHash: "sha256:policy",
+    listingEvidenceSnapshot: {
+      schemaVersion: 1,
+      policyHash: "sha256:policy",
+      snapshotHash: "sha256:evidence",
+      createdAt: "2026-05-09T00:02:00.000Z",
+      evidence: [],
+    },
     acceptanceBatchId: null,
     acceptanceBatchSize: null,
     ...overrides,
@@ -351,19 +380,25 @@ describe("ordering marketplace supply projection", () => {
       offer_id: "off_1",
       buyer_account_id: "acc_buyer",
       seller_account_id: "acc_seller",
+      listing_id: "lst_1",
+      inventory_item_id: "inv_1",
       price_amount: "120.00",
       quantity_requested: 1,
       terms_schedule_id: "terms_standard",
+      listing_evidence_policy_hash: "sha256:policy",
     });
     expect(onOfferAccepted).toHaveBeenCalledWith(
       expect.objectContaining({
         offerId: "off_1",
         buyerAccountId: "acc_buyer",
         sellerAccountId: "acc_seller",
+        listingId: "lst_1",
+        inventoryItemId: "inv_1",
         priceAmount: "120.00",
         marketplaceSalesFeeUnitAmount: "6.00",
         sellerNetUnitAmount: "114.00",
         quantityRequested: 1,
+        listingEvidenceSnapshot: expect.objectContaining({ snapshotHash: "sha256:evidence" }),
         context: expect.objectContaining({
           tenantId: "tnt_1",
           audit: expect.objectContaining({ forAccountId: "acc_1" }),

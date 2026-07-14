@@ -1,12 +1,16 @@
 import { t } from "@chase-sets/localization";
+import { evidenceCoverageCodeLocaleKey } from "../../../support/request-support/marketplace-listing-evidence";
 import {
   Badge,
   Button,
   CurrencyInput,
   Divider,
+  FileDropzone,
   Form,
   Grid,
   HiddenInput,
+  Image,
+  Inset,
   Inline,
   KeyValueList,
   LinkButton,
@@ -34,6 +38,130 @@ import type {
 
 function readinessBadge(readiness: LineReadiness) {
   return <Badge tone={readiness.tone}>{readiness.label}</Badge>;
+}
+
+function evidenceViewLabel(viewKind: string | null) {
+  switch (viewKind) {
+    case "front":
+      return t("checkout.features.sellList.ui.sellListPage.evidence.view.front");
+    case "back":
+      return t("checkout.features.sellList.ui.sellListPage.evidence.view.back");
+    case "slab":
+      return t("checkout.features.sellList.ui.sellListPage.evidence.view.slab");
+    case "condition":
+      return t("checkout.features.sellList.ui.sellListPage.evidence.view.condition");
+    default:
+      return t("checkout.features.sellList.ui.sellListPage.evidence.photo");
+  }
+}
+
+function SellListOfferEvidenceReview({ evidence }: { evidence: SellListOfferReview["evidence"] }) {
+  if (evidence === undefined) {
+    return null;
+  }
+
+  if (!evidence) {
+    return (
+      <Inset padding={3}>
+        <Text size="sm" tone="secondary">
+          {t("checkout.features.sellList.ui.sellListPage.evidence.unavailable")}
+        </Text>
+      </Inset>
+    );
+  }
+
+  const matchedPhotoIds = new Set(
+    evidence.coverage.slots.flatMap((slot) => (slot.matchedPhotoId ? [slot.matchedPhotoId] : [])),
+  );
+  const activePhotos = evidence.evidence.filter((photo) => photo.status === "active");
+  const slots = evidence.requirements.requiredSlots;
+
+  return (
+    <Inset padding={3}>
+      <Stack gap={3}>
+        <Inline gap={2}>
+          <Text weight="semibold">{t("checkout.features.sellList.ui.sellListPage.evidence.required")}</Text>
+          <Badge tone={evidence.coverage.complete ? "success" : "warning"}>
+            {evidence.coverage.complete
+              ? t("checkout.features.sellList.ui.sellListPage.evidence.complete")
+              : t("checkout.features.sellList.ui.sellListPage.evidence.needs.action")}
+          </Badge>
+        </Inline>
+        <Text size="sm" tone="secondary" wrap="anywhere">
+          {t("checkout.features.sellList.ui.sellListPage.evidence.listing")}: {evidence.listingId}
+        </Text>
+
+        {evidence.coverage.unmetCodes.length > 0 ? (
+          <Stack gap={1}>
+            {evidence.coverage.unmetCodes.map((code) => (
+              <Text key={code} size="sm" tone="secondary">
+                {t(evidenceCoverageCodeLocaleKey(code))}
+              </Text>
+            ))}
+          </Stack>
+        ) : null}
+
+        {activePhotos.length > 0 ? (
+          <Grid columns={{ base: 2, sm: 4 }} gap={2}>
+            {activePhotos.map((photo) => {
+              const source =
+                photo.assetSet.variants.find((asset) => asset.role === "thumbnail") ?? photo.assetSet.source;
+              return (
+                <Stack key={photo.photoId} gap={1}>
+                  <Image
+                    src={source.publicUrl}
+                    alt={photo.altText ?? evidenceViewLabel(photo.viewKind)}
+                    width={96}
+                    height={96}
+                    rounded
+                    fit="contain"
+                  />
+                  <Text size="xs" tone="secondary" wrap="anywhere">
+                    {evidenceViewLabel(photo.viewKind)}
+                  </Text>
+                  {!matchedPhotoIds.has(photo.photoId) && slots.length > 0 ? (
+                    <Form spacing="none" method="post">
+                      <HiddenInput type="hidden" name="intent" value="classify-listing-evidence" />
+                      <HiddenInput type="hidden" name="listingId" value={evidence.listingId} />
+                      <HiddenInput type="hidden" name="photoId" value={photo.photoId} />
+                      <NativeSelect
+                        label={t("checkout.features.sellList.ui.sellListPage.evidence.classify")}
+                        name="classification"
+                        items={slots.map((slot) => ({
+                          value: `${slot.slotId}::${slot.viewKind}`,
+                          label: evidenceViewLabel(slot.viewKind),
+                        }))}
+                      />
+                      <Button type="submit" tone="secondary" size="sm">
+                        {t("checkout.features.sellList.ui.sellListPage.evidence.classify.action")}
+                      </Button>
+                    </Form>
+                  ) : null}
+                </Stack>
+              );
+            })}
+          </Grid>
+        ) : null}
+
+        {!evidence.coverage.complete ? (
+          <Form spacing="none" method="post" encType="multipart/form-data">
+            <HiddenInput type="hidden" name="intent" value="add-listing-evidence" />
+            <HiddenInput type="hidden" name="listingId" value={evidence.listingId} />
+            <FileDropzone
+              name="listingPhoto"
+              label={t("checkout.features.sellList.ui.sellListPage.evidence.add")}
+              description={t("checkout.features.sellList.ui.sellListPage.evidence.photo.description")}
+              accept="image/jpeg,image/png,image/webp"
+              required
+            />
+            <Button type="submit" tone="secondary" size="sm">
+              {t("checkout.features.sellList.ui.sellListPage.evidence.add.action")}
+            </Button>
+          </Form>
+        ) : null}
+      </Stack>
+    </Inset>
+  );
 }
 
 export function SelectedOfferRow({
@@ -78,6 +206,7 @@ export function SelectedOfferRow({
                 {comparisonDetail}
               </Text>
             ) : null}
+            <SellListOfferEvidenceReview evidence={review?.evidence} />
             {review?.terms || review?.comparison?.standardPreview ? (
               <SellListTermsReferenceInfo review={review} quantity={line.quantity} />
             ) : null}
@@ -240,6 +369,9 @@ export function ProductLineRow({
                       })}
                     </Text>
                   </Inline>
+                  <SellListOfferEvidenceReview
+                    evidence={review.offers.find((item) => item.offer.offer_id === offer.offer_id)?.evidence}
+                  />
                   <HiddenInput
                     form="sell-list-checkout-form"
                     type="hidden"

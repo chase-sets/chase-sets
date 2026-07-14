@@ -7,6 +7,32 @@ function productMeasureSnapshotFromUnknown(value: unknown) {
   return value && typeof value === "object" ? JSON.stringify(value) : null;
 }
 
+type ListingEvidenceRow = Readonly<{ evidence: unknown }>;
+
+async function transformListingEvidence(
+  db: PgQueryable,
+  listingId: string,
+  updatedAt: string,
+  transform: (evidence: Record<string, unknown>[]) => Record<string, unknown>[],
+) {
+  const result = await db.query<ListingEvidenceRow>(
+    `SELECT evidence
+     FROM checkout_marketplace_seller_options
+     WHERE listing_id = $1`,
+    [listingId],
+  );
+  const evidence = Array.isArray(result.rows[0]?.evidence)
+    ? (result.rows[0].evidence as Record<string, unknown>[])
+    : [];
+  await db.query(
+    `UPDATE checkout_marketplace_seller_options
+     SET evidence = $2,
+         updated_at = $3
+     WHERE listing_id = $1`,
+    [listingId, JSON.stringify(transform(evidence)), updatedAt],
+  );
+}
+
 /**
  * Checkout-local seller-options projection.
  *
@@ -41,6 +67,8 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
         priceAmount: string;
         quantityCap: number;
         productMeasureSnapshot?: unknown;
+        evidenceRequirements?: unknown;
+        evidence?: unknown;
       };
 
       await db.query(
@@ -55,8 +83,10 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
            product_measure_snapshot,
            status,
            updated_at,
-           inventory_item_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10)
+           inventory_item_id,
+           evidence_requirements,
+           evidence
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, $11, $12)
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
              product_id = EXCLUDED.product_id,
@@ -66,6 +96,8 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
              product_summary = EXCLUDED.product_summary,
              product_measure_snapshot = EXCLUDED.product_measure_snapshot,
              inventory_item_id = EXCLUDED.inventory_item_id,
+             evidence_requirements = EXCLUDED.evidence_requirements,
+             evidence = EXCLUDED.evidence,
              updated_at = EXCLUDED.updated_at`,
         [
           data.listingId,
@@ -78,6 +110,10 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
           productMeasureSnapshotFromUnknown(data.productMeasureSnapshot),
           event.timing.recordedAt,
           data.inventoryItemId ?? null,
+          data.evidenceRequirements && typeof data.evidenceRequirements === "object"
+            ? JSON.stringify(data.evidenceRequirements)
+            : null,
+          JSON.stringify(Array.isArray(data.evidence) ? data.evidence : []),
         ],
       );
 
@@ -87,6 +123,95 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
       if (data.inventoryItemId) {
         await recomputeCheckoutSellerOptionSupply(db, data.inventoryItemId);
       }
+    },
+    "marketplace.listing.photos-added": async (event) => {
+      const listingId = extractIdFromStreamId(event.streamId, "marketplace.listing-");
+      const { evidence } = event.data as { evidence: unknown };
+      await db.query(
+        `UPDATE checkout_marketplace_seller_options
+         SET evidence = $2,
+             updated_at = $3
+         WHERE listing_id = $1`,
+        [listingId, JSON.stringify(Array.isArray(evidence) ? evidence : []), event.timing.recordedAt],
+      );
+    },
+    "marketplace.listing.photo-classified": async (event) => {
+      const data = event.data as {
+        photoId: string;
+        slotId: string | null;
+        viewKind: string | null;
+        altText: string | null;
+        capturedAt: string | null;
+      };
+      await transformListingEvidence(
+        db,
+        extractIdFromStreamId(event.streamId, "marketplace.listing-"),
+        event.timing.recordedAt,
+        (evidence) =>
+          evidence.map((photo) =>
+            photo.photoId === data.photoId
+              ? {
+                  ...photo,
+                  slotId: data.slotId,
+                  viewKind: data.viewKind,
+                  altText: data.altText,
+                  capturedAt: data.capturedAt,
+                }
+              : photo,
+          ),
+      );
+    },
+    "marketplace.listing.photo-replaced": async (event) => {
+      const data = event.data as { replacedPhotoId: string; photo: Record<string, unknown> };
+      await transformListingEvidence(
+        db,
+        extractIdFromStreamId(event.streamId, "marketplace.listing-"),
+        event.timing.recordedAt,
+        (evidence) => [
+          ...evidence.map((photo) =>
+            photo.photoId === data.replacedPhotoId ? { ...photo, status: "replaced" } : photo,
+          ),
+          data.photo,
+        ],
+      );
+    },
+    "marketplace.listing.photo-removed": async (event) => {
+      const { photoId } = event.data as { photoId: string };
+      await transformListingEvidence(
+        db,
+        extractIdFromStreamId(event.streamId, "marketplace.listing-"),
+        event.timing.recordedAt,
+        (evidence) => evidence.map((photo) => (photo.photoId === photoId ? { ...photo, status: "removed" } : photo)),
+      );
+    },
+    "marketplace.listing.photos-reordered": async (event) => {
+      const { orderedPhotoIds } = event.data as { orderedPhotoIds: string[] };
+      const orderIndex = new Map(orderedPhotoIds.map((id, index) => [id, index]));
+      await transformListingEvidence(
+        db,
+        extractIdFromStreamId(event.streamId, "marketplace.listing-"),
+        event.timing.recordedAt,
+        (evidence) =>
+          evidence.map((photo) =>
+            orderIndex.has(String(photo.photoId))
+              ? { ...photo, sortOrder: orderIndex.get(String(photo.photoId)) }
+              : photo,
+          ),
+      );
+    },
+    "marketplace.listing.evidence-requirements-refreshed": async (event) => {
+      const { evidenceRequirements } = event.data as { evidenceRequirements: unknown };
+      await db.query(
+        `UPDATE checkout_marketplace_seller_options
+         SET evidence_requirements = $2,
+             updated_at = $3
+         WHERE listing_id = $1`,
+        [
+          extractIdFromStreamId(event.streamId, "marketplace.listing-"),
+          JSON.stringify(evidenceRequirements),
+          event.timing.recordedAt,
+        ],
+      );
     },
     "catalog.catalog-item.product-measures-resolved": async (event) => {
       const data = event.data as {

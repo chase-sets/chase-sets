@@ -18,6 +18,7 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
         lineId: string;
         lineType: string;
         offerId: string | null;
+        listingId: string | null;
         buyerAccountId: string | null;
         buyerDisplayName: string | null;
         offerPriceAmount: string | null;
@@ -37,6 +38,7 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
         data.lineId,
         data.lineType === "selected-offer" ? "selected-offer" : "product",
         data.offerId,
+        data.listingId,
         data.buyerAccountId,
         data.buyerDisplayName,
         data.offerPriceAmount,
@@ -71,6 +73,7 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
            line_id,
            line_type,
            offer_id,
+           listing_id,
            buyer_account_id,
            buyer_display_name,
            offer_price_amount,
@@ -85,11 +88,12 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
            minimum_listing_price_amount,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18)
          ON CONFLICT ${conflictTarget} DO UPDATE
          SET line_id = EXCLUDED.line_id,
              line_type = EXCLUDED.line_type,
              offer_id = EXCLUDED.offer_id,
+             listing_id = EXCLUDED.listing_id,
              buyer_account_id = EXCLUDED.buyer_account_id,
              buyer_display_name = EXCLUDED.buyer_display_name,
              offer_price_amount = EXCLUDED.offer_price_amount,

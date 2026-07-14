@@ -38,7 +38,19 @@ function buildApp(
 
 function createServices(): MarketplaceOfferServices {
   const submitOffer = vi.fn(async () => ({ offerId: "off_1" as never, version: 1 }));
-  const acceptOffer = vi.fn(async () => ({ offerId: "off_1" as never, version: 2 }));
+  const acceptOffer = vi.fn(async () => ({
+    offerId: "off_1" as never,
+    listingId: "lst_1",
+    inventoryItemId: "inv_1",
+    listingEvidenceSnapshot: {
+      schemaVersion: 1 as const,
+      policyHash: "sha256:policy",
+      snapshotHash: "sha256:evidence",
+      createdAt: "2026-03-31T00:00:00.000Z",
+      evidence: [],
+    },
+    version: 2,
+  }));
   const declineOfferMatch = vi.fn(async () => ({ offerId: "off_1" as never, version: 3 }));
   const muteBuyerOffers = vi.fn(async () => ({ offerId: "off_1" as never, version: 4 }));
   const unmuteBuyerOffers = vi.fn(async () => ({
@@ -471,6 +483,7 @@ describe("marketplace offer routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          listingId: "lst_1",
           feeQuoteFingerprint: "350.00|17.50|332.50|sch_standard|",
         }),
       }),
@@ -479,6 +492,9 @@ describe("marketplace offer routes", () => {
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toEqual({
       id: "off_1",
+      listingId: "lst_1",
+      inventoryItemId: "inv_1",
+      evidenceSnapshotHash: "sha256:evidence",
       version: 2,
       status: "accepted",
     });
@@ -486,8 +502,11 @@ describe("marketplace offer routes", () => {
       {
         offerId: "off_1",
         sellerAccountId: "acc_seller",
+        listingId: "lst_1",
         feeQuoteFingerprint: "350.00|17.50|332.50|sch_standard|",
         sourceActionKey: null,
+        acceptanceBatchId: null,
+        acceptanceBatchSize: null,
       },
       expect.any(Object),
     );
@@ -524,7 +543,7 @@ describe("marketplace offer routes", () => {
       new Request("http://marketplace.test/account/offers/matches/off_1/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ listingId: "lst_1" }),
       }),
     );
 

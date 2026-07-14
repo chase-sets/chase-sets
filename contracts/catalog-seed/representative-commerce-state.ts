@@ -187,10 +187,15 @@ export type RepresentativeMarketplaceServices = Readonly<{
       context: EventStoreContext,
     ) => Promise<Readonly<{ offerId: string; version: number }>>;
     previewOfferAcceptanceTerms: (
-      params: Readonly<{ offerId: string; sellerAccountId: AccountId }>,
+      params: Readonly<{ offerId: string; sellerAccountId: AccountId; listingId: string }>,
     ) => Promise<Readonly<{ fee_quote_fingerprint: string }>>;
     acceptOffer: (
-      params: Readonly<{ offerId: string; sellerAccountId: AccountId; feeQuoteFingerprint: string }>,
+      params: Readonly<{
+        offerId: string;
+        sellerAccountId: AccountId;
+        listingId: string;
+        feeQuoteFingerprint: string;
+      }>,
       context: EventStoreContext,
     ) => Promise<Readonly<{ offerId: string; version: number }>>;
   }>;
@@ -966,14 +971,17 @@ export async function acceptRepresentativeOffers(
     }
 
     try {
+      const listingId = createRepresentativeListingId(stock);
       const quote = await services.offers.previewOfferAcceptanceTerms({
         offerId,
         sellerAccountId: stock.accountId as AccountId,
+        listingId,
       });
       await services.offers.acceptOffer(
         {
           offerId,
           sellerAccountId: stock.accountId as AccountId,
+          listingId,
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
         },
         representativeSeedContext,

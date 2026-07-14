@@ -343,6 +343,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         arguments: {
           accountId: "acc_1",
           offerId: "off_1",
+          listingId: listing.listing_id,
           feeQuoteFingerprint: "fee_quote_1",
           sourceActionKey: "uat-agent:accept-offer-1",
           idempotencyKey: "offer-accept-1",

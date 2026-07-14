@@ -9,6 +9,7 @@ import {
   composeSmokePostgresUrl,
   renderComposeSmokeEnvFile,
 } from "./platform-compose-smoke.mjs";
+import { listContextManifests } from "./lib/repo.mjs";
 
 function envValue(component, name) {
   return component.env.find((entry) => entry.name === name)?.value;
@@ -38,6 +39,21 @@ describe("platform-compose-smoke", () => {
           expect(entry.value, `${componentName}.${entry.name}`).toBe(composeSmokePostgresUrl);
         }
       }
+    }
+  });
+
+  it("provides a database URL for every context hosted by the public platform worker", () => {
+    const worker = buildComposeSmokeValues().components["platform-worker"];
+    const workerContextNames = listContextManifests()
+      .filter(({ manifest }) => manifest.runtimeDeployables?.includes("platform-worker"))
+      .filter(
+        ({ manifest }) => !manifest.workerRuntimeProfiles?.length || manifest.workerRuntimeProfiles.includes("public"),
+      )
+      .map(({ manifest }) => manifest.contextName);
+
+    for (const contextName of workerContextNames) {
+      const envName = `DATABASE_URL_${contextName.toUpperCase().replaceAll("-", "_")}`;
+      expect(envValue(worker, envName), contextName).toBe(composeSmokePostgresUrl);
     }
   });
 

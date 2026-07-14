@@ -11,6 +11,7 @@ import {
   type PostWriteHandoffState,
 } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
+import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import {
@@ -63,6 +64,7 @@ type SellListOfferReview = Readonly<{
   terms: CheckoutSellListCompositeReview["offerReviews"][number]["terms"];
   comparison: SellListOfferTermsComparison | null;
   message: string | null;
+  evidence?: CheckoutSellListCompositeReview["offerReviews"][number]["evidence"];
 }>;
 
 type SellListOfferTermsComparisonField = "seller-net" | "marketplace-fee" | "shipping-allowance" | "terms-source";
@@ -603,7 +605,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const sellListCompositeReview = await loadSellListCompositeReviewFromCheckout(accountSellListApi, {
     includeStandardComparison: registrationReturn === "seller-checkout",
   });
-
   return {
     isSignedIn: true,
     registrationReturn,
@@ -623,6 +624,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 function formValue(formData: FormData, name: string) {
   return String(formData.get(name) ?? "").trim();
+}
+
+function evidenceClassificationFromForm(formData: FormData) {
+  const [slotId, viewKind] = formValue(formData, "classification").split("::", 2);
+  if (!slotId || !viewKind) {
+    throw new Error(t("checkout.features.sellList.ui.sellListPage.evidence.choose.slot"));
+  }
+  return { slotId, viewKind };
 }
 
 function limitedFormValue(formData: FormData, name: string, maxLength: number) {
@@ -661,6 +670,7 @@ function selectedOfferLineFromOffer(offer: CheckoutSellOfferMatch): AddCheckoutS
   return {
     lineType: "selected-offer",
     offerId: offer.offer_id,
+    listingId: offer.listing_id,
     buyerAccountId: offer.buyer_account_id,
     buyerDisplayName: offer.buyer_display_name,
     offerPriceAmount: offer.price_amount,
@@ -678,18 +688,20 @@ function selectedOfferLineFromOffer(offer: CheckoutSellOfferMatch): AddCheckoutS
 
 function selectedOfferLineFromPostedSnapshot(formData: FormData): AddCheckoutSellListLineRequest {
   const offerId = limitedFormValue(formData, "offerId", 160);
+  const listingId = limitedFormValue(formData, "listingId", 160);
   const catalogItemId = limitedFormValue(formData, "catalogItemId", 160);
   const productId = limitedFormValue(formData, "productId", 240);
   const itemTitle = limitedFormValue(formData, "itemTitle", 240);
   const offerPriceAmount = limitedFormValue(formData, "offerPriceAmount", 40);
 
-  if (!offerId || !catalogItemId || !productId || !itemTitle || !offerPriceAmount) {
+  if (!offerId || !listingId || !catalogItemId || !productId || !itemTitle || !offerPriceAmount) {
     throw new Error(t("checkout.routes.accountSellList.sell.list.request.failed"));
   }
 
   return {
     lineType: "selected-offer",
     offerId,
+    listingId,
     buyerAccountId: null,
     buyerDisplayName: limitedFormValue(formData, "buyerDisplayName", 160) || null,
     offerPriceAmount,
@@ -716,8 +728,13 @@ type SellListReviewPlanLine = Readonly<{
   itemTitle: string;
   productId: string | null;
   quantity: number;
-  selectedOffer: Readonly<{ offerId: string; feeQuoteFingerprint: string }> | null;
-  productOfferTargets: readonly Readonly<{ offerId: string; feeQuoteFingerprint: string; quantity: number }>[];
+  selectedOffer: Readonly<{ offerId: string; listingId: string; feeQuoteFingerprint: string }> | null;
+  productOfferTargets: readonly Readonly<{
+    offerId: string;
+    listingId: string;
+    feeQuoteFingerprint: string;
+    quantity: number;
+  }>[];
   fallbackListing: Readonly<{ inventoryItemId: string; priceAmount: string; quantityCap: number }> | null;
   skippedReasons: readonly string[];
 }>;
@@ -735,7 +752,7 @@ async function buildSellListReviewPlan(
       const feeQuoteFingerprint = formValue(formData, `offerFeeQuoteFingerprint:${line.line_id}`);
       let selectedOffer: SellListReviewPlanLine["selectedOffer"] = null;
 
-      if (!line.offer_id) {
+      if (!line.offer_id || !line.listing_id) {
         skippedReasons.push(
           t("checkout.routes.accountSellList.selected.offer.missing.detail", { itemTitle: line.item_title }),
         );
@@ -744,7 +761,7 @@ async function buildSellListReviewPlan(
           t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", { itemTitle: line.item_title }),
         );
       } else {
-        selectedOffer = { offerId: line.offer_id, feeQuoteFingerprint };
+        selectedOffer = { offerId: line.offer_id, listingId: line.listing_id, feeQuoteFingerprint };
       }
 
       reviewLines.push({
@@ -762,7 +779,12 @@ async function buildSellListReviewPlan(
     }
 
     const skippedReasons: string[] = [];
-    const productOfferTargets: Array<{ offerId: string; feeQuoteFingerprint: string; quantity: number }> = [];
+    const productOfferTargets: Array<{
+      offerId: string;
+      listingId: string;
+      feeQuoteFingerprint: string;
+      quantity: number;
+    }> = [];
     let plannedRemainingQuantity = line.quantity;
 
     for (const offerId of formData
@@ -784,7 +806,12 @@ async function buildSellListReviewPlan(
           skippedReasons.push(`${line.item_title}: matching offer terms need refresh.`);
           continue;
         }
-        productOfferTargets.push({ offerId, feeQuoteFingerprint, quantity: offer.quantity_requested });
+        productOfferTargets.push({
+          offerId,
+          listingId: offer.listing_id,
+          feeQuoteFingerprint,
+          quantity: offer.quantity_requested,
+        });
         plannedRemainingQuantity -= offer.quantity_requested;
       } catch (error) {
         skippedReasons.push(`${line.item_title}: ${error instanceof Error ? error.message : "offer match failed"}`);
@@ -939,6 +966,38 @@ export async function action({ request }: ActionFunctionArgs) {
           "/account/sell-list",
         ),
       );
+    }
+
+    if (intent === "add-listing-evidence" || intent === "classify-listing-evidence") {
+      if (!useAccountSellList) {
+        throw new Error(t("checkout.features.sellList.ui.sellListPage.sign.in.required"));
+      }
+
+      const marketplaceApi = createMarketplaceRequestApiClient(request);
+      const listingId = formValue(formData, "listingId");
+      if (!listingId) {
+        throw new Error(t("checkout.features.sellList.ui.sellListPage.evidence.unavailable"));
+      }
+
+      if (intent === "classify-listing-evidence") {
+        const classification = evidenceClassificationFromForm(formData);
+        await marketplaceApi.updateListingPhotoClassification(
+          listingId,
+          formValue(formData, "photoId"),
+          classification,
+        );
+      } else {
+        const file = formData.get("listingPhoto");
+        if (!(file instanceof File) || file.size <= 0) {
+          throw new Error(t("checkout.features.sellList.ui.sellListPage.evidence.photo"));
+        }
+        const upload = new FormData();
+        upload.append("evidence", file);
+        upload.append("listingPhotoAltText", formValue(formData, "listingPhotoAltText"));
+        await marketplaceApi.addListingPhotos(listingId, upload);
+      }
+
+      return redirect("/account/sell-list");
     }
 
     if (intent === "review-sell-list-checkout") {

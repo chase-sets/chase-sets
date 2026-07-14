@@ -139,7 +139,7 @@ describe("fresh checkout read-model schemas", () => {
     expect(itemEvolution).toBeLessThan(itemAccountIndex);
   });
 
-  it("keeps hot seller-option projection indexes as concurrent schema migrations", () => {
+  it("keeps seller-option evidence evolution and hot indexes in explicit schema migrations", () => {
     const statements = checkoutMarketplaceSellerOptionsSchemaMigrations.flatMap((migration) => migration.statements);
 
     expect(checkoutMarketplaceSellerOptionsSchemaSql).not.toContain(
@@ -152,6 +152,8 @@ describe("fresh checkout read-model schemas", () => {
       "checkout_marketplace_seller_options_seller_availability_idx",
     );
     expect(statements).toEqual([
+      expect.stringContaining("ADD COLUMN IF NOT EXISTS evidence_requirements jsonb NULL"),
+      expect.stringContaining("ADD COLUMN IF NOT EXISTS evidence jsonb NOT NULL DEFAULT '[]'::jsonb"),
       expect.stringContaining(
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS checkout_marketplace_seller_options_inventory_item_idx",
       ),
@@ -162,10 +164,10 @@ describe("fresh checkout read-model schemas", () => {
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS checkout_marketplace_seller_options_seller_availability_idx",
       ),
     ]);
-    expect(statements[0]).toContain("ON checkout_marketplace_seller_options (inventory_item_id)");
-    expect(statements[1]).toContain("ON checkout_marketplace_seller_options (catalog_catalog_item_id)");
-    expect(statements[2]).toContain("ON checkout_marketplace_seller_options (seller_account_id, status)");
-    expect(statements[2]).toContain("WHERE status IN ('active', 'seller-unavailable')");
+    expect(statements[2]).toContain("ON checkout_marketplace_seller_options (inventory_item_id)");
+    expect(statements[3]).toContain("ON checkout_marketplace_seller_options (catalog_catalog_item_id)");
+    expect(statements[4]).toContain("ON checkout_marketplace_seller_options (seller_account_id, status)");
+    expect(statements[4]).toContain("WHERE status IN ('active', 'seller-unavailable')");
   });
 
   it("uses the fresh Sell List confirmation read model without execution receipts", () => {

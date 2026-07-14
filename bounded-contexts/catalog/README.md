@@ -300,6 +300,7 @@ Product Contents authoring, review, provider evidence, and configuration events 
 8. Product-facing title and subtitle copy should come from Display Templates whenever the copy can be expressed from Fields and Reference Records; repeated manual metadata is fallback and exception data.
 9. External catalog item references map provider product identifiers to Catalog Item truth; external product references map provider SKU identifiers to Product selection truth; title parsing remains review evidence until promoted into an explicit reference.
 10. Product Contents model containment between Catalog selections; fields, tags, categories, Reference Record relationships, and external references must not become substitute containment models.
+11. The `catalog-item-projection` crash-rebuild contract is replay-only: replaying Catalog Item events from checkpoint zero over empty or previously projected `catalog_items`, external-reference, and GTIN rows must deterministically converge without duplicate facts.
 
 ## Tests
 
