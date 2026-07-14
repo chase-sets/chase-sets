@@ -91,7 +91,7 @@ CREATE INDEX IF NOT EXISTS checkout_sell_offer_pages_buyer_idx
 // `CREATE TABLE IF NOT EXISTS` never alters an already-existing table — so every
 // read SELECT of the newer column failed with "column ... does not exist" and 500'd
 // `/account/sell-list`. Reconcile the drift with explicit metadata-only migrations,
-// the same mechanism used by checkout session/marketplace schemas (see #4638): a
+// the same mechanism used by checkout session and marketplace schemas: a
 // single nullable `ADD COLUMN IF NOT EXISTS` is a catalog-only change that holds
 // ACCESS EXCLUSIVE only for an instant, so it is safe under live read traffic.
 export const checkoutSellListSchemaMigrations: readonly BcSchemaMigration[] = [
