@@ -947,6 +947,555 @@ export const helpArticles = [
     ],
   },
   {
+    slug: "condition-and-photo-standards",
+    locale: "en",
+    title: "Condition and photo standards for sellers",
+    description:
+      "Choose the right condition, meet the photo-evidence requirement for top grades and graded cards, enter graded-card certification details, and understand the added trust requirement for high-value listings.",
+    audience: "seller",
+    category: "selling",
+    reviewedAt: "2026-07-13",
+    citedPolicies: ["marketplace.listing-evidence"],
+    relatedFlows: ["listing-confirmation"],
+    claimCategories: [],
+    promiseTable: [
+      {
+        claim:
+          "A listing at the top raw conditions requires a condition photo, and a graded listing requires front, back, and slab photos, before it can go live.",
+        issues: ["#4358"],
+        tests: [
+          "bounded-contexts/marketplace/features/listing-evidence-policy/domain/policy.test.ts",
+          "bounded-contexts/marketplace/features/listings/domain/evidence-coverage.test.ts",
+        ],
+      },
+      {
+        claim:
+          "A listing cannot be published until its evidence requirements and any seller-trust requirement are met, and the composer resolves those requirements from the active listing-evidence policy.",
+        issues: ["#4358"],
+        tests: [
+          "bounded-contexts/marketplace/features/listings/domain/listing-evidence-readiness.test.ts",
+          "bounded-contexts/marketplace/features/listing-evidence-policy/domain/policy.test.ts",
+        ],
+      },
+      {
+        claim:
+          "A graded listing records the grading company, grade, and certification number, and the certification number is validated against the grading company's format.",
+        issues: ["#4358"],
+        tests: ["bounded-contexts/marketplace/features/listings/domain/domain.test.ts"],
+      },
+    ],
+    href: "/help/selling/condition-and-photo-standards",
+    headings: [
+      {
+        level: 2,
+        id: "pick-a-condition-first",
+        text: "Pick a condition first",
+      },
+      {
+        level: 2,
+        id: "photo-evidence-for-top-conditions",
+        text: "Photo evidence for top conditions",
+      },
+      {
+        level: 2,
+        id: "graded-cards",
+        text: "Graded cards",
+      },
+      {
+        level: 2,
+        id: "higher-value-listings",
+        text: "Higher-value listings",
+      },
+      {
+        level: 2,
+        id: "where-you-set-all-of-this",
+        text: "Where you set all of this",
+      },
+    ],
+    blocks: [
+      {
+        type: "heading",
+        level: 2,
+        id: "pick-a-condition-first",
+        text: "Pick a condition first",
+        content: [
+          {
+            type: "text",
+            value: "Pick a condition first",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Every listing carries one condition. Raw, ungraded cards use a single scale, from best to worst: ",
+          },
+          {
+            type: "strong",
+            value: "Pristine",
+          },
+          {
+            type: "text",
+            value: ", ",
+          },
+          {
+            type: "strong",
+            value: "Mint",
+          },
+          {
+            type: "text",
+            value: ", ",
+          },
+          {
+            type: "strong",
+            value: "Near Mint",
+          },
+          {
+            type: "text",
+            value: ", ",
+          },
+          {
+            type: "strong",
+            value: "Excellent",
+          },
+          {
+            type: "text",
+            value: ", ",
+          },
+          {
+            type: "strong",
+            value: "Good",
+          },
+          {
+            type: "text",
+            value: ", ",
+          },
+          {
+            type: "strong",
+            value: "Poor",
+          },
+          {
+            type: "text",
+            value: ", and ",
+          },
+          {
+            type: "strong",
+            value: "Damaged",
+          },
+          {
+            type: "text",
+            value:
+              ". Choose the grade a careful buyer would agree with after inspecting the card in hand, not the grade you hope for.",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "strong",
+              value: "Pristine",
+            },
+            {
+              type: "text",
+              value: " — flawless to the naked eye and under tilted light, with no centering issues.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Mint",
+            },
+            {
+              type: "text",
+              value:
+                " — appears flawless under normal viewing; only the faintest imperfection is detectable under deliberate angled light.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Near Mint",
+            },
+            {
+              type: "text",
+              value:
+                " — clean and well preserved at a glance, with minor imperfections visible only on close inspection.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Excellent",
+            },
+            {
+              type: "text",
+              value: " — presents well overall with noticeable but modest wear.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Good",
+            },
+            {
+              type: "text",
+              value: " — clearly worn but still collectible and fully identifiable.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Poor",
+            },
+            {
+              type: "text",
+              value: " — significant wear across much of the card, still structurally intact.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Damaged",
+            },
+            {
+              type: "text",
+              value: " — structural damage, but still identifiable and authentic.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "If your card is professionally graded, list it as a graded card instead of a raw condition. See ",
+          },
+          {
+            type: "link",
+            label: "Graded cards",
+            href: "#graded-cards",
+          },
+          {
+            type: "text",
+            value: ".",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "photo-evidence-for-top-conditions",
+        text: "Photo evidence for top conditions",
+        content: [
+          {
+            type: "text",
+            value: "Photo evidence for top conditions",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "The top raw conditions carry a photo requirement because they are the hardest for a buyer to verify from a title alone. A listing at ",
+          },
+          {
+            type: "strong",
+            value: "Mint",
+          },
+          {
+            type: "text",
+            value: " or ",
+          },
+          {
+            type: "strong",
+            value: "Pristine",
+          },
+          {
+            type: "text",
+            value: " needs a clear condition photo of the actual card before it can go live. The ",
+          },
+          {
+            type: "link",
+            label: "listing composer",
+            href: "/account/listings/new",
+          },
+          {
+            type: "text",
+            value: " shows the requirement inline and will not let you publish until it is satisfied.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Shoot the real card you are selling, in focus, filling the frame, under even light. A stock or catalog image does not satisfy the requirement and is not a fair representation of the item.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Conditions below Mint do not carry a mandatory photo, but adding one still helps a buyer commit and reduces the chance of a not-as-described dispute later. An accurate condition and a clear photo are your best defense if a buyer questions the item.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "graded-cards",
+        text: "Graded cards",
+        content: [
+          {
+            type: "text",
+            value: "Graded cards",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "A graded card is authenticated and scored by a professional grading company, sealed in a tamper-evident slab. When you list one, record its certification details so buyers can verify it:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "strong",
+              value: "Grading company",
+            },
+            {
+              type: "text",
+              value: " — the service that graded the card. Supported companies with validated certificate formats are ",
+            },
+            {
+              type: "strong",
+              value: "PSA",
+            },
+            {
+              type: "text",
+              value: ", ",
+            },
+            {
+              type: "strong",
+              value: "BGS",
+            },
+            {
+              type: "text",
+              value: " (Beckett), ",
+            },
+            {
+              type: "strong",
+              value: "CGC",
+            },
+            {
+              type: "text",
+              value: ", and ",
+            },
+            {
+              type: "strong",
+              value: "SGC",
+            },
+            {
+              type: "text",
+              value: ".",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Grade",
+            },
+            {
+              type: "text",
+              value: " — the numeric grade on the label, from ",
+            },
+            {
+              type: "code",
+              value: "1",
+            },
+            {
+              type: "text",
+              value: " to ",
+            },
+            {
+              type: "code",
+              value: "10",
+            },
+            {
+              type: "text",
+              value: " in half-point steps (for example ",
+            },
+            {
+              type: "code",
+              value: "9",
+            },
+            {
+              type: "text",
+              value: ", ",
+            },
+            {
+              type: "code",
+              value: "9.5",
+            },
+            {
+              type: "text",
+              value: ", ",
+            },
+            {
+              type: "code",
+              value: "10",
+            },
+            {
+              type: "text",
+              value: ").",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Certification number",
+            },
+            {
+              type: "text",
+              value:
+                " — the number printed on the slab label. Each company uses its own length, so enter the exact digits from the label; the composer checks the number against that company's format.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "A graded listing requires three photos — the ",
+          },
+          {
+            type: "strong",
+            value: "slab",
+          },
+          {
+            type: "text",
+            value: ", the card ",
+          },
+          {
+            type: "strong",
+            value: "front",
+          },
+          {
+            type: "text",
+            value: ", and the card ",
+          },
+          {
+            type: "strong",
+            value: "back",
+          },
+          {
+            type: "text",
+            value:
+              " — so a buyer can read the label and inspect both faces. As with raw conditions, you cannot publish a graded listing until all three views are attached.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "higher-value-listings",
+        text: "Higher-value listings",
+        content: [
+          {
+            type: "text",
+            value: "Higher-value listings",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Listings above a price threshold carry an added seller-trust requirement: your account needs enough completed-sale reviews, or a qualifying seller badge, before the listing can go live. This keeps the highest-value listings anchored to a track record and is separate from the photo requirement — a high-value listing must meet both.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "The exact price threshold and trust requirement come from the active listing-evidence policy, and the ",
+          },
+          {
+            type: "link",
+            label: "listing composer",
+            href: "/account/listings/new",
+          },
+          {
+            type: "text",
+            value:
+              " shows the specific requirement that applies to your item before you publish. You build the review history that satisfies this requirement by fulfilling smaller orders well before you list your highest-value cards.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "where-you-set-all-of-this",
+        text: "Where you set all of this",
+        content: [
+          {
+            type: "text",
+            value: "Where you set all of this",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Condition, graded-card details, and photos are all part of the ",
+          },
+          {
+            type: "link",
+            label: "listing composer",
+            href: "/account/listings/new",
+          },
+          {
+            type: "text",
+            value:
+              ". The composer resolves the current requirements for your specific item and price and blocks publication until every requirement is met, so nothing goes live understated. Requirements are policy-driven and can change; the composer always reflects the version in effect when you publish.",
+          },
+        ],
+      },
+    ],
+    policyValueKeys: [],
+  },
+  {
     slug: "getting-paid",
     locale: "en",
     title: "Getting paid",
@@ -1309,6 +1858,653 @@ export const helpArticles = [
       "settlement.payout.minimum",
       "settlement.payout.maximum",
     ],
+  },
+  {
+    slug: "inventory-csv-import",
+    locale: "en",
+    title: "Import inventory from a CSV file",
+    description:
+      "Use the review-first inventory import to bring stock into Chase Sets from a native CSV, understand seller-SKU resolution and quantity modes, and turn accepted rows into draft listings.",
+    audience: "seller",
+    category: "selling",
+    reviewedAt: "2026-07-13",
+    citedPolicies: [],
+    relatedFlows: ["listing-confirmation"],
+    claimCategories: [],
+    promiseTable: [
+      {
+        claim:
+          "Inventory imports validate every row in a review-first batch, resolve rows by seller SKU or catalog identifier, and keep unknown or duplicate rows in review instead of guessing.",
+        issues: ["#4358"],
+        tests: [
+          "bounded-contexts/inventory/features/import-batches/domain/import-source-adapters.test.ts",
+          "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts",
+        ],
+      },
+      {
+        claim:
+          "Committing an import can create inventory items and draft listings while preserving rejected rows for review, and publication stays a separate listing action.",
+        issues: ["#4358"],
+        tests: [
+          "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts",
+          "bounded-contexts/inventory/features/import-batches/ui/import-batch-page.test.tsx",
+        ],
+      },
+    ],
+    href: "/help/selling/inventory-csv-import",
+    headings: [
+      {
+        level: 2,
+        id: "how-importing-works",
+        text: "How importing works",
+      },
+      {
+        level: 2,
+        id: "the-native-template",
+        text: "The native template",
+      },
+      {
+        level: 2,
+        id: "seller-skus-and-how-rows-resolve",
+        text: "Seller SKUs and how rows resolve",
+      },
+      {
+        level: 2,
+        id: "quantity-modes",
+        text: "Quantity modes",
+      },
+      {
+        level: 2,
+        id: "commit-and-review-the-result",
+        text: "Commit and review the result",
+      },
+      {
+        level: 2,
+        id: "import-checklist",
+        text: "Import checklist",
+      },
+    ],
+    blocks: [
+      {
+        type: "heading",
+        level: 2,
+        id: "how-importing-works",
+        text: "How importing works",
+        content: [
+          {
+            type: "text",
+            value: "How importing works",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Inventory imports are review-first. You upload a CSV, Chase Sets validates every row before anything changes, and you review accepted and rejected rows on the ",
+          },
+          {
+            type: "link",
+            label: "Inventory imports",
+            href: "/account/inventory/imports",
+          },
+          {
+            type: "text",
+            value:
+              " page. Nothing enters your inventory or goes live until you commit the accepted rows, so a bad row is never guessed into stock.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "This guide covers the ",
+          },
+          {
+            type: "strong",
+            value: "native Chase Sets CSV",
+          },
+          {
+            type: "text",
+            value: ". To move a TCGplayer or eBay export instead, use the provider profiles described in the ",
+          },
+          {
+            type: "link",
+            label: "seller migration guide",
+            href: "/help/selling/seller-migration-tcgplayer-ebay",
+          },
+          {
+            type: "text",
+            value: "; the review, SKU, and commit behavior below is the same.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "the-native-template",
+        text: "The native template",
+        content: [
+          {
+            type: "text",
+            value: "The native template",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "From the ",
+          },
+          {
+            type: "link",
+            label: "Inventory imports",
+            href: "/account/inventory/imports",
+          },
+          {
+            type: "text",
+            value:
+              " page you can download a native template that already has the required headers and one example row for each active storage location on your account. Archived locations are not included.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "A native row uses these columns:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "code",
+              value: "catalogItemId",
+            },
+            {
+              type: "text",
+              value: " — the Chase Sets catalog item, or leave it out when the row resolves by seller SKU.",
+            },
+          ],
+          [
+            {
+              type: "code",
+              value: "storageLocation",
+            },
+            {
+              type: "text",
+              value: " — the visible name of an active storage location. ",
+            },
+            {
+              type: "code",
+              value: "storageLocationId",
+            },
+            {
+              type: "text",
+              value: " is also accepted.",
+            },
+          ],
+          [
+            {
+              type: "code",
+              value: "totalQuantity",
+            },
+            {
+              type: "text",
+              value: " — the stock count, interpreted by the quantity mode you choose at upload.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Option columns such as ",
+            },
+            {
+              type: "code",
+              value: "option:form",
+            },
+            {
+              type: "text",
+              value: " and ",
+            },
+            {
+              type: "code",
+              value: "option:condition",
+            },
+            {
+              type: "text",
+              value:
+                " — use catalog dimension ids or their visible labels, and option ids, codes, or visible labels for the values.",
+            },
+          ],
+          [
+            {
+              type: "code",
+              value: "acquisitionCostAmount",
+            },
+            {
+              type: "text",
+              value: " — what you paid, when you want to track cost.",
+            },
+          ],
+          [
+            {
+              type: "code",
+              value: "sellerSku",
+            },
+            {
+              type: "text",
+              value: " — your own SKU for the row (see below).",
+            },
+          ],
+          [
+            {
+              type: "code",
+              value: "listingPriceAmount",
+            },
+            {
+              type: "text",
+              value: " and ",
+            },
+            {
+              type: "code",
+              value: "listingQuantityCap",
+            },
+            {
+              type: "text",
+              value: " — include both when you want the commit to create a draft listing.",
+            },
+          ],
+          [
+            {
+              type: "code",
+              value: "rowNote",
+            },
+            {
+              type: "text",
+              value: " — a free-text note for your own reference during review.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "An example header and row:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value: "Header: ",
+            },
+            {
+              type: "code",
+              value:
+                "catalogItemId,storageLocation,totalQuantity,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Row: ",
+            },
+            {
+              type: "code",
+              value: "cat_seed_charizard_base_set,Main shelf,2,Raw,Near Mint,75.00,box-a-001,125.00,1,Base Set restock",
+            },
+          ],
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "seller-skus-and-how-rows-resolve",
+        text: "Seller SKUs and how rows resolve",
+        content: [
+          {
+            type: "text",
+            value: "Seller SKUs and how rows resolve",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "If you already have a seller-SKU mapping, a native row can use ",
+          },
+          {
+            type: "code",
+            value: "sellerSku",
+          },
+          {
+            type: "text",
+            value: " (or the header ",
+          },
+          {
+            type: "code",
+            value: "Seller SKU",
+          },
+          {
+            type: "text",
+            value: ") with no ",
+          },
+          {
+            type: "code",
+            value: "catalogItemId",
+          },
+          {
+            type: "text",
+            value:
+              ". Seller SKUs are owned by Inventory and scoped to your account, so the same SKU text can safely map to different products for different sellers. Unknown or duplicate SKU mappings stay in import review rather than resolving to the wrong product.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "A SKU-only row therefore looks like this:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value: "Header: ",
+            },
+            {
+              type: "code",
+              value:
+                "Seller SKU,storageLocation,totalQuantity,acquisitionCostAmount,listingPriceAmount,listingQuantityCap,rowNote",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Row: ",
+            },
+            {
+              type: "code",
+              value: "box-a-001,Main shelf,2,75.00,125.00,1,Restock by account SKU",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Keep your SKU scheme stable if you plan to reprice or re-import by SKU later.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "quantity-modes",
+        text: "Quantity modes",
+        content: [
+          {
+            type: "text",
+            value: "Quantity modes",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "At upload you choose how ",
+          },
+          {
+            type: "code",
+            value: "totalQuantity",
+          },
+          {
+            type: "text",
+            value: " is read:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "strong",
+              value: "add",
+            },
+            {
+              type: "text",
+              value: " treats the number as a signed adjustment to existing stock.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "replace",
+            },
+            {
+              type: "text",
+              value: " treats the number as the exact count to sync to.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Choose ",
+          },
+          {
+            type: "strong",
+            value: "replace",
+          },
+          {
+            type: "text",
+            value:
+              " when the file represents your exact current stock — for example when you re-upload an edited current-inventory export. Choose ",
+          },
+          {
+            type: "strong",
+            value: "add",
+          },
+          {
+            type: "text",
+            value:
+              " only when the rows are deliberate stock adjustments. You can export your current inventory from the same ",
+          },
+          {
+            type: "link",
+            label: "Inventory imports",
+            href: "/account/inventory/imports",
+          },
+          {
+            type: "text",
+            value: " page; that export already uses native headers and exact counts, so it round-trips cleanly with ",
+          },
+          {
+            type: "strong",
+            value: "replace",
+          },
+          {
+            type: "text",
+            value: ".",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "commit-and-review-the-result",
+        text: "Commit and review the result",
+        content: [
+          {
+            type: "text",
+            value: "Commit and review the result",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Committing writes the accepted rows into inventory. When a row includes both a listing price and a quantity cap, the commit can also create a ",
+          },
+          {
+            type: "strong",
+            value: "draft",
+          },
+          {
+            type: "text",
+            value:
+              " listing next to the inventory item. Rejected rows stay on the review page so you can fix a catalog or option choice and re-run them; they are never committed silently.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Publishing is always a separate step. Open ",
+          },
+          {
+            type: "link",
+            label: "your listings",
+            href: "/account/listings",
+          },
+          {
+            type: "text",
+            value: " to inspect each draft before it goes live, and confirm it meets the ",
+          },
+          {
+            type: "link",
+            label: "condition and photo standards",
+            href: "/help/selling/condition-and-photo-standards",
+          },
+          {
+            type: "text",
+            value: ". Your locked sales fee is shown at that point; the live schedule is on ",
+          },
+          {
+            type: "link",
+            label: "Marketplace sales and checkout fees",
+            href: "/sales-fees",
+          },
+          {
+            type: "text",
+            value: ".",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "import-checklist",
+        text: "Import checklist",
+        content: [
+          {
+            type: "text",
+            value: "Import checklist",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value: "Download the native template or export your current inventory as the starting file.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Use ",
+            },
+            {
+              type: "code",
+              value: "sellerSku",
+            },
+            {
+              type: "text",
+              value: " for rows you want resolved by your own SKU, and keep that scheme stable.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Choose ",
+            },
+            {
+              type: "strong",
+              value: "replace",
+            },
+            {
+              type: "text",
+              value: " for an exact stock snapshot and ",
+            },
+            {
+              type: "strong",
+              value: "add",
+            },
+            {
+              type: "text",
+              value: " only for deliberate adjustments.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Review rejected rows and fix catalog or option choices before committing.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Treat any listings the commit creates as drafts until you inspect and publish them.",
+            },
+          ],
+        ],
+      },
+    ],
+    policyValueKeys: [],
   },
   {
     slug: "seller-migration-tcgplayer-ebay",
