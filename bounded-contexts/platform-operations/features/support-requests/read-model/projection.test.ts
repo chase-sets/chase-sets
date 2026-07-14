@@ -214,6 +214,7 @@ describe("support request projection", () => {
       type: "support.support-request.resolved",
       data: {
         supportRequestId: "sup_01",
+        flowType: "return-request",
         resolution: {
           resolutionType: "return-for-refund",
           summary: "Seller accepted the return.",
@@ -238,6 +239,7 @@ describe("support request projection", () => {
       type: "support.support-request.resolved",
       data: {
         supportRequestId: "sup_02",
+        flowType: "product-not-received",
         resolution: {
           resolutionType: "full-refund",
           summary: "Delivery could not be proven.",
@@ -257,6 +259,12 @@ describe("support request projection", () => {
       "2026-05-16T14:00:00.000Z",
       null,
     ]);
+    const calls = db.query.mock.calls as unknown as readonly (readonly [string, readonly unknown[]])[];
+    expect(calls[0]?.[1]?.[2]).toContain('"responsibility":"undetermined"');
+    expect(calls[0]?.[1]?.[2]).toContain('"type":"legacy"');
+    expect(calls[1]?.[1]?.[2]).toContain(
+      '"responsibilityReasonCode":"product-not-received.legacy-resolution-without-responsibility"',
+    );
   });
 
   it("records return delivery, condition disputes, and refund release on the read model", async () => {

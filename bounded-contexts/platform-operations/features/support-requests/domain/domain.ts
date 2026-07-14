@@ -31,10 +31,18 @@ import {
   type SupportReturnRefundGateStatus,
   type SupportResolution,
   type SupportResolutionType,
+  type SupportResponsibility,
+  type SupportResponsibilityReasonCode,
+  type SupportEvidenceBasis,
   type SupportResponse,
   type SupportResponseType,
 } from "./common";
 import { createChecklist, getSupportFlowDefinition, includesEvidenceType } from "./flow-catalog";
+import {
+  acceptedOfferResponsibilityFact,
+  createSupportResponsibilityFact,
+  normalizeSupportResolutionForReplay,
+} from "./responsibility";
 import { isHighValueReturnAmount, returnFlowPolicy } from "./return-flow-policy";
 import {
   createSupportCsatOutcomeFact,
@@ -210,6 +218,9 @@ export type ResolveSupportRequestCommand = Readonly<{
   refundAmount?: string | null;
   affectedLineIds?: readonly string[] | null;
   refundCurrencyCode?: string | null;
+  responsibility: SupportResponsibility | string;
+  evidenceBasis: Readonly<{ type: SupportEvidenceBasis["type"] | string; reference: string }>;
+  responsibilityReasonCode: SupportResponsibilityReasonCode | string;
   resolvedByAccountId?: AccountId | null;
   resolvedByRole?: SupportRequesterRole | null;
   resolvedAt: string;
@@ -855,7 +866,11 @@ function buildOffer(
   };
 }
 
-function resolveFromOffer(offer: SupportOffer, acceptedByAccountId: AccountId | null): SupportResolution {
+function resolveFromOffer(
+  flowType: SupportFlowType,
+  offer: SupportOffer,
+  acceptedByAccountId: AccountId | null,
+): SupportResolution {
   return {
     resolutionType: offer.resolutionType,
     summary: `Party agreement accepted offer ${offer.offerId}: ${offer.summary}`,
@@ -863,7 +878,24 @@ function resolveFromOffer(offer: SupportOffer, acceptedByAccountId: AccountId | 
     resolvedByAccountId: acceptedByAccountId,
     resolvedByRole: offer.decidedByRole,
     resolvedAt: offer.decidedAt!,
+    ...acceptedOfferResponsibilityFact(flowType, offer.offerId),
   };
+}
+
+function resolutionsMatch(left: SupportResolution | null, right: SupportResolution): boolean {
+  return (
+    left !== null &&
+    left.resolutionType === right.resolutionType &&
+    left.summary === right.summary &&
+    left.refundAmount === right.refundAmount &&
+    left.resolvedByAccountId === right.resolvedByAccountId &&
+    left.resolvedByRole === right.resolvedByRole &&
+    left.resolvedAt === right.resolvedAt &&
+    left.responsibility === right.responsibility &&
+    left.evidenceBasis.type === right.evidenceBasis.type &&
+    left.evidenceBasis.reference === right.evidenceBasis.reference &&
+    left.responsibilityReasonCode === right.responsibilityReasonCode
+  );
 }
 
 export const decideSupportRequest: AggregateDecider<SupportRequestState, SupportRequestCommand, SupportRequestEvent> = (
@@ -1045,6 +1077,10 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
           definition.allowedResolutions.includes("cancel-order"),
           "This resolution is not accepted for the support flow.",
         );
+        assert(
+          definition.confirmedResponseResponsibility !== undefined,
+          "Confirmed cancellation responsibility must be defined by the support flow.",
+        );
         const resolution: SupportResolution = {
           resolutionType: "cancel-order",
           summary: "Seller confirmed the buyer cancellation request.",
@@ -1052,6 +1088,10 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
           resolvedByAccountId: response.submittedByAccountId,
           resolvedByRole: response.submittedByRole,
           resolvedAt: response.submittedAt,
+          ...createSupportResponsibilityFact({
+            flowType: state.flowType,
+            ...definition.confirmedResponseResponsibility,
+          }),
         };
         const resolvedEvent: SupportRequestResolvedEvent = {
           type: "support.support-request.resolved",
@@ -1105,7 +1145,7 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         decidedAt: acceptedAt,
         decisionSummary: "Offer accepted by the counterparty.",
       };
-      const resolution = resolveFromOffer(acceptedOffer, command.acceptedByAccountId ?? null);
+      const resolution = resolveFromOffer(state.flowType!, acceptedOffer, command.acceptedByAccountId ?? null);
       assertReturnRefundReleaseAllowed(state, resolution.resolutionType, acceptedByRole);
 
       return [
@@ -1202,9 +1242,6 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
     case "ResolveSupportRequest": {
       assert(state.supportRequestId !== null, "Support request must be opened first.");
       assert(state.status !== "closed" && state.status !== "cancelled", "Closed support requests cannot be resolved.");
-      if (state.status === "resolved") {
-        return [];
-      }
       assert(state.flowType !== null, "Support request flow is missing.");
       const resolutionType = normalizeResolutionType(command.resolutionType);
       const definition = getSupportFlowDefinition(state.flowType);
@@ -1228,6 +1265,25 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         command.refundCurrencyCode,
         resolutionType === "partial-refund",
       );
+      const responsibilityFact = createSupportResponsibilityFact({
+        flowType: state.flowType,
+        responsibility: command.responsibility,
+        evidenceBasis: command.evidenceBasis,
+        responsibilityReasonCode: command.responsibilityReasonCode,
+      });
+      if (resolvedByRole === null) {
+        assert(
+          responsibilityFact.evidenceBasis.type === "deterministic-policy",
+          "System resolutions require a deterministic policy evidence basis.",
+        );
+      } else {
+        assert(resolvedByRole === "support", "Only support can adjudicate a support request directly.");
+        assert(
+          responsibilityFact.evidenceBasis.type === "operator-finding" ||
+            responsibilityFact.evidenceBasis.type === "insufficient-evidence",
+          "Support adjudication requires an operator finding or insufficient evidence basis.",
+        );
+      }
       const resolution: SupportResolution = {
         resolutionType,
         summary: normalizeRequiredText(command.summary, "Support resolution must include a summary."),
@@ -1235,7 +1291,12 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         resolvedByAccountId: command.resolvedByAccountId ?? null,
         resolvedByRole,
         resolvedAt: normalizeIsoTimestamp(command.resolvedAt, "Support resolution must record a timestamp."),
+        ...responsibilityFact,
       };
+      if (state.status === "resolved") {
+        assert(resolutionsMatch(state.resolution, resolution), "Support request already has a different resolution.");
+        return [];
+      }
       const resolvedEvent: SupportRequestResolvedEvent = {
         type: "support.support-request.resolved",
         data: {
@@ -1508,16 +1569,17 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         escalatedByRole: event.data.escalatedByRole,
         escalationReason: event.data.reason,
       };
-    case "support.support-request.resolved":
+    case "support.support-request.resolved": {
+      const resolution = normalizeSupportResolutionForReplay(event.data.resolution, event.data.flowType);
       return {
         ...state,
         status: "resolved",
-        updatedAt: event.data.resolution.resolvedAt,
-        resolution: event.data.resolution,
+        updatedAt: resolution.resolvedAt,
+        resolution,
         autoCloseDueAt: event.data.autoCloseDueAt,
-        returnRefundGateStatus:
-          event.data.resolution.resolutionType === "return-for-refund" ? "awaiting-return-delivery" : null,
+        returnRefundGateStatus: resolution.resolutionType === "return-for-refund" ? "awaiting-return-delivery" : null,
       };
+    }
     case "support.support-request.closed":
       return {
         ...state,

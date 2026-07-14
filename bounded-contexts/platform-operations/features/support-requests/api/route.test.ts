@@ -159,7 +159,13 @@ describe("support request routes", () => {
     [
       "resolveSupportRequest",
       "/support-requests/sup_1/resolve",
-      { resolutionType: "replacement", summary: "Replacement approved" },
+      {
+        resolutionType: "replacement",
+        summary: "Replacement approved",
+        responsibility: "seller",
+        evidenceBasis: { type: "operator-finding", reference: "support-test.operator-adjudication.v1" },
+        responsibilityReasonCode: "wrong-product-received.seller-sent-wrong-product",
+      },
       { id: "sup_1", version: 5, status: "resolved" },
     ],
     ["closeSupportRequest", "/support-requests/sup_1/close", {}, { id: "sup_1", version: 6, status: "closed" }],
@@ -301,7 +307,14 @@ describe("support request routes", () => {
     [
       "resolveSupportRequest",
       "/support-requests/ops/sup_1/resolve",
-      { resolutionType: "support-reviewed", summary: "Reviewed", refundAmount: null },
+      {
+        resolutionType: "support-reviewed",
+        summary: "Reviewed",
+        refundAmount: null,
+        responsibility: "undetermined",
+        evidenceBasis: { type: "insufficient-evidence", reference: "support-test.conflicting-evidence.v1" },
+        responsibilityReasonCode: "product-damaged.conflicting-evidence",
+      },
       {
         id: "sup_1",
         version: 11,
@@ -312,6 +325,9 @@ describe("support request routes", () => {
           resolutionType: "support-reviewed",
           summary: "Reviewed",
           refundAmount: null,
+          responsibility: "undetermined",
+          evidenceBasis: { type: "insufficient-evidence", reference: "support-test.conflicting-evidence.v1" },
+          responsibilityReasonCode: "product-damaged.conflicting-evidence",
           scope: "operations",
         },
       },

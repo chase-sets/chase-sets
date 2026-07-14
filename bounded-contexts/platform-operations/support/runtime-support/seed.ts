@@ -392,6 +392,12 @@ export async function seedSupportDatabase(
           resolutionType: "partial-refund",
           summary: "Seeded support partial refund for shipping damage.",
           refundAmount: "5.00",
+          responsibility: "carrier",
+          evidenceBasis: {
+            type: "operator-finding",
+            reference: "support-seed.operator-adjudication.v1",
+          },
+          responsibilityReasonCode: "product-damaged.carrier-damage",
           resolvedByAccountId: identitySeedIds.demo.accountId,
           resolvedByRole: "support",
           resolvedAt: "2026-03-25T10:30:00.000Z",

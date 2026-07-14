@@ -13,6 +13,22 @@ function fold(events: readonly SupportRequestEvent[]): SupportRequestState {
 
 const openedAt = "2026-05-09T12:00:00.000Z";
 
+function operatorFinding(flowType: string, responsibility: string, reason: string) {
+  return {
+    responsibility,
+    evidenceBasis: { type: "operator-finding", reference: "support-test.operator-adjudication.v1" },
+    responsibilityReasonCode: `${flowType}.${reason}`,
+  };
+}
+
+function sellerSilenceFact(flowType: string) {
+  return {
+    responsibility: "undetermined",
+    evidenceBasis: { type: "deterministic-policy", reference: "support-policy.seller-response-deadline.v1" },
+    responsibilityReasonCode: `${flowType}.seller-response-deadline-expired`,
+  };
+}
+
 function openProductNotReceived() {
   return decideSupportRequest(initialSupportRequestState, {
     type: "OpenSupportRequest",
@@ -425,6 +441,7 @@ describe("support request domain", () => {
     expect(() =>
       decideSupportRequest(state, {
         type: "ResolveSupportRequest",
+        ...operatorFinding("return-request", "buyer", "buyer-remorse"),
         resolutionType: "return-for-refund",
         summary: "Refund approved.",
         resolvedByAccountId: "acc_support" as never,
@@ -450,6 +467,7 @@ describe("support request domain", () => {
     expect(() =>
       decideSupportRequest(state, {
         type: "ResolveSupportRequest",
+        ...operatorFinding("return-request", "buyer", "buyer-remorse"),
         resolutionType: "return-for-refund",
         summary: "Buyer and seller agreed.",
         resolvedByAccountId: "acc_seller" as never,
@@ -460,6 +478,7 @@ describe("support request domain", () => {
 
     const events = decideSupportRequest(state, {
       type: "ResolveSupportRequest",
+      ...operatorFinding("return-request", "buyer", "buyer-remorse"),
       resolutionType: "return-for-refund",
       summary: "Support reviewed the high-value return.",
       resolvedByAccountId: "acc_support" as never,
@@ -628,6 +647,7 @@ describe("support request domain", () => {
     expect(() =>
       decideSupportRequest(state, {
         type: "ResolveSupportRequest",
+        ...operatorFinding("product-not-as-described", "seller", "seller-misdescription"),
         resolutionType: "partial-refund",
         summary: "Adjudicated refund.",
         refundAmount: "15.16",
@@ -636,6 +656,103 @@ describe("support request domain", () => {
         resolvedAt: "2026-05-09T14:00:00.000Z",
       }),
     ).toThrow("affected line totals");
+  });
+
+  it("emits a carrier-loss refund with carrier responsibility independently from the remedy", () => {
+    const events = decideSupportRequest(fold(openProductNotReceived()), {
+      type: "ResolveSupportRequest",
+      ...operatorFinding("product-not-received", "carrier", "carrier-loss"),
+      resolutionType: "full-refund",
+      summary: "Carrier confirmed the shipment was lost.",
+      resolvedByAccountId: "acc_support" as never,
+      resolvedByRole: "support",
+      resolvedAt: "2026-05-09T14:00:00.000Z",
+    });
+
+    expect(events[0]).toMatchObject({
+      data: {
+        resolution: {
+          resolutionType: "full-refund",
+          responsibility: "carrier",
+          responsibilityReasonCode: "product-not-received.carrier-loss",
+        },
+      },
+    });
+  });
+
+  it("emits a seller-misdescription refund with seller responsibility", () => {
+    const events = decideSupportRequest(fold(openProductNotAsDescribed()), {
+      type: "ResolveSupportRequest",
+      ...operatorFinding("product-not-as-described", "seller", "seller-misdescription"),
+      resolutionType: "partial-refund",
+      refundAmount: "10.00",
+      summary: "Listing materially misdescribed the product.",
+      resolvedByAccountId: "acc_support" as never,
+      resolvedByRole: "support",
+      resolvedAt: "2026-05-09T14:00:00.000Z",
+    });
+
+    expect(events[0]).toMatchObject({
+      data: { resolution: { refundAmount: "10.00", responsibility: "seller" } },
+    });
+  });
+
+  it("emits a buyer-remorse return refund with buyer responsibility", () => {
+    const opened = openReturnRequest();
+    const evidence = submitReturnEvidence(fold(opened));
+    const events = decideSupportRequest(fold([...opened, ...evidence]), {
+      type: "ResolveSupportRequest",
+      ...operatorFinding("return-request", "buyer", "buyer-remorse"),
+      resolutionType: "return-for-refund",
+      summary: "Buyer changed their mind.",
+      resolvedByAccountId: "acc_support" as never,
+      resolvedByRole: "support",
+      resolvedAt: "2026-05-09T14:00:00.000Z",
+    });
+
+    expect(events[0]).toMatchObject({
+      data: { resolution: { resolutionType: "return-for-refund", responsibility: "buyer" } },
+    });
+  });
+
+  it("converges duplicate resolution delivery without changing the selected fact", () => {
+    const opened = openProductNotReceived();
+    const command = {
+      type: "ResolveSupportRequest" as const,
+      ...operatorFinding("product-not-received", "carrier", "carrier-loss"),
+      resolutionType: "full-refund" as const,
+      summary: "Carrier confirmed the shipment was lost.",
+      resolvedByAccountId: "acc_support" as never,
+      resolvedByRole: "support" as const,
+      resolvedAt: "2026-05-09T14:00:00.000Z",
+    };
+    const resolved = decideSupportRequest(fold(opened), command);
+
+    expect(decideSupportRequest(fold([...opened, ...resolved]), command)).toEqual([]);
+    expect(fold([...opened, ...resolved]).resolution).toMatchObject({
+      responsibility: "carrier",
+      responsibilityReasonCode: "product-not-received.carrier-loss",
+    });
+    expect(() =>
+      decideSupportRequest(fold([...opened, ...resolved]), {
+        ...command,
+        ...operatorFinding("product-not-received", "seller", "seller-did-not-ship"),
+      }),
+    ).toThrow("Support request already has a different resolution.");
+  });
+
+  it("reserves direct adjudication facts for support while party agreement resolves through offers", () => {
+    expect(() =>
+      decideSupportRequest(fold(openProductNotReceived()), {
+        type: "ResolveSupportRequest",
+        ...operatorFinding("product-not-received", "seller", "seller-did-not-ship"),
+        resolutionType: "full-refund",
+        summary: "Seller attempted a direct finding.",
+        resolvedByAccountId: "acc_seller" as never,
+        resolvedByRole: "seller",
+        resolvedAt: "2026-05-09T14:00:00.000Z",
+      }),
+    ).toThrow("Only support can adjudicate a support request directly.");
   });
 
   it("rejects offer resolution types that do not match the response or flow", () => {
@@ -681,6 +798,9 @@ describe("support request domain", () => {
           refundAmount: "12.50",
           resolvedByAccountId: "acc_buyer",
           resolvedAt: "2026-05-09T14:00:00.000Z",
+          responsibility: "undetermined",
+          evidenceBasis: { type: "party-accepted-resolution", reference: "support-offer.sof_01" },
+          responsibilityReasonCode: "product-not-as-described.accepted-resolution-without-cause-finding",
         },
       },
     });
@@ -957,6 +1077,7 @@ describe("support request domain", () => {
       expect(() =>
         decideSupportRequest(afterEscalation, {
           type: "ResolveSupportRequest",
+          ...operatorFinding("product-not-received", "seller", "seller-did-not-ship"),
           resolutionType: "full-refund",
           summary: "Buyer and seller agreed outside the platform.",
           resolvedByAccountId: "acc_seller" as never,
@@ -967,6 +1088,7 @@ describe("support request domain", () => {
 
       const events = decideSupportRequest(afterEscalation, {
         type: "ResolveSupportRequest",
+        ...operatorFinding("product-not-received", "seller", "seller-did-not-ship"),
         resolutionType: "full-refund",
         summary: "Support reviewed and issued a full refund.",
         resolvedByAccountId: "acc_support" as never,
@@ -988,6 +1110,7 @@ describe("support request domain", () => {
 
       const resolved = decideSupportRequest(state, {
         type: "ResolveSupportRequest",
+        ...sellerSilenceFact("product-not-received"),
         resolutionType: "full-refund",
         summary: "Automatically resolved: the seller did not respond within the 48-hour support window.",
         refundAmount: null,
@@ -1003,6 +1126,12 @@ describe("support request domain", () => {
             resolutionType: "full-refund",
             resolvedByAccountId: null,
             resolvedByRole: null,
+            responsibility: "undetermined",
+            evidenceBasis: {
+              type: "deterministic-policy",
+              reference: "support-policy.seller-response-deadline.v1",
+            },
+            responsibilityReasonCode: "product-not-received.seller-response-deadline-expired",
           },
           autoCloseDueAt: "2026-05-18T12:00:00.000Z",
         },
@@ -1036,7 +1165,17 @@ describe("support request domain", () => {
         submittedAt: "2026-05-09T13:05:00.000Z",
       });
       expect(confirmed[1]).toMatchObject({
-        data: { autoCloseDueAt: "2026-05-16T13:05:00.000Z" },
+        data: {
+          autoCloseDueAt: "2026-05-16T13:05:00.000Z",
+          resolution: {
+            responsibility: "buyer",
+            evidenceBasis: {
+              type: "party-accepted-resolution",
+              reference: "support-policy.confirmed-buyer-cancellation.v1",
+            },
+            responsibilityReasonCode: "buyer-cancel-request.buyer-requested-cancellation",
+          },
+        },
       });
 
       const offerOpened = openProductNotAsDescribed();
@@ -1087,6 +1226,7 @@ describe("support request domain", () => {
       const state = fold(opened);
       const resolved = decideSupportRequest(state, {
         type: "ResolveSupportRequest",
+        ...sellerSilenceFact("product-not-received"),
         resolutionType: "full-refund",
         summary: "Automatic resolution.",
         refundAmount: null,
@@ -1163,10 +1303,11 @@ describe("support request domain", () => {
       const state = fold([...opened, ...evidence]);
       const resolved = decideSupportRequest(state, {
         type: "ResolveSupportRequest",
+        ...operatorFinding("return-request", "buyer", "buyer-remorse"),
         resolutionType: "return-for-refund",
-        summary: "Seller accepted the return.",
-        resolvedByAccountId: "acc_seller" as never,
-        resolvedByRole: "seller",
+        summary: "Support approved the return.",
+        resolvedByAccountId: "acc_support" as never,
+        resolvedByRole: "support",
         resolvedAt: "2026-05-09T14:00:00.000Z",
       });
       return [...opened, ...evidence, ...resolved];
@@ -1186,6 +1327,7 @@ describe("support request domain", () => {
       const fullOpened = openProductNotReceived();
       const fullResolved = decideSupportRequest(fold(fullOpened), {
         type: "ResolveSupportRequest",
+        ...sellerSilenceFact("product-not-received"),
         resolutionType: "full-refund",
         summary: "Delivery could not be proven.",
         resolvedByAccountId: null,

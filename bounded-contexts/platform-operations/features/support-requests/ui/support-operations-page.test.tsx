@@ -198,4 +198,18 @@ describe("SupportOperationsDetailPage", () => {
 
     expect(screen.getByText("Marketplace link unavailable — set CHASE_SETS_MARKETPLACE_ORIGIN")).toBeTruthy();
   });
+
+  it("requires an operator-selectable structured responsibility reason and evidence basis", () => {
+    renderDetailPage();
+
+    const reason = screen.getByLabelText("Responsibility reason") as HTMLSelectElement;
+    const evidenceBasis = screen.getByLabelText("Evidence basis") as HTMLSelectElement;
+    expect(reason.required).toBe(true);
+    expect([...reason.options].map((option) => option.text)).toContain("Carrier lost the shipment (carrier)");
+    expect(evidenceBasis.required).toBe(true);
+    expect([...evidenceBasis.options].map((option) => option.text)).toEqual([
+      "Operator finding",
+      "Insufficient evidence",
+    ]);
+  });
 });

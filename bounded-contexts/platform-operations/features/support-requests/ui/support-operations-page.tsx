@@ -25,6 +25,8 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import type { SupportOperationsQueueFilters, SupportRequestDetail, SupportRequestListItem } from "./contracts";
+import { normalizeFlowType } from "../domain/common";
+import { getSupportResponsibilityReasonDefinitions } from "../domain/responsibility";
 
 type SupportOperationsPageProps = Readonly<{
   queue: Readonly<{ items: readonly SupportRequestListItem[]; total: number; count: number }>;
@@ -100,6 +102,17 @@ const resolutionTypeItems = [
     label: t("support.features.supportRequests.ui.supportOperationsPage.resolution.cancelOrder"),
   },
   { value: "no-action", label: t("support.features.supportRequests.ui.supportOperationsPage.resolution.noAction") },
+];
+
+const evidenceBasisItems = [
+  {
+    value: "operator-finding",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.resolve.evidenceBasis.operatorFinding"),
+  },
+  {
+    value: "insufficient-evidence",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.resolve.evidenceBasis.insufficientEvidence"),
+  },
 ];
 
 function statusTone(status: string) {
@@ -470,6 +483,15 @@ export function SupportOperationsDetailPage({
   const successMessage = actionResultMessage(actionResult);
   const canMutate = !isTerminalStatus(request.status);
   const canClose = request.status === "resolved";
+  const responsibilityReasonItems = getSupportResponsibilityReasonDefinitions(normalizeFlowType(request.flow_type))
+    .filter(({ operatorSelectable }) => operatorSelectable)
+    .map(({ code, responsibility, operatorLabel }) => ({
+      value: `${responsibility}|${code}`,
+      label: t("support.features.supportRequests.ui.supportOperationsPage.resolve.responsibilityReasonOption", {
+        reason: operatorLabel,
+        responsibility,
+      }),
+    }));
 
   return (
     <Page>
@@ -613,6 +635,20 @@ export function SupportOperationsDetailPage({
                 label={t("support.features.supportRequests.ui.supportOperationsPage.resolve.refundAmount")}
                 name="refundAmount"
                 inputMode="decimal"
+              />
+              <NativeSelect
+                label={t("support.features.supportRequests.ui.supportOperationsPage.resolve.responsibilityReason")}
+                name="responsibilityFinding"
+                items={responsibilityReasonItems}
+                defaultValue={responsibilityReasonItems[0]?.value}
+                required
+              />
+              <NativeSelect
+                label={t("support.features.supportRequests.ui.supportOperationsPage.resolve.evidenceBasis")}
+                name="evidenceBasisType"
+                items={evidenceBasisItems}
+                defaultValue="operator-finding"
+                required
               />
               <Cluster justify="end">
                 <Button type="submit" disabled={!canMutate}>
@@ -815,6 +851,33 @@ export function SupportOperationsDetailPage({
                 </Text>
                 <Text element="span" size="sm" tone="secondary" wrap="anywhere" align="right">
                   {request.resolution.resolutionType}
+                </Text>
+              </Cluster>
+              <Cluster align="start" justify="between" gap={1}>
+                <Text size="sm" weight="semibold">
+                  {t("support.features.supportRequests.ui.supportOperationsPage.resolve.responsibility")}
+                </Text>
+                <Text element="span" size="sm" tone="secondary" wrap="anywhere" align="right">
+                  {request.resolution.responsibility}
+                </Text>
+              </Cluster>
+              <Cluster align="start" justify="between" gap={1}>
+                <Text size="sm" weight="semibold">
+                  {t("support.features.supportRequests.ui.supportOperationsPage.resolve.responsibilityReason")}
+                </Text>
+                <Text element="span" size="sm" tone="secondary" wrap="anywhere" align="right">
+                  {request.resolution.responsibilityReasonCode}
+                </Text>
+              </Cluster>
+              <Cluster align="start" justify="between" gap={1}>
+                <Text size="sm" weight="semibold">
+                  {t("support.features.supportRequests.ui.supportOperationsPage.resolve.evidenceBasis")}
+                </Text>
+                <Text element="span" size="sm" tone="secondary" wrap="anywhere" align="right">
+                  {t("support.features.supportRequests.ui.supportOperationsPage.resolve.evidenceBasisValue", {
+                    type: request.resolution.evidenceBasis.type,
+                    reference: request.resolution.evidenceBasis.reference,
+                  })}
                 </Text>
               </Cluster>
               <Cluster align="start" justify="between" gap={1}>

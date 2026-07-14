@@ -24,6 +24,9 @@ import {
   type SupportOrderReturnContextLine,
   type SupportRequesterRole,
   type SupportResolutionType,
+  type SupportResponsibility,
+  type SupportEvidenceBasis,
+  type SupportResponsibilityReasonCode,
   type SupportResponseType,
 } from "../domain/common";
 import {
@@ -35,6 +38,7 @@ import {
   type SupportRequestState,
 } from "../domain/domain";
 import { getSupportFlowDefinition, supportFlowCatalog, type SupportFlowDefinition } from "../domain/flow-catalog";
+import { sellerSilenceResponsibilityFact } from "../domain/responsibility";
 import { resolveSupportFlowDeadlineHours, supportDeadlinePolicy } from "../domain/support-deadline-policy";
 import {
   buildSupportRequestTransactionalEmailProjectionHandlers,
@@ -180,6 +184,9 @@ export type SupportRequestServices = Readonly<{
       refundAmount?: string | null;
       affectedLineIds?: readonly string[] | null;
       refundCurrencyCode?: string | null;
+      responsibility: SupportResponsibility | string;
+      evidenceBasis: Readonly<{ type: SupportEvidenceBasis["type"] | string; reference: string }>;
+      responsibilityReasonCode: SupportResponsibilityReasonCode | string;
       scope?: SupportRequestMutationScope;
     }>,
     context: EventStoreContext,
@@ -646,6 +653,9 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           refundAmount: params.refundAmount ?? null,
           affectedLineIds: params.affectedLineIds ?? null,
           refundCurrencyCode: params.refundCurrencyCode ?? null,
+          responsibility: params.responsibility,
+          evidenceBasis: params.evidenceBasis,
+          responsibilityReasonCode: params.responsibilityReasonCode,
           resolvedByAccountId: params.accountId as AccountId,
           resolvedByRole,
           resolvedAt: new Date().toISOString(),
@@ -831,6 +841,8 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
                 resolvedByAccountId: null,
                 resolvedByRole: null,
                 resolvedAt: now,
+                ...(definition.automatedResolutionResponsibility ??
+                  sellerSilenceResponsibilityFact(definition.flowType)),
               },
               context,
             });

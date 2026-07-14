@@ -173,6 +173,15 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportOperationsPage.resolve.type": "Resolution",
   "support.features.supportRequests.ui.supportOperationsPage.resolve.summary": "Resolution summary",
   "support.features.supportRequests.ui.supportOperationsPage.resolve.refundAmount": "Refund amount",
+  "support.features.supportRequests.ui.supportOperationsPage.resolve.responsibility": "Responsibility",
+  "support.features.supportRequests.ui.supportOperationsPage.resolve.responsibilityReason": "Responsibility reason",
+  "support.features.supportRequests.ui.supportOperationsPage.resolve.responsibilityReasonOption":
+    "{reason} ({responsibility})",
+  "support.features.supportRequests.ui.supportOperationsPage.resolve.evidenceBasis": "Evidence basis",
+  "support.features.supportRequests.ui.supportOperationsPage.resolve.evidenceBasisValue": "{type} ({reference})",
+  "support.features.supportRequests.ui.supportOperationsPage.resolve.evidenceBasis.operatorFinding": "Operator finding",
+  "support.features.supportRequests.ui.supportOperationsPage.resolve.evidenceBasis.insufficientEvidence":
+    "Insufficient evidence",
   "support.features.supportRequests.ui.supportOperationsPage.resolve.submit": "Resolve",
   "support.features.supportRequests.ui.supportOperationsPage.resolution.supportReviewed": "Support reviewed",
   "support.features.supportRequests.ui.supportOperationsPage.resolution.fullRefund": "Full refund",
