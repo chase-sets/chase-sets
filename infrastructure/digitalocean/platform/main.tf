@@ -1829,7 +1829,22 @@ resource "digitalocean_app" "platform" {
 
     ingress {
       dynamic "rule" {
-        for_each = local.legacy_domain_redirects
+        for_each = local.serving_from_doks ? [1] : []
+        content {
+          match {
+            path {
+              prefix = "/"
+            }
+          }
+          component {
+            name                 = "public-web"
+            preserve_path_prefix = true
+          }
+        }
+      }
+
+      dynamic "rule" {
+        for_each = local.app_platform_legacy_domain_redirects
         content {
           match {
             authority {
