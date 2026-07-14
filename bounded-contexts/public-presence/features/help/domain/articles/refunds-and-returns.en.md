@@ -4,9 +4,9 @@ title: Refunds and returns
 description: How cancellations, order problems, returns, and refunds work — what each side provides and what happens on the deadlines.
 audience: buyer
 category: buying
-reviewedAt: "2026-07-12"
+reviewedAt: "2026-07-13"
 citedPolicies: ["platform-operations.support-deadlines"]
-relatedFlows: ["return-request", "buyer-cancel-request", "product-not-received", "refund-status"]
+relatedFlows: ["return-request", "buyer-cancel-request", "product-not-received", "product-damaged", "wrong-product-received", "missing-products", "refund-status"]
 claimCategories: ["protection", "shipping"]
 promiseTable:
   - claim: Refunds are issued only through order cancellation, support-flow resolutions, or platform fraud safeguards, always to the original payment and capped at the remaining refundable amount.
