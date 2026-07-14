@@ -309,8 +309,8 @@ async function insertSummary(db: PgTransactionalPool, value: number) {
        0,
        '2026-07-13T00:00:00.000Z'::timestamptz + ($4::text || ' seconds')::interval,
        '2026-07-13T00:00:00.000Z'::timestamptz + ($4::text || ' seconds')::interval,
-       $4,
-       $4,
+       $4::bigint,
+       $4::bigint,
        1
      )`,
     [id, ownerAccountId, `List ${value}`, value],
