@@ -6,6 +6,7 @@ import {
   Form,
   Button,
   MarketplaceDashboardPanel,
+  ModalDialog,
   NativeSelect,
   Page,
   PageHeader,
@@ -161,13 +162,27 @@ export function SecurityPage({
                         {t("identity.features.apiKeys.ui.accountSecurityPage.rotate")}
                       </Button>
                     </Form>
-                    <Form spacing="none" method="post">
-                      <HiddenInput type="hidden" name="intent" value="revoke-api-key" readOnly />
-                      <HiddenInput type="hidden" name="apiKeyId" value={apiKey.api_key_id} readOnly />
-                      <Button type="submit" tone="danger">
-                        {t("identity.features.apiKeys.ui.accountSecurityPage.revoke")}
-                      </Button>
-                    </Form>
+                    <ModalDialog
+                      title={t("identity.features.apiKeys.ui.accountSecurityPage.revoke.confirm.title", {
+                        name: apiKey.name,
+                      })}
+                      description={t("identity.features.apiKeys.ui.accountSecurityPage.revoke.confirm.description", {
+                        name: apiKey.name,
+                      })}
+                      trigger={
+                        <Button type="button" tone="danger">
+                          {t("identity.features.apiKeys.ui.accountSecurityPage.revoke")}
+                        </Button>
+                      }
+                    >
+                      <Form spacing="none" method="post">
+                        <HiddenInput type="hidden" name="intent" value="revoke-api-key" readOnly />
+                        <HiddenInput type="hidden" name="apiKeyId" value={apiKey.api_key_id} readOnly />
+                        <Button type="submit" tone="danger">
+                          {t("identity.features.apiKeys.ui.accountSecurityPage.revoke.confirm.action")}
+                        </Button>
+                      </Form>
+                    </ModalDialog>
                   </Stack>
                 ) : null}
               </Stack>

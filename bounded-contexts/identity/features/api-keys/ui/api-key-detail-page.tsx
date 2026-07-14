@@ -1,5 +1,13 @@
 import { t } from "@chase-sets/localization";
-import { AdminResourceDetailPage, HiddenInput, Form, Button, Inline, Stack } from "@chase-sets/design-system";
+import {
+  AdminResourceDetailPage,
+  HiddenInput,
+  Form,
+  Button,
+  Inline,
+  ModalDialog,
+  Stack,
+} from "@chase-sets/design-system";
 import type { ApiKey, OneTimeApiKeySecret } from "./contracts";
 import { ApiKeySecretReveal } from "./api-key-secret-reveal";
 
@@ -37,12 +45,26 @@ export function ApiKeyDetailPage({
                     {t("identity.features.apiKeys.ui.apiKeyDetailPage.rotate")}
                   </Button>
                 </Form>
-                <Form spacing="none" method="post">
-                  <HiddenInput type="hidden" name="intent" value="revoke" readOnly />
-                  <Button type="submit" tone="danger">
-                    {t("identity.features.apiKeys.ui.apiKeyDetailPage.revoke")}
-                  </Button>
-                </Form>
+                <ModalDialog
+                  title={t("identity.features.apiKeys.ui.apiKeyDetailPage.revoke.confirm.title", {
+                    name: data.name,
+                  })}
+                  description={t("identity.features.apiKeys.ui.apiKeyDetailPage.revoke.confirm.description", {
+                    name: data.name,
+                  })}
+                  trigger={
+                    <Button type="button" tone="danger">
+                      {t("identity.features.apiKeys.ui.apiKeyDetailPage.revoke")}
+                    </Button>
+                  }
+                >
+                  <Form spacing="none" method="post">
+                    <HiddenInput type="hidden" name="intent" value="revoke" readOnly />
+                    <Button type="submit" tone="danger">
+                      {t("identity.features.apiKeys.ui.apiKeyDetailPage.revoke.confirm.action")}
+                    </Button>
+                  </Form>
+                </ModalDialog>
               </>
             ) : null}
           </Inline>

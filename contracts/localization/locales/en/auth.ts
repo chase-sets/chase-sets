@@ -144,6 +144,10 @@ export const authEnglishTranslations = {
   "auth.features.sessions.ui.sessionDetailPage.available.accounts": "Available Accounts",
   "auth.features.sessions.ui.sessionDetailPage.expires.at": "Expires At",
   "auth.features.sessions.ui.sessionDetailPage.revoke": "Revoke",
+  "auth.features.sessions.ui.sessionDetailPage.revoke.confirm.action": "Confirm revoke",
+  "auth.features.sessions.ui.sessionDetailPage.revoke.confirm.description":
+    "This signs {user} out of the session for {account}. They will need to sign in again to use it.",
+  "auth.features.sessions.ui.sessionDetailPage.revoke.confirm.title": "Revoke session for {user}?",
   "auth.features.sessions.ui.sessionDetailPage.session.id": "Session ID",
   "auth.features.sessions.ui.sessionDetailPage.switch.account": "Switch Account",
   "auth.features.sessions.ui.sessionDetailPage.title": "{user} session",

@@ -5,6 +5,7 @@ import {
   Form,
   Button,
   Inline,
+  ModalDialog,
   NativeSelect,
   Stack,
 } from "@chase-sets/design-system";
@@ -40,12 +41,25 @@ export function MembershipDetailPage({ data }: { data: Membership }) {
             </Stack>
           </Form>
           {data.status === "active" ? (
-            <Form spacing="none" method="post">
-              <HiddenInput type="hidden" name="intent" value="revoke" readOnly />
-              <Button type="submit" tone="danger">
-                {t("identity.features.memberships.ui.membershipDetailPage.revoke")}
-              </Button>
-            </Form>
+            <ModalDialog
+              title={t("identity.features.memberships.ui.membershipDetailPage.revoke.confirm.title", { user })}
+              description={t("identity.features.memberships.ui.membershipDetailPage.revoke.confirm.description", {
+                user,
+                account,
+              })}
+              trigger={
+                <Button type="button" tone="danger">
+                  {t("identity.features.memberships.ui.membershipDetailPage.revoke")}
+                </Button>
+              }
+            >
+              <Form spacing="none" method="post">
+                <HiddenInput type="hidden" name="intent" value="revoke" readOnly />
+                <Button type="submit" tone="danger">
+                  {t("identity.features.memberships.ui.membershipDetailPage.revoke.confirm.action")}
+                </Button>
+              </Form>
+            </ModalDialog>
           ) : (
             <Form spacing="none" method="post">
               <HiddenInput type="hidden" name="intent" value="reinstate" readOnly />

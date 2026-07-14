@@ -44,6 +44,9 @@ test.describe("access admin invitations", () => {
     await expectAdminPageReady(page, { heading: invitationEmail });
     await expect(page.getByText("pending").first()).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
+    const confirmationDialog = page.getByRole("dialog", { name: `Cancel invitation for ${invitationEmail}?` });
+    await expect(confirmationDialog).toBeVisible();
+    await confirmationDialog.getByRole("button", { name: "Confirm cancellation" }).click();
     await page.waitForURL(
       (url) => url.pathname === `/access/invitations/${invitationId}` && url.search.includes("afterWrite"),
       { timeout: 30_000 },

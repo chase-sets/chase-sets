@@ -6,6 +6,7 @@ import {
   Button,
   DateInput,
   Inline,
+  ModalDialog,
   Stack,
 } from "@chase-sets/design-system";
 import type { Invitation } from "./contracts";
@@ -44,12 +45,27 @@ export function InvitationDetailPage({ data }: { data: Invitation }) {
                   </Button>
                 </Stack>
               </Form>
-              <Form spacing="none" method="post">
-                <HiddenInput type="hidden" name="intent" value="cancel" readOnly />
-                <Button type="submit" tone="danger">
-                  {t("identity.features.invitations.ui.invitationDetailPage.cancel")}
-                </Button>
-              </Form>
+              <ModalDialog
+                title={t("identity.features.invitations.ui.invitationDetailPage.cancel.confirm.title", {
+                  email: data.email,
+                })}
+                description={t("identity.features.invitations.ui.invitationDetailPage.cancel.confirm.description", {
+                  email: data.email,
+                  account,
+                })}
+                trigger={
+                  <Button type="button" tone="danger">
+                    {t("identity.features.invitations.ui.invitationDetailPage.cancel")}
+                  </Button>
+                }
+              >
+                <Form spacing="none" method="post">
+                  <HiddenInput type="hidden" name="intent" value="cancel" readOnly />
+                  <Button type="submit" tone="danger">
+                    {t("identity.features.invitations.ui.invitationDetailPage.cancel.confirm.action")}
+                  </Button>
+                </Form>
+              </ModalDialog>
               <Form spacing="none" method="post">
                 <HiddenInput type="hidden" name="intent" value="decline" readOnly />
                 <Button type="submit" tone="secondary">

@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, NativeSelect, Stack, TextInput } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, ModalDialog, NativeSelect, Stack, TextInput } from "@chase-sets/design-system";
 import { CustomerSummaryPage } from "../../../support/ui-support/customer-pages";
 import type { Membership } from "./contracts";
 import type { Invitation } from "../../invitations/ui/contracts";
@@ -7,6 +7,14 @@ import { grantableRoleSelectItems } from "./role-select-items";
 
 function userLabel(membership: Membership) {
   return membership.user_display_name ?? membership.user_primary_email ?? membership.user_id;
+}
+
+function membershipAccountLabel(membership: Membership) {
+  return membership.account_display_name ?? membership.account_name ?? membership.account_id;
+}
+
+function invitationAccountLabel(invitation: Invitation) {
+  return invitation.account_display_name ?? invitation.account_name ?? invitation.account_id;
 }
 
 export function TeamPage({
@@ -63,20 +71,38 @@ export function TeamPage({
                     {t("identity.features.memberships.ui.accountTeamPage.change.role")}
                   </Button>
                 </Form>
-                <Form spacing="none" method="post">
-                  <HiddenInput
-                    type="hidden"
-                    name="intent"
-                    value={membership.status === "active" ? "revoke" : "reinstate"}
-                    readOnly
-                  />
-                  <HiddenInput type="hidden" name="membershipId" value={membership.membership_id} readOnly />
-                  <Button type="submit" tone={membership.status === "active" ? "danger" : "primary"}>
-                    {membership.status === "active"
-                      ? t("identity.features.memberships.ui.accountTeamPage.revoke")
-                      : t("identity.features.memberships.ui.accountTeamPage.reinstate")}
-                  </Button>
-                </Form>
+                {membership.status === "active" ? (
+                  <ModalDialog
+                    title={t("identity.features.memberships.ui.accountTeamPage.revoke.confirm.title", {
+                      user: userLabel(membership),
+                    })}
+                    description={t("identity.features.memberships.ui.accountTeamPage.revoke.confirm.description", {
+                      user: userLabel(membership),
+                      account: membershipAccountLabel(membership),
+                    })}
+                    trigger={
+                      <Button type="button" tone="danger">
+                        {t("identity.features.memberships.ui.accountTeamPage.revoke")}
+                      </Button>
+                    }
+                  >
+                    <Form spacing="none" method="post">
+                      <HiddenInput type="hidden" name="intent" value="revoke" readOnly />
+                      <HiddenInput type="hidden" name="membershipId" value={membership.membership_id} readOnly />
+                      <Button type="submit" tone="danger">
+                        {t("identity.features.memberships.ui.accountTeamPage.revoke.confirm.action")}
+                      </Button>
+                    </Form>
+                  </ModalDialog>
+                ) : (
+                  <Form spacing="none" method="post">
+                    <HiddenInput type="hidden" name="intent" value="reinstate" readOnly />
+                    <HiddenInput type="hidden" name="membershipId" value={membership.membership_id} readOnly />
+                    <Button type="submit" tone="primary">
+                      {t("identity.features.memberships.ui.accountTeamPage.reinstate")}
+                    </Button>
+                  </Form>
+                )}
               </Stack>
             ),
           })),
@@ -88,13 +114,28 @@ export function TeamPage({
             }),
             action:
               invitation.status === "pending" ? (
-                <Form spacing="none" method="post">
-                  <HiddenInput type="hidden" name="intent" value="cancel-invitation" readOnly />
-                  <HiddenInput type="hidden" name="invitationId" value={invitation.invitation_id} readOnly />
-                  <Button type="submit" tone="danger">
-                    {t("identity.features.memberships.ui.accountTeamPage.cancel")}
-                  </Button>
-                </Form>
+                <ModalDialog
+                  title={t("identity.features.memberships.ui.accountTeamPage.cancel.confirm.title", {
+                    email: invitation.email,
+                  })}
+                  description={t("identity.features.memberships.ui.accountTeamPage.cancel.confirm.description", {
+                    email: invitation.email,
+                    account: invitationAccountLabel(invitation),
+                  })}
+                  trigger={
+                    <Button type="button" tone="danger">
+                      {t("identity.features.memberships.ui.accountTeamPage.cancel")}
+                    </Button>
+                  }
+                >
+                  <Form spacing="none" method="post">
+                    <HiddenInput type="hidden" name="intent" value="cancel-invitation" readOnly />
+                    <HiddenInput type="hidden" name="invitationId" value={invitation.invitation_id} readOnly />
+                    <Button type="submit" tone="danger">
+                      {t("identity.features.memberships.ui.accountTeamPage.cancel.confirm.action")}
+                    </Button>
+                  </Form>
+                </ModalDialog>
               ) : null,
           })),
         ]}

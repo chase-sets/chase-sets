@@ -1005,7 +1005,7 @@
       "strategy": "fresh-read",
       "surfaces": [
         "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#4",
+        "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#5",
         "route-action:bounded-contexts/identity/routes/marketplace/account-team.tsx"
       ],
       "visibleDestination": {
@@ -1055,6 +1055,7 @@
       "surfaces": [
         "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#2",
         "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#4",
         "route-action:bounded-contexts/identity/routes/marketplace/account-team.tsx"
       ],
       "visibleDestination": {
