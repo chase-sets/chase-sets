@@ -12,3 +12,4 @@
  */
 export * from "./features/csat/domain";
 export * from "./features/csat/api/analytics-contract";
+export * from "./features/cases/domain";
