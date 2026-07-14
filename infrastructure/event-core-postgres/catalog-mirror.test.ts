@@ -13,13 +13,18 @@ import {
 } from "./catalog-mirror";
 import { createCatalogMirrorReplayDb } from "./catalog-mirror-replay";
 
-function event(type: string, data: Record<string, unknown>, streamId = "catalog.item-cat_1"): TransportEvent {
+function event(
+  type: string,
+  data: Record<string, unknown>,
+  streamId = "catalog.item-cat_1",
+  recordedAt = "2026-05-09T00:00:00.000Z",
+): TransportEvent {
   return buildTransportEvent(type, data, {
     id: "evt_1",
     streamId,
     tenantId: "tnt_1",
     audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
-    timing: { occurredAt: "2026-05-09T00:00:00.000Z", recordedAt: "2026-05-09T00:00:00.000Z" },
+    timing: { occurredAt: recordedAt, recordedAt },
   });
 }
 
@@ -442,12 +447,27 @@ describe("buildCatalogMirrorProjectionHandlers", () => {
       ),
     );
 
-    for (const itemId of ["cat_one", "cat_two", "cat_three"]) {
+    const itemUpdatedAt = new Map([
+      ["cat_one", "2026-05-09T00:01:00.000Z"],
+      ["cat_two", "2026-05-09T00:02:00.000Z"],
+      ["cat_three", "2026-05-09T00:03:00.000Z"],
+    ]);
+    for (const [itemId, updatedAt] of itemUpdatedAt) {
       await handlers["catalog.catalog-item.created"]!(
-        event("catalog.catalog-item.created", { itemId, title: itemId, subtitle: null }, `catalog.item-${itemId}`),
+        event(
+          "catalog.catalog-item.created",
+          { itemId, title: itemId, subtitle: null },
+          `catalog.item-${itemId}`,
+          updatedAt,
+        ),
       );
       await handlers["catalog.catalog-item.blueprint-assigned"]!(
-        event("catalog.catalog-item.blueprint-assigned", { blueprintId: "bp_cards" }, `catalog.item-${itemId}`),
+        event(
+          "catalog.catalog-item.blueprint-assigned",
+          { blueprintId: "bp_cards" },
+          `catalog.item-${itemId}`,
+          updatedAt,
+        ),
       );
     }
 
@@ -462,6 +482,12 @@ describe("buildCatalogMirrorProjectionHandlers", () => {
     ).toHaveLength(1);
     expect(revisionEffects.filter((effect) => effect.sql.includes("SET product_schema = $2::jsonb"))).toHaveLength(1);
     expect(revisionEffects.some((effect) => effect.sql.includes("WHERE catalog_item_id = $1"))).toBe(false);
+    expect(revisionEffects.at(-1)?.sql).toContain("updated_at = inventory_catalog_items.updated_at");
+    expect(
+      Object.fromEntries(
+        Object.entries(replayDb.snapshotState().items).map(([itemId, item]) => [itemId, item.updated_at]),
+      ),
+    ).toEqual(Object.fromEntries(itemUpdatedAt));
   });
 
   it("serializes product-schema refresh queries on the projection transaction client", async () => {

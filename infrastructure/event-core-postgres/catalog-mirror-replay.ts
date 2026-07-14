@@ -148,7 +148,7 @@ export function createCatalogMirrorReplayDb(tablePrefix: string): ReplayDb {
 
     if (
       sql.startsWith(
-        `UPDATE ${tables.items} SET product_schema = $2::jsonb WHERE blueprint_id = $1 AND product_schema IS DISTINCT FROM $2::jsonb`,
+        `UPDATE ${tables.items} SET product_schema = $2::jsonb, updated_at = ${tables.items}.updated_at WHERE blueprint_id = $1 AND product_schema IS DISTINCT FROM $2::jsonb`,
       )
     ) {
       const blueprintId = String(values[0]);

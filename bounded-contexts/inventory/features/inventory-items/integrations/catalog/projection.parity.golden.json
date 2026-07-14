@@ -83,8 +83,23 @@
       ]
     },
     {
-      "sql": "SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1",
+      "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
       "params": ["bp_main"]
+    },
+    {
+      "sql": "SELECT dimension_id AS id, name AS name FROM inventory_catalog_dimensions WHERE dimension_id = ANY($1)",
+      "params": [["dim_condition", "dim_language"]]
+    },
+    {
+      "sql": "SELECT option_id, code, label_i18n, label FROM inventory_catalog_dimension_options WHERE option_id = ANY($1)",
+      "params": [["opt_near_mint", "opt_missing", "opt_english"]]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2::jsonb, updated_at = inventory_catalog_items.updated_at WHERE blueprint_id = $1 AND product_schema IS DISTINCT FROM $2::jsonb",
+      "params": [
+        "bp_main",
+        "{\"canonicalDimensionOrder\":[],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint\",\"ja\":\"ほぼ新品\"}},\"label\":\"Near Mint\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"dim_language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}"
+      ]
     },
     {
       "sql": "UPDATE inventory_catalog_items SET blueprint_id = $2, updated_at = $3 WHERE catalog_item_id = $1",
@@ -119,14 +134,6 @@
       "params": ["bp_main", "[\"dim_condition\",\"dim_language\"]", "2026-06-01T00:08:00.000Z"]
     },
     {
-      "sql": "SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1",
-      "params": ["bp_main"]
-    },
-    {
-      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
-      "params": ["cat_alpha"]
-    },
-    {
       "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
       "params": ["bp_main"]
     },
@@ -139,11 +146,10 @@
       "params": [["opt_near_mint", "opt_missing", "opt_english"]]
     },
     {
-      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2::jsonb, updated_at = inventory_catalog_items.updated_at WHERE blueprint_id = $1 AND product_schema IS DISTINCT FROM $2::jsonb",
       "params": [
-        "cat_alpha",
-        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"dim_language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint\",\"ja\":\"ほぼ新品\"}},\"label\":\"Near Mint\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"dim_language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
-        "2026-06-01T00:07:00.000Z"
+        "bp_main",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"dim_language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint\",\"ja\":\"ほぼ新品\"}},\"label\":\"Near Mint\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"dim_language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}"
       ]
     },
     {
@@ -155,14 +161,6 @@
       "params": ["[{\"dimensionId\":\"dim_language\"}]", "[\"dim_language\"]", "dim_language"]
     },
     {
-      "sql": "SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1",
-      "params": ["bp_main"]
-    },
-    {
-      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
-      "params": ["cat_alpha"]
-    },
-    {
       "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
       "params": ["bp_main"]
     },
@@ -175,11 +173,10 @@
       "params": [["opt_near_mint", "opt_missing", "opt_english"]]
     },
     {
-      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2::jsonb, updated_at = inventory_catalog_items.updated_at WHERE blueprint_id = $1 AND product_schema IS DISTINCT FROM $2::jsonb",
       "params": [
-        "cat_alpha",
-        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint\",\"ja\":\"ほぼ新品\"}},\"label\":\"Near Mint\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
-        "2026-06-01T00:07:00.000Z"
+        "bp_main",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint\",\"ja\":\"ほぼ新品\"}},\"label\":\"Near Mint\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}"
       ]
     },
     {
@@ -191,14 +188,6 @@
       "params": ["[{\"dimensionId\":\"dim_condition\"}]", "[\"dim_condition\"]", "dim_condition"]
     },
     {
-      "sql": "SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1",
-      "params": ["bp_main"]
-    },
-    {
-      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
-      "params": ["cat_alpha"]
-    },
-    {
       "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
       "params": ["bp_main"]
     },
@@ -211,11 +200,10 @@
       "params": [["opt_near_mint", "opt_missing", "opt_english"]]
     },
     {
-      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2::jsonb, updated_at = inventory_catalog_items.updated_at WHERE blueprint_id = $1 AND product_schema IS DISTINCT FROM $2::jsonb",
       "params": [
-        "cat_alpha",
-        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint\",\"ja\":\"ほぼ新品\"}},\"label\":\"Near Mint\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
-        "2026-06-01T00:07:00.000Z"
+        "bp_main",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint\",\"ja\":\"ほぼ新品\"}},\"label\":\"Near Mint\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}"
       ]
     },
     {
@@ -234,14 +222,6 @@
       "params": ["opt_near_mint"]
     },
     {
-      "sql": "SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1",
-      "params": ["bp_main"]
-    },
-    {
-      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
-      "params": ["cat_alpha"]
-    },
-    {
       "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
       "params": ["bp_main"]
     },
@@ -254,11 +234,10 @@
       "params": [["opt_near_mint", "opt_missing", "opt_english"]]
     },
     {
-      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2::jsonb, updated_at = inventory_catalog_items.updated_at WHERE blueprint_id = $1 AND product_schema IS DISTINCT FROM $2::jsonb",
       "params": [
-        "cat_alpha",
-        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint (revised)\"}},\"label\":\"Near Mint (revised)\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
-        "2026-06-01T00:07:00.000Z"
+        "bp_main",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint (revised)\"}},\"label\":\"Near Mint (revised)\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}"
       ]
     },
     {
@@ -266,14 +245,6 @@
       "params": ["bp_main", "Graded Card (revised)", "2026-06-01T00:12:00.000Z"]
     },
     {
-      "sql": "SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1",
-      "params": ["bp_main"]
-    },
-    {
-      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
-      "params": ["cat_alpha"]
-    },
-    {
       "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
       "params": ["bp_main"]
     },
@@ -286,11 +257,10 @@
       "params": [["opt_near_mint", "opt_missing", "opt_english"]]
     },
     {
-      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2::jsonb, updated_at = inventory_catalog_items.updated_at WHERE blueprint_id = $1 AND product_schema IS DISTINCT FROM $2::jsonb",
       "params": [
-        "cat_alpha",
-        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint (revised)\"}},\"label\":\"Near Mint (revised)\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
-        "2026-06-01T00:07:00.000Z"
+        "bp_main",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint (revised)\"}},\"label\":\"Near Mint (revised)\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}"
       ]
     },
     {
@@ -298,20 +268,16 @@
       "params": ["bp_unseen", "Blueprint Revised Before Created", "2026-06-01T00:13:00.000Z"]
     },
     {
-      "sql": "SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1",
+      "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
       "params": ["bp_unseen"]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2::jsonb, updated_at = inventory_catalog_items.updated_at WHERE blueprint_id = $1 AND product_schema IS DISTINCT FROM $2::jsonb",
+      "params": ["bp_unseen", "{\"canonicalDimensionOrder\":[],\"dimensions\":[]}"]
     },
     {
       "sql": "UPDATE inventory_catalog_blueprints SET status = 'active', updated_at = $2 WHERE blueprint_id = $1",
       "params": ["bp_main", "2026-06-01T00:14:00.000Z"]
-    },
-    {
-      "sql": "SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1",
-      "params": ["bp_main"]
-    },
-    {
-      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
-      "params": ["cat_alpha"]
     },
     {
       "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
@@ -326,11 +292,10 @@
       "params": [["opt_near_mint", "opt_missing", "opt_english"]]
     },
     {
-      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2::jsonb, updated_at = inventory_catalog_items.updated_at WHERE blueprint_id = $1 AND product_schema IS DISTINCT FROM $2::jsonb",
       "params": [
-        "cat_alpha",
-        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint (revised)\"}},\"label\":\"Near Mint (revised)\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
-        "2026-06-01T00:07:00.000Z"
+        "bp_main",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint (revised)\"}},\"label\":\"Near Mint (revised)\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}"
       ]
     },
     {
