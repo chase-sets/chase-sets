@@ -20,9 +20,9 @@ import {
  *
  * This module is pure — no I/O — so the money invariants are decided and tested in
  * isolation from the projection that persists them. The projection feeds it the
- * authorized allocation (projected from the Payments refund-causation facts, #5215),
+ * authorized allocation (projected from the Payments refund-causation facts),
  * the completed refund amount/currency (from `payments.payment-refunded`), and the
- * reservation state (from the ProtectionCoverage read model, #5214), and applies the
+ * reservation state (from the ProtectionCoverage read model), and applies the
  * postings the decision returns.
  *
  * Invariants encoded here:

@@ -271,7 +271,7 @@ export function buildSettlementSupportHoldProjectionHandlers(db: PgQueryable): P
     "settlement.protection-coverage.settled.v1": async (event) => {
       // The correlated support hold releases only after Settlement's own allocation
       // reconciliation is durable: the ProtectionCoverage aggregate emits this fact
-      // after the seller and platform postings are committed (ADR 0022, #5220), never
+      // after the seller and platform postings are committed (ADR 0022), never
       // merely because Payments reported a refund. Keyed by supportRequestId, released
       // exactly once.
       const data = event.data as {

@@ -1,5 +1,5 @@
 /**
- * Read-model schema for the Settlement liability-allocation slice (ADR 0022, #5220).
+ * Read-model schema for the Settlement liability-allocation slice (ADR 0022).
  *
  * One table, `settlement_refund_liability_allocations`, is the durable reconciliation
  * record for every refund whose liability Settlement allocates. It is written from a

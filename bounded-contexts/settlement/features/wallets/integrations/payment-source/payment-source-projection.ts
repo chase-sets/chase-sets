@@ -633,7 +633,7 @@ async function postSellerRefundDebits(
 
 /**
  * Records the authorized liability allocation carried by a Payments refund-causation
- * fact (#5215), keyed by the stable refund id, so that when the refund completes the
+ * fact, keyed by the stable refund id, so that when the refund completes the
  * seller-vs-platform split is read from the authorization rather than inferred. A
  * seller-funded refund carries no causation and is never recorded here — its absence is
  * the documented compatibility default at completion time.
@@ -676,7 +676,7 @@ async function recordRefundCausationAllocation(
 }
 
 /**
- * Allocation-aware settlement of a completed refund (ADR 0022, #5220). Instead of
+ * Allocation-aware settlement of a completed refund (ADR 0022). Instead of
  * unconditionally debiting the seller, Settlement follows the authorized
  * `LiabilityAllocation`: it posts the exact seller-funded portion to the seller ledger,
  * consumes the platform-funded portion from the reserved ProtectionCoverage exactly
