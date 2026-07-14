@@ -17,6 +17,10 @@ import {
   type ReviewStatus,
 } from "./common";
 import { normalizeResolutionContext, type ReviewResolutionContext } from "@chase-sets/review-eligibility";
+import {
+  createReputationCsatOutcomeFact,
+  reputationCsatOutcomeFactEventType,
+} from "../../../support/request-support/csat-outcome-fact";
 
 export type ReviewState = Readonly<{
   reviewId: ReviewId | null;
@@ -265,6 +269,11 @@ export type ReviewRevealedEvent = DomainEvent<
   }>
 >;
 
+export type ReputationCsatOutcomeFactPublishedEvent = DomainEvent<
+  typeof reputationCsatOutcomeFactEventType,
+  ReturnType<typeof createReputationCsatOutcomeFact>
+>;
+
 export type ReviewEvent =
   | ReviewSubmittedEvent
   | ReviewUpdatedEvent
@@ -272,7 +281,8 @@ export type ReviewEvent =
   | ReviewRevealedEvent
   | ReviewFeedbackRedactedEvent
   | ReviewReplySubmittedEvent
-  | ReviewReplyWithdrawnEvent;
+  | ReviewReplyWithdrawnEvent
+  | ReputationCsatOutcomeFactPublishedEvent;
 
 export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEvent> = (state, command) => {
   switch (command.type) {
@@ -290,6 +300,7 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
         "This transaction's review window has closed.",
       );
 
+      const authorRole = normalizeReviewRole(command.authorRole);
       return [
         {
           type: "marketplace.review.submitted",
@@ -298,13 +309,25 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
             orderId: command.orderId,
             authorAccountId: command.authorAccountId,
             subjectAccountId: command.subjectAccountId,
-            authorRole: normalizeReviewRole(command.authorRole),
+            authorRole,
             rating: normalizeRating(command.rating),
             feedback: normalizeFeedback(command.feedback),
             resolutionContext: normalizeResolutionContext(command.resolutionContext),
             submittedAt,
             reviewWindowExpiresAt,
           },
+        },
+        {
+          type: reputationCsatOutcomeFactEventType,
+          data: createReputationCsatOutcomeFact({
+            outcomeCode: "reputation.review-received",
+            subjectAccountId: command.authorAccountId,
+            subjectKind: authorRole === "buyer" ? "buyer" : "seller",
+            subjectEntityType: "review",
+            subjectEntityId: command.reviewId,
+            outcomeOccurredAt: submittedAt,
+            idempotencyKey: `review:${command.reviewId}:received`,
+          }),
         },
       ];
     }
@@ -530,6 +553,8 @@ export const evolveReview: AggregateEvolver<ReviewState, ReviewEvent> = (state, 
         replyWithdrawnAt: event.data.withdrawnAt,
         updatedAt: event.data.withdrawnAt,
       };
+    case reputationCsatOutcomeFactEventType:
+      return state;
     default:
       return assertNever(event);
   }

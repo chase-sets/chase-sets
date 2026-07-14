@@ -1452,7 +1452,20 @@ describe("payment runtime", () => {
     expect(readAllEvents().map((event) => event.eventType)).toEqual([
       "payments.payment-created",
       "payments.payment-captured",
+      "payments.csat-outcome-fact.v1",
     ]);
+    expect(readAllEvents()[2]).toMatchObject({
+      eventType: "payments.csat-outcome-fact.v1",
+      payload: {
+        factSchemaVersion: 1,
+        outcomeCode: "checkout.completed",
+        sourceContext: "checkout",
+        subjectAccountId: "acc_buyer",
+        subjectKind: "buyer",
+        subject: { entityType: "payment", entityId: result.payment_id },
+        idempotencyKey: `payment:${result.payment_id}:checkout.completed`,
+      },
+    });
   });
 
   it("resolves the checkout processing-fee policy from the injected resolver and re-quotes stale fees after a mid-session revision", async () => {
@@ -2347,14 +2360,22 @@ describe("payment runtime", () => {
     expect(readAllEvents().map((event) => event.eventType)).toEqual([
       "payments.payment-created",
       "payments.payment-captured",
+      "payments.csat-outcome-fact.v1",
       "payments.payment-liability-shift-recorded",
     ]);
-    expect(readAllEvents()[2]?.payload).toMatchObject({
+    expect(readAllEvents()[3]?.payload).toMatchObject({
       providerEventId: "evt_3ds_shifted",
       threeDSecureRequested: "any",
       status: "shifted",
       authenticationResult: "authenticated",
       radarRiskLevel: "normal",
+    });
+    const outcomeFacts = readAllEvents().filter((event) => event.eventType === "payments.csat-outcome-fact.v1");
+    expect(outcomeFacts).toHaveLength(1);
+    expect(outcomeFacts[0]?.payload).toMatchObject({
+      outcomeCode: "checkout.completed",
+      subject: { entityType: "payment", entityId: payment.payment_id },
+      idempotencyKey: `payment:${payment.payment_id}:checkout.completed`,
     });
     expect(webhookEvents).toHaveLength(1);
   });
@@ -2415,7 +2436,13 @@ describe("payment runtime", () => {
     expect(readAllEvents().map((event) => event.eventType)).toEqual([
       "payments.payment-created",
       "payments.payment-captured",
+      "payments.csat-outcome-fact.v1",
     ]);
+    expect(readAllEvents()[2]?.payload).toMatchObject({
+      outcomeCode: "checkout.completed",
+      subject: { entityType: "payment", entityId: payment.payment_id },
+      idempotencyKey: `payment:${payment.payment_id}:checkout.completed`,
+    });
 
     processorGateway.parseWebhook.mockResolvedValue({
       eventId: "evt_late_capture",
@@ -2437,7 +2464,9 @@ describe("payment runtime", () => {
     expect(readAllEvents().map((event) => event.eventType)).toEqual([
       "payments.payment-created",
       "payments.payment-captured",
+      "payments.csat-outcome-fact.v1",
     ]);
+    expect(readAllEvents().filter((event) => event.eventType === "payments.csat-outcome-fact.v1")).toHaveLength(1);
     expect(webhookEvents).toHaveLength(1);
   });
 

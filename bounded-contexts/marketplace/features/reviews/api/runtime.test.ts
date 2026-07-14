@@ -133,9 +133,13 @@ describe("marketplace review runtime", () => {
     );
 
     expect(result.reviewId).toMatch(/^rev_/);
-    expect(allEvents).toHaveLength(1);
-    expect(allEvents[0]?.eventType).toBe("marketplace.review.submitted");
-    expect(allEvents[0]?.payload).toMatchObject({
+    expect(allEvents.map((event) => event.eventType)).toEqual([
+      "marketplace.review.submitted",
+      "marketplace.csat-outcome-fact.v1",
+    ]);
+    const reviewEvent = allEvents.find((event) => event.eventType === "marketplace.review.submitted");
+    const outcomeFact = allEvents.find((event) => event.eventType === "marketplace.csat-outcome-fact.v1");
+    expect(reviewEvent?.payload).toMatchObject({
       orderId: "ord_1",
       authorAccountId: "acc_seller",
       subjectAccountId: "acc_buyer",
@@ -143,6 +147,15 @@ describe("marketplace review runtime", () => {
       rating: 4,
       feedback: "Prompt payment and clear communication.",
       resolutionContext: null,
+    });
+    expect(outcomeFact?.payload).toMatchObject({
+      factSchemaVersion: 1,
+      outcomeCode: "reputation.review-received",
+      sourceContext: "marketplace",
+      subjectAccountId: "acc_seller",
+      subjectKind: "seller",
+      subject: { entityType: "review", entityId: result.reviewId },
+      idempotencyKey: `review:${result.reviewId}:received`,
     });
   });
 
@@ -178,7 +191,7 @@ describe("marketplace review runtime", () => {
       db: db as never,
     });
 
-    await runtime.submitReview(
+    const result = await runtime.submitReview(
       {
         orderId: "ord_1",
         authorAccountId: "acc_buyer",
@@ -189,10 +202,23 @@ describe("marketplace review runtime", () => {
       context,
     );
 
-    expect(allEvents).toHaveLength(1);
-    expect(allEvents[0]?.payload).toMatchObject({
+    expect(allEvents.map((event) => event.eventType)).toEqual([
+      "marketplace.review.submitted",
+      "marketplace.csat-outcome-fact.v1",
+    ]);
+    const reviewEvent = allEvents.find((event) => event.eventType === "marketplace.review.submitted");
+    const outcomeFact = allEvents.find((event) => event.eventType === "marketplace.csat-outcome-fact.v1");
+    expect(reviewEvent?.payload).toMatchObject({
       authorRole: "buyer",
       resolutionContext: "resolved-via-refund",
+    });
+    expect(outcomeFact?.payload).toMatchObject({
+      outcomeCode: "reputation.review-received",
+      sourceContext: "marketplace",
+      subjectAccountId: "acc_buyer",
+      subjectKind: "buyer",
+      subject: { entityType: "review", entityId: result.reviewId },
+      idempotencyKey: `review:${result.reviewId}:received`,
     });
   });
 

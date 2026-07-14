@@ -10,6 +10,10 @@ import type {
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceSalesFeeLineSnapshotPayload } from "@chase-sets/event-core";
 import {
+  createPaymentsCsatOutcomeFact,
+  paymentsCsatOutcomeFactEventType,
+} from "../../../support/request-support/csat-outcome-fact";
+import {
   assert,
   assertNever,
   compareMoney,
@@ -624,6 +628,11 @@ export type PaymentLiabilityShiftRecordedEvent = DomainEvent<
   }>
 >;
 
+export type PaymentsCsatOutcomeFactPublishedEvent = DomainEvent<
+  typeof paymentsCsatOutcomeFactEventType,
+  ReturnType<typeof createPaymentsCsatOutcomeFact>
+>;
+
 export type PaymentEvent =
   | PaymentCreatedEvent
   | PaymentAuthorizedEvent
@@ -638,7 +647,8 @@ export type PaymentEvent =
   | PaymentEarlyFraudWarningReceivedEvent
   | PaymentFraudReviewOpenedEvent
   | PaymentFraudReviewClosedEvent
-  | PaymentLiabilityShiftRecordedEvent;
+  | PaymentLiabilityShiftRecordedEvent
+  | PaymentsCsatOutcomeFactPublishedEvent;
 
 function normalizeSellerPayoutComponents(components: readonly SellerPayoutComponent[]): SellerPayoutComponent[] {
   return components.map((component) => ({
@@ -938,7 +948,7 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
           },
         },
       ];
-    case "RecordPaymentCapture":
+    case "RecordPaymentCapture": {
       assert(state.paymentId !== null, "Payment must be created first.");
       if (state.status === "captured") {
         return [];
@@ -948,6 +958,8 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
       assert(state.status !== "partially-refunded", "Refunded payments cannot be captured.");
       assert(state.status !== "refunded", "Refunded payments cannot be captured.");
       assert(state.status !== "disputed", "Disputed payments cannot be captured.");
+      const capturedAt = ensureIsoTimestamp(command.capturedAt, "Payment capture must include a timestamp.");
+      const outcomeCode = state.sourceContext === "checkout-recovery" ? "checkout.recovered" : "checkout.completed";
       return [
         {
           type: "payments.payment-captured",
@@ -971,10 +983,23 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
             processorName: state.processorName!,
             processorPaymentReference: state.processorPaymentReference!,
             processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
-            capturedAt: ensureIsoTimestamp(command.capturedAt, "Payment capture must include a timestamp."),
+            capturedAt,
           },
         },
+        {
+          type: paymentsCsatOutcomeFactEventType,
+          data: createPaymentsCsatOutcomeFact({
+            outcomeCode,
+            subjectAccountId: state.buyerAccountId!,
+            subjectKind: "buyer",
+            subjectEntityType: "payment",
+            subjectEntityId: state.paymentId,
+            outcomeOccurredAt: capturedAt,
+            idempotencyKey: `payment:${state.paymentId}:${outcomeCode}`,
+          }),
+        },
       ];
+    }
     case "RecordPaymentFailure":
       assert(state.paymentId !== null, "Payment must be created first.");
       if (state.status === "failed") {
@@ -1619,6 +1644,8 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         ],
       };
     }
+    case paymentsCsatOutcomeFactEventType:
+      return state;
     default:
       return assertNever(event);
   }

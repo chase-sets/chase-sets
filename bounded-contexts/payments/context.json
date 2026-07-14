@@ -9,6 +9,7 @@
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [
     "@chase-sets/auth",
+    "@chase-sets/customer-feedback",
     "@chase-sets/marketplace",
     "@chase-sets/ordering",
     "@chase-sets/platform-operations"

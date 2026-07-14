@@ -979,7 +979,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide Platform Operations request API clients shared by platform-feedback and support-requests route modules and prompt UI.",
-      "expectedConsumers": ["csat-dashboard", "platform-feedback"],
+      "expectedConsumers": ["csat-dashboard", "platform-feedback", "support-requests"],
       "crossCuttingRuntimeComposition": true
     },
     "seed-support": {

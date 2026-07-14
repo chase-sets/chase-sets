@@ -23,7 +23,6 @@ export {
   platformFeedbackPlacementContract,
   platformFeedbackPlacementContracts,
   platformFeedbackWorkflowFromSearchParams,
-  shouldShowCheckoutPaymentFeedbackPrompt,
 } from "./features/platform-feedback/domain/placement-contract";
 export type {
   PlatformFeedbackPlacementContract,

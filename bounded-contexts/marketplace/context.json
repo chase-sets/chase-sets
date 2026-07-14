@@ -1659,7 +1659,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by marketplace-owned features and composition seams.",
-      "expectedConsumers": ["listings"],
+      "expectedConsumers": ["listings", "reviews"],
       "crossCuttingRuntimeComposition": true
     },
     "realtime-support": {
