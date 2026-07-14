@@ -14,6 +14,11 @@
       "portName": "savedListProductCatalog",
       "providedBy": "platform-api",
       "purpose": "Validates exact Catalog Product selections before they enter a Saved List without Collections reading Catalog tables."
+    },
+    {
+      "portName": "inventorySavedListImportBatchCreator",
+      "providedBy": "platform-api",
+      "purpose": "Creates an Inventory-owned review-first import batch from an authorized immutable Saved List source snapshot."
     }
   ],
   "apiDeployables": [],

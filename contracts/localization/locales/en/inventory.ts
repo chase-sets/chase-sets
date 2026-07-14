@@ -238,6 +238,7 @@ export const inventoryEnglishTranslations = {
   "inventory.features.importBatches.ui.importBatchPage.review.batch": "Review batch",
   "inventory.features.importBatches.ui.importBatchPage.review.row.outcomes.before.creating":
     "Review row outcomes before creating inventory items and draft listings.",
+  "inventory.features.importBatches.ui.importBatchPage.saved.list": "Saved List",
   "inventory.features.importBatches.ui.importBatchPage.row": "Row",
   "inventory.features.importBatches.ui.importBatchPage.seller": "Seller",
   "inventory.features.importBatches.ui.importBatchPage.source": "Source",

@@ -267,6 +267,7 @@ const adapters = Object.fromEntries(
 ) as Record<InventoryImportSourceKey, InventoryImportSourceAdapter>;
 
 export const nativeCsvImportAdapter = adapters["native-csv"];
+export const savedListImportAdapter = adapters["saved-list"];
 export const tcgplayerCsvImportAdapter = adapters["tcgplayer-csv"];
 export const ebayCsvImportAdapter = adapters["ebay-csv"];
 export const shopifyCsvImportAdapter = adapters["shopify-csv"];

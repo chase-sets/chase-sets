@@ -46,3 +46,13 @@ Notes:
 
 - Collections stores only the line reference. Catalog remains the owner of image and display metadata.
 - Removing the selected line clears the cover.
+
+## Saved List Inventory Source Snapshot
+
+A **Saved List Inventory Source Snapshot** is the immutable list version and selected-line evidence sent to Inventory's review-first import.
+
+Notes:
+
+- It includes deterministic source row IDs, Saved List Line IDs, exact Products and selected Options, and Tracked Quantities.
+- It excludes acquisition cost, private notes, private tags, stock state, and workflow state.
+- The owner-authorized snapshot starts Inventory work, but its list correlation is navigation and audit metadata rather than authority for later Inventory access.

@@ -8,4 +8,16 @@ export type {
   InventoryListingStockSnapshot,
 } from "./support/request-support/api-client";
 export type { InventoryDraftListingCreator } from "./features/import-batches/api/runtime";
+export {
+  inventorySavedListImportSourceKind,
+  prepareInventorySavedListImportBatch,
+} from "./features/import-batches/api/saved-list-import";
+export type {
+  CreateInventorySavedListImportBatch,
+  InventorySavedListImportBatchCreator,
+  InventorySavedListImportBatchHandoff,
+  InventorySavedListImportLine,
+  InventorySavedListImportSourceSnapshot,
+  PreparedInventorySavedListImportBatch,
+} from "./features/import-batches/api/saved-list-import";
 export type { InventoryRestockDecision } from "./features/restock-decisions/api/contracts";
