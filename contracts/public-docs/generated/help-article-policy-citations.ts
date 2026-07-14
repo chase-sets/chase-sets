@@ -25,6 +25,13 @@ export const publicHelpArticlePolicyCitations = [
     citedPolicies: ["commercial-terms.checkout-processing-fee", "settlement.clearance-window"],
   },
   {
+    slug: "condition-and-photo-standards",
+    locale: "en",
+    title: "Condition and photo standards for sellers",
+    href: "/help/selling/condition-and-photo-standards",
+    citedPolicies: ["marketplace.listing-evidence"],
+  },
+  {
     slug: "getting-paid",
     locale: "en",
     title: "Getting paid",
