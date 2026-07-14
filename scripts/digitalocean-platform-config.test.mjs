@@ -1512,7 +1512,7 @@ describe("DigitalOcean platform configuration", () => {
       "RECOVERY_TARGET_COMMIT: ${{ steps.production_rollback.outputs.rollback_target_commit || '' }}",
     );
     expect(releaseHealthStep).toContain(
-      "ROLLBACK_READINESS_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.rollback_readiness.outputs.result || 'failure' }}",
+      "ROLLBACK_READINESS_RESULT: ${{ steps.rollback_readiness.outputs.result || 'failure' }}",
     );
     expect(releaseHealthStep).not.toContain("ROLLBACK_READINESS_RESULT: unknown");
     expect(uploadStep).toContain("artifacts/release-health/production-rollback-target.json");
@@ -1904,9 +1904,12 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || 'landing') }}",
     );
     expect(platformProductionWorkflow).toContain("pull-requests: read");
+    expect(platformProductionWorkflow).toContain("actions: read");
+    expect(workflowJob(platformProductionWorkflow, "dispatch-release-candidate")).toContain("actions: write");
     expect(platformProductionWorkflow).toContain(
-      "concurrency:\n  # Platform deploy builds, pushes, verifies, and release-tags DOCR images.\n  # Share this lane with registry cleanup so DigitalOcean GC cannot overlap\n  # registry-pushing deploy paths.\n  group: platform-registry-mutation\n  cancel-in-progress: false",
+      "group: ${{ github.event_name == 'push' && 'platform-release-candidate' || 'platform-registry-mutation' }}",
     );
+    expect(platformProductionWorkflow).toContain("cancel-in-progress: ${{ github.event_name == 'push' }}");
     expect(platformProductionWorkflow).toContain("emergency_release:");
     expect(platformProductionWorkflow).toContain(
       "description: Bypass an active production release lock for an audited fix-forward or revert.",
@@ -1927,7 +1930,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(deployStagingJob).toContain('echo "applied=true" >> "$GITHUB_OUTPUT"');
     expect(deployStagingJob).not.toContain("Confirm automatic deploy is latest main");
     expect(platformProductionWorkflow).toContain(
-      "if: always() && needs.resolve-release.outputs.deployment_required == 'true' && (needs.deploy-staging.outputs.applied != 'true' || needs.deploy-production.outputs.superseded == 'true')",
+      "if: always() && needs.resolve-release.outputs.deployment_required == 'true' && needs.deploy-staging.outputs.applied != 'true'",
     );
     expect(platformProductionWorkflow).toContain(
       "STAGING_APPLIED: ${{ needs.deploy-staging.outputs.applied || 'false' }}",
@@ -1938,16 +1941,19 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("- name: Record staging start");
     expect(platformProductionWorkflow).toContain("- name: Record staging completion");
     expect(platformProductionWorkflow).toContain("- name: Record production start");
-    expect(platformProductionWorkflow).toContain("superseded: ${{ steps.latest_main.outputs.superseded || 'false' }}");
-    expect(platformProductionWorkflow).toContain("superseded_by_commit: ${{ steps.latest_main.outputs.latest_main }}");
-    expect(platformProductionWorkflow).toContain('echo "should_deploy=false"');
+    expect(platformProductionWorkflow).not.toContain("steps.latest_main.outputs.superseded");
+    expect(platformProductionWorkflow).toContain(
+      "active_image_digest: ${{ steps.activate_release.outputs.active_image_digest }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "superseded_by_commit: ${{ steps.activate_release.outputs.latest_main }}",
+    );
     expect(platformProductionWorkflow).toContain('echo "superseded=true"');
     expect(platformProductionWorkflow).toContain('echo "latest_main=${latest_main}"');
     expect(platformProductionWorkflow).toContain('} >> "$GITHUB_OUTPUT"');
-    expect(platformProductionWorkflow).toContain("- name: Record superseded production deployment");
-    expect(platformProductionWorkflow).toContain("if: env.SHOULD_DEPLOY == 'false'");
-    expect(platformProductionWorkflow).toContain("Production deployment superseded");
-    expect(platformProductionWorkflow).toContain("Superseding commit: ${latest_main}");
+    expect(platformProductionWorkflow).not.toContain("- name: Record superseded production deployment");
+    expect(platformProductionWorkflow).not.toContain("Production deployment superseded");
+    expect(platformProductionWorkflow).toContain("- name: Activate immutable release before staging mutation");
     const markProductionReleaseStep = workflowStep(platformProductionWorkflow, "Mark production release");
     expect(markProductionReleaseStep).toContain("id: production_marker");
     expect(markProductionReleaseStep).toContain('echo "marker_mismatch=true"');
@@ -2031,23 +2037,23 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("record-staging-release-health:");
     expect(platformProductionWorkflow).toContain("name: Record Staging Release Health");
     expect(platformProductionWorkflow).toContain(
-      "if: always() && needs.resolve-release.outputs.deployment_required == 'true' && (needs.deploy-staging.outputs.applied != 'true' || needs.deploy-production.outputs.superseded == 'true')",
+      "if: always() && needs.resolve-release.outputs.deployment_required == 'true' && needs.deploy-staging.outputs.applied != 'true'",
     );
     expect(platformProductionWorkflow).toContain("- deploy-production");
     expect(platformProductionWorkflow).toContain("RELEASE_HEALTH_OUT: artifacts/release-health/staging-release.json");
     expect(platformProductionWorkflow).toContain("- name: Resolve staging CI retry metadata");
     expect(platformProductionWorkflow).toContain("STAGING_JOB_RESULT: ${{ needs.deploy-staging.result }}");
     expect(platformProductionWorkflow).toContain(
-      "PRODUCTION_SUPERSEDED: ${{ needs.deploy-production.outputs.superseded }}",
+      "STAGING_SUPERSEDED: ${{ needs.deploy-staging.outputs.superseded || 'false' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "PRODUCTION_SUPERSEDED_BY_COMMIT: ${{ needs.deploy-production.outputs.superseded_by_commit }}",
+      "STAGING_SUPERSEDED_BY_COMMIT: ${{ needs.deploy-staging.outputs.superseded_by_commit }}",
     );
     expect(platformProductionWorkflow).toContain('attempt_phase="staging"');
-    expect(platformProductionWorkflow).toContain('if [ "${PRODUCTION_SUPERSEDED:-}" = "true" ]; then');
-    expect(platformProductionWorkflow).toContain('attempt_phase="production"');
-    expect(platformProductionWorkflow).toContain('attempt_reason="production-superseded-by-newer-main"');
-    expect(platformProductionWorkflow).toContain('superseded_by_commit="${PRODUCTION_SUPERSEDED_BY_COMMIT:-}"');
+    expect(platformProductionWorkflow).toContain('if [ "${STAGING_SUPERSEDED:-}" = "true" ]; then');
+    expect(platformProductionWorkflow).toContain('attempt_phase="queue"');
+    expect(platformProductionWorkflow).toContain('attempt_reason="candidate-superseded-before-staging-mutation"');
+    expect(platformProductionWorkflow).toContain('superseded_by_commit="${STAGING_SUPERSEDED_BY_COMMIT:-}"');
     expect(platformProductionWorkflow).toContain('export RELEASE_ATTEMPT_PHASE="$attempt_phase"');
     expect(platformProductionWorkflow).toContain('export RELEASE_ATTEMPT_SUPERSEDED_BY_COMMIT="$superseded_by_commit"');
     expect(platformProductionWorkflow).toContain("name: staging-release-health");
@@ -2079,7 +2085,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(notifyProductionDeployIncidentJob).not.toContain('--milestone "Incidents"');
     expect(notifyProductionDeployIncidentJob).toContain("Incident: Platform Deploy failed for");
     expect(notifyProductionDeployIncidentJob).not.toContain("Kind: production-superseded");
-    expect(notifyProductionDeployIncidentJob).toContain("needs.deploy-production.outputs.superseded == 'true'");
+    expect(notifyProductionDeployIncidentJob).not.toContain("needs.deploy-production.outputs.superseded == 'true'");
     expect(notifyProductionDeployIncidentJob).toContain('gh issue close "${issue_number}"');
     expect(notifyProductionDeployIncidentJob).toContain("--command classify-issue");
     expect(notifyProductionDeployIncidentJob).toContain("--command build-comment");
@@ -2092,7 +2098,7 @@ describe("DigitalOcean platform configuration", () => {
     const closeResolvedDeployIncidentsJob = workflowJob(platformProductionWorkflow, "close-resolved-deploy-incidents");
     expect(closeResolvedDeployIncidentsJob).toContain("name: Close Resolved Production Deploy Incidents");
     expect(closeResolvedDeployIncidentsJob).toContain("needs.deploy-production.result == 'success'");
-    expect(closeResolvedDeployIncidentsJob).toContain("needs.deploy-production.outputs.superseded != 'true'");
+    expect(closeResolvedDeployIncidentsJob).not.toContain("needs.deploy-production.outputs.superseded");
     expect(closeResolvedDeployIncidentsJob).toContain("issues: write");
     expect(closeResolvedDeployIncidentsJob).toContain("Close resolved deploy incidents");
     expect(closeResolvedDeployIncidentsJob).toContain('--search "\\"Incident: Platform Deploy\\" in:title"');
@@ -2119,32 +2125,26 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("- name: Resolve CI retry metadata");
     expect(platformProductionWorkflow).toContain("node ./scripts/release-health-ci-metadata.mjs");
     expect(platformProductionWorkflow).toContain("CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}");
-    expect(platformProductionWorkflow).toContain(
-      "CANARY_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.stage1_canary.outcome || 'skipped' }}",
-    );
+    expect(platformProductionWorkflow).toContain("CANARY_RESULT: ${{ steps.stage1_canary.outcome || 'skipped' }}");
     expect(platformProductionWorkflow).not.toContain("CANARY_EVIDENCE_RESULT");
     expect(platformProductionWorkflow).toContain("CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}");
     expect(platformProductionWorkflow).toContain(
       "CANARY_COMPLETED_AT: ${{ steps.stage1_canary.outputs.completed_at }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "CANARY_SKIPPED_REASON: ${{ env.SHOULD_DEPLOY == 'false' && 'production-superseded-by-newer-main' || steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}",
+      "CANARY_SKIPPED_REASON: ${{ steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "CANARY_PROMOTION_DECISION: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
+      "CANARY_PROMOTION_DECISION: ${{ steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
     );
     expect(platformProductionWorkflow).not.toContain("Install Playwright Chromium for production proof probe");
+    expect(platformProductionWorkflow).toContain("PRODUCTION_RESULT: ${{ job.status }}");
+    expect(platformProductionWorkflow).toContain("RELEASE_ATTEMPT_RESULT: ${{ job.status }}");
     expect(platformProductionWorkflow).toContain(
-      "PRODUCTION_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || job.status }}",
+      "RELEASE_ATTEMPT_REASON: ${{ steps.production_marker.outputs.marker_mismatch == 'true' && 'production-marker-mismatch' || steps.production_rollback.outputs.result == 'success' && 'production-rolled-back' || 'production-release' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "RELEASE_ATTEMPT_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || job.status }}",
-    );
-    expect(platformProductionWorkflow).toContain(
-      "RELEASE_ATTEMPT_REASON: ${{ env.SHOULD_DEPLOY == 'false' && 'production-superseded-by-newer-main' || steps.production_marker.outputs.marker_mismatch == 'true' && 'production-marker-mismatch' || 'production-release' }}",
-    );
-    expect(platformProductionWorkflow).toContain(
-      "RELEASE_ATTEMPT_SUPERSEDED_BY_COMMIT: ${{ env.SHOULD_DEPLOY == 'false' && steps.latest_main.outputs.latest_main || '' }}",
+      "RELEASE_STATE_TRANSITIONS: ${{ steps.release_state.outputs.transitions }}",
     );
     expect(platformProductionWorkflow).toContain(
       "PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}",
@@ -2321,11 +2321,13 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(platformRegistryCleanupWorkflow).toContain("actions: read");
     expect(platformRegistryCleanupWorkflow).toContain("group: platform-registry-mutation");
-    expect(platformProductionWorkflow).toContain("group: platform-registry-mutation");
+    expect(platformProductionWorkflow).toContain("|| 'platform-registry-mutation' }}");
     expect(platformStagingResetWorkflow).toContain("group: platform-registry-mutation");
     expect(platformStagingResetWorkflow).toContain("group: platform-deploy-staging");
     expect(platformRegistryCleanupWorkflow).toContain("DOCR garbage collection makes the registry read-only");
-    expect(platformProductionWorkflow).toContain("release-tags DOCR images");
+    expect(platformProductionWorkflow).toContain(
+      'docker buildx imagetools create --tag "$release_image" "${promoted_image}@${promoted_digest}"',
+    );
     expect(platformStagingResetWorkflow).toContain("Staging reset rebuilds and pushes the platform image");
     expect(deployLaneStep).toContain('const workflows = ["platform-production.yml", "platform-staging-reset.yml"];');
     expect(deployLaneStep).toContain('const statuses = ["queued", "in_progress", "waiting", "requested", "pending"];');
@@ -2783,7 +2785,7 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("deploys App Platform releases by the verified image digest", () => {
-    const stagingImageStep = workflowStep(platformProductionWorkflow, "Build and push App Platform image");
+    const stagingImageStep = workflowStep(platformProductionWorkflow, "Verify immutable active release image");
     const productionImageStep = workflowStep(platformProductionWorkflow, "Verify promoted App Platform image");
 
     expect(platformVariables).toContain('variable "platform_image_digest"');
@@ -2799,8 +2801,12 @@ describe("DigitalOcean platform configuration", () => {
     ).toBe(6);
 
     expect(platformProductionWorkflow).toContain("platform_image_digest: ${{ steps.image.outputs.digest }}");
-    expect(stagingImageStep).toContain('digest="$(docker buildx imagetools inspect "$image" --format');
-    expect(stagingImageStep).toContain('echo "TF_VAR_platform_image_digest=${digest}" >> "$GITHUB_ENV"');
+    expect(stagingImageStep).toContain(
+      'observed_digest="$(docker buildx imagetools inspect "$ACTIVE_RELEASE_IMAGE" --format',
+    );
+    expect(stagingImageStep).toContain(
+      'echo "TF_VAR_platform_image_digest=${ACTIVE_RELEASE_IMAGE_DIGEST}" >> "$GITHUB_ENV"',
+    );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}",
     );

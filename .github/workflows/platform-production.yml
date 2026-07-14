@@ -36,6 +36,11 @@ on:
         required: false
         default: ""
         type: string
+      automatic_release:
+        description: Internal dispatcher flag. Automatic runs remain freshness-gated until staging mutation starts.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -44,20 +49,41 @@ permissions:
   pull-requests: read
 
 concurrency:
-  # Platform deploy builds, pushes, verifies, and release-tags DOCR images.
-  # Share this lane with registry cleanup so DigitalOcean GC cannot overlap
-  # registry-pushing deploy paths.
-  group: platform-registry-mutation
-  cancel-in-progress: false
+  # Pushes are cheap dispatch candidates and coalesce before they enter the
+  # deployment critical section. Dispatched automatic, manual, and emergency
+  # releases share the registry-mutation lane: GitHub keeps one running and one
+  # latest pending member, and never cancels the immutable active release.
+  group: ${{ github.event_name == 'push' && 'platform-release-candidate' || 'platform-registry-mutation' }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
+  dispatch-release-candidate:
+    name: Dispatch Latest Release Candidate
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch automatic release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh workflow run platform-production.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            --field release_ref="$RELEASE_COMMIT" \
+            --field automatic_release=true
+          echo "Dispatched automatic release candidate ${RELEASE_COMMIT}."
+
   resolve-release:
     name: Resolve Release
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch'
     outputs:
       release_commit: ${{ steps.release.outputs.release_commit }}
       deployment_required: ${{ steps.deployment_scope.outputs.deploy }}
@@ -150,6 +176,9 @@ jobs:
     # rebuilding inside the serialized deploy lane (issue #1326). The staging
     # environment binding supplies the environment-scoped registry token.
     environment: staging
+    outputs:
+      platform_image: ${{ steps.release_image_identity.outputs.image }}
+      platform_image_digest: ${{ steps.release_image_identity.outputs.digest }}
     env:
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
@@ -270,6 +299,23 @@ jobs:
           docker push "$RELEASE_IMAGE"
           echo "Pushed release image ${RELEASE_IMAGE}"
 
+      - name: Pin release image identity
+        id: release_image_identity
+        env:
+          RELEASE_IMAGE: ${{ steps.release_image.outputs.image }}
+        run: |
+          set -euo pipefail
+          digest="$(docker buildx imagetools inspect "$RELEASE_IMAGE" --format '{{.Manifest.Digest}}')"
+          if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Release image ${RELEASE_IMAGE} did not resolve to an immutable sha256 digest." >&2
+            exit 1
+          fi
+          {
+            echo "image=${RELEASE_IMAGE}"
+            echo "digest=${digest}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Pinned candidate ${RELEASE_IMAGE}@${digest}."
+
   deploy-staging:
     name: Deploy Staging
     runs-on: ubuntu-latest
@@ -284,6 +330,11 @@ jobs:
       applied: ${{ steps.staging_applied.outputs.applied || 'false' }}
       failure_classification: ${{ steps.staging_failure_classification.outputs.failure_classification || 'staging-deploy-failure' }}
       platform_image_digest: ${{ steps.image.outputs.digest }}
+      active_release_commit: ${{ steps.activate_release.outputs.active_release_commit }}
+      active_image_digest: ${{ steps.activate_release.outputs.active_image_digest }}
+      activated_at: ${{ steps.activate_release.outputs.activated_at }}
+      superseded: ${{ steps.activate_release.outputs.superseded || 'false' }}
+      superseded_by_commit: ${{ steps.activate_release.outputs.latest_main }}
       started_at: ${{ steps.staging_started.outputs.started_at }}
       completed_at: ${{ steps.staging_completed.outputs.completed_at }}
       buy_now_probe_result: ${{ steps.buy_now_probes.outputs.result }}
@@ -539,6 +590,47 @@ jobs:
         working-directory: infrastructure/digitalocean/environment-dns
         run: terraform validate
 
+      # This is the final cheap candidate check. No staging resource has been
+      # mutated yet. Once it succeeds, the commit and image digest below are
+      # the immutable active release through promotion, failure, or rollback.
+      - name: Activate immutable release before staging mutation
+        id: activate_release
+        if: env.SHOULD_DEPLOY != 'false'
+        env:
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ needs.build-image.outputs.platform_image_digest }}
+          AUTOMATIC_RELEASE: ${{ inputs.automatic_release == true && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$RELEASE_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Candidate ${RELEASE_COMMIT} has no immutable release image digest; refusing staging mutation." >&2
+            exit 1
+          fi
+
+          latest_main="$RELEASE_COMMIT"
+          if [ "$AUTOMATIC_RELEASE" = "true" ]; then
+            git fetch origin main
+            latest_main="$(git rev-parse origin/main)"
+            if [ "$RELEASE_COMMIT" != "$latest_main" ]; then
+              echo "Candidate ${RELEASE_COMMIT} was coalesced into latest pending ${latest_main} before staging mutation."
+              {
+                echo "superseded=true"
+                echo "latest_main=${latest_main}"
+              } >> "$GITHUB_OUTPUT"
+              echo "SHOULD_DEPLOY=false" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          fi
+
+          {
+            echo "superseded=false"
+            echo "latest_main=${latest_main}"
+            echo "active_release_commit=${RELEASE_COMMIT}"
+            echo "active_image_digest=${RELEASE_IMAGE_DIGEST}"
+            echo "activated_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          } >> "$GITHUB_OUTPUT"
+          echo "Activated immutable release ${RELEASE_COMMIT}@${RELEASE_IMAGE_DIGEST}."
+
       - name: Terraform apply staging environment DNS
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
@@ -560,36 +652,30 @@ jobs:
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         if: env.SHOULD_DEPLOY != 'false' && steps.buildx.outcome == 'failure'
 
-      - name: Build and push App Platform image
+      - name: Verify immutable active release image
         if: env.SHOULD_DEPLOY != 'false'
         id: image
+        env:
+          ACTIVE_RELEASE_IMAGE: ${{ needs.build-image.outputs.platform_image }}
+          ACTIVE_RELEASE_IMAGE_DIGEST: ${{ steps.activate_release.outputs.active_image_digest }}
         run: |
           set -euo pipefail
-          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
-          if [ -z "$registry_name" ]; then
-            doctl registry create "$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK" --region nyc3
-            registry_name="$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK"
-          fi
-
           doctl registry login --expiry-seconds 3600
-          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
-          if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
-            echo "Reusing merge-queue validated image ${image}; skipping rebuild."
-          else
-            docker buildx build \
-              --pull \
-              --cache-from type=gha,scope=platform-image \
-              --cache-to type=gha,scope=platform-image,mode=max \
-              --push \
-              --tag "$image" \
-              .
+          if ! docker buildx imagetools inspect "$ACTIVE_RELEASE_IMAGE" >/dev/null; then
+            echo "Active release image ${ACTIVE_RELEASE_IMAGE} no longer exists." >&2
+            exit 1
           fi
-
-          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
-          echo "image=${image}" >> "$GITHUB_OUTPUT"
-          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
-          echo "TF_VAR_platform_image_digest=${digest}" >> "$GITHUB_ENV"
-          echo "Pushed ${image}@${digest}"
+          observed_digest="$(docker buildx imagetools inspect "$ACTIVE_RELEASE_IMAGE" --format '{{.Manifest.Digest}}')"
+          if [ "$observed_digest" != "$ACTIVE_RELEASE_IMAGE_DIGEST" ]; then
+            echo "Active release image digest changed from ${ACTIVE_RELEASE_IMAGE_DIGEST} to ${observed_digest}." >&2
+            exit 1
+          fi
+          {
+            echo "image=${ACTIVE_RELEASE_IMAGE}"
+            echo "digest=${ACTIVE_RELEASE_IMAGE_DIGEST}"
+          } >> "$GITHUB_OUTPUT"
+          echo "TF_VAR_platform_image_digest=${ACTIVE_RELEASE_IMAGE_DIGEST}" >> "$GITHUB_ENV"
+          echo "Verified immutable active release ${ACTIVE_RELEASE_IMAGE}@${ACTIVE_RELEASE_IMAGE_DIGEST}."
 
       - name: Terraform init
         if: env.SHOULD_DEPLOY != 'false'
@@ -700,20 +786,6 @@ jobs:
 
             terraform import "$address" "${zone},${record_id}"
           done
-
-      # Staleness develops while waiting for or holding the serialized deploy
-      # lane (42% of staging deploys never promoted); re-check before the
-      # expensive apply so superseded releases skip in seconds (issue #1418).
-      - name: Re-check release freshness before staging apply
-        if: env.SHOULD_DEPLOY != 'false' && github.event_name == 'push'
-        run: |
-          set -euo pipefail
-          git fetch origin main
-          latest_main="$(git rev-parse origin/main)"
-          if [ "${{ needs.resolve-release.outputs.release_commit }}" != "$latest_main" ]; then
-            echo "Release commit superseded by ${latest_main}; skipping remaining staging work."
-            echo "SHOULD_DEPLOY=false" >> "$GITHUB_ENV"
-          fi
 
       - name: Terraform plan
         if: env.SHOULD_DEPLOY != 'false'
@@ -1229,20 +1301,6 @@ jobs:
             "${shadow_args[@]}"
           echo "DOKS ingress shadow hosts served valid TLS and readiness ahead of the #4053 cutover."
 
-      # Second freshness re-check before the ~3.5-minute smoke/critical-flow/
-      # canary tail: a superseded release's staging state has no consumer, so
-      # skip the verification work too (issue #1418).
-      - name: Re-check release freshness before staging verification
-        if: env.SHOULD_DEPLOY != 'false' && github.event_name == 'push'
-        run: |
-          set -euo pipefail
-          git fetch origin main
-          latest_main="$(git rev-parse origin/main)"
-          if [ "${{ needs.resolve-release.outputs.release_commit }}" != "$latest_main" ]; then
-            echo "Release commit superseded by ${latest_main}; skipping staging verification tail."
-            echo "SHOULD_DEPLOY=false" >> "$GITHUB_ENV"
-          fi
-
       - name: Smoke check
         timeout-minutes: 12
         if: env.SHOULD_DEPLOY != 'false'
@@ -1737,7 +1795,7 @@ jobs:
       - resolve-release
       - deploy-staging
       - deploy-production
-    if: always() && needs.resolve-release.outputs.deployment_required == 'true' && (needs.deploy-staging.outputs.applied != 'true' || needs.deploy-production.outputs.superseded == 'true')
+    if: always() && needs.resolve-release.outputs.deployment_required == 'true' && needs.deploy-staging.outputs.applied != 'true'
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -1850,8 +1908,11 @@ jobs:
           ACCOUNT_CART_CANARY_COMPLETED_AT: ${{ needs.deploy-staging.outputs.account_cart_canary_completed_at }}
           ACCOUNT_CART_CANARY_PROMOTION_DECISION: ${{ needs.deploy-staging.outputs.account_cart_canary_promotion_decision || 'skipped' }}
           ACCOUNT_CART_CANARY_CONFIGURED: ${{ needs.deploy-staging.outputs.account_cart_canary_configured || 'false' }}
-          PRODUCTION_SUPERSEDED: ${{ needs.deploy-production.outputs.superseded }}
-          PRODUCTION_SUPERSEDED_BY_COMMIT: ${{ needs.deploy-production.outputs.superseded_by_commit }}
+          STAGING_SUPERSEDED: ${{ needs.deploy-staging.outputs.superseded || 'false' }}
+          STAGING_SUPERSEDED_BY_COMMIT: ${{ needs.deploy-staging.outputs.superseded_by_commit }}
+          ACTIVE_RELEASE_COMMIT: ${{ needs.deploy-staging.outputs.active_release_commit }}
+          ACTIVE_IMAGE_DIGEST: ${{ needs.deploy-staging.outputs.active_image_digest }}
+          RELEASE_STATE_MODE: ${{ inputs.automatic_release == true && 'automatic' || inputs.emergency_release == true && 'emergency' || 'manual' }}
           PRODUCTION_RESULT: skipped
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
           CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}
@@ -1878,12 +1939,36 @@ jobs:
           attempt_result="$staging_result"
           attempt_phase="staging"
           superseded_by_commit=""
-          if [ "${PRODUCTION_SUPERSEDED:-}" = "true" ]; then
+          if [ "${STAGING_SUPERSEDED:-}" = "true" ]; then
             attempt_result="skipped"
-            attempt_phase="production"
-            attempt_reason="production-superseded-by-newer-main"
-            superseded_by_commit="${PRODUCTION_SUPERSEDED_BY_COMMIT:-}"
+            attempt_phase="queue"
+            attempt_reason="candidate-superseded-before-staging-mutation"
+            superseded_by_commit="${STAGING_SUPERSEDED_BY_COMMIT:-}"
+            RELEASE_STATE_TRANSITIONS="$(jq -cn \
+              --arg commit "$RELEASE_COMMIT" \
+              --arg pending "$superseded_by_commit" \
+              --arg mode "$RELEASE_STATE_MODE" \
+              '[
+                {type:"coalesced", commit:$commit, supersededByCommit:$pending},
+                {type:"pending", commit:$pending, mode:"automatic"},
+                {type:"superseded", commit:$commit, supersededByCommit:$pending, mode:$mode}
+              ]')"
+          elif [ -n "${ACTIVE_RELEASE_COMMIT:-}" ]; then
+            RELEASE_STATE_TRANSITIONS="$(jq -cn \
+              --arg commit "$ACTIVE_RELEASE_COMMIT" \
+              --arg digest "$ACTIVE_IMAGE_DIGEST" \
+              --arg mode "$RELEASE_STATE_MODE" \
+              '[
+                {type:"active", commit:$commit, imageDigest:$digest, mode:$mode},
+                {type:"failed", commit:$commit, imageDigest:$digest, mode:$mode}
+              ]')"
+          else
+            RELEASE_STATE_TRANSITIONS="$(jq -cn \
+              --arg commit "$RELEASE_COMMIT" \
+              --arg mode "$RELEASE_STATE_MODE" \
+              '[{type:"candidate", commit:$commit, mode:$mode}, {type:"failed", commit:$commit, mode:$mode}]')"
           fi
+          export RELEASE_STATE_TRANSITIONS
 
           export STAGING_RESULT="$staging_result"
           if [ "${CANARY_RESULT:-skipped}" = "skipped" ]; then
@@ -1915,8 +2000,6 @@ jobs:
     if: needs.deploy-staging.outputs.deployed == 'true'
     environment: production
     outputs:
-      superseded: ${{ steps.latest_main.outputs.superseded || 'false' }}
-      superseded_by_commit: ${{ steps.latest_main.outputs.latest_main }}
       rollback_result: ${{ steps.production_rollback.outputs.result || 'not-attempted' }}
       rollback_target_commit: ${{ steps.production_rollback.outputs.rollback_target_commit || '' }}
       rollback_reference: ${{ steps.production_rollback.outputs.rollback_reference || '' }}
@@ -2023,46 +2106,6 @@ jobs:
             echo "Checked out ${checked_out_commit}, expected release commit ${release_commit}." >&2
             exit 1
           fi
-
-      - name: Confirm automatic deploy is latest main
-        id: latest_main
-        if: github.event_name == 'push'
-        run: |
-          set -euo pipefail
-          git fetch origin main
-          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
-          latest_main="$(git rev-parse origin/main)"
-          if [ "$release_commit" != "$latest_main" ]; then
-            echo "Release commit ${release_commit} is no longer origin/main (${latest_main}); skipping stale production deployment."
-            {
-              echo "should_deploy=false"
-              echo "superseded=true"
-              echo "latest_main=${latest_main}"
-            } >> "$GITHUB_OUTPUT"
-            echo "SHOULD_DEPLOY=false" >> "$GITHUB_ENV"
-            exit 0
-          fi
-          {
-            echo "should_deploy=true"
-            echo "superseded=false"
-            echo "latest_main=${latest_main}"
-          } >> "$GITHUB_OUTPUT"
-          echo "SHOULD_DEPLOY=true" >> "$GITHUB_ENV"
-
-      - name: Record superseded production deployment
-        if: env.SHOULD_DEPLOY == 'false'
-        run: |
-          set -euo pipefail
-          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
-          latest_main="${{ steps.latest_main.outputs.latest_main }}"
-          {
-            echo "## Production deployment superseded"
-            echo
-            echo "Production intentionally skipped because a newer main commit owns deployment."
-            echo
-            echo "- Release commit: ${release_commit}"
-            echo "- Superseding commit: ${latest_main}"
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Record production start
         id: production_started
@@ -3229,9 +3272,10 @@ jobs:
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
           release_tag="release-$(date -u +%Y%m%d%H%M%S)-$(printf '%s' "$release_commit" | cut -c1-8)"
           promoted_image="${{ steps.image.outputs.image }}"
+          promoted_digest="${{ steps.image.outputs.digest }}"
           release_image="${promoted_image%:*}:${release_tag}"
 
-          docker buildx imagetools create --tag "$release_image" "$promoted_image"
+          docker buildx imagetools create --tag "$release_image" "${promoted_image}@${promoted_digest}"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -3296,6 +3340,53 @@ jobs:
             echo "production_marker_commit=${release_commit}"
             echo "marker_error="
           } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve terminal release state
+        id: release_state
+        if: always()
+        env:
+          RELEASE_COMMIT: ${{ needs.deploy-staging.outputs.active_release_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ needs.deploy-staging.outputs.active_image_digest }}
+          RELEASE_STATE_MODE: ${{ inputs.automatic_release == true && 'automatic' || inputs.emergency_release == true && 'emergency' || 'manual' }}
+          AUTOMATIC_RELEASE: ${{ inputs.automatic_release == true && 'true' || 'false' }}
+          PRODUCTION_MARKER_UPDATED: ${{ steps.production_marker.outputs.marker_updated || 'false' }}
+          PRODUCTION_ROLLBACK_RESULT: ${{ steps.production_rollback.outputs.result || 'not-attempted' }}
+        run: |
+          set -euo pipefail
+          if [ "$PRODUCTION_ROLLBACK_RESULT" = "success" ]; then
+            terminal="rolled-back"
+          elif [ "$PRODUCTION_MARKER_UPDATED" = "true" ]; then
+            terminal="promoted"
+          else
+            terminal="failed"
+          fi
+
+          pending_commit=""
+          coalesced_count=0
+          if [ "$AUTOMATIC_RELEASE" = "true" ]; then
+            git fetch origin main
+            latest_main="$(git rev-parse origin/main)"
+            if [ "$latest_main" != "$RELEASE_COMMIT" ]; then
+              pending_commit="$latest_main"
+              coalesced_count="$(git rev-list --count "${RELEASE_COMMIT}..${latest_main}")"
+            fi
+          fi
+
+          transitions="$(jq -cn \
+            --arg commit "$RELEASE_COMMIT" \
+            --arg digest "$RELEASE_IMAGE_DIGEST" \
+            --arg mode "$RELEASE_STATE_MODE" \
+            --arg terminal "$terminal" \
+            --arg pending "$pending_commit" \
+            --argjson count "$coalesced_count" \
+            '[{type:"active", commit:$commit, imageDigest:$digest, mode:$mode}]
+              + (if $pending == "" then [] else [
+                  {type:"pending", commit:$pending, mode:"automatic"},
+                  {type:"coalesced", commit:$pending, count:$count}
+                ] end)
+              + [{type:$terminal, commit:$commit, imageDigest:$digest, mode:$mode}]')"
+          echo "transitions=${transitions}" >> "$GITHUB_OUTPUT"
+          echo "Terminal release outcome: ${terminal}; pending latest: ${pending_commit:-none}; coalesced commits: ${coalesced_count}."
 
       - name: Resolve release health metadata
         id: release_health_metadata
@@ -3389,26 +3480,26 @@ jobs:
           STAGING_RESULT: ${{ needs.deploy-staging.result }}
           STAGING_STARTED_AT: ${{ needs.deploy-staging.outputs.started_at }}
           STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}
-          CANARY_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.stage1_canary.outcome || 'skipped' }}
+          CANARY_RESULT: ${{ steps.stage1_canary.outcome || 'skipped' }}
           CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}
           CANARY_COMPLETED_AT: ${{ steps.stage1_canary.outputs.completed_at }}
-          CANARY_SKIPPED_REASON: ${{ env.SHOULD_DEPLOY == 'false' && 'production-superseded-by-newer-main' || steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}
+          CANARY_SKIPPED_REASON: ${{ steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}
           CANARY_COHORT_SUBJECT_TYPE: operator
           CANARY_COHORT_SIZE: "0"
-          CANARY_PROMOTION_DECISION: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
+          CANARY_PROMOTION_DECISION: ${{ steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
           ACCOUNT_CART_CANARY_RESULT: ${{ needs.deploy-staging.outputs.account_cart_canary_result || 'skipped' }}
           ACCOUNT_CART_CANARY_STARTED_AT: ${{ needs.deploy-staging.outputs.account_cart_canary_started_at }}
           ACCOUNT_CART_CANARY_COMPLETED_AT: ${{ needs.deploy-staging.outputs.account_cart_canary_completed_at }}
           ACCOUNT_CART_CANARY_PROMOTION_DECISION: ${{ needs.deploy-staging.outputs.account_cart_canary_promotion_decision || 'skipped' }}
           ACCOUNT_CART_CANARY_CONFIGURED: ${{ needs.deploy-staging.outputs.account_cart_canary_configured || 'false' }}
           PRODUCTION_READINESS_GATE_OUTCOME: ${{ steps.readiness_gate.outputs.outcome || 'not-run' }}
-          PRODUCTION_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || job.status }}
+          PRODUCTION_RESULT: ${{ job.status }}
           PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
-          RELEASE_ATTEMPT_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || job.status }}
+          RELEASE_ATTEMPT_RESULT: ${{ job.status }}
           RELEASE_ATTEMPT_PHASE: production
-          RELEASE_ATTEMPT_REASON: ${{ env.SHOULD_DEPLOY == 'false' && 'production-superseded-by-newer-main' || steps.production_marker.outputs.marker_mismatch == 'true' && 'production-marker-mismatch' || 'production-release' }}
-          RELEASE_ATTEMPT_SUPERSEDED_BY_COMMIT: ${{ env.SHOULD_DEPLOY == 'false' && steps.latest_main.outputs.latest_main || '' }}
+          RELEASE_ATTEMPT_REASON: ${{ steps.production_marker.outputs.marker_mismatch == 'true' && 'production-marker-mismatch' || steps.production_rollback.outputs.result == 'success' && 'production-rolled-back' || 'production-release' }}
+          RELEASE_STATE_TRANSITIONS: ${{ steps.release_state.outputs.transitions }}
           RELEASE_ATTEMPT_WORKFLOW_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}
           CI_FLAKY_FAILURE_COUNT: ${{ steps.ci_metadata.outputs.ci_flaky_failure_count }}
@@ -3421,7 +3512,7 @@ jobs:
           RECOVERY_TARGET_COMMIT: ${{ steps.production_rollback.outputs.rollback_target_commit || '' }}
           PRODUCTION_RECOVERY_MODE: ${{ needs.resolve-release.outputs.production_recovery_mode }}
           PRODUCTION_RECOVERY_REASON: ${{ needs.resolve-release.outputs.production_recovery_reason }}
-          ROLLBACK_READINESS_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.rollback_readiness.outputs.result || 'failure' }}
+          ROLLBACK_READINESS_RESULT: ${{ steps.rollback_readiness.outputs.result || 'failure' }}
           PRODUCTION_RESTORE_POINT_RESULT: ${{ steps.production_restore_point.outputs.restore_point_result || 'unknown' }}
           PRODUCTION_RESTORE_POINT_TYPE: ${{ steps.production_restore_point.outputs.restore_point_type || '' }}
           PRODUCTION_RESTORE_POINT_CLUSTER_ID: ${{ steps.production_restore_point.outputs.restore_point_cluster_id || '' }}
@@ -3471,7 +3562,6 @@ jobs:
         contains(fromJSON('["failure", "cancelled"]'), needs.deploy-staging.result) ||
         contains(fromJSON('["failure", "cancelled"]'), needs.deploy-production.result) ||
         contains(fromJSON('["failure", "cancelled"]'), needs.record-staging-release-health.result) ||
-        needs.deploy-production.outputs.superseded == 'true' ||
         (
           needs.resolve-release.result == 'success' &&
           needs.build-image.result == 'success' &&
@@ -3500,8 +3590,8 @@ jobs:
           STAGING_FAILURE_CLASSIFICATION: ${{ needs.deploy-staging.outputs.failure_classification || 'staging-deploy-failure' }}
           STAGING_APPLIED: ${{ needs.deploy-staging.outputs.applied || '' }}
           STAGING_DEPLOYED: ${{ needs.deploy-staging.outputs.deployed || '' }}
-          PRODUCTION_SUPERSEDED: ${{ needs.deploy-production.outputs.superseded || '' }}
-          SUPERSEDED_BY_COMMIT: ${{ needs.deploy-production.outputs.superseded_by_commit || '' }}
+          PRODUCTION_SUPERSEDED: "false"
+          SUPERSEDED_BY_COMMIT: ${{ needs.deploy-staging.outputs.superseded_by_commit || '' }}
         run: |
           set -euo pipefail
           node ./scripts/platform-deploy-incident.mjs \
@@ -3515,7 +3605,7 @@ jobs:
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || github.sha }}
           DEPLOY_INCIDENT_ACTION: ${{ steps.classify_deploy_outcome.outputs.action }}
           PLATFORM_DEPLOY_INCIDENT_REASON: ${{ steps.classify_deploy_outcome.outputs.reason }}
-          SUPERSEDED_BY_COMMIT: ${{ needs.deploy-production.outputs.superseded_by_commit || '' }}
+          SUPERSEDED_BY_COMMIT: ${{ needs.deploy-staging.outputs.superseded_by_commit || '' }}
           RESOLVE_RELEASE_RESULT: ${{ needs.resolve-release.result }}
           BUILD_IMAGE_RESULT: ${{ needs.build-image.result }}
           DEPLOY_STAGING_RESULT: ${{ needs.deploy-staging.result }}
@@ -3721,8 +3811,7 @@ jobs:
       - deploy-production
     if: >
       always() &&
-      needs.deploy-production.result == 'success' &&
-      needs.deploy-production.outputs.superseded != 'true'
+      needs.deploy-production.result == 'success'
     permissions:
       contents: read
       issues: write
