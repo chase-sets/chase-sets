@@ -348,7 +348,7 @@ describe("Identity API mutation snapshots", () => {
   });
 
   it("returns id, version, and status receipts for account, user, membership, invitation, and shipping-address routes", async () => {
-    const app = buildApp(createServices());
+    const app = buildApp(createServices(), { ...actor, roleKey: "platform-admin" });
 
     const accountCases = [
       {

@@ -16,6 +16,10 @@ function canManageAccount(actor: IdentityApiEnv["Variables"]["actor"], accountId
   return !actor || actor.roleKey === PLATFORM_ADMIN_ROLE_KEY || actor.accountId === accountId;
 }
 
+function canManageAccountBadges(actor: IdentityApiEnv["Variables"]["actor"]) {
+  return actor?.roleKey === PLATFORM_ADMIN_ROLE_KEY;
+}
+
 function forbidden() {
   return {
     error: {
@@ -106,7 +110,7 @@ export function accountRoutes(services: AccountServices) {
 
   app.post("/:id/badges", async (c) => {
     const accountId = parseTypedIdBoundary(c.req.param("id"), "acc", "accountId");
-    if (!canManageAccount(c.var.actor, accountId)) {
+    if (!canManageAccountBadges(c.var.actor)) {
       return c.json(forbidden(), 403);
     }
     const body = await c.req.json();
@@ -141,7 +145,7 @@ export function accountRoutes(services: AccountServices) {
 
   app.delete("/:id/badges/:badgeKey", async (c) => {
     const accountId = parseTypedIdBoundary(c.req.param("id"), "acc", "accountId");
-    if (!canManageAccount(c.var.actor, accountId)) {
+    if (!canManageAccountBadges(c.var.actor)) {
       return c.json(forbidden(), 403);
     }
     const badgeKey = readAccountBadgeKey(c.req.param("badgeKey"));
