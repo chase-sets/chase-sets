@@ -1114,6 +1114,7 @@ describe("DigitalOcean platform configuration", () => {
       "Apply staging Kubernetes registry pull secret",
     );
     const stagingDeployStep = workflowStep(deployStagingJob, "Deploy staging Kubernetes release");
+    const stagingScenarioSeedStep = workflowStep(deployStagingJob, "Seed staging Kubernetes scenario data");
     const stagingDiagnosticsStep = workflowStep(deployStagingJob, "Capture staging Kubernetes deploy diagnostics");
     const stagingIngressWaitStep = workflowStep(deployStagingJob, "Wait for staging ingress URLs");
     const kubeconfigStep = workflowStep(deployProductionJob, "Configure production Kubernetes context");
@@ -1311,8 +1312,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformHelmStagingValues).not.toContain("WORKER_PROJECTION_OPERATION_RUNNER_COUNT");
     expect(stagingDeployStep).toContain('--runtime-env "CHASE_SETS_RUNTIME_PROFILE=public"');
     expect(stagingDeployStep).toContain(
-      '--runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap,scenario-seed"',
+      '--runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap"',
     );
+    expect(stagingDeployStep).not.toContain("scenario-seed");
+    expect(stagingScenarioSeedStep).toContain("pnpm run platform:kubernetes-deployment -- scenario-seed");
+    expect(stagingScenarioSeedStep).toContain('--runtime-env "DEPLOYMENT_ENVIRONMENT=staging"');
+    expect(stagingScenarioSeedStep).toContain('--runtime-env "CHASE_SETS_RUNTIME_PROFILE=public"');
+    expect(stagingScenarioSeedStep).toContain('--image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME"');
+    expect(stagingScenarioSeedStep).toContain("--timeout 60m");
+    expect(deployProductionJob).not.toContain("platform:kubernetes-deployment -- scenario-seed");
     // Regression guard for the admin.doks.staging shadow host 404ing before
     // reaching Google OAuth: the Helm chart's static ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS
     // default is "" (see envValueDefaults in render-platform-helm-values.mjs),

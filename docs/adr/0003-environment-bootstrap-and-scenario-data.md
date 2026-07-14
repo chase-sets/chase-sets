@@ -20,13 +20,16 @@ Chase Sets uses explicit environment data profiles:
 
 Production and staging deployment bootstrap run only `critical-bootstrap` and `catalog-integration-bootstrap`. TCGdex imports in staging and production are operator-triggered. Bootstrap creates import capability and Catalog structure, but does not import, promote, or publish provider content there.
 
+DOKS staging release verification may reconcile `scenario-seed` only through a separate, bounded post-deploy Job after Helm has completed and the worker fleet is available. This exception exists for the deployed browser E2E contract and does not change the staging bootstrap profiles. The Job is forbidden in production.
+
 ADR 0005 adds `representative-commerce-state` as an explicit staging-only operator action. It does not run as normal deployment bootstrap, remains blocked in production, and layers synthetic accounts/commerce usage over real current Catalog integration output rather than creating fake Catalog Items.
 
 Dev, preview, and test may run all three profiles so they can represent real workflows with a small scenario dataset.
 
 ## Consequences
 
-- Long-lived environments remain clean and auditable.
+- The deploy-critical path for long-lived environments remains bounded to operating data and integration structure.
+- DOKS staging's synthetic E2E layer is explicit in release history and isolated from the Helm hook; production remains free of scenario data.
 - Non-production environments can still exercise cross-context marketplace behavior.
 - Catalog provider integrations own the structure they require instead of relying on fake Catalog Item seeds.
 - Scenario seeds must not be used as cross-context contracts. They may depend on scenario aliases or provider-backed facts, but not on production bootstrap.

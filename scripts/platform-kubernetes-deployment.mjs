@@ -13,6 +13,8 @@ import { writeJsonRecord } from "./lib/output-file.mjs";
 
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
 export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v1";
+export const PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION = "platform-kubernetes-scenario-seed/v1";
+export const scenarioSeedMaxActiveDeadlineSeconds = 3_300;
 // Metadata fields cert-manager/the API server stamp onto the source Secret
 // that must never travel to the copy: a namespace mismatch makes `kubectl
 // apply -n <target>` refuse the object outright, and the rest are
@@ -565,6 +567,163 @@ export async function deployPlatformToKubernetes(options = {}) {
   });
 }
 
+export function buildScenarioSeedJobManifest(options = {}) {
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  const release = requiredOption(options.release ?? defaultRelease, "release");
+  const image = platformImageReference(parsePlatformImageRef(requiredOption(options.image, "image")));
+  const envOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
+  if (envOverrides.DEPLOYMENT_ENVIRONMENT !== "staging") {
+    throw new Error("The post-deploy scenario seed Job is staging-only; DEPLOYMENT_ENVIRONMENT must be staging.");
+  }
+
+  const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot });
+  const component = values.components?.["platform-bootstrap"];
+  if (!component || component.kind !== "job") {
+    throw new Error("The platform-bootstrap Job definition is required to build the post-deploy scenario seed Job.");
+  }
+
+  const timeoutMs = durationToMilliseconds(options.timeout ?? "60m");
+  const activeDeadlineSeconds = Math.min(scenarioSeedMaxActiveDeadlineSeconds, Math.floor(timeoutMs / 1_000) - 60);
+  if (activeDeadlineSeconds < 60) {
+    throw new Error("The post-deploy scenario seed timeout must leave at least 60 seconds for the Job to run.");
+  }
+
+  const secretName = requiredOption(values.global?.existingSecretName, "global.existingSecretName");
+  const jobName = trimKubernetesName(
+    options.jobName ??
+      `${release}-scenario-seed-${options.env?.GITHUB_RUN_ID ?? Date.now()}-${options.env?.GITHUB_RUN_ATTEMPT ?? "1"}`,
+  );
+  const env = component.env.map((entry) => {
+    if (entry.secret) {
+      return {
+        name: entry.name,
+        valueFrom: {
+          secretKeyRef: {
+            name: entry.secretName ?? secretName,
+            key: entry.secretKey ?? entry.name,
+          },
+        },
+      };
+    }
+
+    return {
+      name: entry.name,
+      value:
+        entry.name === "PLATFORM_DATA_PROFILES"
+          ? "scenario-seed"
+          : String(envOverrides[entry.name] ?? entry.value ?? ""),
+    };
+  });
+
+  return {
+    apiVersion: "batch/v1",
+    kind: "Job",
+    metadata: {
+      name: jobName,
+      namespace,
+      labels: {
+        "app.kubernetes.io/name": chartName,
+        "app.kubernetes.io/instance": release,
+        "app.kubernetes.io/component": "scenario-seed",
+        "app.kubernetes.io/managed-by": "github-actions",
+      },
+      annotations: {
+        "chase-sets.com/generated-by": "node ./scripts/platform-kubernetes-deployment.mjs scenario-seed",
+      },
+    },
+    spec: {
+      backoffLimit: 0,
+      activeDeadlineSeconds,
+      ttlSecondsAfterFinished: 3_600,
+      template: {
+        metadata: {
+          labels: {
+            "app.kubernetes.io/name": chartName,
+            "app.kubernetes.io/instance": release,
+            "app.kubernetes.io/component": "scenario-seed",
+          },
+        },
+        spec: {
+          restartPolicy: "Never",
+          ...(options.imagePullSecret ? { imagePullSecrets: [{ name: options.imagePullSecret }] } : {}),
+          containers: [
+            {
+              name: "scenario-seed",
+              image,
+              imagePullPolicy: values.global?.image?.pullPolicy ?? "IfNotPresent",
+              command: ["sh", "-lc"],
+              args: [component.command],
+              env,
+              ...(component.resources && Object.keys(component.resources).length > 0
+                ? { resources: component.resources }
+                : {}),
+            },
+          ],
+        },
+      },
+    },
+  };
+}
+
+export async function runScenarioSeedOnKubernetes(options = {}) {
+  const kubectlPath = options.kubectlPath ?? "kubectl";
+  const manifest = buildScenarioSeedJobManifest(options);
+  const namespace = manifest.metadata.namespace;
+  const jobName = manifest.metadata.name;
+
+  await runProcess({
+    command: kubectlPath,
+    args: ["apply", "--namespace", namespace, "-f", "-"],
+    input: `${JSON.stringify(manifest)}\n`,
+    spawn: options.spawn,
+  });
+  await runProcess({
+    command: kubectlPath,
+    args: ["logs", "--follow", `job/${jobName}`, "--namespace", namespace, "--pod-running-timeout=5m"],
+    spawn: options.spawn,
+    allowFailure: true,
+  });
+
+  const timeoutMs = durationToMilliseconds(options.timeout ?? "60m");
+  const startedAt = (options.now ?? Date.now)();
+  const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  while (true) {
+    const result = await runProcess({
+      command: kubectlPath,
+      args: ["get", `job/${jobName}`, "--namespace", namespace, "--output", "json"],
+      spawn: options.spawn,
+      captureOutput: true,
+    });
+    const job = JSON.parse(result.stdout);
+    const conditions = job.status?.conditions ?? [];
+    if (
+      job.status?.succeeded === 1 ||
+      conditions.some((condition) => condition.type === "Complete" && condition.status === "True")
+    ) {
+      return {
+        schemaVersion: PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION,
+        action: "scenario-seed",
+        result: "success",
+        release: options.release ?? defaultRelease,
+        namespace,
+        jobName,
+      };
+    }
+    const failed = conditions.find((condition) => condition.type === "Failed" && condition.status === "True");
+    if (job.status?.failed > 0 || failed) {
+      throw new Error(
+        `Post-deploy scenario seed Job ${jobName} failed: ${failed?.reason ?? "container-exited"} ${failed?.message ?? ""}`.trim(),
+      );
+    }
+    if ((options.now ?? Date.now)() - startedAt >= timeoutMs) {
+      throw new Error(
+        `Timed out after ${options.timeout ?? "60m"} waiting for post-deploy scenario seed Job ${jobName}.`,
+      );
+    }
+    await sleep(options.pollIntervalMs ?? 2_000);
+  }
+}
+
 export async function rollbackPlatformOnKubernetes(options = {}) {
   const helmPath = options.helmPath ?? "helm";
   const kubectlPath = options.kubectlPath ?? "kubectl";
@@ -1017,12 +1176,20 @@ export function parseArgs(argv, env = process.env) {
   const command = argv.find((arg) => arg !== "--");
   if (
     !command ||
-    !["deploy", "promote", "abort", "rollback", "diagnostics", "plan", "capture-rollback-target", "teardown"].includes(
-      command,
-    )
+    ![
+      "deploy",
+      "scenario-seed",
+      "promote",
+      "abort",
+      "rollback",
+      "diagnostics",
+      "plan",
+      "capture-rollback-target",
+      "teardown",
+    ].includes(command)
   ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollouts-enabled true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollouts-enabled true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -1046,6 +1213,7 @@ export function parseArgs(argv, env = process.env) {
     lastKnownGoodCommit: readOption(rest, "--last-known-good-commit", env.LAST_KNOWN_GOOD_COMMIT ?? ""),
     releaseTag: readOption(rest, "--release-tag", env.ROLLBACK_RELEASE_TAG ?? ""),
     outPath: readOption(rest, "--out", env.PLATFORM_KUBERNETES_ROLLBACK_TARGET_OUT),
+    jobName: readOption(rest, "--job-name", env.PLATFORM_KUBERNETES_SCENARIO_SEED_JOB_NAME),
     githubOutputPath: readOption(rest, "--github-output", env.GITHUB_OUTPUT),
     env,
   };
@@ -1125,6 +1293,11 @@ async function main(argv, env = process.env) {
 
   if (options.command === "deploy") {
     console.log(JSON.stringify(await deployPlatformToKubernetes(options), null, 2));
+    return 0;
+  }
+
+  if (options.command === "scenario-seed") {
+    console.log(JSON.stringify(await runScenarioSeedOnKubernetes(options), null, 2));
     return 0;
   }
 
