@@ -1,6 +1,10 @@
 export { default as contextManifest } from "./context.json";
 
-import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
+import {
+  buildEventSubscriptionsFromManifest,
+  defineBoundedContextModule,
+  type BcContextManifest,
+} from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildCollectionsApi } from "./api";
 import contextManifest from "./context.json";
@@ -12,8 +16,10 @@ import type { CollectionsHostPorts, CollectionsServices } from "./support/runtim
 import { createCollectionsServices } from "./support/runtime-support/services";
 import { collectionsSchemaSql } from "./support/runtime-support/schema";
 
+const collectionsContextManifest = contextManifest as BcContextManifest;
+
 export const module = defineBoundedContextModule<CollectionsServices, PgTransactionalPool, CollectionsHostPorts>({
-  manifest: contextManifest,
+  manifest: collectionsContextManifest,
   schemaSql: collectionsSchemaSql,
   createServices: (pool, ports) => createCollectionsServices(pool, ports),
   buildApis: (services) => [buildCollectionsApi(services)],
@@ -28,4 +34,5 @@ export const module = defineBoundedContextModule<CollectionsServices, PgTransact
           buildSavedListValuationPricingProjectionHandlers(services.db),
       },
     }),
+  projectionHandlerSets: (services) => services.projectors,
 });

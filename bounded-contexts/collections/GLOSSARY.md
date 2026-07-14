@@ -71,3 +71,23 @@ Notes:
 ## Estimate Coverage
 
 **Estimate Coverage** states how many Saved List Lines and tracked units have a current eligible estimate, alongside missing, stale, and low-confidence counts.
+
+## Saved List Sharing
+
+**Saved List Sharing** governs who may view an active Saved List and independently controls whether the shared view reveals Tracked Quantity and Current Estimated Value.
+
+Notes:
+
+- Both controls default to hidden.
+- A disclosed Current Estimated Value is current Pricing-derived context, never acquisition cost, profit and loss, or history.
+- Visibility grants a sharing posture; disclosure decides which optional fields that posture may reveal.
+
+## Unlisted Saved List Capability
+
+An **Unlisted Saved List Capability** is a high-entropy, revocable secret that grants read access to one active unlisted Saved List.
+
+Notes:
+
+- Rotation immediately replaces the prior capability; revocation leaves no active capability.
+- Only a one-way verifier is durable. The raw secret is returned to the owner and transported in a URL fragment for a body-based exchange.
+- Possession permits viewing, not editing, collaboration, or ownership transfer.
