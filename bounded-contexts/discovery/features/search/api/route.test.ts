@@ -41,4 +41,33 @@ describe("discovery item search routes", () => {
     expect(response.status).toBe(200);
     expect(services[serviceName]).toHaveBeenCalledWith(expect.objectContaining({ search: "leak", status: "active" }));
   });
+
+  it("parses price range, in-stock, and price-sort query state", async () => {
+    const services = createServices();
+    const app = discoveryItemSearchRoutes(services);
+
+    const response = await app.request("/?priceMin=10.25&priceMax=50&inStock=true&sort=price_asc");
+
+    expect(response.status).toBe(200);
+    expect(services.searchItems).toHaveBeenCalledWith(
+      expect.objectContaining({
+        priceMin: "10.25",
+        priceMax: "50",
+        inStock: true,
+        sort: "price_asc",
+      }),
+    );
+  });
+
+  it("ignores malformed price and in-stock query values", async () => {
+    const services = createServices();
+    const app = discoveryItemSearchRoutes(services);
+
+    const response = await app.request("/?priceMin=-1&priceMax=12.345&inStock=yes");
+
+    expect(response.status).toBe(200);
+    expect(services.searchItems).toHaveBeenCalledWith(
+      expect.objectContaining({ priceMin: undefined, priceMax: undefined, inStock: false }),
+    );
+  });
 });

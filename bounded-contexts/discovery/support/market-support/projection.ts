@@ -20,6 +20,7 @@ import {
   type GoogleShoppingIncrementalSyncReason,
 } from "../../features/google-shopping-operations/api/feed-row-projection";
 import { createMarketplaceSlug, rememberSlugRedirect } from "../runtime-support/slugs";
+import { refreshSearchIndexMarketSignals } from "../../features/search/read-model/market-signals";
 
 const ACCOUNT_STREAM_PREFIX = "identity.account-";
 const MARKETPLACE_LISTING_STREAM_PREFIX = "marketplace.listing-";
@@ -376,6 +377,8 @@ async function emitListingPatch(db: PgQueryable, event: Parameters<ProjectorHand
   if (!listing) {
     return;
   }
+
+  await refreshSearchIndexMarketSignals(db, listing.catalog_catalog_item_id);
 
   const topics = [
     discoveryRealtimeTopics.publicMarket(),

@@ -127,6 +127,9 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
     category: "",
     language: "",
     marketActivity: "",
+    priceMin: "",
+    priceMax: "",
+    inStock: false,
     sort: "relevance",
     dynamicFilters: [],
     data: searchResponse,
@@ -135,6 +138,9 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
     onCategoryChange: vi.fn(),
     onLanguageChange: vi.fn(),
     onMarketActivityChange: vi.fn(),
+    onPriceMinChange: vi.fn(),
+    onPriceMaxChange: vi.fn(),
+    onInStockChange: vi.fn(),
     onSortChange: vi.fn(),
     onDynamicFilterChange: vi.fn(),
     onDynamicFilterClear: vi.fn(),
@@ -411,6 +417,34 @@ describe("SearchPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove Market: Listings" }));
 
     expect(props.onMarketActivityChange).toHaveBeenCalledWith("");
+  });
+
+  it("renders localized price, in-stock, and price-sort controls with reversible chips", () => {
+    const props = renderSearchPage({
+      committedSearch: "cards",
+      priceMin: "10.00",
+      priceMax: "25.00",
+      inStock: true,
+      sort: "price_asc",
+    });
+
+    expect(screen.getByText("Price and availability")).toBeTruthy();
+    expect(screen.getByText("Set a budget and choose whether results must be available now.")).toBeTruthy();
+    expect(screen.getByRole("spinbutton", { name: "Minimum price" })).toBeTruthy();
+    expect(screen.getByRole("spinbutton", { name: "Maximum price" })).toBeTruthy();
+    expect((screen.getByRole("checkbox", { name: "In stock" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("button", { name: "Remove Minimum price: $10.00" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove Maximum price: $25.00" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove In stock" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove Sort: Price: low to high" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Minimum price: $10.00" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Maximum price: $25.00" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove In stock" }));
+
+    expect(props.onPriceMinChange).toHaveBeenCalledWith("");
+    expect(props.onPriceMaxChange).toHaveBeenCalledWith("");
+    expect(props.onInStockChange).toHaveBeenCalledWith(false);
   });
 
   it("keeps the category facet visible when a category is selected", () => {

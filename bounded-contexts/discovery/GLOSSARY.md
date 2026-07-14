@@ -80,10 +80,15 @@ Examples:
 - Title ascending
 - Title descending
 - Newest
+- Price ascending
+- Price descending
 
 ### Relevance
 
 **Relevance** is the ranking policy that orders Search Results by how well a catalog item matches the active Discovery Query.
+
+Buyer-visible listing count is not a secondary Relevance key. Price and availability are explicit Filters and Sort
+Orders so commercial state does not silently override text-match quality.
 
 ### Catalog Alias
 

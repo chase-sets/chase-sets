@@ -40,7 +40,7 @@ vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
   subscribeRealtimePatches: mockSubscribeRealtimePatches,
 }));
 
-import SearchRoute from "./search";
+import SearchRoute, { loader } from "./search";
 
 type SubscribeRealtimePatchesOptions = Parameters<typeof subscribeRealtimePatches>[0];
 
@@ -49,6 +49,11 @@ function searchData(search = "", language = "") {
     search,
     category: "",
     language,
+    tag: "",
+    marketActivity: "" as const,
+    priceMin: "",
+    priceMax: "",
+    inStock: false,
     sort: "relevance",
     page: 1,
     data: {
@@ -301,6 +306,74 @@ describe("marketplace search route", () => {
     expect(next.get("language")).toBe("ja");
     expect(next.has("page")).toBe(false);
     expect(options).toMatchObject({ preventScrollReset: true, replace: false });
+  });
+
+  it("round-trips price and in-stock loader state to the Discovery API", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        requests.push(url);
+        if (new URL(url).pathname.endsWith("/categories")) {
+          return Response.json({ items: [], total: 0, count: 0 });
+        }
+        return Response.json({
+          items: [],
+          facets: [],
+          total: 0,
+          count: 0,
+          nextCursor: null,
+          retrievalMode: "lexical",
+          lexicalCount: 0,
+        });
+      }),
+    );
+
+    const result = await loader({
+      request: new Request("http://localhost/search?priceMin=10.00&priceMax=25.00&inStock=true&sort=price_desc"),
+      params: {},
+      context: {},
+    } as unknown as Parameters<typeof loader>[0]);
+
+    expect(result).toMatchObject({ priceMin: "10.00", priceMax: "25.00", inStock: true, sort: "price_desc" });
+    const apiRequest = requests.find((request) => new URL(request).pathname.endsWith("/items"));
+    expect(apiRequest).toBeDefined();
+    const apiParams = new URL(apiRequest ?? "http://localhost").searchParams;
+    expect(apiParams.get("priceMin")).toBe("10.00");
+    expect(apiParams.get("priceMax")).toBe("25.00");
+    expect(apiParams.get("inStock")).toBe("true");
+    expect(apiParams.get("sort")).toBe("price_desc");
+  });
+
+  it("removes applied price and in-stock URL state without retaining pagination", () => {
+    const setSearchParams = vi.fn();
+    mockUseLoaderData.mockReturnValue({
+      ...searchDataWithResults("pikachu"),
+      priceMin: "10.00",
+      priceMax: "25.00",
+      inStock: true,
+      sort: "price_asc",
+    });
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    const current = new URLSearchParams("q=pikachu&priceMin=10.00&priceMax=25.00&inStock=true&sort=price_asc&page=3");
+    mockUseSearchParams.mockReturnValue([current, setSearchParams]);
+
+    render(<SearchRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Remove Minimum price: $10.00" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Maximum price: $25.00" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove In stock" }));
+
+    const minimumParams = setSearchParams.mock.calls[0][0](current);
+    const maximumParams = setSearchParams.mock.calls[1][0](current);
+    const inStockParams = setSearchParams.mock.calls[2][0](current);
+    expect(minimumParams.has("priceMin")).toBe(false);
+    expect(maximumParams.has("priceMax")).toBe(false);
+    expect(inStockParams.has("inStock")).toBe(false);
+    expect(minimumParams.has("page")).toBe(false);
+    expect(maximumParams.has("page")).toBe(false);
+    expect(inStockParams.has("page")).toBe(false);
   });
 
   it("makes product result cards direct item-detail links without compare copy", () => {

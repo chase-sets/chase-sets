@@ -203,6 +203,9 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.get.alerts.when.supply.matches":
     "Get alerted when active supply matches this search.",
   "discovery.features.search.ui.searchPage.japanese": "Japanese",
+  "discovery.features.search.ui.searchPage.in.stock": "In stock",
+  "discovery.features.search.ui.searchPage.in.stock.description":
+    "Show only items with buyer-visible quantity available now.",
   "discovery.features.search.ui.searchPage.language": "Language",
   "discovery.features.search.ui.searchPage.language.filter.label": "Language: {language}",
   "discovery.features.search.ui.searchPage.load.more.error.description":
@@ -220,6 +223,16 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.market.activity.filter.label": "Market: {marketActivity}",
   "discovery.features.search.ui.searchPage.marketplace": "Marketplace",
   "discovery.features.search.ui.searchPage.marketplace.search": "Marketplace search",
+  "discovery.features.search.ui.searchPage.maximum.price": "Maximum price",
+  "discovery.features.search.ui.searchPage.maximum.price.accessible.description": "Maximum item price in US dollars.",
+  "discovery.features.search.ui.searchPage.maximum.price.decrease": "Decrease maximum price",
+  "discovery.features.search.ui.searchPage.maximum.price.filter.label": "Maximum price: {price}",
+  "discovery.features.search.ui.searchPage.maximum.price.increase": "Increase maximum price",
+  "discovery.features.search.ui.searchPage.minimum.price": "Minimum price",
+  "discovery.features.search.ui.searchPage.minimum.price.accessible.description": "Minimum item price in US dollars.",
+  "discovery.features.search.ui.searchPage.minimum.price.decrease": "Decrease minimum price",
+  "discovery.features.search.ui.searchPage.minimum.price.filter.label": "Minimum price: {price}",
+  "discovery.features.search.ui.searchPage.minimum.price.increase": "Increase minimum price",
   "discovery.features.search.ui.searchPage.closest.matches": "Closest matches",
   "discovery.features.search.ui.searchPage.closest.matches.semantic.only":
     "No text matches were found. These related items are ranked by semantic similarity.",
@@ -228,7 +241,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.mobile.categories.description":
     "Pick a category without leaving the result list.",
   "discovery.features.search.ui.searchPage.mobile.filters.description":
-    "Refine results by category, language, fields, and dimensions.",
+    "Refine results by category, price, availability, language, fields, and dimensions.",
   "discovery.features.search.ui.searchPage.mobile.language.description": "Limit results to a catalog language.",
   "discovery.features.search.ui.searchPage.newest": "Newest",
   "discovery.features.search.ui.searchPage.no.active.listings": "No active listings",
@@ -236,6 +249,11 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.no.items.found": "No items found",
   "discovery.features.search.ui.searchPage.offers": "Offers",
   "discovery.features.search.ui.searchPage.pokemon.card.back": "Pokemon card back",
+  "discovery.features.search.ui.searchPage.price.and.availability": "Price and availability",
+  "discovery.features.search.ui.searchPage.price.and.availability.description":
+    "Set a budget and choose whether results must be available now.",
+  "discovery.features.search.ui.searchPage.price.high.to.low": "Price: high to low",
+  "discovery.features.search.ui.searchPage.price.low.to.high": "Price: low to high",
   "discovery.features.search.ui.searchPage.relevance": "Relevance",
   "discovery.features.search.ui.searchPage.results": "Results",
   "discovery.features.search.ui.searchPage.results.summary": "{count} results in {category}",

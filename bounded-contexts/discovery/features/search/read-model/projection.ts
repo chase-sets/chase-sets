@@ -32,6 +32,7 @@ import {
   type ReferenceRecordRef,
 } from "../../../support/item-support/reference-records";
 import { createMarketplaceSlug, createSlugBase, rememberSlugRedirect } from "../../../support/runtime-support/slugs";
+import { refreshAllSearchIndexMarketSignals } from "./market-signals";
 import { fieldFacetSortMetadata } from "./facet-ordering";
 import { extractStructuredCardNumber, extractStructuredSetCode } from "./natural-key-extraction";
 
@@ -1054,6 +1055,8 @@ export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void
     orderBy: [{ column: "catalog_item_id" }],
     refresh: (itemId) => refreshDiscoverySearchItem(db, itemId, { refreshProductContentText: true }),
   });
+
+  await refreshAllSearchIndexMarketSignals(db);
 }
 
 async function refreshItemsByBlueprint(

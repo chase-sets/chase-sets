@@ -3,7 +3,14 @@ import { describe, expect, it } from "vitest";
 import { searchDiscoveryItems, searchDiscoveryItemsByNaturalKey, searchDiscoverySemanticItems } from "./queries";
 import { discoverySearchSchemaMigrations, discoverySearchSchemaSql } from "./schema";
 
-function encodeCursor(input: { id: string; title: string; updatedAt: string; rank?: number; baseMatch?: boolean }) {
+function encodeCursor(input: {
+  id: string;
+  title: string;
+  updatedAt: string;
+  rank?: number;
+  baseMatch?: boolean;
+  lowestPriceAmount?: string | null;
+}) {
   return Buffer.from(
     JSON.stringify({
       id: input.id,
@@ -11,6 +18,7 @@ function encodeCursor(input: { id: string; title: string; updatedAt: string; ran
       updatedAt: input.updatedAt,
       rank: input.rank ?? 0,
       baseMatch: input.baseMatch ?? false,
+      lowestPriceAmount: input.lowestPriceAmount ?? null,
     }),
     "utf8",
   ).toString("base64url");
@@ -116,6 +124,94 @@ describe("searchDiscoveryItems cursor paging", () => {
     ]);
     expect(statements[0]).toContain("ON discovery_search_items (status, title, catalog_item_id)");
     expect(statements[1]).toContain("ON discovery_search_items (status, updated_at DESC, catalog_item_id DESC)");
+  });
+
+  it("keeps price-sort keysets aligned with NULLS-LAST market-signal indexes", async () => {
+    const migration = discoverySearchSchemaMigrations.find(
+      (candidate) => candidate.migrationId === "20260714_discovery_search_market_signal_indexes",
+    );
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(
+      db,
+      {
+        sort: "price_asc",
+        cursor: encodeCursor({
+          id: "cat_002",
+          title: "Bulbasaur",
+          updatedAt: "2026-05-16T00:00:00.000Z",
+          lowestPriceAmount: "12.50",
+        }),
+        limit: 24,
+      },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+
+    const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
+    expect(discoverySearchSchemaSql).toContain("lowest_price_amount numeric NULL");
+    expect(discoverySearchSchemaSql).toContain("visible_quantity integer NULL");
+    expect(migration?.statements).toEqual([
+      expect.stringContaining("discovery_search_items_status_price_asc_idx"),
+      expect.stringContaining("discovery_search_items_status_price_desc_idx"),
+    ]);
+    expect(migration?.statements[0]).toContain("lowest_price_amount ASC NULLS LAST, catalog_item_id ASC");
+    expect(migration?.statements[1]).toContain("lowest_price_amount DESC NULLS LAST, catalog_item_id DESC");
+    expect(listCall?.sql).toContain(
+      "(lowest_price_amount > $2::numeric OR (lowest_price_amount = $2::numeric AND catalog_item_id > $3) OR lowest_price_amount IS NULL)",
+    );
+    expect(listCall?.sql).toContain("ORDER BY lowest_price_amount ASC NULLS LAST, catalog_item_id ASC");
+    expect(listCall?.values).toEqual(["active", "12.50", "cat_002", 25]);
+  });
+
+  it("paginates deterministically within the NULL-price tail in both directions", async () => {
+    for (const [sort, comparison, direction] of [
+      ["price_asc", ">", "ASC"],
+      ["price_desc", "<", "DESC"],
+    ] as const) {
+      const { db, calls } = createCapturingDb();
+
+      await searchDiscoveryItems(
+        db,
+        {
+          sort,
+          cursor: encodeCursor({
+            id: "cat_zero_listing",
+            title: "Zero listing",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+            lowestPriceAmount: null,
+          }),
+          limit: 24,
+        },
+        { loadFacets: false, loadMarketSummaries: false },
+      );
+
+      const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
+      expect(listCall?.sql).toContain(`lowest_price_amount IS NULL AND catalog_item_id ${comparison} $2`);
+      expect(listCall?.sql).toContain(
+        `ORDER BY lowest_price_amount ${direction} NULLS LAST, catalog_item_id ${direction}`,
+      );
+      expect(listCall?.values).toEqual(["active", "cat_zero_listing", 25]);
+    }
+  });
+
+  it("applies price range and in-stock constraints to result and facet filters", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, {
+      priceMin: "10.00",
+      priceMax: "25.50",
+      inStock: true,
+      limit: 24,
+    });
+
+    const searchCalls = calls.filter((call) => call.sql.includes("discovery_search_items"));
+    expect(searchCalls.length).toBeGreaterThan(1);
+    for (const call of searchCalls) {
+      expect(call.sql).toContain("lowest_price_amount >= $2::numeric");
+      expect(call.sql).toContain("lowest_price_amount <= $3::numeric");
+      expect(call.sql).toContain("visible_quantity > 0");
+    }
+    expect(searchCalls[0]?.values.slice(0, 3)).toEqual(["active", "10.00", "25.50"]);
   });
 
   it("uses a ledgered halfvec reshape and concurrent HNSW index", () => {

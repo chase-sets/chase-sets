@@ -19,6 +19,9 @@ export type DiscoverySearchParams = {
   language?: string;
   status?: string;
   marketActivity?: DiscoveryMarketActivityFilter;
+  priceMin?: string;
+  priceMax?: string;
+  inStock?: boolean;
   fieldFilters?: readonly DiscoveryFieldFilter[];
   referenceFilters?: readonly DiscoveryReferenceFilter[];
   dimensionFilters?: readonly DiscoveryDimensionFilter[];
@@ -123,6 +126,10 @@ export type DiscoverySearchItemRow = Readonly<{
 }>;
 
 type BaseDiscoverySearchItemRow = Omit<DiscoverySearchItemRow, "market_summary">;
+type SearchIndexItemRow = BaseDiscoverySearchItemRow & {
+  lowest_price_amount: string | null;
+  visible_quantity: number | null;
+};
 
 async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly string[]) {
   if (itemIds.length === 0) {
@@ -249,6 +256,22 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     conditions.push(`${itemColumn("language_code")} = $${paramIndex}`);
     values.push(params.language);
     paramIndex++;
+  }
+
+  if (params.priceMin !== undefined) {
+    conditions.push(`${itemColumn("lowest_price_amount")} >= $${paramIndex}::numeric`);
+    values.push(params.priceMin);
+    paramIndex++;
+  }
+
+  if (params.priceMax !== undefined) {
+    conditions.push(`${itemColumn("lowest_price_amount")} <= $${paramIndex}::numeric`);
+    values.push(params.priceMax);
+    paramIndex++;
+  }
+
+  if (params.inStock) {
+    conditions.push(`${itemColumn("visible_quantity")} > 0`);
   }
 
   const dimensionFilterGroups = groupDimensionFilters(params.dimensionFilters);
@@ -535,6 +558,34 @@ export async function searchDiscoveryItems(
         paramIndex += 2;
       }
       break;
+    case "price_asc":
+      orderBy = "lowest_price_amount ASC NULLS LAST, catalog_item_id ASC";
+      if (cursor) {
+        if (cursor.lowestPriceAmount === null) {
+          cursorCondition = `lowest_price_amount IS NULL AND catalog_item_id > $${paramIndex}`;
+          values.push(cursor.id);
+          paramIndex++;
+        } else {
+          cursorCondition = `(lowest_price_amount > $${paramIndex}::numeric OR (lowest_price_amount = $${paramIndex}::numeric AND catalog_item_id > $${paramIndex + 1}) OR lowest_price_amount IS NULL)`;
+          values.push(cursor.lowestPriceAmount, cursor.id);
+          paramIndex += 2;
+        }
+      }
+      break;
+    case "price_desc":
+      orderBy = "lowest_price_amount DESC NULLS LAST, catalog_item_id DESC";
+      if (cursor) {
+        if (cursor.lowestPriceAmount === null) {
+          cursorCondition = `lowest_price_amount IS NULL AND catalog_item_id < $${paramIndex}`;
+          values.push(cursor.id);
+          paramIndex++;
+        } else {
+          cursorCondition = `(lowest_price_amount < $${paramIndex}::numeric OR (lowest_price_amount = $${paramIndex}::numeric AND catalog_item_id < $${paramIndex + 1}) OR lowest_price_amount IS NULL)`;
+          values.push(cursor.lowestPriceAmount, cursor.id);
+          paramIndex += 2;
+        }
+      }
+      break;
     case "relevance":
     default:
       if (hasSearch) {
@@ -585,17 +636,17 @@ export async function searchDiscoveryItems(
     params.includeTotal || useLegacyOffset
       ? db.query<{ count: string }>(
           `SELECT COUNT(*) AS count FROM discovery_search_items ${where}`,
-          values.slice(0, values.length - (cursorCondition ? cursorValueCount(params.sort, hasSearch) : 0)),
+          values.slice(0, values.length - (cursorCondition ? cursorValueCount(params.sort, hasSearch, cursor) : 0)),
         )
       : Promise.resolve({ rows: [] });
-  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, display_badges, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, updated_at${selectRank}${selectBaseMatch}
+  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, display_badges, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, lowest_price_amount::text AS lowest_price_amount, visible_quantity, updated_at${selectRank}${selectBaseMatch}
     FROM discovery_search_items ${whereWithCursor}
     ORDER BY ${orderBy}
     ${listLimitSql}`;
 
   const [countResult, listResult] = await Promise.all([
     countPromise,
-    db.query<BaseDiscoverySearchItemRow & { search_rank?: string | number | null }>(listSql, listValues),
+    db.query<SearchIndexItemRow & { search_rank?: string | number | null }>(listSql, listValues),
   ]);
   const rows = useLegacyOffset ? listResult.rows : listResult.rows.slice(0, limit);
   const lastRow = rows.at(-1);
@@ -611,7 +662,7 @@ export async function searchDiscoveryItems(
   const facets = options.loadFacets === false ? [] : await loadSearchFacets(db, params);
 
   return {
-    items: rows.map((row) => ({
+    items: rows.map(({ lowest_price_amount: _lowestPriceAmount, visible_quantity: _visibleQuantity, ...row }) => ({
       ...row,
       market_summary: marketSummaries.get(row.catalog_item_id) ?? null,
     })),
@@ -1442,11 +1493,19 @@ function clampOffset(offset: number | undefined): number {
   return Math.min(1_000, Math.max(0, Math.trunc(offset as number)));
 }
 
-function cursorValueCount(sort: string | undefined, hasSearch: boolean): number {
+function cursorValueCount(
+  sort: string | undefined,
+  hasSearch: boolean,
+  cursor: ReturnType<typeof decodeSearchCursor>,
+): number {
+  if (sort === "price_asc" || sort === "price_desc") {
+    return cursor?.lowestPriceAmount === null ? 1 : 2;
+  }
+
   return (sort === "relevance" || sort === undefined) && hasSearch ? 4 : 2;
 }
 
-function encodeSearchCursor(row: BaseDiscoverySearchItemRow & { search_rank?: string | number | null }): string {
+function encodeSearchCursor(row: SearchIndexItemRow & { search_rank?: string | number | null }): string {
   return Buffer.from(
     JSON.stringify({
       id: row.catalog_item_id,
@@ -1454,6 +1513,7 @@ function encodeSearchCursor(row: BaseDiscoverySearchItemRow & { search_rank?: st
       updatedAt: row.updated_at,
       rank: Number(row.search_rank ?? 0),
       baseMatch: Boolean(row.search_base_match),
+      lowestPriceAmount: row.lowest_price_amount,
     }),
     "utf8",
   ).toString("base64url");
@@ -1477,6 +1537,10 @@ function decodeSearchCursor(cursor: string | undefined) {
       updatedAt: String(value.updatedAt ?? ""),
       rank: Number(value.rank ?? 0),
       baseMatch: Boolean(value.baseMatch),
+      lowestPriceAmount:
+        typeof value.lowestPriceAmount === "string" && value.lowestPriceAmount.length > 0
+          ? value.lowestPriceAmount
+          : null,
     };
   } catch {
     return null;
