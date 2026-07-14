@@ -32,7 +32,7 @@ const ADMIN_SIGN_IN_FALLBACK_PATH = "/access/sign-in";
 const ADMIN_SUCCESS_PATH = "/";
 const ADMIN_ACCOUNT_SELECTION_PATH = "/access/account-select";
 
-type SocialLoginJourney = "sign-in" | "registration" | "admin";
+type SocialLoginJourney = "sign-in" | "registration" | "admin" | "link";
 
 type AdminSocialLoginJourney = Extract<SocialLoginJourney, "admin">;
 
@@ -80,7 +80,7 @@ const isSocialLoginProviderName = isSocialLoginProviderKey satisfies (
 ) => value is SocialLoginProviderName;
 
 function isSocialLoginJourney(value: string): value is SocialLoginJourney {
-  return value === "sign-in" || value === "registration" || value === "admin";
+  return value === "sign-in" || value === "registration" || value === "admin" || value === "link";
 }
 
 function isAdminSocialLoginJourney(value: SocialLoginJourney): value is AdminSocialLoginJourney {
@@ -126,10 +126,20 @@ function getAccountSelectionPath(journey: SocialLoginJourney) {
   return SOCIAL_LOGIN_ACCOUNT_SELECTION_PATH;
 }
 
-function redirectToFallback(message: string, journey: SocialLoginJourney = "sign-in") {
+function redirectToFallback(message: string, journey: SocialLoginJourney = "sign-in", returnTo?: string) {
   const url = new URL(getFallbackPath(journey), "https://chase-sets.local");
   url.searchParams.set("socialLoginError", message);
+  if (returnTo) {
+    url.searchParams.set("returnTo", returnTo);
+  }
   return createRedirectResponse(`${url.pathname}${url.search}`);
+}
+
+function buildSocialLoginLinkStartPath(providerName: SocialLoginProviderName, returnTo: string) {
+  const url = new URL(`/api/auth/social/${providerName}/start`, "https://chase-sets.local");
+  url.searchParams.set("journey", "link");
+  url.searchParams.set("returnTo", returnTo);
+  return `${url.pathname}${url.search}`;
 }
 
 function completeSocialLoginAuthentication(
@@ -254,6 +264,9 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
     const state = services.auth.issueOpaqueToken("social");
     const requestedJourney = requestUrl.searchParams.get("journey") ?? "sign-in";
     const journey = isSocialLoginJourney(requestedJourney) ? requestedJourney : "sign-in";
+    if (journey === "link" && !c.var.actor) {
+      return redirectToFallback(t("auth.support.apiSupport.support.authentication.required"));
+    }
     if (isAdminSocialLoginJourney(journey) && providerName !== "google") {
       return c.json({ error: t("auth.support.apiSupport.socialLoginRoutes.unsupported.admin.provider") }, 404);
     }
@@ -310,9 +323,6 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
       return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.provider.failed"), journey);
     }
 
-    if (!profile.email || !profile.emailVerified) {
-      return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.verified.email.required"), journey);
-    }
     if (!requireAllowedAdminWorkspaceDomain(services, journey, profile.hostedDomain)) {
       return redirectToFallback(
         t("auth.support.apiSupport.socialLoginRoutes.admin.workspace.domain.required"),
@@ -320,66 +330,108 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
       );
     }
 
+    const linkedUser = await services.identity.getUserBySocialLogin({
+      providerName,
+      providerSubject: profile.providerSubject,
+    });
+    const linkActor = journey === "link" ? c.var.actor : null;
+    if (journey === "link" && !linkActor) {
+      return redirectToFallback(
+        t("auth.support.apiSupport.support.authentication.required"),
+        "sign-in",
+        buildSocialLoginLinkStartPath(providerName, stateRecord.return_to),
+      );
+    }
+    if (linkActor && linkedUser && linkedUser.user_id !== linkActor.userId) {
+      return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.provider.already.linked"));
+    }
+
     const identityMutations = createIdentityMutations(c);
-    const email = services.identity.normalizeEmail(profile.email);
-    let user =
-      (await services.identity.getUserBySocialLogin({
-        providerName,
-        providerSubject: profile.providerSubject,
-      })) ?? (await services.identity.getUserByEmail(email));
+    let user = linkedUser;
     let accountId: string | undefined;
+    let emailForNewLink: string | undefined;
 
     if (!user) {
-      if (isAdminSocialLoginJourney(journey)) {
-        return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.admin.user.required"), journey);
-      }
-      const admission = await requireRegistrationAdmission(services, email);
-      if (!admission.ok) {
-        return redirectToFallback(admission.failure.body.error.message, journey);
-      }
-
-      let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
-      try {
-        identity = await identityMutations.createPersonalIdentity({
-          email,
-          displayName: profile.displayName?.trim() || createOwnedUserDisplayName(email),
-          givenName: profile.givenName?.trim() || undefined,
-          familyName: profile.familyName?.trim() || undefined,
-          foundersBetaAccessStartedAt: admission.invitationId ? new Date().toISOString() : undefined,
-        });
-      } catch (error) {
-        const conflict = readIdentityMutationConflict(error);
-        if (conflict) {
-          return redirectToFallback(t("identity.api.display.name.already.taken"), journey);
+      if (linkActor) {
+        if (!profile.email) {
+          return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.verified.email.required"));
+        }
+        user = await services.identity.getUser(linkActor.userId);
+        emailForNewLink = services.identity.normalizeEmail(profile.email);
+      } else {
+        if (!profile.email) {
+          return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.verified.email.required"), journey);
+        }
+        if (!profile.emailVerified) {
+          return redirectToFallback(
+            t("auth.support.apiSupport.socialLoginRoutes.verified.email.required"),
+            "sign-in",
+            buildSocialLoginLinkStartPath(providerName, stateRecord.return_to),
+          );
         }
 
-        throw error;
+        const email = services.identity.normalizeEmail(profile.email);
+        user = await services.identity.getUserByEmail(email);
+        emailForNewLink = email;
+
+        if (isAdminSocialLoginJourney(journey)) {
+          if (!user) {
+            return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.admin.user.required"), journey);
+          }
+        } else if (!user) {
+          const admission = await requireRegistrationAdmission(services, email);
+          if (!admission.ok) {
+            return redirectToFallback(admission.failure.body.error.message, journey);
+          }
+
+          let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
+          try {
+            identity = await identityMutations.createPersonalIdentity({
+              email,
+              displayName: profile.displayName?.trim() || createOwnedUserDisplayName(email),
+              givenName: profile.givenName?.trim() || undefined,
+              familyName: profile.familyName?.trim() || undefined,
+              foundersBetaAccessStartedAt: admission.invitationId ? new Date().toISOString() : undefined,
+            });
+          } catch (error) {
+            const conflict = readIdentityMutationConflict(error);
+            if (conflict) {
+              return redirectToFallback(t("identity.api.display.name.already.taken"), journey);
+            }
+
+            throw error;
+          }
+          accountId = identity.accountId;
+          user = await services.identity.getUser(identity.userId);
+        }
       }
-      accountId = identity.accountId;
-      user = await services.identity.getUser(identity.userId);
     }
 
     if (!user || user.status !== "active") {
       return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.user.unavailable"), journey);
     }
 
-    try {
-      await identityMutations.linkSocialLogin({
-        userId: user.user_id,
-        providerName,
-        providerSubject: profile.providerSubject,
-        email,
-      });
-      await identityMutations.verifyEmailContactMethod({
-        userId: user.user_id,
-        email,
-      });
-    } catch (error) {
-      const message =
-        getErrorStatus(error) === 409
-          ? t("auth.support.apiSupport.socialLoginRoutes.provider.already.linked")
-          : t("auth.support.apiSupport.socialLoginRoutes.provider.failed");
-      return redirectToFallback(message, journey);
+    if (emailForNewLink) {
+      try {
+        await identityMutations.linkSocialLogin({
+          userId: user.user_id,
+          providerName,
+          providerSubject: profile.providerSubject,
+          email: emailForNewLink,
+        });
+        if (profile.emailVerified) {
+          await identityMutations.verifyEmailContactMethod({
+            userId: user.user_id,
+            email: emailForNewLink,
+          });
+        }
+      } catch (error) {
+        const message =
+          getErrorStatus(error) === 409
+            ? t("auth.support.apiSupport.socialLoginRoutes.provider.already.linked")
+            : t("auth.support.apiSupport.socialLoginRoutes.provider.failed");
+        return redirectToFallback(message, journey);
+      }
     }
 
     const membershipsOverride = isAdminSocialLoginJourney(journey)

@@ -79,7 +79,7 @@ Notes:
 - Google and Facebook are the first supported Social Login Providers.
 - Auth owns provider redirect state, callback verification, safe return paths, session creation, and account-selection continuation.
 - Identity owns the durable user-level Social Login Link that records which provider identity can authenticate a user.
-- Social Login must not create or link a user unless the provider returns a verified email address.
+- Social Login may auto-link by email only when the provider proves email ownership. An unverified provider email can link only after the existing user authenticates another way.
 
 ## Social Login Provider
 
