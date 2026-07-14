@@ -4,6 +4,15 @@ import { SkipLink, layoutWidthClasses, type LayoutWidth } from "../../primitives
 import { cx } from "../../utils/cx";
 import { Page } from "./page-layouts";
 
+function shellGeometryClasses(hasBottomNavigation: boolean): string {
+  return cx(
+    "[--shell-header-height:4rem]",
+    hasBottomNavigation
+      ? "[--shell-bottom-nav-height:5.25rem] md:[--shell-bottom-nav-height:0px]"
+      : "[--shell-bottom-nav-height:0px]",
+  );
+}
+
 export interface MarketplaceShellProps {
   brand: ReactNode;
   topNavItems: NavigationItem[];
@@ -30,9 +39,10 @@ export function MarketplaceShell({
   width = "full",
 }: MarketplaceShellProps) {
   const content = <div className="space-y-6">{children}</div>;
+  const hasBottomNavigation = bottomNavItems.length > 0;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className={cx("min-h-screen bg-background", shellGeometryClasses(hasBottomNavigation))}>
       <SkipLink />
       <TopNav
         brand={brand}
@@ -55,7 +65,9 @@ export function MarketplaceShell({
           )}
         </Page>
       </main>
-      <BottomNav items={bottomNavItems} activeKey={activeKey} onSelect={onNavSelect} width={width} />
+      {hasBottomNavigation ? (
+        <BottomNav items={bottomNavItems} activeKey={activeKey} onSelect={onNavSelect} width={width} />
+      ) : null}
     </div>
   );
 }
@@ -122,7 +134,7 @@ export function AdminShell({
   const mobileNavItems = compactAdminMobileNavItems(navItems, activeKey, moreLabel);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className={cx("min-h-screen bg-background", shellGeometryClasses(mobileNavItems.length > 0))}>
       <SkipLink />
       <TopNav
         brand={brand}

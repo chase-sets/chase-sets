@@ -212,7 +212,9 @@ export function CheckoutStickyActionBar({
       aria-label={label}
       className={cx(
         "sticky z-sticky rounded-tokenLg border border-muted bg-background/overlay px-3 py-2 shadow-tokenLg backdrop-blur-xl md:hidden",
-        mobileOffset === "navigation" ? "bottom-[calc(5.5rem+env(safe-area-inset-bottom))]" : "bottom-0",
+        mobileOffset === "navigation"
+          ? "bottom-[calc(var(--shell-bottom-nav-height,0px)+var(--space-3)+env(safe-area-inset-bottom))]"
+          : "bottom-0",
       )}
     >
       <Stack gap={3}>

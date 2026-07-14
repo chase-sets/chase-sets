@@ -1320,6 +1320,28 @@ describe("design system marketplace patterns", () => {
     expect(markup).toContain("Reject matching");
   });
 
+  it("uses shell-owned header geometry for sticky filter and action surfaces", () => {
+    const markup = renderToString(
+      <>
+        <FilterBar />
+        <FilterArea sticky />
+        <ActionBar sticky>Review changes</ActionBar>
+      </>,
+    );
+
+    expect(markup.match(/top-\[var\(--shell-header-height,4rem\)\]/g)).toHaveLength(3);
+    expect(markup).not.toContain("top-16");
+
+    const explicitOffsetMarkup = renderToString(
+      <ActionBar sticky stickyOffset="5rem">
+        Review changes
+      </ActionBar>,
+    );
+
+    expect(explicitOffsetMarkup).toContain('style="top:5rem;');
+    expect(explicitOffsetMarkup).not.toContain("top-[var(--shell-header-height,4rem)]");
+  });
+
   it("bottom-aligns controls and buttons in admin bulk action bars", () => {
     const markup = renderToString(
       <BulkActionBar
@@ -1361,6 +1383,20 @@ describe("design system marketplace patterns", () => {
     expect(markup).toContain("Clear Selection");
     expect(markup).toContain('data-bulk-action-region="overflow"');
     expect(markup).toContain("More actions");
+    expect(markup).toContain(
+      "bottom-[calc(var(--shell-bottom-nav-height,0px)+var(--space-4)+env(safe-area-inset-bottom))]",
+    );
+  });
+
+  it("uses shell-owned bottom navigation geometry for checkout actions", () => {
+    const markup = renderToString(
+      <CheckoutStickyActionBar totalLabel="Total" total="$27.29" primaryAction={<Button>Pay now</Button>} />,
+    );
+
+    expect(markup).toContain(
+      "bottom-[calc(var(--shell-bottom-nav-height,0px)+var(--space-3)+env(safe-area-inset-bottom))]",
+    );
+    expect(markup).not.toContain("5.5rem");
   });
 
   it("prevents more than one bottom bulk action bar in a bulk action surface", () => {
