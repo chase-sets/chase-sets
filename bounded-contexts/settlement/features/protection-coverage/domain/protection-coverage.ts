@@ -26,7 +26,7 @@ import {
 
 /**
  * ProtectionCoverage — the Settlement-owned reservation aggregate for
- * platform-covered support resolutions (epic #5210, issue #5214, ADR 0022).
+ * platform-covered support resolutions (ADR 0022).
  *
  * Settlement owns financial truth (ADR 0013/0020, reaffirmed by ADR 0022). This
  * aggregate is the authoritative accounting for the protection reserve: it

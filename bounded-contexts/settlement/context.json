@@ -4,7 +4,7 @@
   "ownedNouns": ["wallet", "wallet-adjustment", "payout", "payout-readiness", "ledger-entry"],
   "streamPrefix": "settlement.",
   "apiBasePath": "/api/settlement",
-  "slices": ["wallets", "payout-readiness", "payouts"],
+  "slices": ["wallets", "payout-readiness", "payouts", "protection-coverage"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity"],
@@ -168,13 +168,6 @@
       "projectionName": "platform-policy-document-projection",
       "sourceContextNames": ["settlement"],
       "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
-      "requiredDuringBootstrap": false,
-      "resetStrategy": "truncate-owned-tables"
-    },
-    {
-      "projectionName": "settlement-protection-coverage-projection",
-      "sourceContextNames": ["settlement"],
-      "ownedTables": ["settlement_protection_coverage", "settlement_protection_coverage_rejections"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     }
@@ -447,6 +440,11 @@
       "purpose": "Own payout readiness behavior, provider requirement state, read models, and UI contracts for the settlement context.",
       "expectedConsumers": ["Internal settlement module composition"]
     },
+    "protection-coverage": {
+      "classification": "slice",
+      "purpose": "Own the ProtectionCoverage reservation aggregate, protection-reserve accounting, read models, and reconciliation for the settlement context.",
+      "expectedConsumers": ["Internal settlement module composition"]
+    },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by settlement-owned features and composition seams.",
@@ -456,7 +454,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by settlement-owned features and composition seams.",
-      "expectedConsumers": ["payout-readiness", "payouts", "wallets"]
+      "expectedConsumers": ["payout-readiness", "payouts", "protection-coverage", "wallets"]
     },
     "seed-support": {
       "classification": "support",

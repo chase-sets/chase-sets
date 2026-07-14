@@ -1,7 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 /**
- * Read-model queries for the ProtectionCoverage slice (#5214). These serve
+ * Read-model queries for the ProtectionCoverage slice. These serve
  * operators and metrics; they never expose internal ledger postings to
  * customers. Availability is reported from the projected reservation ledger plus
  * the funded pool (contributions − reversals) owned by the contribution read

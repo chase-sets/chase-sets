@@ -9,7 +9,7 @@ import type { ProtectionCoverageTerminationPayload } from "../domain/protection-
 
 /**
  * Projects the Settlement-owned `settlement.protection-coverage.*` facts into the
- * ProtectionCoverage read models (#5214). Every write is guarded by
+ * ProtectionCoverage read models. Every write is guarded by
  * `last_stream_version` so redelivery is a no-op and a projection rebuild
  * converges to the same rows. Because all reservations for a currency fold into
  * one pool stream, stream versions are monotonic and ordering is preserved.

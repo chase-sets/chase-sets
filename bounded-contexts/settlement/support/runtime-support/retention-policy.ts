@@ -18,6 +18,18 @@ export const settlementRetentionExemptions: readonly BcRetentionExemption[] = [
     owner: "settlement",
     reason: "Payout reconciliation history is accounting evidence and requires archive policy.",
   },
+  {
+    tableName: "settlement_protection_coverage",
+    owner: "settlement",
+    reason:
+      "Protection-coverage reservation lifecycle is accounting evidence for reserve reconciliation and requires archive policy.",
+  },
+  {
+    tableName: "settlement_protection_coverage_rejections",
+    owner: "settlement",
+    reason:
+      "Refused protection-coverage reservations are an audit trail (why coverage was denied) and require archive policy.",
+  },
 ];
 
 export const settlementRetentionSchemaMigrations: readonly BcSchemaMigration[] = [

@@ -1,6 +1,6 @@
 /**
- * Read-model schema for the Settlement ProtectionCoverage slice (issue #5214,
- * ADR 0022). Two tables projected from the Settlement-owned
+ * Read-model schema for the Settlement ProtectionCoverage slice (ADR 0022).
+ * Two tables projected from the Settlement-owned
  * `settlement.protection-coverage.*` facts:
  *
  * - `settlement_protection_coverage` — one row per reservation lifecycle
