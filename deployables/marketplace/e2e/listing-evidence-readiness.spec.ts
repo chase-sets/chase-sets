@@ -12,11 +12,11 @@ test.describe("seller Listing Evidence readiness", () => {
     await signInWithPassword(page, new URL(page.url()).origin, seller);
   });
 
-  test("explains active noncompliance from server-owned slots @marketplace-seller", async ({ page }) => {
+  test("shows active compliance from server-owned slots @marketplace-seller", async ({ page }) => {
     await page.goto("/account/listings/lst_seed_charizard_base_set_psa_8", { waitUntil: "domcontentloaded" });
 
     await expect(page.getByRole("heading", { name: "Listing readiness" })).toBeVisible();
-    await expect(page.getByText("Evidence required")).toBeVisible();
+    await expect(page.getByText("Evidence ready")).toBeVisible();
     await expect(page.getByText("Required view: front")).toBeVisible();
     await expect(page.getByText("Required view: back")).toBeVisible();
     await expect(page.getByText("Required view: slab")).toBeVisible();
