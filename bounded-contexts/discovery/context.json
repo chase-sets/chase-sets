@@ -51,6 +51,24 @@
       "projectionHandlerSetNames": ["discovery-product-alert-page-projection"]
     },
     {
+      "sourceContextName": "collections",
+      "projectionName": "discovery-saved-list-picker-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "collections.saved-list.created",
+        "collections.saved-list.details-changed",
+        "collections.saved-list.archived",
+        "collections.saved-list.visibility-changed",
+        "collections.saved-list.cover-changed",
+        "collections.saved-list.line-added",
+        "collections.saved-list.line-changed",
+        "collections.saved-list.line-removed",
+        "collections.saved-list.line-reordered"
+      ],
+      "order": 6,
+      "projectionHandlerSetNames": ["discovery-saved-list-picker-projection"]
+    },
+    {
       "sourceContextName": "catalog",
       "projectionName": "discovery-category-projection",
       "subscriptionVersion": 1,
@@ -397,6 +415,13 @@
       "projectionName": "discovery-product-alert-page-projection",
       "sourceContextNames": ["discovery"],
       "ownedTables": ["discovery_product_alert_pages"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "discovery-saved-list-picker-projection",
+      "sourceContextNames": ["collections"],
+      "ownedTables": ["discovery_saved_list_picker"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
@@ -1097,7 +1122,7 @@
     },
     "saved-list-addition": {
       "classification": "slice",
-      "purpose": "Own Discovery's Add to List composition across Search, Item Detail, and the Collections Saved Lists API.",
+      "purpose": "Own Discovery's Add to List composition, Collections-fed local picker projection, and shared UI across Search and Item Detail.",
       "expectedConsumers": ["Discovery Search and Item Detail surfaces"]
     },
     "product-alerts": {

@@ -1,5 +1,6 @@
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { t } from "@chase-sets/localization";
+import { createDiscoveryRequestApiClient } from "./api-client";
 import {
   CollectionsApiError,
   type SavedListDestination,
@@ -30,7 +31,7 @@ export async function prepareSavedListAddition(
   const api = createCollectionsRequestApiClient(input.request);
   const actor = await resolveActorFromAuthApi({ request: input.request });
   if (actor) {
-    const recent = await api.listRecentSavedLists();
+    const recent = await createDiscoveryRequestApiClient(input.request).listRecentSavedLists();
     return Response.json({
       status: "ready",
       preparation: {

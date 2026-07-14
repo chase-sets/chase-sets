@@ -1,16 +1,16 @@
 import type {
-  RecentSavedList,
   SavedListAdditionResponse,
   SavedListAdditionTokens,
   SavedListDestination,
   SavedListDiscoverySurface,
   SavedListProductSelection,
 } from "../../../support/request-support/collections-saved-list-contracts";
+import type { DiscoveryRecentSavedList } from "../read-model/queries";
 
 export type SavedListPickerPreparation = Readonly<{
   product: SavedListProductSelection;
   productLabel: string;
-  recentLists: readonly RecentSavedList[];
+  recentLists: readonly DiscoveryRecentSavedList[];
   tokens: SavedListAdditionTokens;
   sourceSurface: SavedListDiscoverySurface;
   claimIntentId: string | null;

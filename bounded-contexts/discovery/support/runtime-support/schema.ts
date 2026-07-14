@@ -10,6 +10,7 @@ import { discoveryProductAlertSchemaSql } from "../../features/product-alerts/re
 import { discoveryGoogleShoppingSchemaSql } from "../../features/google-shopping-operations/api/schema";
 import { discoveryMarketSchemaMigrations, discoveryMarketSchemaSql } from "../market-support/schema";
 import { discoverySearchSchemaMigrations, discoverySearchSchemaSql } from "../../features/search/read-model/schema";
+import { discoverySavedListPickerSchemaSql } from "../../features/saved-list-addition/read-model/schema";
 import { discoverySlugSchemaSql } from "./slug-schema";
 
 export const discoverySchemaSql = [
@@ -19,6 +20,7 @@ export const discoverySchemaSql = [
   discoveryMarketSchemaSql,
   discoveryGoogleShoppingSchemaSql,
   discoveryProductAlertSchemaSql,
+  discoverySavedListPickerSchemaSql,
   discoverySearchSchemaSql,
   discoveryItemDetailSchemaSql,
   discoveryCategorySchemaSql,

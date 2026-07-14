@@ -12,6 +12,7 @@ Discovery owns the browse, search, and detail experience for catalog items.
 - Filter state and facet presentation
 - Catalog item detail presentation models
 - Product Alerts created from product detail selection
+- Add to List picker views projected from Collections facts
 - Search index rebuild and projection workflows
 
 ## Does Not Own
@@ -42,6 +43,7 @@ Google Shopping feed row mapping is documented in [Google Shopping Feed Mapping]
 - Catalog resolved-alias facts (`catalog.catalog-item.aliases-resolved`) for alias-aware search matching
 - Catalog resolved Product Contents facts (`catalog.product-contents.resolved`) for item-detail containment, reverse lookup, and optional content-aware search weighting
 - Marketplace for future visibility or listing signals when browse behavior needs commercial state
+- Collections for Saved List summaries rendered by Search and Item Detail Add to List controls
 
 ## Catalog Alias Search
 
@@ -96,6 +98,7 @@ Run `pnpm --filter @chase-sets/discovery run test:watch` for the sub-second watc
 ## Structure Notes
 
 - `features/item-detail` and `features/search` keep their own slice-local runtime, projection, schema, query, route, and UI files.
+- `features/saved-list-addition` owns the Collections-fed local picker projection and shared Add to List UI used by Search and Item Detail.
 - Shared item-page client helpers stay inside Discovery because they are discovery-owned browse behavior, not shared infrastructure.
 - Context-local reusable code should live under `support/*-support/` with purpose-specific names such as `client-support`, `item-support`, or `market-support`.
 

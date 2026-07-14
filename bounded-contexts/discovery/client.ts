@@ -9,6 +9,7 @@ import type {
   CreateProductAlertRequest,
   ProductAlertListResponse,
 } from "./features/product-alerts/api/contracts";
+import type { DiscoveryRecentSavedListsResponse } from "./features/saved-list-addition/api/contracts";
 
 export type {
   DiscoveryItemDetail,
@@ -33,6 +34,8 @@ export type {
   ProductAlertListResponse,
 } from "./features/product-alerts/api/contracts";
 export type { ProductAlertPageRow } from "./features/product-alerts/read-model/queries";
+export type { DiscoveryRecentSavedListsResponse } from "./features/saved-list-addition/api/contracts";
+export type { DiscoveryRecentSavedList } from "./features/saved-list-addition/read-model/queries";
 
 import type {
   DiscoveryItemDetail,
@@ -153,6 +156,9 @@ export function createDiscoveryApiClient({
     },
     async listCategories(): Promise<CategoryListResponse> {
       return parseJsonResponse(await client.categories.$get({ header: headers }));
+    },
+    async listRecentSavedLists(): Promise<DiscoveryRecentSavedListsResponse> {
+      return parseJsonResponse(await configuredFetch(joinApiPath(baseUrl, "/account/saved-lists/recent"), { headers }));
     },
     async listProductAlerts(): Promise<ProductAlertListResponse> {
       return parseJsonResponse(await client.account["product-alerts"].$get({ header: headers }));
