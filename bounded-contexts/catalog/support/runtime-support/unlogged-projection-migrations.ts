@@ -3,7 +3,8 @@ import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 export const catalogUnloggedProjectionExclusions = [
   {
     tableName: "catalog_items",
-    reason: "Canonical Catalog authoring state without a declared projection reset contract",
+    reason:
+      "Event-projected; FK-coupled to API-computed catalog_resolved_product_contents; component lacks a complete crash-rebuild contract",
   },
   {
     tableName: "catalog_item_display_identity_recompute_work",

@@ -80,6 +80,18 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "catalog-item-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": [
+        "catalog_items",
+        "catalog_external_catalog_item_references",
+        "catalog_external_product_references",
+        "catalog_item_gtins"
+      ],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "catalog-admin-catalog-item-projection",
       "sourceContextNames": ["catalog"],
       "ownedTables": ["catalog_admin_catalog_item_list_pages", "catalog_admin_catalog_item_detail_pages"],
