@@ -17,6 +17,7 @@ import {
   WorkbenchForm,
   type DataColumn,
 } from "@chase-sets/design-system";
+import { t } from "@chase-sets/localization";
 import { catalogScopeProductDomains } from "../../scope-registry/domain/contract";
 import type { ScopeSyncBatchPreview } from "../domain/batch";
 import type { ScopeSyncBatchSnapshot, ScopeSyncBatchUnitSnapshot } from "../read-model/store";
@@ -33,71 +34,103 @@ export function ScopeSyncBatchPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Catalog operations"
-        title="Scope Sync Batches"
-        description="Preview and run bounded synchronization across server-resolved Catalog Scope Records."
-        actions={<LinkText href="/catalog/scopes">Back to scopes</LinkText>}
+        eyebrow={t("catalog.features.scopeSyncBatches.ui.page.catalog.operations")}
+        title={t("catalog.features.scopeSyncBatches.ui.page.title")}
+        description={t("catalog.features.scopeSyncBatches.ui.page.description")}
+        actions={
+          <LinkText href="/catalog/scopes">{t("catalog.features.scopeSyncBatches.ui.page.back.to.scopes")}</LinkText>
+        }
       />
-      {error ? <Banner tone="danger" title="Batch command blocked" description={error} /> : null}
-      <PageSection title="New batch">
+      {error ? (
+        <Banner
+          tone="danger"
+          title={t("catalog.features.scopeSyncBatches.ui.page.batch.command.blocked")}
+          description={error}
+        />
+      ) : null}
+      <PageSection title={t("catalog.features.scopeSyncBatches.ui.page.new.batch")}>
         <WorkbenchForm variant="surface" method="post" action="/catalog/scopes/sync-batches">
           <Stack gap={4}>
             <Inline gap={3} wrap>
               <Select
                 name="selectionMode"
-                label="Selection"
+                label={t("catalog.features.scopeSyncBatches.ui.page.selection")}
                 defaultValue="matching-scope"
                 items={[
-                  { label: "Matching scope", value: "matching-scope" },
-                  { label: "Explicit Scope Record ids", value: "ids" },
+                  { label: t("catalog.features.scopeSyncBatches.ui.page.matching.scope"), value: "matching-scope" },
+                  { label: t("catalog.features.scopeSyncBatches.ui.page.explicit.scope.record.ids"), value: "ids" },
                 ]}
               />
               <Select
                 name="productDomain"
-                label="Product domain"
+                label={t("catalog.features.scopeSyncBatches.ui.page.product.domain")}
                 defaultValue="pokemon"
                 items={catalogScopeProductDomains.map((value) => ({ label: value, value }))}
               />
               <Select
                 name="scopeKind"
-                label="Scope kind"
+                label={t("catalog.features.scopeSyncBatches.ui.page.scope.kind")}
                 defaultValue="set"
                 items={["product-line", "series", "expansion", "set"].map((value) => ({ label: value, value }))}
               />
-              <TextInput name="languageCode" label="Language" defaultValue="en" />
+              <TextInput
+                name="languageCode"
+                label={t("catalog.features.scopeSyncBatches.ui.page.language")}
+                defaultValue="en"
+              />
               <TextInput
                 name="scopeRecordIds"
-                label="Scope Record ids"
-                description="Comma-separated; used only for explicit selection."
+                label={t("catalog.features.scopeSyncBatches.ui.page.scope.record.ids")}
+                description={t("catalog.features.scopeSyncBatches.ui.page.scope.record.ids.description")}
               />
             </Inline>
             <Inline gap={3} wrap>
-              <TextInput name="maxScopesPerTurn" label="Scopes per worker turn" type="number" defaultValue="1" />
               <TextInput
-                name="defaultProviderConcurrency"
-                label="Default provider concurrency"
+                name="maxScopesPerTurn"
+                label={t("catalog.features.scopeSyncBatches.ui.page.scopes.per.worker.turn")}
                 type="number"
                 defaultValue="1"
               />
-              <TextInput name="scrydexConcurrency" label="Scrydex concurrency" type="number" defaultValue="1" />
-              <TextInput name="tcgdexRequestLimit" label="TCGdex request limit" type="number" defaultValue="1000" />
               <TextInput
-                name="scrydexRateRequestLimit"
-                label="Scrydex rate request limit"
+                name="defaultProviderConcurrency"
+                label={t("catalog.features.scopeSyncBatches.ui.page.default.provider.concurrency")}
+                type="number"
+                defaultValue="1"
+              />
+              <TextInput
+                name="scrydexConcurrency"
+                label={t("catalog.features.scopeSyncBatches.ui.page.scrydex.concurrency")}
+                type="number"
+                defaultValue="1"
+              />
+              <TextInput
+                name="tcgdexRequestLimit"
+                label={t("catalog.features.scopeSyncBatches.ui.page.tcgdex.request.limit")}
                 type="number"
                 defaultValue="1000"
               />
-              <TextInput name="scrydexRequestLimit" label="Scrydex credit limit" type="number" defaultValue="0" />
+              <TextInput
+                name="scrydexRateRequestLimit"
+                label={t("catalog.features.scopeSyncBatches.ui.page.scrydex.rate.request.limit")}
+                type="number"
+                defaultValue="1000"
+              />
+              <TextInput
+                name="scrydexRequestLimit"
+                label={t("catalog.features.scopeSyncBatches.ui.page.scrydex.credit.limit")}
+                type="number"
+                defaultValue="0"
+              />
               <TextInput
                 name="providerFailureThreshold"
-                label="Circuit-breaker failures"
+                label={t("catalog.features.scopeSyncBatches.ui.page.circuit.breaker.failures")}
                 type="number"
                 defaultValue="3"
               />
             </Inline>
             <Inline gap={2}>
               <Button type="submit" name="intent" value="preview">
-                Preview batch
+                {t("catalog.features.scopeSyncBatches.ui.page.preview.batch")}
               </Button>
             </Inline>
           </Stack>
@@ -111,54 +144,76 @@ export function ScopeSyncBatchPage({
 
 function PreviewSection({ preview }: { preview: ScopeSyncBatchPreview }) {
   const sampleColumns: DataColumn<ScopeSyncBatchPreview["samples"][number]>[] = [
-    { key: "scope", header: "Scope Record", cell: (sample) => <Text>{sample.scopeRecordId}</Text> },
-    { key: "providers", header: "Providers", cell: (sample) => <Text>{sample.providerKeys.join(", ")}</Text> },
+    {
+      key: "scope",
+      header: t("catalog.features.scopeSyncBatches.ui.page.scope.record"),
+      cell: (sample) => <Text>{sample.scopeRecordId}</Text>,
+    },
+    {
+      key: "providers",
+      header: t("catalog.features.scopeSyncBatches.ui.page.providers"),
+      cell: (sample) => <Text>{sample.providerKeys.join(", ")}</Text>,
+    },
     {
       key: "requests",
-      header: "Estimated requests",
-      cell: (sample) => <Text>{sample.estimatedRequestCount ?? "Unavailable"}</Text>,
+      header: t("catalog.features.scopeSyncBatches.ui.page.estimated.requests"),
+      cell: (sample) => (
+        <Text>{sample.estimatedRequestCount ?? t("catalog.features.scopeSyncBatches.ui.page.unavailable")}</Text>
+      ),
     },
     {
       key: "versions",
-      header: "Evidence versions",
+      header: t("catalog.features.scopeSyncBatches.ui.page.evidence.versions"),
       cell: (sample) => (
         <Text>
           {sample.mappingVersions.map((mapping) => `${mapping.mappingId}@${mapping.version}`).join(", ") ||
-            "No mapping"}
+            t("catalog.features.scopeSyncBatches.ui.page.no.mapping")}
           {" · "}
           {sample.profileVersions
             .map((profile) => `${profile.providerKey}/${profile.profileKey}@${profile.profileVersion}`)
-            .join(", ") || "No profile"}
+            .join(", ") || t("catalog.features.scopeSyncBatches.ui.page.no.profile")}
         </Text>
       ),
     },
-    { key: "blockers", header: "Blockers", cell: (sample) => <Text>{sample.blockerCount}</Text> },
+    {
+      key: "blockers",
+      header: t("catalog.features.scopeSyncBatches.ui.page.blockers"),
+      cell: (sample) => <Text>{sample.blockerCount}</Text>,
+    },
   ];
   return (
-    <PageSection title="Preview">
+    <PageSection title={t("catalog.features.scopeSyncBatches.ui.page.preview")}>
       <Stack gap={3}>
         <Banner
           tone={preview.confirmAllowed ? "success" : "warning"}
-          title={preview.confirmAllowed ? "Batch is ready" : "Batch needs attention"}
-          description={`${preview.counts.readyScopes} ready scopes, ${preview.counts.blockedScopes} blocked scopes, ${preview.counts.providerUnits} provider units.`}
+          title={
+            preview.confirmAllowed
+              ? t("catalog.features.scopeSyncBatches.ui.page.batch.ready")
+              : t("catalog.features.scopeSyncBatches.ui.page.batch.needs.attention")
+          }
+          description={t("catalog.features.scopeSyncBatches.ui.page.preview.summary", {
+            readyScopes: preview.counts.readyScopes,
+            blockedScopes: preview.counts.blockedScopes,
+            providerUnits: preview.counts.providerUnits,
+          })}
         />
         <KeyValueList
           items={[
-            { key: "Plan fingerprint", value: preview.planFingerprint },
-            { key: "Resolved at", value: preview.resolvedAt },
-            { key: "Scope count", value: String(preview.counts.scopes) },
+            { key: t("catalog.features.scopeSyncBatches.ui.page.plan.fingerprint"), value: preview.planFingerprint },
+            { key: t("catalog.features.scopeSyncBatches.ui.page.resolved.at"), value: preview.resolvedAt },
+            { key: t("catalog.features.scopeSyncBatches.ui.page.scope.count"), value: String(preview.counts.scopes) },
           ]}
         />
         <KeyValueList
           items={Object.keys(preview.providerUnitTotals).map((providerKey) => ({
-            key: `${providerKey} units / requests`,
-            value: `${preview.providerUnitTotals[providerKey] ?? 0} / ${preview.providerRequestEstimates[providerKey] ?? "Unavailable"}`,
+            key: t("catalog.features.scopeSyncBatches.ui.page.provider.units.and.requests", { providerKey }),
+            value: `${preview.providerUnitTotals[providerKey] ?? 0} / ${preview.providerRequestEstimates[providerKey] ?? t("catalog.features.scopeSyncBatches.ui.page.unavailable")}`,
           }))}
         />
         <DataTable
           rows={[...preview.samples]}
           columns={sampleColumns}
-          caption="Bounded Scope Sync Batch preview sample"
+          caption={t("catalog.features.scopeSyncBatches.ui.page.preview.sample.caption")}
           getRowId={(sample) => sample.scopeRecordId}
           density="compact"
         />
@@ -197,7 +252,7 @@ function PreviewSection({ preview }: { preview: ScopeSyncBatchPreview }) {
               value={String(preview.budget.creditedProviderRequestLimits.scrydex ?? 0)}
             />
             <HiddenInput name="providerFailureThreshold" value={String(preview.budget.providerFailureThreshold)} />
-            <Button type="submit">Confirm and enqueue</Button>
+            <Button type="submit">{t("catalog.features.scopeSyncBatches.ui.page.confirm.and.enqueue")}</Button>
           </WorkbenchForm>
         ) : null}
       </Stack>
@@ -207,21 +262,33 @@ function PreviewSection({ preview }: { preview: ScopeSyncBatchPreview }) {
 
 function BatchSection({ batch }: { batch: ScopeSyncBatchSnapshot }) {
   const columns: DataColumn<ScopeSyncBatchUnitSnapshot>[] = [
-    { key: "scope", header: "Scope Record", cell: (unit) => <Text>{unit.scopeRecordId}</Text> },
-    { key: "providers", header: "Providers", cell: (unit) => <Text>{unit.providerKeys.join(", ")}</Text> },
+    {
+      key: "scope",
+      header: t("catalog.features.scopeSyncBatches.ui.page.scope.record"),
+      cell: (unit) => <Text>{unit.scopeRecordId}</Text>,
+    },
+    {
+      key: "providers",
+      header: t("catalog.features.scopeSyncBatches.ui.page.providers"),
+      cell: (unit) => <Text>{unit.providerKeys.join(", ")}</Text>,
+    },
     {
       key: "state",
-      header: "State",
+      header: t("catalog.features.scopeSyncBatches.ui.page.state"),
       cell: (unit) => (
         <StatusPill tone={unit.state === "completed" ? "success" : unit.state === "failed" ? "danger" : "neutral"}>
           {unit.state}
         </StatusPill>
       ),
     },
-    { key: "attempts", header: "Attempts", cell: (unit) => <Text>{unit.attemptCount}</Text> },
+    {
+      key: "attempts",
+      header: t("catalog.features.scopeSyncBatches.ui.page.attempts"),
+      cell: (unit) => <Text>{unit.attemptCount}</Text>,
+    },
     {
       key: "recovery",
-      header: "Recovery",
+      header: t("catalog.features.scopeSyncBatches.ui.page.recovery"),
       cell: (unit) =>
         unit.state === "failed" || unit.state === "cancelled" ? (
           <WorkbenchForm variant="button" method="post" action="/catalog/scopes/sync-batches">
@@ -229,7 +296,7 @@ function BatchSection({ batch }: { batch: ScopeSyncBatchSnapshot }) {
             <HiddenInput name="batchId" value={batch.batchId} />
             <HiddenInput name="scopeRecordId" value={unit.scopeRecordId} />
             <Button type="submit" size="sm">
-              Retry unit
+              {t("catalog.features.scopeSyncBatches.ui.page.retry.unit")}
             </Button>
           </WorkbenchForm>
         ) : (
@@ -238,7 +305,7 @@ function BatchSection({ batch }: { batch: ScopeSyncBatchSnapshot }) {
     },
   ];
   return (
-    <PageSection title="Batch progress">
+    <PageSection title={t("catalog.features.scopeSyncBatches.ui.page.batch.progress")}>
       <Stack gap={3}>
         <Inline gap={2} align="center">
           <StatusPill
@@ -247,36 +314,50 @@ function BatchSection({ batch }: { batch: ScopeSyncBatchSnapshot }) {
             {batch.status}
           </StatusPill>
           <Text>
-            {batch.counts.completed} completed · {batch.counts.failed} failed · {batch.counts.running} running ·{" "}
-            {batch.counts.queued} queued
+            {t("catalog.features.scopeSyncBatches.ui.page.batch.progress.summary", {
+              completed: batch.counts.completed,
+              failed: batch.counts.failed,
+              running: batch.counts.running,
+              queued: batch.counts.queued,
+            })}
           </Text>
         </Inline>
         <Inline gap={2}>
           {batch.status === "queued" || batch.status === "running" ? (
-            <BatchCommand batchId={batch.batchId} intent="cancel" label="Cancel batch" />
+            <BatchCommand
+              batchId={batch.batchId}
+              intent="cancel"
+              label={t("catalog.features.scopeSyncBatches.ui.page.cancel.batch")}
+            />
           ) : null}
           {batch.status === "cancelled" ? (
-            <BatchCommand batchId={batch.batchId} intent="resume" label="Resume batch" />
+            <BatchCommand
+              batchId={batch.batchId}
+              intent="resume"
+              label={t("catalog.features.scopeSyncBatches.ui.page.resume.batch")}
+            />
           ) : null}
         </Inline>
         {batch.circuitOpenProviders.length > 0 ? (
           <Banner
             tone="warning"
-            title="Provider circuit open"
-            description={`New work is paused for: ${batch.circuitOpenProviders.join(", ")}. Retry a failed unit after the provider is healthy.`}
+            title={t("catalog.features.scopeSyncBatches.ui.page.provider.circuit.open")}
+            description={t("catalog.features.scopeSyncBatches.ui.page.provider.circuit.open.description", {
+              providers: batch.circuitOpenProviders.join(", "),
+            })}
           />
         ) : null}
         {batch.fastNoOp ? (
           <Banner
             tone="info"
-            title="Already settled"
-            description="The unchanged settled plan completed as a fast no-op."
+            title={t("catalog.features.scopeSyncBatches.ui.page.already.settled")}
+            description={t("catalog.features.scopeSyncBatches.ui.page.already.settled.description")}
           />
         ) : null}
         <DataTable
           rows={[...batch.units]}
           columns={columns}
-          caption="Scope Sync Batch units"
+          caption={t("catalog.features.scopeSyncBatches.ui.page.units.caption")}
           getRowId={(unit) => unit.scopeRecordId}
           density="compact"
         />

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { t } from "@chase-sets/localization";
 import type { MetaFunction } from "react-router";
 import { useActionData, useLoaderData, useRevalidator } from "react-router";
 import { ScopeSyncBatchPage } from "../../features/scope-sync-batches/ui/scope-sync-batch-page";
@@ -10,7 +11,7 @@ import {
 
 export { action, loader } from "../../support/route-support/admin-scope-sync-batches/scope-sync-batches-route";
 
-export const meta: MetaFunction = () => [{ title: "Scope Sync Batches | Catalog admin" }];
+export const meta: MetaFunction = () => [{ title: t("catalog.features.scopeSyncBatches.routes.admin.meta.title") }];
 
 export default function ScopeSyncBatchesRoute() {
   const { batch } = useLoaderData<typeof loader>();

@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { t } from "@chase-sets/localization";
 import type {
   CatalogSyncProviderParticipationPreview,
   CatalogSyncScope,
@@ -63,7 +64,7 @@ export function createScopeSyncBatchPlanner(deps: {
             code: "credited-provider-estimate-unavailable",
             scopeRecordId: record.scope_record_id,
             providerKey: unit.providerKey,
-            message: "Scrydex credit readiness was not checked for this provider unit.",
+            message: t("catalog.features.scopeSyncBatches.api.planner.scrydex.credit.readiness.not.checked"),
           });
         }
       }
@@ -214,7 +215,7 @@ function scopePlanBlockers(
       code: "scope-inactive",
       scopeRecordId: record.scope_record_id,
       providerKey: null,
-      message: "Catalog Scope Record is not active.",
+      message: t("catalog.features.scopeSyncBatches.api.planner.catalog.scope.record.not.active"),
     });
   }
   if (mappings.length === 0) {
@@ -222,7 +223,7 @@ function scopePlanBlockers(
       code: "mapping-missing",
       scopeRecordId: record.scope_record_id,
       providerKey: null,
-      message: "Catalog Scope Record has no accepted Provider Scope Mapping.",
+      message: t("catalog.features.scopeSyncBatches.api.planner.accepted.provider.scope.mapping.missing"),
     });
   }
   const planningBlockers = [...preview.blockers, ...preview.units.flatMap((unit) => unit.blockers)].filter(

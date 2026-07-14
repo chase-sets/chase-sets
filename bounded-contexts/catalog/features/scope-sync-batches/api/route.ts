@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { t } from "@chase-sets/localization";
 import {
   ScopeSyncBatchBlockedPreviewError,
   ScopeSyncBatchStalePreviewError,
@@ -42,20 +43,29 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices) {
     const batch = await services.get({ batchId: c.req.param("batchId"), context: c.get("context") });
     return batch
       ? c.json(batch)
-      : c.json({ error: { code: "not_found", message: "Scope Sync Batch was not found." } }, 404);
+      : c.json(
+          { error: { code: "not_found", message: t("catalog.features.scopeSyncBatches.api.route.not.found") } },
+          404,
+        );
   });
 
   app.post("/:batchId/cancel", async (c) => {
     const batch = await services.cancel({ batchId: c.req.param("batchId"), context: c.get("context") });
     return batch
       ? c.json(batch)
-      : c.json({ error: { code: "not_found", message: "Scope Sync Batch was not found." } }, 404);
+      : c.json(
+          { error: { code: "not_found", message: t("catalog.features.scopeSyncBatches.api.route.not.found") } },
+          404,
+        );
   });
   app.post("/:batchId/resume", async (c) => {
     const batch = await services.resume({ batchId: c.req.param("batchId"), context: c.get("context") });
     return batch
       ? c.json(batch)
-      : c.json({ error: { code: "not_found", message: "Scope Sync Batch was not found." } }, 404);
+      : c.json(
+          { error: { code: "not_found", message: t("catalog.features.scopeSyncBatches.api.route.not.found") } },
+          404,
+        );
   });
   app.post("/:batchId/units/:scopeRecordId/retry", async (c) => {
     const batch = await services.retryUnit({
@@ -65,7 +75,10 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices) {
     });
     return batch
       ? c.json(batch)
-      : c.json({ error: { code: "not_found", message: "Scope Sync Batch was not found." } }, 404);
+      : c.json(
+          { error: { code: "not_found", message: t("catalog.features.scopeSyncBatches.api.route.not.found") } },
+          404,
+        );
   });
 
   return app;
@@ -75,7 +88,7 @@ function parsePreviewRequest(input: unknown): {
   selection: ScopeSyncBatchSelection;
   budget?: Partial<ScopeSyncBatchBudget> | null;
 } {
-  const body = record(input, "Scope Sync Batch request body is required.");
+  const body = record(input, t("catalog.features.scopeSyncBatches.api.route.request.body.required"));
   return {
     selection: parseSelection(body.selection),
     budget: optionalRecord(body.budget) as Partial<ScopeSyncBatchBudget>,
@@ -84,25 +97,32 @@ function parsePreviewRequest(input: unknown): {
 
 function parseConfirmRequest(input: unknown) {
   const request = parsePreviewRequest(input);
-  const body = record(input, "Scope Sync Batch request body is required.");
-  const planFingerprint = stringValue(body.planFingerprint, "planFingerprint is required.");
+  const body = record(input, t("catalog.features.scopeSyncBatches.api.route.request.body.required"));
+  const planFingerprint = stringValue(
+    body.planFingerprint,
+    t("catalog.features.scopeSyncBatches.api.route.plan.fingerprint.required"),
+  );
   return { ...request, planFingerprint };
 }
 
 function parseSelection(input: unknown): ScopeSyncBatchSelection {
-  const selection = record(input, "selection is required.");
+  const selection = record(input, t("catalog.features.scopeSyncBatches.api.route.selection.required"));
   if (selection.mode === "ids") {
-    if (!Array.isArray(selection.scopeRecordIds)) throw new Error("selection.scopeRecordIds must be an array.");
+    if (!Array.isArray(selection.scopeRecordIds)) {
+      throw new Error(t("catalog.features.scopeSyncBatches.api.route.scope.record.ids.must.be.array"));
+    }
     return {
       mode: "ids",
-      scopeRecordIds: selection.scopeRecordIds.map((id) => stringValue(id, "scopeRecordId is required.")),
+      scopeRecordIds: selection.scopeRecordIds.map((id) =>
+        stringValue(id, t("catalog.features.scopeSyncBatches.api.route.scope.record.id.required")),
+      ),
     };
   }
   if (selection.mode === "matching-scope") {
     const query = optionalRecord(selection.query);
     const scopeKind = optionalString(query.scopeKind);
     if (scopeKind && !["product-line", "series", "expansion", "set"].includes(scopeKind)) {
-      throw new Error("selection.query.scopeKind is invalid.");
+      throw new Error(t("catalog.features.scopeSyncBatches.api.route.scope.kind.invalid"));
     }
     return {
       mode: "matching-scope",
@@ -113,7 +133,7 @@ function parseSelection(input: unknown): ScopeSyncBatchSelection {
       },
     };
   }
-  throw new Error("selection.mode must be ids or matching-scope.");
+  throw new Error(t("catalog.features.scopeSyncBatches.api.route.selection.mode.invalid"));
 }
 
 function record(input: unknown, message: string): Record<string, unknown> {
