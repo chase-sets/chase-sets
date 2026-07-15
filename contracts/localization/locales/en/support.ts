@@ -3,6 +3,7 @@ export const supportEnglishTranslations = {
   "support.features.support_requests.api.route.forbidden": "You do not have permission to manage support requests.",
   "support.features.support_requests.api.route.request.failed": "Support request failed.",
   "support.features.support_requests.api.route.support_request.not.found": "Support request not found.",
+  "support.features.support_requests.api.route.attachment.not.found": "Attachment not found.",
   "support.features.support_requests.api.route.authentication.context.missing": "Support request context is missing.",
   "support.features.support_requests.api.route.authentication.context.missing.2":
     "Support evidence context is missing.",
@@ -158,6 +159,17 @@ export const supportEnglishTranslations = {
     "Photos are required for this issue",
   "support.features.supportRequests.ui.supportRequestListPage.intake.photosBlocked":
     "Keep the item and packaging. Support will collect the required photos before deciding the case.",
+  "support.features.supportRequests.ui.attachments.add": "Add evidence photos",
+  "support.features.supportRequests.ui.attachments.description":
+    "Add up to 5 JPEG, PNG, or WebP photos. Each photo must be 10 MB or smaller.",
+  "support.features.supportRequests.ui.attachments.drop": "Drop evidence photos here",
+  "support.features.supportRequests.ui.attachments.browse": "or choose photos from your device",
+  "support.features.supportRequests.ui.attachments.count": "{count} of {maximum} photos selected",
+  "support.features.supportRequests.ui.attachments.invalidType": "Photos must be JPEG, PNG, or WebP images.",
+  "support.features.supportRequests.ui.attachments.tooLarge": "Each photo must be 10 MB or smaller.",
+  "support.features.supportRequests.ui.attachments.tooMany": "Choose no more than 5 photos.",
+  "support.features.supportRequests.ui.attachments.photoAlt": "Evidence photo {number}",
+  "support.features.supportRequests.ui.attachments.fullSize": "View full-size photo {number}",
   "support.features.supportRequests.ui.supportRequestListPage.intake.back": "Back",
   "support.features.supportRequests.ui.supportRequestListPage.intake.continue": "Continue",
   "support.features.supportRequests.ui.supportRequestListPage.intake.submit": "Open case",
@@ -319,6 +331,7 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportOperationsPage.cancel.reason": "Cancellation reason",
   "support.features.supportRequests.ui.supportOperationsPage.cancel.submit": "Cancel request",
   "support.features.supportRequests.ui.supportOperationsPage.evidence": "Evidence",
+  "support.features.supportRequests.ui.supportOperationsPage.attachments": "Attachments",
   "support.features.supportRequests.ui.supportOperationsPage.responses": "Responses",
   "support.features.supportRequests.ui.supportOperationsPage.resolution": "Resolution",
   "support.features.supportRequests.ui.supportOperationsPage.no.evidence": "No evidence recorded",
@@ -399,6 +412,9 @@ export const supportEnglishTranslations = {
   "support.routes.admin.operationsRequestDetail.meta.title": "Support request {id} | Admin",
   "support.routes.marketplace.accountSupport.lookup.failed": "Could not find an eligible support order.",
   "support.routes.marketplace.accountSupport.open.failed": "Could not open support request.",
+  "support.routes.marketplace.accountSupport.photos.required":
+    "Add the required evidence photos before opening this case.",
+  "support.routes.marketplace.accountSupport.photos.summary": "Photos submitted when the support case was opened.",
   "support.routes.marketplace.accountSupport.support.marketplace": "Support | Marketplace",
   "support.features.supportReferenceLookup.api.route.authentication.required":
     "Sign in with a support account to look up references.",

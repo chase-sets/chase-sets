@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -38,6 +39,69 @@ const operatorSellerNonShipmentFinding = {
 } as const;
 
 describe("support request runtime", () => {
+  it("limits attachment reads to the buyer, seller, and platform support operator", async () => {
+    const body = new Uint8Array([0xff, 0xd8, 0xff]);
+    const sha256 = createHash("sha256").update(body).digest("hex");
+    const reference = `support-attachment:v1:sea_photo:${sha256}:jpg`;
+    const db = {
+      query: vi.fn(async (sql: string, values: readonly unknown[]) => {
+        const participantScoped = sql.includes("buyer_account_id = $2 OR seller_account_id = $2");
+        const accountId = values[1];
+        if (participantScoped && accountId !== "acc_buyer" && accountId !== "acc_seller") {
+          return { rows: [] };
+        }
+        return {
+          rows: [
+            {
+              support_request_id: "sup_case",
+              buyer_account_id: "acc_buyer",
+              seller_account_id: "acc_seller",
+              evidence: [{ attachments: [reference] }],
+            },
+          ],
+        };
+      }),
+    };
+    const { eventStore } = createInMemoryEventStore();
+    const storage = {
+      putObject: vi.fn(),
+      getObject: vi.fn(async () => ({ body, contentType: "image/jpeg" })),
+      deleteObjects: vi.fn(),
+    };
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      attachmentStorage: storage,
+    });
+
+    await expect(
+      runtime.getAttachment({
+        supportRequestId: "sup_case",
+        attachmentId: "sea_photo",
+        accountId: "acc_buyer",
+        roleKey: "owner",
+      }),
+    ).resolves.toEqual({ body, contentType: "image/jpeg" });
+    await expect(
+      runtime.getAttachment({
+        supportRequestId: "sup_case",
+        attachmentId: "sea_photo",
+        accountId: "acc_unrelated",
+        roleKey: "owner",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      runtime.getAttachment({
+        supportRequestId: "sup_case",
+        attachmentId: "sea_photo",
+        accountId: "acc_operator",
+        roleKey: "platform-admin",
+      }),
+    ).resolves.toEqual({ body, contentType: "image/jpeg" });
+    expect(storage.getObject).toHaveBeenCalledTimes(2);
+  });
+
   it("sources listFlowDefinitions' response-window copy from the resolved support-deadline policy", async () => {
     const db = { query: vi.fn(async () => ({ rows: [] })) };
     const { eventStore } = createInMemoryEventStore();

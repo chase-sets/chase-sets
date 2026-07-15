@@ -400,6 +400,72 @@ describe("platform operations mutation consistency route actions", () => {
     expect(response.headers.get("Location")).toBe("/account/support?opened=sup_1");
   });
 
+  it("rejects missing required photos before opening a support case", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["support.manage"] });
+    const form = new URLSearchParams({
+      orderId: "ord_1",
+      flowType: "product-damaged",
+      photoRequired: "true",
+    });
+
+    const result = (await accountSupportAction({
+      request: formRequest("http://localhost/account/support", form),
+      params: {},
+      context: undefined,
+    } as never)) as { error: string; recoverySupportRequestId: string | null };
+
+    expect(result).toMatchObject({
+      error: "Add the required evidence photos before opening this case.",
+      recoverySupportRequestId: null,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("retries an uploaded attachment reference without opening a duplicate case", async () => {
+    const reference =
+      "support-attachment:v1:sea_photo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:jpg";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/support-requests/sup_1/evidence")) {
+        return jsonResponse({ id: "sup_1", version: 2, status: "evidence-submitted" });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["support.manage"] });
+    const form = new URLSearchParams({
+      orderId: "ord_1",
+      flowType: "product-damaged",
+      photoRequired: "true",
+      supportRequestId: "sup_1",
+      uploadedAttachmentReferences: reference,
+    });
+
+    const response = (await accountSupportAction({
+      request: formRequest("http://localhost/account/support", form),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost/api/marketplace/support-requests/sup_1/evidence",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          submittedByRole: "buyer",
+          evidenceType: "photo",
+          summary: "Photos submitted when the support case was opened.",
+          attachments: [reference],
+        }),
+      }),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/support?opened=sup_1");
+  });
+
   it("loads account support with account-scoped order context from the query handoff", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

@@ -79,6 +79,8 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
     listFlowDefinitions: vi.fn(async () => []),
     getSupportOrderContext: vi.fn(),
     openSupportRequest: vi.fn(),
+    uploadAttachments: vi.fn(),
+    getAttachment: vi.fn(),
     submitEvidence: vi.fn(),
     recordResponse: vi.fn(),
     acceptOffer: vi.fn(),
@@ -535,5 +537,58 @@ describe("support request routes", () => {
     const response = await buildApp(createServices(), ["support.view"]).request("/support-requests/ops/sup_1");
 
     expect(response.status).toBe(403);
+  });
+
+  it("uploads private evidence through the authenticated case-scoped boundary", async () => {
+    const uploadAttachments = vi.fn(async () => [
+      {
+        attachmentId: "sea_photo",
+        reference:
+          "support-attachment:v1:sea_photo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:jpg",
+        contentType: "image/jpeg" as const,
+        byteSize: 3,
+      },
+    ]);
+    const response = await buildApp(createServices({ uploadAttachments })).request(
+      "/support-requests/sup_1/attachments",
+      { method: "POST", body: new URLSearchParams({ attachments: "non-file entries are ignored" }) },
+    );
+
+    expect(response.status, await response.clone().text()).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      attachments: [{ attachmentId: "sea_photo", contentType: "image/jpeg", byteSize: 3 }],
+    });
+    expect(uploadAttachments).toHaveBeenCalledWith(
+      expect.objectContaining({
+        supportRequestId: "sup_1",
+        accountId: "acc_operator",
+        roleKey: "platform-admin",
+        uploads: [],
+      }),
+    );
+  });
+
+  it("returns a private no-sniff image response only when case access resolves", async () => {
+    const getAttachment = vi.fn(async () => ({
+      body: new Uint8Array([0xff, 0xd8, 0xff]),
+      contentType: "image/jpeg" as const,
+    }));
+    const response = await buildApp(createServices({ getAttachment }), ["support.view"]).request(
+      "/support-requests/sup_1/attachments/sea_photo",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("content-type")).toBe("image/jpeg");
+  });
+
+  it("does not reveal attachments when the case-scoped read returns no access", async () => {
+    const getAttachment = vi.fn(async () => null);
+    const response = await buildApp(createServices({ getAttachment }), ["support.view"]).request(
+      "/support-requests/sup_1/attachments/sea_photo",
+    );
+
+    expect(response.status).toBe(404);
   });
 });
