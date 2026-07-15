@@ -326,7 +326,16 @@ export function buildReviewSupportSourceProjectionHandlers(
 ): ProjectorHandlerMap {
   return {
     "support.support-request.opened": async (event) => {
-      const data = event.data as { supportRequestId: string; orderId: string; openedAt: string };
+      const data = event.data as {
+        supportRequestId: string;
+        orderId: string;
+        openedAt: string;
+        reviewDirections?: readonly ("buyer-to-seller" | "seller-to-buyer")[];
+      };
+      const reviewDirections =
+        data.reviewDirections?.filter(
+          (direction) => direction === "buyer-to-seller" || direction === "seller-to-buyer",
+        ) ?? [];
 
       await db.query(
         `INSERT INTO marketplace_review_support_request_sources (
@@ -335,21 +344,64 @@ export function buildReviewSupportSourceProjectionHandlers(
            status,
            responsibility,
            resolution_type,
+           review_directions,
            opened_at,
            updated_at,
            cancelled_at,
            resolved_at
-         ) VALUES ($1, $2, 'open', NULL, NULL, $3, $3, NULL, NULL)
+         ) VALUES ($1, $2, 'open', NULL, NULL, $4, $3, $3, NULL, NULL)
          ON CONFLICT (support_request_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
-             status = EXCLUDED.status,
-             responsibility = EXCLUDED.responsibility,
-             resolution_type = EXCLUDED.resolution_type,
-             opened_at = COALESCE(marketplace_review_support_request_sources.opened_at, EXCLUDED.opened_at),
-             updated_at = EXCLUDED.updated_at,
-             cancelled_at = EXCLUDED.cancelled_at,
-             resolved_at = EXCLUDED.resolved_at`,
-        [data.supportRequestId, data.orderId, data.openedAt],
+             status = CASE
+               WHEN GREATEST(
+                 COALESCE(marketplace_review_support_request_sources.resolved_at, '-infinity'::timestamptz),
+                 COALESCE(marketplace_review_support_request_sources.cancelled_at, '-infinity'::timestamptz)
+               ) >= EXCLUDED.opened_at
+                 THEN marketplace_review_support_request_sources.status
+               ELSE 'open'
+             END,
+             responsibility = CASE
+               WHEN GREATEST(
+                 COALESCE(marketplace_review_support_request_sources.resolved_at, '-infinity'::timestamptz),
+                 COALESCE(marketplace_review_support_request_sources.cancelled_at, '-infinity'::timestamptz)
+               ) >= EXCLUDED.opened_at
+                 THEN marketplace_review_support_request_sources.responsibility
+               ELSE NULL
+             END,
+             resolution_type = CASE
+               WHEN GREATEST(
+                 COALESCE(marketplace_review_support_request_sources.resolved_at, '-infinity'::timestamptz),
+                 COALESCE(marketplace_review_support_request_sources.cancelled_at, '-infinity'::timestamptz)
+               ) >= EXCLUDED.opened_at
+                 THEN marketplace_review_support_request_sources.resolution_type
+               ELSE NULL
+             END,
+             review_directions = EXCLUDED.review_directions,
+             opened_at = CASE
+               WHEN EXCLUDED.opened_at > COALESCE(marketplace_review_support_request_sources.cancelled_at, '-infinity'::timestamptz)
+                 AND EXCLUDED.opened_at > COALESCE(marketplace_review_support_request_sources.resolved_at, '-infinity'::timestamptz)
+                 THEN EXCLUDED.opened_at
+               ELSE COALESCE(marketplace_review_support_request_sources.opened_at, EXCLUDED.opened_at)
+             END,
+             updated_at = GREATEST(marketplace_review_support_request_sources.updated_at, EXCLUDED.updated_at),
+             cancelled_at = CASE
+               WHEN EXCLUDED.opened_at > COALESCE(marketplace_review_support_request_sources.cancelled_at, '-infinity'::timestamptz)
+                 AND EXCLUDED.opened_at > COALESCE(marketplace_review_support_request_sources.resolved_at, '-infinity'::timestamptz)
+                 THEN NULL
+               ELSE marketplace_review_support_request_sources.cancelled_at
+             END,
+             resolved_at = CASE
+               WHEN EXCLUDED.opened_at > COALESCE(marketplace_review_support_request_sources.cancelled_at, '-infinity'::timestamptz)
+                 AND EXCLUDED.opened_at > COALESCE(marketplace_review_support_request_sources.resolved_at, '-infinity'::timestamptz)
+                 THEN NULL
+               ELSE marketplace_review_support_request_sources.resolved_at
+             END`,
+        [
+          data.supportRequestId,
+          data.orderId,
+          data.openedAt,
+          reviewDirections.length > 0 ? reviewDirections : ["buyer-to-seller", "seller-to-buyer"],
+        ],
       );
 
       await syncReviewEligibilityForOrder(db, data.orderId, data.openedAt, notify);
@@ -364,19 +416,45 @@ export function buildReviewSupportSourceProjectionHandlers(
            status,
            responsibility,
            resolution_type,
+           review_directions,
            opened_at,
            updated_at,
            cancelled_at,
            resolved_at
-         ) VALUES ($1, $2, 'cancelled', NULL, NULL, NULL, $3, $3, NULL)
+         ) VALUES ($1, $2, 'cancelled', NULL, NULL, ARRAY['buyer-to-seller', 'seller-to-buyer']::text[], NULL, $3, $3, NULL)
          ON CONFLICT (support_request_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
-             status = EXCLUDED.status,
-             responsibility = EXCLUDED.responsibility,
-             resolution_type = EXCLUDED.resolution_type,
-             updated_at = EXCLUDED.updated_at,
-             cancelled_at = EXCLUDED.cancelled_at,
-             resolved_at = EXCLUDED.resolved_at`,
+             status = CASE
+               WHEN EXCLUDED.cancelled_at >= COALESCE(marketplace_review_support_request_sources.opened_at, '-infinity'::timestamptz)
+                 AND EXCLUDED.cancelled_at >= GREATEST(
+                   COALESCE(marketplace_review_support_request_sources.resolved_at, '-infinity'::timestamptz),
+                   COALESCE(marketplace_review_support_request_sources.cancelled_at, '-infinity'::timestamptz)
+                 ) THEN 'cancelled'
+               ELSE marketplace_review_support_request_sources.status
+             END,
+             responsibility = CASE
+               WHEN EXCLUDED.cancelled_at >= COALESCE(marketplace_review_support_request_sources.opened_at, '-infinity'::timestamptz)
+                 THEN NULL
+               ELSE marketplace_review_support_request_sources.responsibility
+             END,
+             resolution_type = CASE
+               WHEN EXCLUDED.cancelled_at >= COALESCE(marketplace_review_support_request_sources.opened_at, '-infinity'::timestamptz)
+                 THEN NULL
+               ELSE marketplace_review_support_request_sources.resolution_type
+             END,
+             updated_at = GREATEST(marketplace_review_support_request_sources.updated_at, EXCLUDED.updated_at),
+             cancelled_at = CASE
+               WHEN EXCLUDED.cancelled_at >= COALESCE(marketplace_review_support_request_sources.opened_at, '-infinity'::timestamptz)
+                 AND EXCLUDED.cancelled_at >= COALESCE(marketplace_review_support_request_sources.resolved_at, '-infinity'::timestamptz)
+                 THEN EXCLUDED.cancelled_at
+               ELSE marketplace_review_support_request_sources.cancelled_at
+             END,
+             resolved_at = CASE
+               WHEN EXCLUDED.cancelled_at >= COALESCE(marketplace_review_support_request_sources.opened_at, '-infinity'::timestamptz)
+                 AND EXCLUDED.cancelled_at >= COALESCE(marketplace_review_support_request_sources.resolved_at, '-infinity'::timestamptz)
+                 THEN NULL
+               ELSE marketplace_review_support_request_sources.resolved_at
+             END`,
         [data.supportRequestId, data.orderId, data.cancelledAt],
       );
 
@@ -396,19 +474,47 @@ export function buildReviewSupportSourceProjectionHandlers(
            status,
            responsibility,
            resolution_type,
+           review_directions,
            opened_at,
            updated_at,
            cancelled_at,
            resolved_at
-         ) VALUES ($1, $2, 'resolved', $3, $4, NULL, $5, NULL, $5)
+         ) VALUES ($1, $2, 'resolved', $3, $4, ARRAY['buyer-to-seller', 'seller-to-buyer']::text[], NULL, $5, NULL, $5)
          ON CONFLICT (support_request_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
-             status = EXCLUDED.status,
-             responsibility = EXCLUDED.responsibility,
-             resolution_type = EXCLUDED.resolution_type,
-             updated_at = EXCLUDED.updated_at,
-             cancelled_at = EXCLUDED.cancelled_at,
-             resolved_at = EXCLUDED.resolved_at`,
+             status = CASE
+               WHEN EXCLUDED.resolved_at >= COALESCE(marketplace_review_support_request_sources.opened_at, '-infinity'::timestamptz)
+                 AND EXCLUDED.resolved_at >= GREATEST(
+                   COALESCE(marketplace_review_support_request_sources.resolved_at, '-infinity'::timestamptz),
+                   COALESCE(marketplace_review_support_request_sources.cancelled_at, '-infinity'::timestamptz)
+                 ) THEN 'resolved'
+               ELSE marketplace_review_support_request_sources.status
+             END,
+             responsibility = CASE
+               WHEN EXCLUDED.resolved_at >= COALESCE(marketplace_review_support_request_sources.opened_at, '-infinity'::timestamptz)
+                 AND EXCLUDED.resolved_at >= COALESCE(marketplace_review_support_request_sources.cancelled_at, '-infinity'::timestamptz)
+                 THEN EXCLUDED.responsibility
+               ELSE marketplace_review_support_request_sources.responsibility
+             END,
+             resolution_type = CASE
+               WHEN EXCLUDED.resolved_at >= COALESCE(marketplace_review_support_request_sources.opened_at, '-infinity'::timestamptz)
+                 AND EXCLUDED.resolved_at >= COALESCE(marketplace_review_support_request_sources.cancelled_at, '-infinity'::timestamptz)
+                 THEN EXCLUDED.resolution_type
+               ELSE marketplace_review_support_request_sources.resolution_type
+             END,
+             updated_at = GREATEST(marketplace_review_support_request_sources.updated_at, EXCLUDED.updated_at),
+             cancelled_at = CASE
+               WHEN EXCLUDED.resolved_at >= COALESCE(marketplace_review_support_request_sources.opened_at, '-infinity'::timestamptz)
+                 AND EXCLUDED.resolved_at >= COALESCE(marketplace_review_support_request_sources.cancelled_at, '-infinity'::timestamptz)
+                 THEN NULL
+               ELSE marketplace_review_support_request_sources.cancelled_at
+             END,
+             resolved_at = CASE
+               WHEN EXCLUDED.resolved_at >= COALESCE(marketplace_review_support_request_sources.opened_at, '-infinity'::timestamptz)
+                 AND EXCLUDED.resolved_at >= COALESCE(marketplace_review_support_request_sources.cancelled_at, '-infinity'::timestamptz)
+                 THEN EXCLUDED.resolved_at
+               ELSE marketplace_review_support_request_sources.resolved_at
+             END`,
         [
           data.supportRequestId,
           data.orderId,

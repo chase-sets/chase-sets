@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (127)
+## Projection Groups (131)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -112,6 +112,8 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `marketplace:marketplace-listing-projection` | Marketplace | **catalog**, **marketplace** | push-enabled | 2/2 |
 | `marketplace:marketplace-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-account-source-projection` | Marketplace | **identity** | push-enabled | 1/1 |
+| `marketplace:marketplace-review-hold-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
+| `marketplace:marketplace-review-hold-reaction` | Marketplace | **platform-operations** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-moderation-reaction` | Marketplace | **platform-operations** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-order-source-projection` | Marketplace | **ordering** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-notification-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
@@ -167,9 +169,9 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations** | push-enabled | 2/2 |
 
-Totals: 102 `push-enabled`, 25 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 105 `push-enabled`, 26 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (75)
+## Read-After-Write Route Inventory (76)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 

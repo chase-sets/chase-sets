@@ -63,7 +63,14 @@ export function ReviewListPage({
             <MarketplaceEmptyState title={emptyTitle} description={emptyDescription} />
           ) : (
             reviews.map((review) =>
-              review.rating === null ? (
+              review.held && review.rating === null ? (
+                <Stack key={review.review_id} gap={2}>
+                  <MarketplaceEmptyState
+                    title={t("reputation.features.reviews.ui.reviewListPage.feedback.on.hold.title")}
+                    description={t("reputation.features.reviews.ui.reviewListPage.feedback.on.hold.description")}
+                  />
+                </Stack>
+              ) : review.rating === null ? (
                 <Stack key={review.review_id} gap={2}>
                   <MarketplaceEmptyState
                     title={t("reputation.features.reviews.ui.reviewListPage.review.pending.title")}
@@ -89,6 +96,11 @@ export function ReviewListPage({
                         {isPending(review) ? (
                           <Badge tone="warning">
                             {t("reputation.features.reviews.ui.reviewListPage.pending.reveal")}
+                          </Badge>
+                        ) : null}
+                        {review.held ? (
+                          <Badge tone="warning">
+                            {t("reputation.features.reviews.ui.reviewListPage.feedback.on.hold.badge")}
                           </Badge>
                         ) : null}
                       </Stack>

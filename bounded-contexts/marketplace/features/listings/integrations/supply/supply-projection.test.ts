@@ -188,6 +188,7 @@ describe("marketplace account projection", () => {
         "marketplace.review.submitted",
         {
           reviewId: "rev_1",
+          orderId: "ord_1",
           subjectAccountId: "acc_seller",
           authorRole: "buyer",
           rating: 5,
@@ -208,7 +209,46 @@ describe("marketplace account projection", () => {
     const reviewInsert = vi
       .mocked(db.query)
       .mock.calls.find(([sql]) => sql.includes("INSERT INTO marketplace_account_reviews"));
-    expect(reviewInsert?.[1]).toEqual(["rev_1", "acc_seller", "buyer", 5, "2026-05-09T00:00:00.000Z"]);
+    expect(reviewInsert?.[1]).toEqual(["rev_1", "ord_1", "acc_seller", "buyer", 5, "2026-05-09T00:00:00.000Z"]);
+  });
+
+  it("removes held reviews from account reputation and restores them from the released direction set", async () => {
+    const db = {
+      query: vi.fn(async (sql: string, values?: readonly unknown[]) => ({
+        rows: sql.includes("UPDATE marketplace_account_reviews") ? [{ subject_account_id: "acc_seller" }] : [],
+        rowCount: 1,
+        params: values,
+      })),
+    };
+    const handlers = buildMarketplaceAccountProjectionHandlers(db as never);
+
+    await handlers["marketplace.review-hold.placed"]!(
+      event("marketplace.review-hold.placed", {
+        orderId: "ord_1",
+        heldDirections: ["buyer-to-seller", "seller-to-buyer"],
+        lifecycleAt: "2026-05-10T00:00:00.000Z",
+      }),
+    );
+    await handlers["marketplace.review-hold.released"]!(
+      event("marketplace.review-hold.released", {
+        orderId: "ord_1",
+        heldDirections: [],
+        lifecycleAt: "2026-05-12T00:00:00.000Z",
+      }),
+    );
+
+    const holdUpdates = vi
+      .mocked(db.query)
+      .mock.calls.filter(([sql]) => sql.includes("UPDATE marketplace_account_reviews"));
+    expect(holdUpdates.map(([, values]) => values)).toEqual([
+      ["ord_1", ["buyer-to-seller", "seller-to-buyer"], "2026-05-10T00:00:00.000Z"],
+      ["ord_1", [], "2026-05-12T00:00:00.000Z"],
+    ]);
+    const reputationRefreshes = vi
+      .mocked(db.query)
+      .mock.calls.filter(([sql]) => sql.includes("INSERT INTO marketplace_account_pages"));
+    expect(reputationRefreshes).toHaveLength(2);
+    expect(reputationRefreshes.every(([sql]) => sql.includes("AND held = false"))).toBe(true);
   });
 });
 

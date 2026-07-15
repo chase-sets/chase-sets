@@ -48,6 +48,18 @@ import {
   type ReviewEvent,
   type ReviewState,
 } from "../domain/domain";
+import {
+  decideReviewHold,
+  evolveReviewHold,
+  initialReviewHoldState,
+  isReviewDirectionHeld,
+  reviewDirectionForAuthorRole,
+  type ReviewDirection,
+  type ReviewHoldCommand,
+  type ReviewHoldEvent,
+  type ReviewHoldState,
+} from "../domain/review-hold";
+import { buildReviewHoldProjectionHandlers } from "../read-model/hold-projection";
 
 type ReviewRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -126,6 +138,24 @@ export type ReviewServices = Readonly<{
   resolveAccountIdBySlug: (slug: string) => ReturnType<typeof getAccountIdBySlug>;
   getOrderReviewOpportunity: (orderId: string, authorAccountId: string) => ReturnType<typeof getOrderReviewOpportunity>;
   recordDeliveredShipmentReviewEligibility: (params: { shipmentId: string; deliveredAt: string }) => Promise<void>;
+  recordSupportRequestOpened: (
+    params: Readonly<{
+      orderId: string;
+      supportRequestId: string;
+      openedAt: string;
+      directions?: readonly ReviewDirection[];
+    }>,
+    context: EventStoreContext,
+  ) => Promise<void>;
+  recordSupportRequestTerminal: (
+    params: Readonly<{
+      orderId: string;
+      supportRequestId: string;
+      terminalAt: string;
+      terminalStatus: "resolved" | "cancelled";
+    }>,
+    context: EventStoreContext,
+  ) => Promise<void>;
   /**
    * Double-blind reveal expiry sweep (m108). Self-heals any pending
    * review pair whose counterpart-submission reveal was missed by the
@@ -165,23 +195,86 @@ async function requireOwnedReview(db: PgQueryable, reviewId: string, authorAccou
   return review;
 }
 
-/** eligible_at + REVIEW_WINDOW_DAYS: both the submission deadline and the expiry sweep's singleton-reveal deadline. */
-function computeReviewWindowExpiresAt(eligibleAt: string): string {
-  return addReviewWindowDays(eligibleAt, REVIEW_WINDOW_DAYS);
-}
-
 export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
-  const { commandHandler } = createAggregateCommandHandler({
+  const reviewRuntime = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<ReviewEvent>(),
     initialState: () => initialReviewState,
     evolve: evolveReview,
     decide: decideReview,
   });
+  const { commandHandler } = reviewRuntime;
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
+  const reviewHoldRuntime = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<ReviewHoldEvent>(),
+    initialState: () => initialReviewHoldState,
+    evolve: evolveReviewHold,
+    decide: decideReviewHold,
+  });
+
+  async function loadReviewHold(orderId: string): Promise<ReviewHoldState> {
+    return (await reviewHoldRuntime.repository.load(`marketplace.review-hold-${orderId}`)).state;
+  }
+
+  async function isDirectionHeld(orderId: string, authorRole: ReviewRole): Promise<boolean> {
+    return isReviewDirectionHeld(await loadReviewHold(orderId), reviewDirectionForAuthorRole(authorRole));
+  }
+
+  async function isAnyDirectionHeld(orderId: string): Promise<boolean> {
+    const hold = await loadReviewHold(orderId);
+    return isReviewDirectionHeld(hold, "buyer-to-seller") || isReviewDirectionHeld(hold, "seller-to-buyer");
+  }
+
+  async function recordReviewHold(command: ReviewHoldCommand, context: EventStoreContext): Promise<void> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await reviewHoldRuntime.commandHandler({
+          streamId: `marketplace.review-hold-${command.orderId}`,
+          command,
+          context,
+        });
+        return;
+      } catch (error) {
+        if ((error as { code?: string }).code !== "concurrency_conflict" || attempt === 2) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  function heldError(): ReputationDomainError {
+    return new ReputationDomainError("Review is paused while support reviews the order.", "review_held");
+  }
 
   return {
     commandHandler,
+    recordSupportRequestOpened: async (params, context) => {
+      const orderId = normalizeRequiredText(params.orderId, "Order is required.") as OrderId;
+      await recordReviewHold(
+        {
+          type: "RecordReviewHoldOpened",
+          orderId,
+          supportRequestId: params.supportRequestId,
+          openedAt: params.openedAt,
+          ...(params.directions ? { directions: params.directions } : {}),
+        },
+        context,
+      );
+    },
+    recordSupportRequestTerminal: async (params, context) => {
+      const orderId = normalizeRequiredText(params.orderId, "Order is required.") as OrderId;
+      await recordReviewHold(
+        {
+          type: "RecordReviewHoldTerminal",
+          orderId,
+          supportRequestId: params.supportRequestId,
+          terminalAt: params.terminalAt,
+          terminalStatus: params.terminalStatus,
+        },
+        context,
+      );
+    },
     recordDeliveredShipmentReviewEligibility: async (params) => {
       const shipmentResult = await deps.db.query<{ order_id: string }>(
         `SELECT order_id
@@ -220,8 +313,21 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
         throw new ReputationDomainError("This transaction is not eligible for review yet.");
       }
 
+      const authorRole = inferAuthorRoleFromEligibility(eligibility.author_role);
+      const effectiveDeadlineAt =
+        eligibility.effective_deadline_at ?? addReviewWindowDays(eligibility.eligible_at, REVIEW_WINDOW_DAYS);
+      const submissionState =
+        eligibility.submission_state ??
+        (Date.parse(new Date().toISOString()) >= Date.parse(effectiveDeadlineAt) ? "expired" : "allowed");
+      if (submissionState === "held" || (await isDirectionHeld(orderId, authorRole))) {
+        throw heldError();
+      }
+      if (submissionState === "expired") {
+        throw new ReputationDomainError("This transaction's review window has closed.");
+      }
+
       const submittedAt = new Date().toISOString();
-      const reviewWindowExpiresAt = computeReviewWindowExpiresAt(eligibility.eligible_at);
+      const reviewWindowExpiresAt = effectiveDeadlineAt;
       if (Date.parse(submittedAt) >= Date.parse(reviewWindowExpiresAt)) {
         // Route-layer enforcement of the same deadline the domain decider
         // re-asserts below -- belt and suspenders, one shared computation.
@@ -246,7 +352,7 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
           orderId,
           authorAccountId,
           subjectAccountId,
-          authorRole: inferAuthorRoleFromEligibility(eligibility.author_role),
+          authorRole,
           rating: normalizeRating(params.rating),
           feedback: params.feedback ?? null,
           submittedAt,
@@ -265,7 +371,7 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
         counterpartAuthorAccountId: subjectAccountId,
         counterpartSubjectAccountId: authorAccountId,
       });
-      if (counterpart) {
+      if (counterpart && !(await isAnyDirectionHeld(orderId))) {
         const revealedAt = new Date().toISOString();
         await commandHandler({
           streamId: `marketplace.review-${reviewId}`,
@@ -283,6 +389,9 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
     },
     async updateReview(params, context) {
       const review = await requireOwnedReview(deps.db, params.reviewId, params.authorAccountId);
+      if (review.held || (await isDirectionHeld(review.order_id, inferAuthorRoleFromEligibility(review.author_role)))) {
+        throw heldError();
+      }
       if (review.status !== "active") {
         throw new ReputationDomainError("Only active reviews can be updated.");
       }
@@ -305,6 +414,9 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
     },
     async withdrawReview(params, context) {
       const review = await requireOwnedReview(deps.db, params.reviewId, params.authorAccountId);
+      if (review.held || (await isDirectionHeld(review.order_id, inferAuthorRoleFromEligibility(review.author_role)))) {
+        throw heldError();
+      }
       if (review.status === "active" && review.revealed_at !== null) {
         throw new ReputationDomainError("Reviews cannot be withdrawn after they are revealed.");
       }
@@ -349,6 +461,14 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       return { reviewId: params.reviewId, version: result.version };
     },
     async submitReviewReply(params, context) {
+      const review = (await reviewRuntime.repository.load(`marketplace.review-${params.reviewId}`)).state;
+      if (
+        review.orderId !== null &&
+        review.authorRole !== null &&
+        (await isDirectionHeld(review.orderId, review.authorRole))
+      ) {
+        throw heldError();
+      }
       const replyId = createId("rvr");
       const result = await commandHandler({
         streamId: `marketplace.review-${params.reviewId}`,
@@ -388,6 +508,9 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       // narrow concurrent-submission race): reveal both sides together.
       const pairs = await listPendingCounterpartPairs(deps.db, { limit });
       for (const pair of pairs) {
+        if (await isAnyDirectionHeld(pair.order_id)) {
+          continue;
+        }
         const revealedAt = new Date().toISOString();
         const first = await commandHandler({
           streamId: `marketplace.review-${pair.review_id}`,
@@ -408,6 +531,9 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       // counterpart ever submitting.
       const expired = await listPendingReviewsPastWindow(deps.db, { now, limit });
       for (const candidate of expired) {
+        if (await isDirectionHeld(candidate.order_id, inferAuthorRoleFromEligibility(candidate.author_role))) {
+          continue;
+        }
         const result = await commandHandler({
           streamId: `marketplace.review-${candidate.review_id}`,
           command: { type: "RevealReview", revealedAt: now, reason: "window-expired" },
@@ -477,6 +603,11 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
         projectionName: "marketplace-review-projection",
         handlers: buildReviewProjectionHandlers(deps.db),
         streamPrefixes: ["marketplace.review-"],
+      }),
+      createProjectionHandlerSet({
+        projectionName: "marketplace-review-hold-projection",
+        handlers: buildReviewHoldProjectionHandlers(deps.db),
+        streamPrefixes: ["marketplace.review-hold-"],
       }),
       // Reveal-notice nudge (m108): same-context local projector, same
       // stream as the read-model projection above (see

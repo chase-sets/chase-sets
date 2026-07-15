@@ -66,6 +66,7 @@ async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: s
      WHERE subject_account_id = $1
        AND status = 'active'
        AND revealed_at IS NOT NULL
+       AND held = false
      ON CONFLICT (account_id) DO UPDATE SET
        average_rating_as_seller = EXCLUDED.average_rating_as_seller,
        review_count_as_seller = EXCLUDED.review_count_as_seller,
@@ -223,6 +224,7 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
     "marketplace.review.submitted": async (event) => {
       const data = event.data as {
         reviewId: string;
+        orderId: string;
         subjectAccountId: string;
         authorRole: string;
         rating: number;
@@ -232,19 +234,22 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
       await db.query(
         `INSERT INTO marketplace_account_reviews (
            review_id,
+           order_id,
            subject_account_id,
            author_role,
            rating,
            status,
-           updated_at
-         ) VALUES ($1, $2, $3, $4, 'active', $5)
+           updated_at,
+           held
+         ) VALUES ($1, $2, $3, $4, $5, 'active', $6, false)
          ON CONFLICT (review_id) DO UPDATE SET
+           order_id = EXCLUDED.order_id,
            subject_account_id = EXCLUDED.subject_account_id,
            author_role = EXCLUDED.author_role,
            rating = EXCLUDED.rating,
            status = EXCLUDED.status,
            updated_at = EXCLUDED.updated_at`,
-        [data.reviewId, data.subjectAccountId, data.authorRole, data.rating, data.submittedAt],
+        [data.reviewId, data.orderId, data.subjectAccountId, data.authorRole, data.rating, data.submittedAt],
       );
       await refreshMarketplaceAccountReputation(db, data.subjectAccountId, data.submittedAt);
     },
@@ -303,6 +308,38 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
         await refreshMarketplaceAccountReputation(db, subjectAccountId, data.revealedAt);
       }
     },
+    ...Object.fromEntries(
+      [
+        "marketplace.review-hold.placed",
+        "marketplace.review-hold.extended",
+        "marketplace.review-hold.reduced",
+        "marketplace.review-hold.released",
+        "marketplace.review-hold.terminal-recorded",
+      ].map((eventType) => [
+        eventType,
+        async (event: Parameters<ProjectorHandlerMap[string]>[0]) => {
+          const data = event.data as {
+            orderId: string;
+            heldDirections: readonly string[];
+            lifecycleAt: string;
+          };
+          const affected = await db.query<{ subject_account_id: string }>(
+            `UPDATE marketplace_account_reviews
+             SET held = CASE
+               WHEN author_role = 'buyer' THEN 'buyer-to-seller' = ANY($2::text[])
+               ELSE 'seller-to-buyer' = ANY($2::text[])
+             END,
+                 updated_at = GREATEST(updated_at, $3::timestamptz)
+             WHERE order_id = $1
+             RETURNING subject_account_id`,
+            [data.orderId, data.heldDirections, data.lifecycleAt],
+          );
+          for (const subjectAccountId of new Set(affected.rows.map((row) => row.subject_account_id))) {
+            await refreshMarketplaceAccountReputation(db, subjectAccountId, data.lifecycleAt);
+          }
+        },
+      ]),
+    ),
   };
 }
 

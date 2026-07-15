@@ -23,6 +23,7 @@ import {
 } from "../integrations/source/source-projection";
 import { buildReviewNotificationProjectionHandlers } from "../integrations/notifications/notification-projector";
 import { buildReviewProjectionHandlers } from "../read-model/projection";
+import { buildReviewHoldProjectionHandlers } from "../read-model/hold-projection";
 import { createReviewRuntime } from "../api/runtime";
 import {
   findPendingCounterpartReview,
@@ -110,6 +111,83 @@ describeDb("marketplace review eligibility SQL persistence boundary", () => {
     };
   }
 
+  it("converges terminal-before-open facts and a later reopen by lifecycle time", async () => {
+    const pool = pools.marketplace;
+    const handlers = buildHandlers(pool);
+
+    await handlers.support["support.support-request.resolved"]!(
+      event("support.support-request.resolved", {
+        supportRequestId: "sup_reordered",
+        orderId: "ord_reordered",
+        resolution: {
+          resolutionType: "no-remedy",
+          responsibility: "undetermined",
+          resolvedAt: "2026-04-05T00:00:00.000Z",
+        },
+      }),
+    );
+    await handlers.support["support.support-request.opened"]!(
+      event("support.support-request.opened", {
+        supportRequestId: "sup_reordered",
+        orderId: "ord_reordered",
+        openedAt: "2026-04-02T00:00:00.000Z",
+      }),
+    );
+
+    const terminal = await pool.query<{
+      status: string;
+      opened_at: string;
+      resolved_at: string;
+    }>(
+      `SELECT status,
+              opened_at::text AS opened_at,
+              resolved_at::text AS resolved_at
+       FROM marketplace_review_support_request_sources
+       WHERE support_request_id = 'sup_reordered'`,
+    );
+    expect(terminal.rows[0]).toEqual({
+      status: "resolved",
+      opened_at: "2026-04-02 00:00:00+00",
+      resolved_at: "2026-04-05 00:00:00+00",
+    });
+
+    await handlers.support["support.support-request.opened"]!(
+      event("support.support-request.opened", {
+        supportRequestId: "sup_reordered",
+        orderId: "ord_reordered",
+        openedAt: "2026-04-08T00:00:00.000Z",
+      }),
+    );
+    await handlers.support["support.support-request.resolved"]!(
+      event("support.support-request.resolved", {
+        supportRequestId: "sup_reordered",
+        orderId: "ord_reordered",
+        resolution: {
+          resolutionType: "no-remedy",
+          responsibility: "undetermined",
+          resolvedAt: "2026-04-05T00:00:00.000Z",
+        },
+      }),
+    );
+
+    const reopened = await pool.query<{
+      status: string;
+      opened_at: string;
+      resolved_at: string | null;
+    }>(
+      `SELECT status,
+              opened_at::text AS opened_at,
+              resolved_at::text AS resolved_at
+       FROM marketplace_review_support_request_sources
+       WHERE support_request_id = 'sup_reordered'`,
+    );
+    expect(reopened.rows[0]).toEqual({
+      status: "open",
+      opened_at: "2026-04-08 00:00:00+00",
+      resolved_at: null,
+    });
+  });
+
   it("restores both submission directions after a carrier-responsible full refund", async () => {
     const pool = pools.marketplace;
     const handlers = buildHandlers(pool);
@@ -138,8 +216,12 @@ describeDb("marketplace review eligibility SQL persistence boundary", () => {
         openedAt: "2026-04-04T00:00:00.000Z",
       }),
     );
-    const suspended = await pool.query(`SELECT 1 FROM marketplace_review_eligibility_pages`);
-    expect(suspended.rowCount).toBe(0);
+    const suspended = await pool.query<{ submission_state: string; paused_remaining_ms: string }>(
+      `SELECT submission_state, paused_remaining_ms::text AS paused_remaining_ms
+       FROM marketplace_review_eligibility_pages`,
+    );
+    expect(suspended.rows).toHaveLength(2);
+    expect(suspended.rows.every((row) => row.submission_state === "held")).toBe(true);
 
     await handlers.support["support.support-request.resolved"]!(
       event("support.support-request.resolved", {
@@ -160,6 +242,8 @@ describeDb("marketplace review eligibility SQL persistence boundary", () => {
     });
     expect(eligibility).toMatchObject({
       author_role: "buyer",
+      submission_state: "allowed",
+      effective_deadline_at: "2026-06-04 00:00:00+00",
     });
 
     const sellerDirection = await getReviewEligibility(pool, {
@@ -343,6 +427,81 @@ describeDb("marketplace review double-blind reveal SQL persistence boundary (m10
     expect(summaryAfterReveal.rows[0]).toEqual({ review_count_as_seller: 1, rating_1_count_as_seller: 1 });
   });
 
+  it("retracts and restores a revealed review contribution exactly once across duplicate hold transitions", async () => {
+    const pool = pools.marketplace;
+    const reviewHandlers = buildReviewProjectionHandlers(pool);
+    const holdHandlers = buildReviewHoldProjectionHandlers(pool);
+    const submitted = submittedEvent({
+      reviewId: "rev_held",
+      orderId: "ord_held",
+      authorAccountId: "acc_buyer",
+      subjectAccountId: "acc_seller",
+      authorRole: "buyer",
+      rating: 1,
+      feedback: "Stored while the issue is resolved.",
+      submittedAt: "2026-04-02T00:00:00.000Z",
+      reviewWindowExpiresAt: "2026-06-01T00:00:00.000Z",
+    });
+    const revealed = revealedEvent("rev_held", "2026-04-03T00:00:00.000Z", "counterpart-submitted");
+    const placed = event("marketplace.review-hold.placed", {
+      orderId: "ord_held",
+      supportRequestId: "sup_held",
+      requestStatus: "open",
+      requestDirections: ["buyer-to-seller", "seller-to-buyer"],
+      lifecycleAt: "2026-04-04T00:00:00.000Z",
+      activeSupportRequestIds: ["sup_held"],
+      heldDirections: ["buyer-to-seller", "seller-to-buyer"],
+      holdStartedAt: "2026-04-04T00:00:00.000Z",
+    });
+    const released = event("marketplace.review-hold.released", {
+      orderId: "ord_held",
+      supportRequestId: "sup_held",
+      requestStatus: "resolved",
+      requestDirections: ["buyer-to-seller", "seller-to-buyer"],
+      lifecycleAt: "2026-04-10T00:00:00.000Z",
+      activeSupportRequestIds: [],
+      heldDirections: [],
+      holdStartedAt: null,
+    });
+
+    await reviewHandlers["marketplace.review.submitted"]!(submitted);
+    await reviewHandlers["marketplace.review.revealed"]!(revealed);
+    expect((await listPublicAccountReviews(pool, { accountId: "acc_seller" })).items).toHaveLength(1);
+
+    await holdHandlers["marketplace.review-hold.placed"]!(placed);
+    await holdHandlers["marketplace.review-hold.placed"]!(placed);
+    expect((await listPublicAccountReviews(pool, { accountId: "acc_seller" })).items).toHaveLength(0);
+    expect(await getAccountReview(pool, "rev_held", "acc_seller")).toMatchObject({
+      held: true,
+      rating: null,
+      feedback: null,
+    });
+    expect(await getAccountReview(pool, "rev_held", "acc_buyer")).toMatchObject({
+      held: true,
+      rating: 1,
+      feedback: "Stored while the issue is resolved.",
+    });
+
+    await holdHandlers["marketplace.review-hold.released"]!(released);
+    await holdHandlers["marketplace.review-hold.released"]!(released);
+    expect((await listPublicAccountReviews(pool, { accountId: "acc_seller" })).items).toHaveLength(1);
+    const summary = await pool.query<{ review_count_as_seller: number; rating_1_count_as_seller: number }>(
+      `SELECT review_count_as_seller, rating_1_count_as_seller
+       FROM marketplace_review_summary_pages
+       WHERE account_id = 'acc_seller'`,
+    );
+    expect(summary.rows[0]).toEqual({ review_count_as_seller: 1, rating_1_count_as_seller: 1 });
+
+    await pool.query(
+      `TRUNCATE marketplace_review_pages, marketplace_review_summary_pages, marketplace_review_hold_pages`,
+    );
+    await reviewHandlers["marketplace.review.submitted"]!(submitted);
+    await reviewHandlers["marketplace.review.revealed"]!(revealed);
+    await holdHandlers["marketplace.review-hold.placed"]!(placed);
+    await holdHandlers["marketplace.review-hold.released"]!(released);
+    expect((await listPublicAccountReviews(pool, { accountId: "acc_seller" })).items).toHaveLength(1);
+  });
+
   it("redacts rating and feedback for the subject before reveal, but never for the author", async () => {
     const pool = pools.marketplace;
     const handlers = buildReviewProjectionHandlers(pool);
@@ -430,7 +589,7 @@ describeDb("marketplace review double-blind reveal SQL persistence boundary (m10
     expect(counterpart).toEqual({ review_id: "rev_b" });
 
     const pairs = await listPendingCounterpartPairs(pool, {});
-    expect(pairs).toEqual([{ review_id: "rev_a", counterpart_review_id: "rev_b" }]);
+    expect(pairs).toEqual([{ order_id: "ord_1", review_id: "rev_a", counterpart_review_id: "rev_b" }]);
 
     // Once revealed, neither the counterpart lookup nor the pairs query sees it anymore.
     await handlers["marketplace.review.revealed"]!(
@@ -474,7 +633,7 @@ describeDb("marketplace review double-blind reveal SQL persistence boundary (m10
     );
 
     const candidates = await listPendingReviewsPastWindow(pool, { now: "2026-06-15T00:00:00.000Z" });
-    expect(candidates).toEqual([{ review_id: "rev_expired" }]);
+    expect(candidates).toEqual([{ review_id: "rev_expired", order_id: "ord_1", author_role: "buyer" }]);
   });
 
   it("marks a review opportunity as window-expired once eligible_at + the review window has elapsed", async () => {
@@ -489,8 +648,12 @@ describeDb("marketplace review double-blind reveal SQL persistence boundary (m10
     // A far-past eligible_at so eligible_at + REVIEW_WINDOW_DAYS is already behind `now()`.
     await pool.query(
       `INSERT INTO marketplace_review_eligibility_pages (
-         order_id, author_account_id, subject_account_id, author_role, eligible_at, updated_at
-       ) VALUES ('ord_1', 'acc_buyer', 'acc_seller', 'buyer', '2000-01-01T00:00:00.000Z', '2000-01-01T00:00:00.000Z')`,
+         order_id, author_account_id, subject_account_id, author_role, eligible_at,
+         effective_deadline_at, submission_state, reminder_armed_at, updated_at
+       ) VALUES (
+         'ord_1', 'acc_buyer', 'acc_seller', 'buyer', '2000-01-01T00:00:00.000Z',
+         '2000-03-01T00:00:00.000Z', 'expired', '2000-01-01T00:00:00.000Z', '2000-01-01T00:00:00.000Z'
+       )`,
     );
 
     const opportunity = await getOrderReviewOpportunity(pool, { orderId: "ord_1", authorAccountId: "acc_buyer" });
@@ -603,7 +766,7 @@ describeDb("marketplace post-delivery review nudges SQL persistence boundary (m1
     expect(outbox.enqueued).toHaveLength(afterDelivery);
   });
 
-  it("re-arms the opportunity notification with a fresh idempotency key after a suspend/restore cycle", async () => {
+  it("resumes the existing opportunity and re-arms one reminder after a hold cycle", async () => {
     const pool = pools.marketplace;
     const outbox = new FakeNotificationOutbox();
     const handlers = await deliverOrder(pool, outbox, "ord_1");
@@ -620,8 +783,10 @@ describeDb("marketplace post-delivery review nudges SQL persistence boundary (m1
         openedAt: "2026-04-04T00:00:00.000Z",
       }),
     );
-    const suspended = await pool.query(`SELECT 1 FROM marketplace_review_eligibility_pages`);
-    expect(suspended.rowCount).toBe(0);
+    const suspended = await pool.query<{ submission_state: string }>(
+      `SELECT submission_state FROM marketplace_review_eligibility_pages`,
+    );
+    expect(suspended.rows.every((row) => row.submission_state === "held")).toBe(true);
 
     await handlers.support["support.support-request.resolved"]!(
       event("support.support-request.resolved", {
@@ -636,8 +801,14 @@ describeDb("marketplace post-delivery review nudges SQL persistence boundary (m1
       (entry) =>
         entry.message.messageType === "marketplace.review.opportunity" && entry.message.actor.accountId === "acc_buyer",
     );
-    expect(opportunitiesForBuyer).toHaveLength(2);
-    expect(opportunitiesForBuyer[0]?.message.idempotencyKey).not.toBe(opportunitiesForBuyer[1]?.message.idempotencyKey);
+    expect(opportunitiesForBuyer).toHaveLength(1);
+
+    const resumed = await pool.query<{ submission_state: string; reminder_notified_at: string | null }>(
+      `SELECT submission_state, reminder_notified_at::text AS reminder_notified_at
+       FROM marketplace_review_eligibility_pages`,
+    );
+    expect(resumed.rows.every((row) => row.submission_state === "allowed")).toBe(true);
+    expect(resumed.rows.every((row) => row.reminder_notified_at === null)).toBe(true);
   });
 
   it("sends exactly one reminder once the reminder delay elapses and never resends it", async () => {

@@ -1,4 +1,5 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import { REVIEW_WINDOW_DAYS } from "../domain/common";
 
 export const reviewSchemaSql = `
 CREATE TABLE IF NOT EXISTS marketplace_review_pages (
@@ -12,8 +13,12 @@ CREATE TABLE IF NOT EXISTS marketplace_review_pages (
   status text NOT NULL,
   submitted_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
-  withdrawn_at timestamptz NULL
+  withdrawn_at timestamptz NULL,
+  held boolean NOT NULL DEFAULT false
 );
+
+ALTER TABLE marketplace_review_pages
+  ADD COLUMN IF NOT EXISTS held boolean NOT NULL DEFAULT false;
 
 -- Double-blind reveal (m108). revealed_at IS NULL means the review is
 -- hidden: excluded from public lists, summaries, and every downstream
@@ -102,6 +107,12 @@ CREATE TABLE IF NOT EXISTS marketplace_review_eligibility_pages (
   subject_account_id text NOT NULL,
   author_role text NOT NULL,
   eligible_at timestamptz NOT NULL,
+  effective_deadline_at timestamptz NOT NULL,
+  submission_state text NOT NULL,
+  hold_started_at timestamptz NULL,
+  paused_remaining_ms bigint NULL,
+  reminder_armed_at timestamptz NOT NULL,
+  hold_cycle integer NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL,
   PRIMARY KEY (order_id, author_account_id, subject_account_id)
 );
@@ -121,10 +132,72 @@ CREATE INDEX IF NOT EXISTS marketplace_review_eligibility_author_idx
 -- forbidden.
 ALTER TABLE marketplace_review_eligibility_pages
   ADD COLUMN IF NOT EXISTS opportunity_notified_at timestamptz NULL,
-  ADD COLUMN IF NOT EXISTS reminder_notified_at timestamptz NULL;
+  ADD COLUMN IF NOT EXISTS reminder_notified_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS effective_deadline_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS submission_state text NOT NULL DEFAULT 'allowed',
+  ADD COLUMN IF NOT EXISTS hold_started_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS paused_remaining_ms bigint NULL,
+  ADD COLUMN IF NOT EXISTS reminder_armed_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS hold_cycle integer NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS marketplace_review_hold_pages (
+  order_id text PRIMARY KEY,
+  active_support_request_ids text[] NOT NULL DEFAULT '{}',
+  held_directions text[] NOT NULL DEFAULT '{}',
+  held_at timestamptz NULL,
+  released_at timestamptz NULL,
+  updated_at timestamptz NOT NULL
+);
 `;
 
 export const reviewSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260714_marketplace_review_hold_and_clock_pause",
+    description: "Persist review hold visibility and pauseable directional review clocks.",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `ALTER TABLE marketplace_review_pages
+  ADD COLUMN IF NOT EXISTS held boolean NOT NULL DEFAULT false`,
+      `ALTER TABLE marketplace_review_eligibility_pages
+  ADD COLUMN IF NOT EXISTS effective_deadline_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS submission_state text NOT NULL DEFAULT 'allowed',
+  ADD COLUMN IF NOT EXISTS hold_started_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS paused_remaining_ms bigint NULL,
+  ADD COLUMN IF NOT EXISTS reminder_armed_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS hold_cycle integer NOT NULL DEFAULT 0`,
+      `UPDATE marketplace_review_eligibility_pages
+   SET effective_deadline_at = eligible_at + make_interval(days => ${REVIEW_WINDOW_DAYS}),
+       reminder_armed_at = eligible_at
+   WHERE effective_deadline_at IS NULL OR reminder_armed_at IS NULL`,
+      `DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'marketplace_review_eligibility_clock_required'
+      AND conrelid = 'marketplace_review_eligibility_pages'::regclass
+  ) THEN
+    ALTER TABLE marketplace_review_eligibility_pages
+      ADD CONSTRAINT marketplace_review_eligibility_clock_required
+      CHECK (effective_deadline_at IS NOT NULL AND reminder_armed_at IS NOT NULL) NOT VALID;
+  END IF;
+END $$;
+
+ALTER TABLE marketplace_review_eligibility_pages
+  VALIDATE CONSTRAINT marketplace_review_eligibility_clock_required;
+
+ALTER TABLE marketplace_review_eligibility_pages
+  ALTER COLUMN effective_deadline_at SET NOT NULL,
+  ALTER COLUMN reminder_armed_at SET NOT NULL`,
+      `CREATE TABLE IF NOT EXISTS marketplace_review_hold_pages (
+  order_id text PRIMARY KEY,
+  active_support_request_ids text[] NOT NULL DEFAULT '{}',
+  held_directions text[] NOT NULL DEFAULT '{}',
+  held_at timestamptz NULL,
+  released_at timestamptz NULL,
+  updated_at timestamptz NOT NULL
+)`,
+    ],
+  },
   {
     migrationId: "20260710_marketplace_review_summary_role_split_drop_legacy_columns",
     description:

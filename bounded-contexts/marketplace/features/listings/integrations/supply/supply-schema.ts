@@ -49,15 +49,19 @@ ALTER TABLE marketplace_account_pages
 
 CREATE TABLE IF NOT EXISTS marketplace_account_reviews (
   review_id text PRIMARY KEY,
+  order_id text NULL,
   subject_account_id text NOT NULL,
   author_role text NOT NULL DEFAULT '',
   rating integer NOT NULL,
   status text NOT NULL,
-  updated_at timestamptz NOT NULL
+  updated_at timestamptz NOT NULL,
+  held boolean NOT NULL DEFAULT false
 );
 
 ALTER TABLE marketplace_account_reviews
-  ADD COLUMN IF NOT EXISTS author_role text NOT NULL DEFAULT '';
+  ADD COLUMN IF NOT EXISTS author_role text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS order_id text NULL,
+  ADD COLUMN IF NOT EXISTS held boolean NOT NULL DEFAULT false;
 
 -- Double-blind reveal (m108): a review contributes to
 -- marketplace_account_pages reputation counters only once revealed_at is set.
@@ -205,6 +209,16 @@ ALTER TABLE marketplace_supply_holds
 `;
 
 export const marketplaceSupplyProjectionSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260714_marketplace_account_review_holds",
+    description: "Exclude held order reviews from Marketplace account reputation inputs.",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `ALTER TABLE marketplace_account_reviews
+  ADD COLUMN IF NOT EXISTS order_id text NULL,
+  ADD COLUMN IF NOT EXISTS held boolean NOT NULL DEFAULT false`,
+    ],
+  },
   {
     migrationId: "20260710_marketplace_account_pages_role_split_drop_legacy_columns",
     description:

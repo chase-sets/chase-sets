@@ -1,5 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { REVIEW_NUDGE_REMINDER_DELAY_DAYS, REVIEW_WINDOW_DAYS } from "../domain/common";
+import { REVIEW_NUDGE_REMINDER_DELAY_DAYS } from "../domain/common";
 
 export type ReviewListRow = Readonly<{
   review_id: string;
@@ -21,6 +21,7 @@ export type ReviewListRow = Readonly<{
   withdrawn_at: string | null;
   revealed_at: string | null;
   reveal_reason: string | null;
+  held: boolean;
   // Moderation (m108). withdrawn_by_actor_type distinguishes an
   // author withdrawal from an operator one; the reason columns hold the
   // latest operator withdraw-or-redact reason for display.
@@ -74,6 +75,8 @@ export type ReviewEligibilityRow = Readonly<{
   subject_account_id: string;
   author_role: string;
   eligible_at: string;
+  effective_deadline_at: string;
+  submission_state: "allowed" | "held" | "expired";
 }>;
 
 export type ReviewOpportunityRow = Readonly<{
@@ -88,6 +91,8 @@ export type ReviewOpportunityRow = Readonly<{
   // closed" instead of the submission callout.
   window_expired: boolean;
   window_expires_at: string;
+  submission_state: "allowed" | "held" | "expired";
+  hold_reason: "feedback-on-hold" | null;
 }>;
 
 // The author's own view (written reviews, public revealed-only lists): full
@@ -109,6 +114,7 @@ const baseReviewSelect = `
     page.withdrawn_at,
     page.revealed_at,
     page.reveal_reason,
+    page.held,
     page.withdrawn_by_actor_type,
     page.moderation_operator_user_id,
     page.moderation_reason,
@@ -137,14 +143,15 @@ const subjectRedactedReviewSelect = `
     page.subject_account_id,
     subject.display_name AS subject_display_name,
     page.author_role,
-    CASE WHEN page.revealed_at IS NULL THEN NULL ELSE page.rating END AS rating,
-    CASE WHEN page.revealed_at IS NULL THEN NULL ELSE page.feedback END AS feedback,
+    CASE WHEN page.revealed_at IS NULL OR page.held THEN NULL ELSE page.rating END AS rating,
+    CASE WHEN page.revealed_at IS NULL OR page.held THEN NULL ELSE page.feedback END AS feedback,
     page.status,
     page.submitted_at,
     page.updated_at,
     page.withdrawn_at,
     page.revealed_at,
     page.reveal_reason,
+    page.held,
     page.withdrawn_by_actor_type,
     page.moderation_operator_user_id,
     page.moderation_reason,
@@ -188,14 +195,16 @@ export async function listPublicAccountReviews(
        FROM marketplace_review_pages
        WHERE subject_account_id = $1
          AND status = 'active'
-         AND revealed_at IS NOT NULL${countRoleClause}`,
+         AND revealed_at IS NOT NULL
+         AND held = false${countRoleClause}`,
       values,
     ),
     db.query<ReviewListRow>(
       `${baseReviewSelect}
        WHERE page.subject_account_id = $1
          AND page.status = 'active'
-         AND page.revealed_at IS NOT NULL${itemsRoleClause}
+         AND page.revealed_at IS NOT NULL
+         AND page.held = false${itemsRoleClause}
        ORDER BY page.updated_at DESC, page.review_id DESC
        LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
       [...values, limit, offset],
@@ -292,11 +301,11 @@ const detailReviewSelect = `
     subject.display_name AS subject_display_name,
     page.author_role,
     CASE
-      WHEN page.revealed_at IS NULL AND page.subject_account_id = $2 THEN NULL
+      WHEN (page.revealed_at IS NULL OR page.held) AND page.subject_account_id = $2 THEN NULL
       ELSE page.rating
     END AS rating,
     CASE
-      WHEN page.revealed_at IS NULL AND page.subject_account_id = $2 THEN NULL
+      WHEN (page.revealed_at IS NULL OR page.held) AND page.subject_account_id = $2 THEN NULL
       ELSE page.feedback
     END AS feedback,
     page.status,
@@ -305,6 +314,7 @@ const detailReviewSelect = `
     page.withdrawn_at,
     page.revealed_at,
     page.reveal_reason,
+    page.held,
     page.withdrawn_by_actor_type,
     page.moderation_operator_user_id,
     page.moderation_reason,
@@ -403,7 +413,9 @@ export async function getReviewEligibility(
        author_account_id,
        subject_account_id,
        author_role,
-       eligible_at
+       eligible_at::text AS eligible_at,
+       effective_deadline_at::text AS effective_deadline_at,
+       submission_state
      FROM marketplace_review_eligibility_pages
      WHERE order_id = $1
        AND author_account_id = $2
@@ -429,11 +441,10 @@ export async function getOrderReviewOpportunity(
        eligibility.author_role,
        eligibility.eligible_at,
        active.review_id AS active_review_id,
-       (eligibility.eligible_at + INTERVAL '${REVIEW_WINDOW_DAYS} days')::text AS window_expires_at,
-       (
-         active.review_id IS NULL
-         AND now() >= eligibility.eligible_at + INTERVAL '${REVIEW_WINDOW_DAYS} days'
-       ) AS window_expired
+       eligibility.effective_deadline_at::text AS window_expires_at,
+       eligibility.submission_state,
+       CASE WHEN eligibility.submission_state = 'held' THEN 'feedback-on-hold' ELSE NULL END AS hold_reason,
+       (active.review_id IS NULL AND eligibility.submission_state = 'expired') AS window_expired
      FROM marketplace_review_eligibility_pages AS eligibility
      INNER JOIN marketplace_review_order_sources AS order_source
        ON order_source.order_id = eligibility.order_id
@@ -487,6 +498,7 @@ export async function findPendingCounterpartReview(
        AND subject_account_id = $3
        AND status = 'active'
        AND revealed_at IS NULL
+       AND held = false
      LIMIT 1`,
     [params.orderId, params.counterpartAuthorAccountId, params.counterpartSubjectAccountId],
   );
@@ -495,6 +507,7 @@ export async function findPendingCounterpartReview(
 }
 
 export type PendingCounterpartPairRow = Readonly<{
+  order_id: string;
   review_id: string;
   counterpart_review_id: string;
 }>;
@@ -513,7 +526,7 @@ export async function listPendingCounterpartPairs(
 ): Promise<readonly PendingCounterpartPairRow[]> {
   const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
   const result = await db.query<PendingCounterpartPairRow>(
-    `SELECT a.review_id AS review_id, b.review_id AS counterpart_review_id
+    `SELECT a.order_id, a.review_id AS review_id, b.review_id AS counterpart_review_id
      FROM marketplace_review_pages AS a
      INNER JOIN marketplace_review_pages AS b
        ON a.order_id = b.order_id
@@ -521,8 +534,10 @@ export async function listPendingCounterpartPairs(
       AND a.subject_account_id = b.author_account_id
      WHERE a.status = 'active'
        AND a.revealed_at IS NULL
+       AND a.held = false
        AND b.status = 'active'
        AND b.revealed_at IS NULL
+       AND b.held = false
        AND a.review_id < b.review_id
      LIMIT $1`,
     [limit],
@@ -533,6 +548,8 @@ export async function listPendingCounterpartPairs(
 
 export type PendingReviewPastWindowRow = Readonly<{
   review_id: string;
+  order_id: string;
+  author_role: string;
 }>;
 
 /**
@@ -546,10 +563,11 @@ export async function listPendingReviewsPastWindow(
 ): Promise<readonly PendingReviewPastWindowRow[]> {
   const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
   const result = await db.query<PendingReviewPastWindowRow>(
-    `SELECT review_id
+    `SELECT review_id, order_id, author_role
      FROM marketplace_review_pages
      WHERE status = 'active'
        AND revealed_at IS NULL
+       AND held = false
        AND review_window_expires_at IS NOT NULL
        AND review_window_expires_at <= $1::timestamptz
      ORDER BY review_window_expires_at ASC, review_id ASC
@@ -662,10 +680,11 @@ export async function listReviewOpportunityReminderCandidates(
       AND active.subject_account_id = eligibility.subject_account_id
       AND active.status = 'active'
      WHERE eligibility.reminder_notified_at IS NULL
+       AND eligibility.submission_state = 'allowed'
        AND active.review_id IS NULL
-       AND eligibility.eligible_at + INTERVAL '${REVIEW_NUDGE_REMINDER_DELAY_DAYS} days' <= $1::timestamptz
-       AND eligibility.eligible_at + INTERVAL '${REVIEW_WINDOW_DAYS} days' > $1::timestamptz
-     ORDER BY eligibility.eligible_at ASC, eligibility.order_id ASC
+       AND eligibility.reminder_armed_at + INTERVAL '${REVIEW_NUDGE_REMINDER_DELAY_DAYS} days' <= $1::timestamptz
+       AND eligibility.effective_deadline_at > $1::timestamptz
+     ORDER BY eligibility.reminder_armed_at ASC, eligibility.order_id ASC
      LIMIT $2`,
     [params.now, limit],
   );

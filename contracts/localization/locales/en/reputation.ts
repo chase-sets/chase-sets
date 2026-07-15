@@ -36,6 +36,10 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.reviewDetailPage.author.role": "Author role: ",
   "reputation.features.reviews.ui.reviewDetailPage.back": "Back",
   "reputation.features.reviews.ui.reviewDetailPage.feedback": "Feedback",
+  "reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.badge": "Review paused",
+  "reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.description":
+    "This review is paused while support reviews the order.",
+  "reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.title": "Review paused",
   "reputation.features.reviews.ui.reviewDetailPage.moderated.redacted": "Feedback redacted by an operator",
   "reputation.features.reviews.ui.reviewDetailPage.moderated.withdrawn": "Withdrawn by an operator",
   "reputation.features.reviews.ui.reviewDetailPage.no.written.feedback": "No written feedback.",
@@ -65,6 +69,10 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.reviewDetailRecoveryPage.review.submission.saved":
     "Your review submission was saved.",
   "reputation.features.reviews.ui.reviewListPage.filter.by.role": "Filter by role",
+  "reputation.features.reviews.ui.reviewListPage.feedback.on.hold.badge": "Review paused",
+  "reputation.features.reviews.ui.reviewListPage.feedback.on.hold.description":
+    "This review is paused while support reviews the order.",
+  "reputation.features.reviews.ui.reviewListPage.feedback.on.hold.title": "Review paused",
   "reputation.features.reviews.ui.reviewListPage.no.written.feedback": "No written feedback.",
   "reputation.features.reviews.ui.reviewListPage.open.review": "Open review",
   "reputation.features.reviews.ui.reviewListPage.order": "Order ",
@@ -82,6 +90,9 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.reviewSubmissionPage.back": "Back",
   "reputation.features.reviews.ui.reviewSubmissionPage.counterparty": "Counterparty: ",
   "reputation.features.reviews.ui.reviewSubmissionPage.feedback": "Feedback",
+  "reputation.features.reviews.ui.reviewSubmissionPage.feedback.on.hold.description":
+    "This review is paused while support reviews the order. The review window will resume after support closes the case.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.feedback.on.hold.title": "Review paused",
   "reputation.features.reviews.ui.reviewSubmissionPage.order": "Order ",
   "reputation.features.reviews.ui.reviewSubmissionPage.rating": "Rating",
   "reputation.features.reviews.ui.reviewSubmissionPage.review.rating": "Review rating",

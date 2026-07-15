@@ -26,6 +26,7 @@ import {
   buildReviewSupportSourceProjectionHandlers,
 } from "./features/reviews/integrations/source/source-projection";
 import { buildReviewModerationReactionHandlers } from "./features/reviews/integrations/moderation/moderation-reaction";
+import { buildReviewHoldReactionHandlers } from "./features/reviews/integrations/support/review-hold-reaction";
 import {
   buildSellerMetricsOrderSourceProjectionHandlers,
   buildSellerMetricsShipmentSourceProjectionHandlers,
@@ -166,6 +167,14 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
         contextName: "marketplace",
         manifest: marketplaceContextManifest,
         handlers: {
+          "platform-operations.marketplace-review-hold-reaction": {
+            filterToEventTypes: true,
+            buildHandlers: () =>
+              buildReviewHoldReactionHandlers({
+                recordSupportRequestOpened: services.reviews.recordSupportRequestOpened,
+                recordSupportRequestTerminal: services.reviews.recordSupportRequestTerminal,
+              }),
+          },
           "platform-operations.marketplace-review-moderation-reaction": {
             filterToEventTypes: true,
             buildHandlers: () =>

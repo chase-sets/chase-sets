@@ -28,6 +28,7 @@ type ReviewRow = Readonly<{
   author_role: string;
   subject_account_id: string;
   author_display_name: string | null;
+  held: boolean;
 }>;
 
 /**
@@ -61,6 +62,7 @@ export async function projectReviewRevealedToNotification(
        page.order_id,
        page.author_role,
        page.subject_account_id,
+       page.held,
        subject_author.display_name AS author_display_name
      FROM marketplace_review_pages AS page
      LEFT JOIN marketplace_review_account_sources AS subject_author
@@ -70,6 +72,9 @@ export async function projectReviewRevealedToNotification(
   );
   const review = reviewResult.rows[0];
   if (!review) {
+    return;
+  }
+  if (review.held) {
     return;
   }
 

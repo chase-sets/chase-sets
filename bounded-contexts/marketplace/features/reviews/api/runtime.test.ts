@@ -79,8 +79,36 @@ describe("marketplace review runtime", () => {
       deliveredAt: "2026-04-02T00:00:00.000Z",
     });
     expect(inserts).toEqual([
-      ["ord_1", "acc_buyer", "acc_seller", "buyer", "2026-04-02T00:00:00.000Z", "2026-04-02T00:00:00.000Z"],
-      ["ord_1", "acc_seller", "acc_buyer", "seller", "2026-04-02T00:00:00.000Z", "2026-04-02T00:00:00.000Z"],
+      [
+        "ord_1",
+        "acc_buyer",
+        "acc_seller",
+        "buyer",
+        "2026-04-02T00:00:00.000Z",
+        "2026-06-01T00:00:00.000Z",
+        "allowed",
+        null,
+        null,
+        "2026-04-02T00:00:00.000Z",
+        null,
+        0,
+        "2026-04-02T00:00:00.000Z",
+      ],
+      [
+        "ord_1",
+        "acc_seller",
+        "acc_buyer",
+        "seller",
+        "2026-04-02T00:00:00.000Z",
+        "2026-06-01T00:00:00.000Z",
+        "allowed",
+        null,
+        null,
+        "2026-04-02T00:00:00.000Z",
+        null,
+        0,
+        "2026-04-02T00:00:00.000Z",
+      ],
     ]);
   });
 
@@ -155,6 +183,63 @@ describe("marketplace review runtime", () => {
       subjectKind: "seller",
       subject: { entityType: "review", entityId: result.reviewId },
       idempotencyKey: `review:${result.reviewId}:received`,
+    });
+  });
+
+  it("rejects submission with the stable held reason even when eligibility projection state is stale", async () => {
+    const now = new Date();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM marketplace_review_eligibility_pages") && sql.includes("author_account_id = $2")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_held",
+                author_account_id: "acc_buyer",
+                subject_account_id: "acc_seller",
+                author_role: "buyer",
+                eligible_at: now.toISOString(),
+                effective_deadline_at: new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000).toISOString(),
+                submission_state: "allowed",
+              },
+            ],
+          };
+        }
+        if (sql.includes("FROM marketplace_review_pages")) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const { eventStore } = createInMemoryEventStore();
+    const runtime = createReviewRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    await runtime.recordSupportRequestOpened(
+      {
+        orderId: "ord_held",
+        supportRequestId: "sup_held",
+        openedAt: now.toISOString(),
+      },
+      context,
+    );
+
+    await expect(
+      runtime.submitReview(
+        {
+          orderId: "ord_held",
+          authorAccountId: "acc_buyer",
+          subjectAccountId: "acc_seller",
+          rating: 1,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: "review_held",
+      message: "Review is paused while support reviews the order.",
     });
   });
 

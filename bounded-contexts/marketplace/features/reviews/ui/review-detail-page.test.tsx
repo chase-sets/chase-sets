@@ -19,6 +19,7 @@ const review = {
   withdrawn_at: null,
   revealed_at: "2026-04-05T00:00:00.000Z",
   reveal_reason: "counterpart-submitted",
+  held: false,
   withdrawn_by_actor_type: null,
   moderation_operator_user_id: null,
   moderation_reason: null,
@@ -62,6 +63,20 @@ describe("review detail page", () => {
     );
 
     expect(markup).toContain("Prompt payment and clear communication.");
+  });
+
+  it("shows a neutral hold state without revealing content to the review subject", () => {
+    const markup = renderToString(
+      <ReviewDetailPage
+        backHref="/account/reviews/received"
+        review={{ ...review, held: true, rating: null, feedback: null }}
+        viewerAccountId={review.subject_account_id}
+      />,
+    );
+
+    expect(markup).toContain("Review paused");
+    expect(markup).not.toContain("Prompt payment and clear communication.");
+    expect(markup).not.toContain("Respond to this review");
   });
 
   it("shows the subject reply as a seller response (m108, #4269)", () => {

@@ -37,6 +37,7 @@ function canComposeReply(review: ReviewDetail, viewerAccountId: string | null | 
     viewerAccountId === review.subject_account_id &&
     review.status === "active" &&
     review.revealed_at !== null &&
+    !review.held &&
     review.reply_id === null
   );
 }
@@ -73,7 +74,12 @@ export function ReviewDetailPage({
       />
 
       <PageSection title={t("reputation.features.reviews.ui.reviewDetailPage.summary")}>
-        {review.rating === null ? (
+        {review.held && review.rating === null ? (
+          <MarketplaceEmptyState
+            title={t("reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.title")}
+            description={t("reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.description")}
+          />
+        ) : review.rating === null ? (
           <MarketplaceEmptyState
             title={t("reputation.features.reviews.ui.reviewDetailPage.review.pending.title")}
             description={t("reputation.features.reviews.ui.reviewDetailPage.review.pending.description")}
@@ -96,6 +102,11 @@ export function ReviewDetailPage({
                 <Badge tone={statusTone(review.status)}>{review.status}</Badge>
                 {pending ? (
                   <Badge tone="warning">{t("reputation.features.reviews.ui.reviewDetailPage.pending.reveal")}</Badge>
+                ) : null}
+                {review.held ? (
+                  <Badge tone="warning">
+                    {t("reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.badge")}
+                  </Badge>
                 ) : null}
                 {review.withdrawn_by_actor_type === "operator" ? (
                   <Badge tone="danger">

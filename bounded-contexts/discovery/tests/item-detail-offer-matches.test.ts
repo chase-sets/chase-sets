@@ -33,6 +33,7 @@ describe("item detail offer matches", () => {
         "marketplace.review.submitted",
         {
           reviewId: "rev_1",
+          orderId: "ord_1",
           authorAccountId: "acc_buyer",
           subjectAccountId: "acc_seller",
           authorRole: "buyer",
@@ -47,6 +48,7 @@ describe("item detail offer matches", () => {
     expect(calls[0].sql).toContain("feedback");
     expect(calls[0].params).toEqual([
       "rev_1",
+      "ord_1",
       "acc_buyer",
       "acc_seller",
       "buyer",
@@ -54,6 +56,51 @@ describe("item detail offer matches", () => {
       "Packed well and shipped quickly.",
       "2026-05-12T00:00:00.000Z",
     ]);
+  });
+
+  it("removes held reviews from public reputation and restores them after release", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
+    const db = {
+      query: async (sql: string, params?: readonly unknown[]) => {
+        calls.push({ sql, params });
+        return {
+          rows: sql.includes("UPDATE discovery_market_account_reviews") ? [{ subject_account_id: "acc_seller" }] : [],
+        };
+      },
+    } satisfies PgQueryable;
+    const handlers = buildDiscoveryMarketProjectionHandlers(db);
+
+    await handlers["marketplace.review-hold.placed"]?.(
+      createEvent(
+        "marketplace.review-hold.placed",
+        {
+          orderId: "ord_1",
+          heldDirections: ["buyer-to-seller", "seller-to-buyer"],
+          lifecycleAt: "2026-05-13T00:00:00.000Z",
+        },
+        "2026-05-13T00:00:00.000Z",
+      ) as never,
+    );
+    await handlers["marketplace.review-hold.released"]?.(
+      createEvent(
+        "marketplace.review-hold.released",
+        {
+          orderId: "ord_1",
+          heldDirections: [],
+          lifecycleAt: "2026-05-14T00:00:00.000Z",
+        },
+        "2026-05-14T00:00:00.000Z",
+      ) as never,
+    );
+
+    const holdUpdates = calls.filter(({ sql }) => sql.includes("UPDATE discovery_market_account_reviews"));
+    expect(holdUpdates.map(({ params }) => params)).toEqual([
+      ["ord_1", ["buyer-to-seller", "seller-to-buyer"], "2026-05-13T00:00:00.000Z"],
+      ["ord_1", [], "2026-05-14T00:00:00.000Z"],
+    ]);
+    const reputationRefreshes = calls.filter(({ sql }) => sql.includes("INSERT INTO discovery_market_accounts"));
+    expect(reputationRefreshes).toHaveLength(2);
+    expect(reputationRefreshes.every(({ sql }) => sql.includes("AND held = false"))).toBe(true);
   });
 
   it("projects submitted and accepted offers into the public discovery market table", async () => {

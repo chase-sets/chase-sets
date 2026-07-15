@@ -8,7 +8,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 // acting AS A BUYER. Both dimensions are recomputed from the same pass over
 // `marketplace_review_pages` so the summary stays replay-safe: re-running any
 // review event converges to the same split counters.
-async function refreshReviewSummary(db: PgQueryable, subjectAccountId: string, updatedAt: string) {
+export async function refreshReviewSummary(db: PgQueryable, subjectAccountId: string, updatedAt: string) {
   await db.query(
     `INSERT INTO marketplace_review_summary_pages (
        account_id,
@@ -55,6 +55,7 @@ async function refreshReviewSummary(db: PgQueryable, subjectAccountId: string, u
      WHERE subject_account_id = $1
        AND status = 'active'
        AND revealed_at IS NOT NULL
+       AND held = false
      ON CONFLICT (account_id) DO UPDATE
      SET average_rating_as_seller = EXCLUDED.average_rating_as_seller,
          review_count_as_seller = EXCLUDED.review_count_as_seller,
@@ -105,14 +106,25 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
            withdrawn_at,
            revealed_at,
            review_window_expires_at,
-           reveal_reason
+           reveal_reason,
+           held
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, 'active', $8, $8, NULL, NULL, $9, NULL
+           $1, $2, $3, $4, $5, $6, $7, 'active', $8, $8, NULL, NULL, $9, NULL,
+           EXISTS (
+             SELECT 1
+             FROM marketplace_review_hold_pages AS hold
+             WHERE hold.order_id = $2
+               AND (
+                 ($5 = 'buyer' AND 'buyer-to-seller' = ANY(hold.held_directions))
+                 OR ($5 = 'seller' AND 'seller-to-buyer' = ANY(hold.held_directions))
+               )
+           )
          )
          ON CONFLICT (review_id) DO UPDATE
          SET rating = EXCLUDED.rating,
              feedback = EXCLUDED.feedback,
              status = EXCLUDED.status,
+             held = EXCLUDED.held,
              updated_at = EXCLUDED.updated_at,
              withdrawn_at = EXCLUDED.withdrawn_at`,
         [
