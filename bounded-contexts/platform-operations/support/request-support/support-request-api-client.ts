@@ -2,6 +2,7 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type {
   SupportFlowSummary,
+  PlatformRemedyProposalPreview,
   SupportOrderLookup,
   SupportRequestCommandSnapshot,
   SupportRequestDetail,
@@ -211,6 +212,78 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
             "Content-Type": "application/json",
             ...resolveHeaders(options.headers),
           },
+          body: JSON.stringify(body),
+        }),
+      ),
+    previewRemedyProposal: async (supportRequestId: string, body: Readonly<Record<string, unknown>>) =>
+      parseJsonResponse<PlatformRemedyProposalPreview>(
+        await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}/remedy-proposals/preview`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
+          body: JSON.stringify(body),
+        }),
+      ),
+    proposeRemedy: async (supportRequestId: string, body: Readonly<Record<string, unknown>>) =>
+      parseJsonResponse<SupportRequestCommandSnapshot & Readonly<{ remedyId: string }>>(
+        await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}/remedy-proposals`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
+          body: JSON.stringify(body),
+        }),
+      ),
+    approveRemedy: async (supportRequestId: string, body: Readonly<Record<string, unknown>>) =>
+      parseJsonResponse<SupportRequestCommandSnapshot & Readonly<{ remedyId: string }>>(
+        await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}/remedy-proposals/approve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
+          body: JSON.stringify(body),
+        }),
+      ),
+    retryRemedyEffect: async (
+      supportRequestId: string,
+      remedyId: string,
+      effect: string,
+      body: Readonly<Record<string, unknown>>,
+    ) =>
+      parseJsonResponse<SupportRequestCommandSnapshot & Readonly<{ remedyId: string }>>(
+        await clientFetch(
+          `${baseUrl}/support-requests/ops/${supportRequestId}/remedies/${remedyId}/effects/${effect}/retry`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
+            body: JSON.stringify(body),
+          },
+        ),
+      ),
+    waiveRemedyEffect: async (
+      supportRequestId: string,
+      remedyId: string,
+      effect: string,
+      body: Readonly<Record<string, unknown>>,
+    ) =>
+      parseJsonResponse<SupportRequestCommandSnapshot & Readonly<{ remedyId: string }>>(
+        await clientFetch(
+          `${baseUrl}/support-requests/ops/${supportRequestId}/remedies/${remedyId}/effects/${effect}/override`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
+            body: JSON.stringify(body),
+          },
+        ),
+      ),
+    releaseRemedyRefund: async (supportRequestId: string, remedyId: string, body: Readonly<Record<string, unknown>>) =>
+      parseJsonResponse<SupportRequestCommandSnapshot & Readonly<{ remedyId: string }>>(
+        await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}/remedies/${remedyId}/effects`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
+          body: JSON.stringify({ ...body, effect: "operator-release" }),
+        }),
+      ),
+    requestRemedyCorrection: async (supportRequestId: string, body: Readonly<Record<string, unknown>>) =>
+      parseJsonResponse<SupportRequestCommandSnapshot & Readonly<{ remedyId: string }>>(
+        await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}/remedy-corrections`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
           body: JSON.stringify(body),
         }),
       ),

@@ -85,6 +85,13 @@ export type PermissionKey =
   | "reputation.manage"
   | "reputation.view"
   | "support.manage"
+  | "support.remedies.approve"
+  | "support.remedies.approve-elevated"
+  | "support.remedies.correct"
+  | "support.remedies.override-return"
+  | "support.remedies.propose"
+  | "support.remedies.retry"
+  | "support.remedies.waive"
   | "support.view"
   | "security.manage"
   // Platform Wallet Adjustment authority ratified by ADR 0020: purpose-specific,

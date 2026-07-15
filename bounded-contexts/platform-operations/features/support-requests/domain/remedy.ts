@@ -9,6 +9,7 @@ import {
 } from "@chase-sets/event-core/platform-coverage-facts";
 import type { BuyerRemedyKind, RefundTrigger, ReturnDirective } from "@chase-sets/primitives/platform-coverage";
 import type { AccountId, CoverageId, RemedyId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
+import type { PlatformRemedyCapability } from "./platform-remedy-policy";
 
 export const remedyEffectKinds = [
   "coverage-reservation",
@@ -50,7 +51,10 @@ export type RemedyEffectFact = Readonly<{
 export type RemedyEffectWaiver = Readonly<{
   idempotencyKey: string;
   actorAccountId: AccountId;
+  permissionUsed: PlatformRemedyCapability;
   reasonCode: string;
+  rationale: string;
+  evidenceReferences: readonly string[];
   waivedAt: string;
 }>;
 
@@ -117,7 +121,10 @@ export type OverrideSupportRemedyEffectCommand = Readonly<{
   remedyId: RemedyId;
   effect: RemedyEffectKind | string;
   actorAccountId: AccountId;
+  permissionUsed: PlatformRemedyCapability;
   reasonCode: string;
+  rationale: string;
+  evidenceReferences: readonly string[];
   idempotencyKey: string;
   overriddenAt: string;
 }>;
@@ -522,12 +529,21 @@ export function createRemedyEffectWaiver(command: OverrideSupportRemedyEffectCom
   if (financialEffectKinds.has(effect)) {
     throw new Error(`The ${effect} effect requires an owning-context fact and cannot be waived.`);
   }
+  const evidenceReferences = command.evidenceReferences.map((reference) =>
+    requiredText(reference, "Evidence reference cannot be empty."),
+  );
+  if (evidenceReferences.length === 0) {
+    throw new Error("Remedy override requires an evidence reference.");
+  }
   return {
     effect,
     waiver: {
       idempotencyKey: requiredText(command.idempotencyKey, "Remedy override idempotency key is required."),
       actorAccountId: command.actorAccountId,
+      permissionUsed: command.permissionUsed,
       reasonCode: requiredText(command.reasonCode, "Remedy override requires a structured reason."),
+      rationale: requiredText(command.rationale, "Remedy override requires a rationale."),
+      evidenceReferences,
       waivedAt: isoTimestamp(command.overriddenAt, "Remedy override must record a timestamp."),
     },
   };

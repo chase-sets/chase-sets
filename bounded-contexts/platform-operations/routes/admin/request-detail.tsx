@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
+import { redirect, useActionData, useLoaderData, useMatches, useSearchParams } from "react-router";
 import { SupportOperationsDetailPage } from "../../features/support-requests/ui/support-operations-page";
 import { createSupportRequestRequestApiClient } from "../../support/request-support/support-request-api-client";
 import { resolveSupportRequestsMarketplaceOrigin } from "./requests";
@@ -11,6 +11,29 @@ function errorMessage(error: unknown) {
 
 function formValue(formData: FormData, key: string) {
   return String(formData.get(key) ?? "");
+}
+
+function remedyBody(formData: FormData) {
+  return {
+    remedy: {
+      kind: formValue(formData, "remedyKind"),
+      amount: formValue(formData, "remedyAmount"),
+      currencyCode: formValue(formData, "currencyCode"),
+    },
+    allocation: {
+      sellerFundedAmount: formValue(formData, "sellerFundedAmount"),
+      platformFundedAmount: formValue(formData, "platformFundedAmount"),
+      currencyCode: formValue(formData, "currencyCode"),
+      fundingKind: formValue(formData, "fundingKind"),
+    },
+    returnDirective: formValue(formData, "returnDirective"),
+    refundTrigger: formValue(formData, "refundTrigger"),
+    reasonCode: formValue(formData, "reasonCode"),
+    returnExceptionReasonCode: formValue(formData, "returnExceptionReasonCode") || null,
+    rationale: formValue(formData, "rationale"),
+    evidenceReferences: formValue(formData, "evidenceReferences"),
+    idempotencyKey: formValue(formData, "idempotencyKey"),
+  };
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -85,6 +108,63 @@ export async function action({ request, params }: ActionFunctionArgs) {
       return redirect(`/support/requests/${supportRequestId}?action=cancel`);
     }
 
+    if (intent === "preview-remedy") {
+      const input = remedyBody(formData);
+      return { preview: await api.previewRemedyProposal(supportRequestId, input), proposalInput: input };
+    }
+
+    if (intent === "propose-remedy") {
+      await api.proposeRemedy(supportRequestId, remedyBody(formData));
+      return redirect(`/support/requests/${supportRequestId}?action=remedy-proposed`);
+    }
+
+    if (intent === "approve-remedy") {
+      await api.approveRemedy(supportRequestId, {
+        reasonCode: formValue(formData, "reasonCode"),
+        rationale: formValue(formData, "rationale"),
+        evidenceReferences: formValue(formData, "evidenceReferences"),
+        idempotencyKey: formValue(formData, "idempotencyKey"),
+      });
+      return redirect(`/support/requests/${supportRequestId}?action=remedy-approved`);
+    }
+
+    if (intent === "retry-remedy-effect") {
+      await api.retryRemedyEffect(supportRequestId, formValue(formData, "remedyId"), formValue(formData, "effect"), {
+        reasonCode: formValue(formData, "reasonCode"),
+        rationale: formValue(formData, "rationale"),
+        idempotencyKey: formValue(formData, "idempotencyKey"),
+      });
+      return redirect(`/support/requests/${supportRequestId}?action=remedy-retry-requested`);
+    }
+
+    if (intent === "waive-remedy-effect") {
+      await api.waiveRemedyEffect(supportRequestId, formValue(formData, "remedyId"), formValue(formData, "effect"), {
+        reasonCode: formValue(formData, "reasonCode"),
+        rationale: formValue(formData, "rationale"),
+        evidenceReferences: formValue(formData, "evidenceReferences"),
+        idempotencyKey: formValue(formData, "idempotencyKey"),
+      });
+      return redirect(`/support/requests/${supportRequestId}?action=remedy-effect-waived`);
+    }
+
+    if (intent === "release-remedy-refund") {
+      await api.releaseRemedyRefund(supportRequestId, formValue(formData, "remedyId"), {
+        reasonCode: formValue(formData, "reasonCode"),
+        idempotencyKey: formValue(formData, "idempotencyKey"),
+      });
+      return redirect(`/support/requests/${supportRequestId}?action=remedy-refund-released`);
+    }
+
+    if (intent === "request-remedy-correction") {
+      await api.requestRemedyCorrection(supportRequestId, {
+        reasonCode: formValue(formData, "reasonCode"),
+        rationale: formValue(formData, "rationale"),
+        evidenceReferences: formValue(formData, "evidenceReferences"),
+        idempotencyKey: formValue(formData, "idempotencyKey"),
+      });
+      return redirect(`/support/requests/${supportRequestId}?action=remedy-correction-requested`);
+    }
+
     return null;
   } catch (error) {
     return { error: errorMessage(error) };
@@ -105,12 +185,19 @@ export default function SupportOperationsRequestDetailRoute() {
   const { supportRequest, marketplaceOrigin } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
+  const permissions = useMatches().flatMap((match) => {
+    const actor = (match.data as { actor?: { permissions?: readonly string[] } } | undefined)?.actor;
+    return actor?.permissions ?? [];
+  });
   return (
     <SupportOperationsDetailPage
       request={supportRequest}
-      actionError={actionData?.error ?? null}
+      actionError={actionData && "error" in actionData ? (actionData.error ?? null) : null}
       actionResult={searchParams.get("action")}
       marketplaceOrigin={marketplaceOrigin}
+      actorPermissions={permissions}
+      remedyPreview={actionData && "preview" in actionData ? actionData.preview : null}
+      remedyProposalInput={actionData && "proposalInput" in actionData ? actionData.proposalInput : null}
     />
   );
 }

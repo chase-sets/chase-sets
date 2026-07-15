@@ -42,6 +42,13 @@ export const AUTH_ROLE_PERMISSIONS = {
     "public-presence.view",
     "security.manage",
     "support.manage",
+    "support.remedies.approve",
+    "support.remedies.approve-elevated",
+    "support.remedies.correct",
+    "support.remedies.override-return",
+    "support.remedies.propose",
+    "support.remedies.retry",
+    "support.remedies.waive",
     "support.view",
     // Platform Wallet Adjustment authority (ADR 0020): platform-admin only.
     // Must stay identical to Identity's ROLE_PERMISSIONS platform-admin entry

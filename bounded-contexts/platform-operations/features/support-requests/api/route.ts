@@ -3,12 +3,13 @@ import { Hono } from "hono";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { SupportApiEnv } from "./http";
 import type { SupportRequestServices } from "./runtime";
+import { platformRemedyCapabilities, type PlatformRemedyCapability } from "../domain/platform-remedy-policy";
 
 function requireSupportAccess(
   c: {
     get(key: "actor"): SupportApiEnv["Variables"]["actor"];
   },
-  permission: "support.view" | "support.manage",
+  permission: "support.view" | "support.manage" | PlatformRemedyCapability,
 ) {
   const actor = c.get("actor");
   if (!actor) {
@@ -52,6 +53,32 @@ function requireSupportAccess(
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("support.features.support_requests.api.route.request.failed");
+}
+
+function remedyTerms(body: Record<string, unknown>) {
+  const remedy = (body.remedy ?? {}) as Record<string, unknown>;
+  const allocation = (body.allocation ?? {}) as Record<string, unknown>;
+  return {
+    remedy: {
+      kind: String(remedy.kind ?? "") as "full-refund" | "partial-refund",
+      amount: String(remedy.amount ?? ""),
+      currencyCode: String(remedy.currencyCode ?? ""),
+    },
+    allocation: {
+      sellerFundedAmount: String(allocation.sellerFundedAmount ?? ""),
+      platformFundedAmount: String(allocation.platformFundedAmount ?? ""),
+      currencyCode: String(allocation.currencyCode ?? ""),
+      fundingKind: String(allocation.fundingKind ?? "") as "seller-funded" | "platform-funded" | "split",
+    },
+    returnDirective: String(body.returnDirective ?? ""),
+    refundTrigger: String(body.refundTrigger ?? ""),
+    reasonCode: String(body.reasonCode ?? ""),
+    returnExceptionReasonCode: body.returnExceptionReasonCode == null ? null : String(body.returnExceptionReasonCode),
+  };
+}
+
+function stringList(value: unknown): readonly string[] {
+  return Array.isArray(value) ? value.map(String) : String(value ?? "").split("\n");
 }
 
 function requireCommandContext(c: { get(key: "context"): SupportApiEnv["Variables"]["context"] }, messageKey: string) {
@@ -407,40 +434,45 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
     }
   });
 
-  app.post("/ops/:id/remedies", async (c) => {
-    const access = requireSupportAccess(c, "support.manage");
+  app.post("/ops/:id/remedy-proposals/preview", async (c) => {
+    const access = requireSupportAccess(c, platformRemedyCapabilities.propose);
     if (access.response) {
       return access.response;
     }
+    const body = (await c.req.json()) as Record<string, unknown>;
+    try {
+      return c.json(
+        await services.previewRemedyProposal({
+          supportRequestId: c.req.param("id"),
+          accountId: access.actor.accountId,
+          permissions: access.actor.permissions,
+          terms: remedyTerms(body),
+        }),
+      );
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/ops/:id/remedy-proposals", async (c) => {
+    const access = requireSupportAccess(c, platformRemedyCapabilities.propose);
+    if (access.response) return access.response;
     const contextResult = requireCommandContext(
       c,
       "support.features.support_requests.api.route.authentication.context.missing.10",
     );
-    if (contextResult.response) {
-      return contextResult.response;
-    }
-    const body = await c.req.json();
+    if (contextResult.response) return contextResult.response;
+    const body = (await c.req.json()) as Record<string, unknown>;
     try {
-      const result = await services.authorizeRemedy(
+      const result = await services.proposeRemedy(
         {
           supportRequestId: c.req.param("id"),
           accountId: access.actor.accountId,
-          remedy: {
-            kind: String(body.remedy?.kind ?? "") as "full-refund" | "partial-refund",
-            amount: String(body.remedy?.amount ?? ""),
-            currencyCode: String(body.remedy?.currencyCode ?? ""),
-          },
-          allocation: {
-            sellerFundedAmount: String(body.allocation?.sellerFundedAmount ?? ""),
-            platformFundedAmount: String(body.allocation?.platformFundedAmount ?? ""),
-            currencyCode: String(body.allocation?.currencyCode ?? ""),
-            fundingKind: String(body.allocation?.fundingKind ?? "") as "seller-funded" | "platform-funded" | "split",
-          },
-          returnDirective: String(body.returnDirective ?? ""),
-          refundTrigger: String(body.refundTrigger ?? ""),
-          policyVersion: String(body.policyVersion ?? ""),
-          reasonCode: String(body.reasonCode ?? ""),
-          idempotencyKey: String(body.idempotencyKey ?? ""),
+          permissions: access.actor.permissions,
+          terms: remedyTerms(body),
+          rationale: String(body.rationale ?? ""),
+          evidenceReferences: stringList(body.evidenceReferences),
+          idempotencyKey: `${String(body.idempotencyKey ?? "")}:${access.actor.accountId}`,
         },
         contextResult.context,
       );
@@ -448,7 +480,109 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
         id: result.supportRequestId,
         remedyId: result.remedyId,
         version: result.version,
-        status: "remedy-in-progress",
+        status: result.status,
+      });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/ops/:id/remedy-proposals/approve", async (c) => {
+    const actor = c.get("actor");
+    const permission = actor?.permissions.includes(platformRemedyCapabilities.approveElevated)
+      ? platformRemedyCapabilities.approveElevated
+      : platformRemedyCapabilities.approve;
+    const access = requireSupportAccess(c, permission);
+    if (access.response) return access.response;
+    const contextResult = requireCommandContext(
+      c,
+      "support.features.support_requests.api.route.authentication.context.missing.13",
+    );
+    if (contextResult.response) return contextResult.response;
+    const body = (await c.req.json()) as Record<string, unknown>;
+    try {
+      const result = await services.approveRemedy(
+        {
+          supportRequestId: c.req.param("id"),
+          accountId: access.actor.accountId,
+          permissions: access.actor.permissions,
+          reasonCode: String(body.reasonCode ?? ""),
+          rationale: String(body.rationale ?? ""),
+          evidenceReferences: stringList(body.evidenceReferences),
+          idempotencyKey: `${String(body.idempotencyKey ?? "")}:${access.actor.accountId}`,
+        },
+        contextResult.context,
+      );
+      return c.json({
+        id: result.supportRequestId,
+        remedyId: result.remedyId,
+        version: result.version,
+        status: result.status,
+      });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/ops/:id/remedies/:remedyId/effects/:effect/retry", async (c) => {
+    const access = requireSupportAccess(c, platformRemedyCapabilities.retry);
+    if (access.response) return access.response;
+    const contextResult = requireCommandContext(
+      c,
+      "support.features.support_requests.api.route.authentication.context.missing.14",
+    );
+    if (contextResult.response) return contextResult.response;
+    const body = (await c.req.json()) as Record<string, unknown>;
+    try {
+      const result = await services.retryRemedyEffect(
+        {
+          supportRequestId: c.req.param("id"),
+          remedyId: parseTypedIdBoundary(c.req.param("remedyId"), "rmd", "remedyId"),
+          accountId: access.actor.accountId,
+          effect: c.req.param("effect"),
+          reasonCode: String(body.reasonCode ?? ""),
+          rationale: String(body.rationale ?? ""),
+          idempotencyKey: `${String(body.idempotencyKey ?? "")}:${access.actor.accountId}`,
+        },
+        contextResult.context,
+      );
+      return c.json({
+        id: result.supportRequestId,
+        remedyId: result.remedyId,
+        version: result.version,
+        status: "retry-requested",
+      });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/ops/:id/remedy-corrections", async (c) => {
+    const access = requireSupportAccess(c, platformRemedyCapabilities.correct);
+    if (access.response) return access.response;
+    const contextResult = requireCommandContext(
+      c,
+      "support.features.support_requests.api.route.authentication.context.missing.15",
+    );
+    if (contextResult.response) return contextResult.response;
+    const body = (await c.req.json()) as Record<string, unknown>;
+    try {
+      const result = await services.requestRemedyCorrection(
+        {
+          supportRequestId: c.req.param("id"),
+          accountId: access.actor.accountId,
+          reasonCode: String(body.reasonCode ?? ""),
+          rationale: String(body.rationale ?? ""),
+          evidenceReferences: stringList(body.evidenceReferences),
+          idempotencyKey: `${String(body.idempotencyKey ?? "")}:${access.actor.accountId}`,
+        },
+        contextResult.context,
+      );
+      return c.json({
+        id: result.supportRequestId,
+        remedyId: result.remedyId,
+        version: result.version,
+        status: "correction-requested",
       });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
@@ -456,7 +590,7 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
   });
 
   app.post("/ops/:id/remedies/:remedyId/effects", async (c) => {
-    const access = requireSupportAccess(c, "support.manage");
+    const access = requireSupportAccess(c, platformRemedyCapabilities.overrideReturn);
     if (access.response) {
       return access.response;
     }
@@ -507,7 +641,7 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
   });
 
   app.post("/ops/:id/remedies/:remedyId/effects/:effect/override", async (c) => {
-    const access = requireSupportAccess(c, "support.manage");
+    const access = requireSupportAccess(c, platformRemedyCapabilities.waive);
     if (access.response) {
       return access.response;
     }
@@ -527,6 +661,8 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
           accountId: access.actor.accountId,
           effect: c.req.param("effect"),
           reasonCode: String(body.reasonCode ?? ""),
+          rationale: String(body.rationale ?? ""),
+          evidenceReferences: stringList(body.evidenceReferences),
           idempotencyKey: String(body.idempotencyKey ?? ""),
         },
         contextResult.context,

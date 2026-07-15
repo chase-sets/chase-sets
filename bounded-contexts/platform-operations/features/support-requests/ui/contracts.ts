@@ -34,3 +34,18 @@ export type SupportRequestEscalationSnapshot = Readonly<{
 }>;
 
 export type SupportOperationsQueueFilters = Readonly<{ status: string; priority: string; search: string }>;
+
+export type PlatformRemedyProposalPreview = Readonly<{
+  customerOutcome: string;
+  sellerImpact: string;
+  protectionReserveImpact: string;
+  returnLabelCostPayer: string;
+  refundTrigger: string;
+  reservationExpiresAt: string | null;
+  requiredApprovalCount: number;
+  requiresElevatedApproval: boolean;
+  returnOverrideRequired: boolean;
+  policyVersion: string;
+}>;
+
+export type PlatformRemedyProposalInput = Readonly<Record<string, unknown>>;

@@ -1,5 +1,5 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
-import type { AccountId, OrderId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, OrderId, RemedyId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import { compareMoneyAmounts, sumMoneyAmounts } from "@chase-sets/primitives/money";
 import { normalizeAffectedLineItemAmounts } from "@chase-sets/primitives/affected-line-item-amount";
 import {
@@ -55,6 +55,7 @@ import {
   createRemedyEffectWaiver,
   createRemedyExecution,
   normalizeRemedyAuthorization,
+  normalizeRemedyEffectKind,
   normalizeRemedyEffectFact,
   remedyHasProcessedFact,
   type AuthorizeSupportRemedyCommand,
@@ -64,6 +65,22 @@ import {
   type SupportRequestRemedyEffectRecordedEvent,
   type SupportRequestRemedyEvent,
 } from "./remedy";
+import {
+  applyRemedyApproval,
+  applyRemedyCorrectionRequest,
+  applyRemedyReservationFact,
+  applyRemedyRetryRequest,
+  applyRemedyWaiverAudit,
+  createRemedyApproval,
+  createRemedyApprovalWorkflow,
+  markRemedyWorkflowAuthorized,
+  type ApproveSupportRemedyCommand,
+  type ProposeSupportRemedyCommand,
+  type RemedyApprovalWorkflow,
+  type RequestSupportRemedyCorrectionCommand,
+  type RetrySupportRemedyEffectCommand,
+  type SupportRemedyApprovalEvent,
+} from "./remedy-approval";
 import {
   createSupportCsatOutcomeFact,
   supportCsatOutcomeFactEventType,
@@ -110,6 +127,8 @@ export type SupportRequestState = Readonly<{
   returnConditionDisputedAt: string | null;
   /** Null for legacy cases until the explicit remedy lifecycle is authorized. */
   remedy: RemedyExecution | null;
+  /** Operator proposal, reservation, approval, and recovery audit state. */
+  remedyApproval: RemedyApprovalWorkflow | null;
   /** Correlated facts may arrive before authorization; replay retains them until the remedy is known. */
   deferredRemedyEffectFacts: readonly SupportRequestRemedyEffectRecordedEvent["data"][];
 }>;
@@ -153,6 +172,7 @@ export const initialSupportRequestState: SupportRequestState = {
   returnRefundReleaseDueAt: null,
   returnConditionDisputedAt: null,
   remedy: null,
+  remedyApproval: null,
   deferredRemedyEffectFacts: [],
 };
 
@@ -339,6 +359,10 @@ export type SupportRequestCommand =
   | RecordReturnDeliveryCommand
   | DisputeReturnConditionCommand
   | ReleaseReturnRefundCommand
+  | ProposeSupportRemedyCommand
+  | ApproveSupportRemedyCommand
+  | RetrySupportRemedyEffectCommand
+  | RequestSupportRemedyCorrectionCommand
   | AuthorizeSupportRemedyCommand
   | RecordSupportRemedyEffectCommand
   | OverrideSupportRemedyEffectCommand;
@@ -534,6 +558,7 @@ export type SupportRequestEvent =
   | SupportRequestReturnDeliveredEvent
   | SupportRequestReturnConditionDisputedEvent
   | SupportRequestReturnRefundReleasedEvent
+  | SupportRemedyApprovalEvent
   | SupportRequestRemedyEvent
   | SupportCsatOutcomeFactPublishedEvent;
 
@@ -1404,11 +1429,138 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         },
       ];
     }
+    case "ProposeSupportRemedy": {
+      assert(state.supportRequestId !== null, "Support request must be opened first.");
+      assert(state.status === "resolved", "A remedy can only be proposed after the support decision is made.");
+      assert(state.resolution?.refundAmount, "Only a monetary support decision can propose this remedy.");
+      assert(state.remedy === null, "This support request already has an authorized remedy.");
+      assert(command.terms.supportRequestId === state.supportRequestId, "Remedy proposal belongs to another case.");
+      assert(
+        compareMoneyAmounts(command.terms.remedy.amount, state.resolution.refundAmount) === 0,
+        "Proposed remedy amount must match the decided refund amount.",
+      );
+      if (state.remedyApproval) {
+        assert(
+          state.remedyApproval.terms.idempotencyKey === command.terms.idempotencyKey,
+          "This support request already has a different remedy proposal.",
+        );
+        return [];
+      }
+      let workflow = createRemedyApprovalWorkflow(command);
+      for (const entry of state.deferredRemedyEffectFacts) {
+        if (entry.remedyId === command.terms.remedyId && entry.coverageId === command.terms.coverageId) {
+          workflow = applyRemedyReservationFact(workflow, entry.fact);
+        }
+      }
+      const events: SupportRequestEvent[] = [
+        {
+          type: "support.support-request.remedy-proposed",
+          data: { supportRequestId: state.supportRequestId, workflow },
+        },
+      ];
+      const coverageRequested = createCoverageRequestedEvent(command.terms);
+      if (coverageRequested) events.push(coverageRequested);
+      return events;
+    }
+    case "ApproveSupportRemedy": {
+      assert(state.supportRequestId !== null, "Support request must be opened first.");
+      assert(state.remedyApproval !== null, "A remedy must be proposed before approval.");
+      if (state.remedyApproval.approvals.some((approval) => approval.idempotencyKey === command.idempotencyKey)) {
+        return [];
+      }
+      const approval = createRemedyApproval(state.remedyApproval, command);
+      const approvedWorkflow = applyRemedyApproval(state.remedyApproval, approval);
+      const events: SupportRequestEvent[] = [
+        {
+          type: "support.support-request.remedy-approved",
+          data: {
+            supportRequestId: state.supportRequestId,
+            remedyId: state.remedyApproval.terms.remedyId as RemedyId,
+            approval,
+          },
+        },
+      ];
+      if (approvedWorkflow.status !== "approved") return events;
+      assert(state.remedy === null, "This support request already has an authorized remedy.");
+      const authorization = { ...approvedWorkflow.terms, occurredAt: command.approvedAt };
+      const deferredEntries = state.deferredRemedyEffectFacts.filter(
+        (entry) =>
+          entry.remedyId === authorization.remedyId &&
+          (entry.coverageId == null || entry.coverageId === authorization.coverageId),
+      );
+      const remedy = createRemedyExecution(
+        authorization,
+        deferredEntries.map((entry) => entry.fact),
+      );
+      events.push({ type: "support.support-request.remedy-authorized.v1", data: authorization });
+      events.push(...appendAutomaticRemedyEvents(remedy, command.approvedAt, command.idempotencyKey));
+      return events;
+    }
+    case "RetrySupportRemedyEffect": {
+      assert(state.supportRequestId !== null, "Support request must be opened first.");
+      assert(state.remedy !== null, "A remedy must be authorized before an effect can be retried.");
+      assert(state.remedyApproval !== null, "Remedy approval audit state is required for a retry.");
+      assert(state.remedy.remedyId === command.remedyId, "Retry belongs to a different remedy.");
+      if (state.remedyApproval.auditTrail.some((entry) => entry.correlationId === command.idempotencyKey)) return [];
+      const effect = normalizeRemedyEffectKind(String(command.effect));
+      const current = state.remedy.effects.find((candidate) => candidate.effect === effect);
+      assert(current?.status === "failed-retryable", "Only a retryable failed effect can be retried.");
+      return [
+        {
+          type: "support.support-request.remedy-effect-retry-requested",
+          data: {
+            supportRequestId: state.supportRequestId,
+            remedyId: command.remedyId,
+            effect,
+            requestedByAccountId: command.requestedByAccountId,
+            permissionUsed: command.permissionUsed,
+            reasonCode: normalizeRequiredText(command.reasonCode, "Retry requires a structured reason."),
+            rationale: normalizeRequiredText(command.rationale, "Retry requires a rationale."),
+            idempotencyKey: normalizeRequiredText(command.idempotencyKey, "Retry idempotency key is required."),
+            requestedAt: normalizeIsoTimestamp(command.requestedAt, "Retry must record a timestamp."),
+          },
+        },
+      ];
+    }
+    case "RequestSupportRemedyCorrection": {
+      assert(state.supportRequestId !== null, "Support request must be opened first.");
+      assert(state.remedyApproval !== null, "A remedy must be proposed before requesting a correction.");
+      if (state.remedyApproval.auditTrail.some((entry) => entry.correlationId === command.idempotencyKey)) return [];
+      const evidenceReferences = command.evidenceReferences.map((reference) => reference.trim()).filter(Boolean);
+      assert(evidenceReferences.length > 0, "Correction request requires evidence references.");
+      return [
+        {
+          type: "support.support-request.remedy-correction-requested",
+          data: {
+            supportRequestId: state.supportRequestId,
+            remedyId: state.remedyApproval.terms.remedyId as RemedyId,
+            requestedByAccountId: command.requestedByAccountId,
+            permissionUsed: command.permissionUsed,
+            reasonCode: normalizeRequiredText(command.reasonCode, "Correction requires a structured reason."),
+            rationale: normalizeRequiredText(command.rationale, "Correction requires a rationale."),
+            evidenceReferences,
+            idempotencyKey: normalizeRequiredText(
+              command.idempotencyKey,
+              "Correction request idempotency key is required.",
+            ),
+            requestedAt: normalizeIsoTimestamp(command.requestedAt, "Correction request must record a timestamp."),
+          },
+        },
+      ];
+    }
     case "AuthorizeSupportRemedy": {
       assert(state.supportRequestId !== null, "Support request must be opened first.");
       assert(state.status === "resolved", "A remedy can only be authorized after the support decision is made.");
       assert(state.resolution?.refundAmount, "Only a monetary support decision can authorize this remedy.");
+      assert(
+        state.remedyApproval?.status === "approved",
+        "A remedy must satisfy reservation and approval policy first.",
+      );
       const authorization = normalizeRemedyAuthorization(state.supportRequestId, command);
+      assert(
+        state.remedyApproval.terms.idempotencyKey === authorization.idempotencyKey,
+        "Authorization must use the approved proposal terms.",
+      );
       assert(
         compareMoneyAmounts(authorization.remedy.amount, state.resolution.refundAmount) === 0,
         "Authorized remedy amount must match the decided refund amount.",
@@ -1445,10 +1597,6 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
       const events: SupportRequestRemedyEvent[] = [
         { type: "support.support-request.remedy-authorized.v1", data: authorization },
       ];
-      const coverageRequested = createCoverageRequestedEvent(authorization);
-      if (coverageRequested) {
-        events.push(coverageRequested);
-      }
       events.push(...appendAutomaticRemedyEvents(remedy, authorization.occurredAt, authorization.idempotencyKey));
       return events;
     }
@@ -1721,6 +1869,7 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         returnRefundReleaseDueAt: null,
         returnConditionDisputedAt: null,
         remedy: null,
+        remedyApproval: null,
         deferredRemedyEffectFacts: [],
       };
     case "support.support-request.affected-line-items-recorded":
@@ -1828,6 +1977,20 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         ...state,
         returnRefundGateStatus: "return-refund-released",
       };
+    case "support.support-request.remedy-proposed":
+      return { ...state, remedyApproval: event.data.workflow, autoCloseDueAt: null };
+    case "support.support-request.remedy-approved":
+      return state.remedyApproval?.terms.remedyId === event.data.remedyId
+        ? { ...state, remedyApproval: applyRemedyApproval(state.remedyApproval, event.data.approval) }
+        : state;
+    case "support.support-request.remedy-effect-retry-requested":
+      return state.remedyApproval?.terms.remedyId === event.data.remedyId
+        ? { ...state, remedyApproval: applyRemedyRetryRequest(state.remedyApproval, event) }
+        : state;
+    case "support.support-request.remedy-correction-requested":
+      return state.remedyApproval?.terms.remedyId === event.data.remedyId
+        ? { ...state, remedyApproval: applyRemedyCorrectionRequest(state.remedyApproval, event) }
+        : state;
     case "support.support-request.remedy-authorized.v1": {
       const deferred = state.deferredRemedyEffectFacts
         .filter(
@@ -1839,6 +2002,9 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
       return {
         ...state,
         remedy: createRemedyExecution(event.data, deferred),
+        remedyApproval: state.remedyApproval
+          ? markRemedyWorkflowAuthorized(state.remedyApproval, event.data.occurredAt)
+          : state.remedyApproval,
         autoCloseDueAt: null,
       };
     }
@@ -1846,17 +2012,38 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
       return state;
     case "support.support-request.remedy-effect-recorded":
       if (state.remedy?.remedyId === event.data.remedyId) {
-        return { ...state, remedy: applyRemedyEffectFact(state.remedy, event.data.fact) };
+        return {
+          ...state,
+          remedy: applyRemedyEffectFact(state.remedy, event.data.fact),
+          remedyApproval:
+            state.remedyApproval?.terms.remedyId === event.data.remedyId
+              ? applyRemedyReservationFact(state.remedyApproval, event.data.fact)
+              : state.remedyApproval,
+        };
       }
       if (
         state.deferredRemedyEffectFacts.some((entry) => entry.fact.idempotencyKey === event.data.fact.idempotencyKey)
       ) {
         return state;
       }
-      return { ...state, deferredRemedyEffectFacts: [...state.deferredRemedyEffectFacts, event.data] };
+      return {
+        ...state,
+        deferredRemedyEffectFacts: [...state.deferredRemedyEffectFacts, event.data],
+        remedyApproval:
+          state.remedyApproval?.terms.remedyId === event.data.remedyId
+            ? applyRemedyReservationFact(state.remedyApproval, event.data.fact)
+            : state.remedyApproval,
+      };
     case "support.support-request.remedy-effect-waived":
       return state.remedy?.remedyId === event.data.remedyId
-        ? { ...state, remedy: applyRemedyEffectWaiver(state.remedy, event.data.effect, event.data.waiver) }
+        ? {
+            ...state,
+            remedy: applyRemedyEffectWaiver(state.remedy, event.data.effect, event.data.waiver),
+            remedyApproval:
+              state.remedyApproval?.terms.remedyId === event.data.remedyId
+                ? applyRemedyWaiverAudit(state.remedyApproval, event.data.effect, event.data.waiver)
+                : state.remedyApproval,
+          }
         : state;
     case "support.support-request.refund-released.v1":
       return state.remedy?.remedyId === event.data.remedyId

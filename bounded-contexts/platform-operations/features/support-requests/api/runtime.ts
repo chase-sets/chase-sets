@@ -8,6 +8,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { compareMoneyAmounts } from "@chase-sets/primitives/money";
 import { createId, parseTypedId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, CoverageId, OrderId, RemedyId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -40,11 +41,24 @@ import {
 import { getSupportFlowDefinition, supportFlowCatalog, type SupportFlowDefinition } from "../domain/flow-catalog";
 import { sellerSilenceResponsibilityFact } from "../domain/responsibility";
 import { resolveSupportFlowDeadlineHours, supportDeadlinePolicy } from "../domain/support-deadline-policy";
+import { normalizeRemedyAuthorization } from "../domain/remedy";
+import type { OverrideSupportRemedyEffectCommand, RecordSupportRemedyEffectCommand } from "../domain/remedy";
 import type {
-  AuthorizeSupportRemedyCommand,
-  OverrideSupportRemedyEffectCommand,
-  RecordSupportRemedyEffectCommand,
-} from "../domain/remedy";
+  ApproveSupportRemedyCommand,
+  ProposeSupportRemedyCommand,
+  RequestSupportRemedyCorrectionCommand,
+  RetrySupportRemedyEffectCommand,
+} from "../domain/remedy-approval";
+import {
+  assertRemedyPolicyLimit,
+  PLATFORM_REMEDY_LAUNCH_POLICY_VALUE,
+  platformRemedyCapabilities,
+  platformRemedyPolicy,
+  platformRemedyPolicyVersion,
+  strongestRemedyPolicyAuthority,
+  type PlatformRemedyCapability,
+  type PlatformRemedyPolicyValue,
+} from "../domain/platform-remedy-policy";
 import {
   buildSupportRequestTransactionalEmailProjectionHandlers,
   SUPPORT_REQUEST_TRANSACTIONAL_EMAIL_PROJECTION,
@@ -99,6 +113,28 @@ export type SupportOrderContext = Readonly<{
   status: string;
   totalAmount: string;
   affectedLineItems?: readonly SupportAffectedLineItemAmount[];
+}>;
+
+export type PlatformRemedyTermsInput = Readonly<{
+  remedy: ProposeSupportRemedyCommand["terms"]["remedy"];
+  allocation: ProposeSupportRemedyCommand["terms"]["allocation"];
+  returnDirective: ProposeSupportRemedyCommand["terms"]["returnDirective"] | string;
+  refundTrigger: ProposeSupportRemedyCommand["terms"]["refundTrigger"] | string;
+  reasonCode: string;
+  returnExceptionReasonCode?: string | null;
+}>;
+
+export type PlatformRemedyProposalPreview = Readonly<{
+  customerOutcome: string;
+  sellerImpact: string;
+  protectionReserveImpact: string;
+  returnLabelCostPayer: "seller" | "platform" | "not-applicable";
+  refundTrigger: string;
+  reservationExpiresAt: string | null;
+  requiredApprovalCount: number;
+  requiresElevatedApproval: boolean;
+  returnOverrideRequired: boolean;
+  policyVersion: string;
 }>;
 
 function normalizeOrderId(value: string): OrderId {
@@ -196,18 +232,50 @@ export type SupportRequestServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
-  authorizeRemedy: (
+  previewRemedyProposal: (
     params: Readonly<{
       supportRequestId: string;
       accountId: string;
-      remedy: AuthorizeSupportRemedyCommand["remedy"];
-      allocation: AuthorizeSupportRemedyCommand["allocation"];
-      returnDirective: AuthorizeSupportRemedyCommand["returnDirective"];
-      refundTrigger: AuthorizeSupportRemedyCommand["refundTrigger"];
-      policyVersion: string;
-      reasonCode: string;
+      permissions: readonly string[];
+      terms: PlatformRemedyTermsInput;
+      at?: string;
+    }>,
+  ) => Promise<PlatformRemedyProposalPreview>;
+  proposeRemedy: (
+    params: Readonly<{
+      supportRequestId: string;
+      accountId: string;
+      permissions: readonly string[];
+      terms: PlatformRemedyTermsInput;
+      rationale: string;
+      evidenceReferences: readonly string[];
       idempotencyKey: string;
     }>,
+    context: EventStoreContext,
+  ) => Promise<{ supportRequestId: string; remedyId: string; version: number; status: string }>;
+  approveRemedy: (
+    params: Readonly<{
+      supportRequestId: string;
+      accountId: string;
+      permissions: readonly string[];
+      reasonCode: string;
+      rationale: string;
+      evidenceReferences: readonly string[];
+      idempotencyKey: string;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ supportRequestId: string; remedyId: string; version: number; status: string }>;
+  retryRemedyEffect: (
+    params: Omit<RetrySupportRemedyEffectCommand, "type" | "requestedByAccountId" | "permissionUsed" | "requestedAt"> &
+      Readonly<{ supportRequestId: string; accountId: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ supportRequestId: string; remedyId: string; version: number }>;
+  requestRemedyCorrection: (
+    params: Omit<
+      RequestSupportRemedyCorrectionCommand,
+      "type" | "requestedByAccountId" | "permissionUsed" | "requestedAt"
+    > &
+      Readonly<{ supportRequestId: string; accountId: string }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; remedyId: string; version: number }>;
   recordRemedyEffect: (
@@ -215,7 +283,7 @@ export type SupportRequestServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; remedyId: string; version: number }>;
   overrideRemedyEffect: (
-    params: Omit<OverrideSupportRemedyEffectCommand, "type" | "actorAccountId" | "overriddenAt"> &
+    params: Omit<OverrideSupportRemedyEffectCommand, "type" | "actorAccountId" | "permissionUsed" | "overriddenAt"> &
       Readonly<{ supportRequestId: string; accountId: string }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; remedyId: string; version: number }>;
@@ -467,6 +535,125 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     decide: decideSupportRequest,
   });
 
+  async function resolvePlatformRemedyPolicy(): Promise<{
+    value: PlatformRemedyPolicyValue;
+    version: string;
+  }> {
+    if (!deps.policies) {
+      return { value: PLATFORM_REMEDY_LAUNCH_POLICY_VALUE, version: `${platformRemedyPolicy.policyKey}:compiled-v1` };
+    }
+    const resolved = await deps.policies.resolvePolicy(platformRemedyPolicy);
+    return { value: resolved.value, version: platformRemedyPolicyVersion(resolved) };
+  }
+
+  async function evaluatePlatformRemedyProposal(
+    params: Readonly<{
+      supportRequestId: string;
+      accountId: string;
+      permissions: readonly string[];
+      terms: PlatformRemedyTermsInput;
+      at: string;
+    }>,
+  ): Promise<{
+    preview: PlatformRemedyProposalPreview;
+    policy: PlatformRemedyPolicyValue;
+    policyVersion: string;
+    authority: NonNullable<ReturnType<typeof strongestRemedyPolicyAuthority>>;
+    returnOverrideUsed: boolean;
+  }> {
+    const supportRequest = await requireMutableSupportRequest(deps.db, {
+      supportRequestId: params.supportRequestId,
+      accountId: params.accountId,
+      scope: "operations",
+    });
+    if (supportRequest.status !== "resolved" || !supportRequest.resolution?.refundAmount) {
+      throw new SupportDomainError("A monetary support decision is required before proposing a remedy.");
+    }
+    const authority = strongestRemedyPolicyAuthority(params.permissions);
+    if (!authority || !params.permissions.includes(platformRemedyCapabilities.propose)) {
+      throw new SupportDomainError("The operator cannot propose a platform remedy.");
+    }
+    const { value: policy, version: policyVersion } = await resolvePlatformRemedyPolicy();
+    if (!policy.eligibleReasonCodes.includes(params.terms.reasonCode)) {
+      throw new SupportDomainError("The selected reason is not eligible for platform funding.");
+    }
+    if (params.terms.allocation.fundingKind === "split" && !policy.splitFundingAllowed) {
+      throw new SupportDomainError("Split funding is not allowed by the active policy.");
+    }
+    if (!policy.allowableRefundTriggers.some((trigger) => trigger === params.terms.refundTrigger)) {
+      throw new SupportDomainError("The selected refund trigger is not allowed by the active policy.");
+    }
+    if (compareMoneyAmounts(params.terms.remedy.amount, supportRequest.resolution.refundAmount) !== 0) {
+      throw new SupportDomainError("Proposed remedy amount must match the decided refund amount.");
+    }
+    assertRemedyPolicyLimit({
+      authority,
+      amount: params.terms.remedy.amount,
+      eligibleAmount: supportRequest.resolution.refundAmount,
+      policy,
+    });
+    normalizeRemedyAuthorization(params.supportRequestId as SupportRequestId, {
+      type: "AuthorizeSupportRemedy",
+      remedyId: "rmd_preview" as RemedyId,
+      coverageId: params.terms.allocation.fundingKind === "seller-funded" ? null : ("cov_preview" as CoverageId),
+      remedy: params.terms.remedy,
+      allocation: params.terms.allocation,
+      returnDirective: params.terms.returnDirective,
+      refundTrigger: params.terms.refundTrigger,
+      policyVersion,
+      reasonCode: params.terms.reasonCode,
+      idempotencyKey: "preview",
+      authorizedAt: params.at,
+    });
+    const returnOverrideRequired =
+      params.terms.returnDirective === "no-return" &&
+      compareMoneyAmounts(params.terms.remedy.amount, policy.returnRequiredAtOrAboveAmount) >= 0;
+    if (returnOverrideRequired) {
+      if (!params.permissions.includes(platformRemedyCapabilities.overrideReturn)) {
+        throw new SupportDomainError("This remedy requires return-override authority.");
+      }
+      if (!policy.returnExceptionReasonCodes.includes(params.terms.returnExceptionReasonCode ?? "")) {
+        throw new SupportDomainError("A policy-approved return exception reason is required.");
+      }
+    }
+    const isSplit = params.terms.allocation.fundingKind === "split";
+    const requiredApprovalCount =
+      compareMoneyAmounts(params.terms.remedy.amount, policy.dualControlAtOrAboveAmount) >= 0 ||
+      (isSplit && policy.splitFundingRequiresDualControl)
+        ? 2
+        : 1;
+    const requiresElevatedApproval =
+      isSplit || compareMoneyAmounts(params.terms.remedy.amount, policy.maximumAmountByCapability.approve) > 0;
+    const reservationExpiresAt =
+      params.terms.allocation.fundingKind === "seller-funded"
+        ? null
+        : new Date(Date.parse(params.at) + policy.reservationExpiryHours * 60 * 60 * 1000).toISOString();
+    return {
+      policy,
+      policyVersion,
+      authority,
+      returnOverrideUsed: returnOverrideRequired,
+      preview: {
+        customerOutcome: `${params.terms.remedy.amount} ${params.terms.remedy.currencyCode} ${params.terms.remedy.kind}`,
+        sellerImpact: `${params.terms.allocation.sellerFundedAmount} ${params.terms.allocation.currencyCode}`,
+        protectionReserveImpact: `${params.terms.allocation.platformFundedAmount} ${params.terms.allocation.currencyCode}`,
+        returnLabelCostPayer:
+          params.terms.returnDirective === "no-return"
+            ? "not-applicable"
+            : params.terms.returnDirective === "return-to-platform" ||
+                params.terms.allocation.fundingKind !== "seller-funded"
+              ? "platform"
+              : "seller",
+        refundTrigger: String(params.terms.refundTrigger),
+        reservationExpiresAt,
+        requiredApprovalCount,
+        requiresElevatedApproval,
+        returnOverrideRequired,
+        policyVersion,
+      },
+    };
+  }
+
   return {
     commandHandler,
     listFlowDefinitions: async () => {
@@ -693,39 +880,141 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
 
       return { supportRequestId: params.supportRequestId, version: result.version };
     },
-    authorizeRemedy: async (params, context) => {
-      await requireMutableSupportRequest(deps.db, {
+    previewRemedyProposal: async (params) =>
+      (
+        await evaluatePlatformRemedyProposal({
+          ...params,
+          at: params.at ?? new Date().toISOString(),
+        })
+      ).preview,
+    proposeRemedy: async (params, context) => {
+      const proposedAt = new Date().toISOString();
+      const evaluation = await evaluatePlatformRemedyProposal({ ...params, at: proposedAt });
+      const remedyId = createId("rmd") as RemedyId;
+      const coverageId =
+        params.terms.allocation.fundingKind === "seller-funded" ? null : (createId("cov") as CoverageId);
+      const terms = normalizeRemedyAuthorization(params.supportRequestId as SupportRequestId, {
+        type: "AuthorizeSupportRemedy",
+        remedyId,
+        coverageId,
+        remedy: params.terms.remedy,
+        allocation: params.terms.allocation,
+        returnDirective: params.terms.returnDirective,
+        refundTrigger: params.terms.refundTrigger,
+        policyVersion: evaluation.policyVersion,
+        reasonCode: params.terms.reasonCode,
+        idempotencyKey: params.idempotencyKey,
+        authorizedAt: proposedAt,
+      });
+      const result = await commandHandler({
+        streamId: `support.support-request-${params.supportRequestId}`,
+        command: {
+          type: "ProposeSupportRemedy",
+          terms,
+          proposedByAccountId: params.accountId as AccountId,
+          permissionUsed: platformRemedyCapabilities.propose,
+          rationale: params.rationale,
+          evidenceReferences: params.evidenceReferences,
+          reservationExpiresAt: evaluation.preview.reservationExpiresAt,
+          requiredApprovalCount: evaluation.preview.requiredApprovalCount,
+          requiresElevatedApproval: evaluation.preview.requiresElevatedApproval,
+          returnOverrideUsed: evaluation.returnOverrideUsed,
+          returnExceptionReasonCode: params.terms.returnExceptionReasonCode ?? null,
+        },
+        context,
+      });
+      if (!result.state.remedyApproval) {
+        throw new SupportDomainError("Remedy proposal did not produce approval state.");
+      }
+      return {
+        supportRequestId: params.supportRequestId,
+        remedyId: result.state.remedyApproval.terms.remedyId,
+        version: result.version,
+        status: result.state.remedyApproval.status,
+      };
+    },
+    approveRemedy: async (params, context) => {
+      const supportRequest = await requireMutableSupportRequest(deps.db, {
         supportRequestId: params.supportRequestId,
         accountId: params.accountId,
         scope: "operations",
       });
-      const remedyId = createId("rmd") as RemedyId;
-      const coverageId = params.allocation.fundingKind === "seller-funded" ? null : (createId("cov") as CoverageId);
+      const workflow = supportRequest.remedy_approval;
+      if (!workflow) throw new SupportDomainError("A remedy must be proposed before approval.");
+      const permissionUsed: PlatformRemedyCapability = params.permissions.includes(
+        platformRemedyCapabilities.approveElevated,
+      )
+        ? platformRemedyCapabilities.approveElevated
+        : platformRemedyCapabilities.approve;
+      if (!params.permissions.includes(permissionUsed)) {
+        throw new SupportDomainError("The operator cannot approve this remedy.");
+      }
+      const policy = (await resolvePlatformRemedyPolicy()).value;
+      assertRemedyPolicyLimit({
+        authority: permissionUsed === platformRemedyCapabilities.approveElevated ? "approveElevated" : "approve",
+        amount: workflow.terms.remedy.amount,
+        eligibleAmount: supportRequest.resolution?.refundAmount ?? workflow.terms.remedy.amount,
+        policy,
+      });
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {
-          type: "AuthorizeSupportRemedy",
-          remedyId,
-          coverageId,
-          remedy: params.remedy,
-          allocation: params.allocation,
-          returnDirective: params.returnDirective,
-          refundTrigger: params.refundTrigger,
-          policyVersion: params.policyVersion,
+          type: "ApproveSupportRemedy",
+          approvedByAccountId: params.accountId as AccountId,
+          permissionUsed,
           reasonCode: params.reasonCode,
+          rationale: params.rationale,
+          evidenceReferences: params.evidenceReferences,
           idempotencyKey: params.idempotencyKey,
-          authorizedAt: new Date().toISOString(),
+          approvedAt: new Date().toISOString(),
         },
         context,
       });
-      if (!result.state.remedy) {
-        throw new SupportDomainError("Remedy authorization did not produce a remedy.");
-      }
+      const state = result.state.remedyApproval;
+      if (!state) throw new SupportDomainError("Remedy approval state is unavailable.");
       return {
         supportRequestId: params.supportRequestId,
-        remedyId: result.state.remedy.remedyId,
+        remedyId: state.terms.remedyId,
         version: result.version,
+        status: result.state.remedy ? "remedy-in-progress" : state.status,
       };
+    },
+    retryRemedyEffect: async (params, context) => {
+      const result = await commandHandler({
+        streamId: `support.support-request-${params.supportRequestId}`,
+        command: {
+          type: "RetrySupportRemedyEffect",
+          remedyId: params.remedyId,
+          effect: params.effect,
+          requestedByAccountId: params.accountId as AccountId,
+          permissionUsed: platformRemedyCapabilities.retry,
+          reasonCode: params.reasonCode,
+          rationale: params.rationale,
+          idempotencyKey: params.idempotencyKey,
+          requestedAt: new Date().toISOString(),
+        },
+        context,
+      });
+      return { supportRequestId: params.supportRequestId, remedyId: params.remedyId, version: result.version };
+    },
+    requestRemedyCorrection: async (params, context) => {
+      const result = await commandHandler({
+        streamId: `support.support-request-${params.supportRequestId}`,
+        command: {
+          type: "RequestSupportRemedyCorrection",
+          requestedByAccountId: params.accountId as AccountId,
+          permissionUsed: platformRemedyCapabilities.correct,
+          reasonCode: params.reasonCode,
+          rationale: params.rationale,
+          evidenceReferences: params.evidenceReferences,
+          idempotencyKey: params.idempotencyKey,
+          requestedAt: new Date().toISOString(),
+        },
+        context,
+      });
+      const remedyId = result.state.remedyApproval?.terms.remedyId;
+      if (!remedyId) throw new SupportDomainError("Remedy correction state is unavailable.");
+      return { supportRequestId: params.supportRequestId, remedyId, version: result.version };
     },
     recordRemedyEffect: async (params, context) => {
       const result = await commandHandler({
@@ -763,7 +1052,10 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           remedyId: params.remedyId,
           effect: params.effect,
           actorAccountId: params.accountId as AccountId,
+          permissionUsed: platformRemedyCapabilities.waive,
           reasonCode: params.reasonCode,
+          rationale: params.rationale,
+          evidenceReferences: params.evidenceReferences,
           idempotencyKey: params.idempotencyKey,
           overriddenAt: new Date().toISOString(),
         },

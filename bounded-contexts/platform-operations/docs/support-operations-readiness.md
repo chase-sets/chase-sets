@@ -26,6 +26,22 @@ Checkout-specific support triage lives in the [Checkout Support Operations](../.
 
 The admin Support operations route is contributed by the Support bounded context, not by the admin deployable. It lists urgent, overdue, and ready-for-support requests from the Support operations queue and can run the overdue escalation command. While production is still landing-profile only and the Support API is not deployed there, the route reports the unavailable API instead of opening live support operations.
 
+## Platform-Funded Remedy Runbook
+
+Only operators holding the purpose-specific `support.remedies.*` capabilities may use this workflow. `support.manage` alone is insufficient. Before requesting a reservation, compare the case evidence, enter the buyer remedy, seller/platform allocation, return directive, and refund trigger independently, then review the server-produced exposure preview. The preview is advisory; the server re-evaluates the active policy when the proposal and each approval are submitted.
+
+Use these recovery paths:
+
+- **Approval** — confirm the reservation is `reserved`, the amounts and four decision dimensions still match the case decision, and the policy version is expected. Complete every displayed approval. When dual control is required, the proposer cannot approve and each approver must be distinct; an elevated approval is mandatory when displayed.
+- **Reservation rejection** — do not authorize or recreate the reservation. Record a correction or escalation using `coverage-rejected`, include the machine reason and evidence reference, and route the reserve-capacity question to Settlement.
+- **Reservation timeout or expiry** — do not approve after the stamped expiry. Request correction with `reservation-expired`; Settlement owns release/expiry of the old reservation, and a new proposal is allowed only after the correction is adjudicated.
+- **Lost return or carrier exception** — keep the case open. Use the `carrier-exception` correction path with tracking and evidence. A non-financial effect may be waived only with `support.remedies.waive`; coverage, refund, and reconciliation facts can never be waived.
+- **Refund provider failure** — use **Retry same intent** only for `failed-retryable`. The retry event repeats the existing correlated remedy/effect intent and idempotency key lineage; never create a second remedy, reservation, or refund. Escalate `refund-failure` when the failure is terminal.
+- **Stuck reconciliation** — never mark the financial effect complete manually. Request correction with `reconciliation-stuck` and route it to Settlement. The support case remains closure-blocked until Settlement publishes the matching reconciliation fact.
+- **Escalation** — use the displayed correction action for policy exceptions, rejected/expired reservations, carrier failures, refund failures, or stuck reconciliation. Preserve the reason code, free-text rationale, evidence references, policy version, correlation id, actor, permission, and timestamp in the case audit trail.
+
+Human proposal, approval, retry, waiver, release, and correction entries show an account actor and permission. Reservation and owning-context facts show `System/service`; never represent a service reaction as a human decision. Closure is allowed only when the lifecycle reports completion and the exact blocking-effects list is empty.
+
 ## Ownership
 
-Support owns the structured request lifecycle, flow catalog, deadlines, and support operations queue. Payments owns refund effects from support resolutions. Settlement owns payout holds and release decisions that depend on open support state.
+Support owns the structured request lifecycle, flow catalog, platform-remedy policy, approvals, recovery intents, deadlines, and support operations queue. Payments owns refund execution. Settlement owns protection-coverage reservations, payout holds, liability allocation, reserve consumption, and financial reconciliation.

@@ -8,6 +8,14 @@ A **Public Doc Article Review** is the operator attention item opened when a rev
 
 A **Support Request** is the Platform Operations-owned case through which an account and operators record evidence, responses, escalations, resolutions, returns, and closure for a marketplace support concern.
 
+## Platform Remedy Policy
+
+The **Platform Remedy Policy** is the versioned Platform Operations policy that determines which support reasons are eligible for platform funding, capability-based amount and percentage limits, split funding, return requirements, refund triggers, dual control, reservation expiry, and exception or escalation reasons.
+
+## Remedy Approval
+
+A **Remedy Approval** is an immutable human decision on a proposed remedy after any required Protection Coverage reservation succeeds. Policy may require distinct operators, multiple approvals, and elevated authority before Support can authorize execution.
+
 - Projection Operation: A durable control-plane request for operator-triggered projection work such as rebuild, retry, or cancellation.
 - Projection Group: A bounded-context declared projection owner for one read-model group and its source subscriptions.
 - Subscription: A projection group's declared source-context event consumer and checkpoint boundary.
