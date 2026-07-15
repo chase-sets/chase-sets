@@ -18,12 +18,12 @@ function createDb() {
   return { db, queryMock };
 }
 
-function transportEvent(type: string, data: Record<string, unknown>) {
+function transportEvent(type: string, data: Record<string, unknown>, streamVersion = 1) {
   return {
-    id: "evt_1",
+    id: `evt_${streamVersion}`,
     type,
     streamId: "payments.payment-pay_1",
-    streamVersion: 1,
+    streamVersion,
     globalPosition: "1",
     tenantId: "tnt_test",
     data,
@@ -590,6 +590,8 @@ describe("settlement payment source projection", () => {
         fundsStatus: "available",
         orderId: "ord_1",
         paymentId: "pay_1",
+        // Refund-after-payout records a receivable instead of poisoning the stream.
+        allowNegativeBalance: true,
       }),
       expect.objectContaining({
         tenantId: "tnt_test",
@@ -597,7 +599,157 @@ describe("settlement payment source projection", () => {
     );
   });
 
-  it("allocates refund debit pennies by largest remainder across seller payouts", async () => {
+  it("debits only the refunded order's seller on a multi-seller payment", async () => {
+    // Two sellers share one payment. A seller-funded refund attributed to ord_1
+    // alone must never touch ord_2's seller, and the debit must equal that
+    // seller's exposure for the refunded fraction exactly.
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("SELECT amount::text AS amount")) {
+          return {
+            rows: [
+              {
+                amount: "40.00",
+                seller_payouts: [
+                  {
+                    orderId: "ord_1",
+                    sellerAccountId: "acc_seller_1",
+                    sellerItemNetAmount: "16.00",
+                    shippingAllowanceAmount: "0.00",
+                    sellerShippingPayoutAmount: "0.00",
+                    sellerPayoutAmount: "16.00",
+                  },
+                  {
+                    orderId: "ord_2",
+                    sellerAccountId: "acc_seller_2",
+                    sellerItemNetAmount: "18.00",
+                    shippingAllowanceAmount: "0.00",
+                    sellerShippingPayoutAmount: "0.00",
+                    sellerPayoutAmount: "18.00",
+                  },
+                ],
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    };
+    const wallets = {
+      postEntry: vi.fn(async () => ({ accountId: "acc_seller_1", version: 1 })),
+    };
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+
+    await handlers["payments.payment-refunded"]!(
+      transportEvent("payments.payment-refunded", {
+        paymentId: "pay_1",
+        amount: "10.00",
+        currencyCode: "usd",
+        processorStatus: "succeeded",
+        orderRefundAmounts: [{ orderId: "ord_1", amount: "10.00" }],
+        refundedOrderAmounts: [{ orderId: "ord_1", amount: "10.00" }],
+        orderRefundCaps: [
+          { orderId: "ord_1", amount: "20.00" },
+          { orderId: "ord_2", amount: "20.00" },
+        ],
+        refundedAt: "2026-05-01T00:10:00.000Z",
+      }),
+    );
+
+    // exposure $16 * (refund $10 / cap $20) = $8 to seller_1; seller_2 untouched.
+    expect(wallets.postEntry).toHaveBeenCalledTimes(1);
+    expect(wallets.postEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller_1",
+        ledgerEntryId: "led_refund_pay_1_ord_1_1",
+        amount: "8.00",
+        allowNegativeBalance: true,
+      }),
+      expect.anything(),
+    );
+    expect(wallets.postEntry).not.toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: "acc_seller_2" }),
+      expect.anything(),
+    );
+  });
+
+  it("posts each successive partial refund's incremental debit exactly once", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("SELECT amount::text AS amount")) {
+          return {
+            rows: [
+              {
+                amount: "20.00",
+                seller_payouts: [
+                  {
+                    orderId: "ord_1",
+                    sellerAccountId: "acc_seller",
+                    sellerItemNetAmount: "16.00",
+                    shippingAllowanceAmount: "0.00",
+                    sellerShippingPayoutAmount: "0.00",
+                    sellerPayoutAmount: "16.00",
+                  },
+                ],
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    };
+    const wallets = {
+      postEntry: vi.fn(async () => ({ accountId: "acc_seller", version: 1 })),
+    };
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+
+    // First partial refund: $5 of a $20 order -> exposure $16 * 5/20 = $4.
+    await handlers["payments.payment-refunded"]!(
+      transportEvent(
+        "payments.payment-refunded",
+        {
+          paymentId: "pay_1",
+          amount: "5.00",
+          currencyCode: "usd",
+          processorStatus: "succeeded",
+          orderRefundAmounts: [{ orderId: "ord_1", amount: "5.00" }],
+          refundedOrderAmounts: [{ orderId: "ord_1", amount: "5.00" }],
+          orderRefundCaps: [{ orderId: "ord_1", amount: "20.00" }],
+          refundedAt: "2026-05-01T00:10:00.000Z",
+        },
+        1,
+      ),
+    );
+
+    // Second partial refund: cumulative $15 -> $16 * 15/20 - $16 * 5/20 = $8.
+    await handlers["payments.payment-refunded"]!(
+      transportEvent(
+        "payments.payment-refunded",
+        {
+          paymentId: "pay_1",
+          amount: "10.00",
+          currencyCode: "usd",
+          processorStatus: "succeeded",
+          orderRefundAmounts: [{ orderId: "ord_1", amount: "10.00" }],
+          refundedOrderAmounts: [{ orderId: "ord_1", amount: "15.00" }],
+          orderRefundCaps: [{ orderId: "ord_1", amount: "20.00" }],
+          refundedAt: "2026-05-01T00:20:00.000Z",
+        },
+        2,
+      ),
+    );
+
+    const postedEntries = wallets.postEntry.mock.calls.map(
+      (call) => (call as unknown as readonly [{ ledgerEntryId: string; amount: string }])[0],
+    );
+    const refundDebits = postedEntries.filter((entry) => entry.ledgerEntryId.startsWith("led_refund_"));
+    expect(refundDebits).toEqual([
+      expect.objectContaining({ ledgerEntryId: "led_refund_pay_1_ord_1_1", amount: "4.00" }),
+      expect.objectContaining({ ledgerEntryId: "led_refund_pay_1_ord_1_2", amount: "8.00" }),
+    ]);
+  });
+
+  it("prorates refund debit pennies by largest remainder when the event lacks per-order attribution", async () => {
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("SELECT amount::text AS amount")) {
@@ -651,6 +803,7 @@ describe("settlement payment source projection", () => {
         accountId: "acc_seller_1",
         ledgerEntryId: "led_refund_pay_1_ord_1_1",
         amount: "0.01",
+        allowNegativeBalance: true,
       }),
       expect.objectContaining({
         tenantId: "tnt_test",
