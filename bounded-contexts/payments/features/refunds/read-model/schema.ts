@@ -29,10 +29,6 @@ CREATE TABLE IF NOT EXISTS payments_refund_pages (
 CREATE INDEX IF NOT EXISTS payments_refund_pages_pending_idx
   ON payments_refund_pages (status, updated_at)
   WHERE status NOT IN ('issued', 'failed');
-
-CREATE INDEX IF NOT EXISTS payments_refund_pages_remedy_idx
-  ON payments_refund_pages (remedy_id)
-  WHERE remedy_id IS NOT NULL;
 `;
 
 export const paymentsRefundSchemaMigrations = [
