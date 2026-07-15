@@ -34,6 +34,27 @@ type FeedbackFollowUpRequestedEvent = TransportEvent &
     }>;
   }>;
 
+type FeedbackAttentionDigestRequestedEvent = TransportEvent &
+  Readonly<{
+    type: "customer-feedback.attention.digest-requested";
+    data: Readonly<{
+      digestId: string;
+      windowStart: string;
+      windowEnd: string;
+      groupKey: string;
+      teamKey: string;
+      recipientUserId: string | null;
+      items: readonly Readonly<{
+        attentionId: string;
+        caseId: string;
+        priority: "low" | "normal" | "high" | "urgent";
+        reason: "low-score" | "reopened" | "sla-breach";
+        adminHref: string;
+      }>[];
+      capped: boolean;
+    }>;
+  }>;
+
 export function buildNotificationsCustomerFeedbackProjectionHandlers(
   outbox: NotificationOutbox,
   projectionName = "notifications-source-facts-outbox-projection",
@@ -43,6 +64,8 @@ export function buildNotificationsCustomerFeedbackProjectionHandlers(
       projectAttentionRequested(outbox, event as FeedbackAttentionRequestedEvent, projectionName),
     "customer-feedback.case.follow-up-requested": (event) =>
       projectFollowUpRequested(outbox, event as FeedbackFollowUpRequestedEvent, projectionName),
+    "customer-feedback.attention.digest-requested": (event) =>
+      projectAttentionDigestRequested(outbox, event as FeedbackAttentionDigestRequestedEvent, projectionName),
   };
 }
 
@@ -62,6 +85,7 @@ export function mapFeedbackAttentionToNotification(event: FeedbackAttentionReque
     templateVersion: CUSTOMER_FEEDBACK_TEMPLATE_VERSION,
     locale: "en",
     templateData: {
+      sourceTenantId: event.tenantId,
       caseId: event.data.caseId,
       attentionId: event.data.attentionId,
       reason: event.data.reason,
@@ -97,6 +121,7 @@ export function mapFeedbackFollowUpToNotification(event: FeedbackFollowUpRequest
     templateVersion: event.data.templateVersion ?? CUSTOMER_FEEDBACK_TEMPLATE_VERSION,
     locale: "en",
     templateData: {
+      sourceTenantId: event.tenantId,
       caseId: event.data.caseId,
       consentVersion: event.data.consentVersion,
       purpose: "support follow-up",
@@ -113,58 +138,40 @@ export function mapFeedbackFollowUpToNotification(event: FeedbackFollowUpRequest
   };
 }
 
-export type FeedbackAttentionDigestRecipient = Readonly<{ userId: UserId }>;
-
-export type FeedbackAttentionDigestNotificationItem = Readonly<{
-  attentionId: string;
-  caseId: string;
-  priority: "low" | "normal" | "high" | "urgent";
-  reason: "low-score" | "reopened" | "sla-breach";
-  adminHref: string;
-}>;
-
-export function buildFeedbackAttentionDigestNotifications(
-  items: readonly FeedbackAttentionDigestNotificationItem[],
-  recipients: readonly FeedbackAttentionDigestRecipient[],
-  window: Readonly<{ start: string; end: string }>,
-  maxItems = 25,
-): readonly NotificationMessage[] {
-  const unique = [...new Map(items.map((item) => [item.attentionId, item])).values()]
-    .sort(
-      (left, right) =>
-        priorityWeight(right.priority) - priorityWeight(left.priority) || left.caseId.localeCompare(right.caseId),
-    )
-    .slice(0, Math.max(1, maxItems));
-  if (unique.length === 0 || recipients.length === 0) return [];
-  const digestKey = unique.map((item) => item.attentionId).join(",");
-  return recipients.map((recipient) => ({
+export function mapFeedbackAttentionDigestToNotification(
+  event: FeedbackAttentionDigestRequestedEvent,
+): NotificationMessage | null {
+  if (!event.data.recipientUserId || event.data.items.length === 0) return null;
+  return {
     messageType: "customer-feedback.case.attention-digest",
     criticality: "operational",
     category: "operational",
     title: t("notifications.intents.customerFeedbackDigest.title"),
-    body: t("notifications.intents.customerFeedbackDigest.body", { count: unique.length }),
+    body: t("notifications.intents.customerFeedbackDigest.body", { count: event.data.items.length }),
     actionHref: "/support/customer-feedback/attention",
     templateId: "customer_feedback_attention_digest",
     templateVersion: CUSTOMER_FEEDBACK_TEMPLATE_VERSION,
     locale: "en",
     templateData: {
-      windowStart: new Date(window.start).toISOString(),
-      windowEnd: new Date(window.end).toISOString(),
-      itemCount: unique.length,
-      capped: items.length > unique.length,
-      attentionIds: digestKey,
+      sourceTenantId: event.tenantId,
+      digestId: event.data.digestId,
+      windowStart: new Date(event.data.windowStart).toISOString(),
+      windowEnd: new Date(event.data.windowEnd).toISOString(),
+      itemCount: event.data.items.length,
+      capped: event.data.capped,
+      groupKey: event.data.groupKey,
     },
     channels: [
       {
         channel: "web",
-        recipient: { userId: recipient.userId },
+        recipient: { userId: event.data.recipientUserId as UserId },
         actionHref: "/support/customer-feedback/attention",
       },
     ],
-    idempotencyKey: `notifications:customer-feedback:attention-digest:${recipient.userId}:${window.start}:${window.end}`,
-    correlationId: `customer-feedback-attention-digest:${window.end}`,
+    idempotencyKey: `notifications:customer-feedback:attention-digest:${event.data.digestId}`,
+    correlationId: event.trace.traceId ?? event.id,
     actor: { userId: null },
-  }));
+  };
 }
 
 async function projectAttentionRequested(
@@ -185,6 +192,15 @@ async function projectFollowUpRequested(
   if (message) await outbox.enqueueNotification({ message, source: sourceFromEvent(event, projectionName) });
 }
 
+async function projectAttentionDigestRequested(
+  outbox: NotificationOutbox,
+  event: FeedbackAttentionDigestRequestedEvent,
+  projectionName: string,
+) {
+  const message = mapFeedbackAttentionDigestToNotification(event);
+  if (message) await outbox.enqueueNotification({ message, source: sourceFromEvent(event, projectionName) });
+}
+
 function sourceFromEvent(event: TransportEvent, projectionName: string) {
   return {
     sourceEventId: event.id,
@@ -192,8 +208,4 @@ function sourceFromEvent(event: TransportEvent, projectionName: string) {
     projectionName,
     occurredAt: event.timing.occurredAt,
   };
-}
-
-function priorityWeight(priority: FeedbackAttentionDigestNotificationItem["priority"]): number {
-  return priority === "urgent" ? 4 : priority === "high" ? 3 : priority === "normal" ? 2 : 1;
 }

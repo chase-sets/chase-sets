@@ -29,6 +29,18 @@ export type FeedbackAttentionItem = Readonly<{
   dueAt: string | null;
   triageDueAt: string;
   closedAt: string | null;
+  deliveryStatus: "pending" | "sent" | "failed" | "suppressed" | "retry-exhausted" | "no-recipient";
+  deliveryReference: string | null;
+  deliveryReportedAt: string | null;
+  followUpDeliveryStatus:
+    | "not-requested"
+    | "pending"
+    | "sent"
+    | "failed"
+    | "suppressed"
+    | "retry-exhausted"
+    | "no-recipient";
+  followUpChannel: "web" | "email" | "sms" | "rcs" | null;
 }>;
 
 export type FeedbackSlaState = Readonly<{
@@ -103,7 +115,10 @@ export type FeedbackAttentionDigest = Readonly<{
   windowEnd: string;
   capped: boolean;
   groups: readonly Readonly<{
+    groupKey: string;
     teamKey: string;
+    ownerId: string | null;
+    capped: boolean;
     items: readonly FeedbackAttentionDigestInput[];
   }>[];
 }>;
@@ -119,26 +134,40 @@ export function buildFeedbackAttentionDigest(
     if (!unique.has(item.attentionId)) unique.set(item.attentionId, item);
   }
 
-  const selected = [...unique.values()]
-    .sort((left, right) => {
-      const priority = priorityWeight(right.priority) - priorityWeight(left.priority);
-      return (
-        priority ||
-        (left.dueAt ?? "9999").localeCompare(right.dueAt ?? "9999") ||
-        left.caseId.localeCompare(right.caseId)
-      );
-    })
-    .slice(0, maxItems);
   const groups = new Map<string, FeedbackAttentionDigestInput[]>();
-  for (const item of selected) groups.set(item.teamKey, [...(groups.get(item.teamKey) ?? []), item]);
+  for (const item of unique.values()) {
+    const groupKey = item.ownerId ? `operator:${item.ownerId}` : `team:${item.teamKey}`;
+    groups.set(groupKey, [...(groups.get(groupKey) ?? []), item]);
+  }
+  let capped = false;
+  const selectedGroups = [...groups.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([groupKey, grouped]) => {
+      const sorted = grouped.sort((left, right) => {
+        const priority = priorityWeight(right.priority) - priorityWeight(left.priority);
+        return (
+          priority ||
+          (left.dueAt ?? "9999").localeCompare(right.dueAt ?? "9999") ||
+          left.caseId.localeCompare(right.caseId)
+        );
+      });
+      const selected = sorted.slice(0, maxItems);
+      const groupCapped = sorted.length > selected.length;
+      capped ||= groupCapped;
+      return {
+        groupKey,
+        teamKey: selected[0]?.teamKey ?? "support",
+        ownerId: selected[0]?.ownerId ?? null,
+        capped: groupCapped,
+        items: selected,
+      };
+    });
 
   return {
     windowStart: new Date(window.start).toISOString(),
     windowEnd: new Date(window.end).toISOString(),
-    capped: unique.size > selected.length,
-    groups: [...groups.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([teamKey, grouped]) => ({ teamKey, items: grouped })),
+    capped,
+    groups: selectedGroups,
   };
 }
 

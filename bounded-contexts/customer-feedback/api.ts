@@ -9,6 +9,6 @@ export type CustomerFeedbackApiEnv = AuthenticatedApiEnv;
 export function buildCustomerFeedbackApi(services: CustomerFeedbackServices) {
   const app = new Hono<CustomerFeedbackApiEnv>();
   app.route("/", buildCsatAdminApi(services.invitations));
-  app.route("/", buildCustomerFeedbackAttentionApi(services.db));
+  app.route("/", buildCustomerFeedbackAttentionApi(services));
   return app;
 }

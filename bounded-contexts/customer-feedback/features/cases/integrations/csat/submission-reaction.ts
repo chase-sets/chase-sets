@@ -20,7 +20,7 @@ export function buildFeedbackCaseOpeningReactionHandlers(openFromSubmission: Ope
       if (submission.rating > 3) return;
       await openFromSubmission(
         {
-          submission,
+          submission: { ...submission, subjectAccountId: submission.subjectAccountId ?? event.audit.forAccountId },
           openReason: "low-score",
           actor: automatedCaseActor,
           openedAt: submission.submittedAt,

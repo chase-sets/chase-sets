@@ -144,6 +144,7 @@ export type CsatSurveySubmittedEvent = DomainEvent<
   "customer-feedback.survey.submitted",
   Versioned<{
     invitationId: CsatInvitationId;
+    subjectAccountId?: string;
     surveyVersion: SurveyVersionId;
     rating: CsatRatingValue;
     comment: string | null;

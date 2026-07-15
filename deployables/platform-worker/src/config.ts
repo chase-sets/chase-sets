@@ -81,6 +81,8 @@ export type PlatformWorkerConfig = Readonly<{
   paymentReconciliationIntervalMs: number | null;
   paymentDeadlineSweepIntervalMs: number | null;
   supportRequestDeadlineSweepIntervalMs: number | null;
+  customerFeedbackAttentionDigestIntervalMs: number | null;
+  customerFeedbackAttentionTeamRecipientUserIds: readonly string[];
   reviewWindowSweepIntervalMs: number | null;
   reviewOpportunityReminderSweepIntervalMs: number | null;
   sellerAvailabilityRestoreSweepIntervalMs: number | null;
@@ -448,6 +450,13 @@ export function loadConfig(): PlatformWorkerConfig {
       "SUPPORT_REQUEST_DEADLINE_SWEEP_INTERVAL_MS",
       300_000,
     ),
+    customerFeedbackAttentionDigestIntervalMs: getOptionalPositiveNumberEnv(
+      "CUSTOMER_FEEDBACK_ATTENTION_DIGEST_INTERVAL_MS",
+      900_000,
+    ),
+    customerFeedbackAttentionTeamRecipientUserIds: getUserIdListEnv(
+      "CUSTOMER_FEEDBACK_ATTENTION_TEAM_RECIPIENT_USER_IDS",
+    ),
     // Double-blind reveal expiry sweep (m108): shares the support-request
     // sweep's 5-minute default cadence -- frequent enough that a missed
     // same-request counterpart-reveal race self-heals promptly, cheap enough
@@ -725,4 +734,21 @@ function getProjectionKeyListEnv(name: string): readonly string[] {
   }
 
   return [...new Set(keys)].sort((left, right) => left.localeCompare(right));
+}
+
+function getUserIdListEnv(name: string): readonly string[] {
+  const raw = getOptionalEnv(name);
+  if (!raw) return [];
+  const userIds = [
+    ...new Set(
+      raw
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  ];
+  for (const userId of userIds) {
+    if (!userId.startsWith("usr_")) throw new Error(`${name} entries must be stable user ids, got '${userId}'.`);
+  }
+  return userIds.sort((left, right) => left.localeCompare(right));
 }

@@ -111,6 +111,11 @@ export function createFeedbackCaseRuntime(deps: FeedbackCaseRuntimeDeps) {
       const result = await commandHandler({ streamId, command, context });
       return requireCase(result.state.feedbackCase);
     },
+    getByCaseId: async (caseId: FeedbackCaseId) => {
+      const streamId = await getFeedbackCaseStreamId(deps.db, caseId);
+      if (!streamId) return null;
+      return repository.load(streamId).then((loaded) => loaded.state.feedbackCase);
+    },
     commandHandler,
     projectors: [
       createProjectionHandlerSet({

@@ -259,6 +259,30 @@ export type ClaimedNotificationDelivery = NotificationDelivery &
     lastError: string | null;
   }>;
 
+export type NotificationDeliveryOutcome = "sent" | "failed" | "suppressed" | "retry-exhausted";
+
+export type NotificationDeliveryOutcomeReport = Readonly<{
+  deliveryId: string;
+  message: NotificationMessage;
+  channel: NotificationChannelName;
+  outcome: NotificationDeliveryOutcome;
+  attemptCount: number;
+  maxAttempts: number;
+  reportedAt: string;
+}>;
+
+export interface NotificationDeliveryOutcomeReporter {
+  reportNotificationDeliveryOutcome(report: NotificationDeliveryOutcomeReport): Promise<void>;
+}
+
+export type NotificationDeliveryGuardDecision =
+  | Readonly<{ allowed: true }>
+  | Readonly<{ allowed: false; reason: string }>;
+
+export interface NotificationDeliveryGuard {
+  evaluateNotificationDelivery(delivery: ClaimedNotificationDelivery): Promise<NotificationDeliveryGuardDecision>;
+}
+
 export type SentNotificationReceipt = Readonly<{
   channel: NotificationChannelName;
   providerName: NotificationProviderName;

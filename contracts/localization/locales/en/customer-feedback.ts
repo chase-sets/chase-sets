@@ -26,6 +26,7 @@ export const customerFeedbackEnglishTranslations = {
   "customer-feedback.attention.rating": "Rating",
   "customer-feedback.attention.sla": "SLA",
   "customer-feedback.attention.owner": "Owner",
+  "customer-feedback.attention.delivery": "Attention / follow-up delivery",
   "customer-feedback.attention.unassigned": "Unassigned",
   "customer-feedback.attention.notAvailable": "Not available",
   "customer-feedback.attention.duration.minutes": "{count} minutes",

@@ -13,6 +13,9 @@ import {
   type NotificationChannel,
   type NotificationChannelAdapter,
   type NotificationMessage,
+  type NotificationDeliveryGuard,
+  type NotificationDeliveryOutcome,
+  type NotificationDeliveryOutcomeReporter,
   type NotificationPreferenceResolver,
   type NotificationOutboxStore,
   isNotificationPreferenceMandatory,
@@ -330,6 +333,8 @@ export function createNotificationOutboxDispatcher(
     retryDelayMs?: (attemptCount: number) => number;
     now?: () => Date;
     preferenceResolver: NotificationPreferenceResolver;
+    deliveryGuard?: NotificationDeliveryGuard;
+    deliveryOutcomeReporter?: NotificationDeliveryOutcomeReporter;
   }>,
 ): NotificationOutboxDispatcher {
   const now = options.now ?? (() => new Date());
@@ -374,51 +379,91 @@ export function createNotificationOutboxDispatcher(
           continue;
         }
 
+        let outcome: NotificationDeliveryOutcome;
+        let receipt:
+          | Readonly<{
+              channel: string;
+              providerName: string;
+              providerMessageId: string;
+              acceptedAt: string;
+              attemptCount: number;
+            }>
+          | undefined;
+        let failure: unknown;
         try {
-          const recipientAccountId = notificationRecipientAccountId(delivery.message);
-          const preferences = isNotificationPreferenceMandatory(delivery.message)
-            ? []
-            : recipientAccountId
-              ? await preferencesForAccount(recipientAccountId)
-              : [];
-          const preferenceFilteredMessage = applyNotificationChannelPreferences(
-            { ...delivery.message, channels: [delivery.channel] },
-            preferences,
-          );
+          const guardDecision = options.deliveryGuard
+            ? await options.deliveryGuard.evaluateNotificationDelivery(delivery)
+            : ({ allowed: true } as const);
+          if (!guardDecision.allowed) {
+            outcome = "suppressed";
+            receipt = {
+              channel: delivery.channel.channel,
+              providerName: "delivery-policy",
+              providerMessageId: `suppressed:${delivery.deliveryId}`,
+              acceptedAt: now().toISOString(),
+              attemptCount: delivery.attemptCount,
+            };
+          } else {
+            const recipientAccountId = notificationRecipientAccountId(delivery.message);
+            const preferences = isNotificationPreferenceMandatory(delivery.message)
+              ? []
+              : recipientAccountId
+                ? await preferencesForAccount(recipientAccountId)
+                : [];
+            const preferenceFilteredMessage = applyNotificationChannelPreferences(
+              { ...delivery.message, channels: [delivery.channel] },
+              preferences,
+            );
 
-          if (!preferenceFilteredMessage) {
-            await options.outbox.markNotificationDeliverySent({
-              deliveryId: delivery.deliveryId,
-              receipt: {
+            if (!preferenceFilteredMessage) {
+              outcome = "suppressed";
+              receipt = {
                 channel: delivery.channel.channel,
                 providerName: "preference-filter",
                 providerMessageId: `suppressed:${delivery.deliveryId}`,
                 acceptedAt: now().toISOString(),
-                attemptCount: 0,
-              },
-              now: now().toISOString(),
-            });
-            continue;
-          }
+                attemptCount: delivery.attemptCount,
+              };
+            } else {
+              const adapter = adapterRegistry.adapterForChannel(delivery.channel.channel);
+              if (!adapter) {
+                throw new Error(`No notification adapter configured for '${delivery.channel.channel}'.`);
+              }
 
-          const adapter = adapterRegistry.adapterForChannel(delivery.channel.channel);
-          if (!adapter) {
-            throw new Error(`No notification adapter configured for '${delivery.channel.channel}'.`);
+              receipt = await adapter.sendNotificationChannel(delivery);
+              outcome = "sent";
+            }
           }
+        } catch (error) {
+          failure = error;
+          outcome = delivery.attemptCount < delivery.maxAttempts ? "failed" : "retry-exhausted";
+        }
 
-          const receipt = await adapter.sendNotificationChannel(delivery);
+        const reportedAt = now().toISOString();
+        await options.deliveryOutcomeReporter?.reportNotificationDeliveryOutcome({
+          deliveryId: delivery.deliveryId,
+          message: delivery.message,
+          channel: delivery.channel.channel,
+          outcome,
+          attemptCount: delivery.attemptCount,
+          maxAttempts: delivery.maxAttempts,
+          reportedAt,
+        });
+
+        if (outcome === "sent" || outcome === "suppressed") {
+          if (!receipt) throw new Error("Terminal notification delivery outcome requires a receipt.");
           await options.outbox.markNotificationDeliverySent({
             deliveryId: delivery.deliveryId,
             receipt,
-            now: now().toISOString(),
+            now: reportedAt,
           });
-        } catch (error) {
-          const canRetry = delivery.attemptCount < delivery.maxAttempts;
+        } else {
+          const canRetry = outcome === "failed";
           await options.outbox.markNotificationDeliveryFailed({
             deliveryId: delivery.deliveryId,
-            error: error instanceof Error ? error.message : String(error),
+            error: failure instanceof Error ? failure.message : String(failure),
             retryAt: canRetry ? new Date(now().getTime() + retryDelayMs(delivery.attemptCount)).toISOString() : null,
-            now: now().toISOString(),
+            now: reportedAt,
           });
         }
       }

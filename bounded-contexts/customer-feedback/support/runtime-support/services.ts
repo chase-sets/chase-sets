@@ -4,6 +4,8 @@ import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createCsatInvitationRuntime } from "../../features/csat/api/runtime";
 import { createFeedbackCaseRuntime } from "../../features/cases/api/runtime";
+import { createFeedbackAttentionDigestRunner } from "../../features/attention/api/digest-runner";
+import { createFeedbackNotificationDeliveryGuard } from "../../features/attention/integrations/notifications/delivery-authorization";
 
 /**
  * Runtime services for the Customer Feedback context.
@@ -14,6 +16,9 @@ import { createFeedbackCaseRuntime } from "../../features/cases/api/runtime";
 export type CustomerFeedbackServices = Readonly<{
   invitations: ReturnType<typeof createCsatInvitationRuntime>;
   cases: ReturnType<typeof createFeedbackCaseRuntime>;
+  runAttentionDigest: ReturnType<typeof createFeedbackAttentionDigestRunner>;
+  notificationDeliveryGuard: ReturnType<typeof createFeedbackNotificationDeliveryGuard>;
+  eventStore: ReturnType<typeof createPostgresEventStore>;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -34,5 +39,14 @@ export function createCustomerFeedbackServices(
   });
   const invitations = createCsatInvitationRuntime({ eventStore, db });
   const cases = createFeedbackCaseRuntime({ eventStore, db });
-  return { invitations, cases, projectors: [...invitations.projectors, ...cases.projectors], pool, db };
+  return {
+    invitations,
+    cases,
+    runAttentionDigest: createFeedbackAttentionDigestRunner({ eventStore, db }),
+    notificationDeliveryGuard: createFeedbackNotificationDeliveryGuard(cases.getByCaseId),
+    eventStore,
+    projectors: [...invitations.projectors, ...cases.projectors],
+    pool,
+    db,
+  };
 }

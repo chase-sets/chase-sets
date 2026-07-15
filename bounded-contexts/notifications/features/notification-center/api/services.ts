@@ -1,4 +1,5 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import {
   createNoopEmailWebhookGateway,
@@ -9,6 +10,7 @@ import {
   type MobileMessageWebhookGateway,
   type NotificationChannelPreference,
   type NotificationPreferenceResolver,
+  type NotificationDeliveryOutcomeReporter,
 } from "@chase-sets/outbound-messaging";
 import { createPostgresWebNotificationFeed } from "@chase-sets/web-notifications";
 import {
@@ -16,6 +18,7 @@ import {
   type NotificationPreference,
   type NotificationPreferenceKey,
 } from "../../preferences/domain/preferences";
+import { createCustomerFeedbackNotificationDeliveryOutcomeReporter } from "../domain/customer-feedback-delivery";
 
 export {
   defaultNotificationPreferences,
@@ -41,6 +44,7 @@ export type NotificationsServices = Readonly<{
   mobileMessages: MobileMessageProviderEventStore;
   mobileMessageWebhookGateway: MobileMessageWebhookGateway;
   notificationOutbox: ReturnType<typeof createPostgresNotificationOutbox>;
+  notificationDeliveryOutcomeReporter: NotificationDeliveryOutcomeReporter;
   notificationPreferenceResolver: NotificationPreferenceResolver;
   preferences: NotificationPreferenceStore;
 }>;
@@ -59,10 +63,15 @@ export interface MobileMessageProviderEventStore {
 }
 
 export function createNotificationsServices(
-  db: PgQueryable,
+  pool: PgTransactionalPool,
   ports: NotificationsHostPorts = {},
 ): NotificationsServices {
+  const db = pool as PgQueryable;
   const preferences = createPostgresNotificationPreferenceStore(db);
+  const eventStore = createPostgresEventStore({
+    pool,
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "notifications" }),
+  });
 
   return {
     emailMessages: createPostgresEmailProviderEventStore(db),
@@ -71,6 +80,7 @@ export function createNotificationsServices(
     mobileMessages: createPostgresMobileMessageProviderEventStore(db),
     mobileMessageWebhookGateway: ports.mobileMessageWebhookGateway ?? createNoopMobileMessageWebhookGateway(),
     notificationOutbox: createPostgresNotificationOutbox({ db }),
+    notificationDeliveryOutcomeReporter: createCustomerFeedbackNotificationDeliveryOutcomeReporter(eventStore),
     notificationPreferenceResolver: createNotificationPreferenceResolver(preferences),
     preferences,
   };

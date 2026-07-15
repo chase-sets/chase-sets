@@ -51,7 +51,6 @@ export type RequestFeedbackCaseFollowUpCommand = AttributedCommand &
   Readonly<{
     type: "RequestFeedbackCaseFollowUp";
     consentVersion: string;
-    recipientAccountId?: string | null;
     channel?: FeedbackCaseFollowUpChannel;
     templateVersion?: number;
   }>;
@@ -72,6 +71,13 @@ export type RecordFeedbackCaseFollowUpDeliveryOutcomeCommand = AttributedCommand
   }>;
 export type RecordFeedbackCaseFollowUpOutcomeCommand = AttributedCommand &
   Readonly<{ type: "RecordFeedbackCaseFollowUpOutcome"; outcome: FeedbackCaseFollowUpOutcome }>;
+export type RecordFeedbackCaseAttentionDeliveryOutcomeCommand = AttributedCommand &
+  Readonly<{
+    type: "RecordFeedbackCaseAttentionDeliveryOutcome";
+    attentionId: string;
+    deliveryReference?: string | null;
+    outcome: FeedbackCaseFollowUpDeliveryOutcome;
+  }>;
 export type WithdrawFeedbackCaseFollowUpConsentCommand = AttributedCommand &
   Readonly<{ type: "WithdrawFeedbackCaseFollowUpConsent"; consentVersion: string }>;
 export type CloseFeedbackCaseCommand = AttributedCommand & Readonly<{ type: "CloseFeedbackCase" }>;
@@ -91,6 +97,7 @@ export type FeedbackCaseCommand =
   | MarkFeedbackCaseFollowUpSentCommand
   | RecordFeedbackCaseFollowUpDeliveryOutcomeCommand
   | RecordFeedbackCaseFollowUpOutcomeCommand
+  | RecordFeedbackCaseAttentionDeliveryOutcomeCommand
   | WithdrawFeedbackCaseFollowUpConsentCommand
   | CloseFeedbackCaseCommand
   | ReopenFeedbackCaseCommand;
@@ -140,6 +147,10 @@ export const decideFeedbackCase: AggregateDecider<
         caseId: command.caseId,
         sourceResponse: {
           invitationId: command.submission.invitationId,
+          subjectAccountId: requireText(
+            command.submission.subjectAccountId ?? "",
+            "Source response subject account is required.",
+          ),
           surveyVersion: command.submission.surveyVersion,
           rating: command.submission.rating,
           submissionIdempotencyKey: command.submission.submissionIdempotencyKey,
@@ -319,7 +330,7 @@ export const decideFeedbackCase: AggregateDecider<
             eventSchemaVersion: 1,
             caseId: feedbackCase.caseId,
             consentVersion: feedbackCase.consent.version,
-            recipientAccountId: command.recipientAccountId ?? null,
+            recipientAccountId: feedbackCase.sourceResponse.subjectAccountId,
             channel: requestChannel,
             templateVersion: command.templateVersion ?? 1,
             actorId,
@@ -361,16 +372,55 @@ export const decideFeedbackCase: AggregateDecider<
       ) {
         fail("invalid-transition", "Follow-up delivery outcome requires a requested follow-up.", feedbackCase);
       }
+      const deliveryReference = command.deliveryReference ?? feedbackCase.followUpDeliveryReference;
+      const channel = command.channel ?? feedbackCase.followUpChannel;
+      const templateVersion = command.templateVersion ?? feedbackCase.followUpTemplateVersion;
+      if (
+        feedbackCase.followUpDeliveryStatus === command.outcome &&
+        feedbackCase.followUpDeliveryReference === deliveryReference &&
+        feedbackCase.followUpChannel === channel &&
+        feedbackCase.followUpTemplateVersion === templateVersion
+      ) {
+        return [];
+      }
+      if (feedbackCase.followUpDeliveryStatus === "sent" && command.outcome !== "sent") return [];
       return [
         {
           type: "customer-feedback.case.follow-up-delivery-outcome-recorded",
           data: {
             eventSchemaVersion: 1,
             caseId: feedbackCase.caseId,
-            deliveryReference: command.deliveryReference ?? feedbackCase.followUpDeliveryReference,
+            deliveryReference,
             outcome: command.outcome,
-            channel: command.channel ?? feedbackCase.followUpChannel,
-            templateVersion: command.templateVersion ?? feedbackCase.followUpTemplateVersion,
+            channel,
+            templateVersion,
+            actorId,
+            actedAt,
+          },
+        },
+      ];
+    }
+    case "RecordFeedbackCaseAttentionDeliveryOutcome": {
+      requireText(command.attentionId, "Attention delivery outcome requires an attention id.");
+      const deliveryReference = command.deliveryReference
+        ? requireText(command.deliveryReference, "Attention delivery reference cannot be empty.")
+        : null;
+      if (
+        feedbackCase.attentionDeliveryStatus === command.outcome &&
+        feedbackCase.attentionDeliveryReference === deliveryReference
+      ) {
+        return [];
+      }
+      if (feedbackCase.attentionDeliveryStatus === "sent" && command.outcome !== "sent") return [];
+      return [
+        {
+          type: "customer-feedback.case.attention-delivery-outcome-recorded",
+          data: {
+            eventSchemaVersion: 1,
+            caseId: feedbackCase.caseId,
+            attentionId: command.attentionId,
+            deliveryReference,
+            outcome: command.outcome,
             actorId,
             actedAt,
           },
@@ -473,6 +523,8 @@ export const evolveFeedbackCase: AggregateEvolver<FeedbackCaseAggregateState, Fe
         followUpTemplateVersion: null,
         followUpSentAt: null,
         followUpOutcome: null,
+        attentionDeliveryStatus: "not-requested",
+        attentionDeliveryReference: null,
         openedAt: event.data.actedAt,
         triagedAt: null,
         actionedAt: null,
@@ -534,10 +586,20 @@ export const evolveFeedbackCase: AggregateEvolver<FeedbackCaseAggregateState, Fe
         followUpChannel: event.data.channel ?? feedbackCase.followUpChannel,
         followUpTemplateVersion: event.data.templateVersion ?? feedbackCase.followUpTemplateVersion,
         followUpSentAt: event.data.outcome === "sent" ? event.data.actedAt : feedbackCase.followUpSentAt,
-        followUpStatus: event.data.outcome === "sent" ? "sent" : feedbackCase.followUpStatus,
+        followUpStatus:
+          event.data.outcome === "sent"
+            ? "sent"
+            : ["suppressed", "retry-exhausted", "no-recipient"].includes(event.data.outcome)
+              ? "cancelled"
+              : feedbackCase.followUpStatus,
       });
     case "customer-feedback.case.follow-up-outcome-recorded":
       return update(feedbackCase, { followUpStatus: "completed", followUpOutcome: event.data.outcome });
+    case "customer-feedback.case.attention-delivery-outcome-recorded":
+      return update(feedbackCase, {
+        attentionDeliveryStatus: event.data.outcome,
+        attentionDeliveryReference: event.data.deliveryReference,
+      });
     case "customer-feedback.case.follow-up-consent-withdrawn":
       return update(feedbackCase, {
         consent: { ...feedbackCase.consent, status: "withdrawn", withdrawnAt: event.data.actedAt },
@@ -559,7 +621,10 @@ export const evolveFeedbackCase: AggregateEvolver<FeedbackCaseAggregateState, Fe
         followUpStatus: feedbackCase.followUpStatus === "cancelled" ? "not-requested" : feedbackCase.followUpStatus,
       });
     case "customer-feedback.case.attention-requested":
-      return state;
+      return update(feedbackCase, {
+        attentionDeliveryStatus: event.data.ownerId ? "pending" : "no-recipient",
+        attentionDeliveryReference: null,
+      });
     default:
       return assertNever(event);
   }
@@ -586,7 +651,10 @@ function validateOpening(command: OpenFeedbackCaseCommand): void {
 
 function requireCommandAuthority(command: FeedbackCaseCommand, status: FeedbackCase["status"] | null): void {
   const deliveryCommand =
-    command.type === "MarkFeedbackCaseFollowUpSent" || command.type === "RecordFeedbackCaseFollowUpDeliveryOutcome";
+    command.type === "RequestFeedbackCaseFollowUp" ||
+    command.type === "MarkFeedbackCaseFollowUpSent" ||
+    command.type === "RecordFeedbackCaseFollowUpDeliveryOutcome" ||
+    command.type === "RecordFeedbackCaseAttentionDeliveryOutcome";
   const allowed = deliveryCommand
     ? command.actor.authority === "manage-feedback-cases" || command.actor.authority === "notify-feedback-cases"
     : command.actor.authority === "manage-feedback-cases";

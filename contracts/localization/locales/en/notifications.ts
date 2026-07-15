@@ -41,7 +41,8 @@ export const notificationsEnglishTranslations = {
   "notifications.intents.customerFeedbackAttention.body":
     "A {priority}-priority CSAT response rated {rating} needs review.",
   "notifications.intents.customerFeedbackFollowUp.title": "Support follow-up requested",
-  "notifications.intents.customerFeedbackFollowUp.body": "We are following up about your support experience.",
+  "notifications.intents.customerFeedbackFollowUp.body":
+    "Chase Sets support is following up about feedback you asked us to contact you about.",
   "notifications.intents.customerFeedbackDigest.title": "Customer feedback attention digest",
   "notifications.intents.customerFeedbackDigest.body": "{count} feedback cases need attention.",
   "notifications.intents.stockCommitted.body": "{quantity} units across {lineCount} lines are committed to this sale.",

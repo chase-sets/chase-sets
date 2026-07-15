@@ -12,6 +12,7 @@ const manager = { actorId: "usr_manager", authority: "manage-feedback-cases" } a
 const submission = {
   eventSchemaVersion: 1,
   invitationId: "csatinv_attention" as never,
+  subjectAccountId: "acc_customer",
   surveyVersion: transactionalCsatV1.id,
   rating: 1,
   comment: "must not be copied",
@@ -39,6 +40,9 @@ describe("feedback attention policy", () => {
       actedAt: "2026-07-13T12:01:00.000Z",
     });
     expect(events.filter((event) => event.type === "customer-feedback.case.attention-requested")).toHaveLength(1);
+    expect(events.reduce(evolveFeedbackCase, initialFeedbackCaseState).feedbackCase?.attentionDeliveryStatus).toBe(
+      "no-recipient",
+    );
     const digest = buildFeedbackAttentionDigest(
       [
         {
@@ -82,6 +86,18 @@ describe("feedback attention policy", () => {
   });
 
   it("reports triage and manual due-date breaches without aging closed cases", () => {
+    const atBoundary = feedbackCaseSlaState(
+      {
+        openedAt: "2026-07-13T12:00:00.000Z",
+        priority: "urgent",
+        triagedAt: null,
+        dueAt: null,
+        status: "new",
+        closedAt: null,
+      },
+      "2026-07-13T08:00:00.000-05:00",
+    );
+    expect(atBoundary).toMatchObject({ breach: null, overdue: false });
     const overdue = feedbackCaseSlaState(
       {
         openedAt: "2026-07-13T12:00:00.000Z",
@@ -91,7 +107,7 @@ describe("feedback attention policy", () => {
         status: "new",
         closedAt: null,
       },
-      "2026-07-13T13:01:00.000Z",
+      "2026-07-13T13:00:00.001Z",
     );
     expect(overdue).toMatchObject({ breach: "triage", overdue: true });
     const closed = feedbackCaseSlaState(
@@ -135,7 +151,6 @@ describe("consented follow-up delivery state", () => {
       decideFeedbackCase(triaged.reduce(evolveFeedbackCase, openedState), {
         type: "RequestFeedbackCaseFollowUp",
         consentVersion: "feedback-follow-up-v1",
-        recipientAccountId: "acc_customer",
         actor: manager,
         actedAt: "2026-07-13T12:03:00.000Z",
       }),
@@ -160,7 +175,6 @@ describe("consented follow-up delivery state", () => {
     const requested = decideFeedbackCase(triaged.reduce(evolveFeedbackCase, openedState), {
       type: "RequestFeedbackCaseFollowUp",
       consentVersion: "feedback-follow-up-v1",
-      recipientAccountId: "acc_customer",
       actor: manager,
       actedAt: "2026-07-13T12:03:00.000Z",
     }).reduce(evolveFeedbackCase, triaged.reduce(evolveFeedbackCase, openedState));

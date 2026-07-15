@@ -512,7 +512,7 @@ export const sourceContextWakeRegistry = [
     priorityLane: "bulk",
     expectedEventVolume: "medium",
     wakeStoreLoadEstimate: "none",
-    affectedProjectionNames: [],
+    affectedProjectionNames: ["customer-feedback:customer-feedback-notification-delivery-recording"],
     routeDependencyIds: [],
   }),
   registryEntry({

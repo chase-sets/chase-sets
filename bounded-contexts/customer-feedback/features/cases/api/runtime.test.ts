@@ -10,6 +10,7 @@ const context = {
 const submission = {
   eventSchemaVersion: 1 as const,
   invitationId: "csatinv_01" as never,
+  subjectAccountId: "acc_subject",
   surveyVersion: transactionalCsatV1.id,
   rating: 1 as const,
   comment: "Sensitive customer text",
@@ -50,5 +51,36 @@ describe("feedback case runtime", () => {
     const streamId = feedbackCaseStreamId(submission.invitationId);
     expect(streamId).toMatch(/^customer-feedback\.feedback-case-[0-9a-f]{64}$/);
     expect(streamId).not.toContain(submission.invitationId);
+  });
+
+  it("lets optimistic concurrency choose one assignment race winner", async () => {
+    const store = createInMemoryEventStore();
+    const streamId = feedbackCaseStreamId(submission.invitationId);
+    const runtime = createFeedbackCaseRuntime({
+      eventStore: store.eventStore,
+      db: { query: vi.fn(async () => ({ rows: [{ stream_id: streamId }] })) } as never,
+    });
+    const opened = await runtime.openFromSubmission(
+      {
+        submission,
+        openReason: "low-score",
+        actor: { actorId: "customer-feedback.case-opening-policy", authority: "manage-feedback-cases" },
+      },
+      context,
+    );
+    const assign = (ownerId: string) =>
+      runtime.executeByCaseId(
+        opened.caseId,
+        {
+          type: "AssignFeedbackCase",
+          ownerId,
+          actor: { actorId: "usr_manager", authority: "manage-feedback-cases" },
+          actedAt: "2026-07-13T12:03:00.000Z",
+        },
+        context,
+      );
+    const results = await Promise.allSettled([assign("usr_owner_a"), assign("usr_owner_b")]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
   });
 });

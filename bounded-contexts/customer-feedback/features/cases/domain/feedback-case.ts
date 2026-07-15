@@ -64,7 +64,8 @@ export type FeedbackCaseSourceResponse = Readonly<
     CsatSurveySubmittedEvent["data"],
     "invitationId" | "surveyVersion" | "rating" | "submissionIdempotencyKey" | "submittedAt"
   >
->;
+> &
+  Readonly<{ subjectAccountId: string }>;
 
 export type FeedbackCase = Readonly<{
   caseId: FeedbackCaseId;
@@ -85,6 +86,8 @@ export type FeedbackCase = Readonly<{
   followUpTemplateVersion: number | null;
   followUpSentAt: string | null;
   followUpOutcome: FeedbackCaseFollowUpOutcome | null;
+  attentionDeliveryStatus: FeedbackCaseFollowUpDeliveryStatus;
+  attentionDeliveryReference: string | null;
   openedAt: string;
   triagedAt: string | null;
   actionedAt: string | null;
@@ -173,7 +176,7 @@ export type FeedbackCaseFollowUpRequestedEvent = DomainEvent<
   Attributed<{
     caseId: FeedbackCaseId;
     consentVersion: string;
-    recipientAccountId?: string | null;
+    recipientAccountId: string;
     channel?: FeedbackCaseFollowUpChannel;
     templateVersion?: number;
   }>
@@ -217,6 +220,16 @@ export type FeedbackCaseAttentionRequestedEvent = DomainEvent<
   }>
 >;
 
+export type FeedbackCaseAttentionDeliveryOutcomeRecordedEvent = DomainEvent<
+  "customer-feedback.case.attention-delivery-outcome-recorded",
+  Attributed<{
+    caseId: FeedbackCaseId;
+    attentionId: string;
+    deliveryReference: string | null;
+    outcome: FeedbackCaseFollowUpDeliveryOutcome;
+  }>
+>;
+
 export type FeedbackCaseFollowUpOutcomeRecordedEvent = DomainEvent<
   "customer-feedback.case.follow-up-outcome-recorded",
   Attributed<{ caseId: FeedbackCaseId; outcome: FeedbackCaseFollowUpOutcome }>
@@ -254,7 +267,8 @@ export type FeedbackCaseEvent =
   | FeedbackCaseFollowUpConsentWithdrawnEvent
   | FeedbackCaseClosedEvent
   | FeedbackCaseReopenedEvent
-  | FeedbackCaseAttentionRequestedEvent;
+  | FeedbackCaseAttentionRequestedEvent
+  | FeedbackCaseAttentionDeliveryOutcomeRecordedEvent;
 
 export const feedbackCaseEventTypes = [
   "customer-feedback.case.opened",
@@ -274,4 +288,5 @@ export const feedbackCaseEventTypes = [
   "customer-feedback.case.closed",
   "customer-feedback.case.reopened",
   "customer-feedback.case.attention-requested",
+  "customer-feedback.case.attention-delivery-outcome-recorded",
 ] as const;
