@@ -7,7 +7,7 @@ function detail(overrides: Partial<SupportRequestDetail> = {}): SupportRequestDe
     affected_line_items: [],
     offers: [],
     pending_offer: null,
-    ...(overrides as SupportRequestDetail),
+    ...overrides,
   } as SupportRequestDetail;
 }
 

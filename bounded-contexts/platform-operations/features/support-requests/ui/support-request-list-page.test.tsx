@@ -174,6 +174,7 @@ describe("SupportRequestListPage", () => {
       return_condition_disputed_at: null,
       remedy: null,
       remedy_approval: null,
+      contested: false,
       case_presentation: "decision-pending" as const,
       closure_eligible: false,
       closure_blocking_reasons: [],
