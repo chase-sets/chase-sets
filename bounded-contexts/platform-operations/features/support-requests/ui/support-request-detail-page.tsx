@@ -267,7 +267,6 @@ function OfferDecision({ request }: Readonly<{ request: SupportRequestDetail }>)
       </Card.Header>
       <Card.Body>
         <KeyValueList
-          variant="surface"
           items={[
             {
               key: t("support.features.supportRequests.ui.supportRequestDetailPage.offer.outcome"),
@@ -523,7 +522,6 @@ export function SupportRequestDetailPage({
 
       <PageSection title={t("support.features.supportRequests.ui.supportRequestDetailPage.overview.title")}>
         <KeyValueList
-          variant="surface"
           items={[
             {
               key: t("support.features.supportRequests.ui.supportRequestDetailPage.overview.order"),
