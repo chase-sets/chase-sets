@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { findReturnShipmentIdForRemedy, getCustomerReturnShipment, getOperatorReturnShipment } from "./queries";
+import {
+  findReturnShipmentIdForRemedy,
+  getCustomerReturnShipment,
+  getOperatorReturnShipment,
+  getReturnIntakeEvidenceReference,
+  resolveOperatorReturnShipmentForIntake,
+} from "./queries";
 
 function mockDb(rows: readonly unknown[]) {
   const captured: string[] = [];
@@ -53,5 +59,27 @@ describe("return shipment read-model queries", () => {
     expect(await findReturnShipmentIdForRemedy(db, "rmd_1")).toBe("rsh_1");
     const { db: emptyDb } = mockDb([]);
     expect(await findReturnShipmentIdForRemedy(emptyDb, "rmd_missing")).toBeNull();
+  });
+
+  it("resolves tracking or Return Shipment identifiers only within the assigned facility", async () => {
+    const { db, captured } = mockDb([{ return_shipment_id: "rsh_1", facility_id: "fac_east" }]);
+    const result = await resolveOperatorReturnShipmentForIntake(db, "track-1", "fac_east");
+    expect(result.outcome).toBe("resolved");
+    expect(captured[0]).toContain("facility_id = $2");
+    expect(captured[0]).toContain("FROM fulfillment_shipment_line_pages");
+    expect(captured[0]).toContain("return_shipment_id = $1 OR tracking_identifier = $1");
+
+    const { db: ambiguousDb } = mockDb([{ return_shipment_id: "rsh_1" }, { return_shipment_id: "rsh_2" }]);
+    expect((await resolveOperatorReturnShipmentForIntake(ambiguousDb, "duplicate", "fac_east")).outcome).toBe(
+      "ambiguous",
+    );
+  });
+
+  it("looks up evidence through facility-scoped projected references", async () => {
+    const { db, captured } = mockDb([]);
+    await getReturnIntakeEvidenceReference(db, "rie_1", "fac_east");
+    expect(captured[0]).toContain("WHERE facility_id = $2");
+    expect(captured[0]).toContain("evidence->>'attachmentId' = $1");
+    expect(captured[0]).not.toContain("public");
   });
 });

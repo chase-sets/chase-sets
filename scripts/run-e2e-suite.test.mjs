@@ -167,6 +167,15 @@ describe("run e2e suite", () => {
     ).toEqual(["admin_commerce"]);
   });
 
+  it("routes facility return intake to commerce admin coverage", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/fulfillment/routes/admin/return-intake.tsx")).toEqual([
+      "admin_commerce",
+    ]);
+    expect(
+      e2eSuiteIdsForChangedFile("bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx"),
+    ).toEqual(["admin_commerce"]);
+  });
+
   it("routes commercial terms admin routes to commerce admin coverage", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/commercial-terms/routes/admin/schedules.tsx")).toEqual([
       "admin_commerce",

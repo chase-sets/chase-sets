@@ -85,6 +85,9 @@ CREATE TABLE IF NOT EXISTS fulfillment_return_shipment_operator_pages (
   current_exception_notes text NULL,
   milestones jsonb NOT NULL DEFAULT '[]'::jsonb,
   exceptions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  facility_intake jsonb NULL,
+  intake_corrections jsonb NOT NULL DEFAULT '[]'::jsonb,
+  duplicate_intake_scan_count integer NOT NULL DEFAULT 0,
   requested_at timestamptz NOT NULL,
   label_ready_at timestamptz NULL,
   label_failed_at timestamptz NULL,
@@ -128,6 +131,76 @@ CREATE INDEX IF NOT EXISTS fulfillment_return_shipment_label_operations_status_i
 CREATE UNIQUE INDEX IF NOT EXISTS fulfillment_return_shipment_label_operations_active_kind_idx
   ON fulfillment_return_shipment_label_operations (return_shipment_id, operation_kind)
   WHERE status IN ('pending', 'provider-succeeded');
+
+CREATE INDEX IF NOT EXISTS fulfillment_return_shipment_operator_pages_tracking_idx
+  ON fulfillment_return_shipment_operator_pages (tracking_identifier)
+  WHERE tracking_identifier IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS fulfillment_return_shipment_operator_pages_facility_status_idx
+  ON fulfillment_return_shipment_operator_pages (facility_id, status, delivered_at, return_shipment_id);
+
+CREATE TABLE IF NOT EXISTS fulfillment_unidentified_return_package_pages (
+  unidentified_package_id text PRIMARY KEY,
+  facility_id text NOT NULL,
+  station_id text NOT NULL,
+  operator_user_id text NOT NULL,
+  received_at timestamptz NOT NULL,
+  package_condition text NOT NULL,
+  seal_condition text NOT NULL,
+  measured_weight_ounces numeric NULL,
+  evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
+  custody_identifier text NOT NULL UNIQUE,
+  notes text NULL,
+  owner text NOT NULL,
+  next_action text NOT NULL,
+  return_shipment_id text NULL,
+  reconciled_by_user_id text NULL,
+  reconciled_at timestamptz NULL,
+  reconciliation_reason text NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS fulfillment_unidentified_return_package_pages_facility_status_idx
+  ON fulfillment_unidentified_return_package_pages (facility_id, reconciled_at, received_at DESC);
 `;
 
-export const fulfillmentReturnShipmentSchemaMigrations: readonly BcSchemaMigration[] = [];
+export const fulfillmentReturnShipmentSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260714_fulfillment_return_shipment_facility_intake",
+    description:
+      "Add facility intake evidence, duplicate-scan metrics, and unidentified package reconciliation read models.",
+    statements: [
+      `ALTER TABLE IF EXISTS fulfillment_return_shipment_operator_pages
+         ADD COLUMN IF NOT EXISTS facility_intake jsonb NULL,
+         ADD COLUMN IF NOT EXISTS intake_corrections jsonb NOT NULL DEFAULT '[]'::jsonb,
+         ADD COLUMN IF NOT EXISTS duplicate_intake_scan_count integer NOT NULL DEFAULT 0`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_return_shipment_operator_pages_tracking_idx
+         ON fulfillment_return_shipment_operator_pages (tracking_identifier)
+         WHERE tracking_identifier IS NOT NULL`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_return_shipment_operator_pages_facility_status_idx
+         ON fulfillment_return_shipment_operator_pages (facility_id, status, delivered_at, return_shipment_id)`,
+      `CREATE TABLE IF NOT EXISTS fulfillment_unidentified_return_package_pages (
+         unidentified_package_id text PRIMARY KEY,
+         facility_id text NOT NULL,
+         station_id text NOT NULL,
+         operator_user_id text NOT NULL,
+         received_at timestamptz NOT NULL,
+         package_condition text NOT NULL,
+         seal_condition text NOT NULL,
+         measured_weight_ounces numeric NULL,
+         evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
+         custody_identifier text NOT NULL UNIQUE,
+         notes text NULL,
+         owner text NOT NULL,
+         next_action text NOT NULL,
+         return_shipment_id text NULL,
+         reconciled_by_user_id text NULL,
+         reconciled_at timestamptz NULL,
+         reconciliation_reason text NULL,
+         updated_at timestamptz NOT NULL
+       )`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_unidentified_return_package_pages_facility_status_idx
+         ON fulfillment_unidentified_return_package_pages (facility_id, reconciled_at, received_at DESC)`,
+    ],
+  },
+];

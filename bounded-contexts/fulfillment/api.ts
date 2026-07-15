@@ -6,6 +6,7 @@ import {
   createAccountSaleShipmentRoutes,
   createPostageProviderWebhookRoutes,
 } from "./features/shipments/api/route";
+import { createReturnIntakeRoutes } from "./features/return-shipments/api/route";
 
 export type FulfillmentApiEnv = AuthenticatedApiEnv;
 
@@ -14,6 +15,7 @@ export function buildFulfillmentApi(services: FulfillmentServices) {
 
   app.route("/account", createAccountShipmentRoutes(services.shipments));
   app.route("/account", createAccountSaleShipmentRoutes(services.shipments));
+  app.route("/operations/return-intake", createReturnIntakeRoutes(services.returnShipments));
 
   return app;
 }

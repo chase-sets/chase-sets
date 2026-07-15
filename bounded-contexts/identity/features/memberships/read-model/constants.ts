@@ -29,6 +29,8 @@ export const ROLE_PERMISSIONS = {
     "memberships.view",
     "postage-policies.manage",
     "postage-policies.view",
+    "return-intake.manage",
+    "return-intake.view",
     // Customer feedback operator capabilities: platform-staff only.
     // Export is a distinct grant from view/manage so the sensitive free-text
     // comment download can be withheld independently.
@@ -138,6 +140,8 @@ export const ROLE_PERMISSIONS = {
     "listings.view",
     "offers.view",
     "orders.view",
+    "return-intake.manage",
+    "return-intake.view",
     // No platform-feedback.* -- operator feedback is platform-staff only.
     "public-presence.view",
     "reputation.view",

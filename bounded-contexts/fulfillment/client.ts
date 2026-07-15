@@ -19,6 +19,24 @@ import type {
   FulfillmentShipmentListItem,
   FulfillmentPackingSlipBatch,
 } from "./features/shipments/api/contracts";
+import type {
+  OperatorReturnShipmentView,
+  ReturnIntakeMetrics,
+  UnidentifiedReturnPackageView,
+} from "./features/return-shipments/read-model/queries";
+import type { ReturnIntakeEvidenceAttachment } from "./features/return-shipments/domain/facility-intake";
+
+export type FulfillmentReturnIntakeQueue = Readonly<{
+  items: readonly OperatorReturnShipmentView[];
+  unidentified: readonly UnidentifiedReturnPackageView[];
+  metrics: ReturnIntakeMetrics;
+}>;
+
+export type FulfillmentReturnIntakeResolution = Readonly<{
+  outcome: "resolved";
+  shipment: OperatorReturnShipmentView;
+  version: number;
+}>;
 
 type FulfillmentApiApp = ReturnType<typeof buildFulfillmentApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
@@ -73,6 +91,7 @@ export function createFulfillmentApiClient({
     }),
   );
   const headers = resolveHeaders(initialHeaders);
+  const directUrl = (path: string) => `${baseUrl.replace(/\/$/, "")}${path}`;
 
   return {
     async listBuyerShipments(query = ""): Promise<ListResponse<FulfillmentShipmentListItem>> {
@@ -209,6 +228,63 @@ export function createFulfillmentApiClient({
       return parseJsonResponse(
         await client.account.sales.shipments[":id"].exception.$post({
           param: { id: shipmentId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async getReturnIntakeQueue(facilityId: string): Promise<FulfillmentReturnIntakeQueue> {
+      return parseJsonResponse(
+        await client.operations["return-intake"].$get({ query: { facilityId }, header: headers }),
+      );
+    },
+    async resolveReturnIntake(identifier: string, facilityId: string): Promise<FulfillmentReturnIntakeResolution> {
+      return parseJsonResponse(
+        await client.operations["return-intake"].resolve.$get({ query: { identifier, facilityId }, header: headers }),
+      );
+    },
+    async uploadReturnIntakeEvidence(
+      facilityId: string,
+      file: File,
+    ): Promise<{ attachment: ReturnIntakeEvidenceAttachment }> {
+      const formData = new FormData();
+      formData.set("facilityId", facilityId);
+      formData.set("evidence", file);
+      return parseJsonResponse(
+        await configuredFetch(directUrl("/operations/return-intake/evidence"), {
+          method: "POST",
+          headers,
+          body: formData,
+        }),
+      );
+    },
+    async completeReturnIntake(returnShipmentId: string, body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.operations["return-intake"][":returnShipmentId"].complete.$post({
+          param: { returnShipmentId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async correctReturnIntake(returnShipmentId: string, body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.operations["return-intake"][":returnShipmentId"].corrections.$post({
+          param: { returnShipmentId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async recordUnidentifiedReturnPackage(body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.operations["return-intake"].unidentified.$post({ json: body, header: headers }),
+      );
+    },
+    async reconcileUnidentifiedReturnPackage(unidentifiedPackageId: string, body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.operations["return-intake"].unidentified[":unidentifiedPackageId"].reconcile.$post({
+          param: { unidentifiedPackageId },
           json: body,
           header: headers,
         }),

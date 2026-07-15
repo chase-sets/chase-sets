@@ -38,6 +38,8 @@ export type PermissionKey =
   | "commercial-terms.view"
   | "fulfillment.manage"
   | "fulfillment.view"
+  | "return-intake.manage"
+  | "return-intake.view"
   | "google-shopping.manage"
   | "google-shopping.view"
   | "insights-dashboards.view"

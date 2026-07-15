@@ -8,7 +8,10 @@ import type { Tone } from "../../feedback/shared";
 
 type TaskScanInputFeedbackTone = Exclude<Tone, "neutral" | "accent">;
 
-export interface TaskScanInputProps extends Omit<FormProps, "children" | "className" | "onSubmit" | "style"> {
+export interface TaskScanInputProps extends Omit<
+  FormProps,
+  "autoFocus" | "children" | "className" | "onSubmit" | "style"
+> {
   label: ReactNode;
   value: string;
   onValueChange: (value: string) => void;
@@ -19,6 +22,7 @@ export interface TaskScanInputProps extends Omit<FormProps, "children" | "classN
   feedback?: ReactNode;
   feedbackTone?: TaskScanInputFeedbackTone;
   disabled?: boolean;
+  autoFocus?: boolean;
 }
 
 const feedbackToneClass: Record<NonNullable<TaskScanInputProps["feedbackTone"]>, string> = {
@@ -44,6 +48,7 @@ export function TaskScanInput({
   feedback,
   feedbackTone = "info",
   disabled = false,
+  autoFocus = false,
   ...rest
 }: TaskScanInputProps) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -65,6 +70,7 @@ export function TaskScanInput({
           description={description}
           value={value}
           disabled={disabled}
+          autoFocus={autoFocus}
           placeholder={placeholder}
           onChange={(event) => onValueChange(event.currentTarget.value)}
         />

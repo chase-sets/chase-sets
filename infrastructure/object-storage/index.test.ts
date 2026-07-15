@@ -34,6 +34,12 @@ describe("object storage adapters", () => {
       body: Buffer.from([1, 2, 3]),
       contentType: "image/webp",
     });
+    await expect(storage.getObject("catalog/items/cat_test/product-image/high.webp")).resolves.toEqual({
+      body: Buffer.from([1, 2, 3]),
+      contentType: "image/webp",
+    });
+    await storage.deleteObjects(["catalog/items/cat_test/product-image/high.webp"]);
+    await expect(storage.getObject("catalog/items/cat_test/product-image/high.webp")).resolves.toBeNull();
   });
 
   it("rejects filesystem traversal keys", async () => {
@@ -85,5 +91,37 @@ describe("object storage adapters", () => {
         ACL: "public-read",
       },
     });
+  });
+
+  it("does not grant public-read access to private S3 objects", async () => {
+    const sent: unknown[] = [];
+    const storage = createS3ObjectStorage({
+      bucket: "private-returns",
+      region: "nyc3",
+      publicBaseUrl: "https://objects.chasesets.test",
+      client: {
+        send: async (command) => {
+          sent.push(command);
+          return {};
+        },
+      },
+    });
+
+    await storage.putObject({
+      key: "return-intake/fac_east/rie_1/hash.jpg",
+      body: new Uint8Array([0xff]),
+      contentType: "image/jpeg",
+      visibility: "private",
+      cacheControl: "private, no-store",
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      input: {
+        Bucket: "private-returns",
+        CacheControl: "private, no-store",
+      },
+    });
+    expect((sent[0] as { input: Record<string, unknown> }).input).not.toHaveProperty("ACL");
   });
 });

@@ -65,7 +65,11 @@ Postage provider configuration and label smoke checks live in [Postage Operation
 - `fulfillment.return-shipment.carrier-accepted.v1`
 - `fulfillment.return-shipment.in-transit-recorded.v1`
 - `fulfillment.return-shipment.delivered.v1`
-- `fulfillment.return-shipment.received.v1`
+- `fulfillment.return-shipment.facility-intake-completed.v1`
+- `fulfillment.return-shipment.facility-intake-corrected.v1`
+- `fulfillment.return-shipment.duplicate-intake-scan-observed.v1`
+- `fulfillment.unidentified-return-package.recorded.v1`
+- `fulfillment.unidentified-return-package.reconciled.v1`
 - `fulfillment.return-shipment.cancelled.v1`
 - `fulfillment.return-shipment.expired.v1`
 - `fulfillment.return-shipment.exception-raised.v1`
@@ -110,8 +114,14 @@ secrets never reach the event log or the customer read model. Customer-safe and
 operator read models are projected separately, so protected facility and party
 metadata cannot leak to buyers by construction. The design is recorded in
 [ADR 0023: ReturnShipment Aggregate and Platform Return-Facility Directory](../../docs/adr/0023-return-shipment-aggregate.md).
-Label purchase, tracking ingestion, refund release, and facility intake evidence
-are delivered by sibling leaves that build on this foundation.
+Facility intake extends the same aggregate with evidence-gated custody completion,
+structured discrepancy ownership and next actions, append-only corrections, and
+duplicate-scan observations. Unidentified packages use a separate Fulfillment-owned
+event stream so later reconciliation can link a Return Shipment without rewriting
+the original receipt evidence. Intake evidence is private, content-validated,
+security-scanned, and access-scoped to return-intake operators at the assigned
+facility. The operational procedure is in
+[Facility Return Intake](../../docs/runbooks/facility-return-intake.md).
 
 ## Open Extraction Candidates
 

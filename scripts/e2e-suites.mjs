@@ -59,7 +59,7 @@ export const e2eSuites = Object.freeze([
     id: "admin_commerce",
     label: "Admin Commerce",
     deployable: "admin-web",
-    journeys: ["commercial terms management", "postage policy management"],
+    journeys: ["commercial terms management", "postage policy management", "facility return intake"],
     grep: "@admin-commerce",
     estimatedDurationSeconds: 420,
   },
@@ -185,6 +185,7 @@ const adminContextRouteSuiteOwnership = new Map([
   ["commercial-terms", ["admin_commerce"]],
   ["discovery", ["admin_growth"]],
   ["identity", ["admin_access"]],
+  ["fulfillment", ["admin_commerce"]],
   ["ordering", ["admin_commerce"]],
   ["platform-operations", ["admin_support", "admin_platform"]],
   ["public-presence", ["admin_growth"]],
@@ -268,6 +269,11 @@ const marketplaceRouteSuiteOwnership = [
 ];
 
 const boundedContextRouteSuiteOwnership = [
+  {
+    pattern:
+      /^bounded-contexts\/fulfillment\/(?:routes\/admin\/return-intake|features\/return-shipments\/(?:api|ui)\/)/,
+    suites: ["admin_commerce"],
+  },
   {
     pattern: /^bounded-contexts\/marketplace\/routes\/admin\/listing-evidence-policy\./,
     suites: ["admin_platform"],

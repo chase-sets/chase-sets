@@ -526,6 +526,9 @@ importers:
       '@chase-sets/notification-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/notification-outbox
+      '@chase-sets/object-storage':
+        specifier: workspace:*
+        version: link:../../infrastructure/object-storage
       '@chase-sets/outbound-messaging':
         specifier: workspace:*
         version: link:../../contracts/outbound-messaging
@@ -1364,6 +1367,9 @@ importers:
       '@chase-sets/discovery':
         specifier: workspace:*
         version: link:../../bounded-contexts/discovery
+      '@chase-sets/fulfillment':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/fulfillment
       '@chase-sets/identity':
         specifier: workspace:*
         version: link:../../bounded-contexts/identity

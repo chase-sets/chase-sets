@@ -27,6 +27,8 @@ export const AUTH_ROLE_PERMISSIONS = {
     "memberships.view",
     "postage-policies.manage",
     "postage-policies.view",
+    "return-intake.manage",
+    "return-intake.view",
     "projection-operations.operate",
     "projection-operations.rebuild",
     "projection-operations.view",
@@ -141,6 +143,8 @@ export const AUTH_ROLE_PERMISSIONS = {
     "listings.view",
     "offers.view",
     "orders.view",
+    "return-intake.manage",
+    "return-intake.view",
     // No platform-feedback.* -- operator feedback is platform-staff only.
     "public-presence.view",
     "reputation.view",

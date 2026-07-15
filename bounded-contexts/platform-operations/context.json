@@ -148,7 +148,8 @@
         "fulfillment.shipment.dispatched",
         "fulfillment.shipment.delivered",
         "fulfillment.shipment.returned",
-        "fulfillment.shipment.exception-raised"
+        "fulfillment.shipment.exception-raised",
+        "fulfillment.return-shipment.facility-intake-completed.v1"
       ],
       "order": 80,
       "projectionHandlerSetNames": ["support-shipment-source-projection"]

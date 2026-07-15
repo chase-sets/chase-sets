@@ -89,7 +89,11 @@
     {
       "projectionName": "fulfillment-return-shipment-projection",
       "sourceContextNames": ["fulfillment"],
-      "ownedTables": ["fulfillment_return_shipment_customer_pages", "fulfillment_return_shipment_operator_pages"],
+      "ownedTables": [
+        "fulfillment_return_shipment_customer_pages",
+        "fulfillment_return_shipment_operator_pages",
+        "fulfillment_unidentified_return_package_pages"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     }
@@ -321,6 +325,35 @@
           "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing-route.test.ts"
         ]
       }
+    },
+    {
+      "id": "fulfillment.return-intake-command-snapshots",
+      "owner": "fulfillment",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/fulfillment/client.ts:POST Hf450f96a7d7f#1",
+        "api-route:bounded-contexts/fulfillment/features/return-shipments/api/route.ts:POST /:returnShipmentId/complete",
+        "api-route:bounded-contexts/fulfillment/features/return-shipments/api/route.ts:POST /:returnShipmentId/corrections",
+        "api-route:bounded-contexts/fulfillment/features/return-shipments/api/route.ts:POST /evidence",
+        "api-route:bounded-contexts/fulfillment/features/return-shipments/api/route.ts:POST /unidentified",
+        "api-route:bounded-contexts/fulfillment/features/return-shipments/api/route.ts:POST /unidentified/:unidentifiedPackageId/reconcile",
+        "post-form:bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx:H1abed2c1c746#1",
+        "post-form:bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx:H1abed2c1c746#2",
+        "post-form:bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx:H1abed2c1c746#3",
+        "post-form:bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx:H1abed2c1c746#4",
+        "route-action:bounded-contexts/fulfillment/routes/admin/return-intake.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Facility intake writes return authoritative attachment, aggregate-version, duplicate, custody, correction, or reconciliation results. The workstation derives its success state from that command response and treats projection-backed queues as refreshable operational context."
+      },
+      "proof": {
+        "authoritativeResponse": "The intake API builds mutation responses from private object-storage writes or aggregate command results. The admin action redirects only after those responses succeed, carries the authoritative outcome as its result state, and renders stale conflicts without claiming completion.",
+        "tests": [
+          "bounded-contexts/fulfillment/features/return-shipments/api/route.test.ts",
+          "bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.test.tsx"
+        ]
+      }
     }
   ],
   "deployableContributions": [
@@ -371,9 +404,34 @@
           "sourceContext": "fulfillment"
         }
       ]
+    },
+    {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "return-intake",
+          "routePath": "return-intake",
+          "fileExport": "./routes/admin/return-intake",
+          "routeType": "route",
+          "sourceContext": "fulfillment",
+          "section": "commerce"
+        }
+      ]
     }
   ],
   "shellContributions": [
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "return-intake",
+      "label": "Return Intake",
+      "icon": "package",
+      "href": "/return-intake",
+      "section": "commerce",
+      "order": 20,
+      "visibility": "signed-in",
+      "requiredPermissions": ["return-intake.view"]
+    },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
@@ -427,7 +485,7 @@
     },
     "return-shipments": {
       "classification": "slice",
-      "purpose": "Own the buyer-to-platform return-shipment aggregate, platform-facility destination directory, and its customer-safe and operator read models.",
+      "purpose": "Own the buyer-to-platform return-shipment aggregate, platform-facility destination directory, facility intake and discrepancy workflow, unidentified package reconciliation, and customer-safe and operator read models.",
       "expectedConsumers": ["Internal fulfillment module composition"]
     },
     "request-support": {
