@@ -6,6 +6,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as catalogModule } from "../../../index";
@@ -130,6 +131,54 @@ describeDb("provider scope discovery runtime db", () => {
 
     return { runtime, queryCalls, providerScopeMappings };
   }
+
+  it("bootstraps over the deployed v1 observation cache before running its v2 rebuild migration", async () => {
+    await pools.catalog.query(`DROP TABLE catalog_provider_scope_observations;
+
+CREATE TABLE catalog_provider_scope_observations (
+  provider_key text NOT NULL,
+  query_kind text NOT NULL,
+  language_code text NOT NULL,
+  option_external_key text NOT NULL,
+  display_name text NOT NULL,
+  parent_value text NULL,
+  image_url text NULL,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  scan_id text NOT NULL,
+  scanned_at timestamptz NOT NULL,
+  first_observed_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (provider_key, query_kind, language_code, option_external_key)
+);
+
+CREATE INDEX catalog_provider_scope_observations_lookup_idx
+  ON catalog_provider_scope_observations (provider_key, query_kind, parent_value);
+
+INSERT INTO catalog_provider_scope_observations (
+  provider_key, query_kind, language_code, option_external_key, display_name, scan_id, scanned_at
+) VALUES ('tcgdex', 'expansions', 'en', 'sv1', 'Scarlet & Violet', 'scan-v1', now());`);
+
+    await bootstrapContextDatabase(catalogModule, pools.catalog);
+
+    const columns = await pools.catalog.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = current_schema()
+         AND table_name = 'catalog_provider_scope_observations'
+       ORDER BY column_name`,
+    );
+    expect(columns.rows.map((row) => row.column_name)).toEqual(
+      expect.arrayContaining(["unit_key", "scope_kind", "source_query_kind", "observation_hash"]),
+    );
+    expect(columns.rows.map((row) => row.column_name)).not.toEqual(
+      expect.arrayContaining(["query_kind", "option_external_key", "display_name", "parent_value"]),
+    );
+
+    const observations = await pools.catalog.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM catalog_provider_scope_observations",
+    );
+    expect(observations.rows[0]?.count).toBe("0");
+  });
 
   async function insertScopeRecord(input: {
     id: string;
