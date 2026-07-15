@@ -15,6 +15,7 @@ describe("fresh-state checkout route strategy", () => {
       ["buy-checkout-session", "checkout/buy/session/:sessionId"],
       ["buy-checkout-confirmation", "checkout/buy/session/:sessionId/confirmation"],
       ["account-sell-list", "account/sell-list"],
+      ["account-desk-offers", "account/desk/offers"],
       ["sell-checkout-readiness", "checkout/sell/readiness"],
       ["sell-checkout-session", "checkout/sell/session/:sessionId"],
       ["sell-checkout-confirmation", "checkout/sell/session/:sessionId/confirmation"],
@@ -33,6 +34,7 @@ describe("fresh-state checkout route strategy", () => {
     expect(routeAcceptsUnresolvedFulfillment("buy-checkout-confirmation")).toBe(false);
 
     expect(routeAcceptsUnresolvedFulfillment("account-sell-list")).toBe(true);
+    expect(routeAcceptsUnresolvedFulfillment("account-desk-offers")).toBe(true);
     expect(routeAcceptsUnresolvedFulfillment("sell-checkout-readiness")).toBe(true);
     expect(routeAcceptsUnresolvedFulfillment("sell-checkout-session")).toBe(false);
     expect(routeAcceptsUnresolvedFulfillment("sell-checkout-confirmation")).toBe(false);
