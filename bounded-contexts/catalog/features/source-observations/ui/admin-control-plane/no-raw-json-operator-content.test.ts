@@ -24,12 +24,7 @@ const adminControlPlaneDir = dirname(fileURLToPath(import.meta.url));
 // closed by file, not by count, so any NEW file introducing JSON.stringify
 // under this directory fails the guard until it is reviewed and added here
 // with the same justification.
-const ALLOWED_JSON_STRINGIFY_FILES = new Set([
-  "import-to-promotion/merge-candidate-review-module.tsx",
-  // `providerHintValueForUnit` serializes a provider scope hint into a hidden
-  // `providerHints` form input the sync-scope form submits; never rendered.
-  "import-to-promotion/catalog-sync-scope-module.tsx",
-]);
+const ALLOWED_JSON_STRINGIFY_FILES = new Set(["import-to-promotion/merge-candidate-review-module.tsx"]);
 
 function collectTsxFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {

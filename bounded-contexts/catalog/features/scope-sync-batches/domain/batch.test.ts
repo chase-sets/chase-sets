@@ -28,18 +28,18 @@ function plan(overrides: Partial<ScopeSyncBatchPlannedScope> = {}): ScopeSyncBat
     estimatedRequestCount: 1,
     creditedProviderRequestEstimates: {},
     scope: {
-      scopeVersion: "catalog-sync-scope-v1",
+      scopeVersion: "catalog-sync-scope-v2",
       productDomain: "pokemon",
       languageCode: "en",
-      reference: { kind: "expansion", id: "base", name: "Base Set" },
+      reference: { kind: "expansion", scopeRecordId: "scope_base_set" },
     },
     participationPreview: {
       previewVersion: "catalog-sync-provider-participation-preview-v1",
       scope: {
-        scopeVersion: "catalog-sync-scope-v1",
+        scopeVersion: "catalog-sync-scope-v2",
         productDomain: "pokemon",
         languageCode: "en",
-        reference: { kind: "expansion", id: "base", name: "Base Set" },
+        reference: { kind: "expansion", scopeRecordId: "scope_base_set" },
       },
       status: "ready",
       startAllowed: true,

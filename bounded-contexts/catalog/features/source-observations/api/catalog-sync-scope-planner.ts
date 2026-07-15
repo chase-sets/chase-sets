@@ -9,24 +9,31 @@ import type { SourceObservationIntegrationJobScope } from "./runtime";
 
 export type CatalogSyncScopeReferenceKind = "product-line" | "series" | "expansion" | "set" | "catalog-item";
 
+// A Catalog sync scope v2 reference points at a canonical Catalog Scope Record
+// by id. The reference kind stays as a classification (it decides which provider
+// units can serve the scope) but the scope no longer carries any raw provider
+// coordinates or names: every provider coordinate is resolved at planning time
+// through an accepted Provider Scope Mapping keyed by this `scopeRecordId`.
 export type CatalogSyncScopeReference = Readonly<{
   kind: CatalogSyncScopeReferenceKind;
-  id?: string | null;
-  name?: string | null;
-  seriesId?: string | null;
-  seriesName?: string | null;
+  scopeRecordId: string;
 }>;
 
-export type CatalogSyncProviderScopeHint = Readonly<{
+// A provider's accepted (or auto-accepted) Provider Scope Mapping, resolved for
+// a sync scope's canonical scope record. This is the ONLY source of provider
+// coordinates during scope planning; the legacy per-submission provider-hint
+// escape hatch has been deleted.
+export type CatalogSyncAcceptedScopeMapping = Readonly<{
+  scopeRecordId: string;
   providerKey: string;
-  unitKey?: CatalogIntegrationUnitKey | null;
+  unitKey: CatalogIntegrationUnitKey;
   productLineId?: string | null;
-  productLineName?: string | null;
   seriesId?: string | null;
   setId?: string | null;
   setName?: string | null;
-  productId?: string | null;
-  planningFingerprint?: string | null;
+  mappingId: string;
+  mappingVersion: string;
+  reviewStatus: string;
 }>;
 
 export type CatalogSyncProviderParticipationSelection = Readonly<{
@@ -36,14 +43,43 @@ export type CatalogSyncProviderParticipationSelection = Readonly<{
 }>;
 
 export type CatalogSyncScope = Readonly<{
-  scopeVersion: "catalog-sync-scope-v1";
+  scopeVersion: "catalog-sync-scope-v2";
   productDomain: string;
   productForm?: string | null;
   languageCode?: string | null;
   reference: CatalogSyncScopeReference;
-  providerHints?: readonly CatalogSyncProviderScopeHint[];
   providerParticipation?: CatalogSyncProviderParticipationSelection | null;
 }>;
+
+// Narrows a persisted Provider Scope Mapping read-model row into the planner's
+// accepted-mapping input. Structural typing keeps the planner decoupled from the
+// provider-scope-mapping read model while both the interactive runtime and the
+// scope-sync batch planner feed it the same rows.
+export function catalogSyncAcceptedScopeMappingFromRow(row: {
+  scope_record_id: string;
+  provider_key: string;
+  unit_key: string;
+  product_line_id: string | null;
+  series_id: string | null;
+  set_id: string | null;
+  set_name: string | null;
+  mapping_id: string;
+  review_status: string;
+  updated_at: string;
+}): CatalogSyncAcceptedScopeMapping {
+  return {
+    scopeRecordId: row.scope_record_id.trim(),
+    providerKey: row.provider_key.trim().toLowerCase(),
+    unitKey: row.unit_key.trim(),
+    productLineId: normalizeOptionalKey(row.product_line_id),
+    seriesId: normalizeOptionalKey(row.series_id),
+    setId: normalizeOptionalKey(row.set_id),
+    setName: row.set_name?.trim() || null,
+    mappingId: row.mapping_id,
+    mappingVersion: row.updated_at,
+    reviewStatus: row.review_status,
+  };
+}
 
 export type CatalogSyncProviderParticipationBlocker = Readonly<{
   code:
@@ -54,7 +90,7 @@ export type CatalogSyncProviderParticipationBlocker = Readonly<{
     | "scope-product-domain-mismatch"
     | "scope-product-form-mismatch"
     | "scope-reference-unsupported"
-    | "scope-parent-required"
+    | "provider-scope-mapping-missing"
     | "provider-plan-unavailable"
     | "provider-credential-not-ready"
     | "provider-transport-blocked"
@@ -138,12 +174,17 @@ export type CatalogSyncProviderParticipationPreview = Readonly<{
 
 export async function previewCatalogSyncProviderParticipation(input: {
   scope: CatalogSyncScope;
+  acceptedScopeMappings: readonly CatalogSyncAcceptedScopeMapping[];
   providerProfileVersions: readonly CatalogProviderIntegrationProfileVersionRecord[];
   providerAdapterRegistry: ProviderAdapterRegistry;
   rolloutControlPolicy?: CatalogIntegrationRolloutControlPolicy;
   includeOperationalGates?: boolean;
 }): Promise<CatalogSyncProviderParticipationPreview> {
   const scope = normalizeCatalogSyncScope(input.scope);
+  // Only mappings resolved for THIS scope record supply provider coordinates.
+  const acceptedScopeMappings = input.acceptedScopeMappings.filter(
+    (mapping) => mapping.scopeRecordId === scope.reference.scopeRecordId,
+  );
   const selectedUnitKeys = new Set(scope.providerParticipation?.selectedUnitKeys ?? []);
   const excludedUnitKeys = new Set(scope.providerParticipation?.excludedUnitKeys ?? []);
   const requiredUnitKeys = new Set(scope.providerParticipation?.requiredUnitKeys ?? []);
@@ -192,6 +233,7 @@ export async function previewCatalogSyncProviderParticipation(input: {
         scope,
         version,
         unitKey,
+        mapping: acceptedMappingFor(acceptedScopeMappings, version.providerKey, unitKey),
         registry: input.providerAdapterRegistry,
         rolloutControlPolicy: input.rolloutControlPolicy,
         includeOperationalGates: input.includeOperationalGates ?? false,
@@ -278,23 +320,13 @@ export function normalizeCatalogSyncScope(scope: CatalogSyncScope): CatalogSyncS
     productForm: normalizeOptionalKey(scope.productForm),
     languageCode: normalizeOptionalKey(scope.languageCode),
     reference: {
-      ...scope.reference,
-      id: normalizeOptionalKey(scope.reference.id),
-      name: scope.reference.name?.trim() || null,
-      seriesId: normalizeOptionalKey(scope.reference.seriesId),
-      seriesName: scope.reference.seriesName?.trim() || null,
+      kind: scope.reference.kind,
+      scopeRecordId: normalizeRequiredKey(
+        scope.reference.scopeRecordId,
+        "Catalog sync scope reference.scopeRecordId is required.",
+        { preserveCase: true },
+      ),
     },
-    providerHints: scope.providerHints?.map((hint) => ({
-      providerKey: normalizeRequiredKey(hint.providerKey, "Provider hint providerKey is required."),
-      unitKey: normalizeOptionalKey(hint.unitKey),
-      productLineId: normalizeOptionalKey(hint.productLineId),
-      productLineName: hint.productLineName?.trim() || null,
-      seriesId: normalizeOptionalKey(hint.seriesId),
-      setId: normalizeOptionalKey(hint.setId),
-      setName: hint.setName?.trim() || null,
-      productId: normalizeOptionalKey(hint.productId),
-      planningFingerprint: hint.planningFingerprint?.trim() || null,
-    })),
     providerParticipation: scope.providerParticipation
       ? {
           requiredUnitKeys: normalizeUnitKeys(scope.providerParticipation.requiredUnitKeys),
@@ -309,13 +341,14 @@ async function planProviderUnit(input: {
   scope: CatalogSyncScope;
   version: CatalogProviderIntegrationProfileVersionRecord;
   unitKey: CatalogIntegrationUnitKey;
+  mapping: CatalogSyncAcceptedScopeMapping | null;
   registry: ProviderAdapterRegistry;
   rolloutControlPolicy?: CatalogIntegrationRolloutControlPolicy;
   includeOperationalGates: boolean;
   required: boolean;
   explicitlySelected: boolean;
 }): Promise<CatalogSyncProviderParticipationUnit> {
-  const blockers = eligibilityBlockers(input.version, input.unitKey, input.scope);
+  const blockers = eligibilityBlockers(input.version, input.unitKey, input.scope, input.mapping);
   const adapter = input.registry.get(input.version.providerKey);
   const rolloutEvidence: Array<
     NonNullable<CatalogSyncProviderParticipationUnit["planningEvidence"]>["rollout"][number]
@@ -373,7 +406,7 @@ async function planProviderUnit(input: {
   }
 
   const childExecutionScope =
-    blockers.length === 0 ? childScopeForProviderUnit(input.scope, input.version, input.unitKey) : null;
+    blockers.length === 0 ? childScopeForProviderUnit(input.scope, input.version, input.unitKey, input.mapping) : null;
   const selected = input.explicitlySelected || input.required || blockers.length === 0;
   const estimate =
     childExecutionScope && adapter ? await planEstimate(adapter, input.unitKey, childExecutionScope, blockers) : null;
@@ -527,6 +560,7 @@ function eligibilityBlockers(
   version: CatalogProviderIntegrationProfileVersionRecord,
   unitKey: CatalogIntegrationUnitKey,
   scope: CatalogSyncScope,
+  mapping: CatalogSyncAcceptedScopeMapping | null,
 ): CatalogSyncProviderParticipationBlocker[] {
   const blockers: CatalogSyncProviderParticipationBlocker[] = [];
   if (!(version.active && version.lifecycle === "active" && version.profile.status === "active")) {
@@ -572,53 +606,76 @@ function eligibilityBlockers(
       action: "Select a provider unit that supports Expansion or Set source scopes.",
     });
   }
-  const childScope = childScopeForProviderUnit(scope, version, unitKey);
-  if (version.profile.supportedScopes.includes("set-name") && !childScope.setName) {
+  // Provider coordinates come only from an accepted Provider Scope Mapping. A
+  // missing mapping — or one that does not yet supply a coordinate this provider
+  // unit requires — is an actionable blocker that points the operator at the
+  // unmapped-scope inbox instead of asking them to hand-enter provider values.
+  const childScope = childScopeForProviderUnit(scope, version, unitKey, mapping);
+  for (const coordinate of requiredProviderScopeCoordinates(version)) {
+    if (childScope[coordinate.field]) {
+      continue;
+    }
     blockers.push({
-      code: "scope-parent-required",
+      code: "provider-scope-mapping-missing",
       severity: "error",
-      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.setNameRequired", {
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.providerScopeMappingMissing", {
         unitKey,
+        coordinate: coordinate.label,
       }),
-      action: "Choose or map the provider set-name value before selecting this provider unit.",
-    });
-  }
-  if (version.profile.supportedScopes.includes("product-line/category") && !childScope.productLineId) {
-    blockers.push({
-      code: "scope-parent-required",
-      severity: "error",
-      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.productLineRequired", {
-        unitKey,
-      }),
-      action: "Choose or map the provider product-line/category value before selecting this provider unit.",
+      action: "Resolve this scope in the unmapped-scope inbox before selecting this provider unit.",
     });
   }
 
   return blockers;
 }
 
+// The provider coordinate an accepted mapping MUST supply for a unit to plan a
+// child execution scope, derived purely from the provider profile's supported
+// scope granularities (never from a provider-key branch). Set-name and
+// product-line/category are TCGplayer-shaped catalog coordinates; a bare
+// expansion granularity resolves through the mapping's set id.
+function requiredProviderScopeCoordinates(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): readonly Readonly<{ field: "setName" | "productLineId" | "setId"; label: string }>[] {
+  const supported = version.profile.supportedScopes;
+  const coordinates: Array<Readonly<{ field: "setName" | "productLineId" | "setId"; label: string }>> = [];
+  if (supported.includes("set-name")) {
+    coordinates.push({ field: "setName", label: "set-name" });
+  }
+  if (supported.includes("product-line/category")) {
+    coordinates.push({ field: "productLineId", label: "product-line/category" });
+  }
+  if (supported.includes("expansion") && !supported.includes("set-name")) {
+    coordinates.push({ field: "setId", label: "expansion" });
+  }
+  return coordinates;
+}
+
+// Translates the resolved accepted Provider Scope Mapping into the provider's
+// transport-scoped child execution scope. Every coordinate comes from the
+// mapping — there is deliberately NO fallback to the scope's reference id or
+// name, so an unmapped scope can never silently plan against a raw canonical
+// name (enforced by the scope-first boundary guard).
 function childScopeForProviderUnit(
   scope: CatalogSyncScope,
   version: CatalogProviderIntegrationProfileVersionRecord,
   unitKey: CatalogIntegrationUnitKey,
+  mapping: CatalogSyncAcceptedScopeMapping | null,
 ): SourceObservationIntegrationJobScope {
-  const hint = providerHintFor(scope, version.providerKey, unitKey);
   const supportsSetName = version.profile.supportedScopes.includes("set-name");
-  const supportsExpansion = version.profile.supportedScopes.includes("expansion");
-  const setId = hint?.setId ?? (supportsExpansion ? (scope.reference.id ?? undefined) : undefined);
 
   return {
     provider: version.providerKey,
     profileKey: version.profileKey,
     ingestionUnitKey: unitKey,
     language: scope.languageCode ?? undefined,
-    productLineId: hint?.productLineId ?? undefined,
-    seriesId: hint?.seriesId ?? scope.reference.seriesId ?? undefined,
-    setId,
-    setName: supportsSetName ? (hint?.setName ?? scope.reference.name ?? scope.reference.id ?? undefined) : undefined,
-    productId: hint?.productId ?? undefined,
-    planningFingerprint: hint?.planningFingerprint
-      ? [`profile:${version.profileVersion}`, `mapping:${hint.planningFingerprint}`].join("|")
+    productLineId: mapping?.productLineId ?? undefined,
+    seriesId: mapping?.seriesId ?? undefined,
+    setId: mapping?.setId ?? undefined,
+    setName: supportsSetName ? (mapping?.setName ?? undefined) : undefined,
+    productId: undefined,
+    planningFingerprint: mapping
+      ? [`profile:${version.profileVersion}`, `mapping:${mapping.mappingId}:${mapping.mappingVersion}`].join("|")
       : undefined,
   };
 }
@@ -715,15 +772,20 @@ function providerImportScopeValues(scope: SourceObservationIntegrationJobScope):
   );
 }
 
-function providerHintFor(
-  scope: CatalogSyncScope,
+// Resolves the accepted mapping that supplies a provider unit's coordinates.
+// An exact (providerKey, unitKey) match wins; a provider-wide mapping (one with
+// no unit-specific coordinates) serves as the fallback for every unit of that
+// provider.
+function acceptedMappingFor(
+  mappings: readonly CatalogSyncAcceptedScopeMapping[],
   providerKey: string,
   unitKey: CatalogIntegrationUnitKey,
-): CatalogSyncProviderScopeHint | null {
+): CatalogSyncAcceptedScopeMapping | null {
+  const providerMappings = mappings.filter((mapping) => mapping.providerKey === providerKey);
   return (
-    scope.providerHints?.find(
-      (hint) => hint.providerKey === providerKey && (!hint.unitKey || hint.unitKey === unitKey),
-    ) ?? null
+    providerMappings.find((mapping) => mapping.unitKey === unitKey) ??
+    providerMappings.find((mapping) => !mapping.unitKey) ??
+    null
   );
 }
 
@@ -741,8 +803,13 @@ function normalizeUnitKeys(
   return [...new Set((unitKeys ?? []).map((unitKey) => unitKey.trim()).filter(Boolean))];
 }
 
-function normalizeRequiredKey(value: string, message: string): string {
-  const normalized = value.trim().toLowerCase();
+function normalizeRequiredKey(
+  value: string,
+  message: string,
+  options: Readonly<{ preserveCase?: boolean }> = {},
+): string {
+  const trimmed = value?.trim() ?? "";
+  const normalized = options.preserveCase ? trimmed : trimmed.toLowerCase();
   if (!normalized) {
     throw new Error(message);
   }

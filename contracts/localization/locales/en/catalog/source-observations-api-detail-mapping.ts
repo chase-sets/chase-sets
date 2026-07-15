@@ -46,10 +46,8 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
     "{unitKey} does not match the {productForm} Catalog product form.",
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.referenceUnsupported":
     "{unitKey} does not support {referenceKind} source-scope planning.",
-  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.setNameRequired":
-    "{unitKey} requires a provider set name for this Catalog scope.",
-  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.productLineRequired":
-    "{unitKey} requires a provider product-line/category parent for this Catalog scope.",
+  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.providerScopeMappingMissing":
+    "{unitKey} has no accepted provider scope mapping supplying its {coordinate} coordinate for this Catalog scope.",
   "catalog.features.sourceObservations.api.catalogMergeCandidateMatcher.conflict.multipleExistingCatalogItems":
     "Matched Source Observations point at more than one existing Catalog Item.",
   "catalog.features.sourceObservations.api.catalogMergeCandidateMatcher.conflict.fieldMismatch":

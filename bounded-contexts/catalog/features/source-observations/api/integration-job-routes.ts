@@ -365,12 +365,7 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
 }
 
 function isCatalogSyncScopeValidationError(error: unknown): error is Error {
-  return (
-    error instanceof Error &&
-    (error.message.startsWith("Catalog sync scope") ||
-      error.message.startsWith("Provider hint") ||
-      error.message.includes("Catalog sync scope reference.kind"))
-  );
+  return error instanceof Error && error.message.startsWith("Catalog sync scope");
 }
 
 function integrationJobLifecycleCommandErrorResponse(c: Context<CatalogAuthoringEnv>, error: unknown) {

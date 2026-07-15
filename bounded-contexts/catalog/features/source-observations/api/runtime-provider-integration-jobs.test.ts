@@ -18,6 +18,50 @@ import {
   tcgdexProfileVersion,
 } from "./runtime-test-harness";
 
+const BASE_SET_SCOPE_RECORD_ID = "scope_pokemon_base_set";
+
+function acceptedScopeMappingRow(
+  overrides: Readonly<{
+    providerKey: string;
+    unitKey: string;
+    productLineId?: string | null;
+    seriesId?: string | null;
+    setId?: string | null;
+    setName?: string | null;
+  }>,
+): Record<string, unknown> {
+  return {
+    mapping_id: `mapping_${overrides.providerKey}_${overrides.unitKey}`,
+    scope_record_id: BASE_SET_SCOPE_RECORD_ID,
+    provider_key: overrides.providerKey,
+    unit_key: overrides.unitKey,
+    product_line_id: overrides.productLineId ?? null,
+    series_id: overrides.seriesId ?? null,
+    set_id: overrides.setId ?? null,
+    set_name: overrides.setName ?? null,
+    language_coordinates: null,
+    confidence: "manual",
+    review_status: "accepted",
+    provenance: {},
+    evidence: {},
+    last_actor: null,
+    last_reason: null,
+    policy_version: "v1",
+    proposed_at: "2026-07-01T00:00:00.000Z",
+    reviewed_at: "2026-07-01T00:00:00.000Z",
+    updated_at: "2026-07-01T00:00:00.000Z",
+  };
+}
+
+function tcgdexBaseSetMappingRow(): Record<string, unknown> {
+  return acceptedScopeMappingRow({
+    providerKey: "tcgdex",
+    unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+    setId: "base1",
+    seriesId: "base",
+  });
+}
+
 describe("source observation runtime: provider integration jobs", () => {
   it("reuses an active provider integration job with the same actor action and scope", async () => {
     const harness = createIntegrationJobDedupeHarness({
@@ -198,7 +242,9 @@ describe("source observation runtime: provider integration jobs", () => {
   });
 
   it("enqueues a parent Catalog sync run and fans out selected provider child import jobs", async () => {
-    const harness = createIntegrationJobDedupeHarness();
+    const harness = createIntegrationJobDedupeHarness({
+      acceptedScopeMappings: [tcgdexBaseSetMappingRow()],
+    });
     const services = createSourceObservationRuntime(
       harness.deps,
       {} as CatalogItemServices,
@@ -208,11 +254,11 @@ describe("source observation runtime: provider integration jobs", () => {
 
     const run = await services.enqueueCatalogSyncRun({
       scope: {
-        scopeVersion: "catalog-sync-scope-v1",
+        scopeVersion: "catalog-sync-scope-v2",
         productDomain: "pokemon",
         productForm: "single-card",
         languageCode: "en",
-        reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+        reference: { kind: "expansion", scopeRecordId: BASE_SET_SCOPE_RECORD_ID },
         providerParticipation: {
           selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
         },
@@ -232,14 +278,14 @@ describe("source observation runtime: provider integration jobs", () => {
         expect.objectContaining({
           unitKey: "tcgdex:pokemon:single-card:source-observation-import",
           profileVersion: "2026.06.03",
-          childExecutionScope: {
+          childExecutionScope: expect.objectContaining({
             provider: "tcgdex",
             profileKey: "pokemon-tcg",
             ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
             language: "en",
             seriesId: "base",
             setId: "base1",
-          },
+          }),
         }),
       ],
       childJobs: [
@@ -291,7 +337,9 @@ describe("source observation runtime: provider integration jobs", () => {
   });
 
   it("keeps parent Catalog sync run partial-failure visibility when a child provider job cannot enqueue", async () => {
-    const harness = createIntegrationJobDedupeHarness();
+    const harness = createIntegrationJobDedupeHarness({
+      acceptedScopeMappings: [tcgdexBaseSetMappingRow()],
+    });
     const services = createSourceObservationRuntime(
       harness.deps,
       {} as CatalogItemServices,
@@ -302,11 +350,11 @@ describe("source observation runtime: provider integration jobs", () => {
 
     const run = await services.enqueueCatalogSyncRun({
       scope: {
-        scopeVersion: "catalog-sync-scope-v1",
+        scopeVersion: "catalog-sync-scope-v2",
         productDomain: "pokemon",
         productForm: "single-card",
         languageCode: "en",
-        reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+        reference: { kind: "expansion", scopeRecordId: BASE_SET_SCOPE_RECORD_ID },
         providerParticipation: {
           selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
         },
@@ -346,8 +394,17 @@ describe("source observation runtime: provider integration jobs", () => {
     });
   });
 
-  it("enqueues targeted TCGplayer Pokemon set-name Catalog sync runs with provider hints", async () => {
-    const harness = createIntegrationJobDedupeHarness();
+  it("enqueues targeted TCGplayer Pokemon set-name Catalog sync runs from accepted scope mappings", async () => {
+    const harness = createIntegrationJobDedupeHarness({
+      acceptedScopeMappings: [
+        acceptedScopeMappingRow({
+          providerKey: "tcgplayer",
+          unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+          productLineId: "3",
+          setName: "Base Set",
+        }),
+      ],
+    });
     const profileVersions = createActiveTcgplayerProfileVersions();
     const services = createSourceObservationRuntime(
       harness.deps,
@@ -358,19 +415,11 @@ describe("source observation runtime: provider integration jobs", () => {
 
     const run = await services.enqueueCatalogSyncRun({
       scope: {
-        scopeVersion: "catalog-sync-scope-v1",
+        scopeVersion: "catalog-sync-scope-v2",
         productDomain: "pokemon",
         productForm: "single-card",
         languageCode: "en",
-        reference: { kind: "set", id: "Base Set", name: "Base Set" },
-        providerHints: [
-          {
-            providerKey: "tcgplayer",
-            unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
-            productLineId: "3",
-            setName: "Base Set",
-          },
-        ],
+        reference: { kind: "set", scopeRecordId: BASE_SET_SCOPE_RECORD_ID },
         providerParticipation: {
           selectedUnitKeys: ["tcgplayer:pokemon:single-card:source-observation-import"],
         },
@@ -392,14 +441,14 @@ describe("source observation runtime: provider integration jobs", () => {
           unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
           profileKey: "pokemon-single-card-product-sku",
           profileVersion: "2026.06.05",
-          childExecutionScope: {
+          childExecutionScope: expect.objectContaining({
             provider: "tcgplayer",
             profileKey: "pokemon-single-card-product-sku",
             ingestionUnitKey: "tcgplayer:pokemon:single-card:source-observation-import",
             language: "en",
             productLineId: "3",
             setName: "Base Set",
-          },
+          }),
         }),
       ],
       childJobs: [

@@ -164,18 +164,14 @@ describe("Catalog integrations route", () => {
     const location = redirectLocation(response);
 
     expect(enqueueCatalogSyncRun).toHaveBeenCalledWith({
-      scopeVersion: "catalog-sync-scope-v1",
+      scopeVersion: "catalog-sync-scope-v2",
       productDomain: "pokemon",
       productForm: "single-card",
       languageCode: "ja",
       reference: {
         kind: "expansion",
-        id: "SV8",
-        name: "Super Electric Breaker",
-        seriesId: "SV",
-        seriesName: "Scarlet & Violet",
+        scopeRecordId: "SV8",
       },
-      providerHints: [],
       providerParticipation: {
         requiredUnitKeys: [],
         selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
@@ -189,7 +185,7 @@ describe("Catalog integrations route", () => {
     expect(location.searchParams.get("importScope")).toBe("ja:SV:SV8");
   });
 
-  it("preserves selected provider hints when starting a set-name Catalog sync run", async () => {
+  it("resolves a set-name Catalog sync run to its scope record without carrying provider coordinates", async () => {
     const enqueueCatalogSyncRun = vi.fn().mockResolvedValue({ syncRunId: "catalog_sync_run_tcgplayer_base" });
     mockCreateCatalogRequestApiClient.mockReturnValue({
       enqueueCatalogSyncRun,
@@ -202,14 +198,14 @@ describe("Catalog integrations route", () => {
         productForm: "single-card",
         languageCode: "en",
         referenceKind: "set",
-        referenceId: "Base Set",
-        referenceName: "Base Set",
+        scopeRecordId: "scope_pokemon_base_set",
         selectedUnitKeys: "tcgplayer:pokemon:single-card:source-observation-import",
+        // Any legacy provider-coordinate form fields are ignored — coordinates
+        // come from accepted Provider Scope Mappings server-side.
         providerHints: JSON.stringify({
           providerKey: "tcgplayer",
           unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
           productLineId: "3",
-          productLineName: "Pokemon",
           setName: "Base Set",
         }),
       },
@@ -218,116 +214,25 @@ describe("Catalog integrations route", () => {
     const location = redirectLocation(response);
 
     expect(enqueueCatalogSyncRun).toHaveBeenCalledWith({
-      scopeVersion: "catalog-sync-scope-v1",
+      scopeVersion: "catalog-sync-scope-v2",
       productDomain: "pokemon",
       productForm: "single-card",
       languageCode: "en",
       reference: {
         kind: "set",
-        id: "Base Set",
-        name: "Base Set",
-        seriesId: null,
-        seriesName: null,
+        scopeRecordId: "scope_pokemon_base_set",
       },
-      providerHints: [
-        {
-          providerKey: "tcgplayer",
-          unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
-          productLineId: "3",
-          productLineName: "Pokemon",
-          seriesId: null,
-          setId: null,
-          setName: "Base Set",
-          productId: null,
-        },
-      ],
       providerParticipation: {
         requiredUnitKeys: [],
         selectedUnitKeys: ["tcgplayer:pokemon:single-card:source-observation-import"],
         excludedUnitKeys: [],
       },
     });
+    const enqueuedScope = enqueueCatalogSyncRun.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(enqueuedScope).not.toHaveProperty("providerHints");
     expect(location.searchParams.get("jobId")).toBe("catalog_sync_run_tcgplayer_base");
     expect(location.searchParams.get("commandIntent")).toBe("start-catalog-sync");
     expect(location.searchParams.get("commandResult")).toBe("job-queued");
-  });
-
-  it("derives selected provider hints from the route scope when starting a set-name Catalog sync run", async () => {
-    const enqueueCatalogSyncRun = vi.fn().mockResolvedValue({ syncRunId: "catalog_sync_run_tcgplayer_derived" });
-    mockCreateCatalogRequestApiClient.mockReturnValue({
-      enqueueCatalogSyncRun,
-    });
-
-    const response = await runDailyActionRedirect(
-      {
-        _intent: "start-catalog-sync",
-        productDomain: "pokemon",
-        productForm: "single-card",
-        languageCode: "en",
-        referenceKind: "set",
-        referenceId: "Base Set",
-        referenceName: "Base Set",
-        selectedUnitKeys: "tcgplayer:pokemon:single-card:source-observation-import",
-      },
-      "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:pokemon:single-card:source-observation-import&languageCode=en&productLineId=3&productLineName=Pokemon&expansionName=Base%20Set",
-    );
-    const location = redirectLocation(response);
-
-    expect(enqueueCatalogSyncRun).toHaveBeenCalledWith(
-      expect.objectContaining({
-        providerHints: [
-          expect.objectContaining({
-            providerKey: "tcgplayer",
-            unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
-            productLineId: "3",
-            productLineName: "Pokemon",
-            setName: "Base Set",
-          }),
-        ],
-      }),
-    );
-    expect(location.searchParams.get("jobId")).toBe("catalog_sync_run_tcgplayer_derived");
-    expect(location.searchParams.get("commandResult")).toBe("job-queued");
-  });
-
-  it("fills missing provider parent values on partial set-name Catalog sync hints", async () => {
-    const enqueueCatalogSyncRun = vi.fn().mockResolvedValue({ syncRunId: "catalog_sync_run_tcgplayer_partial" });
-    mockCreateCatalogRequestApiClient.mockReturnValue({
-      enqueueCatalogSyncRun,
-    });
-
-    await runDailyActionRedirect(
-      {
-        _intent: "start-catalog-sync",
-        productDomain: "pokemon",
-        productForm: "single-card",
-        languageCode: "en",
-        referenceKind: "set",
-        referenceId: "Base Set",
-        referenceName: "Base Set",
-        selectedUnitKeys: "tcgplayer:pokemon:single-card:source-observation-import",
-        providerHints: JSON.stringify({
-          providerKey: "tcgplayer",
-          unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
-          setName: "Base Set",
-        }),
-      },
-      "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:pokemon:single-card:source-observation-import&languageCode=en&productLineId=3&productLineName=Pokemon&expansionName=Base%20Set",
-    );
-
-    expect(enqueueCatalogSyncRun).toHaveBeenCalledWith(
-      expect.objectContaining({
-        providerHints: [
-          expect.objectContaining({
-            providerKey: "tcgplayer",
-            unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
-            productLineId: "3",
-            productLineName: "Pokemon",
-            setName: "Base Set",
-          }),
-        ],
-      }),
-    );
   });
 
   it("keeps Catalog sync scope API blockers specific without leaking raw provider errors", async () => {

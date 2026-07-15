@@ -5,7 +5,6 @@ import type {
 } from "../../../client";
 import { CatalogApiError } from "../../../client";
 import type {
-  CatalogSyncProviderScopeHint,
   CatalogSyncScope,
   CatalogSyncScopeReferenceKind,
 } from "../../../features/source-observations/api/catalog-sync-scope-planner";
@@ -135,24 +134,17 @@ export function catalogSyncScopeFromContext(context: RouteContext, formData: For
     .map((value) => stringValue(value))
     .filter((value): value is string => Boolean(value));
   const reference = catalogSyncReferenceFromContext(context, formData);
-  const providerHints = catalogSyncProviderHintsForSelectedUnits({
-    context,
-    reference,
-    selectedUnitKeys,
-    providerHints: catalogSyncProviderHintsFromFormData(formData),
-  });
 
   if (!productDomain || !productForm || !languageCode || !reference) {
     return null;
   }
 
   return {
-    scopeVersion: "catalog-sync-scope-v1",
+    scopeVersion: "catalog-sync-scope-v2",
     productDomain,
     productForm,
     languageCode,
     reference,
-    providerHints,
     providerParticipation: {
       requiredUnitKeys: [],
       selectedUnitKeys: [...new Set(selectedUnitKeys)],
@@ -319,123 +311,26 @@ function promotionPreviewScopeToken(context: RouteContext, selectedObservationId
     .join("_");
 }
 
+// A Catalog sync scope v2 reference is a canonical scope record id plus its
+// classification kind. Provider coordinates are no longer assembled here: the
+// server resolves them from the scope record's accepted Provider Scope Mappings.
 function catalogSyncReferenceFromContext(
   context: RouteContext,
   formData: FormData,
 ): CatalogSyncScope["reference"] | null {
   const scope = scopeContextFromRouteContext(context);
   const kind = stringValue(formData.get("referenceKind")) as CatalogSyncScopeReferenceKind | null;
-  const id =
+  const scopeRecordId =
+    stringValue(formData.get("scopeRecordId")) ??
     stringValue(formData.get("referenceId")) ??
     scope.expansionId ??
-    scope.expansionName ??
     scope.seriesId ??
     scope.productLineId;
-  if (!kind || !id) {
+  if (!kind || !scopeRecordId) {
     return null;
   }
 
-  return {
-    kind,
-    id,
-    name:
-      stringValue(formData.get("referenceName")) ?? scope.expansionName ?? scope.seriesName ?? scope.productLineName,
-    seriesId: stringValue(formData.get("seriesId")) ?? scope.seriesId,
-    seriesName: stringValue(formData.get("seriesName")) ?? scope.seriesName,
-  };
-}
-
-function catalogSyncProviderHintsFromFormData(formData: FormData): readonly CatalogSyncProviderScopeHint[] {
-  return formData
-    .getAll("providerHints")
-    .map(catalogSyncProviderHintValue)
-    .filter((hint): hint is CatalogSyncProviderScopeHint => Boolean(hint));
-}
-
-function catalogSyncProviderHintsForSelectedUnits(input: {
-  context: RouteContext;
-  reference: CatalogSyncScope["reference"] | null;
-  selectedUnitKeys: readonly string[];
-  providerHints: readonly CatalogSyncProviderScopeHint[];
-}): readonly CatalogSyncProviderScopeHint[] {
-  const scope = scopeContextFromRouteContext(input.context);
-  const formHintsByKey = new Map<string, CatalogSyncProviderScopeHint>();
-  for (const hint of input.providerHints) {
-    formHintsByKey.set(catalogSyncProviderHintKey(hint.providerKey, hint.unitKey), hint);
-  }
-
-  const selectedHints: CatalogSyncProviderScopeHint[] = [];
-  const selectedHintKeys = new Set<string>();
-  for (const unitKey of input.selectedUnitKeys) {
-    const providerKey = providerKeyFromUnitKey(unitKey) ?? input.context.providerKey;
-    if (!providerKey) {
-      continue;
-    }
-
-    const key = catalogSyncProviderHintKey(providerKey, unitKey);
-    const existing = formHintsByKey.get(key) ?? formHintsByKey.get(catalogSyncProviderHintKey(providerKey, null));
-    if (!existing && providerKey !== "tcgplayer") {
-      continue;
-    }
-    selectedHintKeys.add(key);
-    selectedHints.push({
-      providerKey,
-      unitKey: unitKey as CatalogSyncProviderScopeHint["unitKey"],
-      productLineId: existing?.productLineId ?? scope.productLineId,
-      productLineName: existing?.productLineName ?? scope.productLineName,
-      seriesId: existing?.seriesId ?? scope.seriesId,
-      setId: existing?.setId ?? scope.expansionId,
-      setName: existing?.setName ?? scope.expansionName ?? input.reference?.name ?? input.reference?.id ?? null,
-      productId: existing?.productId ?? null,
-    });
-  }
-
-  return [
-    ...selectedHints,
-    ...input.providerHints.filter(
-      (hint) => !selectedHintKeys.has(catalogSyncProviderHintKey(hint.providerKey, hint.unitKey)),
-    ),
-  ];
-}
-
-function catalogSyncProviderHintKey(providerKey: string, unitKey: string | null | undefined): string {
-  return `${providerKey}:${unitKey ?? "*"}`;
-}
-
-function providerKeyFromUnitKey(unitKey: string): string | null {
-  const [providerKey] = unitKey.split(":");
-  return providerKey || null;
-}
-
-function catalogSyncProviderHintValue(value: FormDataEntryValue): CatalogSyncProviderScopeHint | null {
-  if (typeof value !== "string" || !value.trim()) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    const record = parsed as Record<string, unknown>;
-    const providerKey = stringValue(record.providerKey);
-    if (!providerKey) {
-      return null;
-    }
-
-    return {
-      providerKey,
-      unitKey: stringValue(record.unitKey),
-      productLineId: stringValue(record.productLineId),
-      productLineName: stringValue(record.productLineName),
-      seriesId: stringValue(record.seriesId),
-      setId: stringValue(record.setId),
-      setName: stringValue(record.setName),
-      productId: stringValue(record.productId),
-    };
-  } catch {
-    return null;
-  }
+  return { kind, scopeRecordId };
 }
 
 function tokenSegment(value: string): string {

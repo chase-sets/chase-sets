@@ -32,16 +32,16 @@ function claim(overrides: Partial<ClaimedScopeSyncBatchUnit> = {}): ClaimedScope
       estimatedRequestCount: 1,
       creditedProviderRequestEstimates: {},
       scope: {
-        scopeVersion: "catalog-sync-scope-v1",
+        scopeVersion: "catalog-sync-scope-v2",
         productDomain: "pokemon",
-        reference: { kind: "expansion", id: "base" },
+        reference: { kind: "expansion", scopeRecordId: "scope_base_set" },
       },
       participationPreview: {
         previewVersion: "catalog-sync-provider-participation-preview-v1",
         scope: {
-          scopeVersion: "catalog-sync-scope-v1",
+          scopeVersion: "catalog-sync-scope-v2",
           productDomain: "pokemon",
-          reference: { kind: "expansion", id: "base" },
+          reference: { kind: "expansion", scopeRecordId: "scope_base_set" },
         },
         status: "ready",
         startAllowed: true,

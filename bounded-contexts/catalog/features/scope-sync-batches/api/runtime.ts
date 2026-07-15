@@ -2,6 +2,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type {
+  CatalogSyncAcceptedScopeMapping,
   CatalogSyncProviderParticipationPreview,
   CatalogSyncScope,
 } from "../../source-observations/api/catalog-sync-scope-planner";
@@ -24,6 +25,7 @@ export function createScopeSyncBatchRuntime(deps: {
     scope: CatalogSyncScope;
     context: EventStoreContext;
     includeOperationalGates?: boolean;
+    acceptedScopeMappings?: readonly CatalogSyncAcceptedScopeMapping[];
   }) => Promise<CatalogSyncProviderParticipationPreview>;
   enqueueCatalogSyncRun: (input: { scope: CatalogSyncScope; context: EventStoreContext }) => Promise<CatalogSyncRun>;
   getCatalogSyncRun: (input: { syncRunId: string; context: EventStoreContext }) => Promise<CatalogSyncRun | null>;

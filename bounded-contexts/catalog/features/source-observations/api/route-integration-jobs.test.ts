@@ -191,11 +191,11 @@ describe("source observation routes: integration and bulk review jobs", () => {
     const preview = {
       previewVersion: "catalog-sync-provider-participation-preview-v1",
       scope: {
-        scopeVersion: "catalog-sync-scope-v1",
+        scopeVersion: "catalog-sync-scope-v2",
         productDomain: "pokemon",
         productForm: "single-card",
         languageCode: "en",
-        reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+        reference: { kind: "expansion", scopeRecordId: "scope_pokemon_base_set" },
       },
       status: "ready",
       startAllowed: true,
@@ -222,7 +222,7 @@ describe("source observation routes: integration and bulk review jobs", () => {
           productDomain: "pokemon",
           productForm: "single-card",
           languageCode: "en",
-          reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+          reference: { kind: "expansion", scopeRecordId: "scope_pokemon_base_set" },
           providerParticipation: {
             selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
           },
@@ -235,12 +235,11 @@ describe("source observation routes: integration and bulk review jobs", () => {
     await expect(response.json()).resolves.toEqual(preview);
     expect(previewCatalogSyncScope).toHaveBeenCalledWith({
       scope: {
-        scopeVersion: "catalog-sync-scope-v1",
+        scopeVersion: "catalog-sync-scope-v2",
         productDomain: "pokemon",
         productForm: "single-card",
         languageCode: "en",
-        reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base", seriesName: undefined },
-        providerHints: [],
+        reference: { kind: "expansion", scopeRecordId: "scope_pokemon_base_set" },
         providerParticipation: {
           requiredUnitKeys: [],
           selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
@@ -286,7 +285,7 @@ describe("source observation routes: integration and bulk review jobs", () => {
           productDomain: "pokemon",
           productForm: "single-card",
           languageCode: "en",
-          reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+          reference: { kind: "expansion", scopeRecordId: "scope_pokemon_base_set" },
         },
       }),
       headers: { "content-type": "application/json" },
@@ -296,12 +295,11 @@ describe("source observation routes: integration and bulk review jobs", () => {
     await expect(response.json()).resolves.toEqual({ items: units, total: 1, count: 1 });
     expect(getCatalogScopeSyncState).toHaveBeenCalledWith({
       scope: {
-        scopeVersion: "catalog-sync-scope-v1",
+        scopeVersion: "catalog-sync-scope-v2",
         productDomain: "pokemon",
         productForm: "single-card",
         languageCode: "en",
-        reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base", seriesName: undefined },
-        providerHints: [],
+        reference: { kind: "expansion", scopeRecordId: "scope_pokemon_base_set" },
         providerParticipation: null,
       },
       context,
@@ -312,11 +310,11 @@ describe("source observation routes: integration and bulk review jobs", () => {
     const run = {
       syncRunId: "job_catalog_sync_run",
       scope: {
-        scopeVersion: "catalog-sync-scope-v1",
+        scopeVersion: "catalog-sync-scope-v2",
         productDomain: "pokemon",
         productForm: "single-card",
         languageCode: "en",
-        reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+        reference: { kind: "expansion", scopeRecordId: "scope_pokemon_base_set" },
       },
       status: "queued",
       progress: {
@@ -335,11 +333,11 @@ describe("source observation routes: integration and bulk review jobs", () => {
       preview: {
         previewVersion: "catalog-sync-provider-participation-preview-v1",
         scope: {
-          scopeVersion: "catalog-sync-scope-v1",
+          scopeVersion: "catalog-sync-scope-v2",
           productDomain: "pokemon",
           productForm: "single-card",
           languageCode: "en",
-          reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+          reference: { kind: "expansion", scopeRecordId: "scope_pokemon_base_set" },
         },
         status: "ready",
         startAllowed: true,
@@ -370,7 +368,7 @@ describe("source observation routes: integration and bulk review jobs", () => {
           productDomain: "pokemon",
           productForm: "single-card",
           languageCode: "en",
-          reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+          reference: { kind: "expansion", scopeRecordId: "scope_pokemon_base_set" },
           providerParticipation: {
             selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
           },
@@ -383,12 +381,11 @@ describe("source observation routes: integration and bulk review jobs", () => {
     await expect(response.json()).resolves.toEqual(run);
     expect(enqueueCatalogSyncRun).toHaveBeenCalledWith({
       scope: {
-        scopeVersion: "catalog-sync-scope-v1",
+        scopeVersion: "catalog-sync-scope-v2",
         productDomain: "pokemon",
         productForm: "single-card",
         languageCode: "en",
-        reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base", seriesName: undefined },
-        providerHints: [],
+        reference: { kind: "expansion", scopeRecordId: "scope_pokemon_base_set" },
         providerParticipation: {
           requiredUnitKeys: [],
           selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],

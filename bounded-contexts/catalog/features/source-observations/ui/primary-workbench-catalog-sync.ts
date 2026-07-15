@@ -131,40 +131,20 @@ function catalogSyncScope(
 ): CatalogPrimaryWorkbenchCatalogSyncReadModel["scope"] {
   const routeScope = sourceScopeWorkset.selectedScope.scope;
   const firstUnit = sourceScopeWorkset.units.find((unit) => unit.productDomain && unit.productForm);
+  // The reference now names a canonical scope record. The operator's most
+  // specific selected id stands in as the scope record id; provider coordinates
+  // for it are resolved server-side from accepted Provider Scope Mappings.
   const reference = routeScope.expansionId
-    ? {
-        kind: "expansion" as const,
-        id: routeScope.expansionId,
-        name: routeScope.expansionName,
-        seriesId: routeScope.seriesId,
-        seriesName: routeScope.seriesName,
-      }
-    : routeScope.expansionName
-      ? {
-          kind: "set" as const,
-          id: routeScope.expansionName,
-          name: routeScope.expansionName,
-          seriesId: routeScope.seriesId,
-          seriesName: routeScope.seriesName,
-        }
-      : routeScope.seriesId
-        ? {
-            kind: "series" as const,
-            id: routeScope.seriesId,
-            name: routeScope.seriesName,
-            seriesId: routeScope.seriesId,
-            seriesName: routeScope.seriesName,
-          }
-        : {
-            kind: routeScope.productLineId ? ("product-line" as const) : null,
-            id: routeScope.productLineId,
-            name: routeScope.productLineName,
-            seriesId: null,
-            seriesName: null,
-          };
+    ? { kind: "expansion" as const, scopeRecordId: routeScope.expansionId }
+    : routeScope.seriesId
+      ? { kind: "series" as const, scopeRecordId: routeScope.seriesId }
+      : {
+          kind: routeScope.productLineId ? ("product-line" as const) : null,
+          scopeRecordId: routeScope.productLineId,
+        };
 
   return {
-    scopeVersion: "catalog-sync-scope-v1",
+    scopeVersion: "catalog-sync-scope-v2",
     productDomain: firstUnit?.productDomain ?? null,
     productForm: firstUnit?.productForm ?? null,
     languageCode: routeScope.languageCode,

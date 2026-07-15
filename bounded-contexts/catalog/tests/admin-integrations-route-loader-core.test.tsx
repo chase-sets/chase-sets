@@ -357,19 +357,11 @@ describe("Catalog integrations route", () => {
     const previewCatalogSyncScope = vi.fn().mockResolvedValue({
       previewVersion: "catalog-sync-provider-participation-preview-v1",
       scope: {
-        scopeVersion: "catalog-sync-scope-v1",
+        scopeVersion: "catalog-sync-scope-v2",
         productDomain: "pokemon",
         productForm: "single-card",
         languageCode: "en",
-        reference: { kind: "set", id: "Base Set", name: "Base Set", seriesId: null, seriesName: null },
-        providerHints: [
-          {
-            providerKey: "tcgplayer",
-            unitKey: pokemonUnit,
-            productLineId: "3",
-            setName: "Base Set",
-          },
-        ],
+        reference: { kind: "product-line", scopeRecordId: "3" },
         providerParticipation: {
           requiredUnitKeys: [],
           selectedUnitKeys: [pokemonUnit],
@@ -461,21 +453,17 @@ describe("Catalog integrations route", () => {
 
     expect(previewCatalogSyncScope).toHaveBeenCalledWith(
       expect.objectContaining({
+        scopeVersion: "catalog-sync-scope-v2",
+        reference: expect.objectContaining({ kind: "product-line", scopeRecordId: "3" }),
         providerParticipation: expect.objectContaining({
           requiredUnitKeys: [],
           selectedUnitKeys: [pokemonUnit],
           excludedUnitKeys: [],
         }),
-        providerHints: [
-          expect.objectContaining({
-            providerKey: "tcgplayer",
-            unitKey: pokemonUnit,
-            productLineId: "3",
-            setName: "Base Set",
-          }),
-        ],
       }),
     );
+    const previewedScope = previewCatalogSyncScope.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(previewedScope).not.toHaveProperty("providerHints");
     expect(routeData.readModel.catalogSync.preview.startAllowed).toBe(false);
     expect(routeData.readModel.catalogSync.action).toMatchObject({
       key: "start-catalog-sync",

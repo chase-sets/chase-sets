@@ -3,10 +3,10 @@ import { createHash } from "node:crypto";
 // Durable per-scope sync state tracks a Catalog sync scope's cross-provider
 // lifecycle across runs: for each (scope, provider unit) pair, whether the
 // last known attempt settled, is still in flight, or needs operator
-// attention. It is intentionally decoupled from the CatalogSyncScope v1
-// contract's reference shape (kind/id/name/seriesId/seriesName) so this slice
-// stays portable if the scope identity contract changes shape later; only
-// `computeCatalogSyncScopeKey` knows how to turn that shape into a stable key.
+// attention. It is intentionally decoupled from the CatalogSyncScope contract's
+// reference shape so this slice stays portable if the scope identity contract
+// changes shape later; only `computeCatalogSyncScopeKey` knows how to turn that
+// shape into a stable key.
 export type CatalogScopeSyncUnitState = "never-synced" | "pending" | "running" | "settled" | "failed" | "stale";
 
 export type CatalogScopeSyncScopeDescriptor = Readonly<{
@@ -14,8 +14,7 @@ export type CatalogScopeSyncScopeDescriptor = Readonly<{
   productForm: string | null;
   languageCode: string | null;
   referenceKind: string | null;
-  referenceId: string | null;
-  referenceName: string | null;
+  scopeRecordId: string | null;
 }>;
 
 // The observed status of a single provider unit's most recent attempt within
@@ -86,18 +85,17 @@ export function catalogScopeSyncUnitIsFastForwardable(input: {
   return stableJsonStringify(input.storedChildExecutionScope) === stableJsonStringify(input.currentChildExecutionScope);
 }
 
-// Deterministic key for a CatalogSyncScope v1 descriptor. Reference id falls
-// back to reference name (mirrors `catalog-sync-scope-planner.ts`'s own
-// fallback for expansion/set references that have no persisted id yet), so
-// the same operator-facing scope always resolves to the same durable state
-// row even before a canonical scope record exists for it.
+// Deterministic key for a CatalogSyncScope v2 descriptor. Identity is the
+// canonical scope record id (plus the language/product-form filters that split
+// the same scope record into distinct sync targets), so the same operator-facing
+// scope always resolves to the same durable state row.
 export function computeCatalogSyncScopeKey(descriptor: CatalogScopeSyncScopeDescriptor): string {
   const normalized = {
     productDomain: normalizeKey(descriptor.productDomain),
     productForm: normalizeKey(descriptor.productForm),
     languageCode: normalizeKey(descriptor.languageCode),
     referenceKind: normalizeKey(descriptor.referenceKind),
-    reference: normalizeKey(descriptor.referenceId) ?? normalizeKey(descriptor.referenceName),
+    reference: normalizeIdentity(descriptor.scopeRecordId),
   };
 
   return createHash("sha256").update(stableJsonStringify(normalized)).digest("hex");
@@ -105,6 +103,13 @@ export function computeCatalogSyncScopeKey(descriptor: CatalogScopeSyncScopeDesc
 
 function normalizeKey(value: string | null | undefined): string | null {
   const normalized = value?.trim().toLowerCase();
+  return normalized ? normalized : null;
+}
+
+// Scope record ids are opaque canonical identifiers, so they are trimmed but not
+// case-folded — two different records never collide onto one durable state row.
+function normalizeIdentity(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
   return normalized ? normalized : null;
 }
 

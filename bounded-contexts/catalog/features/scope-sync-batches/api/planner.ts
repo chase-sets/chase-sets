@@ -1,9 +1,11 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { t } from "@chase-sets/localization";
-import type {
-  CatalogSyncProviderParticipationPreview,
-  CatalogSyncScope,
+import {
+  catalogSyncAcceptedScopeMappingFromRow,
+  type CatalogSyncAcceptedScopeMapping,
+  type CatalogSyncProviderParticipationPreview,
+  type CatalogSyncScope,
 } from "../../source-observations/api/catalog-sync-scope-planner";
 import type { CatalogScopeRecordRow } from "../../scope-registry/read-model/queries";
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
@@ -25,6 +27,7 @@ export function createScopeSyncBatchPlanner(deps: {
     scope: CatalogSyncScope;
     context: EventStoreContext;
     includeOperationalGates?: boolean;
+    acceptedScopeMappings?: readonly CatalogSyncAcceptedScopeMapping[];
   }) => Promise<CatalogSyncProviderParticipationPreview>;
   now?: () => string;
 }) {
@@ -49,6 +52,7 @@ export function createScopeSyncBatchPlanner(deps: {
         scope,
         context: input.context,
         includeOperationalGates: true,
+        acceptedScopeMappings: scopeMappings.map(catalogSyncAcceptedScopeMappingFromRow),
       });
       const blockers = scopePlanBlockers(record, scopeMappings, participationPreview);
       const selectedUnits = participationPreview.units.filter((unit) => unit.selected);
@@ -180,24 +184,13 @@ function catalogSyncScopeFromRecord(
 ): CatalogSyncScope {
   const languageCode = selection.mode === "matching-scope" ? selection.query.languageCode : null;
   return {
-    scopeVersion: "catalog-sync-scope-v1",
+    scopeVersion: "catalog-sync-scope-v2",
     productDomain: record.product_domain,
     languageCode,
     reference: {
       kind: record.scope_kind,
-      id: record.reference_record_id,
-      name: record.name,
-      seriesId: record.series_scope_record_id,
+      scopeRecordId: record.scope_record_id,
     },
-    providerHints: mappings.map((mapping) => ({
-      providerKey: mapping.provider_key,
-      unitKey: mapping.unit_key,
-      productLineId: mapping.product_line_id,
-      seriesId: mapping.series_id,
-      setId: mapping.set_id,
-      setName: mapping.set_name,
-      planningFingerprint: `${mapping.mapping_id}:${mapping.updated_at}:${mapping.review_status}`,
-    })),
     providerParticipation: {
       selectedUnitKeys: mappings.map((mapping) => mapping.unit_key),
     },
