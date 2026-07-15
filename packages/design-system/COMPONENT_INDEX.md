@@ -226,7 +226,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `PlatformCredibilityCue` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Platform Credibility Cue. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `Popover` | `packages/design-system/src/components/feedback/popover.tsx` | Purpose not documented; symbol name suggests: Popover. | `No production consumer yet.` |
 | `PriceBreakdown` | `packages/design-system/src/components/checkout/marketplace.tsx` | Purpose not documented; symbol name suggests: Price Breakdown. | `bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx` |
-| `ProductCard` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Product Card. | `No production consumer yet.` |
+| `ProductCard` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Product Card. | `bounded-contexts/checkout/features/sell-list/ui/sell-list-review-grid.tsx` |
 | `ProductMediaImage` | `packages/design-system/src/components/data-display/product-media.tsx` | Purpose not documented; symbol name suggests: Product Media Image. | `No production consumer yet.` |
 | `ProductMediaModule` | `packages/design-system/src/components/commerce/detail.tsx` | Purpose not documented; symbol name suggests: Product Media Module. | `No production consumer yet.` |
 | `ProductOptions` | `packages/design-system/src/components/data-display/product-options.tsx` | Purpose not documented; symbol name suggests: Product Options. | `bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx` |
@@ -280,7 +280,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `SegmentedControl` | `packages/design-system/src/components/actions/segmented-control.tsx` | Purpose not documented; symbol name suggests: Segmented Control. | `bounded-contexts/auth/features/registration/ui/register-page.tsx` |
 | `Select` | `packages/design-system/src/components/forms/select.tsx` | Purpose not documented; symbol name suggests: Select. | `bounded-contexts/catalog/features/blueprints/ui/blueprint-list-page.tsx` |
 | `selectCheckoutNotice` | `packages/design-system/src/components/checkout/notices.tsx` | Pick the single highest-priority active notice from the candidate ladder. | `No production consumer yet.` |
-| `SelectionToolbar` | `packages/design-system/src/patterns/app-shells/content-layouts.tsx` | Purpose not documented; symbol name suggests: Selection Toolbar. | `No production consumer yet.` |
+| `SelectionToolbar` | `packages/design-system/src/patterns/app-shells/content-layouts.tsx` | Purpose not documented; symbol name suggests: Selection Toolbar. | `bounded-contexts/checkout/features/sell-list/ui/sell-list-review-grid.tsx` |
 | `SellerBadge` | `packages/design-system/src/patterns/app-shells/commerce-atoms.tsx` | Purpose not documented; symbol name suggests: Seller Badge. | `bounded-contexts/catalog/support/shell-support/shell/layout.tsx` |
 | `Show` | `packages/design-system/src/primitives/layout.tsx` | Responsive visibility wrapper. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-jobs/import-jobs-module.tsx` |
 | `showToast` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: show Toast. | `No production consumer yet.` |

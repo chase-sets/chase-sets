@@ -55,8 +55,10 @@ export type SellListProductOfferReview = Readonly<{
       created_at?: string;
     }>;
     terms: Readonly<{
+      basis_amount?: string;
       marketplace_sales_fee_unit_amount: string;
       seller_net_unit_amount: string;
+      shipping_allowance_percentage_bps?: number;
       fee_quote_fingerprint: string;
     }>;
     evidence?: MarketplaceListingEvidenceCoverage | null;

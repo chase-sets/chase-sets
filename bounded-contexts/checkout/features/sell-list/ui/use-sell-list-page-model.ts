@@ -21,6 +21,7 @@ export type SellListPageModelInput = Readonly<{
   productOfferReviews: readonly SellListProductOfferReview[];
   inventoryItems: readonly SellListInventoryItem[];
   payoutReadiness: PayoutReadiness | null;
+  sellListPath: string;
 }>;
 
 /** Every derived value for the sell-list page — the model half of the
@@ -34,6 +35,7 @@ export function useSellListPageModel({
   productOfferReviews,
   inventoryItems,
   payoutReadiness,
+  sellListPath,
 }: SellListPageModelInput) {
   const selectedOfferLines = sellListLines.filter((line) => line.line_type === "selected-offer");
   const productLines = sellListLines.filter((line) => line.line_type === "product");
@@ -118,9 +120,8 @@ export function useSellListPageModel({
   const firstBlockedLineHref = firstBlockedLine
     ? sellListLineRecoveryHref(firstBlockedLine, inventoryByProductId.get(firstBlockedLine.product_id)?.[0] ?? null)
     : null;
-  const recoveryHref = !payoutIsReady
-    ? "/account/payouts/setup?returnTo=%2Faccount%2Fsell-list"
-    : (firstBlockedLineHref ?? "/search");
+  const payoutSetupHref = `/account/payouts/setup?returnTo=${encodeURIComponent(sellListPath)}`;
+  const recoveryHref = !payoutIsReady ? payoutSetupHref : (firstBlockedLineHref ?? "/search");
   const recoveryLabel = !payoutIsReady
     ? t("checkout.features.sellList.ui.sellListPage.set.up.payouts")
     : blockedLineCount > 0
@@ -151,5 +152,6 @@ export function useSellListPageModel({
     recoveryLabel,
     primarySellerCheckoutLabel,
     readinessSummary,
+    payoutSetupHref,
   };
 }

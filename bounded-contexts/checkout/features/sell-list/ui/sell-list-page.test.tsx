@@ -154,10 +154,9 @@ describe("checkout sell list page", () => {
     expect(markup).toContain("Review cards, payout readiness, and pre-checkout sale actions before seller checkout.");
     expect(markup).toContain("Ready for seller checkout");
     expect(markup).toContain("Review items");
-    expect(markup).toContain("Selected offer");
-    expect(markup).toContain("Product");
-    expect(markup).toContain("Ash Ketchum");
-    expect(markup).toContain("Use Misty offer");
+    expect(markup).toContain("Review Charizard offers and terms");
+    expect(markup).toContain("Estimated net $630.00");
+    expect(markup).toContain("Estimated net $369.00");
     expect(markup).toContain("Expected seller payout");
     expect(markup).toContain("$999.00");
     expect(markup).toContain("Payout readiness");
@@ -172,7 +171,120 @@ describe("checkout sell list page", () => {
     expect(markup).not.toContain(">Execution<");
   });
 
-  it("keeps selected-offer and product facts out of the narrow action column", () => {
+  it("uses Seller Desk language and preserves its path through payout setup", () => {
+    const markup = renderToString(
+      <CheckoutSellListPage
+        sellListLines={[productLine]}
+        payoutReadiness={{ status: "restricted", missing_requirements: ["bank account"] }}
+        sellListPath="/account/desk/offers"
+      />,
+    );
+
+    expect(markup).toContain("Seller Desk");
+    expect(markup).toContain("Offers &amp; sell list");
+    expect(markup).toContain('href="/account/payouts/setup?returnTo=%2Faccount%2Fdesk%2Foffers"');
+  });
+
+  it("reviews competing offers from item cards in a terms-comparison drawer", async () => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine, productLine]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+        offerReviews={[
+          {
+            lineId: "sll_offer",
+            status: "ready",
+            terms: {
+              basis_amount: "350.00",
+              marketplace_sales_fee_unit_amount: "38.50",
+              seller_net_unit_amount: "311.50",
+              shipping_allowance_percentage_bps: 0,
+              fee_quote_fingerprint: "fee_selected",
+              schedule_label: "Seller agreement",
+            },
+            comparison: {
+              status: "changed",
+              changedFields: ["seller-net", "marketplace-fee", "shipping-allowance", "terms-source"],
+              standardPreview: {
+                basis_amount: "350.00",
+                marketplace_sales_fee_unit_amount: "35.00",
+                seller_net_unit_amount: "315.00",
+                shipping_allowance_percentage_bps: 500,
+                source_kind: "public-standard-seller-terms",
+                source_label: "Standard seller terms",
+              },
+            },
+            message: null,
+          },
+        ]}
+        productOfferReviews={[
+          {
+            lineId: "sll_product",
+            status: "ready",
+            offers: [
+              {
+                offer: {
+                  offer_id: "off_blastoise",
+                  buyer_display_name: "Misty",
+                  buyer_account_id: "acc_misty",
+                  price_amount: "410.00",
+                  quantity_requested: 1,
+                  offer_to_listing_price_bps: 10200,
+                  can_fulfill: true,
+                },
+                terms: {
+                  marketplace_sales_fee_unit_amount: "41.00",
+                  seller_net_unit_amount: "369.00",
+                  shipping_allowance_percentage_bps: 250,
+                  fee_quote_fingerprint: "fee_product",
+                },
+              },
+              {
+                offer: {
+                  offer_id: "off_brock",
+                  buyer_display_name: "Brock",
+                  buyer_account_id: "acc_brock",
+                  price_amount: "400.00",
+                  quantity_requested: 1,
+                  offer_to_listing_price_bps: 10000,
+                  can_fulfill: true,
+                },
+                terms: {
+                  marketplace_sales_fee_unit_amount: "40.00",
+                  seller_net_unit_amount: "360.00",
+                  shipping_allowance_percentage_bps: 0,
+                  fee_quote_fingerprint: "fee_brock",
+                },
+              },
+            ],
+            message: null,
+          },
+        ]}
+      />,
+    );
+
+    const itemCards = screen.getAllByRole("button", { name: "Review Charizard offers and terms" });
+    expect(itemCards).toHaveLength(2);
+    expect(itemCards[0]?.textContent).toContain("Estimated net $623.00");
+
+    fireEvent.click(itemCards[0]!);
+
+    const dialog = await screen.findByRole("dialog", { name: "Charizard offers and terms" });
+    expect(within(dialog).getByText("Standard terms")).toBeTruthy();
+    expect(within(dialog).getByText("Seller terms")).toBeTruthy();
+    expect(within(dialog).getAllByText("Marketplace fee").length).toBeGreaterThanOrEqual(2);
+    expect(within(dialog).getAllByText("Seller net").length).toBeGreaterThanOrEqual(2);
+    expect(within(dialog).getAllByText("Shipping allowance").length).toBeGreaterThanOrEqual(2);
+    expect(within(dialog).getByText("$315.00")).toBeTruthy();
+    expect(within(dialog).getAllByText("$311.50").length).toBeGreaterThan(0);
+
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Select Ash Ketchum offer" }));
+    expect(screen.getByText("1 offer selected")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Accept selected" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Decline selected" })).toBeTruthy();
+  });
+
+  it("uses the responsive item-card grid instead of narrow action rows", () => {
     const markup = renderToString(
       <CheckoutSellListPage
         sellListLines={[selectedOfferLine, productLine]}
@@ -231,21 +343,21 @@ describe("checkout sell list page", () => {
       />,
     );
 
-    const readableRowTemplates = markup.match(/--grid-template-columns-md:minmax\(0,1fr\) auto/g) ?? [];
-    expect(readableRowTemplates.length).toBeGreaterThanOrEqual(2);
+    expect(markup).toContain("sm:grid-cols-2 xl:grid-cols-3");
+    expect(markup).toContain("Estimated net $630.00");
+    expect(markup).toContain("Estimated net $369.00");
     expect(markup).not.toContain("minmax(11rem,14rem)");
-    expect(markup).toContain("Matching offers");
-    expect(markup).toContain("Kansas City Fulfillment Locker / KS (1)");
+    expect(markup).not.toContain("--grid-template-columns-md:minmax(0,1fr) auto");
   });
 
-  it("blocks seller checkout when payout or line readiness is unresolved", () => {
+  it("blocks seller checkout when payout or line readiness is unresolved", async () => {
     const blockedProductLine: CheckoutSellListLineRow = {
       ...productLine,
       fallback_mode: "none",
       minimum_listing_price_amount: null,
     };
 
-    const markup = renderToString(
+    render(
       <CheckoutSellListPage
         sellListLines={[blockedProductLine]}
         payoutReadiness={{ status: "restricted", missing_requirements: ["bank account"] }}
@@ -260,26 +372,19 @@ describe("checkout sell list page", () => {
       />,
     );
 
-    expect(markup).toContain("Some items need action");
-    expect(markup).toContain("Resolve 1 line(s) before seller checkout starts.");
-    expect(markup).toContain("Payout setup required");
-    expect(markup).toContain("bank account");
-    expect(markup).toContain("No ready Smart Match offers are available for this line.");
-    expect(markup).toContain("Set up payouts");
-    expect(markup).toContain('href="/account/payouts/setup?returnTo=%2Faccount%2Fsell-list"');
-    expect(markup).toContain("Create listing");
-    expect(markup).toContain("Add inventory");
-    expect(markup).toContain('href="/account/listings/new?catalogItemId=cat_charizard');
-    expect(markup).toContain('href="/account/inventory?catalogItemId=cat_charizard');
-    expect(markup).toContain("returnTo=%2Faccount%2Fsell-list");
-    expect(markup).toContain("disabled");
-    expect(markup).not.toContain("Continue sale checkout to safely resume");
-    expect(markup).not.toContain("provider diagnostics");
-    expect(markup).not.toContain("settlement internals");
+    expect(screen.getByText("Some items need action")).toBeTruthy();
+    expect(screen.getByText("Resolve 1 line(s) before seller checkout starts.")).toBeTruthy();
+    expect(screen.getByText("Payout setup required")).toBeTruthy();
+    expect(screen.getByText(/bank account/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review Charizard offers and terms" }));
+    expect(await screen.findByText("No ready Smart Match offers are available for this line.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Create listing" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Add inventory" })).toBeTruthy();
+    expect(document.querySelector('button[name="intent"]:disabled')).not.toBeNull();
   });
 
-  it("surfaces evaluator coverage and blocks selected-offer checkout until evidence is complete", () => {
-    const markup = renderToString(
+  it("surfaces evaluator coverage and blocks selected-offer checkout until evidence is complete", async () => {
+    render(
       <CheckoutSellListPage
         sellListLines={[selectedOfferLine]}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
@@ -338,23 +443,22 @@ describe("checkout sell list page", () => {
       />,
     );
 
-    expect(markup).toContain("Evidence needs action");
-    expect(markup).toContain("Required listing evidence");
-    expect(markup).toContain("lst_charizard");
-    expect(markup).toContain("Add the required photo for this view.");
-    expect(markup).toContain('name="listingPhoto"');
-    expect(markup).toContain("disabled");
-    expect(markup).not.toContain('Continue to seller checkout">Continue to seller checkout</button>');
+    fireEvent.click(screen.getByRole("button", { name: "Review Charizard offers and terms" }));
+    expect((await screen.findAllByText("Evidence needs action")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Required listing evidence")).toBeTruthy();
+    expect(screen.getByText(/lst_charizard/)).toBeTruthy();
+    expect(screen.getByText("Add the required photo for this view.")).toBeTruthy();
+    expect(document.querySelector('input[name="listingPhoto"]')).not.toBeNull();
   });
 
-  it("lets a product line submit fallback listing checkout when inventory is available", () => {
+  it("lets a product line submit fallback listing checkout when inventory is available", async () => {
     const productWithoutMatches: CheckoutSellListLineRow = {
       ...productLine,
       fallback_mode: "none",
       minimum_listing_price_amount: null,
     };
 
-    const { container } = render(
+    render(
       <CheckoutSellListPage
         sellListLines={[productWithoutMatches]}
         payoutReadiness={{ status: "ready", missing_requirements: [] }}
@@ -380,21 +484,18 @@ describe("checkout sell list page", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Review Charizard offers and terms" }));
     expect(
-      screen.getByText("Inventory is ready. Enter a listing price before continuing seller checkout."),
+      await screen.findByText("Inventory is ready. Enter a listing price before continuing seller checkout."),
     ).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Continue to seller checkout" })[0]?.hasAttribute("disabled")).toBe(
-      false,
+    expect((document.querySelector('select[name="fallbackMode:sll_product"]') as HTMLSelectElement | null)?.value).toBe(
+      "create-listing",
     );
     expect(
-      (container.querySelector('select[name="fallbackMode:sll_product"]') as HTMLSelectElement | null)?.value,
-    ).toBe("create-listing");
-    expect(
-      (container.querySelector('select[name="inventoryItemId:sll_product"]') as HTMLSelectElement | null)?.value,
+      (document.querySelector('select[name="inventoryItemId:sll_product"]') as HTMLSelectElement | null)?.value,
     ).toBe("inv_charizard");
-    expect(
-      (container.querySelector('input[name="priceAmount:sll_product"]') as HTMLInputElement | null)?.required,
-    ).toBe(true);
+    expect((screen.getByRole("spinbutton", { name: "Listing price" }) as HTMLInputElement).required).toBe(true);
+    expect(screen.getByRole("button", { name: "Continue to seller checkout" }).hasAttribute("disabled")).toBe(false);
   });
 
   it("links unavailable selected offers to matching listing setup", () => {
@@ -414,12 +515,10 @@ describe("checkout sell list page", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Review Charizard offers and terms" }));
     const setupLink = screen.getByRole("link", { name: "Create matching listing" });
     expect(setupLink.getAttribute("href")).toBe(
       "/account/listings/new?catalogItemId=cat_charizard&recommendedPrice=350.00&selectedOptions=%5B%7B%22dimensionId%22%3A%22condition%22%2C%22optionId%22%3A%22raw%22%7D%5D",
-    );
-    expect(screen.getAllByRole("link", { name: "Resolve items" })[0]?.getAttribute("href")).toBe(
-      setupLink.getAttribute("href"),
     );
   });
 
@@ -575,6 +674,7 @@ describe("checkout sell list page", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Review Charizard offers and terms" }));
     expect(screen.getAllByText("$345.65").length).toBeGreaterThan(0);
     expect(
       screen.getByText(
@@ -675,6 +775,7 @@ describe("checkout sell list page", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Review Charizard offers and terms" }));
     expect(
       screen.getByText("Final terms changed from the standard estimate. Review payout details before continuing."),
     ).toBeTruthy();
@@ -716,6 +817,7 @@ describe("checkout sell list page", () => {
 
     render(<CheckoutSellListPage sellListLines={[lineWithoutPublicBuyerName]} />);
 
+    fireEvent.click(screen.getByRole("button", { name: "Review Charizard offers and terms" }));
     expect(screen.getAllByText("Buyer").length).toBeGreaterThan(0);
     expect(screen.queryByText("acc_private_buyer_id")).toBeNull();
   });

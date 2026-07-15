@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
 import {
   evaluatePostWriteHandoff,
   loadFreshlyWrittenResource,
@@ -745,6 +745,13 @@ async function buildSellListReviewPlan(
   formData: FormData,
 ): Promise<SellListReviewPlan> {
   const reviewLines: SellListReviewPlanLine[] = [];
+  const bulkOfferIds = new Set(
+    formData
+      .getAll("bulkOfferId")
+      .map((value) => String(value).trim())
+      .filter(Boolean),
+  );
+  const isBulkOfferReview = bulkOfferIds.size > 0;
 
   for (const line of lines) {
     if (line.line_type === "selected-offer") {
@@ -752,7 +759,9 @@ async function buildSellListReviewPlan(
       const feeQuoteFingerprint = formValue(formData, `offerFeeQuoteFingerprint:${line.line_id}`);
       let selectedOffer: SellListReviewPlanLine["selectedOffer"] = null;
 
-      if (!line.offer_id || !line.listing_id) {
+      if (isBulkOfferReview && (!line.offer_id || !bulkOfferIds.has(line.offer_id))) {
+        // Unselected lines remain durable Sell List intent.
+      } else if (!line.offer_id || !line.listing_id) {
         skippedReasons.push(
           t("checkout.routes.accountSellList.selected.offer.missing.detail", { itemTitle: line.item_title }),
         );
@@ -787,10 +796,14 @@ async function buildSellListReviewPlan(
     }> = [];
     let plannedRemainingQuantity = line.quantity;
 
-    for (const offerId of formData
-      .getAll(`productOfferId:${line.line_id}`)
-      .map((value) => String(value).trim())
-      .filter(Boolean)) {
+    for (const offerId of [
+      ...new Set(
+        formData
+          .getAll(`productOfferId:${line.line_id}`)
+          .map((value) => String(value).trim())
+          .filter((value) => Boolean(value) && (!isBulkOfferReview || bulkOfferIds.has(value))),
+      ),
+    ]) {
       try {
         const offer = await api.getSellListOfferMatch(offerId);
         if (offer.product_id !== line.product_id) {
@@ -818,7 +831,8 @@ async function buildSellListReviewPlan(
       }
     }
 
-    const createFallbackListing = formValue(formData, `fallbackMode:${line.line_id}`) === "create-listing";
+    const createFallbackListing =
+      !isBulkOfferReview && formValue(formData, `fallbackMode:${line.line_id}`) === "create-listing";
     let fallbackListing: SellListReviewPlanLine["fallbackListing"] = null;
     if (plannedRemainingQuantity > 0 && createFallbackListing) {
       const inventoryItemId = formValue(formData, `inventoryItemId:${line.line_id}`);
@@ -832,7 +846,7 @@ async function buildSellListReviewPlan(
       } else {
         fallbackListing = { inventoryItemId, priceAmount, quantityCap };
       }
-    } else if (plannedRemainingQuantity > 0) {
+    } else if (plannedRemainingQuantity > 0 && !isBulkOfferReview) {
       skippedReasons.push(
         t("checkout.routes.accountSellList.matching.offers.do.not.cover.quantity.detail", {
           itemTitle: line.item_title,
@@ -917,14 +931,48 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
   const actor = await resolveActorFromAuthApi({ request });
   const useAccountSellList = canUseAccountSellList(actor);
   const anonymousSellListId = readAnonymousSellListId(request);
+  const sellListSurfacePath =
+    new URL(request.url).pathname === "/account/desk/offers" ? "/account/desk/offers" : "/account/sell-list";
 
   try {
+    if (intent === "decline-sell-list-offers") {
+      if (!useAccountSellList) {
+        throw new Error(t("checkout.features.sellList.ui.sellListPage.sign.in.required"));
+      }
+
+      const offerIds = [
+        ...new Set(
+          formData
+            .getAll("bulkOfferId")
+            .map((value) => String(value).trim())
+            .filter(Boolean),
+        ),
+      ].slice(0, 100);
+      if (offerIds.length === 0) {
+        throw new Error(t("checkout.routes.accountSellList.sell.list.request.failed"));
+      }
+
+      const marketplaceApi = createMarketplaceRequestApiClient(request);
+      const sellList = await api.getSellList();
+      for (const offerId of offerIds) {
+        await marketplaceApi.declineOfferMatch(offerId);
+      }
+      const declined = new Set(offerIds);
+      for (const line of sellList.items) {
+        if (line.line_type === "selected-offer" && line.offer_id && declined.has(line.offer_id)) {
+          await api.removeSellListLine(line.line_id);
+        }
+      }
+
+      return redirect(sellListSurfacePath);
+    }
+
     if (intent === "add-selected-offer") {
       if (!useAccountSellList) {
         const anonymousOwnerId = ensureAnonymousSellListId(request);
         const result = await api.addGuestSellListLine(anonymousOwnerId, selectedOfferLineFromPostedSnapshot(formData));
         const response = redirect(
-          await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/sell-list", {
+          await navigateAfterWriteWithPlatformPostWriteToken(result, sellListSurfacePath, {
             handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
           }),
         );
@@ -938,7 +986,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       const result = await api.addSellListLine(selectedOfferLineFromOffer(offer));
 
       return redirect(
-        await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/sell-list", {
+        await navigateAfterWriteWithPlatformPostWriteToken(result, sellListSurfacePath, {
           handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
         }),
       );
@@ -949,7 +997,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
         return redirect(
           await navigateAfterWriteWithPlatformPostWriteToken(
             await api.removeGuestSellListLine(anonymousSellListId, String(formData.get("lineId") ?? "")),
-            "/account/sell-list",
+            sellListSurfacePath,
           ),
         );
       }
@@ -961,7 +1009,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
       return redirect(
         await navigateAfterWriteWithPlatformPostWriteToken(
           await api.removeSellListLine(String(formData.get("lineId") ?? "")),
-          "/account/sell-list",
+          sellListSurfacePath,
         ),
       );
     }
@@ -995,7 +1043,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
         await marketplaceApi.addListingPhotos(listingId, upload);
       }
 
-      return redirect("/account/sell-list");
+      return redirect(sellListSurfacePath);
     }
 
     if (intent === "review-sell-list-checkout") {
@@ -1042,6 +1090,7 @@ export const action = defineFormAction({
     "add-listing-evidence": (context) => handleAction("add-listing-evidence", context),
     "add-selected-offer": (context) => handleAction("add-selected-offer", context),
     "classify-listing-evidence": (context) => handleAction("classify-listing-evidence", context),
+    "decline-sell-list-offers": (context) => handleAction("decline-sell-list-offers", context),
     "remove-sell-list-line": (context) => handleAction("remove-sell-list-line", context),
     "review-sell-list-checkout": (context) => handleAction("review-sell-list-checkout", context),
   },
@@ -1057,6 +1106,7 @@ export const meta: MetaFunction = () =>
 export default function CheckoutAccountSellListRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const location = useLocation();
   const sellListRecovery = "sellListRecovery" in data ? data.sellListRecovery : null;
   const { currentPath, isAutoRevalidating } = usePendingFreshWriteRevalidation(
     sellListRecovery?.kind === "pending-fresh-write",
@@ -1094,6 +1144,7 @@ export default function CheckoutAccountSellListRoute() {
               }
           : null
       }
+      sellListPath={location.pathname === "/account/desk/offers" ? location.pathname : "/account/sell-list"}
     />
   );
 }
