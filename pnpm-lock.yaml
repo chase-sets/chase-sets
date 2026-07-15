@@ -1367,6 +1367,9 @@ importers:
       '@chase-sets/discovery':
         specifier: workspace:*
         version: link:../../bounded-contexts/discovery
+      '@chase-sets/fulfillment':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/fulfillment
       '@chase-sets/identity':
         specifier: workspace:*
         version: link:../../bounded-contexts/identity

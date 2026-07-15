@@ -17,6 +17,7 @@
     "@chase-sets/customer-feedback": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/discovery": "workspace:*",
+    "@chase-sets/fulfillment": "workspace:*",
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/marketplace": "workspace:*",

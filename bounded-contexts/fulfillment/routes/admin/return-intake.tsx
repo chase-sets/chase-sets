@@ -1,7 +1,8 @@
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { t } from "@chase-sets/localization";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import { defineFormAction, type FormActionContext } from "@chase-sets/platform-runtime/http";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation, useSearchParams } from "react-router";
 import { FacilityIntakePage } from "../../features/return-shipments/ui/facility-intake-page";
 import { createFulfillmentRequestApiClient, FulfillmentApiError } from "../../support/request-support/api-client";
@@ -108,11 +109,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "return-intake.manage" });
+async function handleAction(intent: string, { request, formData }: FormActionContext) {
   const api = createFulfillmentRequestApiClient(request);
-  const formData = await request.formData();
-  const intent = value(formData, "intent");
   const facilityId = value(formData, "facilityId");
   const redirectBase = `/return-intake?facilityId=${encodeURIComponent(facilityId)}`;
 
@@ -188,6 +186,17 @@ export async function action({ request }: ActionFunctionArgs) {
     return { error: actionError(error) };
   }
 }
+
+export const action = defineFormAction({
+  authorization: { permission: "return-intake.manage" },
+  intents: {
+    complete: (context) => handleAction("complete", context),
+    unidentified: (context) => handleAction("unidentified", context),
+    reconcile: (context) => handleAction("reconcile", context),
+    correct: (context) => handleAction("correct", context),
+  },
+  onUnknownIntent: () => ({ error: t("fulfillment.returnIntake.route.chooseAction") }),
+});
 
 export const meta: MetaFunction = () => [{ title: t("fulfillment.returnIntake.route.metaTitle") }];
 
