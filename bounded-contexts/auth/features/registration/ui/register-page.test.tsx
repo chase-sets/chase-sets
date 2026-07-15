@@ -42,6 +42,8 @@ describe("registration page", () => {
 
     render(<RegisterPage />);
 
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1, name: "Create an account with a passkey" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: /Passkey/ }).getAttribute("aria-checked")).toBe("true");
     expect(screen.getByText("Recommended")).toBeTruthy();
     expect(screen.getByText(/Face ID, Touch ID, Windows Hello/)).toBeTruthy();

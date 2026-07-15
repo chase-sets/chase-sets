@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   Divider,
+  Heading,
   Inline,
   LinkButton,
   PasswordInput,
@@ -280,9 +281,9 @@ export function RegisterPage(props: RegistrationPageProps) {
   return (
     <Stack gap={4}>
       <Stack gap={2}>
-        <Text size="lg" weight="semibold">
+        <Heading level={1} visualSize={5}>
           {t("auth.features.registration.ui.registerPage.create.account")}
-        </Text>
+        </Heading>
         <Text tone="secondary">
           {t("auth.features.registration.ui.registerPage.create.your.personal.identity.and.owner")}
         </Text>

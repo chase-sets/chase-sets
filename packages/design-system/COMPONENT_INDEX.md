@@ -142,7 +142,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `FullPage` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Full Page. | `No production consumer yet.` |
 | `Grid` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Grid. | `bounded-contexts/checkout/features/sell-list/ui/guest-sell-checkout-page.tsx` |
 | `hasFormErrors` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: has Form Errors. | `No production consumer yet.` |
-| `Heading` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Heading. | `bounded-contexts/auth/features/agent-grants/ui/agent-grant-list-page.tsx` |
+| `Heading` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Heading. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
 | `HelperText` | `packages/design-system/src/components/forms/field.tsx` | Purpose not documented; symbol name suggests: Helper Text. | `No production consumer yet.` |
 | `HelpSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Help Sheet. | `No production consumer yet.` |
 | `HiddenInput` | `packages/design-system/src/components/forms/hidden-input.tsx` | Purpose not documented; symbol name suggests: Hidden Input. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
