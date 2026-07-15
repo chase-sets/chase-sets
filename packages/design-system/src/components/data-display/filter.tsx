@@ -31,7 +31,7 @@ export function FilterBar({ children, actions, sticky = true, stickyOffset, ...r
       className={cx(
         "modern-surface grid gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
         sticky && "sticky z-sticky",
-        sticky && !stickyOffset && "top-16",
+        sticky && !stickyOffset && "top-[var(--shell-header-height,4rem)]",
       )}
     >
       <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3 md:[&>*]:w-48 md:[&>*]:max-w-full md:[&>*]:min-w-[12rem]">
@@ -74,7 +74,7 @@ export function ActionBar({ children, sticky = false, stickyOffset, ...rest }: A
       className={cx(
         "modern-surface flex min-w-0 flex-wrap items-end justify-start gap-2 rounded-tokenLg border border-muted p-3 shadow-tokenSm md:justify-end",
         sticky && "sticky z-sticky",
-        sticky && !stickyOffset && "top-16",
+        sticky && !stickyOffset && "top-[var(--shell-header-height,4rem)]",
       )}
     >
       {children}
@@ -144,7 +144,7 @@ export function FilterArea({
       className={cx(
         "modern-surface grid gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end",
         sticky && "sticky z-sticky",
-        sticky && !stickyOffset && "top-16",
+        sticky && !stickyOffset && "top-[var(--shell-header-height,4rem)]",
       )}
     >
       <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3">
@@ -274,7 +274,7 @@ export function BulkActionBar({
           ? undefined
           : { duration: motionSettings.durations.base, ease: motionSettings.easing }
       }
-      className="modern-surface sticky bottom-[calc(7rem+env(safe-area-inset-bottom))] z-sticky rounded-tokenLg border border-accent p-3 shadow-overlay md:bottom-4"
+      className="modern-surface sticky bottom-[calc(var(--shell-bottom-nav-height,0px)+var(--space-4)+env(safe-area-inset-bottom))] z-sticky rounded-tokenLg border border-accent p-3 shadow-overlay md:bottom-4"
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-center gap-3">

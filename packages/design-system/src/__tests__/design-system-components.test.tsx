@@ -1944,6 +1944,9 @@ describe("design system components", () => {
     expect(main.getAttribute("id")).toBe("main-content");
     expect(main.getAttribute("tabindex")).toBe("-1");
     expect(main.getAttribute("class")).toContain("relative z-0");
+    expect(main.parentElement?.getAttribute("class")).toContain("[--shell-header-height:4rem]");
+    expect(main.parentElement?.getAttribute("class")).toContain("[--shell-bottom-nav-height:5.25rem]");
+    expect(main.parentElement?.getAttribute("class")).toContain("md:[--shell-bottom-nav-height:0px]");
     expect(screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")).toBe("#main-content");
   });
 
@@ -1960,6 +1963,9 @@ describe("design system components", () => {
 
     expect(main.getAttribute("id")).toBe("main-content");
     expect(main.getAttribute("tabindex")).toBe("-1");
+    expect(main.parentElement?.getAttribute("class")).toContain("[--shell-header-height:4rem]");
+    expect(main.parentElement?.getAttribute("class")).toContain("[--shell-bottom-nav-height:5.25rem]");
+    expect(main.parentElement?.getAttribute("class")).toContain("md:[--shell-bottom-nav-height:0px]");
     expect(screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")).toBe("#main-content");
   });
 
@@ -1973,6 +1979,7 @@ describe("design system components", () => {
     );
 
     expect(screen.getByRole("main").getAttribute("class")).not.toContain("lg:grid-cols-[16rem_minmax(0,1fr)]");
+    expect(screen.getByRole("main").parentElement?.getAttribute("class")).toContain("[--shell-bottom-nav-height:0px]");
     expect(screen.queryByRole("navigation", { name: "Section navigation" })).toBeNull();
     expect(screen.getByText("Root state")).toBeTruthy();
   });
