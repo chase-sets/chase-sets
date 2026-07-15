@@ -8,7 +8,7 @@ import {
 } from "./support/admin-e2e";
 
 type CurrentActorDisplay = Readonly<{
-  account: Readonly<{ account_id: string }>;
+  account: Readonly<{ account_id: string; display_name: string | null; name: string | null }>;
 }>;
 
 test.describe("access admin invitations", () => {
@@ -19,42 +19,51 @@ test.describe("access admin invitations", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/access/invitations", "/access/sign-in");
-    await expectPageOk(page, "/access/invitations");
-    await expectAdminPageReady(page, { heading: "Invitations" });
-
+    await authenticateAdmin(page, "/access", "/access/sign-in");
     const actor = await getCurrentActorDisplay(page);
+    const accountHeading = actor.account.display_name ?? actor.account.name ?? actor.account.account_id;
+    const accountTeamPath = `/access/accounts/${actor.account.account_id}?tab=team`;
+    await expectPageOk(page, accountTeamPath);
+    await expectAdminPageReady(page, { heading: accountHeading });
+    await expect(page.getByRole("heading", { name: "Team memberships" })).toBeVisible();
+
     const invitationEmail = `admin-access-${Date.now().toString(36)}@example.test`;
-    await page.getByLabel("Account", { exact: true }).selectOption(actor.account.account_id);
-    await page.getByRole("textbox", { name: "Email" }).fill(invitationEmail);
-    await page.getByLabel("Role").selectOption("viewer");
-    await page.getByRole("button", { name: "Create" }).click();
+    await page.getByRole("button", { name: "Invite Member" }).click();
+    const inviteDialog = page.getByRole("dialog", { name: "Invite a team member" });
+    await inviteDialog.getByRole("textbox", { name: "Email" }).fill(invitationEmail);
+    await inviteDialog.getByLabel("Role").selectOption("viewer");
+    await inviteDialog.getByRole("button", { name: "Invite" }).click();
     await page.waitForURL(
-      (url) => /^\/access\/invitations\/ivt_[^/?]+$/.test(url.pathname) && url.search.includes("afterWrite"),
+      (url) =>
+        url.pathname === `/access/accounts/${actor.account.account_id}` &&
+        url.searchParams.get("tab") === "team" &&
+        url.search.includes("afterWrite"),
       { timeout: 30_000 },
     );
     const createUrl = new URL(page.url());
-    const invitationId = createUrl.pathname.split("/").pop();
-    if (!invitationId) {
-      throw new Error("Created invitation route should include the new invitation id.");
-    }
-    await waitForIdentityInvitationProjection(page, createUrl, `create invitation ${invitationId}`);
-    await page.goto(createUrl.pathname, { waitUntil: "domcontentloaded" });
-    await expect(page).toHaveURL(new RegExp(`/access/invitations/${invitationId}(?:\\?|$)`));
-    await expectAdminPageReady(page, { heading: invitationEmail });
-    await expect(page.getByText("pending").first()).toBeVisible();
-    await page.getByRole("button", { name: "Cancel" }).click();
+    await waitForIdentityInvitationProjection(page, createUrl, `create invitation for ${invitationEmail}`);
+    await page.goto(`${createUrl.pathname}${createUrl.search}`, { waitUntil: "domcontentloaded" });
+    await expectAdminPageReady(page, { heading: accountHeading });
+    const invitationRow = page.getByRole("row").filter({ hasText: invitationEmail });
+    await expect(invitationRow.getByText("pending", { exact: true })).toBeVisible();
+    await invitationRow.getByRole("button", { name: "Cancel" }).click();
     const confirmationDialog = page.getByRole("dialog", { name: `Cancel invitation for ${invitationEmail}?` });
     await expect(confirmationDialog).toBeVisible();
     await confirmationDialog.getByRole("button", { name: "Confirm cancellation" }).click();
     await page.waitForURL(
-      (url) => url.pathname === `/access/invitations/${invitationId}` && url.search.includes("afterWrite"),
+      (url) =>
+        url.pathname === `/access/accounts/${actor.account.account_id}` &&
+        url.searchParams.get("tab") === "team" &&
+        url.search.includes("afterWrite"),
       { timeout: 30_000 },
     );
     const cancelUrl = new URL(page.url());
-    await waitForIdentityInvitationProjection(page, cancelUrl, `cancel invitation ${invitationId}`);
-    await page.goto(cancelUrl.pathname, { waitUntil: "domcontentloaded" });
-    await expectCancelledInvitation(page, invitationId, invitationEmail);
+    await waitForIdentityInvitationProjection(page, cancelUrl, `cancel invitation for ${invitationEmail}`);
+    await page.goto(`${cancelUrl.pathname}${cancelUrl.search}`, { waitUntil: "domcontentloaded" });
+    await expectAdminPageReady(page, { heading: accountHeading });
+    const cancelledInvitationRow = page.getByRole("row").filter({ hasText: invitationEmail });
+    await expect(cancelledInvitationRow.getByText("cancelled", { exact: true })).toBeVisible();
+    await expect(cancelledInvitationRow.getByRole("button", { name: "Cancel" })).toHaveCount(0);
   });
 });
 
@@ -65,26 +74,6 @@ async function getCurrentActorDisplay(page: Page) {
   return (await response.json()) as CurrentActorDisplay;
 }
 
-async function waitForInvitationStatus(page: Page, invitationId: string, status: "cancelled") {
-  const origin = new URL(page.url()).origin;
-  await expect
-    .poll(
-      async () => {
-        const response = await page.request.get(`${origin}/api/identity/invitations/${invitationId}`);
-        if (response.status() !== 200) {
-          return null;
-        }
-
-        const body = (await response.json()) as { status?: string };
-        return body.status ?? null;
-      },
-      { intervals: [1_000, 2_000, 5_000], timeout: 45_000 },
-    )
-    .toBe(status);
-
-  await page.reload({ waitUntil: "domcontentloaded" });
-}
-
 async function waitForIdentityInvitationProjection(page: Page, url: URL, label: string) {
   await waitForProjectionPositionFromUrl(page, url, {
     sourceContextName: "identity",
@@ -92,10 +81,4 @@ async function waitForIdentityInvitationProjection(page: Page, url: URL, label: 
     projectionName: "identity-invitation-projection",
     label,
   });
-}
-
-async function expectCancelledInvitation(page: Page, invitationId: string, invitationEmail: string) {
-  await waitForInvitationStatus(page, invitationId, "cancelled");
-  await expectAdminPageReady(page, { heading: invitationEmail });
-  await expect(page.getByRole("button", { name: "Cancel" })).toHaveCount(0);
 }

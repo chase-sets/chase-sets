@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   authenticateAdmin,
   expectAdminPageReady,
@@ -6,6 +6,11 @@ import {
   skipDeployedAdminE2e,
   waitForProjectionPositionFromUrl,
 } from "./support/admin-e2e";
+
+type CurrentActorDisplay = Readonly<{
+  account: Readonly<{ account_id: string; display_name: string | null; name: string | null }>;
+  user: Readonly<{ user_id: string }>;
+}>;
 
 test.describe("access admin api keys", () => {
   test("operator creates, rotates, and revokes an API key @admin-access", async ({ page }) => {
@@ -15,60 +20,63 @@ test.describe("access admin api keys", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/access/api-keys", "/access/sign-in");
-    await expectPageOk(page, "/access/api-keys");
-    await expectAdminPageReady(page, { heading: "API Keys" });
+    await authenticateAdmin(page, "/access", "/access/sign-in");
+    const actor = await getCurrentActorDisplay(page);
+    const accountHeading = actor.account.display_name ?? actor.account.name ?? actor.account.account_id;
+    const accountApiAccessPath = `/access/accounts/${actor.account.account_id}?tab=api-access`;
+    await expectPageOk(page, accountApiAccessPath);
+    await expectAdminPageReady(page, { heading: accountHeading });
+    await expect(page.getByRole("heading", { name: "API Access" })).toBeVisible();
 
     const apiKeyName = `Admin access QA ${Date.now().toString(36)}`;
-    await page.getByRole("combobox", { name: "User" }).click();
-    await page.getByRole("option").first().click();
+    await page.getByRole("combobox", { name: "User" }).selectOption(actor.user.user_id);
     await page.getByRole("textbox", { name: "Name" }).fill(apiKeyName);
     await clickApiKeySecretAction(page, {
-      buttonName: "Create",
-      responseUrlIncludes: "/access/api-keys",
+      button: page.getByRole("button", { name: "Create API Key" }),
+      responseUrlIncludes: `/access/accounts/${actor.account.account_id}`,
       status: 201,
     });
-    await expect(page).toHaveURL(/\/access\/api-keys(?:\?|$)/);
-    await expectAdminPageReady(page, { heading: "API Keys" });
     const createdSecret = await expectOneTimeSecretPanel(page, "API key secret created");
-
-    const detailHref = await page.getByRole("link", { name: "View key" }).getAttribute("href");
-    expect(detailHref, "Created API key reveal should link to the persisted key detail.").toMatch(
-      /^\/access\/api-keys\/key_[^/?]+$/,
-    );
-    const apiKeyId = detailHref!.split("/").pop()!;
-    await page.getByRole("link", { name: "View key" }).click();
-    await expect(page).toHaveURL(new RegExp(`/access/api-keys/${apiKeyId}(?:\\?|$)`));
-    await expectAdminPageReady(page, { heading: apiKeyName });
-    await expect(page.getByText("active").first()).toBeVisible();
-    await expect(page.getByText(createdSecret, { exact: true })).toHaveCount(0);
+    await waitForApiKeyInHub(page, actor.account.account_id, apiKeyName);
+    await page.goto(accountApiAccessPath, { waitUntil: "domcontentloaded" });
+    const apiKeyRow = page.getByRole("row").filter({ hasText: apiKeyName });
+    await expect(apiKeyRow).toHaveCount(1);
+    await expect(apiKeyRow.getByText("active", { exact: true })).toBeVisible();
 
     await clickApiKeySecretAction(page, {
-      buttonName: "Rotate",
-      responseUrlIncludes: `/access/api-keys/${apiKeyId}`,
+      button: apiKeyRow.getByRole("button", { name: "Rotate" }),
+      responseUrlIncludes: `/access/accounts/${actor.account.account_id}`,
       status: 200,
     });
-    await expect(page).toHaveURL(new RegExp(`/access/api-keys/${apiKeyId}(?:\\?|$)`));
     const rotatedSecret = await expectOneTimeSecretPanel(page, "API key secret rotated");
 
-    await page.goto(`/access/api-keys/${apiKeyId}`, { waitUntil: "domcontentloaded" });
-    await expectAdminPageReady(page, { heading: apiKeyName });
-    await expect(page.getByText("active").first()).toBeVisible();
+    await page.goto(accountApiAccessPath, { waitUntil: "domcontentloaded" });
+    await expectAdminPageReady(page, { heading: accountHeading });
+    await expect(apiKeyRow.getByText("active", { exact: true })).toBeVisible();
+    await expect(page.getByText(createdSecret, { exact: true })).toHaveCount(0);
     await expect(page.getByText(rotatedSecret, { exact: true })).toHaveCount(0);
 
-    const revokeUrl = await clickApiKeyRedirectAction(page, apiKeyId, apiKeyName);
-    await waitForIdentityApiKeyProjection(page, revokeUrl, `revoke API key ${apiKeyId}`);
-    await page.goto(revokeUrl.pathname, { waitUntil: "domcontentloaded" });
-    await expectAdminPageReady(page, { heading: apiKeyName });
-    await expect(page.getByText("revoked").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Revoke" })).toHaveCount(0);
+    const revokeUrl = await clickApiKeyRedirectAction(page, apiKeyRow, apiKeyName, actor.account.account_id);
+    await waitForIdentityApiKeyProjection(page, revokeUrl, `revoke API key ${apiKeyName}`);
+    await page.goto(`${revokeUrl.pathname}${revokeUrl.search}`, { waitUntil: "domcontentloaded" });
+    await expectAdminPageReady(page, { heading: accountHeading });
+    const revokedApiKeyRow = page.getByRole("row").filter({ hasText: apiKeyName });
+    await expect(revokedApiKeyRow.getByText("revoked", { exact: true })).toBeVisible();
+    await expect(revokedApiKeyRow.getByRole("button", { name: "Revoke" })).toHaveCount(0);
   });
 });
+
+async function getCurrentActorDisplay(page: Page) {
+  const origin = new URL(page.url()).origin;
+  const response = await page.request.get(`${origin}/api/identity/current-actor-display`);
+  expect(response.status(), "current actor display should be readable").toBe(200);
+  return (await response.json()) as CurrentActorDisplay;
+}
 
 async function clickApiKeySecretAction(
   page: Page,
   options: Readonly<{
-    buttonName: "Create" | "Rotate";
+    button: Locator;
     responseUrlIncludes: string;
     status: number;
   }>,
@@ -77,10 +85,30 @@ async function clickApiKeySecretAction(
     page.waitForResponse(
       (candidate) => candidate.request().method() === "POST" && candidate.url().includes(options.responseUrlIncludes),
     ),
-    page.getByRole("button", { name: options.buttonName }).click(),
+    options.button.click(),
   ]);
-  expect(response.status(), `${options.buttonName} form post should return one-time secret`).toBe(options.status);
+  expect(response.status(), "API key form post should return one-time secret").toBe(options.status);
   await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
+}
+
+async function waitForApiKeyInHub(page: Page, accountId: string, apiKeyName: string) {
+  const origin = new URL(page.url()).origin;
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(`${origin}/api/identity/access-hub/accounts/${accountId}`);
+        if (response.status() !== 200) {
+          return false;
+        }
+
+        const body = (await response.json()) as {
+          api_keys?: readonly Readonly<{ name?: string; status?: string }>[];
+        };
+        return body.api_keys?.some((apiKey) => apiKey.name === apiKeyName && apiKey.status === "active") ?? false;
+      },
+      { intervals: [1_000, 2_000, 5_000], timeout: 45_000 },
+    )
+    .toBe(true);
 }
 
 async function expectOneTimeSecretPanel(page: Page, heading: string) {
@@ -102,22 +130,26 @@ async function expectOneTimeSecretPanel(page: Page, heading: string) {
   return secret;
 }
 
-async function clickApiKeyRedirectAction(page: Page, apiKeyId: string, apiKeyName: string) {
-  await page.getByRole("button", { name: "Revoke" }).click();
+async function clickApiKeyRedirectAction(page: Page, apiKeyRow: Locator, apiKeyName: string, accountId: string) {
+  await apiKeyRow.getByRole("button", { name: "Revoke" }).click();
   const confirmationDialog = page.getByRole("dialog", { name: `Revoke ${apiKeyName}?` });
   await expect(confirmationDialog).toBeVisible();
 
   const [response] = await Promise.all([
     page.waitForResponse(
       (candidate) =>
-        candidate.request().method() === "POST" && candidate.url().includes(`/access/api-keys/${apiKeyId}`),
+        candidate.request().method() === "POST" && candidate.url().includes(`/access/accounts/${accountId}`),
     ),
     confirmationDialog.getByRole("button", { name: "Confirm revoke" }).click(),
   ]);
   expect(response.status(), "Revoke form post should redirect successfully").toBeLessThan(400);
-  await page.waitForURL((url) => url.pathname === `/access/api-keys/${apiKeyId}` && url.search.includes("afterWrite"), {
-    timeout: 30_000,
-  });
+  await page.waitForURL(
+    (url) =>
+      url.pathname === `/access/accounts/${accountId}` &&
+      url.searchParams.get("tab") === "api-access" &&
+      url.search.includes("afterWrite"),
+    { timeout: 30_000 },
+  );
   await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
   return new URL(page.url());
 }
