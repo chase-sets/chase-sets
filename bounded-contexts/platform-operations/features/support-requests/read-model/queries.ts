@@ -9,6 +9,7 @@ import type {
 import { normalizeFlowType } from "../domain/common";
 import { normalizeSupportResolutionForReplay } from "../domain/responsibility";
 import type { RemedyCasePresentation, RemedyExecution } from "../domain/remedy";
+import { remedyApprovalExpired, type RemedyApprovalWorkflow } from "../domain/remedy-approval";
 
 export type SupportRequestListRow = Readonly<{
   support_request_id: string;
@@ -43,6 +44,7 @@ export type SupportRequestListRow = Readonly<{
   return_refund_release_due_at: string | null;
   return_condition_disputed_at: string | null;
   remedy: RemedyExecution | null;
+  remedy_approval: RemedyApprovalWorkflow | null;
   case_presentation: RemedyCasePresentation;
   closure_eligible: boolean;
   closure_blocking_reasons: readonly string[];
@@ -91,6 +93,7 @@ const listSelect = `
     return_refund_release_due_at::text AS return_refund_release_due_at,
     return_condition_disputed_at::text AS return_condition_disputed_at
     ,remedy
+    ,remedy_approval
     ,CASE
        WHEN case_presentation = 'decision-pending' AND status = 'closed' THEN 'closed'
        WHEN case_presentation = 'decision-pending' AND resolution IS NOT NULL THEN 'decision-made'
@@ -140,6 +143,7 @@ const detailSelect = `
     return_refund_release_due_at::text AS return_refund_release_due_at,
     return_condition_disputed_at::text AS return_condition_disputed_at
     ,remedy
+    ,remedy_approval
     ,CASE
        WHEN case_presentation = 'decision-pending' AND status = 'closed' THEN 'closed'
        WHEN case_presentation = 'decision-pending' AND resolution IS NOT NULL THEN 'decision-made'
@@ -160,13 +164,28 @@ function normalizePageParams(params: Readonly<{ limit?: number; offset?: number 
 }
 
 function withCompatibleResolution<T extends SupportRequestListRow>(row: T): T {
-  if (row.resolution == null || typeof row.flow_type !== "string") {
-    return row;
+  let compatible = row;
+  if (row.resolution != null && typeof row.flow_type === "string") {
+    compatible = {
+      ...compatible,
+      resolution: normalizeSupportResolutionForReplay(row.resolution, normalizeFlowType(row.flow_type)),
+    };
   }
-  return {
-    ...row,
-    resolution: normalizeSupportResolutionForReplay(row.resolution, normalizeFlowType(row.flow_type)),
-  };
+  if (compatible.remedy_approval && remedyApprovalExpired(compatible.remedy_approval)) {
+    compatible = {
+      ...compatible,
+      remedy_approval: {
+        ...compatible.remedy_approval,
+        status: "expired",
+        reservationStatus: "expired",
+        reservationReasonCode: "reservation-expired",
+      },
+      closure_eligible: false,
+      closure_blocking_reasons: ["remedy-approval:expired"],
+      next_remedy_action: "correction:reservation-expired",
+    };
+  }
+  return compatible;
 }
 
 export async function listBuyerSupportRequests(

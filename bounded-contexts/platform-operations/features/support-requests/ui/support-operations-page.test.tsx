@@ -38,6 +38,7 @@ function buildQueueItem(overrides: Partial<SupportRequestListItem> = {}): Suppor
     return_refund_release_due_at: null,
     return_condition_disputed_at: null,
     remedy: null,
+    remedy_approval: null,
     case_presentation: "decision-pending",
     closure_eligible: false,
     closure_blocking_reasons: [],
@@ -217,5 +218,60 @@ describe("SupportOperationsDetailPage", () => {
       "Operator finding",
       "Insufficient evidence",
     ]);
+  });
+
+  it("renders all four independent remedy dimensions and the server-produced exposure preview", () => {
+    const request = buildDetailItem({
+      status: "resolved",
+      resolution: {
+        resolutionType: "full-refund",
+        summary: "Buyer is made whole.",
+        refundAmount: "100.00",
+        resolvedByAccountId: "acc_operator" as never,
+        resolvedByRole: "support",
+        resolvedAt: "2026-07-14T00:00:00.000Z",
+        responsibility: "undetermined",
+        evidenceBasis: { type: "insufficient-evidence", reference: "evidence-1" },
+        responsibilityReasonCode: "product-not-received.insufficient-evidence",
+      },
+    });
+    renderDetailPage({
+      request,
+      actorPermissions: ["support.remedies.propose"],
+      remedyPreview: {
+        customerOutcome: "100.00 usd full-refund",
+        sellerImpact: "0.00 usd",
+        protectionReserveImpact: "100.00 usd",
+        returnLabelCostPayer: "platform",
+        refundTrigger: "facility-intake",
+        reservationExpiresAt: "2026-07-15T00:00:00.000Z",
+        requiredApprovalCount: 2,
+        requiresElevatedApproval: true,
+        returnOverrideRequired: false,
+        policyVersion: "platform-operations.platform-remedies:compiled-v1",
+      },
+    });
+
+    expect(screen.getByLabelText("Buyer remedy amount")).toBeTruthy();
+    expect(screen.getByLabelText("Funding allocation")).toBeTruthy();
+    expect(screen.getByLabelText("Return directive")).toBeTruthy();
+    expect(screen.getByLabelText("Refund trigger")).toBeTruthy();
+    expect(screen.getByText("Financial exposure preview")).toBeTruthy();
+    expect(screen.getByText("100.00 usd")).toBeTruthy();
+    expect(screen.getByText("Elevated approval is required.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Request reservation" })).not.toHaveProperty("disabled", true);
+  });
+
+  it("lists exact remedy effects that block closure", () => {
+    renderDetailPage({
+      request: buildDetailItem({
+        status: "resolved",
+        closure_eligible: false,
+        closure_blocking_reasons: ["refund-completion:failed-retryable", "settlement-reconciliation:pending"],
+      }),
+    });
+    expect(screen.getByText("refund-completion:failed-retryable")).toBeTruthy();
+    expect(screen.getByText("settlement-reconciliation:pending")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close request" })).toHaveProperty("disabled", true);
   });
 });

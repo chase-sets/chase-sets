@@ -70,6 +70,7 @@ ALTER TABLE support_request_pages
 
 ALTER TABLE support_request_pages
   ADD COLUMN IF NOT EXISTS remedy jsonb NULL,
+  ADD COLUMN IF NOT EXISTS remedy_approval jsonb NULL,
   ADD COLUMN IF NOT EXISTS deferred_remedy_effect_facts jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS case_presentation text NOT NULL DEFAULT 'decision-pending',
   ADD COLUMN IF NOT EXISTS closure_eligible boolean NOT NULL DEFAULT false,

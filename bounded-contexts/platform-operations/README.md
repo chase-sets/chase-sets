@@ -133,6 +133,13 @@ preserves existing seller-funded/no-return behavior without inventing financial 
 remedy is authorized, that legacy deadline is cancelled; a replacement seven-day close deadline is projected only from
 `remedy-completed.v1`.
 
+The `platform-operations.platform-remedies` policy owns eligible reasons, capability amount/percentage limits,
+split-funding rules, return thresholds, refund triggers, approval/dual-control thresholds, reservation expiry, and
+exception/escalation reasons. Operators first append a proposal and request Settlement reservation. Support appends
+authorization only after the reservation and required distinct approvals exist. Retry, non-financial waiver, and
+correction requests preserve the original correlated intent and append human audit entries; owning-context facts remain
+visibly system/service actions.
+
 ## Boundary Notes
 
 Platform Operations gives staff a coherent way to inspect and act on platform runtime signals. Shared infrastructure still owns generic projection runtime behavior, while each bounded context owns the projections and read models it declares.

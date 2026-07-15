@@ -10,6 +10,10 @@ import {
   SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE,
   supportDeadlinePolicy,
 } from "../../features/support-requests/domain/support-deadline-policy";
+import {
+  PLATFORM_REMEDY_LAUNCH_POLICY_VALUE,
+  platformRemedyPolicy,
+} from "../../features/support-requests/domain/platform-remedy-policy";
 import { experienceSeedIds, supportSeedIds, supportSeedOrderSourceIds } from "../seed-support/ids";
 
 function isoDate(value: string) {
@@ -21,8 +25,25 @@ export async function seedPlatformOperationsDatabase(
   services: PlatformOperationsServices = createPlatformOperationsServices(pool),
 ): Promise<void> {
   await seedSupportDeadlinePolicy(services);
+  await seedPlatformRemedyPolicy(services);
   await seedPlatformFeedbackData(pool, services);
   await seedSupportDatabase(pool, services);
+}
+
+async function seedPlatformRemedyPolicy(services: PlatformOperationsServices) {
+  try {
+    await seedPolicyDocumentIfMissing(
+      services,
+      createSeedContext(),
+      platformRemedyPolicy,
+      PLATFORM_REMEDY_LAUNCH_POLICY_VALUE,
+      "2026-07-14T00:00:00.000Z",
+    );
+  } catch (error) {
+    console.log(
+      `Platform remedy policy seed skipped for this pass: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 /**

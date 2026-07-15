@@ -22,11 +22,24 @@ import {
   type SupportRequestRemedyEffectRecordedEvent,
   type SupportRequestRemedyEffectWaivedEvent,
 } from "../domain/remedy";
+import {
+  applyRemedyApproval,
+  applyRemedyCorrectionRequest,
+  applyRemedyReservationFact,
+  applyRemedyRetryRequest,
+  applyRemedyWaiverAudit,
+  markRemedyWorkflowAuthorized,
+  type RemedyApprovalWorkflow,
+  type SupportRemedyApprovedEvent,
+  type SupportRemedyCorrectionRequestedEvent,
+  type SupportRemedyEffectRetryRequestedEvent,
+} from "../domain/remedy-approval";
 
 type RemedyProjectionRow = Readonly<{
   status: string;
   resolution: unknown | null;
   remedy: RemedyExecution | null;
+  remedy_approval: RemedyApprovalWorkflow | null;
   deferred_remedy_effect_facts: readonly SupportRequestRemedyEffectRecordedEvent["data"][];
 }>;
 
@@ -53,7 +66,7 @@ function repairGuidance(remedy: RemedyExecution | null): readonly string[] {
 
 async function loadRemedyProjection(db: PgQueryable, supportRequestId: string): Promise<RemedyProjectionRow | null> {
   const result = await db.query<RemedyProjectionRow>(
-    `SELECT status, resolution, remedy, deferred_remedy_effect_facts
+    `SELECT status, resolution, remedy, remedy_approval, deferred_remedy_effect_facts
      FROM support_request_pages
      WHERE support_request_id = $1`,
     [supportRequestId],
@@ -67,14 +80,31 @@ async function writeRemedyProjection(
     supportRequestId: string;
     row: RemedyProjectionRow;
     remedy: RemedyExecution | null;
+    remedyApproval?: RemedyApprovalWorkflow | null;
     deferredFacts: readonly SupportRequestRemedyEffectRecordedEvent["data"][];
     updatedAt: string;
     autoCloseDueAt?: string | null;
   }>,
 ) {
-  const blockingReasons = remedyClosureBlockingReasons(params.remedy);
+  const remedyApproval = params.remedyApproval === undefined ? params.row.remedy_approval : params.remedyApproval;
+  const blockingReasons = params.remedy
+    ? remedyClosureBlockingReasons(params.remedy)
+    : remedyApproval
+      ? [`remedy-approval:${remedyApproval.status}`]
+      : [];
   const closureEligible =
-    params.row.status === "resolved" && (params.remedy === null || params.remedy.status === "completed");
+    params.row.status === "resolved" &&
+    (remedyApproval === null ? params.remedy === null : params.remedy?.status === "completed");
+  const nextApprovalAction =
+    remedyApproval?.status === "reservation-pending"
+      ? "await:coverage-reservation"
+      : remedyApproval?.status === "reservation-rejected"
+        ? "correction:coverage-reservation"
+        : remedyApproval?.status === "approval-pending"
+          ? "approve:remedy"
+          : remedyApproval?.status === "correction-requested"
+            ? "escalate:correction"
+            : null;
   await db.query(
     `UPDATE support_request_pages
      SET remedy = $2::jsonb,
@@ -82,10 +112,11 @@ async function writeRemedyProjection(
          case_presentation = $4,
          closure_eligible = $5,
          closure_blocking_reasons = $6::jsonb,
-         next_remedy_action = $7,
-         remedy_repair_guidance = $8::jsonb,
-         updated_at = GREATEST(updated_at, $9::timestamptz),
-         auto_close_due_at = CASE WHEN $10::boolean THEN $11::timestamptz ELSE auto_close_due_at END
+          next_remedy_action = $7,
+          remedy_repair_guidance = $8::jsonb,
+          remedy_approval = $9::jsonb,
+          updated_at = GREATEST(updated_at, $10::timestamptz),
+          auto_close_due_at = CASE WHEN $11::boolean THEN $12::timestamptz ELSE auto_close_due_at END
      WHERE support_request_id = $1`,
     [
       params.supportRequestId,
@@ -94,8 +125,9 @@ async function writeRemedyProjection(
       remedyCasePresentation(params.row.status, params.row.resolution !== null, params.remedy),
       closureEligible,
       JSON.stringify(blockingReasons),
-      remedyNextAction(params.remedy),
+      remedyNextAction(params.remedy) ?? nextApprovalAction,
       JSON.stringify(repairGuidance(params.remedy)),
+      remedyApproval ? JSON.stringify(remedyApproval) : null,
       params.updatedAt,
       params.autoCloseDueAt !== undefined,
       params.autoCloseDueAt ?? null,
@@ -458,6 +490,71 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
         [data.supportRequestId],
       );
     },
+    "support.support-request.remedy-proposed": async (event) => {
+      const data = event.data as { supportRequestId: string; workflow: RemedyApprovalWorkflow };
+      const row = await loadRemedyProjection(db, data.supportRequestId);
+      if (!row) return;
+      const workflow = (row.deferred_remedy_effect_facts ?? [])
+        .filter(
+          (entry) =>
+            entry.remedyId === data.workflow.terms.remedyId && entry.coverageId === data.workflow.terms.coverageId,
+        )
+        .reduce((current, entry) => applyRemedyReservationFact(current, entry.fact), data.workflow);
+      await writeRemedyProjection(db, {
+        supportRequestId: data.supportRequestId,
+        row,
+        remedy: row.remedy,
+        remedyApproval: workflow,
+        deferredFacts: row.deferred_remedy_effect_facts ?? [],
+        updatedAt: data.workflow.proposedAt,
+        autoCloseDueAt: null,
+      });
+    },
+    "support.support-request.remedy-approved": async (event) => {
+      const data = event.data as SupportRemedyApprovedEvent["data"];
+      const row = await loadRemedyProjection(db, data.supportRequestId);
+      if (!row?.remedy_approval || row.remedy_approval.terms.remedyId !== data.remedyId) return;
+      await writeRemedyProjection(db, {
+        supportRequestId: data.supportRequestId,
+        row,
+        remedy: row.remedy,
+        remedyApproval: applyRemedyApproval(row.remedy_approval, data.approval),
+        deferredFacts: row.deferred_remedy_effect_facts ?? [],
+        updatedAt: data.approval.approvedAt,
+      });
+    },
+    "support.support-request.remedy-effect-retry-requested": async (event) => {
+      const data = event.data as SupportRemedyEffectRetryRequestedEvent["data"];
+      const row = await loadRemedyProjection(db, data.supportRequestId);
+      if (!row?.remedy_approval || row.remedy_approval.terms.remedyId !== data.remedyId) return;
+      await writeRemedyProjection(db, {
+        supportRequestId: data.supportRequestId,
+        row,
+        remedy: row.remedy,
+        remedyApproval: applyRemedyRetryRequest(
+          row.remedy_approval,
+          event as unknown as SupportRemedyEffectRetryRequestedEvent,
+        ),
+        deferredFacts: row.deferred_remedy_effect_facts ?? [],
+        updatedAt: data.requestedAt,
+      });
+    },
+    "support.support-request.remedy-correction-requested": async (event) => {
+      const data = event.data as SupportRemedyCorrectionRequestedEvent["data"];
+      const row = await loadRemedyProjection(db, data.supportRequestId);
+      if (!row?.remedy_approval || row.remedy_approval.terms.remedyId !== data.remedyId) return;
+      await writeRemedyProjection(db, {
+        supportRequestId: data.supportRequestId,
+        row,
+        remedy: row.remedy,
+        remedyApproval: applyRemedyCorrectionRequest(
+          row.remedy_approval,
+          event as unknown as SupportRemedyCorrectionRequestedEvent,
+        ),
+        deferredFacts: row.deferred_remedy_effect_facts ?? [],
+        updatedAt: data.requestedAt,
+      });
+    },
     "support.support-request.remedy-authorized.v1": async (event) => {
       const data = event.data as Parameters<typeof createRemedyExecution>[0];
       const row = await loadRemedyProjection(db, data.supportRequestId);
@@ -475,6 +572,9 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
         supportRequestId: data.supportRequestId,
         row,
         remedy: createRemedyExecution(data, matchingFacts),
+        remedyApproval: row.remedy_approval
+          ? markRemedyWorkflowAuthorized(row.remedy_approval, data.occurredAt)
+          : row.remedy_approval,
         deferredFacts: deferred,
         updatedAt: data.occurredAt,
         autoCloseDueAt: null,
@@ -489,10 +589,15 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
       }
       const deferred = row.deferred_remedy_effect_facts ?? [];
       if (row.remedy?.remedyId === data.remedyId) {
+        const remedyApproval =
+          row.remedy_approval?.terms.remedyId === data.remedyId
+            ? applyRemedyReservationFact(row.remedy_approval, data.fact)
+            : row.remedy_approval;
         await writeRemedyProjection(db, {
           supportRequestId: data.supportRequestId,
           row,
           remedy: applyRemedyEffectFact(row.remedy, data.fact),
+          remedyApproval,
           deferredFacts: deferred,
           updatedAt: data.fact.occurredAt,
         });
@@ -501,10 +606,15 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
       const nextDeferred = deferred.some((entry) => entry.fact.idempotencyKey === data.fact.idempotencyKey)
         ? deferred
         : [...deferred, data];
+      const remedyApproval =
+        row.remedy_approval?.terms.remedyId === data.remedyId
+          ? applyRemedyReservationFact(row.remedy_approval, data.fact)
+          : row.remedy_approval;
       await writeRemedyProjection(db, {
         supportRequestId: data.supportRequestId,
         row,
         remedy: row.remedy,
+        remedyApproval,
         deferredFacts: nextDeferred,
         updatedAt: data.fact.occurredAt,
       });
@@ -519,6 +629,10 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
         supportRequestId: data.supportRequestId,
         row,
         remedy: applyRemedyEffectWaiver(row.remedy, data.effect, data.waiver),
+        remedyApproval:
+          row.remedy_approval?.terms.remedyId === data.remedyId
+            ? applyRemedyWaiverAudit(row.remedy_approval, data.effect, data.waiver)
+            : row.remedy_approval,
         deferredFacts: row.deferred_remedy_effect_facts ?? [],
         updatedAt: data.waiver.waivedAt,
       });

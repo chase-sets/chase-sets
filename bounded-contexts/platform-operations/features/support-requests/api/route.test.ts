@@ -4,7 +4,18 @@ import type { SupportApiEnv } from "./http";
 import { createAccountSupportRequestRoutes } from "./route";
 import type { SupportRequestServices } from "./runtime";
 
-function buildApp(services: SupportRequestServices, permissions: readonly string[] = ["support.manage"]) {
+function buildApp(
+  services: SupportRequestServices,
+  permissions: readonly string[] = [
+    "support.manage",
+    "support.remedies.propose",
+    "support.remedies.approve",
+    "support.remedies.override-return",
+    "support.remedies.retry",
+    "support.remedies.waive",
+    "support.remedies.correct",
+  ],
+) {
   const app = new Hono<SupportApiEnv>();
 
   app.use("*", async (c, next) => {
@@ -74,7 +85,11 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
     declineOffer: vi.fn(),
     escalateSupportRequest: vi.fn(),
     resolveSupportRequest: vi.fn(),
-    authorizeRemedy: vi.fn(),
+    previewRemedyProposal: vi.fn(),
+    proposeRemedy: vi.fn(),
+    approveRemedy: vi.fn(),
+    retryRemedyEffect: vi.fn(),
+    requestRemedyCorrection: vi.fn(),
     recordRemedyEffect: vi.fn(),
     overrideRemedyEffect: vi.fn(),
     closeSupportRequest: vi.fn(),
@@ -91,13 +106,18 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
 }
 
 describe("support request routes", () => {
-  it("authorizes and records remedy execution through support-managed command endpoints", async () => {
-    const authorizeRemedy = vi.fn(async () => ({ supportRequestId: "sup_1", remedyId: "rmd_1", version: 8 }));
+  it("proposes and records remedy execution through purpose-authorized command endpoints", async () => {
+    const proposeRemedy = vi.fn(async () => ({
+      supportRequestId: "sup_1",
+      remedyId: "rmd_1",
+      version: 8,
+      status: "reservation-pending",
+    }));
     const recordRemedyEffect = vi.fn(async () => ({ supportRequestId: "sup_1", remedyId: "rmd_1", version: 9 }));
-    const services = createServices({ authorizeRemedy, recordRemedyEffect });
+    const services = createServices({ proposeRemedy, recordRemedyEffect });
     const app = buildApp(services);
 
-    const authorization = await app.request("/support-requests/ops/sup_1/remedies", {
+    const authorization = await app.request("/support-requests/ops/sup_1/remedy-proposals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -110,9 +130,10 @@ describe("support request routes", () => {
         },
         returnDirective: "no-return",
         refundTrigger: "immediate",
-        policyVersion: "coverage-2026-07",
-        reasonCode: "ambiguous-carrier-loss",
-        idempotencyKey: "authorize-1",
+        reasonCode: "insufficient-evidence",
+        rationale: "Evidence is inconclusive.",
+        evidenceReferences: ["evidence-1"],
+        idempotencyKey: "proposal-1",
       }),
     });
     expect(authorization.status).toBe(200);
@@ -120,7 +141,7 @@ describe("support request routes", () => {
       id: "sup_1",
       remedyId: "rmd_1",
       version: 8,
-      status: "remedy-in-progress",
+      status: "reservation-pending",
     });
 
     const effect = await app.request("/support-requests/ops/sup_1/remedies/rmd_1/effects", {
@@ -171,7 +192,7 @@ describe("support request routes", () => {
     expect(recordRemedyEffect).toHaveBeenCalledTimes(1);
   });
 
-  it("requires the support-manage permission for remedy overrides", async () => {
+  it("requires the purpose-specific waiver permission for remedy overrides", async () => {
     const overrideRemedyEffect = vi.fn();
     const response = await buildApp(createServices({ overrideRemedyEffect }), ["support.view"]).request(
       "/support-requests/ops/sup_1/remedies/rmd_1/effects/facility-intake/override",
@@ -183,6 +204,20 @@ describe("support request routes", () => {
     );
     expect(response.status).toBe(403);
     expect(overrideRemedyEffect).not.toHaveBeenCalled();
+  });
+
+  it("does not let support.manage substitute for platform-remedy proposal authority", async () => {
+    const proposeRemedy = vi.fn();
+    const response = await buildApp(createServices({ proposeRemedy }), ["support.manage"]).request(
+      "/support-requests/ops/sup_1/remedy-proposals",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      },
+    );
+    expect(response.status).toBe(403);
+    expect(proposeRemedy).not.toHaveBeenCalled();
   });
 
   it("returns account-scoped support order context for marketplace support lookup", async () => {

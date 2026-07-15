@@ -22,6 +22,7 @@ import { rateLimitPolicy } from "../../features/rate-limit-policy/domain/rate-li
 import { createReportedContentRuntime } from "../../features/reported-content/api/runtime";
 import { createRiskAlertRuntime } from "../../features/risk-alerts/api/runtime";
 import { supportDeadlinePolicy } from "../../features/support-requests/domain/support-deadline-policy";
+import { platformRemedyPolicy } from "../../features/support-requests/domain/platform-remedy-policy";
 import { createSupportRequestRuntime } from "../../features/support-requests/api/runtime";
 import type { PolicyConsoleCrossContextPort, PolicyConsoleEntry } from "../../features/policy-console/api/contracts";
 import { createSupportReferenceLookupRuntime } from "../../features/support-reference-lookup/api/runtime";
@@ -121,6 +122,7 @@ export function createPlatformOperationsServices(
   const ownPolicyDefinitions = [
     rateLimitPolicy,
     supportDeadlinePolicy,
+    platformRemedyPolicy,
   ] as unknown as readonly PolicyDefinition<JsonValue>[];
   const policyConsoleEntries: readonly PolicyConsoleEntry[] = [
     ...ownPolicyDefinitions.map(

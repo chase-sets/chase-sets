@@ -8,7 +8,11 @@ import {
   type SupportRequestEvent,
   type SupportRequestState,
 } from "./domain";
-import type { RecordSupportRemedyEffectCommand } from "./remedy";
+import {
+  normalizeRemedyAuthorization,
+  type AuthorizeSupportRemedyCommand,
+  type RecordSupportRemedyEffectCommand,
+} from "./remedy";
 
 const supportRequestId = "sup_01J00000000000000000000000" as SupportRequestId;
 const remedyId = "rmd_01J00000000000000000000000" as RemedyId;
@@ -45,7 +49,7 @@ function apply(state: SupportRequestState, events: readonly SupportRequestEvent[
   return events.reduce(evolveSupportRequest, state);
 }
 
-function platformAuthorization(): SupportRequestCommand {
+function platformAuthorization(): AuthorizeSupportRemedyCommand {
   return {
     type: "AuthorizeSupportRemedy",
     remedyId,
@@ -64,6 +68,44 @@ function platformAuthorization(): SupportRequestCommand {
     idempotencyKey: "authorize-1",
     authorizedAt: "2026-07-03T00:00:00.000Z",
   };
+}
+
+function proposalCommand(authorization = platformAuthorization()): SupportRequestCommand {
+  return {
+    type: "ProposeSupportRemedy",
+    terms: normalizeRemedyAuthorization(supportRequestId, authorization),
+    proposedByAccountId: accountId,
+    permissionUsed: "support.remedies.propose",
+    rationale: "Evidence does not establish seller fault.",
+    evidenceReferences: ["evidence-1"],
+    reservationExpiresAt: authorization.coverageId ? "2026-07-04T00:00:00.000Z" : null,
+    requiredApprovalCount: 1,
+    requiresElevatedApproval: false,
+    returnOverrideUsed: false,
+    returnExceptionReasonCode: null,
+  };
+}
+
+function approvalCommand(): SupportRequestCommand {
+  return {
+    type: "ApproveSupportRemedy",
+    approvedByAccountId: accountId,
+    permissionUsed: "support.remedies.approve",
+    reasonCode: "policy-approved",
+    rationale: "The proposal is within policy.",
+    evidenceReferences: ["evidence-1"],
+    idempotencyKey: "approve-1",
+    approvedAt: "2026-07-03T12:00:00.000Z",
+  };
+}
+
+function authorizedState(authorization = platformAuthorization()): SupportRequestState {
+  let state = resolvedState();
+  state = apply(state, decideSupportRequest(state, proposalCommand(authorization)));
+  if (authorization.coverageId) {
+    state = apply(state, decideSupportRequest(state, effect("coverage-reservation", "2026-07-03T06:00:00.000Z")));
+  }
+  return apply(state, decideSupportRequest(state, approvalCommand()));
 }
 
 function effect(
@@ -108,14 +150,22 @@ function effect(
 
 describe("support remedy execution", () => {
   it("waits for coverage before releasing a fully platform-funded refund and cancels the decision timer", () => {
-    const state = resolvedState();
-    const events = decideSupportRequest(state, platformAuthorization());
+    let state = resolvedState();
+    const events = decideSupportRequest(state, proposalCommand());
     expect(events.map((event) => event.type)).toEqual([
-      "support.support-request.remedy-authorized.v1",
+      "support.support-request.remedy-proposed",
       "support.support-request.platform-coverage-requested.v1",
     ]);
-
-    const authorized = apply(state, events);
+    state = apply(state, events);
+    expect(() => decideSupportRequest(state, approvalCommand())).toThrow("must be reserved before approval");
+    state = apply(state, decideSupportRequest(state, effect("coverage-reservation", "2026-07-03T06:00:00.000Z")));
+    const approvalEvents = decideSupportRequest(state, approvalCommand());
+    expect(approvalEvents.map((event) => event.type)).toEqual([
+      "support.support-request.remedy-approved",
+      "support.support-request.remedy-authorized.v1",
+      "support.support-request.refund-released.v1",
+    ]);
+    const authorized = apply(state, approvalEvents);
     expect(authorized.autoCloseDueAt).toBeNull();
     expect(authorized.remedy?.effects.map((candidate) => candidate.effect)).toEqual([
       "coverage-reservation",
@@ -127,21 +177,16 @@ describe("support remedy execution", () => {
     ).toThrow("cannot close until every required remedy effect is complete");
     expect(() =>
       decideSupportRequest(authorized, {
-        ...effect("coverage-reservation", "2026-07-04T00:00:00.000Z"),
+        ...effect("coverage-reservation", "2026-07-04T00:00:00.000Z", { key: "wrong-coverage" }),
         coverageId: null,
       }),
     ).toThrow("requires the matching coverage id");
 
-    const reserved = decideSupportRequest(authorized, effect("coverage-reservation", "2026-07-04T00:00:00.000Z"));
-    expect(reserved.map((event) => event.type)).toEqual([
-      "support.support-request.remedy-effect-recorded",
-      "support.support-request.refund-released.v1",
-    ]);
+    expect(authorized.remedy?.refundReleasedAt).toBe("2026-07-03T12:00:00.000Z");
   });
 
   it("does not confuse refund completion with Settlement reconciliation", () => {
-    let state = apply(resolvedState(), decideSupportRequest(resolvedState(), platformAuthorization()));
-    state = apply(state, decideSupportRequest(state, effect("coverage-reservation", "2026-07-04T00:00:00.000Z")));
+    let state = authorizedState();
     const refundEvents = decideSupportRequest(
       state,
       effect("refund-completion", "2026-07-05T00:00:00.000Z", { refundId: "rfd_1" }),
@@ -179,7 +224,8 @@ describe("support remedy execution", () => {
     expect(state.remedy).toBeNull();
     expect(state.deferredRemedyEffectFacts).toHaveLength(3);
 
-    const authorizationEvents = decideSupportRequest(state, platformAuthorization());
+    state = apply(state, decideSupportRequest(state, proposalCommand()));
+    const authorizationEvents = decideSupportRequest(state, approvalCommand());
     expect(authorizationEvents.map((event) => event.type)).toContain("support.support-request.remedy-completed.v1");
     state = apply(state, authorizationEvents);
     expect(state.remedy?.status).toBe("completed");
@@ -188,7 +234,8 @@ describe("support remedy execution", () => {
   });
 
   it("keeps rejection and retryable provider failures visible and actionable", () => {
-    let state = apply(resolvedState(), decideSupportRequest(resolvedState(), platformAuthorization()));
+    let state = resolvedState();
+    state = apply(state, decideSupportRequest(state, proposalCommand()));
     state = apply(
       state,
       decideSupportRequest(
@@ -199,10 +246,42 @@ describe("support remedy execution", () => {
         }),
       ),
     );
-    expect(state.remedy?.status).toBe("action-required");
-    expect(
-      state.remedy?.effects.find((candidate) => candidate.effect === "coverage-reservation")?.facts.at(-1)?.reasonCode,
-    ).toBe("provider-timeout");
+    expect(state.remedy).toBeNull();
+    expect(state.remedyApproval?.status).toBe("reservation-rejected");
+    expect(state.remedyApproval?.reservationReasonCode).toBe("provider-timeout");
+  });
+
+  it("records one idempotent retry intent without replacing the failed owning-context fact", () => {
+    let state = authorizedState();
+    state = apply(
+      state,
+      decideSupportRequest(
+        state,
+        effect("refund-completion", "2026-07-04T00:00:00.000Z", {
+          outcome: "failed-retryable",
+          key: "refund-provider-timeout",
+        }),
+      ),
+    );
+    const retry: SupportRequestCommand = {
+      type: "RetrySupportRemedyEffect",
+      remedyId,
+      effect: "refund-completion",
+      requestedByAccountId: accountId,
+      permissionUsed: "support.remedies.retry",
+      reasonCode: "provider-timeout",
+      rationale: "Repeat the same refund intent after the provider timeout.",
+      idempotencyKey: "retry-refund-1",
+      requestedAt: "2026-07-04T01:00:00.000Z",
+    };
+
+    const retryEvents = decideSupportRequest(state, retry);
+    expect(retryEvents.map((event) => event.type)).toEqual(["support.support-request.remedy-effect-retry-requested"]);
+    state = apply(state, retryEvents);
+    expect(state.remedy?.effects.find((candidate) => candidate.effect === "refund-completion")?.status).toBe(
+      "failed-retryable",
+    );
+    expect(decideSupportRequest(state, retry)).toEqual([]);
   });
 
   it("waits for configured facility intake and permits only non-financial reasoned overrides", () => {
@@ -218,7 +297,7 @@ describe("support remedy execution", () => {
       returnDirective: "return-to-platform" as const,
       refundTrigger: "facility-intake" as const,
     };
-    let state = apply(resolvedState(), decideSupportRequest(resolvedState(), authorization));
+    let state = authorizedState(authorization);
     expect(state.remedy?.refundReleasedAt).toBeNull();
     expect(state.remedy?.effects.map((candidate) => candidate.effect)).toContain("facility-intake");
 
@@ -234,7 +313,10 @@ describe("support remedy execution", () => {
       remedyId,
       effect: "return-label-available",
       actorAccountId: accountId,
+      permissionUsed: "support.remedies.waive",
       reasonCode: "label-not-required-after-facility-dropoff",
+      rationale: "Facility accepted the handoff without a label.",
+      evidenceReferences: ["facility-intake-1"],
       idempotencyKey: "override-label-1",
       overriddenAt: "2026-07-05T00:00:00.000Z",
     });
@@ -245,7 +327,10 @@ describe("support remedy execution", () => {
         remedyId,
         effect: "settlement-reconciliation",
         actorAccountId: accountId,
+        permissionUsed: "support.remedies.waive",
         reasonCode: "pretend-reconciled",
+        rationale: "Invalid financial override.",
+        evidenceReferences: ["bad-override-1"],
         idempotencyKey: "override-finance-1",
         overriddenAt: "2026-07-05T00:00:00.000Z",
       }),

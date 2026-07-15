@@ -41,6 +41,7 @@ export {
 } from "./features/rate-limit-policy/api/rate-limit-policy-resolver";
 export { rateLimitPolicy } from "./features/rate-limit-policy/domain/rate-limit-policy";
 export { supportDeadlinePolicy } from "./features/support-requests/domain/support-deadline-policy";
+export { platformRemedyPolicy } from "./features/support-requests/domain/platform-remedy-policy";
 export type {
   PolicyConsoleCrossContextPort,
   PolicyConsoleCrossContextSource,
