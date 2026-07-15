@@ -310,10 +310,9 @@
         "routeId": "invite"
       },
       "exception": {
-        "status": "accepted",
+        "status": "not-post-write-read",
         "owner": "identity",
         "reviewBy": "2026-10-15",
-        "issue": "#3448",
         "reason": "The shared invitation-email integration is not itself a route contribution. Its callers pass the authoritative Identity command receipt, and the helper forwards that receipt with Auth as the read target before the Auth API reads its invitation projection and issues the email token.",
         "files": ["bounded-contexts/identity/features/invitations/integrations/request-invitation-acceptance-link.ts"],
         "helperUses": ["appendFreshWriteTokenFromSources"]

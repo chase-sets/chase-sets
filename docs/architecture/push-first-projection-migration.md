@@ -227,6 +227,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `identity.admin-invitation-list-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-membership-detail-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-user-detail-fresh-read` | identity | important | exact wait | push-accelerated |
+| `identity.invitation-email-auth-projection-fresh-read` | identity | important | not-post-write-read exception (identity, review 2026-10-15) | push-accelerated |
 | `identity.marketplace-account-profile-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.registration-current-actor-display-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.shipping-addresses-fresh-read` | identity | important | exact wait | push-accelerated |
