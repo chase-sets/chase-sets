@@ -77,10 +77,7 @@ export function buildSupportHoldLifecycleReactionHandlers(port: SupportHoldLifec
     },
     "support.support-request.closed": async (event) => {
       const data = event.data as { supportRequestId: string; closedAt: string };
-      await port.closeHold(
-        { supportRequestId: data.supportRequestId, occurredAt: data.closedAt },
-        eventContext(event),
-      );
+      await port.closeHold({ supportRequestId: data.supportRequestId, occurredAt: data.closedAt }, eventContext(event));
     },
     "support.support-request.cancelled": async (event) => {
       const data = event.data as { supportRequestId: string; cancelledAt: string };

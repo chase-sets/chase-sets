@@ -128,7 +128,10 @@ export const supportHoldFactTypes = {
   consumed: "settlement.support-hold.consumed.v1",
 } as const;
 
-export type SupportHoldPlacedEvent = DomainEvent<typeof supportHoldFactTypes.placed, SettlementSupportHoldPlacedPayload>;
+export type SupportHoldPlacedEvent = DomainEvent<
+  typeof supportHoldFactTypes.placed,
+  SettlementSupportHoldPlacedPayload
+>;
 export type SupportHoldReleasedEvent = DomainEvent<
   typeof supportHoldFactTypes.released,
   SettlementSupportHoldReleasedPayload
@@ -215,7 +218,10 @@ function decideResolve(
         type: supportHoldFactTypes.consumed,
         data: {
           ...normalizeEnvelope({ ...state.routing, occurredAt }),
-          resolutionType: normalizeRequiredText(command.resolutionType, "Support hold consumption requires a resolution type."),
+          resolutionType: normalizeRequiredText(
+            command.resolutionType,
+            "Support hold consumption requires a resolution type.",
+          ),
         },
       },
     ];

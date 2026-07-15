@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { buildTransportEvent, createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { createSupportHoldLifecycleRuntime } from "./support-hold-lifecycle-runtime";
-import { buildSupportHoldLifecycleReactionHandlers, type SupportHoldLifecyclePort } from "./support-hold-lifecycle-reaction";
+import {
+  buildSupportHoldLifecycleReactionHandlers,
+  type SupportHoldLifecyclePort,
+} from "./support-hold-lifecycle-reaction";
 
 function event(type: string, data: Record<string, unknown>, streamVersion = 1): TransportEvent {
   return buildTransportEvent(type, data, {
@@ -58,7 +61,14 @@ describe("support hold lifecycle reaction", () => {
     const { store, handlers } = runtimeWithStore();
     await handlers["support.support-request.opened"]!(openedEvent);
     const serialized = JSON.stringify(factsOf(store));
-    for (const forbidden of ["providerDisputeId", "earlyFraudWarningId", "amount", "ledgerEntryId", "payoutId", "last_stream_version"]) {
+    for (const forbidden of [
+      "providerDisputeId",
+      "earlyFraudWarningId",
+      "amount",
+      "ledgerEntryId",
+      "payoutId",
+      "last_stream_version",
+    ]) {
       expect(serialized).not.toContain(forbidden);
     }
   });
@@ -99,7 +109,11 @@ describe("support hold lifecycle reaction", () => {
       ),
     );
     await handlers["support.support-request.closed"]!(
-      event("support.support-request.closed", { supportRequestId: "sup_01ABC", closedAt: "2026-06-03T09:00:00.000Z" }, 3),
+      event(
+        "support.support-request.closed",
+        { supportRequestId: "sup_01ABC", closedAt: "2026-06-03T09:00:00.000Z" },
+        3,
+      ),
     );
 
     expect(factsOf(store).map((fact) => fact.type)).toEqual([
