@@ -1,10 +1,6 @@
 import { defineBoundedContextTestConfig } from "../../../vitest.shared.mjs";
 
-// The import-batches and inventory-items UI suites (features/**/*.test.tsx)
-// predate this include list and have never run; revive them before widening
-// the include to the standard bounded-context set.
-export default defineBoundedContextTestConfig({
-  test: {
-    include: ["features/**/*.test.ts", "tests/**/*.test.ts"],
-  },
-});
+// Uses the canonical bounded-context include (features/routes/support/tests,
+// both .ts and .tsx), so the import-batches and inventory-items UI suites run
+// alongside the domain/read-model suites.
+export default defineBoundedContextTestConfig();

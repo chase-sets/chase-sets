@@ -20,7 +20,7 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { InventoryItemDetail } from "./contracts";
-import { inventoryListingHref } from "./listing-handoff";
+import { ListFromInventoryDrawer } from "./list-from-inventory-drawer";
 
 function displayItemLabel(item: InventoryItemDetail) {
   return item.item_title ?? item.catalog_catalog_item_id;
@@ -178,11 +178,7 @@ export function InventoryItemDetailPage({
         }
         actions={
           <Stack gap={2}>
-            {item.available_quantity > 0 ? (
-              <LinkButton href={inventoryListingHref(item.item_id, currentPath)}>
-                {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.create.listing")}
-              </LinkButton>
-            ) : null}
+            {item.available_quantity > 0 ? <ListFromInventoryDrawer item={item} /> : null}
             <LinkButton href="/account/inventory" tone="secondary">
               {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.back.to.inventory")}
             </LinkButton>
