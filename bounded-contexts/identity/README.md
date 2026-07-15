@@ -80,6 +80,10 @@ User preference ownership is governed by [Settings Ownership](../../docs/archite
 3. Users never directly own listings, offers, wallets, or orders.
 4. Buying and selling are available to active accounts by default.
 5. Buyer and Seller remain contextual transaction roles, not account capability classes.
+6. Every non-closed Account retains at least one active owner Membership.
+
+Closing an Account does not revoke or demote its Memberships. They remain as auditable Identity facts; after closure,
+authorized operators may explicitly revoke or change them without the owner-retention invariant blocking teardown.
 
 ## Tests
 

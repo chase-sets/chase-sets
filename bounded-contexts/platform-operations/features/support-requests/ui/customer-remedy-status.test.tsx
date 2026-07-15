@@ -72,6 +72,7 @@ function request(
     closure_blocking_reasons: [],
     next_remedy_action: null,
     remedy_repair_guidance: [],
+    contested: false,
     ...overrides,
   };
 }

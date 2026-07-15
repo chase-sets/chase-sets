@@ -597,6 +597,10 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     initialState: () => initialSupportRequestState,
     evolve: evolveSupportRequest,
     decide: decideSupportRequest,
+    // Support request streams keep their durable `support.` prefix, but the
+    // owning source context for wake routing and read-after-write receipts is
+    // Platform Operations.
+    commitSourceContextName: "platform-operations",
   });
 
   async function resolvePlatformRemedyPolicy(): Promise<{
@@ -857,7 +861,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     },
     submitEvidence: async (params, context) => {
       const supportRequest = await requireMutableSupportRequest(deps.db, params);
-      const resolvedByRole =
+      const submittedByRole =
         params.scope === "operations" ? "support" : accountRoleForSupportRequest(supportRequest, params.accountId);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
@@ -865,7 +869,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           type: "SubmitSupportEvidence",
           evidenceId: createId("sev"),
           submittedByAccountId: params.accountId as AccountId,
-          submittedByRole: resolvedByRole,
+          submittedByRole,
           evidenceType: normalizeEvidenceType(params.evidenceType),
           summary: params.summary,
           occurredAt: params.occurredAt ?? null,
@@ -878,7 +882,9 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       return { supportRequestId: params.supportRequestId, version: result.version };
     },
     recordResponse: async (params, context) => {
-      await requireMutableSupportRequest(deps.db, params);
+      const supportRequest = await requireMutableSupportRequest(deps.db, params);
+      const submittedByRole =
+        params.scope === "operations" ? "support" : accountRoleForSupportRequest(supportRequest, params.accountId);
       const responseType = normalizeResponseType(params.responseType);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
@@ -886,7 +892,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           type: "RecordSupportResponse",
           responseId: createId("srp"),
           submittedByAccountId: params.accountId as AccountId,
-          submittedByRole: normalizeRequesterRole(params.submittedByRole),
+          submittedByRole,
           responseType,
           summary: params.summary,
           submittedAt: new Date().toISOString(),
@@ -1179,7 +1185,10 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       return { supportRequestId: params.supportRequestId, version: result.version };
     },
     cancelSupportRequest: async (params, context) => {
-      await requireMutableSupportRequest(deps.db, params);
+      const supportRequest = await requireMutableSupportRequest(deps.db, params);
+      if (params.scope !== "operations" && supportRequest.opened_by_account_id !== params.accountId) {
+        throw new SupportDomainError("Only the account that opened this support request can cancel it.");
+      }
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {

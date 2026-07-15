@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 361
-- Source modules covered: 126
+- Runtime exports indexed: 362
+- Source modules covered: 127
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -142,7 +142,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `FullPage` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Full Page. | `No production consumer yet.` |
 | `Grid` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Grid. | `bounded-contexts/checkout/features/sell-list/ui/guest-sell-checkout-page.tsx` |
 | `hasFormErrors` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: has Form Errors. | `No production consumer yet.` |
-| `Heading` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Heading. | `bounded-contexts/auth/features/agent-grants/ui/agent-grant-list-page.tsx` |
+| `Heading` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Heading. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
 | `HelperText` | `packages/design-system/src/components/forms/field.tsx` | Purpose not documented; symbol name suggests: Helper Text. | `No production consumer yet.` |
 | `HelpSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Help Sheet. | `No production consumer yet.` |
 | `HiddenInput` | `packages/design-system/src/components/forms/hidden-input.tsx` | Purpose not documented; symbol name suggests: Hidden Input. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
@@ -274,6 +274,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `SearchFilterPanel` | `packages/design-system/src/components/commerce/search.tsx` | Purpose not documented; symbol name suggests: Search Filter Panel. | `No production consumer yet.` |
 | `SearchInput` | `packages/design-system/src/components/forms/text-input.tsx` | Purpose not documented; symbol name suggests: Search Input. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `SearchResultsLayout` | `packages/design-system/src/patterns/app-shells/content-layouts.tsx` | Purpose not documented; symbol name suggests: Search Results Layout. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
+| `SearchResultsTransition` | `packages/design-system/src/components/feedback/search-results-transition.tsx` | Keeps stale results visible while exposing a consistent visual and assistive pending state. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `SectionNavigation` | `packages/design-system/src/components/actions/section-navigation.tsx` | Purpose not documented; symbol name suggests: Section Navigation. | `No production consumer yet.` |
 | `SecurePaymentCue` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Secure Payment Cue. | `bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx` |
 | `SecurePaymentIndicator` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Secure Payment Indicator. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |

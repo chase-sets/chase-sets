@@ -13,6 +13,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutRow } from "../read-model/queries";
+import { payoutUnavailableReasonLabel } from "../domain/reason-codes";
 
 function statusLabel(status: string) {
   switch (status) {
@@ -45,6 +46,7 @@ export function SettlementPayoutDetailPage({
   const payoutSubmitted = Boolean(payout.provider_payout_reference || payout.sent_at);
   const completed = payout.status === "completed";
   const failed = payout.status === "failed";
+  const failureDescription = payoutUnavailableReasonLabel(payout.failure_reason ?? "recent-payout-failure");
 
   return (
     <Page>
@@ -79,7 +81,7 @@ export function SettlementPayoutDetailPage({
             tone={failed ? "danger" : completed ? "success" : "info"}
             title={statusLabel(payout.status)}
             description={
-              payout.failure_reason ??
+              (failed ? failureDescription : null) ??
               payout.note ??
               t("settlement.features.payouts.ui.payoutDetailPage.payout.account.saved.payout.account")
             }
@@ -91,7 +93,7 @@ export function SettlementPayoutDetailPage({
               description={t("settlement.features.payouts.ui.payoutDetailPage.review.payout.details.before.requesting")}
               action={
                 <Inline>
-                  <LinkButton href="/account/payouts/setup?mode=manage" tone="secondary" size="sm">
+                  <LinkButton href="/account/desk/settings?mode=manage" tone="secondary" size="sm">
                     {t("settlement.features.payouts.ui.payoutDetailPage.review.payout.details")}
                   </LinkButton>
                   <LinkButton href="/account/support" tone="secondary" size="sm">
@@ -166,16 +168,16 @@ export function SettlementPayoutDetailPage({
             },
             {
               label: t("settlement.features.payouts.ui.payoutDetailPage.provider.transfer.submitted"),
-              description:
-                payout.provider_transfer_reference ??
-                t("settlement.features.payouts.ui.payoutDetailPage.waiting.for.provider.transfer.reference"),
+              description: transferSubmitted
+                ? t("settlement.features.moneyDashboard.ui.providerAcceptedTransfer")
+                : t("settlement.features.payouts.ui.payoutDetailPage.waiting.for.provider.transfer.reference"),
               status: transferSubmitted ? "complete" : "upcoming",
             },
             {
               label: t("settlement.features.payouts.ui.payoutDetailPage.payout.submitted"),
-              description:
-                payout.provider_payout_reference ??
-                t("settlement.features.payouts.ui.payoutDetailPage.waiting.for.provider.payout.reference"),
+              description: payoutSubmitted
+                ? t("settlement.features.moneyDashboard.ui.providerAcceptedPayout")
+                : t("settlement.features.payouts.ui.payoutDetailPage.waiting.for.provider.payout.reference"),
               status: payoutSubmitted ? "complete" : "upcoming",
             },
             {
@@ -193,9 +195,7 @@ export function SettlementPayoutDetailPage({
                 completed && payout.completed_at
                   ? formatDateTime(payout.completed_at)
                   : failed
-                    ? (payout.failure_reason ??
-                      payout.provider_failure_message ??
-                      t("settlement.features.payouts.ui.payoutDetailPage.provider.reported.a.payout.failure"))
+                    ? failureDescription
                     : t("settlement.features.payouts.ui.payoutDetailPage.usually.1.3.business.days.after"),
               status: failed ? "issue" : completed ? "complete" : "current",
             },
@@ -296,7 +296,7 @@ export function SettlementPayoutDetailRecoveryPage() {
         title={t("settlement.routes.marketplace.accountPayout.payout.preparing")}
         description={t("settlement.routes.marketplace.accountPayout.payout.preparing.description")}
         actions={
-          <LinkButton href="/account/payouts" tone="secondary">
+          <LinkButton href="/account/desk/money" tone="secondary">
             {t("settlement.features.payouts.ui.payoutDetailPage.back.to.payouts")}
           </LinkButton>
         }

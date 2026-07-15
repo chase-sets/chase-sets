@@ -144,6 +144,20 @@ describe("Discovery search alias projection", () => {
     expect(db.derivedWrites).toBeGreaterThan(0);
   });
 
+  it("folds alias diacritics in both weighted search vectors", async () => {
+    const db = new AliasProjectionDb();
+    const handlers = buildDiscoverySearchItemProjectionHandlers(db);
+
+    await handlers["catalog.catalog-item.aliases-resolved"]?.(
+      aliasesResolvedEvent([alias({ aliasText: "Pokémon", aliasType: "official-equivalent" })]),
+    );
+
+    expect(db.lastEnglishWeights[0]).toContain("Pokemon");
+    expect(db.lastSimpleWeights[0]).toContain("Pokemon");
+    expect(db.lastEnglishWeights.join(" ")).not.toContain("Pokémon");
+    expect(db.lastSimpleWeights.join(" ")).not.toContain("Pokémon");
+  });
+
   it("removes a revoked alias from search text on an empty (retraction) fact", async () => {
     const db = new AliasProjectionDb();
     const handlers = buildDiscoverySearchItemProjectionHandlers(db);

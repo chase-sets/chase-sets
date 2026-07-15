@@ -154,7 +154,7 @@ function ProfileSectionWorkspaceCard({
       <WorkbenchForm
         method="post"
         action={workspace.submitHref}
-        data-catalog-primary-workbench-command="update-provider-profile-section"
+        data-catalog-primary-workbench-command="provider-profile.edit-section"
       >
         <ProfileSectionHiddenInputs readModel={readModel} workspace={workspace} />
         <WorkbenchFormGrid>

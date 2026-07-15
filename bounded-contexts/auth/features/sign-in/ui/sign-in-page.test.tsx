@@ -21,9 +21,11 @@ describe("sign-in page two-step journey", () => {
   it("starts with social login and one sign-in identifier field", () => {
     render(<SignInPage />);
 
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1, name: "Sign In" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Continue with Google" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Continue with Facebook" })).toBeTruthy();
-    expect(screen.getByLabelText(/Email or phone/)).toBeTruthy();
+    expect(screen.getByLabelText(/Email or phone/).getAttribute("autocomplete")).toBe("username");
     expect(screen.queryByRole("tab", { name: "Passkey" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Use Passkey" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
@@ -89,7 +91,7 @@ describe("sign-in page two-step journey", () => {
 
     expect(screen.getByText("Signing in with buyer@example.com")).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Password" }).getAttribute("aria-checked")).toBe("true");
-    expect(document.querySelector('input[name="password"]')).toBeTruthy();
+    expect(document.querySelector('input[name="password"]')?.getAttribute("autocomplete")).toBe("current-password");
   });
 
   it("rehydrates the failed method step and focuses the announced error", () => {

@@ -10,6 +10,7 @@ export type AggregateCommandHandlerConfig<State, Command, Event extends DomainEv
 > &
   Readonly<{
     decide: AggregateDecider<State, Command, Event>;
+    commitSourceContextName?: string;
   }>;
 
 export type AggregateCommandHandlerRuntime<State, Command, Event extends DomainEvent> = Readonly<{
@@ -31,6 +32,7 @@ export function createAggregateCommandHandler<State, Command, Event extends Doma
     repository,
     evolve: config.evolve,
     decide: config.decide,
+    commitSourceContextName: config.commitSourceContextName,
   });
 
   return {

@@ -2,11 +2,11 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { Box, Button, OperationalStatusBanner } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 
-const SECTION_FORM_SELECTOR = '[data-catalog-primary-workbench-command="update-provider-profile-section"]';
+const SECTION_FORM_SELECTOR = '[data-catalog-primary-workbench-command="provider-profile.edit-section"]';
 
 // Aggregate dirty-state summary + save-all affordance over the section-level
 // forms rendered inside `children` (ProfileSectionWorkspaces). Each section
-// keeps its own atomic save (a separate `update-provider-profile-section`
+// keeps its own atomic save (a separate `provider-profile.edit-section`
 // command per section, unchanged) — this only adds a page-level "N sections
 // have unsaved changes" banner and a "Save all" action that submits every dirty
 // section's form in turn without a full-page reload between saves, then

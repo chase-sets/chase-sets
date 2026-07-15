@@ -12,7 +12,7 @@ type SupportRequestEmailEventData = Readonly<{
   supportRequestId: string;
   orderId: string;
   flowType: string;
-  resolution?: Readonly<{ resolutionType: string }> | null;
+  resolution?: Readonly<{ resolutionType: string; summary?: string | null }> | null;
 }>;
 
 type SupportRequestEmailRecipient = Readonly<{ email: string; accountId: string | null }>;
@@ -75,6 +75,7 @@ export function buildSupportRequestTransactionalEmailProjectionHandlers(
         mapSupportRequestResolvedToTransactionalEmail({
           ...intentInput(data, resolved, correlationId),
           resolutionType: data.resolution?.resolutionType ?? "resolved",
+          resolutionSummary: data.resolution?.summary ?? "",
         }),
     }),
   };

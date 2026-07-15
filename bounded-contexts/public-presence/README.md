@@ -8,6 +8,7 @@ Public Presence owns Chase Sets public product pages, prelaunch policy surfaces,
 
 - Public product pages
 - Prelaunch policy surfaces
+- Versioned public policy artifacts and publication-readiness gates
 - Public help articles and their category taxonomy
 - Gated developer articles, MCP catalog rendering, and agent-readable documentation manifests
 - Waitlist capture and waitlist entries
@@ -66,4 +67,5 @@ The marketplace and admin deployables only compose routes from this context. Pro
 - [Beta wave exposure runbook](../../docs/runbooks/beta-wave-exposure.md)
 - [Help article contract](docs/help-article-contract.md)
 - [Developer article contract](docs/developer-article-contract.md)
+- [Terms of Service publication](docs/terms-of-service-publication.md)
 - [Seller migration and bulk-listing proof walkthrough](docs/seller-migration-bulk-listing-proof.md)

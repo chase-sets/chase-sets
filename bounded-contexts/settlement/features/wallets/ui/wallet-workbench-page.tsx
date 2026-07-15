@@ -108,7 +108,7 @@ function payoutDetailHref(payoutId: string, marketplaceOrigin?: string | null) {
   if (!marketplaceOrigin) {
     return null;
   }
-  return new URL(`/account/payouts/${payoutId}`, `${marketplaceOrigin.replace(/\/+$/, "")}/`).toString();
+  return new URL(`/account/desk/payouts/${payoutId}`, `${marketplaceOrigin.replace(/\/+$/, "")}/`).toString();
 }
 
 function AccountBalanceSummary({ wallet }: { wallet: SettlementWalletRow }) {

@@ -14,6 +14,7 @@ export type LoadedAggregate<State, Event extends DomainEvent> = Readonly<{
 
 export type AppendDomainEventsInput<Event extends DomainEvent> = Readonly<{
   streamId: string;
+  wakeSourceContextName?: string;
   expectedVersion: ExpectedStreamVersion;
   context: EventStoreContext;
   events: readonly Event[];

@@ -156,6 +156,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `platform-operations:public-doc-review-queue-projection` | Platform Operations | **commercial-terms**, **platform-operations** | push-enabled | 2/2 |
 | `platform-operations:reported-content-queue-projection` | Platform Operations | **marketplace**, **platform-operations** | push-enabled | 2/2 |
 | `platform-operations:risk-alert-queue-projection` | Platform Operations | **identity**, **marketplace**, **payments**, **platform-operations** | push-enabled | 4/4 |
+| `platform-operations:support-request-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:support-affected-line-amount-projection` | Platform Operations | **ordering**, **payments** | push-enabled | 2/2 |
 | `platform-operations:support-order-source-projection` | Platform Operations | **ordering** | push-enabled | 1/1 |
 | `platform-operations:support-shipment-source-projection` | Platform Operations | fulfillment | push-eligible | 0/1 |
@@ -260,6 +261,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `payments.detail-self-refresh` | payments | important | exact wait | push-accelerated |
 | `platform-operations.platform-feedback-detail-fresh-read` | platform-operations | important | exact wait | push-accelerated |
 | `platform-operations.platform-feedback-list-fresh-read` | platform-operations | important | exact wait | push-accelerated |
+| `platform-operations.support-request-detail-fresh-read` | platform-operations | important | exact wait | push-accelerated |
 | `public-presence.waitlist-signup-to-admin-review` | public-presence | critical | exact wait | push wake enabled |
 | `marketplace.review-reply-to-detail` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.review-submit-to-detail` | marketplace | important | exact wait | push-accelerated |

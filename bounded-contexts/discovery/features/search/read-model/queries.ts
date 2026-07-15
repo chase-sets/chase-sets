@@ -1,6 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { DiscoveryDisplayBadge } from "../../../support/client-support/contracts";
-import { buildSimpleSearchQuery } from "../domain/normalization";
+import { buildSimpleSearchQuery, foldSearchDiacritics } from "../domain/normalization";
 import type { ProductSchema } from "../../../support/client-support/contracts";
 import {
   buyerVisibleListingPredicateSql,
@@ -210,7 +210,7 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
 
   if (params.search) {
     englishSearchParamIndex = paramIndex;
-    values.push(params.search);
+    values.push(foldSearchDiacritics(params.search));
     paramIndex++;
     simpleSearchParamIndex = paramIndex;
     conditions.push(
@@ -511,7 +511,7 @@ function uniqueValues(values: readonly string[]): string[] {
 }
 
 function normalizeFilterParamValue(value: string): string {
-  return value.trim().toLocaleLowerCase("en-US");
+  return value.trim().toLowerCase();
 }
 
 export async function searchDiscoveryItems(

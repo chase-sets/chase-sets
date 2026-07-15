@@ -163,7 +163,7 @@ function governanceWorkerControlFor(input: {
     status: paused ? "blocked" : "open",
     metricKey: "catalog.integration.worker.state",
     evidenceUrl: input.auditEvidenceUrl,
-    commandKeys: ["start-provider-import", "start-reapply", "start-replay"],
+    commandKeys: ["scope.import", "observation.reapply", "observation.replay"],
     blockers: paused ? ["kill-switch-active"] : [],
     providerKeys: [],
     unitKeys: [],
@@ -195,22 +195,22 @@ function governanceControlCommandKeys(capabilities: readonly string[]): readonly
   const text = capabilities.join(" ").toLowerCase();
   const keys = new Set<CatalogPrimaryWorkbenchCommandKey>();
   if (text.includes("import") || text.includes("source-observation")) {
-    keys.add("start-provider-import");
+    keys.add("scope.import");
   }
   if (text.includes("promotion") || text.includes("promote")) {
-    keys.add("preview-promotion");
-    keys.add("execute-promotion");
+    keys.add("observation.promote");
+    keys.add("observation.promote");
   }
   if (text.includes("reapply")) {
-    keys.add("start-reapply");
+    keys.add("observation.reapply");
   }
   if (text.includes("replay")) {
-    keys.add("start-replay");
+    keys.add("observation.replay");
   }
   if (keys.size === 0) {
-    keys.add("start-provider-import");
-    keys.add("preview-promotion");
-    keys.add("execute-promotion");
+    keys.add("scope.import");
+    keys.add("observation.promote");
+    keys.add("observation.promote");
   }
 
   return [...keys];
@@ -233,13 +233,13 @@ function governanceControlKind(
   if (control.defaultState === "quarantined") {
     return "provider-emergency-stop";
   }
-  if (commandKeys.includes("start-provider-import")) {
+  if (commandKeys.includes("scope.import")) {
     return "import-kill-switch";
   }
-  if (commandKeys.includes("execute-promotion")) {
+  if (commandKeys.includes("observation.promote")) {
     return "promotion-kill-switch";
   }
-  if (commandKeys.includes("start-reapply") || commandKeys.includes("start-replay")) {
+  if (commandKeys.includes("observation.reapply") || commandKeys.includes("observation.replay")) {
     return "reapply-kill-switch";
   }
 
@@ -253,13 +253,13 @@ function governanceControlLabel(
   if (control.defaultState === "quarantined") {
     return "Provider emergency stop";
   }
-  if (commandKeys.includes("start-provider-import")) {
+  if (commandKeys.includes("scope.import")) {
     return "Provider import kill switch";
   }
-  if (commandKeys.includes("execute-promotion")) {
+  if (commandKeys.includes("observation.promote")) {
     return "Promotion kill switch";
   }
-  if (commandKeys.includes("start-reapply") || commandKeys.includes("start-replay")) {
+  if (commandKeys.includes("observation.reapply") || commandKeys.includes("observation.replay")) {
     return "Reapply/replay kill switch";
   }
 
@@ -277,11 +277,11 @@ function hasCapabilityStop(
     const keys = governanceControlCommandKeys(control.capabilities);
     switch (capability) {
       case "import":
-        return keys.includes("start-provider-import");
+        return keys.includes("scope.import");
       case "promotion":
-        return keys.includes("preview-promotion") || keys.includes("execute-promotion");
+        return keys.includes("observation.promote");
       case "reapply":
-        return keys.includes("start-reapply") || keys.includes("start-replay");
+        return keys.includes("observation.reapply") || keys.includes("observation.replay");
     }
   });
 }
