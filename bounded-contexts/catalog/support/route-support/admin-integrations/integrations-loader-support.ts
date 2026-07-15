@@ -227,6 +227,13 @@ async function finalizeSurfaceLoad(input: {
 // impacts, and the read model never computes the governance, lifecycle, release,
 // or audit sub-models.
 export async function loadDailySurface({ request }: LoaderFunctionArgs) {
+  return loadDailySurfaceForRequest(request);
+}
+
+// Scope Detail composes the same daily journey against a synthetic, canonical
+// Scope Record URL. Keeping the request-level entry point here avoids duplicating
+// the baseline, review, candidate, sync-preview, and live-job query choreography.
+export async function loadDailySurfaceForRequest(request: Request) {
   const { api, baseline, routeContext } = await loadIntegrationsBaseline(request, "daily");
   const normalized = normalizedDailyRouteContext(request, baseline, routeContext);
   const normalizedRouteContext = normalized.routeContext;
@@ -698,7 +705,9 @@ export function buildDailyMergeCandidateQuery(routeContext: CatalogPrimaryWorkbe
   if (scope?.productLineName) {
     params.set("productLineName", scope.productLineName);
   }
-  if (scope?.expansionId) {
+  if (routeContext.scopeRecordId) {
+    params.set("scopeRecordId", routeContext.scopeRecordId);
+  } else if (scope?.expansionId) {
     params.set("expansionId", scope.expansionId);
     params.set("setId", scope.expansionId);
   } else if (scope?.expansionName) {

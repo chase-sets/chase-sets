@@ -38,7 +38,7 @@ import {
   catalogPrimaryWorkbenchProviderTransportSummary,
   getCatalogPrimaryWorkbenchProviderTransportCopy,
 } from "../../primary-workbench-copy";
-import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
+import { useCatalogIntegrationCommandHref } from "../import-to-promotion/command-action-context";
 import { scopeContextFromImportScope, scopeDisplayLabel } from "../../primary-workbench-scope-context";
 import { CommandHiddenInputs, type CatalogPrimaryWorkbenchSubmitIntent } from "../import-to-promotion/command-controls";
 import { BlockerList, profileSnapshotLabel, stateLabel } from "../import-to-promotion/workbench-formatting";
@@ -591,13 +591,10 @@ function ImportJobLifecycleAction({
   tone?: ButtonProps["tone"];
   children: ReactNode;
 }) {
+  const actionHref = useCatalogIntegrationCommandHref({ ...readModel.routeContext, jobId: job.jobId });
+
   return (
-    <WorkbenchForm
-      variant="button"
-      method="post"
-      action={catalogPrimaryWorkbenchHref({ ...readModel.routeContext, jobId: job.jobId }, "import-to-promotion")}
-      data-catalog-primary-workbench-command={intent}
-    >
+    <WorkbenchForm variant="button" method="post" action={actionHref} data-catalog-primary-workbench-command={intent}>
       <CommandHiddenInputs readModel={readModel} intent={intent} jobId={job.jobId} />
       <Button type="submit" size="sm" tone={tone}>
         {children}

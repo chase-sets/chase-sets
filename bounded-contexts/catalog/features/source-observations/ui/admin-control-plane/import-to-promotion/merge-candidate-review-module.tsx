@@ -26,8 +26,8 @@ import type {
   CatalogPrimaryWorkbenchMergeCandidateReviewRow,
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
-import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
 import { CommandFormButton, CommandHiddenInputs } from "./command-controls";
+import { useCatalogIntegrationCommandHref } from "./command-action-context";
 import { CatalogMergeCandidateEditForm } from "./candidate-edit-form";
 import { CatalogScopeBulkReviewActions, catalogMergeCandidateReviewAnchorId } from "./scope-bulk-review-actions";
 import { BlockerList, stateLabel } from "./workbench-formatting";
@@ -322,6 +322,7 @@ function MergeCandidateConflictResolutionForm({
   readModel,
 }: Readonly<{ row: MergeCandidateRow; readModel: CatalogPrimaryWorkbenchReadModel }>) {
   const blockingConflicts = row.conflicts.blockingConflicts;
+  const actionHref = useCatalogIntegrationCommandHref(readModel.routeContext);
   const otherBlockers = row.promoteReadiness.blockers.filter((blocker) => blocker !== "promotion-conflict");
   const blockingConflictsJson = JSON.stringify(
     blockingConflicts.map((conflict) => ({
@@ -366,7 +367,7 @@ function MergeCandidateConflictResolutionForm({
           <WorkbenchForm
             variant="surface"
             method="post"
-            action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
+            action={actionHref}
             data-catalog-merge-candidate-conflict-resolution-form="true"
           >
             <CommandHiddenInputs readModel={readModel} intent="promote-merge-candidate" candidateId={row.candidateId} />

@@ -15,7 +15,7 @@ import type {
   CatalogPrimaryWorkbenchMergeCandidateReviewRow,
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
-import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
+import { useCatalogIntegrationCommandHref } from "./command-action-context";
 
 // The anchor the scope bulk toolbar's "Jump to conflicts" control targets. The
 // candidate review table sets this id so the operator can jump straight to the
@@ -37,7 +37,7 @@ export function CatalogScopeBulkReviewActions({
   const rows = readModel.mergeCandidateReview.rows;
   const canManage = readModel.readiness.rbacAllowed;
   const partition = partitionCandidates(rows);
-  const action = catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion");
+  const action = useCatalogIntegrationCommandHref(readModel.routeContext);
 
   return (
     <WorkflowModule

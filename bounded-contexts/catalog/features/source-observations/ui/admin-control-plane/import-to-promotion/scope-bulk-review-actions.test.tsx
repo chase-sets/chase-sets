@@ -7,6 +7,7 @@ import type {
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../primary-workbench-route-context";
+import { CatalogIntegrationCommandActionProvider } from "./command-action-context";
 
 afterEach(cleanup);
 
@@ -92,5 +93,17 @@ describe("CatalogScopeBulkReviewActions", () => {
   it("renders an empty state when the scope has no candidates", () => {
     render(<CatalogScopeBulkReviewActions readModel={readModel([])} />);
     expect(screen.getByText("No candidates in this scope yet.")).toBeTruthy();
+  });
+
+  it("submits scope-level bulk review on Scope Detail when composed there", () => {
+    const { container } = render(
+      <CatalogIntegrationCommandActionProvider actionPath="/catalog/scopes/scope_base_set">
+        <CatalogScopeBulkReviewActions readModel={readModel([candidate("ready_1", "ready", "ready")])} />
+      </CatalogIntegrationCommandActionProvider>,
+    );
+    const form = container.querySelector('[data-catalog-merge-candidate-bulk-promote="true"]') as HTMLFormElement;
+    const action = new URL(form.action);
+
+    expect(action.pathname).toBe("/catalog/scopes/scope_base_set");
   });
 });

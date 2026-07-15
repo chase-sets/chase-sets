@@ -52,4 +52,19 @@ describe("admin integrations loader support", () => {
     expect(params.get("syncRunId")).toBe("job_parent_sync");
     expect(params.has("productLineId")).toBe(false);
   });
+
+  it("uses canonical Scope Record identity on the scope-first journey", () => {
+    const params = new URLSearchParams(
+      buildDailyMergeCandidateQuery({
+        ...baseContext,
+        providerKey: null,
+        unitKey: null,
+        scopeRecordId: "scope_expansion_paldean_fates",
+      }),
+    );
+
+    expect(params.get("scopeRecordId")).toBe("scope_expansion_paldean_fates");
+    expect(params.has("setId")).toBe(false);
+    expect(params.has("syncRunId")).toBe(false);
+  });
 });

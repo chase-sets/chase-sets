@@ -2,10 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LoaderFunctionArgs } from "react-router";
 import { CatalogApiError } from "../../../client";
 
-const { mockCreateCatalogRequestApiClient, mockResolveActorFromAuthApi } = vi.hoisted(() => ({
-  mockCreateCatalogRequestApiClient: vi.fn(),
-  mockResolveActorFromAuthApi: vi.fn(),
-}));
+const { mockCreateCatalogRequestApiClient, mockResolveActorFromAuthApi, mockLoadDailySurfaceForRequest } = vi.hoisted(
+  () => ({
+    mockCreateCatalogRequestApiClient: vi.fn(),
+    mockResolveActorFromAuthApi: vi.fn(),
+    mockLoadDailySurfaceForRequest: vi.fn(),
+  }),
+);
 
 vi.mock("../../request-support/api-client", async () => {
   const actual = await vi.importActual<typeof import("../../request-support/api-client")>(
@@ -16,6 +19,10 @@ vi.mock("../../request-support/api-client", async () => {
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   resolveActorFromAuthApi: mockResolveActorFromAuthApi,
+}));
+
+vi.mock("../admin-integrations/integrations-loader-support", () => ({
+  loadDailySurfaceForRequest: mockLoadDailySurfaceForRequest,
 }));
 
 const { loader } = await import("./scope-detail-loader");
@@ -48,6 +55,7 @@ describe("Catalog scope-detail route loader", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockResolveActorFromAuthApi.mockResolvedValue({ permissions: ["catalog.view", "catalog.manage"] });
+    mockLoadDailySurfaceForRequest.mockResolvedValue({ readModel: { routeContext: {} }, requestUrl: "scope" });
   });
 
   it("loads the scope record and the alias review scoped to its reference record for a multi-edition scope", async () => {
@@ -85,9 +93,15 @@ describe("Catalog scope-detail route loader", () => {
         referenceScopes: [],
       },
     });
+    const getScopeCoverageMatrix = vi.fn().mockResolvedValue({
+      scopeRecordId: "scope_expansion_paldean_fates",
+      scopeName: "Paldean Fates",
+      providers: [],
+    });
     mockCreateCatalogRequestApiClient.mockReturnValue({
       getCatalogScopeRecord: vi.fn().mockResolvedValue(paldeanFatesScope()),
       getCatalogAliasReviewReadModel,
+      getScopeCoverageMatrix,
     });
 
     const routeData = await runLoader(
@@ -101,6 +115,10 @@ describe("Catalog scope-detail route loader", () => {
     const query = new URLSearchParams(getCatalogAliasReviewReadModel.mock.calls[0]?.[0] ?? "");
     expect(query.get("targetKind")).toBe("reference-record");
     expect(query.get("targetId")).toBe("ref_expansion_paldean_fates");
+    expect(getScopeCoverageMatrix).toHaveBeenCalledWith("scope_expansion_paldean_fates");
+    expect(routeData.coverageMatrix?.scopeName).toBe("Paldean Fates");
+    const workbenchRequest = mockLoadDailySurfaceForRequest.mock.calls[0]?.[0] as Request;
+    expect(new URL(workbenchRequest.url).searchParams.get("expansionId")).toBe("scope_expansion_paldean_fates");
   });
 
   it("skips the alias-review fetch for a single-edition scope", async () => {
