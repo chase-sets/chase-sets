@@ -17,6 +17,7 @@ import { handleAliasReviewCommand, isAliasReviewCommandIntent } from "./alias-re
 import { handleAttentionQueueCommand, isAttentionQueueCommandIntent } from "./attention-queue-command-handler";
 import { handleDailyCommand, isDailyCommandIntent } from "./daily-command-handler";
 import { handleGovernanceCommand, isGovernanceCommandIntent } from "./governance-command-handler";
+import { handleJobCommand, isJobCommandIntent } from "./job-command-handler";
 import { handleProviderSetupCommand, isProviderSetupCommandIntent } from "./provider-setup-command-handler";
 import {
   catalogControlPlaneActionByLegacyIntent,
@@ -94,6 +95,9 @@ async function runIntegrationsCommand(input: {
     }
     if (isAttentionQueueCommandIntent(intent)) {
       return await handleAttentionQueueCommand({ api, intent, context, formData });
+    }
+    if (isJobCommandIntent(intent)) {
+      return await handleJobCommand({ api, intent, context, selectedObservationIds });
     }
     if (isDailyCommandIntent(intent)) {
       return await handleDailyCommand({ api, intent, context, formData, selectedObservationIds });

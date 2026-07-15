@@ -1187,6 +1187,76 @@ describe("Catalog integrations route", () => {
     expect(result.feedback.result).toBe("preview-required");
   });
 
+  it("rejects promotion when the eligible observations changed content since the preview (observe-change-then-promote)", async () => {
+    // The stored token was minted from a preview whose eligible observations
+    // hashed to "content-a". A re-import changed a field on the same in-scope
+    // observation, so a fresh preview now hashes to "content-b". The recomputed
+    // token no longer matches the one the operator is executing, so execution is
+    // rejected server-side with a re-preview affordance — self-invalidation is not
+    // a UI nicety the operator can bypass by resubmitting the stale token.
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
+      matched: 1,
+      eligible: 1,
+      terminal: 0,
+      scope: { provider: "tcgdex", language: "en", setId: "base1", status: "", search: "" },
+      fingerprint: "content-b",
+    });
+    const bulkPromoteSourceObservations = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      bulkPromoteSourceObservations,
+      previewBulkPromoteSourceObservationIds,
+    });
+
+    const result = await runDailyAction({
+      _intent: "execute-promotion",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+      selectedObservationIds: "obs_001",
+      promotionPreviewId:
+        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_obs_001-1-1-content-a",
+    });
+
+    expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"]);
+    expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
+    expect(result.context.promotionPreviewId).toBeNull();
+    expect(result.feedback.status).toBe("error");
+    expect(result.feedback.result).toBe("preview-required");
+  });
+
+  it("executes promotion when the preview's content fingerprint still matches the eligible observations", async () => {
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
+      matched: 1,
+      eligible: 1,
+      terminal: 0,
+      scope: { provider: "tcgdex", language: "en", setId: "base1", status: "", search: "" },
+      fingerprint: "content-a",
+    });
+    const bulkPromoteSourceObservations = vi.fn().mockResolvedValue({ jobId: "job_promote_fresh" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      bulkPromoteSourceObservations,
+      previewBulkPromoteSourceObservationIds,
+    });
+
+    const result = await runDailyAction({
+      _intent: "execute-promotion",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+      selectedObservationIds: "obs_001",
+      promotionPreviewId:
+        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_obs_001-1-1-content-a",
+    });
+
+    expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(["obs_001"]);
+    expect(result.context.jobId).toBe("job_promote_fresh");
+    expect(result.feedback.status).toBe("success");
+    expect(result.feedback.result).toBe("job-queued");
+    expect(result.context.promotionPreviewId).toBeNull();
+  });
+
   it("executes matching-filter promotion with the same explicit broad scope used for preview", async () => {
     const previewBulkPromoteSourceObservations = vi.fn().mockResolvedValue({
       matched: 124,
