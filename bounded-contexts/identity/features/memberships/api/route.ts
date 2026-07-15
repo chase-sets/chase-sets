@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
+import { conflictResponse } from "@chase-sets/http/responses";
 import type { IdentityApiEnv } from "../../../api";
 import {
   canAssignRole,
@@ -13,6 +14,10 @@ import {
   type RoleKey,
 } from "../../../support/runtime-support/common";
 import type { MembershipServices } from "./runtime";
+
+type MembershipAccountReader = Readonly<{
+  getAccountState: (accountId: string) => Promise<Readonly<{ status: string }> | null>;
+}>;
 
 function canManageMembership(
   actor: IdentityApiEnv["Variables"]["actor"],
@@ -55,7 +60,36 @@ function canAssignRequestedRole(actor: IdentityApiEnv["Variables"]["actor"], rol
   return !actor || (roleKeyForActor ? canAssignRole(roleKeyForActor, roleKey) : false);
 }
 
-export function membershipRoutes(services: MembershipServices) {
+function removesActiveOwner(
+  membership: Readonly<{ role_key: string; status: string }>,
+  requestedRoleKey?: GrantableRoleKey,
+) {
+  return membership.status === "active" && membership.role_key === "owner" && requestedRoleKey !== "owner";
+}
+
+async function wouldRemoveLastOwner(
+  services: MembershipServices,
+  accounts: MembershipAccountReader,
+  membership: Readonly<{ account_id: string; role_key: string; status: string }>,
+  requestedRoleKey?: GrantableRoleKey,
+) {
+  if (!removesActiveOwner(membership, requestedRoleKey)) {
+    return false;
+  }
+
+  const account = await accounts.getAccountState(membership.account_id);
+  if (account?.status === "closed") {
+    return false;
+  }
+
+  return (await services.countActiveOwnersForAccount(membership.account_id)) <= 1;
+}
+
+function lastOwnerConflict() {
+  return conflictResponse(t("identity.features.memberships.api.route.last.owner"));
+}
+
+export function membershipRoutes(services: MembershipServices, accounts: MembershipAccountReader) {
   const app = new Hono<IdentityApiEnv>();
 
   app.post("/", async (c) => {
@@ -113,6 +147,9 @@ export function membershipRoutes(services: MembershipServices) {
     if (!canAssignRequestedRole(c.var.actor, roleKey)) {
       return c.json(forbidden(), 403);
     }
+    if (await wouldRemoveLastOwner(services, accounts, membership, roleKey)) {
+      return c.json(lastOwnerConflict(), 409);
+    }
     const result = await services.commandHandler({
       streamId: `identity.membership-${membershipId}`,
       command: { type: "ChangeMembershipRole", roleKey, assignmentAuthority: assignmentAuthority(c.var.actor) },
@@ -132,6 +169,9 @@ export function membershipRoutes(services: MembershipServices) {
     }
     if (!canManageMembership(c.var.actor, membership)) {
       return c.json(forbidden(), 403);
+    }
+    if (await wouldRemoveLastOwner(services, accounts, membership)) {
+      return c.json(lastOwnerConflict(), 409);
     }
     const result = await services.commandHandler({
       streamId: `identity.membership-${membershipId}`,
