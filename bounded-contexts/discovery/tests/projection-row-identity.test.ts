@@ -1085,6 +1085,7 @@ describeDb("discovery projection row identity", () => {
   "marketAccountReviews": [
     {
       "review_id": "review_1",
+      "order_id": null,
       "author_account_id": "buyer_1",
       "subject_account_id": "acc_seller",
       "author_role": "buyer",
@@ -1095,6 +1096,7 @@ describeDb("discovery projection row identity", () => {
       "updated_at": "2026-06-12T13:04:00.000Z",
       "revealed_at": null,
       "feedback_redacted_at": null,
+      "held": false,
       "reply_id": null,
       "reply_feedback": null,
       "reply_status": null,
