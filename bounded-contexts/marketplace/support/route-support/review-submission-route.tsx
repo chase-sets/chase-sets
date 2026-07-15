@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
+import { redirect, useActionData, useLoaderData, useNavigation, useSearchParams } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   createReputationRequestApiClient,
@@ -127,6 +127,12 @@ export function ReviewSubmissionRoute({ config }: { config: ReviewSubmissionRout
   const data = useLoaderData() as ReviewSubmissionLoaderData;
   const actionData = useActionData() as ReviewSubmissionActionData | undefined;
   const navigation = useNavigation();
+  const [searchParams] = useSearchParams();
+
+  // The canonical order-issue intake owns eligibility and outage handling; when
+  // it bounces a buyer back because a new issue cannot be opened, it flags the
+  // funnel so the review flow explains why and keeps eligible feedback open.
+  const intakeAvailable = searchParams.get("resolution") !== "intake-unavailable";
 
   return (
     <ReviewSubmissionPage
@@ -136,6 +142,7 @@ export function ReviewSubmissionRoute({ config }: { config: ReviewSubmissionRout
       isSubmitting={navigation.state === "submitting"}
       defaultRating={actionData?.values?.rating ?? 5}
       defaultFeedback={actionData?.values?.feedback ?? ""}
+      resolution={{ intakeAvailable }}
     />
   );
 }
