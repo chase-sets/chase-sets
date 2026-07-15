@@ -11,6 +11,12 @@ export const browserE2eReadConsistencyEnv = Object.freeze({
   READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED: "true",
 });
 
+export const browserE2eProjectionWakeEnv = Object.freeze({
+  WORKER_WAKE_HOT_LANE_RUNNER_COUNT: "2",
+  WORKER_WAKE_MAX_CONCURRENT_RUNNERS: "4",
+  WORKER_WAKE_POLL_INTERVAL_MS: "250",
+});
+
 export function applyDevTargetEnvOverrides(targetName, processDefinitions) {
   if (targetName !== "browser-e2e") {
     return processDefinitions;
@@ -27,6 +33,14 @@ export function applyDevTargetEnvOverrides(targetName, processDefinitions) {
             ...browserE2eReadConsistencyEnv,
           },
         }
-      : definition,
+      : definition.name === "platform-worker"
+        ? {
+            ...definition,
+            env: {
+              ...definition.env,
+              ...browserE2eProjectionWakeEnv,
+            },
+          }
+        : definition,
   );
 }
