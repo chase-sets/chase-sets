@@ -71,6 +71,8 @@ Buyer self-service purchase cancellation is documented in [Self-Service Purchase
 7. Buyers correct purchase mistakes by cancelling and rebuying, not by editing committed order terms.
 8. Tax quotes stay provider-agnostic behind resolver interfaces; orders store immutable tax snapshots after quote resolution.
 9. Production marketplace launch may use zero-tax snapshots only while tax readiness evidence confirms no tracked jurisdiction requires collection; provider-backed quotes become required before collecting sales tax in any registered or collecting jurisdiction.
+10. One durable Order Source Claim owns the complete order-id set for each checkout source identity, so retries never depend on order-page projection freshness.
+11. Order creation validates line multiplication, item-subtotal summation, buyer-charge summation, and Marketplace fee/seller-net splits with integer-cent arithmetic before recording an order.
 
 ## Tests
 

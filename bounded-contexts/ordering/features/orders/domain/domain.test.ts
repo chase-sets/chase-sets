@@ -206,6 +206,7 @@ describe("ordering order domain", () => {
   it("freezes the authenticity plan onto the order when the buyer opted in at checkout", () => {
     const command: CreateOrderCommand = {
       ...createOrderCommand("cart-checkout"),
+      totalAmount: "34.99",
       authenticityPlanSnapshot: {
         feeAmount: "10.00",
         payer: "buyer",
@@ -230,6 +231,62 @@ describe("ordering order domain", () => {
       orderValueAmount: "150.00",
       quotedAt: "2026-03-31T00:00:00.000Z",
     });
+  });
+
+  it("rejects a line total that does not equal unit price times quantity", () => {
+    const command = createOrderCommand("cart-checkout");
+
+    expect(() =>
+      decideOrderingOrder(initialOrderingOrderState, {
+        ...command,
+        itemSubtotalAmount: "39.99",
+        totalAmount: "44.98",
+        lines: [{ ...command.lines[0]!, quantity: 2, lineTotalAmount: "39.99" }],
+      }),
+    ).toThrow("Order line total must equal unit price times quantity.");
+  });
+
+  it("rejects an item subtotal that does not equal the sum of line totals", () => {
+    expect(() =>
+      decideOrderingOrder(initialOrderingOrderState, {
+        ...createOrderCommand("cart-checkout"),
+        itemSubtotalAmount: "19.99",
+        totalAmount: "24.98",
+      }),
+    ).toThrow("Order item subtotal must equal the sum of line totals.");
+  });
+
+  it("rejects an order total that does not equal every buyer charge component", () => {
+    expect(() =>
+      decideOrderingOrder(initialOrderingOrderState, {
+        ...createOrderCommand("cart-checkout"),
+        totalAmount: "25.00",
+      }),
+    ).toThrow("Order total must equal item subtotal, Shipping, sales tax, and authenticity check fee.");
+  });
+
+  it("rejects a line whose marketplace fee and seller net do not equal its line total", () => {
+    const command = createOrderCommand("cart-checkout");
+
+    expect(() =>
+      decideOrderingOrder(initialOrderingOrderState, {
+        ...command,
+        commercialTermsSnapshot: {
+          ...command.commercialTermsSnapshot,
+          marketplaceSalesFeeAmount: "1.01",
+          sellerNetAmount: "19.00",
+        },
+        lines: [
+          {
+            ...command.lines[0]!,
+            marketplaceSalesFeeUnitAmount: "1.01",
+            marketplaceSalesFeeTotalAmount: "1.01",
+            sellerNetUnitAmount: "19.00",
+            sellerNetTotalAmount: "19.00",
+          },
+        ],
+      }),
+    ).toThrow("Order line marketplace fee plus seller net must equal the line total.");
   });
 
   it("marks a pending order ready for fulfillment after payment capture", () => {
@@ -276,6 +333,22 @@ describe("ordering order domain", () => {
         paymentDeadlinePolicy: "ordering-payment-deadline-card-v1",
       },
     });
+  });
+
+  it("rejects a reservation confirmation for an unknown request", () => {
+    const createdState = decideOrderingOrder(initialOrderingOrderState, createOrderCommand("cart-checkout")).reduce(
+      evolveOrderingOrder,
+      initialOrderingOrderState,
+    );
+
+    expect(() =>
+      decideOrderingOrder(createdState, {
+        type: "RecordReservationConfirmed",
+        reservationRequestId: "rsv_missing",
+        holdId: "hld_1",
+        confirmedAt: "2026-03-31T00:00:00.000Z",
+      }),
+    ).toThrow("Reservation confirmation must reference an existing reservation request.");
   });
 
   it("rejects payment-deadline cancellation after payment capture wins the race", () => {

@@ -217,13 +217,7 @@ export function buildOrderingOrderProjectionHandlers(
             data.commercialTermsSnapshot.marketplaceSalesFeeAmount,
             data.commercialTermsSnapshot.sellerNetAmount,
             data.commercialTermsSnapshot.sellerItemNetAmount ?? data.commercialTermsSnapshot.sellerNetAmount,
-            data.commercialTermsSnapshot.sellerPayoutAmount ??
-              (
-                Number.parseFloat(data.commercialTermsSnapshot.sellerNetAmount) +
-                Number.parseFloat(
-                  data.commercialTermsSnapshot.shippingAllowanceAmount ?? data.shippingAllowanceAmount ?? "0.00",
-                )
-              ).toFixed(2),
+            data.commercialTermsSnapshot.sellerPayoutAmount ?? data.commercialTermsSnapshot.sellerNetAmount,
             data.commercialTermsSnapshot.shippingAllowancePercentageBps ?? 500,
             data.commercialTermsSnapshot.termsScheduleId,
             data.commercialTermsSnapshot.termsAgreementId,

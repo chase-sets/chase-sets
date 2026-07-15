@@ -13,6 +13,7 @@ type OrderPageRow = {
   seller_account_id: string;
   status: string;
   total_amount: string;
+  seller_payout_amount: string;
 };
 
 class OrderProjectionDb implements PgQueryable {
@@ -35,7 +36,8 @@ class OrderProjectionDb implements PgQueryable {
         buyer_account_id: String(values[4]),
         seller_account_id: String(values[5]),
         status: "pending-reservation",
-        total_amount: String(values[21]),
+        total_amount: String(values[24]),
+        seller_payout_amount: String(values[28]),
       };
       this.orders.set(row.order_id, row);
       return { rows: [], rowCount: 1 };
@@ -170,7 +172,76 @@ describe("ordering order projection", () => {
       buyer_account_id: "acc_buyer",
       seller_account_id: "acc_seller",
       status: "pending-reservation",
+      seller_payout_amount: "118.99",
     });
+  });
+
+  it("uses an exact event snapshot fallback when legacy events omit seller payout", async () => {
+    const db = new OrderProjectionDb();
+    const handlers = buildOrderingOrderProjectionHandlers(db);
+
+    await handlers["ordering.order.created"]!(
+      event("ordering.order.created", {
+        orderId: "ord_legacy",
+        sourceType: "cart-checkout",
+        sourceReferenceId: "chk_legacy",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        shippingOption: "standard",
+        itemSubtotalAmount: "20.00",
+        shippingBaseAmount: "4.99",
+        shippingDiscountAmount: "0.00",
+        shippingAllowanceAmount: "4.99",
+        shippingOverageAmount: "0.00",
+        shippingChargeAmount: "0.00",
+        salesTaxAmount: "0.00",
+        totalAmount: "20.00",
+        taxSnapshot: {
+          taxableAmount: "20.00",
+          salesTaxAmount: "0.00",
+          jurisdictionCountry: "US",
+          jurisdictionState: "IL",
+          rateBps: 0,
+          providerName: "local-tax-stub",
+          providerQuoteReference: null,
+          quotedAt: "2026-05-09T00:00:00.000Z",
+        },
+        commercialTermsSnapshot: {
+          marketplaceSalesFeeAmount: "1.00",
+          sellerNetAmount: "19.00",
+          shippingAllowanceAmount: "4.99",
+          termsScheduleId: "terms_standard",
+          termsAgreementId: null,
+          termsResolvedAt: "2026-05-09T00:00:00.000Z",
+        },
+        shippingDestinationSnapshot: { country: "US", state: "IL", postalCode: "60601" },
+        shippingOriginSnapshot: { country: "US", state: "TX", postalCode: "78701" },
+        shippingPlanSnapshot: {},
+        lines: [
+          {
+            lineId: "ord_line_legacy",
+            listingId: "lst_1",
+            inventoryItemId: "inv_1",
+            catalogItemId: "cat_1",
+            productId: "prd_1",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            unitPriceAmount: "20.00",
+            quantity: 1,
+            lineTotalAmount: "20.00",
+            marketplaceSalesFeeUnitAmount: "1.00",
+            marketplaceSalesFeeTotalAmount: "1.00",
+            sellerNetUnitAmount: "19.00",
+            sellerNetTotalAmount: "19.00",
+          },
+        ],
+        reservationRequests: [],
+      }),
+    );
+
+    expect(db.orders.get("ord_legacy")?.seller_payout_amount).toBe("19.00");
   });
 
   it("releases the seller's Order Capacity claim and reports it, regardless of cancellation reason (m127)", async () => {
