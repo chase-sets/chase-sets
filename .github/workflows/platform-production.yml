@@ -151,6 +151,7 @@ jobs:
             --event-name "${{ github.event_name }}" \
             --release-commit "${{ steps.release.outputs.release_commit }}" \
             --force-deploy "${{ github.event_name == 'workflow_dispatch' && inputs.force_deploy == true && 'true' || 'false' }}" \
+            --changed-files-out "${RUNNER_TEMP}/release-changed-files.json" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Resolve production recovery mode
@@ -159,7 +160,7 @@ jobs:
           set -euo pipefail
           node ./scripts/production-recovery-mode.mjs \
             --release-commit "${{ steps.release.outputs.release_commit }}" \
-            --changed-files-json '${{ steps.deployment_scope.outputs.changed_files_json || '[]' }}' \
+            --changed-files-file "${RUNNER_TEMP}/release-changed-files.json" \
             --force-restore-point "${{ github.event_name == 'workflow_dispatch' && inputs.force_restore_point == true && 'true' || 'false' }}" \
             --recovery-reason "${{ github.event_name == 'workflow_dispatch' && inputs.recovery_reason || '' }}" \
             --out artifacts/release-health/production-recovery-mode.json \

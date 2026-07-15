@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -40,7 +41,7 @@ export function parseProductionRecoveryModeArgs(argv, env = process.env) {
     outPath: readOption(argv, "--out") ?? readEnv("PRODUCTION_RECOVERY_MODE_OUT", env),
     githubOutputPath: readOption(argv, "--github-output") ?? readEnv("GITHUB_OUTPUT", env),
     releaseCommit: readOption(argv, "--release-commit") ?? readEnv("RELEASE_COMMIT", env),
-    changedFilesJson: readOption(argv, "--changed-files-json") ?? readEnv("CHANGED_FILES_JSON", env) ?? "[]",
+    changedFilesJson: resolveChangedFilesJson(argv, env),
     forceRestorePoint: parseBoolean(
       readOption(argv, "--force-restore-point") ?? readEnv("FORCE_RESTORE_POINT", env) ?? "false",
       "FORCE_RESTORE_POINT",
@@ -48,6 +49,32 @@ export function parseProductionRecoveryModeArgs(argv, env = process.env) {
     recoveryReason: readOption(argv, "--recovery-reason") ?? readEnv("RECOVERY_REASON", env) ?? "",
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
   };
+}
+
+// The release diff can list thousands of files (for example a cold-start
+// production deploy whose base is a stale production branch). Passing that JSON
+// inline as a single CLI argument exceeds the operating-system per-argument
+// length limit, so the workflow hands it over through a file. An explicit
+// --changed-files-json still wins for direct callers and tests.
+function resolveChangedFilesJson(argv, env) {
+  const inline = readOption(argv, "--changed-files-json");
+  if (inline !== null) {
+    return inline;
+  }
+  const filePath = readOption(argv, "--changed-files-file") ?? readEnv("CHANGED_FILES_FILE", env);
+  if (filePath) {
+    return readChangedFilesFile(filePath);
+  }
+  return readEnv("CHANGED_FILES_JSON", env) ?? "[]";
+}
+
+function readChangedFilesFile(filePath) {
+  try {
+    return readFileSync(filePath, "utf8").trim() || "[]";
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to read --changed-files-file "${filePath}": ${detail}`);
+  }
 }
 
 export async function runProductionRecoveryMode(options) {

@@ -145,6 +145,67 @@ describe("release deployment scope", () => {
     expect(exec.calls).not.toContainEqual(["fetch", "origin", "main"]);
   });
 
+  it("writes the changed-files list to a file so downstream steps avoid the CLI argument limit", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const writes = [];
+    const exec = execRecorder({
+      "fetch origin production": "",
+      "show-ref --verify --quiet refs/remotes/origin/production": "",
+      "rev-parse origin/production": `${productionCommit}\n`,
+    });
+
+    const result = resolveReleaseDeploymentScope(
+      {
+        eventName: "push",
+        releaseCommit: docsCommit,
+        forceDeploy: false,
+        githubOutputPath: "github-output.txt",
+        changedFilesOutPath: "changed-files.json",
+        gitPath: "git",
+      },
+      {
+        cwd: baseDir,
+        execFileSync: exec.execFileSync,
+        appendFileSync: () => {},
+        writeFileSync: (outputPath, value) => writes.push({ outputPath, value }),
+        listChangedFiles: () => ["deployables/platform-api/src/main.ts", "docs/index.md"],
+        workspaces: [workspace(baseDir, "deployables", "platform-api", "@test/platform-api")],
+        log: () => {},
+      },
+    );
+
+    expect(result.deploy).toBe(true);
+    expect(writes).toHaveLength(1);
+    expect(writes[0].outputPath).toBe("changed-files.json");
+    expect(JSON.parse(writes[0].value)).toEqual(["deployables/platform-api/src/main.ts", "docs/index.md"]);
+  });
+
+  it("writes an empty changed-files file when a manual force deploy skips diff scoping", () => {
+    const writes = [];
+    const exec = execRecorder({ "fetch origin production": "" });
+
+    resolveReleaseDeploymentScope(
+      {
+        eventName: "workflow_dispatch",
+        releaseCommit: docsCommit,
+        forceDeploy: true,
+        githubOutputPath: "github-output.txt",
+        changedFilesOutPath: "changed-files.json",
+        gitPath: "git",
+      },
+      {
+        cwd: path.join(process.cwd(), "repo"),
+        execFileSync: exec.execFileSync,
+        appendFileSync: () => {},
+        writeFileSync: (outputPath, value) => writes.push({ outputPath, value }),
+        log: () => {},
+      },
+    );
+
+    expect(writes).toHaveLength(1);
+    expect(JSON.parse(writes[0].value)).toEqual([]);
+  });
+
   it("keeps manual force_deploy as an explicit deployment override", () => {
     const { result, appended, listedDiffs } = resolveWithGit({
       eventName: "workflow_dispatch",
