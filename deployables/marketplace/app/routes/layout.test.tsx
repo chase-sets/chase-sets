@@ -110,6 +110,7 @@ describe("marketplace route layout", () => {
       "Browse",
       "Purchases",
       "Notifications",
+      "Seller Desk",
       "Sell List",
       "Support",
       "Sell",
