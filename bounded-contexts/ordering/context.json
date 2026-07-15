@@ -118,6 +118,40 @@
       "eventTypes": ["marketplace.review.submitted", "marketplace.review.updated", "marketplace.review.withdrawn"],
       "order": 73,
       "projectionHandlerSetNames": ["ordering-order-review-opportunity-projection"]
+    },
+    {
+      "sourceContextName": "payments",
+      "projectionName": "ordering-order-money-timeline-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "payments.refund-requested",
+        "payments.refund-issued",
+        "payments.refund-failed",
+        "payments.payment-refunded"
+      ],
+      "order": 74,
+      "projectionHandlerSetNames": ["ordering-order-money-timeline-projection"]
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "projectionName": "ordering-order-money-timeline-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.resolved",
+        "support.support-request.closed",
+        "support.support-request.cancelled"
+      ],
+      "order": 75,
+      "projectionHandlerSetNames": ["ordering-order-money-timeline-projection"]
+    },
+    {
+      "sourceContextName": "settlement",
+      "projectionName": "ordering-order-money-timeline-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["settlement.protection-coverage.settled.v1"],
+      "order": 76,
+      "projectionHandlerSetNames": ["ordering-order-money-timeline-projection"]
     }
   ],
   "eventReactions": [
@@ -232,6 +266,18 @@
         "ordering_order_review_support_request_sources",
         "ordering_order_review_eligibility_pages",
         "ordering_order_review_pages"
+      ],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "ordering-order-money-timeline-projection",
+      "sourceContextNames": ["payments", "platform-operations", "settlement"],
+      "ownedTables": [
+        "ordering_order_refund_timeline_pages",
+        "ordering_order_refund_totals",
+        "ordering_order_support_money_pages",
+        "ordering_order_hold_reconciliations"
       ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"

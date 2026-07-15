@@ -158,6 +158,55 @@ CREATE TABLE IF NOT EXISTS ordering_order_source_claims (
   PRIMARY KEY (source_type, source_reference_id)
 );
 
+CREATE TABLE IF NOT EXISTS ordering_order_refund_timeline_pages (
+  refund_id text NOT NULL,
+  order_id text NOT NULL,
+  payment_id text NOT NULL,
+  amount numeric(12,2) NULL,
+  currency_code text NOT NULL,
+  status text NOT NULL,
+  requested_at timestamptz NOT NULL,
+  issued_at timestamptz NULL,
+  failed_at timestamptz NULL,
+  last_stream_version bigint NOT NULL DEFAULT 0,
+  PRIMARY KEY (refund_id, order_id)
+);
+
+CREATE INDEX IF NOT EXISTS ordering_order_refund_timeline_order_idx
+  ON ordering_order_refund_timeline_pages (order_id, requested_at ASC, refund_id ASC);
+
+CREATE TABLE IF NOT EXISTS ordering_order_refund_totals (
+  order_id text PRIMARY KEY,
+  refunded_amount numeric(12,2) NOT NULL,
+  currency_code text NOT NULL,
+  refunded_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ordering_order_support_money_pages (
+  support_request_id text PRIMARY KEY,
+  order_id text NOT NULL,
+  buyer_account_id text NOT NULL,
+  seller_account_id text NOT NULL,
+  flow_type text NOT NULL,
+  status text NOT NULL,
+  resolution_type text NULL,
+  refund_amount numeric(12,2) NULL,
+  active_hold boolean NOT NULL,
+  opened_at timestamptz NOT NULL,
+  resolved_at timestamptz NULL,
+  released_at timestamptz NULL,
+  last_stream_version bigint NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS ordering_order_support_money_order_idx
+  ON ordering_order_support_money_pages (order_id, opened_at ASC, support_request_id ASC);
+
+CREATE TABLE IF NOT EXISTS ordering_order_hold_reconciliations (
+  support_request_id text PRIMARY KEY,
+  reconciled_at timestamptz NOT NULL,
+  last_stream_version bigint NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS ordering_listing_purchase_limit_claims (
   claim_id text PRIMARY KEY,
   source_type text NOT NULL,

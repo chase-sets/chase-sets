@@ -40,6 +40,34 @@ export type OrderingOrderHoldRow = Readonly<{
   released_at: string | null;
 }>;
 
+export type OrderingOrderRefundTimelineRow = Readonly<{
+  refund_id: string;
+  amount: string | null;
+  currency_code: string;
+  status: "requested" | "issued" | "failed";
+  requested_at: string;
+  issued_at: string | null;
+  failed_at: string | null;
+}>;
+
+export type OrderingOrderSupportMoneyRow = Readonly<{
+  support_request_id: string;
+  status: string;
+  resolution_type: string | null;
+  refund_amount: string | null;
+  active_hold: boolean;
+  opened_at: string;
+  resolved_at: string | null;
+  released_at: string | null;
+}>;
+
+export type OrderingOrderMoneyTimeline = Readonly<{
+  refunds: readonly OrderingOrderRefundTimelineRow[];
+  support_cases: readonly OrderingOrderSupportMoneyRow[];
+  refunded_amount: string;
+  currency_code: string;
+}>;
+
 export type OrderingOrderListRow = Readonly<{
   order_id: string;
   display_reference: string;
@@ -98,6 +126,7 @@ export type OrderingOrderDetailRow = OrderingOrderListRow &
   Readonly<{
     lines: readonly OrderingOrderLineRow[];
     inventory_holds: readonly OrderingOrderHoldRow[];
+    money_timeline: OrderingOrderMoneyTimeline;
   }>;
 
 type BaseOrderPageRow = Readonly<{
@@ -279,6 +308,57 @@ function mapOrderLine(row: OrderLinePageRow): OrderingOrderLineRow {
   };
 }
 
+async function getOrderMoneyTimeline(db: PgQueryable, orderId: string): Promise<OrderingOrderMoneyTimeline> {
+  const [refundsResult, supportCasesResult, totalResult] = await Promise.all([
+    db.query<OrderingOrderRefundTimelineRow>(
+      `SELECT
+         refund_id,
+         amount::text AS amount,
+         currency_code,
+         status,
+         requested_at,
+         issued_at,
+         failed_at
+       FROM ordering_order_refund_timeline_pages
+       WHERE order_id = $1
+       ORDER BY requested_at ASC, refund_id ASC`,
+      [orderId],
+    ),
+    db.query<OrderingOrderSupportMoneyRow>(
+      `SELECT
+         support_case.support_request_id,
+         support_case.status,
+         support_case.resolution_type,
+         support_case.refund_amount::text AS refund_amount,
+         support_case.active_hold AND reconciliation.support_request_id IS NULL AS active_hold,
+         support_case.opened_at,
+         support_case.resolved_at,
+         COALESCE(reconciliation.reconciled_at, support_case.released_at) AS released_at
+       FROM ordering_order_support_money_pages AS support_case
+       LEFT JOIN ordering_order_hold_reconciliations AS reconciliation
+         ON reconciliation.support_request_id = support_case.support_request_id
+       WHERE support_case.order_id = $1
+       ORDER BY support_case.opened_at ASC, support_case.support_request_id ASC`,
+      [orderId],
+    ),
+    db.query<{ refunded_amount: string; currency_code: string }>(
+      `SELECT refunded_amount::text AS refunded_amount, currency_code
+       FROM ordering_order_refund_totals
+       WHERE order_id = $1`,
+      [orderId],
+    ),
+  ]);
+  const total = totalResult.rows[0];
+  const currency = total?.currency_code ?? refundsResult.rows[0]?.currency_code ?? "USD";
+
+  return {
+    refunds: refundsResult.rows,
+    support_cases: supportCasesResult.rows,
+    refunded_amount: total?.refunded_amount ?? "0.00",
+    currency_code: currency,
+  };
+}
+
 export async function listPurchases(
   db: PgQueryable,
   params: Readonly<{ buyerAccountId: string; limit?: number; offset?: number }>,
@@ -359,7 +439,7 @@ export async function getPurchase(
     return null;
   }
 
-  const [linesResult, holdsResult] = await Promise.all([
+  const [linesResult, holdsResult, moneyTimeline] = await Promise.all([
     db.query<OrderLinePageRow>(
       `SELECT
          line_id,
@@ -401,12 +481,14 @@ export async function getPurchase(
        ORDER BY created_at ASC, hold_id ASC`,
       [orderId],
     ),
+    getOrderMoneyTimeline(db, orderId),
   ]);
 
   return {
     ...row,
     lines: linesResult.rows.map(mapOrderLine),
     inventory_holds: holdsResult.rows,
+    money_timeline: moneyTimeline,
   };
 }
 
@@ -455,7 +537,7 @@ export async function getSale(
     return null;
   }
 
-  const [linesResult, holdsResult] = await Promise.all([
+  const [linesResult, holdsResult, moneyTimeline] = await Promise.all([
     db.query<OrderLinePageRow>(
       `SELECT
          line_id,
@@ -497,12 +579,14 @@ export async function getSale(
        ORDER BY created_at ASC, hold_id ASC`,
       [orderId],
     ),
+    getOrderMoneyTimeline(db, orderId),
   ]);
 
   return {
     ...row,
     lines: linesResult.rows.map(mapOrderLine),
     inventory_holds: holdsResult.rows,
+    money_timeline: moneyTimeline,
   };
 }
 

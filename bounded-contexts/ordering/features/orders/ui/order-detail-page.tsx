@@ -23,6 +23,7 @@ import {
 } from "@chase-sets/design-system";
 import type { ReactNode } from "react";
 import type { PurchaseDetail, SaleDetail } from "./contracts";
+import { OrderMoneyTimeline } from "./order-money-timeline";
 
 function isPendingStatus(status: string) {
   return status === "pending-payment" || status === "pending-reservation";
@@ -96,6 +97,16 @@ export function OrderingOrderDetailPage({
   const canViewFulfillment =
     Boolean(fulfillmentHref) && order.status !== "pending-payment" && order.status !== "pending-reservation";
   const paymentDeadlineAt = order.status === "pending-payment" ? order.payment_deadline_at : null;
+  const moneyTimeline = order.money_timeline ?? {
+    refunds: [],
+    support_cases: [],
+    refunded_amount: "0.00",
+    currency_code: "USD",
+  };
+  const hasMoneyTimeline =
+    moneyTimeline.refunds.length > 0 ||
+    moneyTimeline.support_cases.some((supportCase) => supportCase.active_hold) ||
+    Number.parseFloat(moneyTimeline.refunded_amount) > 0;
   const supportLabel =
     role === "buyer" && order.cancellation_unavailable_reason === "fulfillment-started"
       ? t("ordering.features.orders.ui.orderDetailPage.ask.to.cancel")
@@ -300,6 +311,12 @@ export function OrderingOrderDetailPage({
 
           {supplementarySection ? (
             <PageSection title={supplementarySectionTitle}>{supplementarySection}</PageSection>
+          ) : null}
+
+          {hasMoneyTimeline ? (
+            <PageSection title={t("ordering.features.orders.ui.moneyTimeline.title")}>
+              <OrderMoneyTimeline role={role} order={order} supportBaseHref={supportHref} />
+            </PageSection>
           ) : null}
 
           <PageSection title={t("ordering.features.orders.ui.orderDetailPage.lines")}>

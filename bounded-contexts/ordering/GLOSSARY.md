@@ -21,6 +21,16 @@ A **Purchase** is the buyer-facing projection of an order.
 
 A **Sale** is the seller-facing projection of an order.
 
+## Money Timeline
+
+A **Money Timeline** is the customer-facing order projection of paid, refund, and proceeds-hold progress.
+
+Notes:
+
+- Payments remains authoritative for Refund progress and actual per-order refunded amounts.
+- Settlement remains authoritative for Payout Release Hold reconciliation.
+- Ordering projects those facts alongside Support case context so Purchase and Sale surfaces can explain money state without cross-context database reads.
+
 ## Order Line
 
 An **Order Line** is a committed product, quantity, and price snapshot captured on an order.
