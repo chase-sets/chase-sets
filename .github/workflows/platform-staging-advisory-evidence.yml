@@ -1,0 +1,354 @@
+name: Platform Staging Advisory Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_commit:
+        description: Exact release commit already applied to staging.
+        required: true
+        type: string
+      platform_image:
+        description: SHA-tagged platform image already applied to staging.
+        required: true
+        type: string
+      platform_image_digest:
+        description: Immutable digest of the platform image applied to staging.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-staging-advisory-evidence
+  cancel-in-progress: false
+
+jobs:
+  staging-advisory-evidence:
+    name: Staging Advisory Evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: staging
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_environment: staging
+      CHASE_SETS_HELM_RELEASE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
+      PLATFORM_IMAGE_REF: ${{ inputs.platform_image }}@${{ inputs.platform_image_digest }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Check out applied staging release
+        id: checkout_release
+        env:
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          PLATFORM_IMAGE: ${{ inputs.platform_image }}
+          PLATFORM_IMAGE_DIGEST: ${{ inputs.platform_image_digest }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Advisory evidence requires a full release commit SHA." >&2
+            exit 1
+          fi
+          if ! [[ "$PLATFORM_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Advisory evidence requires an immutable platform image digest." >&2
+            exit 1
+          fi
+          if [[ "$PLATFORM_IMAGE" != registry.digitalocean.com/*/chase-sets-platform:"$RELEASE_COMMIT" ]]; then
+            echo "Advisory evidence image must be the release commit's SHA-tagged platform image." >&2
+            exit 1
+          fi
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$RELEASE_COMMIT" origin/main; then
+            echo "Advisory evidence release commit must be contained in origin/main." >&2
+            exit 1
+          fi
+          git checkout --detach "$RELEASE_COMMIT"
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Terraform init staging platform
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=landing/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Configure staging Kubernetes context
+        working-directory: infrastructure/digitalocean/doks
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+          kubeconfig="${RUNNER_TEMP}/chase-sets-staging-advisory.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
+          if ! KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null 2>&1; then
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS state exposes neither cluster_id nor cluster_name." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+          KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+
+      - name: Apply staging Kubernetes registry pull secret
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
+          if [ -z "$registry_name" ]; then
+            echo "DigitalOcean Container Registry is required before advisory scenario seeding." >&2
+            exit 1
+          fi
+          registry_pull_secret_name="registry-${registry_name}"
+          docker_config="$(mktemp)"
+          trap 'rm -f "$docker_config"' EXIT
+          doctl registry docker-config --expiry-seconds 3600 > "$docker_config"
+          kubectl create secret generic "$registry_pull_secret_name" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --from-file=.dockerconfigjson="$docker_config" \
+            --type=kubernetes.io/dockerconfigjson \
+            --dry-run=client \
+            -o yaml | kubectl apply -f -
+          echo "CHASE_SETS_IMAGE_PULL_SECRET_NAME=${registry_pull_secret_name}" >> "$GITHUB_ENV"
+
+      - name: Seed staging Kubernetes scenario data
+        id: scenario_seed
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/staging-advisory-evidence
+          catalog_asset_public_base_url="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_public_base_url)"
+          catalog_asset_s3_bucket="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_bucket)"
+          catalog_asset_s3_endpoint="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_endpoint)"
+          catalog_asset_s3_region="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_region)"
+          if [ -z "$catalog_asset_public_base_url" ] || [ -z "$catalog_asset_s3_bucket" ] || [ -z "$catalog_asset_s3_endpoint" ] || [ -z "$catalog_asset_s3_region" ]; then
+            echo "Staging catalog asset runtime env outputs are required before scenario seeding." >&2
+            exit 1
+          fi
+          pnpm run platform:kubernetes-deployment -- scenario-seed \
+            --image "$PLATFORM_IMAGE_REF" \
+            --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
+            --runtime-env "DEPLOYMENT_ENVIRONMENT=staging" \
+            --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
+            --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}" \
+            --runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}" \
+            --runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}" \
+            --runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --quiesce-workers false \
+            --timeout 60m \
+            --out artifacts/staging-advisory-evidence/scenario-seed.json
+
+      - name: Resolve Playwright Chromium version
+        id: staging-playwright-chromium
+        run: |
+          set -euo pipefail
+          version="$(pnpm exec playwright --version | awk '{print $2}')"
+          if [ -z "$version" ]; then
+            echo "Could not resolve Playwright version from pnpm-lock.yaml." >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright Chromium for staging critical flows
+        id: staging-playwright-chromium-cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: /home/runner/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.staging-playwright-chromium.outputs.version }}
+          restore-keys: |
+            playwright-chromium-${{ runner.os }}-
+
+      - name: Install Playwright Chromium for staging critical flows
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Staging marketplace critical flows
+        id: marketplace_e2e
+        continue-on-error: true
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          CI: "true"
+          PLAYWRIGHT_SKIP_WEB_SERVER: "true"
+          MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || '' }}
+          MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || '' }}
+          MARKETPLACE_E2E_SEARCH_QUERY: ${{ vars.MARKETPLACE_E2E_SEARCH_QUERY || 'charizard' }}
+          CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || '' }}
+          CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || '' }}
+          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
+        run: |
+          set -euo pipefail
+          admin_domain="$(terraform output -raw admin_domain)"
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
+            echo "Required staging admin or marketplace domain was not present in Terraform outputs." >&2
+            exit 1
+          fi
+          cd ../../..
+          ADMIN_WEB_URL="https://${admin_domain}" MARKETPLACE_WEB_URL="https://${marketplace_domain}" pnpm run test:e2e:deployed
+
+      - name: Summarize staging advisory evidence
+        if: always()
+        env:
+          SCENARIO_SEED_OUTCOME: ${{ steps.scenario_seed.outcome || 'skipped' }}
+          MARKETPLACE_E2E_OUTCOME: ${{ steps.marketplace_e2e.outcome || 'skipped' }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/staging-advisory-evidence
+          checked_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          jq -n \
+            --arg checkedAt "$checked_at" \
+            --arg releaseCommit "${{ inputs.release_commit }}" \
+            --arg platformImage "${{ inputs.platform_image }}" \
+            --arg platformImageDigest "${{ inputs.platform_image_digest }}" \
+            --arg scenarioSeed "$SCENARIO_SEED_OUTCOME" \
+            --arg marketplaceE2e "$MARKETPLACE_E2E_OUTCOME" \
+            '{schemaVersion:"staging-advisory-evidence/v1",checkedAt:$checkedAt,releaseCommit:$releaseCommit,platformImage:$platformImage,platformImageDigest:$platformImageDigest,scenarioSeed:$scenarioSeed,marketplaceE2e:$marketplaceE2e}' \
+            > artifacts/staging-advisory-evidence/summary.json
+          {
+            echo "## Staging advisory evidence"
+            echo ""
+            echo "| Evidence | Outcome | Promotion impact |"
+            echo "| --- | --- | --- |"
+            echo "| Scenario seed | ${SCENARIO_SEED_OUTCOME} | Advisory |"
+            echo "| Marketplace deployed E2E | ${MARKETPLACE_E2E_OUTCOME} | Advisory |"
+            echo ""
+            echo "Release: ${{ inputs.release_commit }}@${{ inputs.platform_image_digest }}"
+            echo ""
+            echo "Failures remain visible here and through the deduplicated advisory incident; they do not govern production promotion."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload staging advisory evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staging-advisory-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/staging-advisory-evidence
+            artifacts/playwright/report
+            artifacts/playwright/test-results
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Fail advisory evidence signal
+        if: always() && (steps.scenario_seed.outcome != 'success' || steps.marketplace_e2e.outcome != 'success')
+        run: |
+          echo "Advisory scenario seed or marketplace E2E evidence failed; production promotion is unaffected." >&2
+          exit 1
+
+  notify-staging-advisory-evidence:
+    name: Notify Staging Advisory Evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: staging-advisory-evidence
+    if: always()
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Create, update, or resolve advisory evidence incident
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADVISORY_RESULT: ${{ needs.staging-advisory-evidence.result }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          ARTIFACTS_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?attempt=${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          title="Incident: Staging advisory evidence failing"
+          existing_issue="$(
+            gh issue list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --state open \
+              --search "\"${title}\" in:title" \
+              --json number \
+              --jq '.[0].number // empty'
+          )"
+          if [ "$ADVISORY_RESULT" = "success" ]; then
+            if [ -n "$existing_issue" ]; then
+              gh issue close "$existing_issue" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --comment "Advisory staging evidence recovered for ${RELEASE_COMMIT}: ${RUN_URL}"
+            else
+              echo "Advisory staging evidence passed; no incident is open."
+            fi
+            exit 0
+          fi
+          body="$(cat <<EOF
+          Advisory staging evidence failed without changing the production promotion decision.
+
+          - Release commit: ${RELEASE_COMMIT}
+          - Advisory result: ${ADVISORY_RESULT}
+          - Workflow run: ${RUN_URL}
+          - Evidence artifacts: ${ARTIFACTS_URL}
+
+          Inspect scenario-seed and deployed marketplace E2E evidence. Reruns are serialized in the advisory lane and reconcile the same representative staging contracts.
+          EOF
+          )"
+          if [ -n "$existing_issue" ]; then
+            gh issue comment "$existing_issue" --repo "${GITHUB_REPOSITORY}" --body "$body"
+          else
+            gh issue create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "$title" \
+              --body "$body" \
+              --label "kind:ops" \
+              --label "area:infrastructure"
+          fi

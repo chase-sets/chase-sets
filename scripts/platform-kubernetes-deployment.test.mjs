@@ -181,6 +181,26 @@ describe("platform Kubernetes deployment", () => {
     ]);
   });
 
+  it("builds advisory scenario seed Jobs without pausing projection workers", () => {
+    const manifest = buildScenarioSeedJobManifest({
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+      image: `registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:${"a".repeat(64)}`,
+      imagePullSecret: "registry-chase-sets",
+      timeout: "60m",
+      jobName: "staging-advisory-scenario-seed",
+      quiesceWorkers: false,
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging" },
+    });
+    const container = manifest.spec.template.spec.containers[0];
+    const env = new Map(container.env.map((entry) => [entry.name, entry]));
+
+    expect(manifest.spec.template.spec.serviceAccountName).toBeUndefined();
+    expect(container.args).toEqual(["pnpm --filter @chase-sets/app-platform-api run bootstrap:production"]);
+    expect(env.has("CHASE_SETS_QUIESCE_DEPLOYMENTS")).toBe(false);
+    expect(env.has("CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE")).toBe(false);
+  });
+
   it("applies, streams, and verifies the post-deploy scenario seed Job", async () => {
     const calls = [];
     const result = await runScenarioSeedOnKubernetes({
@@ -239,6 +259,41 @@ describe("platform Kubernetes deployment", () => {
     ).rejects.toThrow("Post-deploy scenario seed Job staging-scenario-seed-proof failed");
 
     expect(calls.at(-1).args[0]).toBe("delete");
+  });
+
+  it("runs advisory scenario seed without creating worker-scaling access", async () => {
+    const calls = [];
+    const result = await runScenarioSeedOnKubernetes({
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:proof",
+      timeout: "60m",
+      jobName: "staging-advisory-scenario-seed",
+      quiesceWorkers: false,
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging" },
+      spawn: completedSpawn(calls, [
+        { code: 0 },
+        { code: 0 },
+        { code: 0, stdout: JSON.stringify({ status: { succeeded: 1 } }) },
+      ]),
+    });
+
+    expect(result).toMatchObject({ result: "success", jobName: "staging-advisory-scenario-seed" });
+    expect(calls.map((call) => [call.command, call.args[0]])).toEqual([
+      ["kubectl", "apply"],
+      ["kubectl", "logs"],
+      ["kubectl", "get"],
+    ]);
+    expect(JSON.parse(calls[0].stdin).kind).toBe("Job");
+  });
+
+  it("parses the advisory worker-quiesce override", () => {
+    const parsed = parseArgs(["scenario-seed", "--quiesce-workers", "false"], {});
+
+    expect(parsed.quiesceWorkers).toBe(false);
+    expect(() => parseArgs(["scenario-seed", "--quiesce-workers", "sometimes"], {})).toThrow(
+      "--quiesce-workers must be true or false.",
+    );
   });
 
   it("builds Helm upgrade arguments for atomic rollout-based deploys", () => {
