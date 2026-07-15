@@ -374,6 +374,116 @@ describe("support request runtime", () => {
     });
   });
 
+  it("records participant evidence and responses with the account-derived role", async () => {
+    let supportRequestId = "";
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM support_order_sources")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                buyer_account_id: "acc_buyer",
+                seller_account_id: "acc_seller",
+                status: "ready-for-fulfillment",
+                total_amount: "24.00",
+                return_context: [],
+                affected_line_amounts: [],
+              },
+            ],
+          };
+        }
+        if (sql.includes("WHERE order_id")) return { rows: [] };
+        if (sql.includes("FROM support_request_pages") && sql.includes("support_request_id = $1")) {
+          return supportRequestId
+            ? {
+                rows: [
+                  {
+                    support_request_id: supportRequestId,
+                    buyer_account_id: "acc_buyer",
+                    seller_account_id: "acc_seller",
+                  },
+                ],
+              }
+            : { rows: [] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const opened = await runtime.openSupportRequest(
+      { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-damaged" },
+      context,
+    );
+    supportRequestId = opened.supportRequestId;
+
+    await runtime.submitEvidence(
+      {
+        supportRequestId,
+        accountId: "acc_buyer",
+        submittedByRole: "seller",
+        evidenceType: "photo",
+        summary: "Damaged corner",
+      },
+      context,
+    );
+    await runtime.recordResponse(
+      {
+        supportRequestId,
+        accountId: "acc_seller",
+        submittedByRole: "support",
+        responseType: "issue-refund",
+        summary: "Seller agrees to refund.",
+      },
+      context,
+    );
+
+    expect(
+      allEvents.find((event) => event.eventType === "support.support-request.evidence-submitted")?.payload,
+    ).toMatchObject({
+      evidence: { submittedByRole: "buyer" },
+    });
+    expect(
+      allEvents.find((event) => event.eventType === "support.support-request.response-recorded")?.payload,
+    ).toMatchObject({
+      response: { submittedByRole: "seller" },
+    });
+  });
+
+  it("only lets the participant who opened a support request cancel it", async () => {
+    const db = {
+      query: vi.fn(async () => ({
+        rows: [
+          {
+            support_request_id: "sup_1",
+            buyer_account_id: "acc_buyer",
+            seller_account_id: "acc_seller",
+            opened_by_account_id: "acc_buyer",
+          },
+        ],
+      })),
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    await expect(
+      runtime.cancelSupportRequest(
+        { supportRequestId: "sup_1", accountId: "acc_seller", reason: "Seller cannot cancel buyer case." },
+        context,
+      ),
+    ).rejects.toThrow("Only the account that opened this support request can cancel it.");
+    expect(allEvents).toHaveLength(0);
+  });
+
   it("stamps deadlines from the support-deadline policy's resolved value at open time when a policies dependency is wired", async () => {
     const db = {
       query: vi.fn(async (sql: string) => {
@@ -861,8 +971,17 @@ describe("support request runtime", () => {
             return pendingId ? { rows: [{ support_request_id: pendingId }] } : { rows: [] };
           }
           if (sql.includes("FROM support_request_pages") && sql.includes("buyer_account_id = $2")) {
-            // requireMutableSupportRequest's existence check before recordResponse.
-            return pendingId ? { rows: [{ support_request_id: pendingId }] } : { rows: [] };
+            return pendingId
+              ? {
+                  rows: [
+                    {
+                      support_request_id: pendingId,
+                      buyer_account_id: "acc_buyer",
+                      seller_account_id: "acc_seller",
+                    },
+                  ],
+                }
+              : { rows: [] };
           }
           if (sql.includes("FROM support_request_pages")) {
             return { rows: [] };

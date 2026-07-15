@@ -1165,7 +1165,7 @@ function createEventStoreWakeNotificationEnvelope(
     emittedAt: args.emittedAt,
     ...(correlationId ? { correlationId } : {}),
     payload: {
-      sourceContextName: streamContextName(args.input.streamId),
+      sourceContextName: args.input.wakeSourceContextName ?? streamContextName(args.input.streamId),
       streamCategory: streamCategory(args.input.streamId),
       firstGlobalPosition: firstEvent.globalPosition,
       lastGlobalPosition: lastEvent.globalPosition,

@@ -17,6 +17,10 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 });
 
 import { action as accountSupportAction, loader as accountSupportLoader } from "../routes/marketplace/account-support";
+import {
+  action as accountSupportDetailAction,
+  loader as accountSupportDetailLoader,
+} from "../routes/marketplace/account-support-detail";
 import { action as platformFeedbackDetailAction } from "../routes/admin/platform-feedback-detail";
 import { action as platformFeedbackListAction } from "../routes/admin/platform-feedback";
 import { action as projectionOperationsAction } from "../routes/admin/projection-operations";
@@ -523,5 +527,129 @@ describe("platform operations mutation consistency route actions", () => {
       lines: [],
     });
     expect(result.lookupError).toBeNull();
+  });
+
+  it("loads participant-scoped case detail with the viewer role and catalog truth", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("http://localhost/api/marketplace/support-requests/sup_1");
+      return jsonResponse({
+        support_request_id: "sup_1",
+        display_reference: "SUP-CASEDETA",
+        buyer_account_id: "acc_buyer",
+        seller_account_id: "acc_seller",
+        opened_by_account_id: "acc_buyer",
+        flow_type: "product-damaged",
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["support.view"] });
+
+    const result = (await accountSupportDetailLoader({
+      request: new Request("http://localhost/account/support/sup_1", { headers: { cookie: "session=abc" } }),
+      params: { id: "sup_1" },
+      context: undefined,
+    } as never)) as {
+      viewerRole: string;
+      canCancel: boolean;
+      flow: { flowType: string; automationSummary: string };
+    };
+
+    expect(mockRequireActorFromAuthApi).toHaveBeenCalledWith({
+      request: expect.any(Request),
+      permission: "support.view",
+    });
+    expect(result.viewerRole).toBe("buyer");
+    expect(result.canCancel).toBe(true);
+    expect(result.flow.flowType).toBe("product-damaged");
+    expect(result.flow.automationSummary).toContain("If the seller does not respond by the deadline");
+  });
+
+  it.each([
+    [
+      "evidence",
+      new URLSearchParams({
+        intent: "evidence",
+        submittedByRole: "buyer",
+        evidenceType: "photo",
+        summary: "Damaged corner",
+      }),
+      "http://localhost/api/marketplace/support-requests/sup_1/evidence",
+      { submittedByRole: "buyer", evidenceType: "photo", summary: "Damaged corner" },
+      "evidence",
+    ],
+    [
+      "response",
+      new URLSearchParams({
+        intent: "response",
+        submittedByRole: "seller",
+        responseType: "offer-partial-refund",
+        summary: "Offer five dollars",
+        offerResolutionType: "partial-refund",
+        refundAmount: "5.00",
+      }),
+      "http://localhost/api/marketplace/support-requests/sup_1/responses",
+      {
+        submittedByRole: "seller",
+        responseType: "offer-partial-refund",
+        summary: "Offer five dollars",
+        offerResolutionType: "partial-refund",
+        refundAmount: "5.00",
+      },
+      "response",
+    ],
+    [
+      "accept-offer",
+      new URLSearchParams({ intent: "accept-offer", offerId: "sof_1" }),
+      "http://localhost/api/marketplace/support-requests/sup_1/offers/sof_1/accept",
+      {},
+      "offerAccepted",
+    ],
+    [
+      "decline-offer",
+      new URLSearchParams({ intent: "decline-offer", offerId: "sof_1", summary: "Needs review" }),
+      "http://localhost/api/marketplace/support-requests/sup_1/offers/sof_1/decline",
+      { summary: "Needs review" },
+      "offerDeclined",
+    ],
+    [
+      "escalate",
+      new URLSearchParams({ intent: "escalate", reason: "Needs review" }),
+      "http://localhost/api/marketplace/support-requests/sup_1/escalate",
+      { reason: "Needs review" },
+      "escalated",
+    ],
+    [
+      "cancel",
+      new URLSearchParams({ intent: "cancel", reason: "Opened by mistake" }),
+      "http://localhost/api/marketplace/support-requests/sup_1/cancel",
+      { reason: "Opened by mistake" },
+      "cancelled",
+    ],
+  ] as const)("refetches participant case detail after %s", async (_intent, form, url, body, actionResult) => {
+    const fetchMock = vi.fn(async () => commandJsonResponse({ id: "sup_1", version: 3, status: actionResult }));
+    vi.stubGlobal("fetch", fetchMock);
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["support.manage"] });
+
+    const response = await captureRedirect(
+      accountSupportDetailAction({
+        request: formRequest("http://localhost/account/support/sup_1", form),
+        params: { id: "sup_1" },
+        context: undefined,
+      } as never),
+    );
+
+    expect(mockRequireActorFromAuthApi).toHaveBeenCalledWith({
+      request: expect.any(Request),
+      permission: "support.manage",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      url,
+      expect.objectContaining({ method: "POST", body: JSON.stringify(body) }),
+    );
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get("Location") ?? "", "http://localhost");
+    expect(location.pathname).toBe("/account/support/sup_1");
+    expect(location.searchParams.get("action")).toBe(actionResult);
+    expect(location.searchParams.get("afterWrite")).toBeTruthy();
   });
 });
