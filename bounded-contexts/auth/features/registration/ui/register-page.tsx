@@ -157,6 +157,7 @@ function IdentityFields({ details, onChange }: IdentityFieldsProps) {
       <TextInput
         label={t("auth.features.registration.ui.registerPage.display.name")}
         name="displayName"
+        autoComplete="name"
         required
         value={details.displayName}
         onChange={(event) => onChange("displayName", event.currentTarget.value)}
@@ -165,6 +166,7 @@ function IdentityFields({ details, onChange }: IdentityFieldsProps) {
         label={t("auth.features.registration.ui.registerPage.email")}
         name="email"
         type="email"
+        autoComplete="email"
         required
         value={details.email}
         onChange={(event) => onChange("email", event.currentTarget.value)}
@@ -418,6 +420,7 @@ export function RegisterPage(props: RegistrationPageProps) {
             <TextInput
               label={t("auth.features.registration.ui.registerPage.display.name")}
               name="displayName"
+              autoComplete="name"
               required
               value={details.displayName}
               onChange={(event) => updateDetails("displayName", event.currentTarget.value)}
@@ -426,6 +429,7 @@ export function RegisterPage(props: RegistrationPageProps) {
               label={t("auth.features.registration.ui.registerPage.phone")}
               name="phone"
               type="tel"
+              autoComplete="tel"
               required
               value={details.phone}
               onChange={(event) => updateDetails("phone", event.currentTarget.value)}
@@ -456,6 +460,7 @@ export function RegisterPage(props: RegistrationPageProps) {
               label={t("auth.features.registration.ui.registerPage.phone")}
               name="phone"
               type="tel"
+              autoComplete="tel"
               required
               value={details.phone}
               onChange={(event) => updateDetails("phone", event.currentTarget.value)}
@@ -492,6 +497,7 @@ export function RegisterPage(props: RegistrationPageProps) {
           <PasswordInput
             label={t("auth.features.registration.ui.registerPage.password.2")}
             name="password"
+            autoComplete="new-password"
             required
             value={details.password}
             onChange={(event) => updateDetails("password", event.currentTarget.value)}

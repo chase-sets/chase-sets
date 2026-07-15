@@ -317,7 +317,12 @@ export function SignInPage(
               <HiddenFields fields={props.hiddenFields} />
               <HiddenInput type="hidden" name="intent" value="password" readOnly />
               <HiddenInput type="hidden" name="email" value={identifier} readOnly />
-              <PasswordInput label={t("auth.features.signIn.ui.signInPage.password.2")} name="password" required />
+              <PasswordInput
+                label={t("auth.features.signIn.ui.signInPage.password.2")}
+                name="password"
+                autoComplete="current-password"
+                required
+              />
               <Button type="submit" leadingIcon="lock">
                 {t("auth.features.signIn.ui.signInPage.sign.in.2")}
               </Button>
