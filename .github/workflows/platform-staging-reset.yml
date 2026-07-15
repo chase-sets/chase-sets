@@ -36,6 +36,7 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_VAR_environment: staging
+      TF_VAR_environment_project_id: ${{ vars.DIGITALOCEAN_PROJECT_ID || '' }}
       STAGING_APP_SERVING: ${{ vars.STAGING_APP_SERVING || 'app-platform' }}
       DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}
       TF_VAR_staging_app_serving: ${{ vars.STAGING_APP_SERVING || 'app-platform' }}

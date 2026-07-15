@@ -26,7 +26,7 @@ variable "environment" {
 variable "environment_project_id" {
   type        = string
   default     = ""
-  description = "Optional DigitalOcean project ID override. Leave empty to resolve the environment project by name; offline validation plans supply a synthetic ID to avoid live API reads."
+  description = "Optional DigitalOcean project ID. When set, assign the staging DNS zone to that project; leave empty to skip project assignment without querying the Projects API."
 }
 
 variable "root_domain" {

@@ -408,16 +408,20 @@ function platformApiContextNames() {
 }
 
 describe("DigitalOcean platform configuration", () => {
-  it("keeps merge-group project assignment plans offline", () => {
+  it("keeps project assignment optional and all automated plans offline", () => {
     const validationProjectId = "TF_VAR_environment_project_id: 00000000-0000-0000-0000-000000000000";
+    const environmentProjectId = "TF_VAR_environment_project_id: ${{ vars.DIGITALOCEAN_PROJECT_ID || '' }}";
 
     expect(occurrenceCount(platformPrWorkflow, validationProjectId)).toBe(3);
+    expect(occurrenceCount(platformProductionWorkflow, environmentProjectId)).toBe(2);
+    expect(occurrenceCount(platformStagingResetWorkflow, environmentProjectId)).toBe(1);
     for (const [variables, projects] of [
       [platformVariables, platformProjects],
       [environmentDnsVariables, environmentDnsProjects],
     ]) {
       expect(variables).toContain('variable "environment_project_id"');
-      expect(projects).toContain('count = trimspace(var.environment_project_id) == "" ? 1 : 0');
+      expect(projects).not.toContain('data "digitalocean_project"');
+      expect(projects).toMatch(/count\s+= local\.environment_project_id != "" \? 1 : 0/);
       expect(projects).toMatch(/project\s+= local\.environment_project_id/);
     }
   });
