@@ -360,6 +360,8 @@ export type CatalogPrimaryWorkbenchRouteContext = Readonly<{
   reviewLimit: number | null;
   jobId: string | null;
   promotionPreviewId: string | null;
+  /** Canonical Scope Record identity for scope-first routes. */
+  scopeRecordId?: string | null;
   returnPath: string | null;
 }>;
 

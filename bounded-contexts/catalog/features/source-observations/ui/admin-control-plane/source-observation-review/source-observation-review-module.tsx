@@ -29,7 +29,10 @@ import type {
   CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
   CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData,
 } from "../../../api/primary-workbench-admin-contracts";
-import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
+import {
+  useCatalogIntegrationCommandHref,
+  useCatalogIntegrationSurfaceHref,
+} from "../import-to-promotion/command-action-context";
 import { CommandFormButton, CommandHiddenInputs, isActionAvailable } from "../import-to-promotion/command-controls";
 import { BlockerList, stateLabel, uniqueBlockers } from "../import-to-promotion/workbench-formatting";
 
@@ -343,6 +346,7 @@ function SourceObservationRejectPanel({
   selectedReviewableObservationCount: number;
 }>) {
   const rejectFormId = useId();
+  const actionHref = useCatalogIntegrationCommandHref(readModel.routeContext);
   const rejectDisabled =
     selectedReviewableObservationCount === 0 || !isActionAvailable(readModel, "reject-source-observations");
   const rejectDeniedLabel = rejectDisabled
@@ -393,7 +397,7 @@ function SourceObservationRejectPanel({
         id={rejectFormId}
         variant="plain"
         method="post"
-        action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
+        action={actionHref}
         data-catalog-primary-workbench-command="reject-source-observations"
       >
         <CommandHiddenInputs
@@ -421,6 +425,20 @@ function SourceObservationRejectPanel({
 // ends by absence rather than disabled controls.
 function SourceObservationReviewPager({ readModel }: { readModel: CatalogPrimaryWorkbenchReadModel }) {
   const { limit, offset, total, nextCursor, previousCursor } = readModel.sourceObservationReview.pagination;
+  const previousHref = useCatalogIntegrationSurfaceHref(
+    {
+      ...readModel.routeContext,
+      reviewOffset: Math.max(offset - limit, 0) || null,
+    },
+    "source-observation-review",
+  );
+  const nextHref = useCatalogIntegrationSurfaceHref(
+    {
+      ...readModel.routeContext,
+      reviewOffset: offset + limit,
+    },
+    "source-observation-review",
+  );
   if (total <= limit) {
     return null;
   }
@@ -446,42 +464,17 @@ function SourceObservationReviewPager({ readModel }: { readModel: CatalogPrimary
       </WorkbenchText>
       <WorkbenchActionRow>
         {previousCursor ? (
-          <LinkButton
-            size="sm"
-            tone="secondary"
-            leadingIcon="chevronLeft"
-            href={reviewPageHref(readModel, Math.max(offset - limit, 0))}
-            rel="prev"
-          >
+          <LinkButton size="sm" tone="secondary" leadingIcon="chevronLeft" href={previousHref} rel="prev">
             {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.pager.previous")}
           </LinkButton>
         ) : null}
         {nextCursor ? (
-          <LinkButton
-            size="sm"
-            tone="secondary"
-            trailingIcon="chevronRight"
-            href={reviewPageHref(readModel, offset + limit)}
-            rel="next"
-          >
+          <LinkButton size="sm" tone="secondary" trailingIcon="chevronRight" href={nextHref} rel="next">
             {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.pager.next")}
           </LinkButton>
         ) : null}
       </WorkbenchActionRow>
     </WorkbenchActionRow>
-  );
-}
-
-// Build a review-page GET href that preserves the full working set and only moves
-// the durable reviewOffset cursor. The first page drops the offset entirely so the
-// canonical URL stays clean (serialization omits offset 0).
-function reviewPageHref(readModel: CatalogPrimaryWorkbenchReadModel, targetOffset: number): string {
-  return catalogPrimaryWorkbenchHref(
-    {
-      ...readModel.routeContext,
-      reviewOffset: targetOffset > 0 ? targetOffset : null,
-    },
-    "source-observation-review",
   );
 }
 

@@ -71,6 +71,7 @@ export function commandContextFromFormData(requestUrl: string, formData: FormDat
     selectedObservationIds,
     jobId: stringValue(formData.get("jobId")) ?? parsedContext.jobId,
     promotionPreviewId: stringValue(formData.get("promotionPreviewId")) ?? parsedContext.promotionPreviewId,
+    scopeRecordId: stringValue(formData.get("scopeRecordId")) ?? parsedContext.scopeRecordId ?? null,
   };
 }
 

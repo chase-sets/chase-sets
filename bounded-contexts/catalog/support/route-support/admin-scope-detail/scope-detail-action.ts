@@ -1,5 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { createCatalogRequestApiClient } from "../../request-support/api-client";
+import { dispatchIntegrationsCommand } from "../admin-integrations/integrations-command-dispatch";
+import type { CatalogIntegrationsCommandResult } from "../admin-integrations/integrations-command-result";
 
 // Scope Detail route action (`/catalog/scopes/:id`). Dispatches the
 // language-editions section's alias.accept/alias.reject/alias.defer/alias.revoke
@@ -54,12 +56,15 @@ function parseAliasHashes(formData: FormData): readonly string[] {
   ];
 }
 
-export async function action({ request }: ActionFunctionArgs): Promise<ScopeDetailCommandResult> {
-  const formData = await request.formData();
+export async function action(
+  args: ActionFunctionArgs,
+): Promise<ScopeDetailCommandResult | CatalogIntegrationsCommandResult> {
+  const { request } = args;
+  const formData = await request.clone().formData();
   const intent = String(formData.get("_intent") ?? "").trim();
 
   if (!isScopeDetailCommandIntent(intent)) {
-    return { status: "error", intent, result: "invalid-intent" };
+    return dispatchIntegrationsCommand(args);
   }
 
   const aliasHashes = parseAliasHashes(formData);

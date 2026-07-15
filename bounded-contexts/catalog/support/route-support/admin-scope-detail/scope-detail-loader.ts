@@ -1,9 +1,15 @@
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import type { LoaderFunctionArgs } from "react-router";
-import { createCatalogRequestApiClient, type CatalogScopeRecordDetail } from "../../request-support/api-client";
+import {
+  createCatalogRequestApiClient,
+  type CatalogScopeRecordDetail,
+  type ScopeCoverageMatrix,
+} from "../../request-support/api-client";
 import { CatalogApiError } from "../../../client";
 import { catalogScopeHasLanguageEditionsToReview } from "../../../features/source-observations/ui/admin-control-plane/scope-detail/language-editions/language-edition-review";
 import type { CatalogAliasReviewReadModel } from "../../../features/alias-equivalence/api/alias-review-admin-contracts";
+import { loadDailySurfaceForRequest } from "../admin-integrations/integrations-loader-support";
+import { scopeDetailWorkbenchRequest } from "./scope-detail-route-context";
 
 // Scope Detail route loader (`/catalog/scopes/:id`). Loads the canonical Scope
 // Record and, only when the scope has sibling language editions to review,
@@ -19,6 +25,9 @@ export type CatalogScopeDetailRouteData = Readonly<{
   // reading the empty model as "no candidates".
   languageEditionAliasReviewFailed: boolean;
   canManageAliases: boolean;
+  coverageMatrix: ScopeCoverageMatrix | null;
+  coverageMatrixFailed: boolean;
+  journey: Awaited<ReturnType<typeof loadDailySurfaceForRequest>>;
 }>;
 
 export async function loader({ request, params }: LoaderFunctionArgs): Promise<CatalogScopeDetailRouteData> {
@@ -30,16 +39,34 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<C
     resolveActor(request),
   ]);
 
-  const aliasReview = catalogScopeHasLanguageEditionsToReview(scope)
-    ? await loadLanguageEditionAliasReview(api, scope.referenceRecordId)
-    : { readModel: emptyAliasReviewReadModel(scope.referenceRecordId), failed: false };
+  const [aliasReview, coverage, journey] = await Promise.all([
+    catalogScopeHasLanguageEditionsToReview(scope)
+      ? loadLanguageEditionAliasReview(api, scope.referenceRecordId)
+      : Promise.resolve({ readModel: emptyAliasReviewReadModel(scope.referenceRecordId), failed: false }),
+    loadScopeCoverageMatrix(api, scope.scopeRecordId),
+    loadDailySurfaceForRequest(scopeDetailWorkbenchRequest(request, scope)),
+  ]);
 
   return {
     scope,
     languageEditionAliasReview: aliasReview.readModel,
     languageEditionAliasReviewFailed: aliasReview.failed,
     canManageAliases: actor?.permissions.includes("catalog.manage") ?? false,
+    coverageMatrix: coverage.matrix,
+    coverageMatrixFailed: coverage.failed,
+    journey,
   };
+}
+
+async function loadScopeCoverageMatrix(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  scopeRecordId: string,
+): Promise<Readonly<{ matrix: ScopeCoverageMatrix | null; failed: boolean }>> {
+  try {
+    return { matrix: await api.getScopeCoverageMatrix<ScopeCoverageMatrix>(scopeRecordId), failed: false };
+  } catch {
+    return { matrix: null, failed: true };
+  }
 }
 
 async function loadLanguageEditionAliasReview(

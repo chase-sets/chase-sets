@@ -24,6 +24,7 @@ const canonicalKeys = new Set([
   "reviewLimit",
   "jobId",
   "promotionPreviewId",
+  "scopeRecordId",
   "returnPath",
 ]);
 
@@ -184,6 +185,7 @@ function routeContextFromLocation(
     reviewLimit: positiveIntParam(searchParams, "reviewLimit"),
     jobId: nullableParam(searchParams, "jobId"),
     promotionPreviewId: nullableParam(searchParams, "promotionPreviewId"),
+    scopeRecordId: nullableParam(searchParams, "scopeRecordId"),
     returnPath: includeReturnPath ? sanitizeReturnPath(nullableParam(searchParams, "returnPath")) : null,
   };
 }
@@ -228,6 +230,7 @@ export function serializeCatalogPrimaryWorkbenchRouteContext(
   }
   setNullable(searchParams, "jobId", context.jobId);
   setNullable(searchParams, "promotionPreviewId", context.promotionPreviewId);
+  setNullable(searchParams, "scopeRecordId", context.scopeRecordId ?? null);
   setNullable(searchParams, "returnPath", sanitizeReturnPath(context.returnPath));
 
   for (const [key, value] of Object.entries(context.sourceObservationFilters).sort(([left], [right]) =>

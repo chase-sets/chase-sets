@@ -25,8 +25,8 @@ import type {
 } from "../../../api/primary-workbench-admin-contracts";
 import type { CatalogScopeSyncUnitStateReadModel, CatalogSyncRun } from "../../contracts";
 import { catalogSyncEstimateForSelection } from "../../primary-workbench-catalog-sync";
-import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
 import { CommandHiddenInputs } from "./command-controls";
+import { useCatalogIntegrationCommandHref } from "./command-action-context";
 import { BlockerList, stateLabel } from "./workbench-formatting";
 
 type CatalogSyncUnitRow = CatalogPrimaryWorkbenchCatalogSyncUnitReadModel;
@@ -41,6 +41,7 @@ export function CatalogSyncScopeModule({
   deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
 }>) {
   const catalogSync = readModel.catalogSync;
+  const actionHref = useCatalogIntegrationCommandHref(readModel.routeContext);
   const defaultSelectedUnitKeys = catalogSync.preview.units
     .filter((unit) => unit.selected && unit.unitKey)
     .map((unit) => unit.unitKey as string);
@@ -200,7 +201,7 @@ export function CatalogSyncScopeModule({
         <WorkbenchForm
           variant="button"
           method="post"
-          action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
+          action={actionHref}
           data-catalog-primary-workbench-command="start-catalog-sync"
         >
           <HiddenInput name="_intent" value="start-catalog-sync" />
@@ -505,11 +506,13 @@ function ScopeSyncUnitRetryAction({
   readModel: CatalogPrimaryWorkbenchReadModel;
   unit: CatalogScopeSyncUnitStateReadModel;
 }>) {
+  const actionHref = useCatalogIntegrationCommandHref({ ...readModel.routeContext, jobId: unit.lastJobId });
+
   return (
     <WorkbenchForm
       variant="button"
       method="post"
-      action={catalogPrimaryWorkbenchHref({ ...readModel.routeContext, jobId: unit.lastJobId }, "import-to-promotion")}
+      action={actionHref}
       data-catalog-primary-workbench-command="retry-import-job"
       data-catalog-scope-sync-state-retry-provider={unit.providerKey}
       data-catalog-scope-sync-state-retry-unit={unit.unitKey}

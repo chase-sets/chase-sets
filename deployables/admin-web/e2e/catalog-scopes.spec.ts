@@ -3,7 +3,7 @@ import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdmi
 
 const SKIP_REASON = "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.";
 
-// Scope-first landing (#3801): the canonical Scope Record list is the primary
+// The canonical Scope Record list is the primary
 // entry into the catalog control plane. These checks assert the surface renders
 // with its filter controls and that each scope row opens its own Scope Detail
 // journey — without depending on any particular seeded scope, so the test is
@@ -53,5 +53,30 @@ test.describe.serial("catalog admin scopes", () => {
     // Scope Detail is a real per-scope page (its own heading), not a modal detour.
     await expect(page).toHaveURL(/\/catalog\/scopes\/.+/);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Coverage matrix" })).toBeVisible();
+    await expect(page.getByText("Catalog scope sync", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Review changes/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Create \/ update items/ })).toBeVisible();
+  });
+
+  test("Scope Detail keeps the whole journey usable at a mobile viewport @catalog-admin-scopes", async ({ page }) => {
+    test.setTimeout(120_000);
+    test.skip(skipDeployedAdminE2e, SKIP_REASON);
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    await authenticateAdmin(page, "/catalog/scopes", "/access/sign-in");
+    await expectPageOk(page, "/catalog/scopes");
+    await expectAdminPageReady(page, { heading: "Scopes" });
+
+    const viewLinks = page.getByRole("link", { name: "View" });
+    test.skip((await viewLinks.count()) === 0, "No scope records seeded in this environment.");
+    await viewLinks.first().click();
+
+    await expect(page.getByRole("heading", { name: "Coverage matrix" })).toBeVisible();
+    await expect(page.getByText("Catalog scope sync", { exact: true })).toBeVisible();
+    const horizontalOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(horizontalOverflow).toBeLessThanOrEqual(1);
   });
 });

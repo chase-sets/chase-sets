@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ActionFunctionArgs } from "react-router";
 
-const { mockCreateCatalogRequestApiClient } = vi.hoisted(() => ({
+const { mockCreateCatalogRequestApiClient, mockDispatchIntegrationsCommand } = vi.hoisted(() => ({
   mockCreateCatalogRequestApiClient: vi.fn(),
+  mockDispatchIntegrationsCommand: vi.fn(),
 }));
 
 vi.mock("../../request-support/api-client", async () => {
@@ -11,6 +12,10 @@ vi.mock("../../request-support/api-client", async () => {
   );
   return { ...actual, createCatalogRequestApiClient: mockCreateCatalogRequestApiClient };
 });
+
+vi.mock("../admin-integrations/integrations-command-dispatch", () => ({
+  dispatchIntegrationsCommand: mockDispatchIntegrationsCommand,
+}));
 
 const { action } = await import("./scope-detail-action");
 
@@ -30,6 +35,11 @@ function runAction(fields: Record<string, string>) {
 describe("Catalog scope-detail route action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDispatchIntegrationsCommand.mockResolvedValue({
+      feedback: { status: "error", intent: "unknown", result: "invalid-intent" },
+      context: { section: "import-to-promotion", selectedObservationIds: [] },
+      section: "import-to-promotion",
+    });
   });
 
   it("dispatches alias.accept against the alias-equivalence command endpoint", async () => {
@@ -89,8 +99,26 @@ describe("Catalog scope-detail route action", () => {
 
     const result = await runAction({ _intent: "auto-accept", aliasHashes: "hash_1" });
 
-    expect(result).toEqual({ status: "error", intent: "auto-accept", result: "invalid-intent" });
+    expect(result).toEqual({
+      feedback: { status: "error", intent: "unknown", result: "invalid-intent" },
+      context: { section: "import-to-promotion", selectedObservationIds: [] },
+      section: "import-to-promotion",
+    });
     expect(dispatchCatalogAliasReviewCommand).not.toHaveBeenCalled();
+  });
+
+  it("dispatches sync, job, candidate, and promotion intents through the shared workbench dispatcher", async () => {
+    const commandResult = {
+      feedback: { status: "success", intent: "start-catalog-sync", result: "job-queued" },
+      context: { section: "import-to-promotion", selectedObservationIds: [], jobId: "sync_1" },
+      section: "import-to-promotion",
+    };
+    mockDispatchIntegrationsCommand.mockResolvedValue(commandResult);
+
+    const result = await runAction({ _intent: "start-catalog-sync", scopeRecordId: "scope_1" });
+
+    expect(result).toEqual(commandResult);
+    expect(mockDispatchIntegrationsCommand).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a submission with no selected candidates", async () => {

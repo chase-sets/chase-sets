@@ -9,6 +9,12 @@ import {
 import { CatalogScopeJourneyOverviewPanel } from "./scope-journey-overview-panel";
 import { buildCatalogScopeJourneyOverviewReadModel } from "./scope-journey-overview";
 import type { CatalogAliasReviewReadModel } from "../../../../alias-equivalence/api/alias-review-admin-contracts";
+import type { ScopeCoverageMatrix } from "../../../../provider-scope-mapping/ui/contracts";
+import { CatalogScopeCoverageMatrixPanel } from "../../../../provider-scope-mapping/ui/scope-coverage-matrix-panel";
+import type { CatalogIntegrationsRouteData } from "../../integrations-surface-route-view";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../primary-workbench-command-feedback";
+import { CatalogCommandFeedbackBanner } from "../../workbench-shell";
+import { CatalogIntegrationImportToPromotionWorkspace } from "../import-to-promotion/import-to-promotion-workspace";
 
 // Scope Detail page (v2 control-plane IA: `/scopes/:scopeId`): the whole
 // journey for one scope in place. The journey overview maps the scope's path
@@ -29,6 +35,10 @@ export type CatalogScopeDetailPageProps = Readonly<{
   loading?: boolean;
   /** Injectable clock for the sync-freshness proxy; defaults to now. */
   now?: string;
+  coverageMatrix?: ScopeCoverageMatrix | null;
+  coverageMatrixFailed?: boolean;
+  journey?: CatalogIntegrationsRouteData | null;
+  commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
 }>;
 
 export function CatalogScopeDetailPage({
@@ -39,6 +49,10 @@ export function CatalogScopeDetailPage({
   languageEditionAliasReviewFailed = false,
   loading = false,
   now,
+  coverageMatrix = null,
+  coverageMatrixFailed = false,
+  journey = null,
+  commandFeedback = null,
 }: CatalogScopeDetailPageProps) {
   const hasLanguageEditions = catalogScopeHasLanguageEditionsToReview(scope);
   const languageEditionsReadModel = hasLanguageEditions
@@ -67,6 +81,31 @@ export function CatalogScopeDetailPage({
       <PageSection>
         <CatalogScopeJourneyOverviewPanel readModel={journeyOverview} loading={loading} />
       </PageSection>
+
+      <PageSection>
+        <CatalogScopeCoverageMatrixPanel
+          key={scope.scopeRecordId}
+          scopeRecordId={scope.scopeRecordId}
+          matrix={coverageMatrix}
+          loading={loading}
+          failed={coverageMatrixFailed}
+        />
+      </PageSection>
+
+      {journey ? (
+        <PageSection>
+          {commandFeedback ? <CatalogCommandFeedbackBanner feedback={commandFeedback} /> : null}
+          <CatalogIntegrationImportToPromotionWorkspace
+            readModel={journey.readModel}
+            commandFeedback={commandFeedback ?? journey.commandFeedback}
+            deferredImportPreview={journey.deferredImportPreview ?? null}
+            deferredCatalogSyncRun={journey.deferredCatalogSyncRun ?? null}
+            deferredScopeSyncState={journey.deferredScopeSyncState ?? null}
+            commandActionPath={actionHref}
+            showSourceScopeWorkset={false}
+          />
+        </PageSection>
+      ) : null}
 
       {hasLanguageEditions && languageEditionsReadModel ? (
         <PageSection>

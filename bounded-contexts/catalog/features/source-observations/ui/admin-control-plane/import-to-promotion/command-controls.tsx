@@ -3,7 +3,7 @@ import type {
   CatalogPrimaryWorkbenchActionReadModel,
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
-import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
+import { useCatalogIntegrationCommandHref } from "./command-action-context";
 
 export type CatalogPrimaryWorkbenchSubmitIntent = Extract<
   CatalogPrimaryWorkbenchActionReadModel["key"],
@@ -49,13 +49,10 @@ export function CommandFormButton({
   children,
   ...buttonProps
 }: CommandFormButtonProps) {
+  const actionHref = useCatalogIntegrationCommandHref(readModel.routeContext);
+
   return (
-    <WorkbenchForm
-      variant="button"
-      method="post"
-      action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
-      data-catalog-primary-workbench-command={intent}
-    >
+    <WorkbenchForm variant="button" method="post" action={actionHref} data-catalog-primary-workbench-command={intent}>
       <CommandHiddenInputs
         readModel={readModel}
         intent={intent}
@@ -110,6 +107,7 @@ export function CommandHiddenInputs({
       <HiddenInput name="mergeCandidateCommandBody" value={mergeCandidateCommandBody ?? ""} />
       <HiddenInput name="jobId" value={jobIdValue} />
       <HiddenInput name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
+      <HiddenInput name="scopeRecordId" value={context.scopeRecordId ?? ""} />
     </>
   );
 }

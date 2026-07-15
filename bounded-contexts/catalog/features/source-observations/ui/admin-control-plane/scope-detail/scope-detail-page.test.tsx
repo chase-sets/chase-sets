@@ -1,12 +1,27 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CatalogScopeDetailPage } from "./scope-detail-page";
 import type {
   CatalogAliasReviewCandidateSummary,
   CatalogAliasReviewReadModel,
 } from "../../../../alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/contracts";
+
+vi.mock("../import-to-promotion/import-to-promotion-workspace", () => ({
+  CatalogIntegrationImportToPromotionWorkspace: (props: {
+    commandActionPath?: string;
+    showSourceScopeWorkset?: boolean;
+  }) => (
+    <div
+      data-testid="scope-journey-workspace"
+      data-action-path={props.commandActionPath}
+      data-show-source-workset={String(props.showSourceScopeWorkset)}
+    >
+      Sync, live jobs, candidate review, and promotion
+    </div>
+  ),
+}));
 
 afterEach(cleanup);
 
@@ -166,6 +181,39 @@ describe("CatalogScopeDetailPage", () => {
     );
 
     expect(screen.getByText("Loading the scope journey…")).toBeTruthy();
+  });
+
+  it("composes coverage and the interactive journey on Scope Detail without the unit-first workset", () => {
+    render(
+      <CatalogScopeDetailPage
+        scope={paldeanFatesScope()}
+        languageEditionAliasReview={aliasReview([])}
+        actionHref={ACTION_HREF}
+        now={NOW}
+        coverageMatrix={
+          {
+            scopeRecordId: "scope_expansion_paldean_fates",
+            scopeName: "Paldean Fates",
+            providers: [
+              {
+                providerKey: "tcgdex",
+                state: "mapped",
+                mapping: null,
+                syncedObservations: 0,
+                promotedObservations: 0,
+              },
+            ],
+          } as never
+        }
+        journey={{ readModel: { routeContext: {} }, requestUrl: "scope" } as never}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Coverage matrix" })).toBeTruthy();
+    expect(screen.getAllByText("tcgdex").length).toBeGreaterThan(0);
+    const workspace = screen.getByTestId("scope-journey-workspace");
+    expect(workspace.getAttribute("data-action-path")).toBe(ACTION_HREF);
+    expect(workspace.getAttribute("data-show-source-workset")).toBe("false");
   });
 
   it("omits the language-editions section for a single-edition scope", () => {

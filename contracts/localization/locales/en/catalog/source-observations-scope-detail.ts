@@ -56,6 +56,15 @@ export const catalogSourceObservationsScopeDetailEnglishTranslations = {
     "Not yet promoted",
   "catalog.features.sourceObservations.ui.scopeDetail.journey.stage.promotion.description.deprecated": "Deprecated",
   "catalog.features.sourceObservations.ui.scopeDetail.journey.stage.promotion.description.archived": "Archived",
+  "catalog.features.sourceObservations.ui.scopeDetail.coverage.summary.mapped": "Mapped {count}",
+  "catalog.features.sourceObservations.ui.scopeDetail.coverage.summary.synced": "Synced {count}",
+  "catalog.features.sourceObservations.ui.scopeDetail.coverage.summary.settled": "Settled {count}",
+  "catalog.features.sourceObservations.ui.scopeDetail.coverage.loading.title": "Loading coverage",
+  "catalog.features.sourceObservations.ui.scopeDetail.coverage.loading.description":
+    "Loading provider coverage for this Scope Record.",
+  "catalog.features.sourceObservations.ui.scopeDetail.coverage.partial.title": "Coverage unavailable",
+  "catalog.features.sourceObservations.ui.scopeDetail.coverage.partial.description":
+    "The scope journey remains available with partial coverage data.",
   "catalog.features.sourceObservations.ui.scopeDetail.languageEditions.title": "Language editions",
   "catalog.features.sourceObservations.ui.scopeDetail.languageEditions.description":
     "Sync state, accepted and pending set-equivalent links, and pending candidates for this scope's language editions.",
