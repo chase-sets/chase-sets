@@ -83,6 +83,17 @@ export async function getCsatInvitationStreamIdByPublicReference(
   return result.rows[0]?.stream_id ?? null;
 }
 
+export async function getCsatInvitationStreamIdByInvitationId(
+  db: PgQueryable,
+  invitationId: string,
+): Promise<string | null> {
+  const result = await db.query<{ stream_id: string }>(
+    `SELECT stream_id FROM customer_feedback_csat_invitations WHERE invitation_id = $1`,
+    [invitationId],
+  );
+  return result.rows[0]?.stream_id ?? null;
+}
+
 export async function getLatestCsatInvitationIssuedAt(
   db: PgQueryable,
   subjectAccountId: string,

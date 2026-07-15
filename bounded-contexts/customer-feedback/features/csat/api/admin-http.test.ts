@@ -4,10 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import { buildCustomerFeedbackApi } from "./admin-http";
 import type { CsatAdminReadPort } from "./runtime";
 
-const actor = (permissions: readonly string[]): ResolvedActor => ({
+const actor = (permissions: readonly string[], userId = "usr_test"): ResolvedActor => ({
   sessionId: "ses_test",
   tenantId: "tnt_test",
-  userId: "usr_test",
+  userId,
   accountId: "acc_test",
   membershipId: "mem_test",
   roleKey: "platform-admin",
@@ -15,6 +15,7 @@ const actor = (permissions: readonly string[]): ResolvedActor => ({
 });
 
 function port(): CsatAdminReadPort {
+  let artifact: { exportId: string; actorId: string; artifactExpiresAt: string; artifactContent: string } | null = null;
   return {
     readAdminAnalytics: vi.fn(async () => ({ analytics: true }) as never),
     listAdminQueue: vi.fn(
@@ -42,14 +43,32 @@ function port(): CsatAdminReadPort {
           limit: 100,
         }) satisfies Awaited<ReturnType<CsatAdminReadPort["listAdminQueue"]>>,
     ),
-    recordAdminExport: vi.fn(async () => undefined),
+    recordAdminExport: vi.fn(async (audit) => {
+      if (audit.artifactContent && audit.exportId) {
+        artifact = {
+          exportId: audit.exportId,
+          actorId: audit.actorId,
+          artifactExpiresAt: audit.artifactExpiresAt,
+          artifactContent: audit.artifactContent,
+        };
+      }
+    }),
+    getAdminExportArtifact: vi.fn(async (exportId, actorId, fetchedAt) =>
+      artifact &&
+      artifact.exportId === exportId &&
+      artifact.actorId === actorId &&
+      Date.parse(artifact.artifactExpiresAt) > Date.parse(fetchedAt)
+        ? artifact
+        : null,
+    ),
+    resolveRetentionPolicy: vi.fn(async () => ({ exportArtifactHours: 24 }) as never),
   };
 }
 
-function appFor(permissions: readonly string[], readPort = port()) {
+function appFor(permissions: readonly string[], readPort = port(), userId = "usr_test") {
   const app = new Hono<AuthenticatedApiEnv>();
   app.use("*", async (c, next) => {
-    c.set("actor", actor(permissions));
+    c.set("actor", actor(permissions, userId));
     await next();
   });
   app.route("/", buildCustomerFeedbackApi(readPort));
@@ -66,18 +85,39 @@ describe("Customer Feedback admin API", () => {
   });
 
   it("keeps export behind the separate capability and neutralizes formula cells", async () => {
-    const denied = await appFor(["platform-feedback.view"]).app.request("/export");
+    const denied = await appFor(["platform-feedback.view"]).app.request("/export?reason=case-review");
     expect(denied.status).toBe(403);
 
-    const { app, readPort } = appFor(["platform-feedback.export"]);
-    const response = await app.request("/export");
-    const body = await response.text();
-    expect(response.status).toBe(200);
+    const { app, readPort } = appFor(["customer-feedback.privacy.export-sensitive-feedback"]);
+    const response = await app.request("/export?reason=case-review");
+    const created = (await response.json()) as { exportId: string };
+    expect(response.status).toBe(201);
+    const download = await app.request(`/export/${created.exportId}`);
+    const body = await download.text();
+    expect(download.status).toBe(200);
     expect(body).toContain("'=unsafe");
     expect(body).not.toContain("comment");
     expect(readPort.recordAdminExport).toHaveBeenCalledWith(
-      expect.objectContaining({ result: "completed", rowCount: 1 }),
+      expect.objectContaining({ result: "completed", rowCount: 1, reason: "case-review" }),
     );
+  });
+
+  it("fails closed when another actor fetches an export or its artifact has expired", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-07-14T00:00:00.000Z"));
+      const readPort = port();
+      const creator = appFor(["customer-feedback.privacy.export-sensitive-feedback"], readPort);
+      const created = (await (await creator.app.request("/export?reason=case-review")).json()) as { exportId: string };
+
+      const otherActor = appFor(["customer-feedback.privacy.export-sensitive-feedback"], readPort, "usr_different");
+      expect((await otherActor.app.request(`/export/${created.exportId}`)).status).toBe(404);
+
+      vi.setSystemTime(new Date("2026-07-15T00:00:00.001Z"));
+      expect((await creator.app.request(`/export/${created.exportId}`)).status).toBe(404);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects anonymous reads", async () => {

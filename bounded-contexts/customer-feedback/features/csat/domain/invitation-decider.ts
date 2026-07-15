@@ -20,6 +20,11 @@ import {
 } from "./sampling";
 import { findSurveyDefinition, surveyVersionsEqual, type CsatRatingValue, type SurveyVersionId } from "./survey";
 import { isProvenanceAuthoritative } from "./workflow-outcomes";
+import {
+  customerFeedbackPrivacyPolicyVersion,
+  normalizePrivacyReason,
+  type CustomerFeedbackRedactionScope,
+} from "../../privacy/domain/policy";
 
 export type CsatEligibilityControls = Readonly<{
   subjectEligible: boolean;
@@ -67,6 +72,28 @@ export type SubmitCsatSurveyCommand = Readonly<{
   submissionIdempotencyKey: string;
   submittedAt: string;
 }>;
+export type PlaceCsatResponsePrivacyHoldCommand = Readonly<{
+  type: "PlaceCsatResponsePrivacyHold";
+  holdId: string;
+  reason: string;
+  actorId: string;
+  placedAt: string;
+}>;
+export type ReleaseCsatResponsePrivacyHoldCommand = Readonly<{
+  type: "ReleaseCsatResponsePrivacyHold";
+  holdId: string;
+  reason: string;
+  actorId: string;
+  releasedAt: string;
+}>;
+export type RedactCsatResponseCommand = Readonly<{
+  type: "RedactCsatResponse";
+  scope: CustomerFeedbackRedactionScope;
+  reason: string;
+  actorId: string;
+  idempotencyKey: string;
+  redactedAt: string;
+}>;
 
 export type CsatInvitationCommand =
   | EvaluateCsatOutcomeFactCommand
@@ -74,25 +101,34 @@ export type CsatInvitationCommand =
   | DismissCsatInvitationCommand
   | SubmitCsatSurveyCommand
   | ExpireCsatInvitationCommand
-  | RevokeCsatInvitationCommand;
+  | RevokeCsatInvitationCommand
+  | PlaceCsatResponsePrivacyHoldCommand
+  | ReleaseCsatResponsePrivacyHoldCommand
+  | RedactCsatResponseCommand;
 
 type AcceptedSubmission = Readonly<{
   rating: CsatRatingValue;
   comment: string | null;
   followUpConsent: boolean;
   followUpConsentVersion: string;
+  followUpConsentStatement: string;
   followUpConsentAt: string | null;
+  followUpConsentSubjectAccountId: string;
+  followUpConsentPurpose: "case-specific-follow-up";
+  followUpConsentApplicability: "this-response-only";
   submissionIdempotencyKey: string;
 }>;
 
 export type CsatInvitationAggregateState = Readonly<{
   invitation: CsatInvitation | null;
   acceptedSubmission: AcceptedSubmission | null;
+  privacyIdempotencyKeys: readonly string[];
 }>;
 
 export const initialCsatInvitationState: CsatInvitationAggregateState = {
   invitation: null,
   acceptedSubmission: null,
+  privacyIdempotencyKeys: [],
 };
 
 export type CsatInvitationDecisionErrorCode =
@@ -106,7 +142,10 @@ export type CsatInvitationDecisionErrorCode =
   | "invitation-not-presented"
   | "invitation-not-expired"
   | "submission-conflict"
-  | "invalid-submission";
+  | "invalid-submission"
+  | "privacy-hold-active"
+  | "privacy-hold-mismatch"
+  | "invalid-privacy-command";
 
 export class CsatInvitationDecisionError extends Error {
   readonly name = "CsatInvitationDecisionError";
@@ -200,6 +239,74 @@ export const decideCsatInvitation: AggregateDecider<
         },
       ];
     }
+    case "PlaceCsatResponsePrivacyHold": {
+      const invitation = requireInvitation(state);
+      const holdId = requireText(command.holdId, "Privacy hold id is required.", invitation);
+      const reason = requirePrivacyReason(command.reason, invitation);
+      const actorId = requireText(command.actorId, "Privacy hold actor is required.", invitation);
+      if (invitation.privacyHold?.holdId === holdId) return [];
+      if (invitation.privacyHold && invitation.privacyHold.releasedAt === null) {
+        fail("privacy-hold-active", "A privacy hold is already active.", invitation);
+      }
+      return [
+        {
+          type: "customer-feedback.response.privacy-hold-placed",
+          data: {
+            eventSchemaVersion: customerFeedbackEventSchemaVersion,
+            invitationId: invitation.invitationId,
+            holdId,
+            reason,
+            actorId,
+            placedAt: requireTimestamp(command.placedAt, "privacy hold timestamp"),
+          },
+        },
+      ];
+    }
+    case "ReleaseCsatResponsePrivacyHold": {
+      const invitation = requireInvitation(state);
+      if (invitation.privacyHold?.holdId === command.holdId && invitation.privacyHold.releasedAt !== null) return [];
+      if (!invitation.privacyHold || invitation.privacyHold.holdId !== command.holdId) {
+        fail("privacy-hold-mismatch", "Privacy hold does not match the active hold.", invitation);
+      }
+      return [
+        {
+          type: "customer-feedback.response.privacy-hold-released",
+          data: {
+            eventSchemaVersion: customerFeedbackEventSchemaVersion,
+            invitationId: invitation.invitationId,
+            holdId: command.holdId,
+            reason: requirePrivacyReason(command.reason, invitation),
+            actorId: requireText(command.actorId, "Privacy hold release actor is required.", invitation),
+            releasedAt: requireTimestamp(command.releasedAt, "privacy hold release timestamp"),
+          },
+        },
+      ];
+    }
+    case "RedactCsatResponse": {
+      const invitation = requireInvitation(state);
+      const idempotencyKey = requireText(command.idempotencyKey, "Redaction idempotency key is required.", invitation);
+      if (state.privacyIdempotencyKeys.includes(idempotencyKey) || scopeAlreadyRedacted(invitation, command.scope)) {
+        return [];
+      }
+      if (invitation.privacyHold?.releasedAt === null) {
+        fail("privacy-hold-active", "An active privacy hold prevents redaction.", invitation);
+      }
+      return [
+        {
+          type: "customer-feedback.response.redacted",
+          data: {
+            eventSchemaVersion: customerFeedbackEventSchemaVersion,
+            invitationId: invitation.invitationId,
+            scope: command.scope,
+            reason: requirePrivacyReason(command.reason, invitation),
+            actorId: requireText(command.actorId, "Redaction actor is required.", invitation),
+            idempotencyKey,
+            redactedAt: requireTimestamp(command.redactedAt, "redaction timestamp"),
+            policyVersion: customerFeedbackPrivacyPolicyVersion,
+          },
+        },
+      ];
+    }
     default:
       return assertNever(command);
   }
@@ -233,8 +340,11 @@ export const evolveCsatInvitation: AggregateEvolver<CsatInvitationAggregateState
           revokedAt: null,
           revocationReason: null,
           suppressionDiagnostic: null,
+          privacyHold: null,
+          redactedScopes: [],
         },
         acceptedSubmission: null,
+        privacyIdempotencyKeys: [],
       };
     case "customer-feedback.invitation.issued":
       return updateInvitation(state, {
@@ -257,7 +367,11 @@ export const evolveCsatInvitation: AggregateEvolver<CsatInvitationAggregateState
           comment: event.data.comment,
           followUpConsent: event.data.followUpConsent,
           followUpConsentVersion: event.data.followUpConsentVersion,
+          followUpConsentStatement: event.data.followUpConsentStatement,
           followUpConsentAt: event.data.followUpConsentAt,
+          followUpConsentSubjectAccountId: event.data.followUpConsentSubjectAccountId,
+          followUpConsentPurpose: event.data.followUpConsentPurpose,
+          followUpConsentApplicability: event.data.followUpConsentApplicability,
           submissionIdempotencyKey: event.data.submissionIdempotencyKey,
         },
       };
@@ -277,6 +391,53 @@ export const evolveCsatInvitation: AggregateEvolver<CsatInvitationAggregateState
         revokedAt: event.data.revokedAt,
         revocationReason: event.data.reason,
       });
+    case "customer-feedback.response.privacy-hold-placed":
+      return updateInvitation(state, {
+        privacyHold: {
+          holdId: event.data.holdId,
+          reason: event.data.reason,
+          actorId: event.data.actorId,
+          placedAt: event.data.placedAt,
+          releasedAt: null,
+        },
+      });
+    case "customer-feedback.response.privacy-hold-released":
+      return updateInvitation(state, {
+        privacyHold: state.invitation?.privacyHold
+          ? { ...state.invitation.privacyHold, releasedAt: event.data.releasedAt }
+          : null,
+      });
+    case "customer-feedback.response.redacted": {
+      const redactContent = event.data.scope !== "direct-identifiers";
+      const redactIdentifiers = event.data.scope !== "response-content";
+      const invitation = requireInvitation(state);
+      return {
+        ...updateInvitation(state, {
+          subjectAccountId: redactIdentifiers ? "[redacted]" : invitation.subjectAccountId,
+          provenance: redactIdentifiers
+            ? {
+                ...invitation.provenance,
+                subject: { ...invitation.provenance.subject, entityId: "[redacted]" },
+                outcomeIdempotencyKey: "[redacted]",
+                correlationId: null,
+              }
+            : invitation.provenance,
+          redactedScopes: [...invitation.redactedScopes, event.data.scope],
+        }),
+        acceptedSubmission: state.acceptedSubmission
+          ? {
+              ...state.acceptedSubmission,
+              comment: redactContent ? null : state.acceptedSubmission.comment,
+              followUpConsent: redactIdentifiers ? false : state.acceptedSubmission.followUpConsent,
+              followUpConsentAt: redactIdentifiers ? null : state.acceptedSubmission.followUpConsentAt,
+              followUpConsentSubjectAccountId: redactIdentifiers
+                ? "[redacted]"
+                : state.acceptedSubmission.followUpConsentSubjectAccountId,
+            }
+          : null,
+        privacyIdempotencyKeys: [...state.privacyIdempotencyKeys, event.data.idempotencyKey],
+      };
+    }
     default:
       return assertNever(event);
   }
@@ -481,7 +642,11 @@ function normalizeSubmission(command: SubmitCsatSurveyCommand, invitation: CsatI
     comment,
     followUpConsent: command.followUpConsent,
     followUpConsentVersion: command.followUpConsentVersion,
+    followUpConsentStatement: definition.followUpConsentStatement,
     followUpConsentAt: command.followUpConsentAt,
+    followUpConsentSubjectAccountId: invitation.subjectAccountId,
+    followUpConsentPurpose: definition.followUpConsentPurpose,
+    followUpConsentApplicability: definition.followUpConsentApplicability,
     submissionIdempotencyKey: command.submissionIdempotencyKey.trim(),
   };
 }
@@ -573,8 +738,36 @@ function sameSubmission(left: AcceptedSubmission | null, right: AcceptedSubmissi
     left.comment === right.comment &&
     left.followUpConsent === right.followUpConsent &&
     left.followUpConsentVersion === right.followUpConsentVersion &&
-    left.followUpConsentAt === right.followUpConsentAt
+    left.followUpConsentStatement === right.followUpConsentStatement &&
+    left.followUpConsentAt === right.followUpConsentAt &&
+    left.followUpConsentSubjectAccountId === right.followUpConsentSubjectAccountId &&
+    left.followUpConsentPurpose === right.followUpConsentPurpose &&
+    left.followUpConsentApplicability === right.followUpConsentApplicability
   );
+}
+
+function scopeAlreadyRedacted(invitation: CsatInvitation, scope: CustomerFeedbackRedactionScope): boolean {
+  if (invitation.redactedScopes.includes("all-sensitive")) return true;
+  if (scope === "all-sensitive") {
+    return (
+      invitation.redactedScopes.includes("response-content") && invitation.redactedScopes.includes("direct-identifiers")
+    );
+  }
+  return invitation.redactedScopes.includes(scope);
+}
+
+function requireText(value: string, message: string, invitation: CsatInvitation): string {
+  const normalized = value.trim();
+  if (!normalized) fail("invalid-privacy-command", message, invitation);
+  return normalized;
+}
+
+function requirePrivacyReason(value: string, invitation: CsatInvitation): string {
+  try {
+    return normalizePrivacyReason(value);
+  } catch {
+    fail("invalid-privacy-command", "Privacy reason must be a stable content-free code.", invitation);
+  }
 }
 
 function requireTimestamp(value: string, label: string): string {

@@ -11,11 +11,14 @@ describe("feedback attention server access", () => {
     expect(feedbackAttentionExportAllowed(viewer)).toBe(false);
     expect(canAccessFeedbackAttention(manager, "manage")).toBe(true);
     expect(canAccessFeedbackAttention(manager, "notify")).toBe(true);
-    expect(feedbackAttentionExportAllowed(manager)).toBe(true);
+    expect(feedbackAttentionExportAllowed(manager)).toBe(false);
     const notifier = { permissions: ["support.notify"] };
     expect(canAccessFeedbackAttention(notifier, "view")).toBe(true);
     expect(canAccessFeedbackAttention(notifier, "notify")).toBe(true);
     expect(canAccessFeedbackAttention(notifier, "manage")).toBe(false);
     expect(canAccessFeedbackAttention(notifier, "export")).toBe(false);
+    expect(
+      feedbackAttentionExportAllowed({ permissions: ["customer-feedback.privacy.export-sensitive-feedback"] }),
+    ).toBe(true);
   });
 });

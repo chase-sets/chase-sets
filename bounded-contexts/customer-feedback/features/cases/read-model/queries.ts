@@ -10,3 +10,14 @@ export async function getFeedbackCaseStreamId(db: PgQueryable, caseId: FeedbackC
   );
   return result.rows[0]?.stream_id ?? null;
 }
+
+export async function getFeedbackCaseStreamIdByInvitationId(
+  db: PgQueryable,
+  invitationId: string,
+): Promise<string | null> {
+  const result = await db.query<{ stream_id: string }>(
+    `SELECT stream_id FROM customer_feedback_feedback_cases WHERE invitation_id = $1`,
+    [invitationId],
+  );
+  return result.rows[0]?.stream_id ?? null;
+}

@@ -6,8 +6,10 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId, createInternalId } from "@chase-sets/primitives/typed-ids";
+import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type {
   CsatAdminExportAudit,
+  CsatAdminExportArtifact,
   CsatAdminQueuePage,
   CsatAdminQueueQuery,
   CsatAnalyticsQuery,
@@ -30,20 +32,32 @@ import { readCsatAnalytics } from "../read-model/analytics-query";
 import { buildCsatInvitationProjectionHandlers } from "../read-model/projection";
 import {
   getCsatInvitationByPublicReference,
+  getCsatInvitationStreamIdByInvitationId,
   getCsatInvitationStreamIdByPublicReference,
   type CsatInvitationPageRow,
 } from "../read-model/queries";
 import { listCsatAdminQueue } from "../read-model/queries";
+import {
+  customerFeedbackRetentionPolicy,
+  type CustomerFeedbackRetentionPolicyValue,
+} from "../../privacy/domain/policy";
 
 export type CsatInvitationRuntimeDeps = Readonly<{
   eventStore: EventStore;
   db: PgQueryable;
+  policies?: Pick<PolicyRuntime, "resolvePolicy">;
 }>;
 
 export type CsatAdminReadPort = Readonly<{
   readAdminAnalytics: (query: CsatAnalyticsQuery) => Promise<CsatAnalyticsSnapshot>;
   listAdminQueue: (query: CsatAdminQueueQuery) => Promise<CsatAdminQueuePage>;
   recordAdminExport: (audit: CsatAdminExportAudit) => Promise<void>;
+  getAdminExportArtifact: (
+    exportId: string,
+    actorId: string,
+    fetchedAt: string,
+  ) => Promise<CsatAdminExportArtifact | null>;
+  resolveRetentionPolicy: (at?: string) => Promise<CustomerFeedbackRetentionPolicyValue>;
 }>;
 
 export type IssueCsatInvitationParams = Readonly<{
@@ -55,9 +69,13 @@ export type IssueCsatInvitationParams = Readonly<{
   evaluatedAt?: string;
 }>;
 
-export type RedeemCsatInvitationCommand = Exclude<
+export type RedeemCsatInvitationCommand = Extract<
   CsatInvitationCommand,
-  { type: "EvaluateCsatOutcomeFact" | "ExpireCsatInvitation" | "RevokeCsatInvitation" }
+  { type: "PresentCsatInvitation" | "DismissCsatInvitation" | "SubmitCsatSurvey" }
+>;
+export type CsatPrivacyCommand = Extract<
+  CsatInvitationCommand,
+  { type: "PlaceCsatResponsePrivacyHold" | "ReleaseCsatResponsePrivacyHold" | "RedactCsatResponse" }
 >;
 
 export type RecordCsatPresentationParams = Readonly<{
@@ -87,6 +105,10 @@ export type RecordCsatSubmissionParams = Readonly<{
 const cooldownCodec = createPassthroughDomainEventCodec<CsatSamplingCooldownClaimedEvent>();
 
 export function createCsatInvitationRuntime(deps: CsatInvitationRuntimeDeps) {
+  const resolveRetentionPolicy = async (at?: string): Promise<CustomerFeedbackRetentionPolicyValue> =>
+    deps.policies
+      ? (await deps.policies.resolvePolicy(customerFeedbackRetentionPolicy, at ? { at } : undefined)).value
+      : customerFeedbackRetentionPolicy.defaultValue;
   const invitationCodec = createPassthroughDomainEventCodec<CustomerFeedbackInvitationEvent>();
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
@@ -197,6 +219,33 @@ export function createCsatInvitationRuntime(deps: CsatInvitationRuntimeDeps) {
       throw new Error("CSAT invitation issuance exceeded its concurrency retry budget.");
     },
     executeByPublicReference,
+    executePrivacyByInvitationId: async (
+      invitationId: string,
+      command: CsatPrivacyCommand,
+      context: EventStoreContext,
+    ) => {
+      const streamId = await getCsatInvitationStreamIdByInvitationId(deps.db, invitationId);
+      if (!streamId) {
+        throw new CsatInvitationDecisionError("invitation-not-found", "Invitation does not exist.", {
+          state: null,
+          outcomeCode: null,
+        });
+      }
+      const result = await commandHandler({ streamId, command, context });
+      return requireResult(result.state.invitation);
+    },
+    readAuthoritativePrivacyByInvitationId: async (invitationId: string) => {
+      const streamId = await getCsatInvitationStreamIdByInvitationId(deps.db, invitationId);
+      if (!streamId) return null;
+      const loaded = await repository.load(streamId);
+      const invitation = loaded.state.invitation;
+      return invitation
+        ? {
+            redactedScopes: invitation.redactedScopes,
+            privacyHold: invitation.privacyHold,
+          }
+        : null;
+    },
     recordPresentation: async (params: RecordCsatPresentationParams, context: EventStoreContext) => {
       const invitation = await loadAuthoritativeInvitation(params.publicReference, params.subjectAccountId);
       return executeByPublicReference(
@@ -247,27 +296,77 @@ export function createCsatInvitationRuntime(deps: CsatInvitationRuntimeDeps) {
     readAdminAnalytics: async (query: CsatAnalyticsQuery) =>
       readCsatAnalytics(deps.db, query, await readCsatProjectionReadiness(deps.db, query.asOf)),
     listAdminQueue: (query: CsatAdminQueueQuery) => listCsatAdminQueue(deps.db, query),
+    resolveRetentionPolicy,
     recordAdminExport: async (audit: CsatAdminExportAudit) => {
+      const exportId = audit.exportId ?? createId("cse");
       await deps.db.query(
-        `INSERT INTO customer_feedback_csat_export_audits
-          (export_id, actor_id, filters, started_at, completed_at, row_count, result)
-         VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)`,
+        `WITH recorded_audit AS (
+           INSERT INTO customer_feedback_csat_export_audits
+          (export_id, actor_id, capability, filters, reason, started_at, completed_at,
+           artifact_expires_at, row_count, result, failure_code)
+           VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11)
+           RETURNING export_id, actor_id, started_at, artifact_expires_at
+         )
+         INSERT INTO customer_feedback_csat_export_artifacts
+           (export_id, actor_id, artifact_content, expires_at, created_at)
+         SELECT export_id, actor_id, $12, artifact_expires_at, started_at
+         FROM recorded_audit
+         WHERE $12::text IS NOT NULL`,
         [
-          createId("cse"),
+          exportId,
           audit.actorId,
+          audit.capability,
           JSON.stringify(audit.filters),
+          audit.reason,
           audit.startedAt,
           audit.completedAt,
+          audit.artifactExpiresAt,
           audit.rowCount,
           audit.result,
+          audit.failureCode,
+          audit.artifactContent,
         ],
       );
+    },
+    getAdminExportArtifact: async (exportId: string, actorId: string, fetchedAt: string) => {
+      const result = await deps.db.query<{
+        export_id: string;
+        actor_id: string;
+        artifact_expires_at: string;
+        artifact_content: string;
+      }>(
+        `UPDATE customer_feedback_csat_export_audits
+         SET downloaded_at = COALESCE(customer_feedback_csat_export_audits.downloaded_at, $3)
+         FROM customer_feedback_csat_export_artifacts AS artifact
+         WHERE customer_feedback_csat_export_audits.export_id = $1
+           AND customer_feedback_csat_export_audits.actor_id = $2
+           AND customer_feedback_csat_export_audits.result = 'completed'
+           AND artifact.export_id = customer_feedback_csat_export_audits.export_id
+           AND artifact.actor_id = $2
+           AND artifact.expires_at > $3
+         RETURNING customer_feedback_csat_export_audits.export_id,
+                   customer_feedback_csat_export_audits.actor_id,
+                   artifact.expires_at::text AS artifact_expires_at,
+                   artifact.artifact_content`,
+        [exportId, actorId, fetchedAt],
+      );
+      const row = result.rows[0];
+      return row
+        ? {
+            exportId: row.export_id,
+            actorId: row.actor_id,
+            artifactExpiresAt: row.artifact_expires_at,
+            artifactContent: row.artifact_content,
+          }
+        : null;
     },
     getByPublicReference: getCsatInvitationByPublicReference.bind(null, deps.db),
     projectors: [
       createProjectionHandlerSet({
         projectionName: "customer-feedback-csat-invitation-projection",
-        handlers: buildCsatInvitationProjectionHandlers(deps.db),
+        handlers: buildCsatInvitationProjectionHandlers(deps.db, {
+          resolveRetentionPolicy,
+        }),
       }),
       createProjectionHandlerSet({
         projectionName: "customer-feedback-csat-analytics-projection",

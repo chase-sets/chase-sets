@@ -55,6 +55,10 @@ export type FeedbackCaseFollowUpChannel = (typeof feedbackCaseFollowUpChannels)[
 export type FeedbackCaseConsent = Readonly<{
   status: "granted" | "not-granted" | "withdrawn";
   version: string;
+  statement: string;
+  subjectAccountId: string;
+  purpose: "case-specific-follow-up";
+  applicability: "this-response-only";
   grantedAt: string | null;
   withdrawnAt: string | null;
 }>;
@@ -240,6 +244,15 @@ export type FeedbackCaseFollowUpConsentWithdrawnEvent = DomainEvent<
   Attributed<{ caseId: FeedbackCaseId; consentVersion: string }>
 >;
 
+export type FeedbackCaseResponseRedactedEvent = DomainEvent<
+  "customer-feedback.case.response-redacted",
+  Attributed<{
+    caseId: FeedbackCaseId;
+    scope: "response-content" | "direct-identifiers" | "all-sensitive";
+    reason: string;
+  }>
+>;
+
 export type FeedbackCaseClosedEvent = DomainEvent<
   "customer-feedback.case.closed",
   Attributed<{ caseId: FeedbackCaseId }>
@@ -265,6 +278,7 @@ export type FeedbackCaseEvent =
   | FeedbackCaseFollowUpDeliveryOutcomeRecordedEvent
   | FeedbackCaseFollowUpOutcomeRecordedEvent
   | FeedbackCaseFollowUpConsentWithdrawnEvent
+  | FeedbackCaseResponseRedactedEvent
   | FeedbackCaseClosedEvent
   | FeedbackCaseReopenedEvent
   | FeedbackCaseAttentionRequestedEvent
@@ -285,6 +299,7 @@ export const feedbackCaseEventTypes = [
   "customer-feedback.case.follow-up-delivery-outcome-recorded",
   "customer-feedback.case.follow-up-outcome-recorded",
   "customer-feedback.case.follow-up-consent-withdrawn",
+  "customer-feedback.case.response-redacted",
   "customer-feedback.case.closed",
   "customer-feedback.case.reopened",
   "customer-feedback.case.attention-requested",

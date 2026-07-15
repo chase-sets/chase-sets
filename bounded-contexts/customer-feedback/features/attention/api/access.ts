@@ -11,11 +11,13 @@ export function canAccessFeedbackAttention(
 ): boolean {
   if (!actor) return false;
   if (capability === "view")
-    return ["support.view", "support.manage", "support.notify", "support.export"].some((permission) =>
-      actor.permissions.includes(permission),
-    );
-  if (capability === "export")
-    return actor.permissions.includes("support.export") || actor.permissions.includes("support.manage");
+    return [
+      "support.view",
+      "support.manage",
+      "support.notify",
+      "customer-feedback.privacy.export-sensitive-feedback",
+    ].some((permission) => actor.permissions.includes(permission));
+  if (capability === "export") return actor.permissions.includes("customer-feedback.privacy.export-sensitive-feedback");
   if (capability === "notify")
     return actor.permissions.includes("support.notify") || actor.permissions.includes("support.manage");
   if (capability === "manage") return actor.permissions.includes("support.manage");
@@ -25,7 +27,7 @@ export function canAccessFeedbackAttention(
 export function feedbackAttentionRoutePermission(capability: FeedbackAttentionCapability): string {
   if (capability === "view") return "support.view";
   if (capability === "notify") return "support.notify";
-  if (capability === "export") return "support.export";
+  if (capability === "export") return "customer-feedback.privacy.export-sensitive-feedback";
   return "support.manage";
 }
 

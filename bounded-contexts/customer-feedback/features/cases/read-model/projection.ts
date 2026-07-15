@@ -31,11 +31,12 @@ async function applyCurrentState(db: PgQueryable, event: ProjectedEvent): Promis
         `INSERT INTO customer_feedback_feedback_cases (
            case_id, stream_id, invitation_id, survey_kind, survey_version, question_version,
            rating, submission_idempotency_key, submitted_at, open_reason, status, priority,
-           consent_status, consent_version, consent_granted_at, consent_withdrawn_at,
+           consent_status, consent_version, consent_statement, consent_subject_account_id,
+           consent_purpose, consent_applicability, consent_granted_at, consent_withdrawn_at,
            follow_up_status, follow_up_delivery_status, opened_at, created_at, updated_at, last_stream_version
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'new', $11,
-           $12, $13, $14, $15, 'not-requested', 'not-requested', $16, $17, $17, $18
+           $12, $13, $14, $15, $16, $17, $18, $19, 'not-requested', 'not-requested', $20, $21, $21, $22
          )
          ON CONFLICT (case_id) DO UPDATE
          SET updated_at = EXCLUDED.updated_at,
@@ -55,6 +56,10 @@ async function applyCurrentState(db: PgQueryable, event: ProjectedEvent): Promis
           opened.priority,
           opened.consent.status,
           opened.consent.version,
+          opened.consent.statement,
+          opened.consent.subjectAccountId,
+          opened.consent.purpose,
+          opened.consent.applicability,
           opened.consent.grantedAt,
           opened.consent.withdrawnAt,
           opened.actedAt,
@@ -179,6 +184,20 @@ async function applyCurrentState(db: PgQueryable, event: ProjectedEvent): Promis
          END`,
         [data.actedAt],
       );
+    case "customer-feedback.case.response-redacted": {
+      const redacted = data as Extract<FeedbackCaseEvent, { type: typeof event.type }>["data"];
+      return update(
+        db,
+        event,
+        `status = 'actioned', disposition = 'redacted', actioned_at = $4,
+         consent_status = 'withdrawn', consent_withdrawn_at = $4,
+         consent_subject_account_id = CASE WHEN $5 <> 'response-content' THEN '[redacted]' ELSE consent_subject_account_id END,
+         submission_idempotency_key = CASE WHEN $5 <> 'response-content' THEN 'redacted:' || case_id ELSE submission_idempotency_key END,
+         follow_up_status = 'cancelled',
+         follow_up_delivery_status = CASE WHEN follow_up_delivery_status = 'sent' THEN 'sent' ELSE 'suppressed' END`,
+        [redacted.actedAt, redacted.scope],
+      );
+    }
     case "customer-feedback.case.closed":
       return update(db, event, `status = 'closed', closed_at = $4`, [data.actedAt]);
     case "customer-feedback.case.reopened":

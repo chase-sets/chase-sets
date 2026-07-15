@@ -75,6 +75,9 @@ export type SurveyDefinition = Readonly<{
   csatEligible: boolean;
   /** Follow-up consent copy is versioned independently of the question (AC). */
   followUpConsentVersion: string;
+  followUpConsentStatement: string;
+  followUpConsentPurpose: "case-specific-follow-up";
+  followUpConsentApplicability: "this-response-only";
 }>;
 
 export const csatRatingScaleV1: CsatRatingScale = {
@@ -102,6 +105,9 @@ export const transactionalCsatV1: SurveyDefinition = {
   ratingScale: csatRatingScaleV1,
   csatEligible: true,
   followUpConsentVersion: "follow-up-consent.v1",
+  followUpConsentStatement: "Chase Sets may contact me about this feedback response.",
+  followUpConsentPurpose: "case-specific-follow-up",
+  followUpConsentApplicability: "this-response-only",
 };
 
 /**
@@ -120,6 +126,9 @@ export const legacyExperienceRatingV0: SurveyDefinition = {
   ratingScale: csatRatingScaleV1,
   csatEligible: false,
   followUpConsentVersion: "legacy.unversioned",
+  followUpConsentStatement: "No affirmative follow-up consent was captured.",
+  followUpConsentPurpose: "case-specific-follow-up",
+  followUpConsentApplicability: "this-response-only",
 };
 
 /** The canonical, versioned survey registry owned by Customer Feedback. */

@@ -4,6 +4,7 @@ import type { CsatSamplingDecision } from "./sampling";
 import type { CsatWorkflowOutcomeCode } from "./workflow-outcomes";
 import type { CsatRatingValue, SurveyVersionId } from "./survey";
 import type { OutcomeSubjectKind, OutcomeSubjectRef } from "./outcome-fact";
+import type { CustomerFeedbackRedactionScope } from "../../privacy/domain/policy";
 
 export type CsatInvitationId = TypedUlid<"csatinv">;
 
@@ -103,6 +104,16 @@ export type CsatInvitation = Readonly<{
   revokedAt: string | null;
   revocationReason: CsatRevocationReason | null;
   suppressionDiagnostic: CsatSuppressionDiagnostic | null;
+  privacyHold: CsatResponsePrivacyHold | null;
+  redactedScopes: readonly CustomerFeedbackRedactionScope[];
+}>;
+
+export type CsatResponsePrivacyHold = Readonly<{
+  holdId: string;
+  reason: string;
+  actorId: string;
+  placedAt: string;
+  releasedAt: string | null;
 }>;
 
 type Versioned<TData> = TData & Readonly<{ eventSchemaVersion: CustomerFeedbackEventSchemaVersion }>;
@@ -150,9 +161,48 @@ export type CsatSurveySubmittedEvent = DomainEvent<
     comment: string | null;
     followUpConsent: boolean;
     followUpConsentVersion: string;
+    followUpConsentStatement: string;
     followUpConsentAt: string | null;
+    followUpConsentSubjectAccountId: string;
+    followUpConsentPurpose: "case-specific-follow-up";
+    followUpConsentApplicability: "this-response-only";
     submissionIdempotencyKey: string;
     submittedAt: string;
+  }>
+>;
+
+export type CsatResponsePrivacyHoldPlacedEvent = DomainEvent<
+  "customer-feedback.response.privacy-hold-placed",
+  Versioned<{
+    invitationId: CsatInvitationId;
+    holdId: string;
+    reason: string;
+    actorId: string;
+    placedAt: string;
+  }>
+>;
+
+export type CsatResponsePrivacyHoldReleasedEvent = DomainEvent<
+  "customer-feedback.response.privacy-hold-released",
+  Versioned<{
+    invitationId: CsatInvitationId;
+    holdId: string;
+    reason: string;
+    actorId: string;
+    releasedAt: string;
+  }>
+>;
+
+export type CsatResponseRedactedEvent = DomainEvent<
+  "customer-feedback.response.redacted",
+  Versioned<{
+    invitationId: CsatInvitationId;
+    scope: CustomerFeedbackRedactionScope;
+    reason: string;
+    actorId: string;
+    idempotencyKey: string;
+    redactedAt: string;
+    policyVersion: string;
   }>
 >;
 
@@ -189,7 +239,10 @@ export type CustomerFeedbackInvitationEvent =
   | CsatInvitationDismissedEvent
   | CsatInvitationExpiredEvent
   | CsatInvitationSuppressedEvent
-  | CsatInvitationRevokedEvent;
+  | CsatInvitationRevokedEvent
+  | CsatResponsePrivacyHoldPlacedEvent
+  | CsatResponsePrivacyHoldReleasedEvent
+  | CsatResponseRedactedEvent;
 
 export const customerFeedbackInvitationEventTypes = [
   "customer-feedback.invitation.eligible",
@@ -200,5 +253,8 @@ export const customerFeedbackInvitationEventTypes = [
   "customer-feedback.invitation.expired",
   "customer-feedback.invitation.suppressed",
   "customer-feedback.invitation.revoked",
+  "customer-feedback.response.privacy-hold-placed",
+  "customer-feedback.response.privacy-hold-released",
+  "customer-feedback.response.redacted",
 ] as const;
 export type CustomerFeedbackInvitationEventType = (typeof customerFeedbackInvitationEventTypes)[number];

@@ -111,6 +111,8 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 ## Runbooks
 
+- [Customer Feedback Privacy Operations](./runbooks/customer-feedback-privacy.md): retention preview/execution, privacy holds, redaction propagation, and sensitive export incident response.
+
 - [Beta Wave Exposure](./runbooks/beta-wave-exposure.md): policy-gated waitlist admission, proportional Argo exposure, monitoring, halt, and rollback procedure.
 - [Money Operations](./runbooks/money-operations.md): checkout, wallet, Stripe payments, Connect payouts, launch checks, and smoke tests.
 - [Stripe Connect Accounts v2 Migration](./runbooks/stripe-connect-accounts-v2-migration.md): Accounts v1 compatibility selector, v2 rollout, existing-account disposition, and cleanup handoff for #3203.

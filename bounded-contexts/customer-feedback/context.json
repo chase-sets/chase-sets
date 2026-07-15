@@ -18,11 +18,15 @@
     "feedback-case-follow-up",
     "feedback-attention",
     "triage-sla",
-    "staff-attention-digest"
+    "staff-attention-digest",
+    "feedback-privacy-policy",
+    "feedback-redaction",
+    "feedback-privacy-hold",
+    "sensitive-feedback-export"
   ],
   "streamPrefix": "customer-feedback.",
   "apiBasePath": "/api/customer-feedback",
-  "slices": ["csat", "cases", "attention"],
+  "slices": ["csat", "cases", "attention", "privacy"],
   "allowedSupportDirectories": ["runtime-support"],
   "publicExports": [".", "./context", "./routes/*", "./server"],
   "allowedContextDependencies": [],
@@ -32,7 +36,7 @@
       "sourceContextName": "customer-feedback",
       "reactionName": "customer-feedback-feedback-case-opening",
       "subscriptionVersion": 1,
-      "eventTypes": ["customer-feedback.survey.submitted"],
+      "eventTypes": ["customer-feedback.survey.submitted", "customer-feedback.response.redacted"],
       "order": 10,
       "reactionHandlerSetNames": ["customer-feedback-feedback-case-opening"],
       "idempotencyPolicy": "idempotent-command-dispatch",
@@ -55,7 +59,7 @@
     {
       "projectionName": "customer-feedback-csat-invitation-projection",
       "sourceContextNames": ["customer-feedback"],
-      "ownedTables": ["customer_feedback_csat_invitations"],
+      "ownedTables": ["customer_feedback_csat_invitations", "customer_feedback_response_privacy_audit"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
@@ -96,6 +100,13 @@
       "ownedTables": [],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextNames": ["customer-feedback"],
+      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [],
@@ -109,6 +120,28 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "customer-feedback.privacy-command-snapshots",
+      "owner": "customer-feedback",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/customer-feedback/features/privacy/api/route.ts:POST /privacy/responses/:invitationId/redactions",
+        "api-route:bounded-contexts/customer-feedback/features/privacy/api/route.ts:POST /privacy/responses/:invitationId/holds",
+        "api-route:bounded-contexts/customer-feedback/features/privacy/api/route.ts:POST /privacy/responses/:invitationId/holds/:holdId/release",
+        "api-route:bounded-contexts/customer-feedback/features/privacy/api/route.ts:POST /privacy/retention/runs"
+      ],
+      "visibleDestination": {
+        "description": "Privacy commands return the committed aggregate privacy state, and retention commands return the durable run cursor and counters written by that request."
+      },
+      "proof": {
+        "authoritativeResponse": "Redaction and hold routes return state produced by the event-store command result; retention returns the persisted run snapshot after its bounded batch update.",
+        "tests": [
+          "bounded-contexts/customer-feedback/features/csat/domain/invitation-decider.test.ts proves committed redaction and hold state, replay, and idempotency.",
+          "bounded-contexts/customer-feedback/features/privacy/api/runtime.test.ts proves preview, execution, durable cursor counters, holds, and concurrent-run exclusion."
+        ]
+      }
+    },
     {
       "id": "customer-feedback.case-attention-command-snapshots",
       "owner": "customer-feedback",
@@ -179,6 +212,11 @@
       "classification": "slice",
       "purpose": "Own low-score attention classification, triage SLA aging, breach visibility, and bounded staff digest inputs.",
       "expectedConsumers": ["Customer Feedback operator attention surface", "Notifications staff digest integration"]
+    },
+    "privacy": {
+      "classification": "slice",
+      "purpose": "Own the versioned privacy classification, response redaction and hold behavior, consent applicability, sensitive access/export audit, artifact expiry, and bounded retention execution.",
+      "expectedConsumers": ["Customer Feedback privacy APIs", "Customer Feedback retention operations"]
     },
     "runtime-support": {
       "classification": "support",

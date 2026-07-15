@@ -1,4 +1,50 @@
-import type { BcRetentionExemption } from "@chase-sets/bounded-context-module";
+import type { BcRetentionExemption, BcRetentionSweep } from "@chase-sets/bounded-context-module";
+import { customerFeedbackRetentionPolicy } from "../../features/privacy/domain/policy";
+
+const retention = customerFeedbackRetentionPolicy.defaultValue;
+
+export const customerFeedbackRetentionSweeps: readonly BcRetentionSweep[] = [
+  {
+    name: "expired-export-artifacts",
+    tableName: "customer_feedback_csat_export_artifacts",
+    predicateSql: "candidate.expires_at <= now()",
+    orderBySql: "candidate.expires_at ASC",
+    intervalMs: 60 * 60 * 1_000,
+    batchLimit: 500,
+  },
+  {
+    name: "expired-privacy-audit",
+    tableName: "customer_feedback_privacy_audit",
+    predicateSql: `candidate.occurred_at < now() - make_interval(days => ${retention.structuralAuditDays})`,
+    orderBySql: "candidate.occurred_at ASC",
+    intervalMs: 24 * 60 * 60 * 1_000,
+    batchLimit: 500,
+  },
+  {
+    name: "expired-response-privacy-audit",
+    tableName: "customer_feedback_response_privacy_audit",
+    predicateSql: `candidate.occurred_at < now() - make_interval(days => ${retention.structuralAuditDays})`,
+    orderBySql: "candidate.occurred_at ASC",
+    intervalMs: 24 * 60 * 60 * 1_000,
+    batchLimit: 500,
+  },
+  {
+    name: "expired-export-audit",
+    tableName: "customer_feedback_csat_export_audits",
+    predicateSql: `candidate.started_at < now() - make_interval(days => ${retention.structuralAuditDays})`,
+    orderBySql: "candidate.started_at ASC",
+    intervalMs: 24 * 60 * 60 * 1_000,
+    batchLimit: 500,
+  },
+  {
+    name: "expired-retention-run-diagnostics",
+    tableName: "customer_feedback_retention_runs",
+    predicateSql: `candidate.completed_at < now() - make_interval(days => ${retention.invitationDiagnosticsDays})`,
+    orderBySql: "candidate.completed_at ASC",
+    intervalMs: 24 * 60 * 60 * 1_000,
+    batchLimit: 500,
+  },
+];
 
 export const customerFeedbackRetentionExemptions: readonly BcRetentionExemption[] = [
   {

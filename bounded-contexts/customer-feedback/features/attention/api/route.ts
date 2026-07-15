@@ -3,8 +3,11 @@ import { parseTypedIdBoundary, TypedIdBoundaryDomainError } from "@chase-sets/ht
 import { t } from "@chase-sets/localization";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { Hono } from "hono";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import type { createFeedbackCaseRuntime } from "../../cases/api/runtime";
 import { FeedbackCaseDecisionError } from "../../cases/domain";
+import type { CsatAdminReadPort } from "../../csat/api/runtime";
+import { normalizePrivacyReason, privacyPermission } from "../../privacy/domain/policy";
 import { canAccessFeedbackAttention } from "./access";
 import { listFeedbackAttention } from "../read-model/queries";
 
@@ -13,10 +16,12 @@ export type CustomerFeedbackApiEnv = AuthenticatedApiEnv;
 type FeedbackAttentionApiServices = Readonly<{
   db: PgQueryable;
   cases: Pick<ReturnType<typeof createFeedbackCaseRuntime>, "executeByCaseId">;
+  invitations: Pick<CsatAdminReadPort, "recordAdminExport" | "resolveRetentionPolicy">;
 }>;
 
 export function buildCustomerFeedbackAttentionApi(services: FeedbackAttentionApiServices) {
   const db = services.db;
+  const exportPort = services.invitations;
   const app = new Hono<CustomerFeedbackApiEnv>();
   app.get("/attention", async (c) => {
     const actor = c.get("actor");
@@ -32,9 +37,46 @@ export function buildCustomerFeedbackAttentionApi(services: FeedbackAttentionApi
 
   app.get("/attention/export", async (c) => {
     const actor = c.get("actor");
-    if (!canAccessFeedbackAttention(actor, "export")) return accessResponse(c, actor ? 403 : 401);
+    if (!actor) return accessResponse(c, 401);
+    if (!actor.permissions.includes(privacyPermission("export-sensitive-feedback"))) return accessResponse(c, 403);
+    let reason: string;
+    try {
+      reason = normalizePrivacyReason(c.req.query("reason") ?? "");
+    } catch {
+      return c.json({ error: { code: "export_reason_code_required" } }, 400);
+    }
     const items = await listFeedbackAttention(db, { limit: 500 });
-    return c.json({ items }, 200, { "Content-Disposition": "attachment; filename=customer-feedback-attention.json" });
+    const startedAt = new Date().toISOString();
+    const exportId = createId("cse");
+    const retention = await exportPort.resolveRetentionPolicy(startedAt);
+    const artifactExpiresAt = new Date(
+      Date.parse(startedAt) + retention.exportArtifactHours * 60 * 60 * 1_000,
+    ).toISOString();
+    const rows = [
+      "case_id,state,reason,priority,owner_id,due_at,triage_due_at",
+      ...items.map((item) =>
+        [item.caseId, item.state, item.reason, item.priority, item.ownerId, item.dueAt, item.triageDueAt]
+          .map(csvCell)
+          .join(","),
+      ),
+    ];
+    await exportPort.recordAdminExport({
+      exportId,
+      actorId: actor.userId,
+      capability: privacyPermission("export-sensitive-feedback"),
+      filters: {},
+      reason,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      artifactExpiresAt,
+      rowCount: items.length,
+      result: "completed",
+      failureCode: null,
+      artifactContent: `${rows.join("\n")}\n`,
+    });
+    return c.json({ exportId, rowCount: items.length, artifactExpiresAt, downloadHref: `/export/${exportId}` }, 201, {
+      "Cache-Control": "no-store",
+    });
   });
   app.post("/cases/:caseId/follow-up", async (c) => {
     const actor = c.get("actor");
@@ -119,6 +161,12 @@ function caseCommandError(
           ? 422
           : 409;
   return c.json({ error: { code: error.code, message: error.message } }, status);
+}
+
+function csvCell(value: unknown): string {
+  const text = String(value ?? "");
+  const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  return `"${safe.replace(/"/g, '""')}"`;
 }
 
 async function readMetrics(db: PgQueryable) {

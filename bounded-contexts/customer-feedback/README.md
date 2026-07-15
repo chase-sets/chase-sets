@@ -46,6 +46,11 @@ internals.
 
 Customer Feedback terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
+The versioned classification, retention schedule, redaction/replay semantics, holds,
+consent history, access matrix, and residual immutable metadata are defined in
+[Privacy and Retention Policy](./docs/privacy-and-retention.md). Operational response
+is documented in the [Customer Feedback Privacy runbook](../../docs/runbooks/customer-feedback-privacy.md).
+
 ## Core Aggregates and Process Managers
 
 - CSAT Invitation (aggregate): redeems an authoritative Outcome Fact, records
@@ -137,6 +142,11 @@ cooldown.
     only and is never marketing permission.
 14. Every case mutation requires manager authority and records actor and action
     time in the event. View-only operators cannot dispatch case commands.
+15. Response redaction is irreversible in application state. Full replay must end
+    with masked response and case projections, withdrawn follow-up applicability,
+    and metric-only analytics.
+16. Active privacy holds block both operator and retention redaction. Holds,
+    redactions, sensitive views, and exports are content-free audited facts.
 
 ## Feedback Case Lifecycle
 

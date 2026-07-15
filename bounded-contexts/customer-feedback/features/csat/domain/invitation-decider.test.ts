@@ -266,4 +266,86 @@ describe("CSAT invitation aggregate", () => {
       }),
     ).toThrowError(expect.objectContaining({ code: "invitation-not-redeemable" }));
   });
+
+  it("blocks redaction under hold and full replay ends with masked sensitive state", () => {
+    const issued = issuedState();
+    const presentedEvents = decideCsatInvitation(issued, {
+      type: "PresentCsatInvitation",
+      ...authority("2026-07-14T00:00:00.000Z"),
+    });
+    const presented = apply(issued, presentedEvents);
+    const submissionCommand = {
+      type: "SubmitCsatSurvey",
+      publicReference,
+      subjectAccountId: "acc_subject",
+      surveyVersion: transactionalCsatV1.id,
+      rating: 2,
+      comment: "Sensitive response content",
+      followUpConsent: true,
+      followUpConsentVersion: "follow-up-consent.v1",
+      followUpConsentAt: "2026-07-14T00:01:00.000Z",
+      submissionIdempotencyKey: "submit-private",
+      submittedAt: "2026-07-14T00:01:00.000Z",
+    } as const;
+    const submissionEvents = decideCsatInvitation(presented, submissionCommand);
+    const submitted = apply(presented, submissionEvents);
+    const holdEvents = decideCsatInvitation(submitted, {
+      type: "PlaceCsatResponsePrivacyHold",
+      holdId: "hold-investigation",
+      reason: "active-investigation",
+      actorId: "usr_security",
+      placedAt: "2026-07-14T00:02:00.000Z",
+    });
+    const held = apply(submitted, holdEvents);
+
+    expect(() =>
+      decideCsatInvitation(held, {
+        type: "RedactCsatResponse",
+        scope: "all-sensitive",
+        reason: "customer-request",
+        actorId: "usr_privacy",
+        idempotencyKey: "redact-01",
+        redactedAt: "2026-07-14T00:03:00.000Z",
+      }),
+    ).toThrowError(expect.objectContaining({ code: "privacy-hold-active" }));
+
+    const releaseEvents = decideCsatInvitation(held, {
+      type: "ReleaseCsatResponsePrivacyHold",
+      holdId: "hold-investigation",
+      reason: "investigation-complete",
+      actorId: "usr_security",
+      releasedAt: "2026-07-14T00:04:00.000Z",
+    });
+    const released = apply(held, releaseEvents);
+    const redactionCommand = {
+      type: "RedactCsatResponse",
+      scope: "all-sensitive",
+      reason: "customer-request",
+      actorId: "usr_privacy",
+      idempotencyKey: "redact-01",
+      redactedAt: "2026-07-14T00:05:00.000Z",
+    } as const;
+    const redactionEvents = decideCsatInvitation(released, redactionCommand);
+    const rebuilt = apply(initialCsatInvitationState, [
+      ...decideCsatInvitation(initialCsatInvitationState, evaluateCommand()),
+      ...presentedEvents,
+      ...submissionEvents,
+      ...holdEvents,
+      ...releaseEvents,
+      ...redactionEvents,
+    ]);
+
+    expect(submissionEvents[0]?.data).toMatchObject({ comment: "Sensitive response content" });
+    expect(rebuilt.acceptedSubmission).toMatchObject({
+      comment: null,
+      followUpConsent: false,
+      followUpConsentAt: null,
+      followUpConsentSubjectAccountId: "[redacted]",
+    });
+    expect(rebuilt.invitation).toMatchObject({
+      subjectAccountId: "[redacted]",
+      redactedScopes: ["all-sensitive"],
+    });
+    expect(decideCsatInvitation(rebuilt, redactionCommand)).toEqual([]);
+  });
 });

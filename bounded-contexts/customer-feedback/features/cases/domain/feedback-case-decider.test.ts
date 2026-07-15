@@ -21,7 +21,11 @@ const submission = {
   comment: "Never copied into the case stream",
   followUpConsent: true,
   followUpConsentVersion: "feedback-follow-up-v1",
+  followUpConsentStatement: "Chase Sets may contact me about this feedback response.",
   followUpConsentAt: "2026-07-13T12:00:00.000Z",
+  followUpConsentSubjectAccountId: "acc_subject",
+  followUpConsentPurpose: "case-specific-follow-up",
+  followUpConsentApplicability: "this-response-only",
   submissionIdempotencyKey: "submission-01",
   submittedAt: "2026-07-13T12:00:00.000Z",
 } satisfies CsatSurveySubmittedEvent["data"];
@@ -205,6 +209,24 @@ describe("feedback case disposition transitions", () => {
 });
 
 describe("feedback case consent gating", () => {
+  it("treats legacy consent without exact statement metadata as not granted", () => {
+    const legacySubmission = {
+      ...submission,
+      followUpConsent: true,
+      followUpConsentAt: "2026-07-13T12:00:00.000Z",
+      followUpConsentStatement: undefined,
+      followUpConsentSubjectAccountId: undefined,
+      followUpConsentPurpose: undefined,
+      followUpConsentApplicability: undefined,
+    } as unknown as CsatSurveySubmittedEvent["data"];
+    const state = openState(legacySubmission);
+    expect(state.feedbackCase?.consent).toMatchObject({
+      status: "not-granted",
+      grantedAt: null,
+      subjectAccountId: "[unavailable]",
+    });
+  });
+
   it("requires affirmative version-matched consent for every follow-up step", () => {
     const withoutConsent = triagedState({ followUpConsent: false, followUpConsentAt: null });
     expect(() =>
@@ -248,6 +270,38 @@ describe("feedback case consent gating", () => {
     expect(() =>
       decideFeedbackCase(withdrawn, {
         type: "MarkFeedbackCaseFollowUpSent",
+        deliveryReference: "notification_01",
+        actor: manager,
+        actedAt: "2026-07-13T12:05:00.000Z",
+      }),
+    ).toThrow("requires applicable affirmative consent");
+  });
+
+  it("suppresses an in-flight follow-up when response redaction wins the delivery race", () => {
+    const requested = apply(triagedState(), {
+      type: "RequestFeedbackCaseFollowUp",
+      consentVersion: "feedback-follow-up-v1",
+      actor: manager,
+      actedAt: "2026-07-13T12:03:00.000Z",
+    });
+    const redacted = apply(requested, {
+      type: "ProtectFeedbackCaseAfterResponseRedaction",
+      scope: "all-sensitive",
+      reason: "customer-request",
+      actor: manager,
+      actedAt: "2026-07-13T12:04:00.000Z",
+    });
+
+    expect(redacted.feedbackCase).toMatchObject({
+      disposition: "redacted",
+      consent: { status: "withdrawn" },
+      followUpStatus: "cancelled",
+      followUpDeliveryStatus: "suppressed",
+    });
+    expect(() =>
+      decideFeedbackCase(redacted, {
+        type: "RecordFeedbackCaseFollowUpDeliveryOutcome",
+        outcome: "sent",
         deliveryReference: "notification_01",
         actor: manager,
         actedAt: "2026-07-13T12:05:00.000Z",

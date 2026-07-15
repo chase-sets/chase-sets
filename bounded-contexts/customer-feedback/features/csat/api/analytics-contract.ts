@@ -148,10 +148,23 @@ export type CsatAdminQueuePage = Readonly<{
 }>;
 
 export type CsatAdminExportAudit = Readonly<{
+  exportId?: string;
   actorId: string;
+  capability: string;
   filters: CsatAdminQueueFilters;
+  reason: string;
   startedAt: string;
-  completedAt: string;
+  completedAt: string | null;
+  artifactExpiresAt: string;
   rowCount: number;
   result: "completed" | "failed";
+  failureCode: string | null;
+  artifactContent: string | null;
+}>;
+
+export type CsatAdminExportArtifact = Readonly<{
+  exportId: string;
+  actorId: string;
+  artifactExpiresAt: string;
+  artifactContent: string;
 }>;
