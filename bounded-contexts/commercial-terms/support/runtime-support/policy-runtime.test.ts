@@ -14,6 +14,7 @@ import type {
   LegacyScheduleRevisedEvent,
 } from "./legacy-policy-events";
 import { commercialTermsSchedulePolicy } from "./terms-policy";
+import { DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS } from "./common";
 
 /**
  * Direct coverage of the upcast/dual-handler path: replays pre-convergence
@@ -97,7 +98,14 @@ describe("commercial terms policy command consistency", () => {
       await runtime.createScheduleDocument(
         commercialTermsSchedulePolicy("business"),
         {
-          value: legacyScheduleCreated.data,
+          value: {
+            label: legacyScheduleCreated.data.label,
+            accountType: legacyScheduleCreated.data.accountType,
+            marketplaceSalesFeePercentageBps: legacyScheduleCreated.data.marketplaceSalesFeePercentageBps,
+            marketplaceSalesFeeFixedAmount: legacyScheduleCreated.data.marketplaceSalesFeeFixedAmount,
+            shippingAllowancePercentageBps:
+              legacyScheduleCreated.data.shippingAllowancePercentageBps ?? DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
+          },
           status: "inactive",
           effectiveFrom: "2027-01-01T00:00:00.000Z",
           effectiveUntil: "2027-12-31T00:00:00.000Z",
