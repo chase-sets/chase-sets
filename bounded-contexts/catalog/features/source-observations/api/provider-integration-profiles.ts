@@ -3,6 +3,7 @@ import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type {
   CatalogProviderExecutableMappingContract,
   CatalogProviderIngestionUnitIdentityContract,
+  CatalogProviderIngestionUnitProductDomain,
   CatalogProviderMappingContractDiagnostic,
   CatalogProviderMappingSourceContract,
   CatalogProviderProfileFixtureContract,
@@ -5169,9 +5170,22 @@ function inferCatalogProviderIngestionUnitKey(
   }).unitKey;
 }
 
+// The product domain a profile version belongs to. The declared ingestion-unit
+// identity is authoritative; profiles that predate the identity contract fall
+// back to signal inference so every active version resolves to one domain.
+export function catalogProviderProfileVersionProductDomain(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): CatalogProviderIngestionUnitProductDomain {
+  return (
+    version.ingestionUnitIdentity?.productDomain ??
+    version.executableMappingContract?.ingestionUnitIdentity?.productDomain ??
+    inferProductDomain(version)
+  );
+}
+
 function inferProductDomain(
   version: CatalogProviderIntegrationProfileVersionRecord,
-): "pokemon" | "mtg" | "yugioh" | "one-piece" | "lorcana" {
+): CatalogProviderIngestionUnitProductDomain {
   const signals = [
     version.profileKey,
     version.profile.catalogFieldMapping.blueprintKey,

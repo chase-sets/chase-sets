@@ -1,10 +1,25 @@
 # Catalog Integration Production Signoff
 
 This document is the production activation start gate for catalog provider
-integrations, organized per game. Each game section states its own production
-authority, the governed data classes that apply to its providers, the
-policy/legal approval gate that blocks activation, and the milestone/UAT
-references that prove the rollout works through the shared Chase Sets importer.
+integrations, organized per product domain. Each product-domain section states
+its own production authority, the governed data classes that apply to its
+providers, the policy/legal approval gate that blocks activation, and the
+milestone/UAT references that prove the rollout works through the shared Chase
+Sets importer.
+
+The active provider profile/unit registry
+(`catalogProviderIntegrationProfileVersions` in
+`bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts`)
+is the executable source of truth for which product domains and provider units
+can participate in the complete production Catalog synchronization. Every active
+production-capable unit in that registry must be covered by exactly one
+product-domain section below. The
+`catalog-integration-production-signoff-coverage` guard reconciles the registry
+against this document and the provider-sync runbook, so a future
+production-capable domain or provider unit that lacks signoff coverage fails
+visibly instead of relying on a hardcoded issue table. Validation-only,
+comparison-only, test, gated, deprecated, and retired units classify out of
+required coverage and cannot enter the production launch manifest.
 
 Production activation is not approved for any game until that game's signoff is
 complete and its staging UAT passes from the Chase Sets interface. Operators
@@ -12,18 +27,21 @@ must not use handcrafted URLs, direct API calls, CLI commands, SQL, Postman,
 browser console commands, manual provider endpoint access, or hidden Admin/API
 routes for the UAT.
 
-## Game signoffs
+## Product-domain signoffs
 
-| Game | Production providers | Section |
+| Product domain | Production providers | Section |
 | --- | --- | --- |
 | Magic | MTGJSON, Scryfall, TCGplayer | [Magic](#magic) |
+| Pokemon | TCGdex, TCGplayer | [Pokemon](#pokemon) |
+| Yu-Gi-Oh! | YGOPRODeck, YGOJSON, TCGplayer | [Yu-Gi-Oh!](#yu-gi-oh) |
 | One Piece | Scrydex, TCGplayer, Bandai (validation-only) | [One Piece](#one-piece) |
 | Lorcana | LorcanaJSON, Lorcast, Scrydex, TCGplayer | [Lorcana](#lorcana) |
 
 ## Shared signoff contract
 
-Every game signoff below asserts the same template. Read this section once; the
-per-game sections then bind it to that game's providers and issue numbers.
+Every product-domain signoff below asserts the same template. Read this section
+once; the per-domain sections then bind it to that domain's providers and issue
+numbers.
 
 A signoff asserts:
 
@@ -151,6 +169,200 @@ Related issues:
 - #2032 Add TCGplayer Magic sealed-product sync profile
 - #2039 Staging UAT: sync one Magic set from all three providers and one Pokemon
   set through the shared interface
+
+## Pokemon
+
+Production activation start gate for Pokemon Trading Card Game Catalog sync from
+TCGdex and the existing Chase Sets TCGplayer provider path. Pokemon is the
+foundational Catalog product line established by the initial Catalog integration
+milestones and used as the shared-importer regression baseline for every later
+product-domain rollout, so its production authority is stated here explicitly
+rather than inferred from that history.
+
+Tracking:
+
+- Foundational Catalog integration milestones: #2 config/data-driven migration
+  and #4 admin management
+- Regression-baseline UAT evidence: #2039 (Magic UAT synced one Pokemon set),
+  #2285 (One Piece UAT Pokemon regression), and milestone #50
+  `all-provider-regression` run `28279080021` (Pokemon TCGdex regression)
+
+### Provider authority
+
+| Provider | Production role | Catalog authority | Explicitly not Catalog truth |
+| --- | --- | --- | --- |
+| TCGdex | Primary free Pokemon card-print and image-evidence source for series, expansions, cards, languages, and image URI evidence where approved | Series/expansion identifiers, card-print identifiers, collector/local numbers, printed names, language facts, rarity, variant facts, image URI evidence when approved, and freshness diagnostics | Prices, market prices, seller or account facts, raw provider bodies, and unapproved provider imagery copies |
+| TCGplayer | Pokemon marketplace product, SKU, group/set, sealed-product, and external-reference identity source through the existing Chase Sets automation path | Product id external-reference candidates, SKU external-product-reference candidates after selected Options validate, group/set-name matching evidence, condition/language/printing/sealed-form evidence, marketplace product image URI evidence when approved | Prices as Catalog identity, market prices as Catalog truth, latest sales, seller/account facts, inventory, listings, orders, messages, cookies, and session material |
+
+TCGplayer Product ids map to External Catalog Item Reference candidates;
+TCGplayer SKU ids map to External Product Reference candidates only after the
+selected Options validate against the active Catalog Product schema. TCGdex and
+TCGplayer are the only Pokemon sources approved for retained image URI evidence
+in the production sync path. Official Pokemon (pokemon.com) pages remain a
+validation-only reference cited as redacted validation labels only, never raw
+official text, imagery copies, or scraped payload bodies.
+
+### Governed data classes
+
+Pokemon production sync follows the base provider-data policy in
+[Catalog Integration Data Governance](./catalog-integration-data-governance.md).
+
+| Data class | Default for Pokemon providers | Activation requirement |
+| --- | --- | --- |
+| Raw provider payload body | Request only; do not store, log, show, export, or hash as retained evidence | Policy/legal approval plus retained-data exception before any retained raw body exists |
+| Sampled provider payload | Not retained by default | Policy/legal approval, owner, retention window, deletion/rotation plan, and removal criteria |
+| Fixture payload body | Redacted or synthetic by default | Real provider body fixtures require policy/legal approval and retained-data exception |
+| Dry-run input body | Request only | Retained bodies require policy/legal approval and retained-data exception |
+| Dry-run output evidence | Retained redacted summary only | May include normalized facts, counts, provider key, unit key, source hash, diagnostics, and bounded evidence ids |
+| Provider image evidence | URI/status evidence only by default | Retained provider imagery in evidence requires policy/legal approval; promoted Catalog assets must be Catalog-owned |
+| Export package | Redacted summary only by default | Reviewed evidence package approval required before provider-controlled content is exported |
+| Source hash material | Allowed normalized Catalog facts and stable provider ids only | Must exclude raw bodies, secrets, seller/account facts, prices, inventory, listings, orders, messages, and session/cookie material |
+
+### Policy/legal approval status
+
+Production activation for any Pokemon provider is blocked until provider-data
+policy/legal approval is recorded for TCGdex and TCGplayer Pokemon;
+retained-data exceptions exist for every retained sample, fixture body, dry-run
+body, provider imagery evidence view, or export package; TCGplayer Pokemon
+credential/session storage, rotation, redaction, and operator-safe readiness
+surfacing are approved; rollout controls can independently block provider
+transport, option queries, import, promotion, reapply, activation, worker
+processing, and broad read/write access for TCGdex and TCGplayer, including
+unit-scoped stops that block Pokemon TCGplayer units without blocking Magic,
+Yu-Gi-Oh!, One Piece, or Lorcana TCGplayer units; conflict policy explains
+TCGdex and TCGplayer field authority, losing evidence retention,
+duplicate-prevention order, and manual-review blockers; asset policy evidence
+proves approved TCGdex/TCGplayer images are rehosted into Catalog-owned Product
+Asset Sets without leaking provider image URLs; and
+`CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE` names the accepted
+provider-data approval and regression-baseline UAT evidence before
+production-like TCGdex or TCGplayer Pokemon imports, promotions, reapply, or
+activation are opened.
+
+Approved TCGdex or TCGplayer image evidence is shown as normalized image URI
+evidence only; promotion downloads approved images into Catalog-owned Product
+Asset Sets following `catalog-product-image-retention-v1` and publishes only
+Chase Sets asset URLs as compatibility `imageUrls`. Takedown or
+source-revocation requests use the Catalog asset takedown path in
+[Catalog Asset Storage](../../../docs/runbooks/catalog-asset-storage.md).
+
+### Milestone / UAT
+
+Pokemon carries no dedicated production milestone because it is the pre-existing
+importer baseline. Its production proof is the recurring cross-domain regression
+requirement: every later product-domain UAT must sync one Pokemon set through
+the same shared source-scope importer and reach downstream Catalog Items
+projection without a Pokemon-specific sync area. The accepted evidence includes
+the #2039 Magic UAT Pokemon set, the #2285 One Piece UAT Pokemon regression, and
+the milestone #50 `all-provider-regression` run `28279080021`, all through
+normal operator navigation without direct provider URLs, direct APIs, SQL,
+browser console commands, hidden routes, raw provider payloads, provider
+imagery, or secrets. Future revalidation must use the same normal operator
+navigation and the same shared importer controls.
+
+## Yu-Gi-Oh!
+
+Production activation start gate for Yu-Gi-Oh! Trading Card Game Catalog sync
+from YGOPRODeck, YGOJSON, and the existing Chase Sets TCGplayer provider path.
+
+Tracking:
+
+- Milestone: #44 Yu-Gi-Oh! catalog provider production sync
+- Parent tracker: #2111
+- Source authority: #2112 and #2113
+- Asset policy: #2119
+- Rollout controls / observability / runbook: #2125
+- Required staging UAT: #2126
+- Validation-only retirement and doc finalization: #2127
+
+### Provider authority
+
+| Provider | Production role | Catalog authority | Explicitly not Catalog truth |
+| --- | --- | --- | --- |
+| YGOPRODeck | Preferred free card-level baseline source for cards, printings, sets, image URI evidence, archetypes, and banlist/format reference facts where approved | Card-print identifiers, set/printing identifiers, printed names, collector/set codes, language facts, rarity, archetype and banlist/format reference facts, image URI evidence when approved, and freshness diagnostics | Prices, low-confidence vendor price hints as Catalog truth, seller or account facts, raw provider bodies, and unapproved provider imagery copies |
+| YGOJSON | Free structured Yu-Gi-Oh! set, product, sealed-product, and pack-metadata reference source, and normalization cross-check | Set/product identifiers, sealed-product identifiers and packaging labels, pack-content and pack structure reference facts, cross-provider disagreement evidence, and bulk metadata/freshness evidence | Prices, gameplay analysis beyond reference facts, seller/account facts, raw provider bodies, and unapproved imagery copies |
+| TCGplayer | Yu-Gi-Oh! marketplace product, SKU, group/set, and price-reference identity source through the existing Chase Sets automation path | Product id external-reference candidates, SKU external-product-reference candidates after selected Options validate, group/set-name matching evidence, condition/language/printing/edition evidence, marketplace product image URI evidence when approved | Prices as Catalog identity, market prices as Catalog truth, latest sales, seller/account facts, inventory, listings, orders, messages, cookies, and session material |
+
+TCGplayer Product ids map to External Catalog Item Reference candidates;
+TCGplayer SKU ids map to External Product Reference candidates only after the
+selected Options validate against the active Catalog Product schema. YGOPRODeck
+and TCGplayer are the sources approved for retained image URI evidence in the
+production sync path. Official Konami Yu-Gi-Oh! database pages remain a
+validation-only reference cited as redacted validation labels and
+source-disagreement diagnostics only, never raw official text, imagery copies,
+or scraped payload bodies.
+
+### Governed data classes
+
+Yu-Gi-Oh! production sync follows the base provider-data policy in
+[Catalog Integration Data Governance](./catalog-integration-data-governance.md).
+
+| Data class | Default for Yu-Gi-Oh! providers | Activation requirement |
+| --- | --- | --- |
+| Raw provider payload body | Request only; do not store, log, show, export, or hash as retained evidence | Policy/legal approval plus retained-data exception before any retained raw body exists |
+| Sampled provider payload | Not retained by default | Policy/legal approval, owner, retention window, deletion/rotation plan, and removal criteria |
+| Fixture payload body | Redacted or synthetic by default | Real provider body fixtures require policy/legal approval and retained-data exception |
+| Dry-run input body | Request only | Retained bodies require policy/legal approval and retained-data exception |
+| Dry-run output evidence | Retained redacted summary only | May include normalized facts, counts, provider key, unit key, source hash, diagnostics, and bounded evidence ids |
+| Provider image evidence | URI/status evidence only by default | Retained provider imagery in evidence requires policy/legal approval; promoted Catalog assets must be Catalog-owned |
+| Export package | Redacted summary only by default | Reviewed evidence package approval required before provider-controlled content is exported |
+| Source hash material | Allowed normalized Catalog facts and stable provider ids only | Must exclude raw bodies, secrets, seller/account facts, prices, inventory, listings, orders, messages, and session/cookie material |
+
+### Policy/legal approval status
+
+Production activation for any Yu-Gi-Oh! provider is blocked until provider-data
+policy/legal approval is recorded for YGOPRODeck, YGOJSON, and TCGplayer
+Yu-Gi-Oh!; retained-data exceptions exist for every retained sample, fixture
+body, dry-run body, provider imagery evidence view, or export package; TCGplayer
+Yu-Gi-Oh! credential/session storage, rotation, redaction, and operator-safe
+readiness surfacing are approved; rollout controls can independently block
+provider transport, option queries, import, promotion, reapply, activation,
+worker processing, and broad read/write access for YGOPRODeck, YGOJSON, and
+TCGplayer, including unit-scoped stops that block Yu-Gi-Oh! TCGplayer units
+without blocking Magic, Pokemon, One Piece, or Lorcana TCGplayer units; conflict
+policy explains YGOPRODeck, YGOJSON, and TCGplayer field authority, losing
+evidence retention, duplicate-prevention order, and manual-review blockers;
+asset policy evidence proves approved YGOPRODeck/TCGplayer images are rehosted
+into Catalog-owned Product Asset Sets without leaking provider image URLs; and
+`CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE` names the accepted
+provider-data approval and #2126 UAT evidence before production-like YGOPRODeck,
+YGOJSON, or TCGplayer Yu-Gi-Oh! imports, promotions, reapply, or activation are
+opened.
+
+Approved YGOPRODeck or TCGplayer image evidence is shown as normalized image URI
+evidence only; promotion downloads approved images into Catalog-owned Product
+Asset Sets following `catalog-product-image-retention-v1` and publishes only
+Chase Sets asset URLs as compatibility `imageUrls`. Takedown or
+source-revocation requests use the Catalog asset takedown path in
+[Catalog Asset Storage](../../../docs/runbooks/catalog-asset-storage.md).
+
+### Milestone / UAT
+
+The #2126 staging UAT must demonstrate one Yu-Gi-Oh! source scope synced from
+YGOPRODeck, YGOJSON, and the existing TCGplayer provider path through normal
+operator navigation, and one Pokemon set, one MTG set, and one One Piece set
+synced through the same source-scope importer so the Yu-Gi-Oh! rollout cannot
+regress existing operator workflows, all without a product-line-specific sync
+area. The public YGOPRODeck and YGOJSON paths must use bulk/list/search or
+set-file ingestion instead of one provider call per card, printing, or sealed
+product. Milestone #44 issues #2116, #2117, and #2118 completed the YGOPRODeck,
+YGOJSON, and TCGplayer promotion units; #2127 retired the validation-only
+Yu-Gi-Oh! paths after proof.
+
+Related issues:
+
+- #2112 Complete provider-data governance and source-authority signoff
+- #2113 Define provider roles, product-line identity, and existing TCGplayer
+  scope
+- #2116 Promote YGOPRODeck to production card, set, archetype, banlist, and
+  image-evidence sync
+- #2117 Promote YGOJSON and YAML Yugi to production structured product metadata
+  sync
+- #2118 Extend existing TCGplayer provider for Yu-Gi-Oh! marketplace product,
+  SKU, and price-reference sync
+- #2119 Add Yu-Gi-Oh! asset ingestion, image rehosting, and retention policy
+- #2126 Staging UAT: sync Yu-Gi-Oh! provider scope through the shared importer
+- #2127 Retire validation-only Yu-Gi-Oh! paths and finalize production docs
 
 ## One Piece
 
