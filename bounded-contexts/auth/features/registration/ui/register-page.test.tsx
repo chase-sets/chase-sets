@@ -129,6 +129,26 @@ describe("registration page", () => {
     expect(document.querySelector('input[name="intent"][value="password"]')).not.toBeNull();
   });
 
+  it("identifies registration fields for browser and password-manager autofill", () => {
+    render(<RegisterPage />);
+
+    expect(inputNamed("displayName").getAttribute("autocomplete")).toBe("name");
+    expect(inputNamed("email").getAttribute("autocomplete")).toBe("email");
+
+    fireEvent.click(screen.getByRole("radio", { name: /Phone Code/ }));
+
+    expect(inputNamed("displayName").getAttribute("autocomplete")).toBe("name");
+    expect(Array.from(document.querySelectorAll('input[name="phone"]'))).toHaveLength(2);
+    for (const phoneInput of document.querySelectorAll('input[name="phone"]')) {
+      expect(phoneInput.getAttribute("autocomplete")).toBe("tel");
+    }
+    expect(inputNamed("code").getAttribute("autocomplete")).toBe("one-time-code");
+
+    fireEvent.click(screen.getByRole("radio", { name: /Password/ }));
+
+    expect(inputNamed("password").getAttribute("autocomplete")).toBe("new-password");
+  });
+
   it("posts registration forms to the supplied auth action so return targets survive", () => {
     const action = "/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout";
     render(<RegisterPage action={action} />);

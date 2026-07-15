@@ -2,6 +2,10 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ShippingAddressPage } from "./shipping-address-page";
 
+function expectAutocomplete(markup: string, name: string, value: string) {
+  expect(markup).toMatch(new RegExp(`<input(?=[^>]*\\bname="${name}")(?=[^>]*\\bautocomplete="${value}")[^>]*>`, "i"));
+}
+
 describe("ShippingAddressPage", () => {
   it("renders saved addresses with default management controls", () => {
     const markup = renderToString(
@@ -37,5 +41,24 @@ describe("ShippingAddressPage", () => {
     expect(markup).toContain("100 Market Street");
     expect(markup).toContain("Update address");
     expect(markup).toContain("Archive");
+  });
+
+  it("identifies every shipping-address field for browser autofill", () => {
+    const markup = renderToString(<ShippingAddressPage addresses={[]} />);
+
+    for (const [name, autocomplete] of [
+      ["name", "name"],
+      ["company", "organization"],
+      ["country", "country"],
+      ["line1", "address-line1"],
+      ["line2", "address-line2"],
+      ["city", "address-level2"],
+      ["state", "address-level1"],
+      ["postalCode", "postal-code"],
+      ["phone", "tel"],
+      ["email", "email"],
+    ] as const) {
+      expectAutocomplete(markup, name, autocomplete);
+    }
   });
 });

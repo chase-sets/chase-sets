@@ -23,7 +23,7 @@ describe("sign-in page two-step journey", () => {
 
     expect(screen.getByRole("link", { name: "Continue with Google" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Continue with Facebook" })).toBeTruthy();
-    expect(screen.getByLabelText(/Email or phone/)).toBeTruthy();
+    expect(screen.getByLabelText(/Email or phone/).getAttribute("autocomplete")).toBe("username");
     expect(screen.queryByRole("tab", { name: "Passkey" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Use Passkey" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
@@ -89,7 +89,7 @@ describe("sign-in page two-step journey", () => {
 
     expect(screen.getByText("Signing in with buyer@example.com")).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Password" }).getAttribute("aria-checked")).toBe("true");
-    expect(document.querySelector('input[name="password"]')).toBeTruthy();
+    expect(document.querySelector('input[name="password"]')?.getAttribute("autocomplete")).toBe("current-password");
   });
 
   it("rehydrates the failed method step and focuses the announced error", () => {
