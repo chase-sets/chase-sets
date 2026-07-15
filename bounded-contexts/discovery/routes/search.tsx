@@ -29,6 +29,11 @@ import {
 } from "@chase-sets/checkout/server";
 import { applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
 import { SearchPage } from "../features/search/ui/search-page";
+import {
+  buildSearchResultSetKey,
+  persistSearchExtraPages,
+  restoreSearchExtraPages,
+} from "../features/search/ui/search-scroll-restoration";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 import { useDiscoveryRealtimeRevalidation } from "../support/realtime-support/revalidation";
 import {
@@ -461,23 +466,26 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     value: data.search,
   }));
   const dynamicFilters = data.dynamicFilters ?? [];
-  const resultSetKey = JSON.stringify([
-    data.search,
-    data.category,
-    data.tag,
-    data.language,
-    data.marketActivity,
-    data.priceMin,
-    data.priceMax,
-    data.inStock,
-    data.sort,
+  const resultSetKey = buildSearchResultSetKey({
+    search: data.search,
+    category: data.category,
+    tag: data.tag,
+    language: data.language,
+    marketActivity: data.marketActivity,
+    priceMin: data.priceMin,
+    priceMax: data.priceMax,
+    inStock: data.inStock,
+    sort: data.sort,
     dynamicFilters,
-  ]);
+  });
   const resultSetKeyRef = useRef(resultSetKey);
   const [extraPageState, setExtraPageState] = useState<{
     key: string;
     pages: DiscoverySearchResponse[];
-  }>({ key: resultSetKey, pages: [] });
+  }>(() => ({
+    key: resultSetKey,
+    pages: restoreSearchExtraPages(getSearchSessionStorage(), resultSetKey),
+  }));
   const [loadMoreState, setLoadMoreState] = useState<{
     loading: boolean;
     error: string | null;
@@ -512,7 +520,14 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   useEffect(() => {
     resultSetKeyRef.current = resultSetKey;
     loadMoreInFlightRef.current = false;
-    setExtraPageState({ key: resultSetKey, pages: [] });
+    setExtraPageState((current) =>
+      current.key === resultSetKey
+        ? current
+        : {
+            key: resultSetKey,
+            pages: restoreSearchExtraPages(getSearchSessionStorage(), resultSetKey),
+          },
+    );
     setLoadMoreState({ loading: false, error: null });
     setBulkAddState({ status: "idle" });
   }, [resultSetKey]);
@@ -775,9 +790,14 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         return;
       }
 
-      setExtraPageState((current) =>
-        current.key === requestKey ? { key: current.key, pages: [...current.pages, nextPage] } : current,
-      );
+      setExtraPageState((current) => {
+        if (current.key !== requestKey) {
+          return current;
+        }
+        const pages = [...current.pages, nextPage];
+        persistSearchExtraPages(getSearchSessionStorage(), requestKey, pages);
+        return { key: current.key, pages };
+      });
       setLoadMoreState({ loading: false, error: null });
     } catch {
       if (resultSetKeyRef.current === requestKey) {
@@ -927,6 +947,18 @@ function mergeDiscoverySearchResponses(
     count: items.length,
     nextCursor: extraPages.length > 0 ? (extraPages.at(-1)?.nextCursor ?? null) : firstPage.nextCursor,
   };
+}
+
+function getSearchSessionStorage(): Storage | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
 }
 
 function readDynamicSearchFilters(searchParams: URLSearchParams): DynamicSearchFilterSelection[] {

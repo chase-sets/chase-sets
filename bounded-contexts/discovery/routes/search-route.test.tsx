@@ -4,7 +4,8 @@ import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeProjectionPatch, RealtimeSyncRequired } from "@chase-sets/platform-runtime/realtime";
 import type { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
-import type { DiscoveryBulkCartPreview } from "../support/request-support/api-client";
+import type { DiscoveryBulkCartPreview, DiscoverySearchResponse } from "../support/request-support/api-client";
+import { buildSearchResultSetKey, persistSearchExtraPages } from "../features/search/ui/search-scroll-restoration";
 
 const {
   mockUseLoaderData,
@@ -156,6 +157,7 @@ describe("marketplace search route", () => {
 
   afterEach(() => {
     cleanup();
+    window.sessionStorage.clear();
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
@@ -523,6 +525,42 @@ describe("marketplace search route", () => {
     expect(setSearchParams).not.toHaveBeenCalled();
   });
 
+  it("rehydrates cursor-loaded results before a matching search route remounts", async () => {
+    const secondPage = persistedSearchPage("cat_raichu", "raichu", "Raichu");
+    const loaderData = searchDataWithCursor("pikachu");
+    persistSearchExtraPages(window.sessionStorage, resultSetKey(loaderData), [secondPage]);
+    mockUseLoaderData.mockReturnValue(loaderData);
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+
+    const firstVisit = render(<SearchRoute />);
+    expect(screen.getByText("Raichu")).toBeTruthy();
+    firstVisit.unmount();
+
+    render(<SearchRoute />);
+    expect(screen.getByText("Raichu")).toBeTruthy();
+  });
+
+  it("does not rehydrate cursor pages after the Discovery Query changes", () => {
+    const secondPage = persistedSearchPage("cat_raichu", "raichu", "Raichu");
+    const pikachuData = searchDataWithCursor("pikachu");
+    persistSearchExtraPages(window.sessionStorage, resultSetKey(pikachuData), [secondPage]);
+    let loaderData: ReturnType<typeof searchDataWithCursor> | ReturnType<typeof searchDataWithResults> = pikachuData;
+    mockUseLoaderData.mockImplementation(() => loaderData);
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+
+    const { rerender } = render(<SearchRoute />);
+    expect(screen.getByText("Raichu")).toBeTruthy();
+
+    loaderData = searchDataWithResults("mewtwo");
+    rerender(<SearchRoute />);
+
+    expect(screen.queryByText("Raichu")).toBeNull();
+  });
+
   it("treats a final cursor page as terminal after merging loaded results", async () => {
     const secondPageItem = {
       ...searchDataWithResults("raichu").data.items[0],
@@ -594,10 +632,14 @@ describe("marketplace search route", () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
 
-    render(<SearchRoute />);
+    const loadedVisit = render(<SearchRoute />);
     fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
 
     await waitFor(() => expect(screen.getByText("Raichu")).toBeTruthy());
+
+    loadedVisit.unmount();
+    render(<SearchRoute />);
+    expect(screen.getByText("Raichu")).toBeTruthy();
 
     const subscriptionOptions = (
       mockSubscribeRealtimePatches.mock.calls.at(-1) as [SubscribeRealtimePatchesOptions] | undefined
@@ -739,5 +781,60 @@ function bulkPreview(): DiscoveryBulkCartPreview {
       },
     ],
     skippedItems: [],
+  };
+}
+
+function resultSetKey(data: {
+  search: string;
+  category: string;
+  tag: string;
+  language: string;
+  marketActivity: string;
+  priceMin: string;
+  priceMax: string;
+  inStock: boolean;
+  sort: string;
+}) {
+  return buildSearchResultSetKey({
+    search: data.search,
+    category: data.category,
+    tag: data.tag,
+    language: data.language,
+    marketActivity: data.marketActivity,
+    priceMin: data.priceMin,
+    priceMax: data.priceMax,
+    inStock: data.inStock,
+    sort: data.sort,
+    dynamicFilters: [],
+  });
+}
+
+function persistedSearchPage(catalogItemId: string, slug: string, title: string): DiscoverySearchResponse {
+  const item = searchDataWithResults(title).data.items[0];
+  if (!item) {
+    throw new Error("Expected a search result fixture.");
+  }
+
+  return {
+    items: [
+      {
+        ...item,
+        catalog_item_id: catalogItemId,
+        slug,
+        title_i18n: null,
+        title,
+        subtitle_i18n: null,
+        display_badges: [],
+        description_i18n: null,
+        product_asset_sets: [],
+        image_fallback: null,
+      },
+    ],
+    facets: [],
+    total: null,
+    count: 1,
+    nextCursor: null,
+    retrievalMode: "lexical",
+    lexicalCount: 1,
   };
 }
