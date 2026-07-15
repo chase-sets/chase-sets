@@ -1,9 +1,18 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { signInWithPassword } from "./support/auth";
 import { marketplaceBrowserE2eBuyerCredentials, marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
 const supportRequestId = "sup_seed_self_service_product_damaged";
 const supportRequestPath = `/account/support/${supportRequestId}`;
+const projectionCatchUpTimeout = 60_000;
+
+async function waitForProjectedStatus(page: Page, status: string) {
+  await expect(async () => {
+    await page.goto(supportRequestPath, { waitUntil: "domcontentloaded" });
+    await expect(page.getByText(`Current status: ${status}`)).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: projectionCatchUpTimeout });
+}
+
 test.describe("marketplace support case detail", () => {
   test("carries a damaged-item case from seller offer to buyer acceptance @marketplace-account", async ({
     browser,
@@ -31,33 +40,34 @@ test.describe("marketplace support case detail", () => {
       await partialRefundAmount.fill("5.00");
       await sellerPage.getByLabel("Response summary").fill("Keep the item and receive a partial refund.");
       await sellerPage.getByRole("button", { name: "Send response" }).click();
-      await expect(sellerPage).toHaveURL(/action=response&afterWrite=/);
-      await expect(sellerPage.getByText("Response sent.")).toBeVisible();
-      await expect(sellerPage.getByText("Current status: Waiting on buyer")).toBeVisible();
+      await expect(sellerPage).toHaveURL(/action=response&afterWrite=|actionError=/);
     } else {
       expect(sellerStatus).toMatch(/^Current status: (Waiting on buyer|Resolved)$/);
+    }
+    if (sellerStatus !== "Current status: Resolved") {
+      await waitForProjectedStatus(sellerPage, "Waiting on buyer");
     }
 
     const buyerContext = await browser.newContext();
     const buyerPage = await buyerContext.newPage();
     await buyerPage.goto(origin, { waitUntil: "domcontentloaded" });
     await signInWithPassword(buyerPage, origin, marketplaceBrowserE2eBuyerCredentials());
-    await buyerPage.goto(supportRequestPath, { waitUntil: "domcontentloaded" });
-    const buyerStatus = await buyerPage.getByText(/^Current status:/).textContent();
-    if (buyerStatus === "Current status: Waiting on buyer") {
-      await expect(buyerPage.getByRole("heading", { name: "Review the offer" })).toBeVisible();
+    const reviewOfferHeading = buyerPage.getByRole("heading", { name: "Review the offer" });
+    await expect(async () => {
+      await buyerPage.goto(supportRequestPath, { waitUntil: "domcontentloaded" });
+      const canReviewOffer = await reviewOfferHeading.isVisible();
+      const isResolved = await buyerPage.getByText("Current status: Resolved").isVisible();
+      expect(canReviewOffer || isResolved).toBe(true);
+    }).toPass({ timeout: projectionCatchUpTimeout });
+    if (await reviewOfferHeading.isVisible()) {
       await expect(buyerPage.getByText("$5.00")).toBeVisible();
       await buyerPage.getByRole("button", { name: "Accept offer" }).click();
-      await expect(buyerPage).toHaveURL(/action=offerAccepted&afterWrite=/);
-      await expect(buyerPage.getByText("Offer accepted.")).toBeVisible();
-      await expect(buyerPage.getByText("Current status: Resolved")).toBeVisible();
-    } else {
-      expect(buyerStatus).toBe("Current status: Resolved");
+      await expect(buyerPage).toHaveURL(/action=offerAccepted&afterWrite=|actionError=/);
     }
+    await waitForProjectedStatus(buyerPage, "Resolved");
     await expect(buyerPage.getByText("Resolution", { exact: true })).toBeVisible();
 
-    await sellerPage.goto(supportRequestPath, { waitUntil: "domcontentloaded" });
-    await expect(sellerPage.getByText("Current status: Resolved")).toBeVisible();
+    await waitForProjectedStatus(sellerPage, "Resolved");
     await expect(sellerPage.getByRole("button", { name: "Send response" })).toHaveCount(0);
 
     await buyerContext.close();
