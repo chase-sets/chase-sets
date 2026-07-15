@@ -3,9 +3,9 @@ import { redirect } from "react-router";
 
 export function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
-  return redirect(`/account/desk/money${url.search}`);
+  return redirect(`/account/desk/settings${url.search}`);
 }
 
-export default function LegacyAccountSettlementRedirect() {
+export default function LegacyPayoutSetupRedirect() {
   return null;
 }
