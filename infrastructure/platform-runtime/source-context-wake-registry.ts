@@ -329,6 +329,7 @@ export const sourceContextWakeRegistry = [
       "auth:auth-agent-order-webhook-projection",
       "fulfillment:fulfillment-shipment-projection",
       "fulfillment:fulfillment-return-shipment-projection",
+      "inventory:inventory-fulfillment-recovered-item-workflow",
       "inventory:inventory-fulfillment-restock-workflow",
       "payments:payments-fulfillment-dispute-evidence-source-projection",
       "notifications:notifications-source-facts-outbox-projection",
@@ -430,6 +431,7 @@ export const sourceContextWakeRegistry = [
       "inventory:inventory-item-ledger-projection",
       "inventory:inventory-item-projection",
       "inventory:inventory-reservation-projection",
+      "inventory:inventory-recovered-item-projection",
       "inventory:inventory-restock-decision-projection",
       "inventory:inventory-storage-location-projection",
       "notifications:notifications-source-facts-outbox-projection",
@@ -438,6 +440,7 @@ export const sourceContextWakeRegistry = [
       "ordering:ordering-inventory-reservation-outcomes",
       "ordering:ordering-inventory-supply-input-projection",
       "pricing:pricing-inventory-input-projection",
+      "settlement:settlement-inventory-recovery-workflow",
     ],
     routeDependencyIds: [
       "inventory.import-batch-detail",
@@ -681,6 +684,7 @@ export const sourceContextWakeRegistry = [
       "settlement:settlement-payout-projection",
       "settlement:settlement-payout-readiness-projection",
       "settlement:settlement-support-hold-projection",
+      "settlement:settlement-protection-coverage-projection",
     ],
     routeDependencyIds: ["settlement.payout-readiness-self-refresh", "settlement.payout-request-to-detail"],
     enablement: {

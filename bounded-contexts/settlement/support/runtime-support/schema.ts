@@ -14,7 +14,10 @@ import {
   settlementAccountRiskSourceSchemaSql,
 } from "../../features/wallets/integrations/account-risk-source/account-risk-source-schema";
 import { settlementPayoutSchemaMigrations, settlementPayoutSchemaSql } from "../../features/payouts/read-model/schema";
-import { settlementProtectionCoverageSchemaSql } from "../../features/protection-coverage/read-model/protection-coverage-schema";
+import {
+  settlementProtectionCoverageSchemaMigrations,
+  settlementProtectionCoverageSchemaSql,
+} from "../../features/protection-coverage/read-model/protection-coverage-schema";
 import { settlementRefundLiabilityAllocationSchemaSql } from "../../features/liability-allocation/read-model/liability-allocation-schema";
 import {
   settlementPayoutReadinessSchemaMigrations,
@@ -68,4 +71,5 @@ export const settlementSchemaMigrations = [
   ...settlementAccountRiskSourceSchemaMigrations,
   ...settlementPayoutReadinessSchemaMigrations,
   ...settlementPayoutSchemaMigrations,
+  ...settlementProtectionCoverageSchemaMigrations,
 ] as const;

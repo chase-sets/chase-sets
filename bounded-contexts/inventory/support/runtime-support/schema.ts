@@ -8,6 +8,7 @@ import {
 } from "../../features/inventory-items/read-model/schema";
 import { inventoryReservationSchemaSql } from "../../features/reservations/read-model/schema";
 import { inventoryRestockDecisionSchemaSql } from "../../features/restock-decisions/read-model/schema";
+import { inventoryRecoveredItemSchemaSql } from "../../features/recovered-items/read-model/schema";
 import { inventoryStorageLocationSchemaSql } from "../../features/storage-locations/read-model/schema";
 
 export const inventorySchemaSql = [
@@ -16,6 +17,7 @@ export const inventorySchemaSql = [
   inventoryStorageLocationSchemaSql,
   inventoryItemSchemaSql,
   inventoryRestockDecisionSchemaSql,
+  inventoryRecoveredItemSchemaSql,
   inventoryImportBatchSchemaSql,
   inventoryHoldSchemaSql,
   inventoryReservationSchemaSql,

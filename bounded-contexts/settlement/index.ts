@@ -1,6 +1,11 @@
 export { default as contextManifest } from "./context.json";
 
-import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
+import {
+  buildEventSubscriptionsFromManifest,
+  defineBoundedContextModule,
+  type BcEventSubscriptionHandler,
+} from "@chase-sets/bounded-context-module";
+import type { InventoryRecoveredItemValueReportedPayload } from "@chase-sets/event-core/public-event-payloads";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import {
@@ -26,6 +31,8 @@ import {
 import { createSettlementPayoutReadinessMcpHandlers } from "./features/payout-readiness/api/mcp";
 import { createSettlementPayoutMcpHandlers } from "./features/payouts/api/mcp";
 import { createSettlementWalletMcpHandlers } from "./features/wallets/api/mcp";
+import { getProtectionCoverageByRemedy } from "./features/protection-coverage/read-model/protection-coverage-queries";
+import { SettlementDomainError } from "./support/runtime-support/common";
 
 export const module = defineBoundedContextModule<SettlementServices, PgTransactionalPool, SettlementHostPorts>({
   manifest: contextManifest,
@@ -82,6 +89,33 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
         },
         "fulfillment.settlement-fulfillment-source-projection": () =>
           buildSettlementFulfillmentSourceProjectionHandlers(services.db),
+        "inventory.settlement-inventory-recovery-workflow": () => ({
+          "inventory.recovered-item.value-reported.v1": async (event: Parameters<BcEventSubscriptionHandler>[0]) => {
+            const data = event.data as InventoryRecoveredItemValueReportedPayload;
+            const coverage = await getProtectionCoverageByRemedy(services.db, data.remedyId);
+            if (!coverage || coverage.status !== "settled") {
+              throw new SettlementDomainError("Recovered value is waiting for its originating settled coverage.");
+            }
+            await services.protectionCoverage.recordRecovery(
+              {
+                coverageId: coverage.coverage_id,
+                remedyId: data.remedyId,
+                recoveredItemId: data.recoveredItemId,
+                returnShipmentId: data.returnShipmentId,
+                recoveryId: data.recoveryId,
+                recoveryType: data.recoveryType,
+                grossAmount: data.grossAmount,
+                costAmount: data.costAmount,
+                currencyCode: data.currencyCode,
+                policyVersion: data.policyVersion,
+                evidenceReferences: data.evidenceReferences,
+                causationId: event.id,
+                occurredAt: data.recordedAt,
+              },
+              { tenantId: event.tenantId, audit: event.audit, trace: event.trace },
+            );
+          },
+        }),
         "identity.settlement-account-risk-source-projection": {
           subscriptionName: "settlement.identity-account-risk-source-projection",
           buildHandlers: () =>

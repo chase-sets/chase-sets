@@ -100,12 +100,14 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `identity:identity-user-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:platform-policy-document-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `inventory:inventory-catalog-item-projection` | Inventory | **catalog** | push-enabled | 1/1 |
+| `inventory:inventory-fulfillment-recovered-item-workflow` | Inventory | fulfillment | push-eligible | 0/1 |
 | `inventory:inventory-fulfillment-restock-workflow` | Inventory | fulfillment | push-eligible | 0/1 |
 | `inventory:inventory-hold-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `inventory:inventory-item-ledger-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `inventory:inventory-item-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `inventory:inventory-order-reservation-workflow` | Inventory | **ordering** | push-enabled | 1/1 |
 | `inventory:inventory-reservation-projection` | Inventory | **inventory** | push-enabled | 1/1 |
+| `inventory:inventory-recovered-item-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `inventory:inventory-restock-decision-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `inventory:inventory-storage-location-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `marketplace:marketplace-catalog-item-projection` | Marketplace | **catalog** | push-enabled | 1/1 |
@@ -167,12 +169,14 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-account-risk-source-projection` | Settlement | **identity**, **marketplace**, **payments** | push-enabled | 3/3 |
 | `settlement:settlement-fulfillment-source-projection` | Settlement | fulfillment | push-eligible | 0/1 |
 | `settlement:settlement-liability-allocation-reserve-projection` | Settlement | **platform-operations** | push-enabled | 1/1 |
+| `settlement:settlement-inventory-recovery-workflow` | Settlement | **inventory** | push-enabled | 1/1 |
 | `settlement:settlement-payment-input-projection` | Settlement | **payments** | push-enabled | 1/1 |
 | `settlement:settlement-payout-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
+| `settlement:settlement-protection-coverage-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations**, **settlement** | push-enabled | 3/3 |
 
-Totals: 106 `push-enabled`, 27 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 110 `push-enabled`, 27 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (76)
 

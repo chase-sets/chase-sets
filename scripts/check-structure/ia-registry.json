@@ -208,6 +208,13 @@
     {
       "deployable": "admin-web",
       "section": "commerce",
+      "family": "recovered-items",
+      "owningContext": "inventory",
+      "purpose": "Operator recovered-return custody and disposition workflow (inventory)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "commerce",
       "family": "terms",
       "owningContext": "commercial-terms",
       "purpose": "Operator commercial-terms authoring surface (commercial-terms)."

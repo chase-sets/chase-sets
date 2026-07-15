@@ -14,6 +14,7 @@ import {
 import { createInventoryItemRuntime } from "../../features/inventory-items/api/runtime";
 import { createInventoryReservationRuntime } from "../../features/reservations/api/runtime";
 import { createRestockDecisionRuntime } from "../../features/restock-decisions/api/runtime";
+import { createRecoveredItemRuntime } from "../../features/recovered-items/api/runtime";
 import { createStorageLocationRuntime } from "../../features/storage-locations/api/runtime";
 
 export type InventoryServices = Readonly<{
@@ -24,6 +25,7 @@ export type InventoryServices = Readonly<{
   holds: ReturnType<typeof createInventoryHoldRuntime>;
   reservations: ReturnType<typeof createInventoryReservationRuntime>;
   restockDecisions: ReturnType<typeof createRestockDecisionRuntime>;
+  recoveredItems: ReturnType<typeof createRecoveredItemRuntime>;
   appendToStreams: (inputs: readonly AppendToStreamInput[]) => Promise<readonly AppendToStreamsResult[]>;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
@@ -64,6 +66,7 @@ export function createInventoryServices(
   const holds = createInventoryHoldRuntime(deps);
   const reservations = createInventoryReservationRuntime(deps);
   const restockDecisions = createRestockDecisionRuntime(deps, items, reservations);
+  const recoveredItems = createRecoveredItemRuntime(deps);
 
   return {
     catalogItems,
@@ -73,6 +76,7 @@ export function createInventoryServices(
     holds,
     reservations,
     restockDecisions,
+    recoveredItems,
     appendToStreams,
     projectors: [
       ...catalogItems.projectors,
@@ -81,6 +85,7 @@ export function createInventoryServices(
       ...holds.projectors,
       ...reservations.projectors,
       ...restockDecisions.projectors,
+      ...recoveredItems.projectors,
     ],
     pool,
     db,

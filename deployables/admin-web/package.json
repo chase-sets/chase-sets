@@ -19,6 +19,7 @@
     "@chase-sets/discovery": "workspace:*",
     "@chase-sets/fulfillment": "workspace:*",
     "@chase-sets/identity": "workspace:*",
+    "@chase-sets/inventory": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/marketplace": "workspace:*",
     "@chase-sets/ordering": "workspace:*",

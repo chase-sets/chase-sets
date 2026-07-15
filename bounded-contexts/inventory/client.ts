@@ -29,6 +29,7 @@ export type {
 } from "./features/inventory-items/api/contracts";
 export type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
 export type { InventoryRestockDecision } from "./features/restock-decisions/api/contracts";
+export type { InventoryRecoveredItemRow } from "./features/recovered-items/read-model/queries";
 
 import type {
   InventoryEnsuredListingStock,
@@ -37,6 +38,7 @@ import type {
 } from "./features/inventory-items/api/contracts";
 import type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
 import type { InventoryRestockDecision } from "./features/restock-decisions/api/contracts";
+import type { InventoryRecoveredItemRow } from "./features/recovered-items/read-model/queries";
 
 type InventoryApiApp = ReturnType<typeof buildInventoryApi>;
 
@@ -293,6 +295,27 @@ export function createInventoryApiClient({
           query: Object.fromEntries(new URLSearchParams(query)),
           header: headers,
         }),
+      );
+    },
+    async listRecoveredItems(query = ""): Promise<ListResponse<InventoryRecoveredItemRow>> {
+      return parseJsonResponse(
+        await client["recovered-items"].$get({
+          query: Object.fromEntries(new URLSearchParams(query)),
+          header: headers,
+        }),
+      );
+    },
+    async getRecoveredItem(
+      id: string,
+    ): Promise<InventoryRecoveredItemRow & { audit: readonly unknown[]; values: readonly unknown[] }> {
+      return parseJsonResponse(await client["recovered-items"][":id"].$get({ param: { id }, header: headers }));
+    },
+    async getRecoveredItemMetrics(): Promise<Record<string, string | number>> {
+      return parseJsonResponse(await client["recovered-items"].metrics.$get({ header: headers }));
+    },
+    async executeRecoveredItemAction(id: string, body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client["recovered-items"][":id"].actions.$post({ param: { id }, json: body, header: headers }),
       );
     },
     async createCheckoutReservation(body: Record<string, unknown>) {

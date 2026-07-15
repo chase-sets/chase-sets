@@ -47,6 +47,7 @@ export type SettlementOperationEvent = Readonly<{
     | "protection-coverage-settled"
     | "protection-coverage-released"
     | "protection-coverage-expired"
+    | "protection-coverage-recovery-posted"
     | "protection-coverage-concurrency-conflict"
     | "protection-coverage-idempotent-retry";
   accountId?: AccountId | string;

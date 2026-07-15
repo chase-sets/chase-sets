@@ -21,6 +21,7 @@ import {
   compareMoney,
   ensureIsoTimestamp,
   normalizeMoneyAmount,
+  normalizeRequiredText,
   subtractMoney,
 } from "../../../support/runtime-support/common";
 
@@ -86,6 +87,22 @@ export type CoverageReservationRecord = Readonly<{
   terminalAt: string | null;
 }>;
 
+export type ProtectionRecoveryRecord = Readonly<{
+  recoveryId: string;
+  coverageId: string;
+  remedyId: string;
+  recoveredItemId: string;
+  returnShipmentId: string;
+  recoveryType: "resale-proceeds" | "liquidation-proceeds" | "carrier-claim" | "postage-refund" | "disposition-cost";
+  grossAmount: string;
+  costAmount: string;
+  netAmount: string;
+  currencyCode: string;
+  policyVersion: string;
+  evidenceReferences: readonly string[];
+  occurredAt: string;
+}>;
+
 export type ProtectionReserveState = Readonly<{
   currencyCode: string | null;
   /** Sum of reservedAmount across reservations still in `reserved`. */
@@ -94,7 +111,14 @@ export type ProtectionReserveState = Readonly<{
   consumedAmount: string;
   /** Sum of reservedAmount across released/expired reservations (metrics only). */
   releasedAmount: string;
+  /** Gross disposition proceeds and claims attributed back to settled coverage. */
+  recoveredGrossAmount: string;
+  /** Fulfillment/disposition costs attributed to recovered value. */
+  recoveryCostAmount: string;
+  /** Gross minus cost; this replenishes (or reduces) protection-pool availability. */
+  recoveredNetAmount: string;
   reservations: Readonly<Record<string, CoverageReservationRecord>>;
+  recoveryRecords: Readonly<Record<string, ProtectionRecoveryRecord>>;
 }>;
 
 export const initialProtectionReserveState: ProtectionReserveState = {
@@ -102,7 +126,11 @@ export const initialProtectionReserveState: ProtectionReserveState = {
   outstandingReservedAmount: "0.00",
   consumedAmount: "0.00",
   releasedAmount: "0.00",
+  recoveredGrossAmount: "0.00",
+  recoveryCostAmount: "0.00",
+  recoveredNetAmount: "0.00",
   reservations: {},
+  recoveryRecords: {},
 };
 
 /**
@@ -111,7 +139,10 @@ export const initialProtectionReserveState: ProtectionReserveState = {
  * onto the command — never from an ambient, racy balance read.
  */
 export function availableProtectionAmount(fundedAmount: string, state: ProtectionReserveState): string {
-  return subtractMoney(subtractMoney(fundedAmount, state.outstandingReservedAmount), state.consumedAmount);
+  return addMoney(
+    subtractMoney(subtractMoney(fundedAmount, state.outstandingReservedAmount), state.consumedAmount),
+    state.recoveredNetAmount,
+  );
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -176,11 +207,29 @@ export type ExpireProtectionCoverageCommand = Readonly<{
   occurredAt: string;
 }>;
 
+export type RecordProtectionRecoveryCommand = Readonly<{
+  type: "RecordProtectionRecovery";
+  coverageId: string;
+  remedyId: string;
+  recoveredItemId: string;
+  returnShipmentId: string;
+  recoveryId: string;
+  recoveryType: ProtectionRecoveryRecord["recoveryType"];
+  grossAmount: string;
+  costAmount: string;
+  currencyCode: string;
+  policyVersion: string;
+  evidenceReferences: readonly string[];
+  causationId: string | null;
+  occurredAt: string;
+}>;
+
 export type ProtectionCoverageCommand =
   | ReserveProtectionCoverageCommand
   | SettleProtectionCoverageCommand
   | ReleaseProtectionCoverageCommand
-  | ExpireProtectionCoverageCommand;
+  | ExpireProtectionCoverageCommand
+  | RecordProtectionRecoveryCommand;
 
 // -------------------------------------------------------------------------------------------------
 // Events
@@ -225,12 +274,34 @@ export type ProtectionCoverageExpiredEvent = DomainEvent<
   ProtectionCoverageTerminationPayload
 >;
 
+export type ProtectionCoverageRecoveryPostedEvent = DomainEvent<
+  "settlement.protection-coverage.recovery-posted.v1",
+  Readonly<{
+    factSchemaVersion: 1;
+    recoveryId: string;
+    coverageId: string;
+    remedyId: string;
+    recoveredItemId: string;
+    returnShipmentId: string;
+    recoveryType: ProtectionRecoveryRecord["recoveryType"];
+    grossAmount: string;
+    costAmount: string;
+    netAmount: string;
+    currencyCode: string;
+    policyVersion: string;
+    evidenceReferences: readonly string[];
+    causationId: string | null;
+    occurredAt: string;
+  }>
+>;
+
 export type ProtectionCoverageEvent =
   | ProtectionCoverageReservedEvent
   | ProtectionCoverageRejectedEvent
   | ProtectionCoverageSettledEvent
   | ProtectionCoverageReleasedEvent
-  | ProtectionCoverageExpiredEvent;
+  | ProtectionCoverageExpiredEvent
+  | ProtectionCoverageRecoveryPostedEvent;
 
 // -------------------------------------------------------------------------------------------------
 // Decide
@@ -447,6 +518,70 @@ function decideTerminate(
   ];
 }
 
+function decideRecovery(
+  state: ProtectionReserveState,
+  command: RecordProtectionRecoveryCommand,
+): readonly ProtectionCoverageEvent[] {
+  const grossAmount = normalizeMoneyAmount(command.grossAmount, {
+    fieldName: "Recovered gross amount",
+    allowZero: true,
+  });
+  const costAmount = normalizeMoneyAmount(command.costAmount, {
+    fieldName: "Recovered disposition cost",
+    allowZero: true,
+  });
+  assert(grossAmount !== "0.00" || costAmount !== "0.00", "A protection recovery posting cannot be zero.");
+  const currencyCode = normalizePlatformCoverageCurrencyCode(command.currencyCode);
+  const existingRecovery = state.recoveryRecords[command.recoveryId];
+  if (existingRecovery) {
+    assert(
+      existingRecovery.coverageId === command.coverageId &&
+        existingRecovery.recoveryType === command.recoveryType &&
+        existingRecovery.grossAmount === grossAmount &&
+        existingRecovery.costAmount === costAmount &&
+        existingRecovery.currencyCode === currencyCode,
+      "Recovery id was reused with different value terms.",
+    );
+    return [];
+  }
+
+  const coverage = state.reservations[command.coverageId];
+  assert(coverage?.status === "settled", "Recovered value can only reconcile to settled coverage.");
+  assert(coverage.remedyId === command.remedyId, "Recovered value must match the originating remedy.");
+  assert(coverage.currencyCode === currencyCode, "Recovered value currency must match the originating coverage.");
+  assert(
+    ["resale-proceeds", "liquidation-proceeds", "carrier-claim", "postage-refund", "disposition-cost"].includes(
+      command.recoveryType,
+    ),
+    "Unsupported protection recovery type.",
+  );
+  const evidenceReferences = [...new Set(command.evidenceReferences.map((value) => value.trim()).filter(Boolean))];
+  assert(evidenceReferences.length > 0, "Protection recovery requires evidence.");
+
+  return [
+    {
+      type: "settlement.protection-coverage.recovery-posted.v1",
+      data: {
+        factSchemaVersion: 1,
+        recoveryId: normalizeRequiredText(command.recoveryId, "Recovery id is required."),
+        coverageId: coverage.coverageId,
+        remedyId: coverage.remedyId,
+        recoveredItemId: normalizeRequiredText(command.recoveredItemId, "Recovered item id is required."),
+        returnShipmentId: normalizeRequiredText(command.returnShipmentId, "Return shipment id is required."),
+        recoveryType: command.recoveryType,
+        grossAmount,
+        costAmount,
+        netAmount: subtractMoney(grossAmount, costAmount),
+        currencyCode,
+        policyVersion: normalizeRequiredText(command.policyVersion, "Recovery policy version is required."),
+        evidenceReferences,
+        causationId: command.causationId,
+        occurredAt: ensureIsoTimestamp(command.occurredAt, "Protection recovery must record a timestamp."),
+      },
+    },
+  ];
+}
+
 export const decideProtectionCoverage: AggregateDecider<
   ProtectionReserveState,
   ProtectionCoverageCommand,
@@ -464,6 +599,8 @@ export const decideProtectionCoverage: AggregateDecider<
       return decideTerminate(state, command);
     case "ExpireProtectionCoverage":
       return decideTerminate(state, command);
+    case "RecordProtectionRecovery":
+      return decideRecovery(state, command);
     default:
       return assertNever(command);
   }
@@ -543,6 +680,31 @@ export const evolveProtectionCoverage: AggregateEvolver<ProtectionReserveState, 
           ...state.reservations,
           [data.coverageId]: { ...existing, status: terminalStatus, terminalAt: data.occurredAt },
         },
+      };
+    }
+    case "settlement.protection-coverage.recovery-posted.v1": {
+      const data = event.data;
+      const record: ProtectionRecoveryRecord = {
+        recoveryId: data.recoveryId,
+        coverageId: data.coverageId,
+        remedyId: data.remedyId,
+        recoveredItemId: data.recoveredItemId,
+        returnShipmentId: data.returnShipmentId,
+        recoveryType: data.recoveryType,
+        grossAmount: data.grossAmount,
+        costAmount: data.costAmount,
+        netAmount: data.netAmount,
+        currencyCode: data.currencyCode,
+        policyVersion: data.policyVersion,
+        evidenceReferences: data.evidenceReferences,
+        occurredAt: data.occurredAt,
+      };
+      return {
+        ...state,
+        recoveredGrossAmount: addMoney(state.recoveredGrossAmount, data.grossAmount),
+        recoveryCostAmount: addMoney(state.recoveryCostAmount, data.costAmount),
+        recoveredNetAmount: addMoney(state.recoveredNetAmount, data.netAmount),
+        recoveryRecords: { ...state.recoveryRecords, [data.recoveryId]: record },
       };
     }
     default:

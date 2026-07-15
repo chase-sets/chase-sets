@@ -6,6 +6,7 @@ import type {
   ProtectionCoverageSettledV1Payload,
 } from "@chase-sets/event-core/platform-coverage-facts";
 import type { ProtectionCoverageTerminationPayload } from "../domain/protection-coverage";
+import type { SettlementProtectionCoverageRecoveryPostedPayload } from "@chase-sets/event-core/public-event-payloads";
 
 /**
  * Projects the Settlement-owned `settlement.protection-coverage.*` facts into the
@@ -86,6 +87,43 @@ export function buildProtectionCoverageProjectionHandlers(db: PgQueryable): Proj
           data.idempotencyKey,
           data.occurredAt,
         ],
+      );
+    },
+    "settlement.protection-coverage.recovery-posted.v1": async (event) => {
+      const data = event.data as SettlementProtectionCoverageRecoveryPostedPayload;
+      await db.query(
+        `INSERT INTO settlement_protection_coverage_recoveries (
+           recovery_id, coverage_id, remedy_id, recovered_item_id, return_shipment_id,
+           recovery_type, gross_amount, cost_amount, net_amount, currency_code,
+           policy_version, evidence_references, causation_id, recovered_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14)
+         ON CONFLICT (recovery_id) DO NOTHING`,
+        [
+          data.recoveryId,
+          data.coverageId,
+          data.remedyId,
+          data.recoveredItemId,
+          data.returnShipmentId,
+          data.recoveryType,
+          data.grossAmount,
+          data.costAmount,
+          data.netAmount,
+          data.currencyCode,
+          data.policyVersion,
+          JSON.stringify(data.evidenceReferences),
+          data.causationId,
+          data.occurredAt,
+        ],
+      );
+      await db.query(
+        `UPDATE settlement_protection_coverage
+         SET recovered_gross_amount = recovered_gross_amount + $2,
+             recovery_cost_amount = recovery_cost_amount + $3,
+             recovered_net_amount = recovered_net_amount + $4,
+             updated_at = $5,
+             last_stream_version = $6
+         WHERE coverage_id = $1 AND last_stream_version < $6`,
+        [data.coverageId, data.grossAmount, data.costAmount, data.netAmount, data.occurredAt, event.streamVersion],
       );
     },
   };

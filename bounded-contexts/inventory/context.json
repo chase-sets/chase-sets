@@ -1,10 +1,18 @@
 {
   "contextName": "inventory",
   "packageName": "@chase-sets/inventory",
-  "ownedNouns": ["inventory-item", "inventory-hold", "import-batch", "storage-location"],
+  "ownedNouns": ["inventory-item", "inventory-hold", "import-batch", "recovered-item", "storage-location"],
   "streamPrefix": "inventory.",
   "apiBasePath": "/api/inventory",
-  "slices": ["inventory-items", "import-batches", "holds", "reservations", "restock-decisions", "storage-locations"],
+  "slices": [
+    "inventory-items",
+    "import-batches",
+    "holds",
+    "reservations",
+    "recovered-items",
+    "restock-decisions",
+    "storage-locations"
+  ],
   "allowedSupportDirectories": ["catalog-item-support", "request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/platform-operations"],
@@ -56,6 +64,15 @@
       "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.returned"],
       "order": 30,
       "projectionHandlerSetNames": ["inventory-fulfillment-restock-workflow"]
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "inventory-fulfillment-recovered-item-workflow",
+      "subscriptionVersion": 1,
+      "sourceContextMount": "when-mounted",
+      "eventTypes": ["fulfillment.return-shipment.facility-intake-completed.v1"],
+      "order": 31,
+      "projectionHandlerSetNames": ["inventory-fulfillment-recovered-item-workflow"]
     }
   ],
   "projectionGroups": [
@@ -86,6 +103,22 @@
       "sourceContextNames": ["fulfillment"],
       "optionalSourceContextNames": ["fulfillment"],
       "ownedTables": ["inventory_fulfillment_shipment_sources"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "inventory-fulfillment-recovered-item-workflow",
+      "sourceContextNames": ["fulfillment"],
+      "optionalSourceContextNames": ["fulfillment"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only",
+      "sideEffectOnly": true
+    },
+    {
+      "projectionName": "inventory-recovered-item-projection",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["inventory_recovered_items", "inventory_recovered_item_audit", "inventory_recovered_item_values"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
@@ -542,6 +575,30 @@
       "proof": {
         "tests": ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"]
       }
+    },
+    {
+      "id": "inventory.recovered-item-operator-command-snapshot",
+      "owner": "inventory",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/inventory/features/recovered-items/api/route.ts:POST /:id/actions",
+        "post-form:bounded-contexts/inventory/features/recovered-items/ui/recovered-items-page.tsx:H1abed2c1c746#1",
+        "route-action:bounded-contexts/inventory/routes/admin/recovered-items.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "inventory-recovered-items",
+        "description": "Recovered-item operator commands return the committed aggregate version and status. The admin route renders that authoritative action result while the custody queue projection catches up."
+      },
+      "proof": {
+        "authoritativeResponse": "The recovered-item API builds its response from the event-sourced command result, including the committed stream version and evolved status; no projection read is used to claim success.",
+        "tests": [
+          "bounded-contexts/inventory/features/recovered-items/api/runtime.test.ts",
+          "bounded-contexts/inventory/features/recovered-items/api/route.test.ts",
+          "bounded-contexts/inventory/features/recovered-items/domain/recovered-item.test.ts",
+          "bounded-contexts/inventory/features/recovered-items/ui/recovered-items-page.test.tsx"
+        ]
+      }
     }
   ],
   "deployableContributions": [
@@ -591,9 +648,34 @@
           "sourceContext": "inventory"
         }
       ]
+    },
+    {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "inventory-recovered-items",
+          "routePath": "recovered-items",
+          "fileExport": "./routes/admin/recovered-items",
+          "routeType": "route",
+          "sourceContext": "inventory",
+          "section": "commerce"
+        }
+      ]
     }
   ],
   "shellContributions": [
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "inventory-recovered-items",
+      "label": "Recovered Returns",
+      "icon": "package",
+      "href": "/recovered-items",
+      "section": "commerce",
+      "order": 30,
+      "visibility": "signed-in",
+      "requiredPermissions": ["recovered-inventory.view"]
+    },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
@@ -657,6 +739,11 @@
       "purpose": "Own returned-stock seller decision behavior, read models, and UI contracts for the inventory context.",
       "expectedConsumers": ["Internal inventory module composition"]
     },
+    "recovered-items": {
+      "classification": "slice",
+      "purpose": "Own the recovered-items slice for custody, inspection, ownership authority, disposition, recovery value facts, read models, and operator workflow.",
+      "expectedConsumers": ["Internal inventory module composition"]
+    },
     "storage-locations": {
       "classification": "slice",
       "purpose": "Own storage-locations feature behavior, read models, and UI contracts for the inventory context.",
@@ -681,6 +768,7 @@
         "import-batches",
         "inventory-items",
         "reservations",
+        "recovered-items",
         "restock-decisions",
         "storage-locations"
       ]

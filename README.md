@@ -57,7 +57,7 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 - `discovery` ([README](bounded-contexts/discovery/README.md), `@chase-sets/discovery`): owned nouns `search`, `browse`, `item-detail`, `product-alert`.
 - `fulfillment` ([README](bounded-contexts/fulfillment/README.md), `@chase-sets/fulfillment`): owned nouns `shipment`, `return-shipment`.
 - `identity` ([README](bounded-contexts/identity/README.md), `@chase-sets/identity`): owned nouns `user`, `account`, `membership`, `invitation`, `api-key`, `consent`, `founders-cohort`, `shipping-address`, `user-preference`.
-- `inventory` ([README](bounded-contexts/inventory/README.md), `@chase-sets/inventory`): owned nouns `inventory-item`, `inventory-hold`, `import-batch`, `storage-location`.
+- `inventory` ([README](bounded-contexts/inventory/README.md), `@chase-sets/inventory`): owned nouns `inventory-item`, `inventory-hold`, `import-batch`, `recovered-item`, `storage-location`.
 - `marketplace` ([README](bounded-contexts/marketplace/README.md), `@chase-sets/marketplace`): owned nouns `listing`, `listing-evidence-policy`, `offer`, `seller-listing-availability`, `seller-order-capacity`, `report`, `review`, `review-summary`, `seller-reliability`.
 - `notifications` ([README](bounded-contexts/notifications/README.md), `@chase-sets/notifications`): owned nouns `notification-center`, `notification-feed-item`, `notification-preference`, `notification-delivery-report`.
 - `ordering` ([README](bounded-contexts/ordering/README.md), `@chase-sets/ordering`): owned nouns `order`, `postage-policy`, `tax quote`, `tax nexus readiness`.
