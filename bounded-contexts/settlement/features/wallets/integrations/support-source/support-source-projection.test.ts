@@ -170,4 +170,33 @@ describe("settlement support source projection", () => {
       6,
     ]);
   });
+
+  it("releases the correlated support hold only after the coverage settlement is reconciled", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const handlers = buildSettlementSupportHoldProjectionHandlers(db as never);
+
+    await handlers["settlement.protection-coverage.settled.v1"]!(
+      event(
+        "settlement.protection-coverage.settled.v1",
+        {
+          factSchemaVersion: 1,
+          supportRequestId: "sup_01ABC",
+          remedyId: "rmd_1",
+          coverageId: "cov_1",
+          refundId: "rfd_1",
+          idempotencyKey: "coverage-settle:cov_1",
+          causationId: null,
+          policyVersion: "coverage-policy-2026-07",
+          occurredAt: "2026-07-09T12:00:00.000Z",
+        },
+        7,
+      ),
+    );
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("coverage-reconciled"), [
+      "sup_01ABC",
+      "2026-07-09T12:00:00.000Z",
+      7,
+    ]);
+  });
 });

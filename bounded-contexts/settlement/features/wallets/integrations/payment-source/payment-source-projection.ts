@@ -21,6 +21,18 @@ import {
 } from "@chase-sets/primitives/money";
 import type { WalletServices } from "../../api/runtime";
 import { compareMoney, normalizeCurrencyCode, SettlementDomainError } from "../../../../support/runtime-support/common";
+import {
+  decideRefundLiability,
+  distributeSellerFundedPortion,
+  type CoverageReservationState,
+} from "../../../liability-allocation/domain/liability-allocation";
+import {
+  loadRefundAllocation,
+  recordAuthorizedRefundAllocation,
+  recordQuarantinedRefundLiability,
+  recordReconciledRefundLiability,
+} from "../../../liability-allocation/read-model/liability-allocation-store";
+import type { ProtectionCoverageSettlementPort } from "../../../liability-allocation/api/ports";
 
 async function debitAppliedBalanceCredit(
   wallets: WalletServices | undefined,
@@ -562,20 +574,26 @@ function ledgerIdPart(value: string) {
   return value.replaceAll(/[^a-zA-Z0-9_]+/g, "_").replaceAll(/^_+|_+$/g, "");
 }
 
-async function debitSellerRefunds(
+/**
+ * Posts the per-payout seller refund debits for the amounts the caller already
+ * decided (either the legacy proration for a seller-funded refund, or the exact
+ * seller-funded portion of an authorized liability allocation). Idempotent by ledger
+ * entry id, and returns the total posted so the reconciliation record reflects exactly
+ * what hit the seller ledger.
+ */
+async function postSellerRefundDebits(
   wallets: WalletServices | undefined,
   data: Readonly<{
     paymentId: string;
-    paymentAmount: string;
-    refundAmount: string;
     currencyCode: string;
     refundedAt: string;
     sellerPayouts: readonly SellerPayoutComponent[];
+    debitAmounts: readonly string[];
   }>,
   event: TransportEvent,
-) {
+): Promise<string> {
   if (!wallets) {
-    return;
+    return "0.00";
   }
 
   const context = {
@@ -584,13 +602,13 @@ async function debitSellerRefunds(
     trace: event.trace,
   };
 
-  const debitAmounts = allocateRefundDebitAmounts(data.refundAmount, data.paymentAmount, data.sellerPayouts);
-
+  let postedCents = 0n;
   for (const [index, payout] of data.sellerPayouts.entries()) {
-    const debitAmount = debitAmounts[index] ?? "0.00";
+    const debitAmount = data.debitAmounts[index] ?? "0.00";
     if (compareMoney(debitAmount, "0.00") <= 0) {
       continue;
     }
+    postedCents += moneyToCents(debitAmount);
 
     await postWalletEntryIdempotently(
       wallets,
@@ -610,6 +628,220 @@ async function debitSellerRefunds(
       context,
     );
   }
+  return centsToMoneyAmount(postedCents);
+}
+
+/**
+ * Records the authorized liability allocation carried by a Payments refund-causation
+ * fact, keyed by the stable refund id, so that when the refund completes the
+ * seller-vs-platform split is read from the authorization rather than inferred. A
+ * seller-funded refund carries no causation and is never recorded here — its absence is
+ * the documented compatibility default at completion time.
+ */
+async function recordRefundCausationAllocation(
+  db: PgQueryable,
+  data: Readonly<{
+    refundId?: string | null;
+    paymentId?: string | null;
+    causation?: {
+      remedyId?: string;
+      coverageId?: string | null;
+      allocation?: {
+        sellerFundedAmount?: string;
+        platformFundedAmount?: string;
+        currencyCode?: string;
+        fundingKind?: "seller-funded" | "platform-funded" | "split";
+      };
+    } | null;
+  }>,
+  event: TransportEvent,
+) {
+  const causation = data.causation;
+  const allocation = causation?.allocation;
+  if (!data.refundId || !causation?.remedyId || !allocation?.fundingKind) {
+    return;
+  }
+  await recordAuthorizedRefundAllocation(db, {
+    refundId: data.refundId,
+    paymentId: data.paymentId ?? null,
+    remedyId: causation.remedyId,
+    coverageId: causation.coverageId ?? null,
+    sellerFundedAmount: allocation.sellerFundedAmount ?? "0.00",
+    platformFundedAmount: allocation.platformFundedAmount ?? "0.00",
+    currencyCode: allocation.currencyCode ?? "usd",
+    fundingKind: allocation.fundingKind,
+    authorizedAt: event.timing?.occurredAt ?? new Date().toISOString(),
+    streamVersion: event.streamVersion,
+  });
+}
+
+/**
+ * Allocation-aware settlement of a completed refund (ADR 0022). Instead of
+ * unconditionally debiting the seller, Settlement follows the authorized
+ * `LiabilityAllocation`: it posts the exact seller-funded portion to the seller ledger,
+ * consumes the platform-funded portion from the reserved ProtectionCoverage exactly
+ * once, and fails closed into an observable repair queue for any mismatch. A refund with
+ * no authorized allocation preserves the legacy seller-funded proration.
+ *
+ * The seller portion is posted before the coverage is settled, so the durable
+ * `settlement.protection-coverage.settled.v1` reconciliation fact the aggregate emits
+ * only follows postings that are already committed.
+ */
+async function reconcileRefundLiability(
+  db: PgQueryable,
+  wallets: WalletServices | undefined,
+  protectionCoverage: ProtectionCoverageSettlementPort | undefined,
+  data: Readonly<{
+    paymentId: string;
+    refundId: string | null;
+    paymentAmount: string;
+    refundAmount: string;
+    currencyCode: string;
+    refundedAt: string;
+    sellerPayouts: readonly SellerPayoutComponent[];
+  }>,
+  event: TransportEvent,
+) {
+  const allocationRow = data.refundId ? await loadRefundAllocation(db, data.refundId) : null;
+
+  if (!allocationRow || !data.refundId) {
+    // Documented compatibility default: no authorized allocation means a seller-funded
+    // (or legacy) refund; preserve the existing prorated, capped seller debit.
+    const debitAmounts = allocateRefundDebitAmounts(data.refundAmount, data.paymentAmount, data.sellerPayouts);
+    await postSellerRefundDebits(
+      wallets,
+      {
+        paymentId: data.paymentId,
+        currencyCode: data.currencyCode,
+        refundedAt: data.refundedAt,
+        sellerPayouts: data.sellerPayouts,
+        debitAmounts,
+      },
+      event,
+    );
+    return;
+  }
+
+  const refundId = data.refundId;
+  const allocation = {
+    refundId,
+    remedyId: allocationRow.remedyId,
+    coverageId: allocationRow.coverageId,
+    sellerFundedAmount: allocationRow.sellerFundedAmount,
+    platformFundedAmount: allocationRow.platformFundedAmount,
+    currencyCode: allocationRow.currencyCode,
+    fundingKind: allocationRow.fundingKind,
+  };
+
+  let reservation: CoverageReservationState | null = null;
+  if (allocation.coverageId && protectionCoverage) {
+    const coverageRow = await protectionCoverage.getCoverage(allocation.coverageId);
+    reservation = coverageRow
+      ? {
+          reservedAmount: coverageRow.reserved_amount,
+          status: coverageRow.status,
+          refundId: coverageRow.refund_id,
+          policyVersion: coverageRow.policy_version,
+          currencyCode: coverageRow.currency_code,
+          supportRequestId: coverageRow.support_request_id,
+          remedyId: coverageRow.remedy_id,
+        }
+      : null;
+  }
+
+  const decision = decideRefundLiability({
+    allocation,
+    completedRefundAmount: data.refundAmount,
+    completedCurrencyCode: data.currencyCode,
+    reservation,
+  });
+
+  const base = {
+    refundId,
+    paymentId: data.paymentId,
+    remedyId: allocation.remedyId,
+    coverageId: allocation.coverageId,
+    sellerFundedAmount: allocation.sellerFundedAmount,
+    platformFundedAmount: allocation.platformFundedAmount,
+    currencyCode: allocation.currencyCode,
+    fundingKind: allocation.fundingKind,
+    completedRefundAmount: data.refundAmount,
+    streamVersion: event.streamVersion,
+  };
+
+  if (decision.outcome === "quarantined") {
+    await recordQuarantinedRefundLiability(db, {
+      ...base,
+      reasonCode: decision.reasonCode,
+      detail: decision.detail,
+      quarantinedAt: data.refundedAt,
+    });
+    return;
+  }
+  if (decision.outcome !== "allocated") {
+    // Unreachable: an authorized allocation is present, so the decision is allocated or
+    // quarantined. Guarded to narrow the type and fail closed rather than mis-post.
+    return;
+  }
+
+  const weights = data.sellerPayouts.map((payout) => ({
+    orderId: payout.orderId,
+    sellerAccountId: payout.sellerAccountId,
+    weightAmount: payout.sellerPayoutAmount,
+  }));
+  const debitAmounts = distributeSellerFundedPortion(decision.sellerDebitAmount, weights);
+  const distributedCents = debitAmounts.reduce((sum, amount) => sum + moneyToCents(amount), 0n);
+  if (distributedCents !== moneyToCents(decision.sellerDebitAmount)) {
+    // A positive seller-funded portion with no seller exposure to land on: fail closed.
+    await recordQuarantinedRefundLiability(db, {
+      ...base,
+      reasonCode: "no-seller-exposure",
+      detail: `Seller-funded portion ${decision.sellerDebitAmount} has no seller exposure to post against.`,
+      quarantinedAt: data.refundedAt,
+    });
+    return;
+  }
+
+  const sellerPostedAmount = await postSellerRefundDebits(
+    wallets,
+    {
+      paymentId: data.paymentId,
+      currencyCode: data.currencyCode,
+      refundedAt: data.refundedAt,
+      sellerPayouts: data.sellerPayouts,
+      debitAmounts,
+    },
+    event,
+  );
+
+  if (
+    compareMoney(decision.platformSettleAmount, "0.00") > 0 &&
+    !decision.alreadySettled &&
+    decision.coverageId &&
+    protectionCoverage &&
+    reservation
+  ) {
+    await protectionCoverage.settle(
+      {
+        coverageId: decision.coverageId,
+        currencyCode: data.currencyCode,
+        refundId,
+        platformFundedAmount: decision.platformSettleAmount,
+        sellerFundedAmount: decision.sellerDebitAmount,
+        policyVersion: reservation.policyVersion,
+        causationId: event.id ?? null,
+        occurredAt: data.refundedAt,
+      },
+      { tenantId: event.tenantId, audit: event.audit, trace: event.trace },
+    );
+  }
+
+  await recordReconciledRefundLiability(db, {
+    ...base,
+    sellerPostedAmount,
+    platformSettledAmount: decision.platformSettleAmount,
+    reconciledAt: data.refundedAt,
+  });
 }
 
 function shouldReleaseDisputeHold(
@@ -706,6 +938,7 @@ async function postSellerDisputeLedgerEntries(
 export function buildSettlementPaymentInputProjectionHandlers(
   db: PgQueryable,
   wallets?: WalletServices,
+  protectionCoverage?: ProtectionCoverageSettlementPort,
 ): ProjectorHandlerMap {
   return {
     "payments.payment-created": async (event) => {
@@ -896,6 +1129,7 @@ export function buildSettlementPaymentInputProjectionHandlers(
     "payments.payment-refunded": async (event) => {
       const data = event.data as {
         paymentId: string;
+        refundId?: string | null;
         amount: string;
         currencyCode: string;
         processorStatus: string;
@@ -935,10 +1169,13 @@ export function buildSettlementPaymentInputProjectionHandlers(
         [data.paymentId, data.processorStatus, data.refundedAt, event.streamVersion, paymentStatus],
       );
 
-      await debitSellerRefunds(
+      await reconcileRefundLiability(
+        db,
         wallets,
+        protectionCoverage,
         {
           paymentId: data.paymentId,
+          refundId: data.refundId ?? null,
           paymentAmount,
           refundAmount: data.amount,
           currencyCode: data.currencyCode,
@@ -1033,8 +1270,24 @@ export function buildSettlementPaymentInputProjectionHandlers(
         currencyCode: string;
         reason: string;
         processorName: string;
+        causation?: {
+          remedyId?: string;
+          coverageId?: string | null;
+          allocation?: {
+            sellerFundedAmount?: string;
+            platformFundedAmount?: string;
+            currencyCode?: string;
+            fundingKind?: "seller-funded" | "platform-funded" | "split";
+          };
+        } | null;
         requestedAt: string;
       };
+
+      await recordRefundCausationAllocation(
+        db,
+        { refundId: data.refundId, paymentId: data.paymentId, causation: data.causation },
+        event,
+      );
 
       await db.query(
         `INSERT INTO settlement_refund_sources (

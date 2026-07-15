@@ -4,7 +4,7 @@
   "ownedNouns": ["wallet", "wallet-adjustment", "payout", "payout-readiness", "ledger-entry"],
   "streamPrefix": "settlement.",
   "apiBasePath": "/api/settlement",
-  "slices": ["wallets", "payout-readiness", "payouts", "protection-coverage"],
+  "slices": ["wallets", "payout-readiness", "payouts", "protection-coverage", "liability-allocation"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity"],
@@ -13,7 +13,7 @@
     {
       "sourceContextName": "payments",
       "projectionName": "settlement-payment-input-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "eventTypes": [
         "payments.payment-created",
         "payments.payment-authorized",
@@ -28,6 +28,22 @@
       ],
       "order": 10,
       "projectionHandlerSetNames": ["settlement-payment-input-projection"]
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "projectionName": "settlement-liability-allocation-reserve-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["support.support-request.platform-coverage-requested.v1"],
+      "order": 12,
+      "projectionHandlerSetNames": ["settlement-liability-allocation-reserve-projection"]
+    },
+    {
+      "sourceContextName": "settlement",
+      "projectionName": "settlement-support-hold-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["settlement.protection-coverage.settled.v1"],
+      "order": 13,
+      "projectionHandlerSetNames": ["settlement-support-hold-projection"]
     },
     {
       "sourceContextName": "payments",
@@ -119,14 +135,27 @@
     {
       "projectionName": "settlement-payment-input-projection",
       "sourceContextNames": ["payments"],
-      "ownedTables": ["settlement_payment_sources", "settlement_refund_sources", "settlement_protection_reserve_facts"],
+      "ownedTables": [
+        "settlement_payment_sources",
+        "settlement_refund_sources",
+        "settlement_protection_reserve_facts",
+        "settlement_refund_liability_allocations"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "settlement-support-hold-projection",
-      "sourceContextNames": ["platform-operations", "payments"],
+      "sourceContextNames": ["platform-operations", "payments", "settlement"],
       "ownedTables": ["settlement_support_holds"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "settlement-liability-allocation-reserve-projection",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": [],
+      "sideEffectOnly": true,
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
@@ -443,6 +472,11 @@
     "protection-coverage": {
       "classification": "slice",
       "purpose": "Own the ProtectionCoverage reservation aggregate, protection-reserve accounting, read models, and reconciliation for the settlement context.",
+      "expectedConsumers": ["Internal settlement module composition"]
+    },
+    "liability-allocation": {
+      "classification": "slice",
+      "purpose": "Allocate refund liability per the authorized LiabilityAllocation: post the seller-funded portion to the wallet ledger-entry record, consume the platform-funded protection-coverage reservation, reconcile the correlated support hold, and quarantine mismatches for operator repair.",
       "expectedConsumers": ["Internal settlement module composition"]
     },
     "request-support": {

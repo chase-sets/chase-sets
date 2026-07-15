@@ -623,6 +623,7 @@ export const sourceContextWakeRegistry = [
       "marketplace:marketplace-review-support-source-projection",
       "marketplace:marketplace-seller-metrics-support-source-projection",
       "ordering:ordering-order-review-opportunity-projection",
+      "settlement:settlement-liability-allocation-reserve-projection",
       "settlement:settlement-support-hold-projection",
     ],
     routeDependencyIds: [
@@ -678,6 +679,7 @@ export const sourceContextWakeRegistry = [
       "settlement:platform-policy-document-projection",
       "settlement:settlement-payout-projection",
       "settlement:settlement-payout-readiness-projection",
+      "settlement:settlement-support-hold-projection",
     ],
     routeDependencyIds: ["settlement.payout-readiness-self-refresh", "settlement.payout-request-to-detail"],
     enablement: {
