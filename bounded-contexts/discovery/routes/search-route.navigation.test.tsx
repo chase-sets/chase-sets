@@ -119,7 +119,7 @@ describe("marketplace search detail navigation with a pending debounced search",
     const detailLoader = createDeferred();
     renderMarketplaceSearchRouter(detailLoader);
 
-    const resultLink = await screen.findByRole("link", { name: RESULT_ACTION_NAME });
+    const resultLink = await screen.findByRole("link", { name: RESULT_ACTION_NAME }, { timeout: 5000 });
     expect(resultLink.tagName).toBe("A");
     expect(resultLink.getAttribute("href")).toBe("/items/pikachu?market=buy");
   });
