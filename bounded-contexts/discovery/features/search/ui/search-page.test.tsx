@@ -135,6 +135,8 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
     data: searchResponse,
     categories,
     onSearchChange: vi.fn(),
+    onSearchSubmit: vi.fn(),
+    onClearSearch: vi.fn(),
     onCategoryChange: vi.fn(),
     onLanguageChange: vi.fn(),
     onMarketActivityChange: vi.fn(),
@@ -167,6 +169,54 @@ describe("SearchPage", () => {
     expect(
       screen.getByRole("link", { name: "View details for Prismatic Evolutions Booster Pack — Pokemon sealed product" }),
     ).toBeTruthy();
+  });
+
+  it("submits the current search from the keyboard", () => {
+    const props = renderSearchPage({ search: "charizard", committedSearch: "pikachu" });
+
+    fireEvent.submit(screen.getByRole("search"));
+
+    expect(props.onSearchSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("announces result-count changes", () => {
+    renderSearchPage({ committedSearch: "abra" });
+
+    const announcedSummary = screen
+      .getAllByText("1 results in All Categories")
+      .find((summary) => summary.closest('[aria-live="polite"]'));
+    expect(announcedSummary?.closest('[aria-live="polite"]')?.getAttribute("aria-atomic")).toBe("true");
+  });
+
+  it("marks stale results busy and shows transition feedback", () => {
+    renderSearchPage({ committedSearch: "abra", loading: true });
+
+    const resultHeading = screen.getByRole("heading", { name: "Prismatic Evolutions Booster Pack" });
+    expect(resultHeading.closest('[aria-busy="true"]')).toBeTruthy();
+    expect(screen.getByText("Updating results...")).toBeTruthy();
+  });
+
+  it("offers actionable category, clear-search, and clear-filter recovery", () => {
+    const props = renderSearchPage({
+      search: "missing",
+      committedSearch: "missing",
+      category: "booster-packs",
+      data: { ...searchResponse, items: [], total: 0, count: 0 },
+    });
+
+    const recovery = screen.getByRole("heading", { name: "No items found" }).closest("section");
+    expect(recovery).toBeTruthy();
+    const recoveryView = within(recovery as HTMLElement);
+    expect(recoveryView.getByRole("link", { name: "Booster Packs" }).getAttribute("href")).toBe(
+      "/categories/booster-packs",
+    );
+    expect(recoveryView.getByRole("link", { name: "Generation I" }).getAttribute("href")).toBe(
+      "/categories/generation-i",
+    );
+    fireEvent.click(recoveryView.getByRole("button", { name: "Clear search" }));
+    expect(props.onClearSearch).toHaveBeenCalledTimes(1);
+    expect(recoveryView.getByRole("link", { name: "Clear filters" }).getAttribute("href")).toBe("/search?q=missing");
+    expect(recoveryView.queryByRole("link", { name: "All Categories" })).toBeNull();
   });
 
   it("keeps home merchandising out of focused search states", () => {

@@ -722,6 +722,24 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     }, SEARCH_DEBOUNCE_MS);
   }
 
+  function handleSearchSubmit() {
+    if (pendingSearchRef.current === null) {
+      return;
+    }
+
+    clearSearchTimer();
+    commitPendingSearch();
+  }
+
+  function handleClearSearch() {
+    restoreSearchFocusRef.current = true;
+    draftSearchRef.current = "";
+    pendingSearchRef.current = "";
+    setDraftSearchState((current) => ({ ...current, value: "" }));
+    clearSearchTimer();
+    updateSearchParams({ search: "" }, true);
+  }
+
   function handleImmediateSearchParamChange(nextValues: {
     category?: string;
     tag?: string | null;
@@ -876,6 +894,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       savedListClaim={data.savedListClaim}
       restoreSearchFocus={restoreSearchFocusRef.current}
       onSearchChange={handleSearchChange}
+      onSearchSubmit={handleSearchSubmit}
+      onClearSearch={handleClearSearch}
       onCategoryChange={(value) => handleImmediateSearchParamChange({ category: value })}
       onTagClear={() => handleImmediateSearchParamChange({ tag: null })}
       onLanguageChange={(value) => handleImmediateSearchParamChange({ language: value })}
