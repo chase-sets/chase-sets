@@ -17,7 +17,7 @@ Fulfillment owns the physical execution of shipping and delivery.
 - Dispatch and in-transit status
 - Delivery, loss, return, and exception handling
 - Shipment cancellation before package preparation
-- Return Shipment (buyer-to-platform reverse movement) aggregate and read models
+- Return Shipment (buyer-to-seller and buyer-to-platform reverse movement) aggregate and read models
 - Platform return-facility destination directory and immutable destination snapshots
 - Reverse-shipment custody milestones, deadlines, and carrier exceptions
 - Reverse-shipment linkage to the authorizing support request, remedy, order, outbound shipment, and affected order lines
@@ -96,10 +96,10 @@ The existing `ShipmentReturned` terminal state is the outbound shipment reaching
 "returned" — it is **not** a reverse shipment. Ownership and the refund-trigger contract are
 ratified in [ADR 0022: Platform-Covered Resolution Ownership and Contracts](../../docs/adr/0022-platform-covered-resolution-contracts.md).
 
-## Return Shipment (buyer-to-platform reverse logistics)
+## Return Shipment (reverse logistics)
 
 The `return-shipments` slice owns a dedicated, event-sourced **Return Shipment**
-aggregate for buyer-to-platform reverse movements, kept separate from the outbound
+aggregate for buyer-to-seller and buyer-to-platform reverse movements, kept separate from the outbound
 `Shipment` on purpose: a reverse movement has its own origin, destination, label,
 tracking, custody milestones, deadlines, cost payer, and exception paths, so
 overloading the outbound aggregate would blur its invariants and make retries,
@@ -115,6 +115,11 @@ secrets never reach the event log or the customer read model. Customer-safe and
 operator read models are projected separately, so protected facility and party
 metadata cannot leak to buyers by construction. The design is recorded in
 [ADR 0023: ReturnShipment Aggregate and Platform Return-Facility Directory](../../docs/adr/0023-return-shipment-aggregate.md).
+
+Accepted ordinary support returns use the outbound shipment's immutable seller-origin and buyer-destination
+snapshots to purchase one buyer-to-seller label. Fulfillment publishes the label, tracking, actual postage, and
+cost-payer facts; Payments applies buyer-remorse postage to the refund, while Settlement applies seller-fault
+postage to the seller wallet. Case cancellation and the ship-by deadline sweep void unused labels.
 Before creation, Fulfillment validates the Support-owned case, remedy, order, and
 affected-line facts against its own outbound shipment and line projection. The
 complete immutable linkage is then stamped into the aggregate fact and operator

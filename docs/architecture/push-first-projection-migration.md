@@ -149,7 +149,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `payments:payments-order-cancellation-refund-effect` | Payments | **ordering**, **payments** | push-enabled | 2/2 |
 | `payments:payments-order-input-projection` | Payments | **ordering** | push-enabled | 1/1 |
 | `payments:payments-payment-projection` | Payments | **payments** | push-enabled | 1/1 |
-| `payments:payments-support-refund-effect` | Payments | **platform-operations** | push-enabled | 1/1 |
+| `payments:payments-support-refund-effect` | Payments | fulfillment, **platform-operations** | push-eligible | 1/2 |
 | `platform-operations:experience-platform-feedback-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:platform-policy-document-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:public-doc-review-queue-projection` | Platform Operations | **commercial-terms**, **platform-operations** | push-enabled | 2/2 |

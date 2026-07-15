@@ -32,6 +32,7 @@ import {
   buildSupportOrderSourceProjectionHandlers,
   buildSupportShipmentSourceProjectionHandlers,
 } from "./features/support-requests/integrations/source/source-projection";
+import { buildSupportReturnLabelSourceProjectionHandlers } from "./features/support-requests/integrations/source/return-label-source-projection";
 import { platformOperationsSchemaSql } from "./support/runtime-support/schema";
 import { supportRequestSchemaMigrations } from "./features/support-requests/read-model/schema";
 import { platformOperationsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
@@ -96,7 +97,10 @@ export const module = defineBoundedContextModule<
         },
         "fulfillment.support-shipment-source-projection": {
           subscriptionName: "support.shipment-source-projection",
-          buildHandlers: () => buildSupportShipmentSourceProjectionHandlers(services.db, services.supportRequests),
+          buildHandlers: () => ({
+            ...buildSupportShipmentSourceProjectionHandlers(services.db, services.supportRequests),
+            ...buildSupportReturnLabelSourceProjectionHandlers(services.db),
+          }),
         },
         "marketplace.reported-content-queue-projection": {
           subscriptionName: "platform-operations.reported-content-queue-projection",

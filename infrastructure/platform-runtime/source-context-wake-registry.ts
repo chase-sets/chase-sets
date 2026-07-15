@@ -332,6 +332,7 @@ export const sourceContextWakeRegistry = [
       "inventory:inventory-fulfillment-recovered-item-workflow",
       "inventory:inventory-fulfillment-restock-workflow",
       "payments:payments-fulfillment-dispute-evidence-source-projection",
+      "payments:payments-support-refund-effect",
       "notifications:notifications-source-facts-outbox-projection",
       "ordering:ordering-fulfillment-cancellation-inputs",
       "ordering:ordering-order-review-opportunity-projection",

@@ -184,15 +184,39 @@ describe("ReturnShipment aggregate", () => {
     expect(state.status).toBe("requested");
     expect(state.returnDirective).toBe("return-to-platform");
     expect(state.affectedOrderLineIds).toEqual(["oli_1"]);
-    expect(state.destinationSnapshot?.facilityId).toBe("fac_east");
+    expect(state.destinationSnapshot?.destinationType).toBe("platform-facility");
+    if (state.destinationSnapshot?.destinationType === "platform-facility") {
+      expect(state.destinationSnapshot.facilityId).toBe("fac_east");
+    }
     expect(state.labelStatus).toBe("pending");
     expect(state.milestones).toHaveLength(1);
   });
 
-  it("rejects a directive that is not return-to-platform", () => {
-    expect(() =>
-      decideReturnShipment(initialReturnShipmentState, requestCommand({ returnDirective: "return-to-seller" })),
-    ).toThrow();
+  it("accepts return-to-seller with a seller snapshot and rejects no-return", () => {
+    const events = decideReturnShipment(
+      initialReturnShipmentState,
+      requestCommand({
+        returnDirective: "return-to-seller",
+        destinationSnapshot: {
+          destinationType: "seller",
+          sellerAccountId: "acc_seller",
+          snapshotVersion: "outbound-origin-v1",
+          displayName: "Seller return",
+          displayInstructions: "Use the provided label.",
+          postalAddress: {
+            name: "Seller",
+            line1: "1 Seller St",
+            city: "Madison",
+            state: "WI",
+            postalCode: "53703",
+            country: "US",
+          },
+          region: "us",
+          selectedAt: "2026-06-01T00:00:00.000Z",
+        },
+      }),
+    );
+    expect(events[0]?.type).toBe("fulfillment.return-shipment.requested.v2");
     expect(() =>
       decideReturnShipment(initialReturnShipmentState, requestCommand({ returnDirective: "no-return" })),
     ).toThrow();

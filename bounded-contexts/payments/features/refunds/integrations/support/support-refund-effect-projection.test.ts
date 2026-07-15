@@ -199,7 +199,15 @@ describe("payments support refund effect projection", () => {
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("SELECT requested_amount")) {
-          return { rows: [{ requested_amount: "12.00", resolution_type: "return-for-refund" }] };
+          return {
+            rows: [
+              {
+                requested_amount: "12.00",
+                return_shipping_deduction_amount: "2.75",
+                resolution_type: "return-for-refund",
+              },
+            ],
+          };
         }
         if (sql.includes("FROM payments_payment_pages")) {
           return {
@@ -228,13 +236,65 @@ describe("payments support refund effect projection", () => {
     } as never);
 
     expect(issueRefund).toHaveBeenCalledWith(
-      expect.objectContaining({ refundId: "rfd_claim", paymentId: "pay_1", amount: "12.00" }),
+      expect.objectContaining({ refundId: "rfd_claim", paymentId: "pay_1", amount: "9.25" }),
       expect.objectContaining({ tenantId: "tnt_test" }),
     );
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("status = 'refund-requested'"),
       expect.arrayContaining(["sup_01ABC", "pay_1", "rfd_1"]),
     );
+  });
+
+  it("records actual buyer-paid return postage as the pending refund deduction and clears it after a refunding void", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
+    const handlers = buildPaymentsSupportRefundEffectHandlers(db as never, { issueRefund: vi.fn() } as never);
+
+    await handlers["fulfillment.return-shipment.requested.v2"]?.({
+      ...baseEvent(),
+      type: "fulfillment.return-shipment.requested.v2",
+      data: {
+        returnShipmentId: "rsh_01ABC",
+        supportRequestId: "sup_01ABC",
+        costPayer: "buyer",
+        requestedAt: "2026-05-31T14:01:00.000Z",
+      },
+    } as never);
+    await handlers["fulfillment.return-shipment.label-ready.v1"]?.({
+      ...baseEvent(),
+      type: "fulfillment.return-shipment.label-ready.v1",
+      data: {
+        returnShipmentId: "rsh_01ABC",
+        postageAmountCents: 275,
+        postageCurrency: "usd",
+        readyAt: "2026-05-31T14:02:00.000Z",
+      },
+    } as never);
+    await handlers["fulfillment.return-shipment.label-voided.v1"]?.({
+      ...baseEvent(),
+      type: "fulfillment.return-shipment.label-voided.v1",
+      data: {
+        returnShipmentId: "rsh_01ABC",
+        refundStatus: "refunded",
+        voidedAt: "2026-05-31T14:03:00.000Z",
+      },
+    } as never);
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("payments_return_label_sources"), [
+      "rsh_01ABC",
+      "sup_01ABC",
+      "buyer",
+      "2026-05-31T14:01:00.000Z",
+    ]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("return_shipping_deduction_amount = $2"), [
+      "rsh_01ABC",
+      "2.75",
+      "usd",
+      "2026-05-31T14:02:00.000Z",
+    ]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("return_shipping_deduction_amount = 0"), [
+      "rsh_01ABC",
+      "2026-05-31T14:03:00.000Z",
+    ]);
   });
 
   it("skips the return refund release when nothing is pending (idempotent replay)", async () => {

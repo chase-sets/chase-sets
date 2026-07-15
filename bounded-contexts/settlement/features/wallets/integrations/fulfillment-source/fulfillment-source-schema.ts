@@ -20,4 +20,16 @@ CREATE INDEX IF NOT EXISTS settlement_order_fulfillment_sources_order_idx
 
 CREATE INDEX IF NOT EXISTS settlement_order_fulfillment_sources_seller_idx
   ON settlement_order_fulfillment_sources (seller_account_id, updated_at DESC);
+
+CREATE UNLOGGED TABLE IF NOT EXISTS settlement_return_label_sources (
+  return_shipment_id text PRIMARY KEY,
+  support_request_id text NOT NULL,
+  order_id text NOT NULL,
+  seller_account_id text NOT NULL,
+  cost_payer text NOT NULL,
+  postage_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  currency_code text NULL,
+  label_status text NOT NULL DEFAULT 'requested',
+  updated_at timestamptz NOT NULL
+);
 `;

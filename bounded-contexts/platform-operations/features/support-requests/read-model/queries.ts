@@ -50,6 +50,19 @@ export type SupportRequestListRow = Readonly<{
   closure_blocking_reasons: readonly string[];
   next_remedy_action: string | null;
   remedy_repair_guidance: readonly string[];
+  return_shipping?: Readonly<{
+    return_shipment_id: string;
+    status: string;
+    label_status: string;
+    cost_payer: "buyer" | "seller";
+    tracking_identifier: string | null;
+    label_document_url: string | null;
+    postage_amount_cents: number | null;
+    postage_currency: string | null;
+    failure_reason: string | null;
+    ship_by_deadline_at: string;
+    return_by_deadline_at: string;
+  }> | null;
 }>;
 
 export type SupportRequestDetailRow = SupportRequestListRow &
@@ -103,6 +116,20 @@ const listSelect = `
     ,closure_blocking_reasons
     ,next_remedy_action
     ,remedy_repair_guidance
+    ,(SELECT jsonb_build_object(
+        'return_shipment_id', source.return_shipment_id,
+        'status', source.status,
+        'label_status', source.label_status,
+        'cost_payer', source.cost_payer,
+        'tracking_identifier', source.tracking_identifier,
+        'label_document_url', source.label_document_url,
+        'postage_amount_cents', source.postage_amount_cents,
+        'postage_currency', source.postage_currency,
+        'failure_reason', source.failure_reason,
+        'ship_by_deadline_at', source.ship_by_deadline_at::text,
+        'return_by_deadline_at', source.return_by_deadline_at::text
+      ) FROM support_return_label_sources source
+      WHERE source.support_request_id = support_request_pages.support_request_id) AS return_shipping
   FROM support_request_pages
 `;
 
@@ -153,6 +180,20 @@ const detailSelect = `
     ,closure_blocking_reasons
     ,next_remedy_action
     ,remedy_repair_guidance
+    ,(SELECT jsonb_build_object(
+        'return_shipment_id', source.return_shipment_id,
+        'status', source.status,
+        'label_status', source.label_status,
+        'cost_payer', source.cost_payer,
+        'tracking_identifier', source.tracking_identifier,
+        'label_document_url', source.label_document_url,
+        'postage_amount_cents', source.postage_amount_cents,
+        'postage_currency', source.postage_currency,
+        'failure_reason', source.failure_reason,
+        'ship_by_deadline_at', source.ship_by_deadline_at::text,
+        'return_by_deadline_at', source.return_by_deadline_at::text
+      ) FROM support_return_label_sources source
+      WHERE source.support_request_id = support_request_pages.support_request_id) AS return_shipping
   FROM support_request_pages
 `;
 
@@ -186,6 +227,14 @@ function withCompatibleResolution<T extends SupportRequestListRow>(row: T): T {
     };
   }
   return compatible;
+}
+
+function withoutBuyerReturnLabel<T extends SupportRequestListRow>(row: T): T {
+  if (!row.return_shipping?.label_document_url) return row;
+  return {
+    ...row,
+    return_shipping: { ...row.return_shipping, label_document_url: null },
+  };
 }
 
 export async function listBuyerSupportRequests(
@@ -237,7 +286,7 @@ export async function listSellerSupportRequests(
   ]);
 
   return {
-    items: itemsResult.rows.map(withCompatibleResolution),
+    items: itemsResult.rows.map((row) => withoutBuyerReturnLabel(withCompatibleResolution(row))),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
@@ -393,7 +442,12 @@ export async function getAccountSupportRequest(
     [supportRequestId, accountId],
   );
 
-  return result.rows[0] ? withCompatibleResolution(result.rows[0]) : null;
+  const row = result.rows[0];
+  if (!row) return null;
+  const compatible = withCompatibleResolution(row);
+  return compatible.seller_account_id === accountId && compatible.buyer_account_id !== accountId
+    ? withoutBuyerReturnLabel(compatible)
+    : compatible;
 }
 
 export async function getSupportOperationsRequest(

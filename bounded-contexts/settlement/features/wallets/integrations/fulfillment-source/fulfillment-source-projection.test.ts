@@ -55,4 +55,97 @@ describe("settlement fulfillment source projection", () => {
       2,
     ]);
   });
+
+  it("charges seller-funded return postage exactly once and credits a carrier-refunded void", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM settlement_order_fulfillment_sources")) {
+          return { rows: [{ seller_account_id: "acc_seller" }] };
+        }
+        if (sql.includes("UPDATE settlement_return_label_sources") && sql.includes("postage_amount =")) {
+          return { rows: [{ seller_account_id: "acc_seller", order_id: "ord_1", cost_payer: "seller" }] };
+        }
+        if (sql.includes("UPDATE settlement_return_label_sources") && sql.includes("label_status = 'voided'")) {
+          return {
+            rows: [
+              {
+                seller_account_id: "acc_seller",
+                order_id: "ord_1",
+                cost_payer: "seller",
+                postage_amount: "4.25",
+                currency_code: "usd",
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    };
+    const postEntry = vi.fn(async () => ({ accountId: "acc_seller", version: 1, entry: {} }));
+    const loadWalletState = vi.fn(async () => ({ entries: [] }));
+    const handlers = buildSettlementFulfillmentSourceProjectionHandlers(
+      db as never,
+      {
+        postEntry,
+        loadWalletState,
+      } as never,
+    );
+
+    await handlers["fulfillment.return-shipment.requested.v2"]!(
+      event("fulfillment.return-shipment.requested.v2", {
+        returnShipmentId: "rsh_1",
+        supportRequestId: "sup_1",
+        orderId: "ord_1",
+        costPayer: "seller",
+        requestedAt: "2026-05-01T00:00:00.000Z",
+      }),
+    );
+    await handlers["fulfillment.return-shipment.label-ready.v1"]!(
+      event(
+        "fulfillment.return-shipment.label-ready.v1",
+        {
+          returnShipmentId: "rsh_1",
+          postageAmountCents: 425,
+          postageCurrency: "usd",
+          readyAt: "2026-05-01T00:01:00.000Z",
+        },
+        2,
+      ),
+    );
+    await handlers["fulfillment.return-shipment.label-voided.v1"]!(
+      event(
+        "fulfillment.return-shipment.label-voided.v1",
+        {
+          returnShipmentId: "rsh_1",
+          refundStatus: "refunded",
+          voidedAt: "2026-05-01T00:02:00.000Z",
+        },
+        3,
+      ),
+    );
+
+    expect(postEntry).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        accountId: "acc_seller",
+        ledgerEntryId: "led_return_postage_rsh_1",
+        kind: "fee",
+        direction: "debit",
+        amount: "4.25",
+        allowNegativeBalance: true,
+      }),
+      expect.objectContaining({ tenantId: "tnt_test" }),
+    );
+    expect(postEntry).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        accountId: "acc_seller",
+        ledgerEntryId: "led_return_postage_refund_rsh_1",
+        kind: "fee",
+        direction: "credit",
+        amount: "4.25",
+      }),
+      expect.objectContaining({ tenantId: "tnt_test" }),
+    );
+  });
 });

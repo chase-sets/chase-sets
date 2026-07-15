@@ -2,10 +2,12 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
 import {
   findOpenSupportRequestForOrder,
+  getAccountSupportRequest,
   getSupportOperationsRequest,
   getSupportRequestByDisplayReference,
   listSupportRequestsReadyForAutoClose,
   listSupportOperationsQueue,
+  listSellerSupportRequests,
 } from "./queries";
 
 type QueryCall = Readonly<{ sql: string; params: readonly unknown[] }>;
@@ -193,5 +195,34 @@ describe("support operations queue read-model query", () => {
 
     expect(calls[0]?.sql).toContain("(closure_eligible = true OR remedy IS NULL)");
     expect(calls[0]?.sql).toContain("auto_close_due_at <= $1::timestamptz");
+  });
+
+  it("keeps the buyer label private while preserving tracking for the seller", async () => {
+    const shipping = {
+      return_shipment_id: "rsh_1",
+      status: "ready-to-ship",
+      label_status: "ready",
+      cost_payer: "seller",
+      tracking_identifier: "940011",
+      label_document_url: "https://labels.test/private",
+    };
+    const row = {
+      support_request_id: "sup_1",
+      buyer_account_id: "acc_buyer",
+      seller_account_id: "acc_seller",
+      return_shipping: shipping,
+    };
+    const sellerList = await listSellerSupportRequests(buildDb([], "1", [row]), {
+      sellerAccountId: "acc_seller",
+    });
+    const sellerDetail = await getAccountSupportRequest(buildDb([], "0", [row]), "sup_1", "acc_seller");
+    const buyerDetail = await getAccountSupportRequest(buildDb([], "0", [row]), "sup_1", "acc_buyer");
+
+    expect(sellerList.items[0]?.return_shipping).toMatchObject({
+      tracking_identifier: "940011",
+      label_document_url: null,
+    });
+    expect(sellerDetail?.return_shipping?.label_document_url).toBeNull();
+    expect(buyerDetail?.return_shipping?.label_document_url).toBe("https://labels.test/private");
   });
 });

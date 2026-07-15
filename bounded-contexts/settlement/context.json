@@ -88,13 +88,16 @@
     {
       "sourceContextName": "fulfillment",
       "projectionName": "settlement-fulfillment-source-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "fulfillment.shipment.created",
         "fulfillment.shipment.dispatched",
         "fulfillment.shipment.delivered",
         "fulfillment.shipment.returned",
-        "fulfillment.shipment.exception-raised"
+        "fulfillment.shipment.exception-raised",
+        "fulfillment.return-shipment.requested.v2",
+        "fulfillment.return-shipment.label-ready.v1",
+        "fulfillment.return-shipment.label-voided.v1"
       ],
       "order": 60,
       "projectionHandlerSetNames": ["settlement-fulfillment-source-projection"]
@@ -201,7 +204,7 @@
     {
       "projectionName": "settlement-fulfillment-source-projection",
       "sourceContextNames": ["fulfillment"],
-      "ownedTables": ["settlement_order_fulfillment_sources"],
+      "ownedTables": ["settlement_order_fulfillment_sources", "settlement_return_label_sources"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },

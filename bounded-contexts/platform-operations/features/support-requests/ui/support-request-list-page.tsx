@@ -27,6 +27,7 @@ import {
 } from "@chase-sets/design-system";
 import type { SupportFlowSummary, SupportOrderLookup, SupportRequestListItem } from "./contracts";
 import { CustomerRemedyStatus, type CustomerRemedyRole } from "./customer-remedy-status";
+import { ReturnShippingStatus } from "./return-shipping-status";
 import { SupportEvidenceAttachmentInput } from "./support-evidence-attachments";
 
 type SupportRequestListPageProps = Readonly<{
@@ -137,7 +138,12 @@ function SupportRequestTable({
       key: "resolution",
       header: t("support.features.supportRequests.ui.supportRequestListPage.resolution"),
       mobileLabel: t("support.features.supportRequests.ui.supportRequestListPage.resolution"),
-      cell: (request) => <CustomerRemedyStatus request={request} role={role} />,
+      cell: (request) => (
+        <Stack gap={2}>
+          <CustomerRemedyStatus request={request} role={role} />
+          <ReturnShippingStatus request={request} role={role} />
+        </Stack>
+      ),
     },
   ];
 
