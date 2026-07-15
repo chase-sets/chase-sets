@@ -406,6 +406,7 @@ export const sourceContextWakeRegistry = [
       "identity.admin-invitation-list-fresh-read",
       "identity.admin-membership-detail-fresh-read",
       "identity.admin-user-detail-fresh-read",
+      "identity.invitation-email-auth-projection-fresh-read",
       "identity.marketplace-account-profile-fresh-read",
       "identity.registration-current-actor-display-fresh-read",
       "identity.shipping-addresses-fresh-read",

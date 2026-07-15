@@ -6,6 +6,7 @@ import contextManifest from "../../context.json";
 import type { Invitation } from "../../support/request-support/api-client";
 import { identityApiErrorAdapter } from "../../support/request-support/route-api-error";
 import { createIdentityRequestApiClient, requestWithoutFreshWrite } from "../../support/route-support/identity-request";
+import { requestInvitationAcceptanceLink } from "../../features/invitations/integrations/request-invitation-acceptance-link";
 
 function invitationDestination(invitation: Invitation) {
   return `/access/accounts/${invitation.account_id}?tab=team&invitation=${encodeURIComponent(invitation.invitation_id)}`;
@@ -35,14 +36,14 @@ const invitationDetailDestination = (id: string) => `/access/invitations/${id}`;
 
 export const action = defineFormAction({
   intents: {
-    resend: async ({ request, params, formData }) =>
-      formActionRedirect(
-        await createIdentityRequestApiClient(request).resendInvitation(
-          params.id!,
-          new Date(String(formData.get("expiresAt") ?? "")).toISOString(),
-        ),
-        invitationDetailDestination(params.id!),
-      ),
+    resend: async ({ request, params, formData }) => {
+      const result = await createIdentityRequestApiClient(request).resendInvitation(
+        params.id!,
+        new Date(String(formData.get("expiresAt") ?? "")).toISOString(),
+      );
+      await requestInvitationAcceptanceLink(request, params.id!, result);
+      return formActionRedirect(result, invitationDetailDestination(params.id!));
+    },
     cancel: async ({ request, params }) =>
       formActionRedirect(
         await createIdentityRequestApiClient(request).cancelInvitation(params.id!),
