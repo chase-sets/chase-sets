@@ -56,6 +56,42 @@ describe("merge queue posture", () => {
     expect(result.markdown).toContain("| maximum pull requests to merge | `4` | `2` |");
   });
 
+  it.each([
+    ["merge_method", "MERGE"],
+    ["min_entries_to_merge", 2],
+    ["min_entries_to_merge_wait_minutes", 5],
+    ["grouping_strategy", "HEADGREEN"],
+    ["check_response_timeout_minutes", 30],
+  ])("reports %s drift independently", async (parameter, liveValue) => {
+    const [policy, ruleset] = await Promise.all([readMergeQueueReleasePolicy(), readFixture("matching-ruleset.json")]);
+    const mergeQueueRule = ruleset.rules.find((rule) => rule.type === "merge_queue");
+    mergeQueueRule.parameters[parameter] = liveValue;
+
+    const result = buildMergeQueuePosture({ checkedAt: CHECKED_AT, policy, ruleset });
+
+    expect(result.passesPostureCheck).toBe(false);
+    expect(result.record.drift).toEqual([
+      expect.objectContaining({
+        parameter,
+        liveValue,
+        policyValue: policy.mergeQueue[parameter],
+      }),
+    ]);
+  });
+
+  it("reports missing merge-queue and required-check rules", async () => {
+    const [policy, ruleset] = await Promise.all([readMergeQueueReleasePolicy(), readFixture("matching-ruleset.json")]);
+    ruleset.rules = [];
+
+    const result = buildMergeQueuePosture({ checkedAt: CHECKED_AT, policy, ruleset });
+
+    expect(result.passesPostureCheck).toBe(false);
+    expect(result.record.drift.map((finding) => finding.parameter)).toEqual([
+      ...Object.keys(policy.mergeQueue),
+      "required_status_checks",
+    ]);
+  });
+
   it("fetches the canonical ruleset with GET only", async () => {
     const fixture = await readFixture("matching-ruleset.json");
     const calls = [];
@@ -91,5 +127,15 @@ describe("merge queue posture", () => {
     expect(workflow).toContain("contents: read");
     expect(workflow).not.toContain("issues: write");
     expect(workflow).not.toContain("report-scheduled-workflow-alert");
+  });
+
+  it("documents the scheduled guard and its checked-in policy as the canonical posture path", async () => {
+    const runbook = await readFile(new URL("../docs/runbooks/release-process-evolution.md", import.meta.url), "utf8");
+
+    expect(runbook).toContain("scripts/release-health-merge-queue-policy.json");
+    expect(runbook).toContain("pnpm run ops -- release-health:merge-queue-posture");
+    expect(runbook).toContain(".github/workflows/platform-merge-queue-posture.yml");
+    expect(runbook).toContain("| Minimum merge wait | `0 minutes` |");
+    expect(runbook).not.toContain("scripts/release-health-queue-posture.mjs");
   });
 });
