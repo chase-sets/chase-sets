@@ -4,8 +4,8 @@ title: Getting paid
 description: When sale proceeds become available, what the clearance window depends on, what pauses funds, and how payouts work.
 audience: seller
 category: selling
-reviewedAt: "2026-07-12"
-citedPolicies: ["settlement.clearance-window", "settlement.payout-bounds"]
+reviewedAt: "2026-07-14"
+citedPolicies: ["settlement.clearance-window", "settlement.payout-bounds", "platform-operations.platform-remedies"]
 relatedFlows: ["refund-status"]
 claimCategories: ["payouts", "protection"]
 promiseTable:
@@ -21,6 +21,9 @@ promiseTable:
   - claim: New sale proceeds offset a negative balance before entering the clearance pipeline.
     issues: ["#4534"]
     tests: ["bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.test.ts", "bounded-contexts/settlement/features/wallets/domain/domain.test.ts"]
+  - claim: Platform-covered resolution copy separates the seller allocation from platform coverage and does not treat coverage as a fault finding.
+    issues: ["#5222"]
+    tests: ["bounded-contexts/platform-operations/features/support-requests/ui/customer-remedy-status.test.tsx"]
 ---
 ## Pending, then available
 
@@ -45,6 +48,12 @@ Some events hold your funds beyond the normal schedule:
 - A chargeback holds the disputed order's funds and releases them only if the dispute is won. When a chargeback arrives after funds were released, the disputed amount is recovered from your balance.
 
 Held amounts are excluded from what you can pay out, and orders under an active hold do not mature.
+
+## Platform-covered resolutions
+
+When Chase Sets approves platform coverage for all or part of a support resolution, the support case shows your allocation separately from the amount Chase Sets is covering. A fully platform-covered resolution shows a seller allocation of $0.00; a split resolution shows both amounts in the same currency. Coverage does not by itself establish seller fault.
+
+An approved remedy alone is not a hold-release confirmation. If the displayed allocation looks wrong or a hold remains after the support case completes, use the escalation path in the support case or contact support@chasesets.com.
 
 ## Requesting a payout
 
