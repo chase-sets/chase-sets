@@ -43,6 +43,7 @@ import { productAlertSettingsHref } from "./product-alert-settings-link";
 import { formatMoney } from "../../../support/ui-support/formatting";
 import { AddToSavedListControl } from "../../saved-list-addition/ui/add-to-saved-list";
 import type { SavedListClaimLoadState } from "../../saved-list-addition/ui/contracts";
+import { HomeMerchandising, type HomeMerchandisingData } from "../../home/ui/home-merchandising";
 
 const AUTO_LOAD_ROOT_MARGIN = "900px";
 const FACET_OPTION_SEARCH_THRESHOLD = 8;
@@ -237,6 +238,7 @@ export interface SearchPageProps {
   dynamicFilters: readonly DynamicSearchFilterSelection[];
   data: DiscoverySearchResponse | null;
   categories: DiscoveryCategoryItem[];
+  homeMerchandising?: HomeMerchandisingData | null;
   loading?: boolean;
   loadingMore?: boolean;
   loadMoreError?: string | null;
@@ -307,6 +309,7 @@ export function SearchPage({
   dynamicFilters,
   data,
   categories,
+  homeMerchandising = null,
   loading = false,
   loadingMore = false,
   loadMoreError = null,
@@ -379,6 +382,10 @@ export function SearchPage({
     inStock ||
     activeDynamicFilterCount > 0 ||
     sort !== "relevance";
+  const showHomeMerchandising =
+    !hasFocusedResults &&
+    homeMerchandising !== null &&
+    (homeMerchandising.featuredCategories.length > 0 || homeMerchandising.newArrivals.length > 0);
   const canLoadMore = Boolean(data?.nextCursor && onLoadMore);
   const dynamicAppliedFilters = buildDynamicAppliedFilters(data?.facets ?? [], dynamicFilters, onDynamicFilterChange);
   const progressiveFacetLabels = {
@@ -870,9 +877,11 @@ export function SearchPage({
           />
         ) : null}
 
+        {showHomeMerchandising ? <HomeMerchandising {...homeMerchandising} /> : null}
+
         {loading && !data ? (
           <LoadingSpinner label={t("discovery.features.search.ui.searchPage.searching")} />
-        ) : data && data.items.length === 0 ? (
+        ) : data && data.items.length === 0 && !showHomeMerchandising ? (
           <NoResultsRecovery
             title={t("discovery.features.search.ui.searchPage.no.items.found")}
             description={
@@ -905,7 +914,7 @@ export function SearchPage({
               </LinkButton>
             }
           />
-        ) : data ? (
+        ) : data && data.items.length > 0 ? (
           <>
             {data.retrievalMode === "rescue" ? (
               <Stack gap={1}>

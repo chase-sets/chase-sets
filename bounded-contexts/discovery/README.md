@@ -126,6 +126,7 @@ Run `pnpm --filter @chase-sets/discovery run test:watch` for the sub-second watc
 
 ## Structure Notes
 
+- `features/home` owns marketplace home merchandising composed from Discovery's existing category and search read models.
 - `features/item-detail` and `features/search` keep their own slice-local runtime, projection, schema, query, route, and UI files.
 - `features/saved-list-addition` owns the Collections-fed local picker projection and shared Add to List UI used by Search and Item Detail.
 - Shared item-page client helpers stay inside Discovery because they are discovery-owned browse behavior, not shared infrastructure.

@@ -169,6 +169,31 @@ describe("SearchPage", () => {
     ).toBeTruthy();
   });
 
+  it("keeps home merchandising out of focused search states", () => {
+    renderSearchPage({
+      committedSearch: "pikachu",
+      homeMerchandising: {
+        featuredCategories: categories.slice(0, 1),
+        newArrivals: [searchResult],
+      },
+    });
+
+    expect(screen.queryByRole("heading", { name: "Featured categories" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "New arrivals" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Prismatic Evolutions Booster Pack" })).toBeTruthy();
+  });
+
+  it("keeps the existing catalog-empty recovery when home merchandising has no data", () => {
+    renderSearchPage({
+      data: { ...searchResponse, items: [], total: 0, count: 0 },
+      categories: [],
+      homeMerchandising: { featuredCategories: [], newArrivals: [] },
+    });
+
+    expect(screen.getByRole("heading", { name: "No items found" })).toBeTruthy();
+    expect(screen.getByText("No catalog items are available yet.")).toBeTruthy();
+  });
+
   it("formats search-card prices with the discovery money formatter", () => {
     renderSearchPage({
       committedSearch: "bulbasaur",
