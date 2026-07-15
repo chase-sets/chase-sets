@@ -68,26 +68,27 @@ export function buildFulfillmentReturnShipmentProjectionHandlers(db: PgQueryable
     );
   }
 
-  return {
-    "fulfillment.return-shipment.requested.v1": async (event) => {
-      const data = event.data as ReturnShipmentRequestedEvent["data"];
-      const destination = data.destinationSnapshot;
-      await db.query(
-        `INSERT INTO fulfillment_return_shipment_operator_pages (
+  const projectRequested = async (event: Parameters<ProjectorHandlerMap[string]>[0]) => {
+    const data = event.data as ReturnShipmentRequestedEvent["data"];
+    const affectedOrderLineIds = "affectedOrderLineIds" in data ? data.affectedOrderLineIds : [];
+    const destination = data.destinationSnapshot;
+    await db.query(
+      `INSERT INTO fulfillment_return_shipment_operator_pages (
            return_shipment_id, remedy_id, support_request_id, order_id, outbound_shipment_id,
            return_directive, status, ship_from_snapshot, destination_snapshot, facility_id,
            facility_config_version, selection_policy_version, package_requirements, label_status,
            cost_payer, cost_allocation_reference, ship_by_deadline_at, return_by_deadline_at,
-           policy_version, idempotency_key, milestones, exceptions, requested_at, updated_at
+           policy_version, idempotency_key, milestones, exceptions, affected_order_line_ids, requested_at, updated_at
          )
          VALUES ($1, $2, $3, $4, $5, $6, 'requested', $7::jsonb, $8::jsonb, $9, $10, $11, $12::jsonb,
            'pending', $13, $14, $15::timestamptz, $16::timestamptz, $17, $18, $19::jsonb, '[]'::jsonb,
-           $20::timestamptz, $20::timestamptz)
+           $21::jsonb, $20::timestamptz, $20::timestamptz)
          ON CONFLICT (return_shipment_id) DO UPDATE SET
            remedy_id = EXCLUDED.remedy_id,
            support_request_id = EXCLUDED.support_request_id,
            order_id = EXCLUDED.order_id,
            outbound_shipment_id = EXCLUDED.outbound_shipment_id,
+           affected_order_line_ids = EXCLUDED.affected_order_line_ids,
            return_directive = EXCLUDED.return_directive,
            ship_from_snapshot = EXCLUDED.ship_from_snapshot,
            destination_snapshot = EXCLUDED.destination_snapshot,
@@ -101,31 +102,32 @@ export function buildFulfillmentReturnShipmentProjectionHandlers(db: PgQueryable
            return_by_deadline_at = EXCLUDED.return_by_deadline_at,
            policy_version = EXCLUDED.policy_version,
            idempotency_key = EXCLUDED.idempotency_key`,
-        [
-          data.returnShipmentId,
-          data.remedyId,
-          data.supportRequestId,
-          data.orderId,
-          data.outboundShipmentId,
-          data.returnDirective,
-          JSON.stringify(data.shipFromSnapshot),
-          JSON.stringify(destination),
-          destination.facilityId,
-          destination.configVersion,
-          destination.selectionPolicyVersion,
-          JSON.stringify(data.packageRequirements),
-          data.costPayer,
-          data.costAllocationReference,
-          data.shipByDeadlineAt,
-          data.returnByDeadlineAt,
-          data.metadata.policyVersion,
-          data.metadata.idempotencyKey,
-          milestoneJson("requested", data.requestedAt, null),
-          data.requestedAt,
-        ],
-      );
-      await db.query(
-        `INSERT INTO fulfillment_return_shipment_customer_pages (
+      [
+        data.returnShipmentId,
+        data.remedyId,
+        data.supportRequestId,
+        data.orderId,
+        data.outboundShipmentId,
+        data.returnDirective,
+        JSON.stringify(data.shipFromSnapshot),
+        JSON.stringify(destination),
+        destination.facilityId,
+        destination.configVersion,
+        destination.selectionPolicyVersion,
+        JSON.stringify(data.packageRequirements),
+        data.costPayer,
+        data.costAllocationReference,
+        data.shipByDeadlineAt,
+        data.returnByDeadlineAt,
+        data.metadata.policyVersion,
+        data.metadata.idempotencyKey,
+        milestoneJson("requested", data.requestedAt, null),
+        data.requestedAt,
+        JSON.stringify(affectedOrderLineIds),
+      ],
+    );
+    await db.query(
+      `INSERT INTO fulfillment_return_shipment_customer_pages (
            return_shipment_id, remedy_id, status, destination_display_name,
            destination_display_instructions, destination_region, destination_city, destination_state,
            ship_by_deadline_at, return_by_deadline_at, requested_at, updated_at
@@ -140,20 +142,24 @@ export function buildFulfillmentReturnShipmentProjectionHandlers(db: PgQueryable
            destination_state = EXCLUDED.destination_state,
            ship_by_deadline_at = EXCLUDED.ship_by_deadline_at,
            return_by_deadline_at = EXCLUDED.return_by_deadline_at`,
-        [
-          data.returnShipmentId,
-          data.remedyId,
-          destination.displayName,
-          destination.displayInstructions,
-          destination.region,
-          destination.postalAddress.city,
-          destination.postalAddress.state,
-          data.shipByDeadlineAt,
-          data.returnByDeadlineAt,
-          data.requestedAt,
-        ],
-      );
-    },
+      [
+        data.returnShipmentId,
+        data.remedyId,
+        destination.displayName,
+        destination.displayInstructions,
+        destination.region,
+        destination.postalAddress.city,
+        destination.postalAddress.state,
+        data.shipByDeadlineAt,
+        data.returnByDeadlineAt,
+        data.requestedAt,
+      ],
+    );
+  };
+
+  return {
+    "fulfillment.return-shipment.requested.v1": projectRequested,
+    "fulfillment.return-shipment.requested.v2": projectRequested,
     "fulfillment.return-shipment.label-ready.v1": async (event) => {
       const data = event.data as ReturnShipmentLabelReadyEvent["data"];
       await db.query(

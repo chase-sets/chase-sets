@@ -71,7 +71,7 @@ export type OrderId = TypedUlid<"ord">;
 
 export type ShipmentId = TypedUlid<"shp">;
 
-/** Fulfillment-owned handle for one buyer-to-platform reverse shipment. */
+/** Fulfillment-owned handle for one buyer-to-platform reverse shipment linked to its authorizing support context. */
 export type ReturnShipmentId = TypedUlid<"rsh">;
 
 /** Fulfillment-owned handle for a facility package that has not yet been matched to a Return Shipment. */

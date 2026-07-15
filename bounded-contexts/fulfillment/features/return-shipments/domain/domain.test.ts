@@ -74,6 +74,7 @@ function requestCommand(overrides: Partial<RequestReturnShipmentCommand> = {}): 
     supportRequestId: "sup_1" as never,
     orderId: "ord_1" as never,
     outboundShipmentId: "shp_1" as never,
+    affectedOrderLineIds: ["oli_1"],
     returnDirective: "return-to-platform",
     shipFromSnapshot: {
       name: "Buyer",
@@ -177,9 +178,12 @@ function facilityIntake(overrides: Partial<ReturnShipmentFacilityIntake> = {}): 
 
 describe("ReturnShipment aggregate", () => {
   it("requests a reverse shipment and snapshots the destination", () => {
-    const state = requestedState();
+    const events = decideReturnShipment(initialReturnShipmentState, requestCommand());
+    const state = fold(events);
+    expect(events[0]?.type).toBe("fulfillment.return-shipment.requested.v2");
     expect(state.status).toBe("requested");
     expect(state.returnDirective).toBe("return-to-platform");
+    expect(state.affectedOrderLineIds).toEqual(["oli_1"]);
     expect(state.destinationSnapshot?.facilityId).toBe("fac_east");
     expect(state.labelStatus).toBe("pending");
     expect(state.milestones).toHaveLength(1);
@@ -210,6 +214,25 @@ describe("ReturnShipment aggregate", () => {
         }),
       ),
     ).toThrow();
+  });
+
+  it.each([
+    ["support case", { supportRequestId: "sup_other" as never }],
+    ["order", { orderId: "ord_other" as never }],
+    ["outbound shipment", { outboundShipmentId: "shp_other" as never }],
+    ["affected order lines", { affectedOrderLineIds: ["oli_other"] }],
+  ])("rejects reusing a stream with different %s linkage", (_label, overrides) => {
+    const state = requestedState();
+    expect(() => decideReturnShipment(state, requestCommand(overrides))).toThrow("linkage");
+  });
+
+  it("requires one or more unique affected order lines", () => {
+    expect(() =>
+      decideReturnShipment(initialReturnShipmentState, requestCommand({ affectedOrderLineIds: [] })),
+    ).toThrow("affected order line");
+    expect(() =>
+      decideReturnShipment(initialReturnShipmentState, requestCommand({ affectedOrderLineIds: ["oli_1", "oli_1"] })),
+    ).toThrow("duplicated");
   });
 
   it("rejects a return-by deadline that precedes the ship-by deadline", () => {

@@ -107,6 +107,7 @@ export type ReturnShipmentLabelStatus = (typeof returnShipmentLabelStatuses)[num
  * set intentionally names each failure scenario a buyer-to-platform label can hit.
  */
 export const returnShipmentLabelFailureReasons = [
+  "invalid-return-linkage",
   "invalid-buyer-address",
   "no-eligible-facility",
   "unsupported-parcel",

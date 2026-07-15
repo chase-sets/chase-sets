@@ -101,6 +101,8 @@ A **Return Shipment** is the buyer-to-platform reverse movement that routes an i
 Notes:
 
 - A Return Shipment is a distinct aggregate with its own identity, origin, destination, label, tracking, custody milestones, deadlines, exceptions, and cost payer.
+- Its immutable source linkage names the authorizing Support Request and remedy, the order and outbound Shipment, and every affected order line traveling in the return.
+- Fulfillment validates Support-owned case/remedy facts against Fulfillment-owned shipment/line facts before creating the aggregate; cross-case, cross-order, and unrelated-line combinations are rejected.
 - It is not the outbound Shipment's terminal `returned` state. Overloading the outbound Shipment would blur its invariants.
 - Creation is idempotent by remedy and return directive; reusing a stream for a different remedy or directive is rejected.
 - `Delivered` (the carrier handed the parcel to the facility address) and `Received` (the facility acknowledged intake) remain separate facts.

@@ -39,6 +39,11 @@ import {
   returnShipmentLabelOperationHasProviderLabel,
   type ReturnShipmentLabelOperationRecord,
 } from "../read-model/label-operations";
+import {
+  validateReturnShipmentLinkage,
+  type ReturnShipmentLinkage,
+  type ReturnShipmentLinkageSource,
+} from "../read-model/linkage";
 
 /**
  * The authorized directive that Support hands Fulfillment to route a returned item
@@ -54,6 +59,7 @@ export type ReturnLabelDirective = Readonly<{
   supportRequestId: SupportRequestId;
   orderId: OrderId;
   outboundShipmentId: ShipmentId;
+  affectedOrderLineIds: readonly string[];
   returnProgram: string;
   carrier: string;
   region: string;
@@ -97,6 +103,7 @@ export type ReturnShipmentLabelPurchaseServiceDeps = Readonly<{
   db: PgQueryable;
   postageLabelProvider: PostageLabelProvider;
   facilityDirectory: ReturnFacilityDirectory;
+  loadLinkageSource: (linkage: ReturnShipmentLinkage) => Promise<ReturnShipmentLinkageSource>;
   now?: () => string;
 }>;
 
@@ -337,10 +344,66 @@ export function createReturnShipmentLabelPurchaseService(
     | Readonly<{ ok: true; state: ReturnShipmentState; version: number }>
     | Readonly<{ ok: false; result: IssueReturnLabelResult }>
   > {
+    const linkage: ReturnShipmentLinkage = {
+      supportRequestId: directive.supportRequestId,
+      remedyId: directive.remedyId,
+      orderId: directive.orderId,
+      outboundShipmentId: directive.outboundShipmentId,
+      affectedOrderLineIds: directive.affectedOrderLineIds,
+      returnDirective: "return-to-platform",
+    };
     const streamId = returnShipmentStreamId(directive.returnShipmentId);
     const existing = await repository.load(streamId);
     if (existing.state.status !== null) {
+      const state = existing.state;
+      const sameAffectedLines =
+        state.affectedOrderLineIds.length === directive.affectedOrderLineIds.length &&
+        state.affectedOrderLineIds.every((lineId) => directive.affectedOrderLineIds.includes(lineId));
+      if (
+        state.remedyId !== directive.remedyId ||
+        state.supportRequestId !== directive.supportRequestId ||
+        state.orderId !== directive.orderId ||
+        state.outboundShipmentId !== directive.outboundShipmentId ||
+        (state.affectedOrderLineIds.length > 0 && !sameAffectedLines)
+      ) {
+        return {
+          ok: false,
+          result: {
+            outcome: "failed",
+            returnShipmentId: null,
+            failureReason: "invalid-return-linkage",
+            failureDetail: "The return-shipment identity is already linked to a different support case or order.",
+          },
+        };
+      }
+      if (state.affectedOrderLineIds.length === 0) {
+        const legacyLinkageValidation = validateReturnShipmentLinkage(linkage, await deps.loadLinkageSource(linkage));
+        if (!legacyLinkageValidation.ok) {
+          return {
+            ok: false,
+            result: {
+              outcome: "failed",
+              returnShipmentId: null,
+              failureReason: "invalid-return-linkage",
+              failureDetail: legacyLinkageValidation.detail,
+            },
+          };
+        }
+      }
       return { ok: true, state: existing.state, version: existing.version };
+    }
+
+    const linkageValidation = validateReturnShipmentLinkage(linkage, await deps.loadLinkageSource(linkage));
+    if (!linkageValidation.ok) {
+      return {
+        ok: false,
+        result: {
+          outcome: "failed",
+          returnShipmentId: null,
+          failureReason: "invalid-return-linkage",
+          failureDetail: linkageValidation.detail,
+        },
+      };
     }
 
     const asOf = now();
@@ -406,6 +469,7 @@ export function createReturnShipmentLabelPurchaseService(
           supportRequestId: directive.supportRequestId,
           orderId: directive.orderId,
           outboundShipmentId: directive.outboundShipmentId,
+          affectedOrderLineIds: directive.affectedOrderLineIds,
           returnDirective: "return-to-platform",
           shipFromSnapshot,
           destinationSnapshot: selection.snapshot,

@@ -15,6 +15,7 @@ import {
   buildFulfillmentOrderProjectionHandlers,
 } from "./features/shipments/integrations/source/source-projection";
 import { createFulfillmentShipmentMcpHandlers } from "./features/shipments/api/mcp";
+import { buildFulfillmentSupportReturnSourceProjectionHandlers } from "./features/return-shipments/integrations/support/support-source-projection";
 
 export const module = defineBoundedContextModule<FulfillmentServices, PgTransactionalPool, FulfillmentHostPorts>({
   manifest: contextManifest,
@@ -55,6 +56,10 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
                 });
               },
             }),
+          filterToEventTypes: true,
+        },
+        "platform-operations.fulfillment-support-return-source-projection": {
+          buildHandlers: () => buildFulfillmentSupportReturnSourceProjectionHandlers(services.db),
           filterToEventTypes: true,
         },
       },
