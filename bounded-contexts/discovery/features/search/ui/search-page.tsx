@@ -47,6 +47,9 @@ import { HomeMerchandising, type HomeMerchandisingData } from "../../home/ui/hom
 
 const AUTO_LOAD_ROOT_MARGIN = "900px";
 const FACET_OPTION_SEARCH_THRESHOLD = 8;
+const PRIORITY_SEARCH_RESULT_IMAGE_COUNT = 3;
+const SEARCH_CARD_IMAGE_WIDTH = 224;
+const SEARCH_CARD_IMAGE_HEIGHT = 314;
 
 type DynamicSearchFilterSelection = Readonly<{
   kind: "field" | "reference" | "dimension";
@@ -931,7 +934,7 @@ export function SearchPage({
               </Stack>
             ) : null}
             <Grid columns={{ base: 1, lg: 2, "2xl": 3 }} gap={4}>
-              {data.items.map((item) => {
+              {data.items.map((item, index) => {
                 const listingCount = item.market_summary?.active_listing_count ?? 0;
                 const hasActiveListings = listingCount > 0;
                 const itemDetailHref = buildItemDetailHref(item.slug, dynamicFilters);
@@ -1003,6 +1006,10 @@ export function SearchPage({
                     title={item.title}
                     image={productAssetImage ?? undefined}
                     imageSrc={imageSrc}
+                    imageWidth={SEARCH_CARD_IMAGE_WIDTH}
+                    imageHeight={SEARCH_CARD_IMAGE_HEIGHT}
+                    imageLoading={index < PRIORITY_SEARCH_RESULT_IMAGE_COUNT ? "eager" : "lazy"}
+                    imageFetchPriority={index < PRIORITY_SEARCH_RESULT_IMAGE_COUNT ? "high" : "auto"}
                     imageSlot="compact-product"
                     imageAlt={displayIdentity}
                     imageFallbackSrc={item.image_fallback?.url}

@@ -30,6 +30,7 @@ import {
 import { applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
 import { SearchPage } from "../features/search/ui/search-page";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
+import { useDiscoveryRealtimeRevalidation } from "../support/realtime-support/revalidation";
 import {
   createDiscoveryProductDescriptor,
   summarizeSelections,
@@ -440,6 +441,7 @@ export default function DiscoverySearchRoute() {
 type DiscoverySearchRouteData = typeof EMPTY_SEARCH_RESULT | Awaited<ReturnType<typeof loader>>;
 
 function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData }) {
+  const revalidateForRealtimeSync = useDiscoveryRealtimeRevalidation();
   const navigate = useNavigate();
   const navigation = useNavigation();
   const location = useLocation();
@@ -504,7 +506,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     snapshotKey: accumulatedSnapshotKey,
     topics: discoveryRealtimeRouteTopics.search().topics,
     applyPatch: applyDiscoverySearchPatch,
-    onSyncRequired: reloadForRealtimeSync,
+    onSyncRequired: revalidateForRealtimeSync,
   });
 
   useEffect(() => {
@@ -925,12 +927,6 @@ function mergeDiscoverySearchResponses(
     count: items.length,
     nextCursor: extraPages.length > 0 ? (extraPages.at(-1)?.nextCursor ?? null) : firstPage.nextCursor,
   };
-}
-
-function reloadForRealtimeSync() {
-  if (typeof window !== "undefined") {
-    window.location.reload();
-  }
 }
 
 function readDynamicSearchFilters(searchParams: URLSearchParams): DynamicSearchFilterSelection[] {

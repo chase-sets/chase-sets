@@ -30,6 +30,7 @@ import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/r
 import { discoveryAssetUrls } from "../support/client-support/assets";
 import { applyDiscoveryPublicAccountPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
+import { useDiscoveryRealtimeRevalidation } from "../support/realtime-support/revalidation";
 import {
   FounderBadge,
   hasFounderBadge,
@@ -421,12 +422,13 @@ function PublicAccountRealtimeView({
   reportResult?: ReviewReportResult;
   submittingReportId: string | null;
 }) {
+  const revalidateForRealtimeSync = useDiscoveryRealtimeRevalidation();
   const account = useRealtimePatchedSnapshot({
     initialSnapshot: data.account,
     snapshotKey: JSON.stringify(data.account),
     topics: data.account ? discoveryRealtimeRouteTopics.publicAccount(data.account.account_id).topics : [],
     applyPatch: applyDiscoveryPublicAccountPatch,
-    onSyncRequired: reloadForRealtimeSync,
+    onSyncRequired: revalidateForRealtimeSync,
   });
 
   if (!account) {
@@ -729,10 +731,4 @@ function PublicAccountRealtimeView({
       </Stack>
     </Container>
   );
-}
-
-function reloadForRealtimeSync() {
-  if (typeof window !== "undefined") {
-    window.location.reload();
-  }
 }
