@@ -22,7 +22,15 @@ const currentValues: Record<string, unknown> = {
   "settlement.payout-bounds": { currencyCode: "usd", minimumAmount: "5.00", maximumAmount: "10000.00" },
   "platform-operations.rate-limits": { incidentMultiplier: 1, surfaces: { "internal.admin": { disabled: true } } },
   "platform-operations.support-deadlines": {
-    "product-not-received": { sellerResponseHours: 48, supportReviewHours: 24 },
+    "product-not-received": {
+      sellerResponseHours: 48,
+      supportReviewHours: 24,
+      postDeliveryOpenWindowDays: 30,
+    },
+    "product-not-as-described": { sellerResponseHours: 48, supportReviewHours: 24 },
+    "product-damaged": { sellerResponseHours: 48, supportReviewHours: 24 },
+    "wrong-product-received": { sellerResponseHours: 48, supportReviewHours: 24 },
+    "missing-products": { sellerResponseHours: 48, supportReviewHours: 24 },
     "return-request": { sellerResponseHours: 48, supportReviewHours: 24 },
     "buyer-cancel-request": { sellerResponseHours: 24, supportReviewHours: 24 },
     "seller-cannot-fulfill": { sellerResponseHours: null, supportReviewHours: 12 },
@@ -57,6 +65,11 @@ describe("public policy values", () => {
       type: "hours",
       value: 48,
     });
+    expect(result.values["support-deadlines.item-problem.post-delivery-open.days"]).toMatchObject({
+      type: "days",
+      value: 30,
+    });
+    expect(result.values["support-deadlines.product-damaged.seller-response.hours"].value).toBe(48);
     expect(result.values["support-deadlines.buyer-cancel-request.seller-response.hours"].value).toBe(24);
   });
 

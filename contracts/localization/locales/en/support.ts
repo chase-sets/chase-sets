@@ -73,6 +73,9 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportRequestListPage.flow": "Flow",
   "support.features.supportRequests.ui.supportRequestListPage.default.outcome": "Default outcome",
   "support.features.supportRequests.ui.supportRequestListPage.response.window": "Response window",
+  "support.features.supportRequests.ui.supportRequestListPage.open.postDeliveryWindow":
+    "Report item problems within {days} days of delivery.",
+  "support.features.supportRequests.ui.supportRequestListPage.orderProtectionTerms.link": "Read Order Protection terms",
   "support.features.supportRequests.ui.supportRequestListPage.support.owned": "Support owned",
   "support.features.supportRequests.ui.supportRequestListPage.hours": "{hours} hours",
   "support.features.supportRequests.ui.customerRemedyStatus.state.proposed": "Resolution under review",

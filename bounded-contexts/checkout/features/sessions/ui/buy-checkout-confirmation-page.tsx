@@ -2,6 +2,7 @@ import { formatMoney, t } from "@chase-sets/localization";
 import {
   ActionStack,
   CheckoutConfirmationPanel,
+  LinkText,
   LinkButton,
   OrderProtectionModule,
   Page,
@@ -131,8 +132,13 @@ export function BuyCheckoutConfirmationPage({
               items={[
                 {
                   title: t("checkout.features.sessions.ui.checkoutPage.buyer.protection"),
-                  description: t(
-                    "checkout.features.sessions.ui.checkoutPage.eligible.orders.are.protected.through.payment",
+                  description: (
+                    <>
+                      {t("checkout.features.sessions.ui.checkoutPage.order.protection.terms.summary")}{" "}
+                      <LinkText href="/help/buying/order-protection">
+                        {t("checkout.features.sessions.ui.checkoutPage.order.protection.terms.link")}
+                      </LinkText>
+                    </>
                   ),
                   icon: "shield",
                 },

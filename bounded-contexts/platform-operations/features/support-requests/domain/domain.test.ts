@@ -6,6 +6,7 @@ import {
   type SupportRequestEvent,
   type SupportRequestState,
 } from "./domain";
+import { ITEM_PROBLEM_OPEN_WINDOW_DAYS } from "./flow-catalog";
 
 function fold(events: readonly SupportRequestEvent[]): SupportRequestState {
   return events.reduce(evolveSupportRequest, initialSupportRequestState);
@@ -178,6 +179,74 @@ function openWithAffectedLineItems(
 }
 
 describe("support request domain", () => {
+  it.each([
+    "product-not-received",
+    "product-not-as-described",
+    "product-damaged",
+    "wrong-product-received",
+    "missing-products",
+    "return-request",
+  ] as const)("rejects a %s request opened 31 days after delivery", (flowType) => {
+    expect(ITEM_PROBLEM_OPEN_WINDOW_DAYS).toBe(30);
+
+    expect(() =>
+      decideSupportRequest(initialSupportRequestState, {
+        type: "OpenSupportRequest",
+        supportRequestId: `sup_${flowType}` as never,
+        orderId: "ord_01" as never,
+        orderTotalAmount: "25.00",
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        flowType,
+        openedByAccountId: "acc_buyer" as never,
+        openedByRole: "buyer",
+        deliveredAt: "2026-04-08T12:00:00.000Z",
+        openedAt,
+      }),
+    ).toThrow(
+      "Order problems must be reported within 30 days of delivery. Authenticity concerns can still be reported at any time.",
+    );
+  });
+
+  it("keeps the 30th day inside the item-problem reporting window", () => {
+    const events = decideSupportRequest(initialSupportRequestState, {
+      type: "OpenSupportRequest",
+      supportRequestId: "sup_boundary" as never,
+      orderId: "ord_01" as never,
+      orderTotalAmount: "25.00",
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      flowType: "product-damaged",
+      openedByAccountId: "acc_buyer" as never,
+      openedByRole: "buyer",
+      deliveredAt: "2026-04-09T12:00:00.000Z",
+      openedAt,
+    });
+
+    expect(events[0]?.data).toMatchObject({
+      deliveredAt: "2026-04-09T12:00:00.000Z",
+      postDeliveryOpenWindowDays: 30,
+    });
+  });
+
+  it("lets authenticity concerns open after the item-problem reporting window", () => {
+    expect(() =>
+      decideSupportRequest(initialSupportRequestState, {
+        type: "OpenSupportRequest",
+        supportRequestId: "sup_auth_window" as never,
+        orderId: "ord_01" as never,
+        orderTotalAmount: "25.00",
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        flowType: "authenticity-concern",
+        openedByAccountId: "acc_buyer" as never,
+        openedByRole: "buyer",
+        deliveredAt: "2025-05-09T12:00:00.000Z",
+        openedAt,
+      }),
+    ).not.toThrow();
+  });
+
   it("records affected line amounts in a separate additive event", () => {
     const events = openWithAffectedLineItems([{ lineId: "line_1", amount: "10.00", currencyCode: "usd" }]);
 

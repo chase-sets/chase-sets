@@ -98,6 +98,8 @@ export type SupportRequestState = Readonly<{
   openedByAccountId: AccountId | null;
   openedByRole: SupportRequesterRole | null;
   openedAt: string | null;
+  deliveredAt: string | null;
+  postDeliveryOpenWindowDays: number | null;
   updatedAt: string | null;
   sellerResponseDueAt: string | null;
   supportReviewDueAt: string | null;
@@ -145,6 +147,8 @@ export const initialSupportRequestState: SupportRequestState = {
   openedByAccountId: null,
   openedByRole: null,
   openedAt: null,
+  deliveredAt: null,
+  postDeliveryOpenWindowDays: null,
   updatedAt: null,
   sellerResponseDueAt: null,
   supportReviewDueAt: null,
@@ -187,6 +191,7 @@ export type OpenSupportRequestCommand = Readonly<{
   openedByAccountId: AccountId;
   openedByRole: SupportRequesterRole;
   openedAt: string;
+  deliveredAt?: string | null;
   orderReturnContext?: readonly SupportOrderReturnContextLine[] | null;
   affectedLineItems?: readonly SupportAffectedLineItemAmount[] | null;
   /**
@@ -381,6 +386,8 @@ export type SupportRequestOpenedEvent = DomainEvent<
     openedByAccountId: AccountId;
     openedByRole: SupportRequesterRole;
     openedAt: string;
+    deliveredAt: string | null;
+    postDeliveryOpenWindowDays: number | null;
     sellerResponseDueAt: string | null;
     supportReviewDueAt: string | null;
     sellerConditionAttestationDueAt: string | null;
@@ -1018,6 +1025,16 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
       assert(definition.openedBy.includes(openedByRole), "This support flow cannot be opened by that role.");
 
       const openedAt = normalizeIsoTimestamp(command.openedAt, "Support request opening must record a timestamp.");
+      const deliveredAt = command.deliveredAt
+        ? normalizeIsoTimestamp(command.deliveredAt, "Order delivery must record a timestamp.")
+        : null;
+      if (definition.postDeliveryOpenWindowDays !== null && deliveredAt !== null) {
+        const openWindowEndsAt = Date.parse(deliveredAt) + definition.postDeliveryOpenWindowDays * 24 * 60 * 60 * 1000;
+        assert(
+          Date.parse(openedAt) <= openWindowEndsAt,
+          `Order problems must be reported within ${definition.postDeliveryOpenWindowDays} days of delivery. Authenticity concerns can still be reported at any time.`,
+        );
+      }
       const orderTotalAmount = normalizeMoneyAmount(command.orderTotalAmount, "Order total");
       assert(orderTotalAmount !== null, "Support request must include the order total.");
       const checklist = createChecklist(flowType);
@@ -1052,6 +1069,8 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
             openedByAccountId: command.openedByAccountId,
             openedByRole,
             openedAt,
+            deliveredAt,
+            postDeliveryOpenWindowDays: definition.postDeliveryOpenWindowDays,
             sellerResponseDueAt: addHours(openedAt, sellerResponseHours),
             supportReviewDueAt: addHours(openedAt, supportReviewHours),
             sellerConditionAttestationDueAt: null,
@@ -1842,6 +1861,8 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         openedByAccountId: event.data.openedByAccountId,
         openedByRole: event.data.openedByRole,
         openedAt: event.data.openedAt,
+        deliveredAt: event.data.deliveredAt ?? null,
+        postDeliveryOpenWindowDays: event.data.postDeliveryOpenWindowDays ?? null,
         updatedAt: event.data.openedAt,
         sellerResponseDueAt: event.data.sellerResponseDueAt,
         supportReviewDueAt: event.data.supportReviewDueAt,

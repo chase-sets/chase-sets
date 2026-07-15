@@ -102,6 +102,53 @@ describe("support request runtime", () => {
     expect(storage.getObject).toHaveBeenCalledTimes(2);
   });
 
+  it("stamps the shipment projection's delivered-at fact onto the open decision", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM support_order_sources")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                buyer_account_id: "acc_buyer",
+                seller_account_id: "acc_seller",
+                status: "delivered",
+                total_amount: "24.00",
+                return_context: [],
+                delivered_at: "2026-04-08T12:00:00.000Z",
+              },
+            ],
+          };
+        }
+        if (sql.includes("FROM support_request_pages")) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const { eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      now: () => "2026-05-09T12:00:00.000Z",
+    });
+
+    await expect(
+      runtime.openSupportRequest(
+        {
+          orderId: "ord_1",
+          accountId: "acc_buyer",
+          flowType: "product-damaged",
+          openedByRole: "buyer",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Order problems must be reported within 30 days of delivery.");
+
+    expect(db.query.mock.calls[0]?.[0]).toContain("support_shipment_sources");
+  });
+
   it("sources listFlowDefinitions' response-window copy from the resolved support-deadline policy", async () => {
     const db = { query: vi.fn(async () => ({ rows: [] })) };
     const { eventStore } = createInMemoryEventStore();

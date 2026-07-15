@@ -163,6 +163,7 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.buyer": "Buyer",
   "ordering.features.orders.ui.orderDetailPage.buyer.protection": "Order Protection",
   "ordering.features.orders.ui.orderDetailPage.protection.included": "Every order includes Order Protection",
+  "ordering.features.orders.ui.orderDetailPage.protection.terms.link": "Read Order Protection terms",
   "ordering.features.orders.ui.orderDetailPage.protection.included.description":
     "Included in the Shipping amount; never added as a separate buyer fee.",
   "ordering.features.orders.ui.orderDetailPage.cancel": "Cancel ",

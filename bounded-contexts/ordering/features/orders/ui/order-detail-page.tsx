@@ -8,6 +8,7 @@ import {
   Divider,
   Grid,
   ImageGallery,
+  LinkText,
   LinkButton,
   MarketplaceNotice,
   Page,
@@ -216,7 +217,14 @@ export function OrderingOrderDetailPage({
               items={[
                 {
                   title: t("ordering.features.orders.ui.orderDetailPage.protection.included"),
-                  description: t("ordering.features.orders.ui.orderDetailPage.protection.included.description"),
+                  description: (
+                    <>
+                      {t("ordering.features.orders.ui.orderDetailPage.protection.included.description")}{" "}
+                      <LinkText href="/help/buying/order-protection">
+                        {t("ordering.features.orders.ui.orderDetailPage.protection.terms.link")}
+                      </LinkText>
+                    </>
+                  ),
                 },
                 {
                   title: t("ordering.features.orders.ui.orderDetailPage.resolved.terms"),

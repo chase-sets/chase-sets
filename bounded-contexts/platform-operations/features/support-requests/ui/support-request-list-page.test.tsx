@@ -91,6 +91,11 @@ describe("SupportRequestListPage", () => {
     expect(intake.getByLabelText("Add evidence photos")).toBeTruthy();
     expect(intake.getByLabelText("Add evidence photos").hasAttribute("required")).toBe(true);
     expect(form?.getAttribute("enctype")).toBe("multipart/form-data");
+    expect(intake.getByText("Report item problems within 30 days of delivery.")).toBeTruthy();
+    expect(intake.getByRole("link", { name: "Read Order Protection terms" }).getAttribute("href")).toBe(
+      "/help/buying/order-protection",
+    );
+    expect(intake.getByText(/Photos are required for this issue/)).toBeTruthy();
     expect(
       Array.from(document.querySelectorAll<HTMLInputElement>('input[name="affectedLineIds"]')).map(
         (input) => input.value,

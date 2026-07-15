@@ -169,6 +169,8 @@ describe("ordering order detail page", () => {
     expect(markup).not.toContain("Seller item net");
     expect(markup).not.toContain("Seller payout");
     expect(markup).toContain("Every order includes Order Protection");
+    expect(markup).toContain('href="/help/buying/order-protection"');
+    expect(markup).toContain("Read Order Protection terms");
     expect(markup).not.toContain("$0.20");
     expect(markup).not.toContain("$2.00");
     expect(markup).not.toContain("$22.99");

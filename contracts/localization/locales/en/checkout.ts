@@ -164,6 +164,9 @@ export const checkoutEnglishTranslations = {
     "Delivery address is required before shipping, tax, and final totals can be confirmed.",
   "checkout.features.sessions.ui.checkoutPage.eligible.orders.are.protected.through.payment":
     "Every order includes Order Protection through payment and fulfillment.",
+  "checkout.features.sessions.ui.checkoutPage.order.protection.terms.summary":
+    "Item-problem support, returns, and automatic outcomes follow the published guarantee.",
+  "checkout.features.sessions.ui.checkoutPage.order.protection.terms.link": "Read Order Protection terms",
   "checkout.features.sessions.ui.checkoutPage.expedited": "Expedited",
   "checkout.features.sessions.ui.checkoutPage.fast.checkout.ready": "Fast checkout ready",
   "checkout.features.sessions.ui.checkoutPage.fast.checkout.ready.description":
