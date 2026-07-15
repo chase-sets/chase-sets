@@ -1,19 +1,15 @@
 locals {
-  project_names = {
-    production = "chase-sets-production"
-    staging    = "chase-sets-staging"
-    preview    = "chase-sets-previews"
-  }
-  environment_project_id = trimspace(var.environment_project_id) != "" ? trimspace(var.environment_project_id) : data.digitalocean_project.environment[0].id
+  environment_project_id = trimspace(var.environment_project_id)
 }
 
-data "digitalocean_project" "environment" {
-  count = trimspace(var.environment_project_id) == "" ? 1 : 0
-  name  = local.project_names[var.environment]
+moved {
+  from = digitalocean_project_resources.environment
+  to   = digitalocean_project_resources.environment[0]
 }
 
 # Direct project_id changes are replacement-only in the pinned provider.
 resource "digitalocean_project_resources" "environment" {
+  count   = local.environment_project_id != "" ? 1 : 0
   project = local.environment_project_id
   resources = concat(
     [digitalocean_app.platform.urn],

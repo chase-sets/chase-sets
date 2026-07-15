@@ -52,23 +52,21 @@ Before applying, review the saved plan for exactly four project creates and one 
 
 After applying, verify `doctl projects list` reports previews as the default and inspect the operations project resources for the Terraform-state Space. A second plan should be empty. Retiring the previous default project is a later operation after every resource has an explicit home.
 
+Publish the resulting environment IDs to the matching GitHub environments so automated deploys opt into project assignment without needing Projects API read access:
+
+```bash
+gh variable set DIGITALOCEAN_PROJECT_ID --env staging --body "$(terraform output -json project_ids | jq -r .staging)"
+gh variable set DIGITALOCEAN_PROJECT_ID --env production --body "$(terraform output -json project_ids | jq -r .production)"
+```
+
 ## Consumption by resource-owning roots
 
-Other roots discover projects by name and do not read this root's remote state:
+Other roots accept an explicit project ID and do not read this root's remote state or query the Projects API:
 
 ```hcl
 locals {
-  project_names = {
-    production = "chase-sets-production"
-    staging    = "chase-sets-staging"
-    preview    = "chase-sets-previews"
-  }
-}
-
-data "digitalocean_project" "environment" {
-  count = trimspace(var.environment_project_id) == "" ? 1 : 0
-  name  = local.project_names[var.environment]
+  environment_project_id = trimspace(var.environment_project_id)
 }
 ```
 
-Resolve the project ID from the data source by default, with an optional `environment_project_id` input for offline validation plans. The PR workflow supplies a synthetic ID so `terraform plan -refresh=false` never authenticates against the live account. For assignable resource types, declare `digitalocean_project_resources` beside the owned resource and pass its URN. The outputs in this root are for operator inspection and module composition only; they are not a cross-state contract.
+For assignable resource types, declare `digitalocean_project_resources` beside the owned resource and create it only when `environment_project_id` is non-empty. Automated environment workflows source that input from the optional environment-scoped `DIGITALOCEAN_PROJECT_ID` GitHub variable; leaving it unset skips organizational placement without blocking resource deployment. The PR workflow supplies a synthetic ID so `terraform plan -refresh=false` still exercises the assignment configuration without a live API read. The outputs in this root are for operator inspection and module composition only; they are not a cross-state contract.

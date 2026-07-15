@@ -444,6 +444,7 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_VAR_environment: staging
+      TF_VAR_environment_project_id: ${{ vars.DIGITALOCEAN_PROJECT_ID || '' }}
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
       TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
@@ -2097,6 +2098,7 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_VAR_environment: production
+      TF_VAR_environment_project_id: ${{ vars.DIGITALOCEAN_PROJECT_ID || '' }}
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
       TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}
