@@ -42,10 +42,11 @@ Required GitHub native merge queue settings for `main` after the #4022 operator 
 | Minimum pull requests to merge | `1` |
 | Maximum pull requests to merge | `2` |
 | Maximum pull requests to build | `2` |
+| Minimum merge wait | `0 minutes` |
 | Required check | `PR Required` |
 | Check response timeout | `60 minutes` |
 
-This table is the canonical source for the expected merge queue posture. `scripts/release-health-queue-posture.mjs` encodes the same values and is a read-only drift guard: it reads the live branch rules with `GET /repos/chase-sets/chase-sets/rules/branches/main` and reports any parameter that diverges from this table without mutating repository ruleset state. Run it with a token in `GH_TOKEN` (or `GITHUB_TOKEN`); a non-zero exit means live drift an operator must reconcile in the GitHub UI. When this table changes, update `MERGE_QUEUE_POLICY` in that script in the same change.
+The machine-readable source of truth is `scripts/release-health-merge-queue-policy.json`; the table above documents the same policy for operators. `.github/workflows/platform-merge-queue-posture.yml` runs `pnpm run ops -- release-health:merge-queue-posture` daily and on demand. The read-only guard fetches ruleset `17097957` with `GET`, compares every checked-in queue parameter and required check with live state, writes a release-health artifact, and fails the workflow when drift is present. It never mutates repository ruleset state. Run the same command locally with a token in `GH_TOKEN` or `GITHUB_TOKEN`; a non-zero exit means an operator must reconcile live state in GitHub. Update the policy file and this table together whenever the release policy changes.
 
 `.github/workflows/platform-pr.yml` must run on `pull_request` and `merge_group` so `PR Required` is evaluated for both pull request heads and merge queue synthetic commits. Non-blocking coverage telemetry intentionally lives in `.github/workflows/platform-coverage.yml`, which runs daily against `main` and can be dispatched manually for a specific ref; merge groups do not wait on coverage artifacts.
 
