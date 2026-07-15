@@ -11,9 +11,17 @@ export const helpArticles = [
       "How Chase Sets applies buyer and seller safeguards around payment, fulfillment, disputes, returns, payout release, and negative balances.",
     audience: "buyer",
     category: "buying",
-    reviewedAt: "2026-07-14",
+    reviewedAt: "2026-07-15",
     citedPolicies: ["platform-operations.support-deadlines", "platform-operations.platform-remedies"],
-    relatedFlows: ["product-not-received", "product-not-as-described", "authenticity-concern"],
+    relatedFlows: [
+      "product-not-received",
+      "product-not-as-described",
+      "product-damaged",
+      "wrong-product-received",
+      "missing-products",
+      "return-request",
+      "authenticity-concern",
+    ],
     claimCategories: ["protection", "payouts", "shipping"],
     promiseTable: [
       {
@@ -55,6 +63,15 @@ export const helpArticles = [
         issues: ["#5222"],
         tests: ["bounded-contexts/platform-operations/features/support-requests/ui/customer-remedy-status.test.tsx"],
       },
+      {
+        claim:
+          "Delivered-order problem intake is open for 30 days, authenticity concerns remain open, and each flow publishes its enforced seller-silence outcome.",
+        issues: ["#3732"],
+        tests: [
+          "bounded-contexts/platform-operations/features/support-requests/domain/domain.test.ts",
+          "bounded-contexts/platform-operations/features/support-requests/api/runtime.test.ts",
+        ],
+      },
     ],
     href: "/help/buying/order-protection",
     headings: [
@@ -77,6 +94,26 @@ export const helpArticles = [
         level: 2,
         id: "getting-help-with-an-order",
         text: "Getting help with an order",
+      },
+      {
+        level: 2,
+        id: "reporting-window",
+        text: "Reporting window",
+      },
+      {
+        level: 2,
+        id: "automatic-outcomes",
+        text: "Automatic outcomes",
+      },
+      {
+        level: 2,
+        id: "return-shipping-and-fees",
+        text: "Return shipping and fees",
+      },
+      {
+        level: 2,
+        id: "binding-support-decisions",
+        text: "Binding support decisions",
       },
       {
         level: 2,
@@ -223,6 +260,230 @@ export const helpArticles = [
           {
             type: "text",
             value: " for each flow in detail.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "reporting-window",
+        text: "Reporting window",
+        content: [
+          {
+            type: "text",
+            value: "Reporting window",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Open a product-not-received, not-as-described, damaged, wrong-product, missing-products, or return request within ",
+          },
+          {
+            type: "policy-value",
+            key: "support-deadlines.item-problem.post-delivery-open.days",
+          },
+          {
+            type: "text",
+            value:
+              " after the shipment's recorded delivery time. If an order has not been recorded as delivered, the post-delivery clock has not started. Authenticity concerns have no post-delivery deadline and can be opened at any time.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "automatic-outcomes",
+        text: "Automatic outcomes",
+        content: [
+          {
+            type: "text",
+            value: "Automatic outcomes",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Each response clock is stamped when the case opens. The outcome depends on the selected flow and the required evidence already in the case:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "strong",
+              value: "Product not received:",
+            },
+            {
+              type: "text",
+              value: " if the seller does not respond within ",
+            },
+            {
+              type: "policy-value",
+              key: "support-deadlines.product-not-received.seller-response.hours",
+            },
+            {
+              type: "text",
+              value: " and delivery cannot be proven, the case automatically resolves to a full refund.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Product not as described:",
+            },
+            {
+              type: "text",
+              value: " if the seller does not respond within ",
+            },
+            {
+              type: "policy-value",
+              key: "support-deadlines.product-not-as-described.seller-response.hours",
+            },
+            {
+              type: "text",
+              value: ", the case automatically resolves to return for refund.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Product arrived damaged:",
+            },
+            {
+              type: "text",
+              value: " if the seller does not respond within ",
+            },
+            {
+              type: "policy-value",
+              key: "support-deadlines.product-damaged.seller-response.hours",
+            },
+            {
+              type: "text",
+              value: ", the case automatically resolves to return for refund.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Wrong product received:",
+            },
+            {
+              type: "text",
+              value: " if the seller does not respond within ",
+            },
+            {
+              type: "policy-value",
+              key: "support-deadlines.wrong-product-received.seller-response.hours",
+            },
+            {
+              type: "text",
+              value: ", the case automatically resolves to a replacement.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Missing products:",
+            },
+            {
+              type: "text",
+              value: " if the seller does not respond within ",
+            },
+            {
+              type: "policy-value",
+              key: "support-deadlines.missing-products.seller-response.hours",
+            },
+            {
+              type: "text",
+              value:
+                ", the case moves to support review because the remedy amount must be calculated; it does not automatically refund.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Return request:",
+            },
+            {
+              type: "text",
+              value: " if the seller does not respond within ",
+            },
+            {
+              type: "policy-value",
+              key: "support-deadlines.return-request.seller-response.hours",
+            },
+            {
+              type: "text",
+              value:
+                " and the return-reason, photo, and condition-note checklist is complete, the case automatically resolves to return for refund; otherwise it moves to support review.",
+            },
+          ],
+          [
+            {
+              type: "strong",
+              value: "Authenticity concern:",
+            },
+            {
+              type: "text",
+              value:
+                " the case goes directly to urgent support review. Seller silence does not produce an automatic outcome.",
+            },
+          ],
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "return-shipping-and-fees",
+        text: "Return shipping and fees",
+        content: [
+          {
+            type: "text",
+            value: "Return shipping and fees",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "When a resolution requires a return because the product was not as described, arrived damaged, was the wrong product, or raised an authenticity concern, the seller pays return shipping. For a return request based on the buyer changing their mind, return-label cost is deducted from the buyer's refund. Chase Sets does not charge restocking fees.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "binding-support-decisions",
+        text: "Binding support decisions",
+        content: [
+          {
+            type: "text",
+            value: "Binding support decisions",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "When the parties do not agree and Chase Sets adjudicates the case, the support decision is binding for the Chase Sets order-protection process. There is no appeal inside the platform.",
           },
         ],
       },
@@ -389,7 +650,15 @@ export const helpArticles = [
         ],
       },
     ],
-    policyValueKeys: ["support-deadlines.product-not-received.seller-response.hours"],
+    policyValueKeys: [
+      "support-deadlines.product-not-received.seller-response.hours",
+      "support-deadlines.item-problem.post-delivery-open.days",
+      "support-deadlines.product-not-as-described.seller-response.hours",
+      "support-deadlines.product-damaged.seller-response.hours",
+      "support-deadlines.wrong-product-received.seller-response.hours",
+      "support-deadlines.missing-products.seller-response.hours",
+      "support-deadlines.return-request.seller-response.hours",
+    ],
   },
   {
     slug: "payment-problems",

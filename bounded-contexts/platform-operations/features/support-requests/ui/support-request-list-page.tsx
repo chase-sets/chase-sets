@@ -14,6 +14,7 @@ import {
   Inline,
   Inset,
   LinkButton,
+  LinkText,
   Page,
   PageHeader,
   PageSection,
@@ -389,6 +390,16 @@ function SupportRequestOpenPanel({
                   {t("support.features.supportRequests.ui.supportRequestListPage.intake.automaticOutcome")}
                 </Text>
                 <Text tone="secondary">{selectedFlow.automationSummary}</Text>
+                {selectedFlow.postDeliveryOpenWindowDays !== null ? (
+                  <Text tone="secondary">
+                    {t("support.features.supportRequests.ui.supportRequestListPage.open.postDeliveryWindow", {
+                      days: selectedFlow.postDeliveryOpenWindowDays,
+                    })}
+                  </Text>
+                ) : null}
+                <LinkText href="/help/buying/order-protection">
+                  {t("support.features.supportRequests.ui.supportRequestListPage.orderProtectionTerms.link")}
+                </LinkText>
               </Stack>
             </Inset>
             {photoRequired ? (

@@ -15,6 +15,8 @@ export type SupportFlowDefinition = Readonly<{
   openedBy: readonly SupportRequesterRole[];
   initialStatus: "open" | "waiting-on-buyer" | "waiting-on-seller" | "ready-for-support";
   priority: "normal" | "urgent";
+  /** Days after delivery that this item-problem flow remains open; null when delivery does not bound intake. */
+  postDeliveryOpenWindowDays: number | null;
   sellerResponseHours: number | null;
   supportReviewHours: number | null;
   checklist: readonly Omit<SupportChecklistItem, "satisfiedAt">[];
@@ -36,6 +38,8 @@ export type SupportFlowDefinition = Readonly<{
   confirmedResponseResponsibility?: SupportResponsibilityFact;
   automatedResolutionResponsibility?: SupportResponsibilityFact;
 }>;
+
+export const ITEM_PROBLEM_OPEN_WINDOW_DAYS = 30;
 
 const buyerAttestation = {
   key: "buyer-attestation",
@@ -60,6 +64,7 @@ export const supportFlowCatalog = [
     openedBy: ["buyer"],
     initialStatus: "waiting-on-seller",
     priority: "normal",
+    postDeliveryOpenWindowDays: ITEM_PROBLEM_OPEN_WINDOW_DAYS,
     sellerResponseHours: 48,
     supportReviewHours: 24,
     checklist: [
@@ -99,6 +104,7 @@ export const supportFlowCatalog = [
     openedBy: ["buyer"],
     initialStatus: "waiting-on-seller",
     priority: "normal",
+    postDeliveryOpenWindowDays: ITEM_PROBLEM_OPEN_WINDOW_DAYS,
     sellerResponseHours: 48,
     supportReviewHours: 24,
     checklist: [
@@ -139,6 +145,7 @@ export const supportFlowCatalog = [
     openedBy: ["buyer"],
     initialStatus: "waiting-on-seller",
     priority: "normal",
+    postDeliveryOpenWindowDays: ITEM_PROBLEM_OPEN_WINDOW_DAYS,
     sellerResponseHours: 48,
     supportReviewHours: 24,
     checklist: [
@@ -181,6 +188,7 @@ export const supportFlowCatalog = [
     openedBy: ["buyer"],
     initialStatus: "waiting-on-seller",
     priority: "normal",
+    postDeliveryOpenWindowDays: ITEM_PROBLEM_OPEN_WINDOW_DAYS,
     sellerResponseHours: 48,
     supportReviewHours: 24,
     checklist: [
@@ -214,6 +222,7 @@ export const supportFlowCatalog = [
     openedBy: ["buyer"],
     initialStatus: "waiting-on-seller",
     priority: "normal",
+    postDeliveryOpenWindowDays: ITEM_PROBLEM_OPEN_WINDOW_DAYS,
     sellerResponseHours: 48,
     supportReviewHours: 24,
     checklist: [
@@ -247,6 +256,7 @@ export const supportFlowCatalog = [
     openedBy: ["buyer"],
     initialStatus: "ready-for-support",
     priority: "urgent",
+    postDeliveryOpenWindowDays: null,
     sellerResponseHours: 24,
     supportReviewHours: 12,
     checklist: [
@@ -273,6 +283,7 @@ export const supportFlowCatalog = [
     openedBy: ["buyer"],
     initialStatus: "waiting-on-seller",
     priority: "normal",
+    postDeliveryOpenWindowDays: ITEM_PROBLEM_OPEN_WINDOW_DAYS,
     sellerResponseHours: 48,
     supportReviewHours: 24,
     checklist: [
@@ -315,6 +326,7 @@ export const supportFlowCatalog = [
     openedBy: ["buyer", "support"],
     initialStatus: "waiting-on-seller",
     priority: "normal",
+    postDeliveryOpenWindowDays: null,
     sellerResponseHours: 24,
     supportReviewHours: 24,
     checklist: [buyerAttestation, sellerAttestation],
@@ -348,6 +360,7 @@ export const supportFlowCatalog = [
     openedBy: ["seller", "support"],
     initialStatus: "ready-for-support",
     priority: "urgent",
+    postDeliveryOpenWindowDays: null,
     sellerResponseHours: null,
     supportReviewHours: 12,
     checklist: [
@@ -373,6 +386,7 @@ export const supportFlowCatalog = [
     openedBy: ["buyer", "seller", "support"],
     initialStatus: "ready-for-support",
     priority: "normal",
+    postDeliveryOpenWindowDays: null,
     sellerResponseHours: null,
     supportReviewHours: 24,
     checklist: [
@@ -397,6 +411,7 @@ export const supportFlowCatalog = [
     openedBy: ["seller", "support"],
     initialStatus: "ready-for-support",
     priority: "normal",
+    postDeliveryOpenWindowDays: null,
     sellerResponseHours: null,
     supportReviewHours: 24,
     checklist: [
@@ -421,6 +436,7 @@ export const supportFlowCatalog = [
     openedBy: ["buyer", "support"],
     initialStatus: "ready-for-support",
     priority: "urgent",
+    postDeliveryOpenWindowDays: null,
     sellerResponseHours: null,
     supportReviewHours: 12,
     checklist: [

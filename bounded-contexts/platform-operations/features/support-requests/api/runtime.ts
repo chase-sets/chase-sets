@@ -104,6 +104,7 @@ type SupportRequestRuntimeDeps = Readonly<{
    * defaults unchanged.
    */
   policies?: Pick<PolicyRuntime, "resolvePolicy">;
+  now?: () => string;
 }>;
 
 type SupportRequestMutationScope = "participant" | "operations";
@@ -114,6 +115,7 @@ export type SupportOrderSource = Readonly<{
   seller_account_id: string;
   status: string;
   total_amount: string;
+  delivered_at: string | null;
   return_context: readonly SupportOrderReturnContextLine[];
   affected_line_amounts: readonly SupportAffectedLineItemAmount[];
 }>;
@@ -419,6 +421,11 @@ async function getOrderSource(db: PgQueryable, orderId: string): Promise<Support
        seller_account_id,
        status,
        total_amount::text AS total_amount,
+       (
+         SELECT MAX(shipment.delivered_at)::text
+         FROM support_shipment_sources AS shipment
+         WHERE shipment.order_id = source.order_id
+       ) AS delivered_at,
        return_context,
        COALESCE(
          (
@@ -790,6 +797,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
         : null;
 
       const supportRequestId = createId("sup") as SupportRequestId;
+      const openedAt = deps.now?.() ?? new Date().toISOString();
       const result = await commandHandler({
         streamId: `support.support-request-${supportRequestId}`,
         command: {
@@ -802,7 +810,8 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           flowType,
           openedByAccountId: params.accountId as AccountId,
           openedByRole,
-          openedAt: new Date().toISOString(),
+          openedAt,
+          deliveredAt: order.delivered_at,
           orderReturnContext: order.return_context,
           ...(affectedLineItems.length > 0 ? { affectedLineItems } : {}),
           ...(deadlineHours

@@ -267,6 +267,8 @@ describe("checkout session page", () => {
     expect(markup).toContain("Shipping method");
     expect(markup).toContain("Payment");
     expect(markup).toContain("Order summary");
+    expect(markup).toContain('href="/help/buying/order-protection"');
+    expect(markup).toContain("Read Order Protection terms");
     expect(markup).toContain("Review your buy cart first");
     expect(markup).toContain("Review buy cart");
     expect(markup).toContain("Checkout service fee");

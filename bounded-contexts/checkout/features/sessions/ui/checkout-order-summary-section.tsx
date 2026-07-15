@@ -3,6 +3,7 @@ import {
   CheckoutConfirmationPanel,
   CheckoutMobileSummaryDisclosure,
   CheckoutSummaryPanel,
+  LinkText,
   LinkButton,
   OrderProtectionModule,
   ProductOptions,
@@ -158,7 +159,14 @@ export function CheckoutOrderSummarySection({
         items={[
           {
             title: t("checkout.features.sessions.ui.checkoutPage.buyer.protection"),
-            description: t("checkout.features.sessions.ui.checkoutPage.eligible.orders.are.protected.through.payment"),
+            description: (
+              <>
+                {t("checkout.features.sessions.ui.checkoutPage.order.protection.terms.summary")}{" "}
+                <LinkText href="/help/buying/order-protection">
+                  {t("checkout.features.sessions.ui.checkoutPage.order.protection.terms.link")}
+                </LinkText>
+              </>
+            ),
           },
           isOfferIntent
             ? {

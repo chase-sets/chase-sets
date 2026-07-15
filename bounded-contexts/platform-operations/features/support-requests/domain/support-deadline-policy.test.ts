@@ -13,6 +13,7 @@ describe("support deadline policy", () => {
       expect(SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE[flow.flowType]).toEqual({
         sellerResponseHours: flow.sellerResponseHours,
         supportReviewHours: flow.supportReviewHours,
+        postDeliveryOpenWindowDays: flow.postDeliveryOpenWindowDays,
       });
     }
   });
@@ -70,6 +71,19 @@ describe("support deadline policy", () => {
     expect(() => decodeSupportDeadlinePolicyValue(revised)).toThrow(/has no seller-response phase/);
   });
 
+  it("rejects revising the compiled post-delivery open window", () => {
+    const revised = {
+      ...SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE,
+      "product-not-received": {
+        sellerResponseHours: 48,
+        supportReviewHours: 24,
+        postDeliveryOpenWindowDays: 31,
+      },
+    };
+
+    expect(() => decodeSupportDeadlinePolicyValue(revised)).toThrow(/compiled flow behavior/);
+  });
+
   it("rejects a value missing an entry for a catalog flow type", () => {
     const { "product-not-received": _omitted, ...revised } = SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE;
 
@@ -89,9 +103,17 @@ describe("support deadline policy", () => {
   it("resolves hours for a flow type from a policy value, falling back to launch defaults when absent", () => {
     const resolved = resolveSupportFlowDeadlineHours("product-not-received", {
       ...SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE,
-      "product-not-received": { sellerResponseHours: 72, supportReviewHours: 36 },
+      "product-not-received": {
+        sellerResponseHours: 72,
+        supportReviewHours: 36,
+        postDeliveryOpenWindowDays: 999,
+      },
     });
-    expect(resolved).toEqual({ sellerResponseHours: 72, supportReviewHours: 36 });
+    expect(resolved).toEqual({
+      sellerResponseHours: 72,
+      supportReviewHours: 36,
+      postDeliveryOpenWindowDays: 30,
+    });
 
     const fallback = resolveSupportFlowDeadlineHours("product-not-received", {} as never);
     expect(fallback).toEqual(SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE["product-not-received"]);

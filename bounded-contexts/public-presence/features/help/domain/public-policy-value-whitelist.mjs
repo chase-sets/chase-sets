@@ -91,6 +91,18 @@ export const publicPolicyValueWhitelist = [
     selector: { path: ["product-not-received", "supportReviewHours"] },
   },
   {
+    key: "support-deadlines.item-problem.post-delivery-open.days",
+    policyKey: "platform-operations.support-deadlines",
+    type: "days",
+    selector: { path: ["product-not-received", "postDeliveryOpenWindowDays"] },
+  },
+  ...["product-not-as-described", "product-damaged", "wrong-product-received", "missing-products"].map((flowType) => ({
+    key: `support-deadlines.${flowType}.seller-response.hours`,
+    policyKey: "platform-operations.support-deadlines",
+    type: "hours",
+    selector: { path: [flowType, "sellerResponseHours"] },
+  })),
+  {
     key: "support-deadlines.return-request.seller-response.hours",
     policyKey: "platform-operations.support-deadlines",
     type: "hours",
