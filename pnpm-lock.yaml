@@ -1263,6 +1263,9 @@ importers:
 
   contracts/outbound-messaging:
     dependencies:
+      '@chase-sets/event-core':
+        specifier: workspace:*
+        version: link:../event-core
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../primitives

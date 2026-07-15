@@ -12,6 +12,7 @@
     "test:watch": "vitest --config ./vitest.config.ts"
   },
   "dependencies": {
+    "@chase-sets/event-core": "workspace:*",
     "@chase-sets/primitives": "workspace:*"
   },
   "devDependencies": {

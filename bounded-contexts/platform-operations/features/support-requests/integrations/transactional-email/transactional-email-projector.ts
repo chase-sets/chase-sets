@@ -1,6 +1,4 @@
-import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { defineTransactionalEmail, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -17,9 +15,7 @@ type SupportRequestEmailEventData = Readonly<{
   resolution?: Readonly<{ resolutionType: string }> | null;
 }>;
 
-function correlationIdFromEvent(event: TransportEvent) {
-  return event.trace.traceId ?? event.id;
-}
+type SupportRequestEmailRecipient = Readonly<{ email: string; accountId: string | null }>;
 
 async function findBuyerEmailForOrder(db: PgQueryable, orderId: string) {
   const result = await db.query<{ buyer_email: string | null; buyer_account_id: string | null }>(
@@ -34,53 +30,52 @@ async function findBuyerEmailForOrder(db: PgQueryable, orderId: string) {
   return row?.buyer_email?.trim() ? { email: row.buyer_email.trim(), accountId: row.buyer_account_id } : null;
 }
 
-export async function projectSupportRequestEventToTransactionalEmail(
-  db: PgQueryable,
-  outbox: NotificationOutbox,
-  event: TransportEvent,
-  projectionName = SUPPORT_REQUEST_TRANSACTIONAL_EMAIL_PROJECTION,
-) {
-  if (event.type !== "support.support-request.opened" && event.type !== "support.support-request.resolved") return;
-  const data = event.data as SupportRequestEmailEventData;
-  const buyer = await findBuyerEmailForOrder(db, data.orderId);
-  if (!buyer) return;
-
-  const common = {
-    buyerEmail: buyer.email,
-    recipientAccountId: buyer.accountId as AccountId | null,
-    supportRequestId: data.supportRequestId,
-    orderId: data.orderId,
-    flowType: data.flowType,
-    correlationId: correlationIdFromEvent(event),
-  };
-  const message =
-    event.type === "support.support-request.opened"
-      ? mapSupportRequestOpenedToTransactionalEmail(common)
-      : mapSupportRequestResolvedToTransactionalEmail({
-          ...common,
-          resolutionType: data.resolution?.resolutionType ?? "resolved",
-        });
-
-  await outbox.enqueueNotification({
-    message,
-    source: {
-      sourceEventId: event.id,
-      sourceGlobalPosition: event.globalPosition,
-      projectionName,
-      occurredAt: event.timing.occurredAt,
-    },
-  });
-}
-
 export function buildSupportRequestTransactionalEmailProjectionHandlers(
   db: PgQueryable,
   outbox: NotificationOutbox,
   projectionName = SUPPORT_REQUEST_TRANSACTIONAL_EMAIL_PROJECTION,
-): ProjectorHandlerMap {
+) {
+  const recipient = (data: SupportRequestEmailEventData) => findBuyerEmailForOrder(db, data.orderId);
+  const intentInput = (
+    data: SupportRequestEmailEventData,
+    resolved: SupportRequestEmailRecipient,
+    correlationId: string,
+  ) => ({
+    buyerEmail: resolved.email,
+    recipientAccountId: resolved.accountId as AccountId | null,
+    supportRequestId: data.supportRequestId,
+    orderId: data.orderId,
+    flowType: data.flowType,
+    correlationId,
+  });
+
   return {
-    "support.support-request.opened": (event) =>
-      projectSupportRequestEventToTransactionalEmail(db, outbox, event, projectionName),
-    "support.support-request.resolved": (event) =>
-      projectSupportRequestEventToTransactionalEmail(db, outbox, event, projectionName),
+    ...defineTransactionalEmail<
+      SupportRequestEmailEventData,
+      SupportRequestEmailRecipient,
+      "support.support-request.opened"
+    >({
+      outbox,
+      projectionName,
+      on: "support.support-request.opened",
+      recipient,
+      template: (data, { recipient: resolved, correlationId }) =>
+        mapSupportRequestOpenedToTransactionalEmail(intentInput(data, resolved, correlationId)),
+    }),
+    ...defineTransactionalEmail<
+      SupportRequestEmailEventData,
+      SupportRequestEmailRecipient,
+      "support.support-request.resolved"
+    >({
+      outbox,
+      projectionName,
+      on: "support.support-request.resolved",
+      recipient,
+      template: (data, { recipient: resolved, correlationId }) =>
+        mapSupportRequestResolvedToTransactionalEmail({
+          ...intentInput(data, resolved, correlationId),
+          resolutionType: data.resolution?.resolutionType ?? "resolved",
+        }),
+    }),
   };
 }

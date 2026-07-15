@@ -1,5 +1,7 @@
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 
+export * from "./transactional-email";
+
 export type KnownNotificationChannelName = "email" | "sms" | "rcs" | "web" | "push";
 export type NotificationChannelName = KnownNotificationChannelName | (string & {});
 export type KnownNotificationProviderName =
