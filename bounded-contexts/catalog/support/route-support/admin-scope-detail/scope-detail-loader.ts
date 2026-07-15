@@ -14,6 +14,10 @@ import type { CatalogAliasReviewReadModel } from "../../../features/alias-equiva
 export type CatalogScopeDetailRouteData = Readonly<{
   scope: CatalogScopeRecordDetail;
   languageEditionAliasReview: CatalogAliasReviewReadModel;
+  // True when the supplementary alias-review load degraded to an empty model,
+  // so the journey overview can surface a partial-failure state instead of
+  // reading the empty model as "no candidates".
+  languageEditionAliasReviewFailed: boolean;
   canManageAliases: boolean;
 }>;
 
@@ -26,13 +30,14 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<C
     resolveActor(request),
   ]);
 
-  const languageEditionAliasReview = catalogScopeHasLanguageEditionsToReview(scope)
+  const aliasReview = catalogScopeHasLanguageEditionsToReview(scope)
     ? await loadLanguageEditionAliasReview(api, scope.referenceRecordId)
-    : emptyAliasReviewReadModel(scope.referenceRecordId);
+    : { readModel: emptyAliasReviewReadModel(scope.referenceRecordId), failed: false };
 
   return {
     scope,
-    languageEditionAliasReview,
+    languageEditionAliasReview: aliasReview.readModel,
+    languageEditionAliasReviewFailed: aliasReview.failed,
     canManageAliases: actor?.permissions.includes("catalog.manage") ?? false,
   };
 }
@@ -40,16 +45,17 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<C
 async function loadLanguageEditionAliasReview(
   api: ReturnType<typeof createCatalogRequestApiClient>,
   referenceRecordId: string,
-): Promise<CatalogAliasReviewReadModel> {
+): Promise<Readonly<{ readModel: CatalogAliasReviewReadModel; failed: boolean }>> {
   try {
     const query = new URLSearchParams({ targetKind: "reference-record", targetId: referenceRecordId }).toString();
-    return await api.getCatalogAliasReviewReadModel<CatalogAliasReviewReadModel>(query);
+    return { readModel: await api.getCatalogAliasReviewReadModel<CatalogAliasReviewReadModel>(query), failed: false };
   } catch (error) {
     // Supplementary read: a transient alias-review failure never blocks the
     // scope header from rendering. The section falls back to an empty (but
-    // correctly-shaped) read model rather than throwing into an error page.
+    // correctly-shaped) read model rather than throwing into an error page, and
+    // the failure is reported so the journey overview reads it as degraded.
     if (error instanceof CatalogApiError) {
-      return emptyAliasReviewReadModel(referenceRecordId);
+      return { readModel: emptyAliasReviewReadModel(referenceRecordId), failed: true };
     }
     throw error;
   }

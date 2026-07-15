@@ -96,6 +96,7 @@ describe("Catalog scope-detail route loader", () => {
 
     expect(routeData.scope.name).toBe("Paldean Fates");
     expect(routeData.canManageAliases).toBe(true);
+    expect(routeData.languageEditionAliasReviewFailed).toBe(false);
     expect(getCatalogAliasReviewReadModel).toHaveBeenCalledTimes(1);
     const query = new URLSearchParams(getCatalogAliasReviewReadModel.mock.calls[0]?.[0] ?? "");
     expect(query.get("targetKind")).toBe("reference-record");
@@ -129,6 +130,7 @@ describe("Catalog scope-detail route loader", () => {
 
     expect(routeData.scope.name).toBe("Paldean Fates");
     expect(routeData.languageEditionAliasReview.candidates).toEqual([]);
+    expect(routeData.languageEditionAliasReviewFailed).toBe(true);
   });
 
   it("resolves canManageAliases to false when the actor lacks catalog.manage", async () => {
