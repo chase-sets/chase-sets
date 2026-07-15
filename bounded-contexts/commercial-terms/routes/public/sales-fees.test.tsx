@@ -84,6 +84,12 @@ describe("sales fees route", () => {
     expect(screen.getByText(/Card:/).textContent).toContain("2.9% plus $0.30");
     expect(screen.getByText(/Bank account:/).textContent).toContain("0.5% plus $0.00");
     expect(screen.getByText(/Chase Sets credit:/).textContent).toContain("0% plus $0.00");
+    expect(document.body.textContent).toContain("Wave 1: 100 invites");
+    expect(document.body.textContent).toContain("Wave 2: 250 invites");
+    expect(document.body.textContent).toContain("Wave 3: 500 invites");
+    expect(document.body.textContent).toContain(
+      "A qualified seller signup chooses Sell or Buy and sell, names at least one supported game, and selects an inventory-size range.",
+    );
   });
 
   it("publishes article metadata and the bounded propagation window", async () => {

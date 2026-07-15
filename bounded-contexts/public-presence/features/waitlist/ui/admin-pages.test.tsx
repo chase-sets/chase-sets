@@ -13,6 +13,11 @@ describe("waitlist admin page", () => {
           buy_count: 0,
           sell_count: 1,
           both_count: 1,
+          wave_fill: [
+            { waveNumber: 1, admittedCount: 75, capacity: 100 },
+            { waveNumber: 2, admittedCount: 0, capacity: 250 },
+            { waveNumber: 3, admittedCount: 0, capacity: 500 },
+          ],
         }}
         signups={{
           count: 2,
@@ -77,5 +82,9 @@ describe("waitlist admin page", () => {
     expect(screen.getByRole("columnheader", { name: "Referrals" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Referred" })).toBeTruthy();
     expect(screen.getAllByText("Yes")).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "Invite wave fill" })).toBeTruthy();
+    expect(screen.getByText("75 of 100 admitted")).toBeTruthy();
+    expect(screen.getByText("0 of 250 admitted")).toBeTruthy();
+    expect(screen.getByText("0 of 500 admitted")).toBeTruthy();
   });
 });

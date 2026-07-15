@@ -5,6 +5,7 @@ import {
   getCampaignQualityMetrics,
   getWaitlistReferralSummary,
   getWaitlistSignupCount,
+  getWaitlistMetrics,
   listWaitlistSignups,
 } from "./queries";
 
@@ -106,6 +107,38 @@ describe("waitlist read-model queries", () => {
     expect(db.query).toHaveBeenCalledTimes(1);
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("SELECT COUNT(*) AS count"));
     expect(count).toBe(142);
+  });
+
+  it("counts admitted signups against the active invite-wave capacities", async () => {
+    const db: PgQueryable = {
+      query: vi.fn(async () => ({
+        rows: [
+          {
+            total_count: "850",
+            buy_count: "300",
+            sell_count: "250",
+            both_count: "300",
+            wave_1_admitted_count: "100",
+            wave_2_admitted_count: "225",
+            wave_3_admitted_count: "0",
+          },
+        ],
+        rowCount: 1,
+      })),
+    };
+
+    const metrics = await getWaitlistMetrics(db, [
+      { waveNumber: 1, inviteCount: 100 },
+      { waveNumber: 2, inviteCount: 250 },
+      { waveNumber: 3, inviteCount: 500 },
+    ]);
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("admitted_wave = 1"));
+    expect(metrics.wave_fill).toEqual([
+      { waveNumber: 1, admittedCount: 100, capacity: 100 },
+      { waveNumber: 2, admittedCount: 225, capacity: 250 },
+      { waveNumber: 3, admittedCount: 0, capacity: 500 },
+    ]);
   });
 
   it("computes campaign quality metrics from totals, inventory distribution, and per-game queries", async () => {

@@ -2,6 +2,7 @@ import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-post
 import { WAITLIST_GAMES, WAITLIST_INVENTORY_SIZES, WAITLIST_REFERRAL_GOAL } from "../domain/common";
 import { computeWaitlistQueuePlacements, resolveWaitlistQueueStanding } from "./referral-queue-policy";
 import type { WaveCandidate } from "./wave-cohort-policy";
+import type { BetaWave } from "../domain/wave-policy";
 import type {
   CampaignChannelAttributionRow,
   CampaignQualityMetrics,
@@ -236,27 +237,46 @@ export async function getWaitlistSignupCount(db: PgQueryable): Promise<number> {
   return Number(result.rows[0]?.count ?? 0);
 }
 
-export async function getWaitlistMetrics(db: PgQueryable): Promise<WaitlistMetrics> {
+export async function getWaitlistMetrics(
+  db: PgQueryable,
+  waves: readonly Pick<BetaWave, "waveNumber" | "inviteCount">[],
+): Promise<WaitlistMetrics> {
   const result = await db.query<{
     total_count: string;
     buy_count: string;
     sell_count: string;
     both_count: string;
+    wave_1_admitted_count: string;
+    wave_2_admitted_count: string;
+    wave_3_admitted_count: string;
   }>(
     `SELECT
        COUNT(*) AS total_count,
        COUNT(*) FILTER (WHERE role = 'buy') AS buy_count,
        COUNT(*) FILTER (WHERE role = 'sell') AS sell_count,
-       COUNT(*) FILTER (WHERE role = 'both') AS both_count
+       COUNT(*) FILTER (WHERE role = 'both') AS both_count,
+       COUNT(*) FILTER (WHERE admitted_wave = 1) AS wave_1_admitted_count,
+       COUNT(*) FILTER (WHERE admitted_wave = 2) AS wave_2_admitted_count,
+       COUNT(*) FILTER (WHERE admitted_wave = 3) AS wave_3_admitted_count
      FROM public_presence_waitlist_signups`,
   );
   const row = result.rows[0];
+  const admittedByWave = {
+    1: Number(row?.wave_1_admitted_count ?? 0),
+    2: Number(row?.wave_2_admitted_count ?? 0),
+    3: Number(row?.wave_3_admitted_count ?? 0),
+  } as const;
 
   return {
     total_count: Number(row?.total_count ?? 0),
     buy_count: Number(row?.buy_count ?? 0),
     sell_count: Number(row?.sell_count ?? 0),
     both_count: Number(row?.both_count ?? 0),
+    wave_fill: waves.map((wave) => ({
+      waveNumber: wave.waveNumber,
+      admittedCount: admittedByWave[wave.waveNumber],
+      capacity: wave.inviteCount,
+    })),
   };
 }
 

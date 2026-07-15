@@ -4617,7 +4617,7 @@ export const helpArticles = [
       "See the live standard sales-fee schedule, listing-time fee locks, the founders window, and buyer checkout processing fees.",
     audience: "seller",
     category: "selling",
-    reviewedAt: "2026-07-12",
+    reviewedAt: "2026-07-14",
     citedPolicies: ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
     relatedFlows: ["listing-confirmation", "checkout-price-breakdown"],
     claimCategories: ["fees"],
@@ -4651,6 +4651,15 @@ export const helpArticles = [
           "bounded-contexts/commercial-terms/features/agreements/integrations/identity/founders-window-reaction.test.ts",
         ],
       },
+      {
+        claim:
+          "Beta access uses three numbered invite waves with ratified capacities and explicit wave-one qualification.",
+        issues: ["#3955"],
+        tests: [
+          "bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx",
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx",
+        ],
+      },
     ],
     href: "/sales-fees",
     headings: [
@@ -4668,6 +4677,11 @@ export const helpArticles = [
         level: 2,
         id: "founders-window",
         text: "Founders window",
+      },
+      {
+        level: 2,
+        id: "beta-invite-waves",
+        text: "Beta invite waves",
       },
       {
         level: 2,
@@ -4792,6 +4806,92 @@ export const helpArticles = [
             type: "text",
             value:
               "The first 500 accounts to list an item or submit an offer after receiving beta access claim a founders place. A founders account pays a 0% marketplace sales fee for 60 days from the start of its beta access; listings confirmed inside the window lock the 0% rate exactly like any other locked rate. After the window ends, new listings lock at the standard schedule.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Founders also join the founders-circle Discord and help shape seller tools such as bulk listing, pricing, fulfillment, fee locks, and offers. The badge appears publicly on the account and its listings and stays permanently.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "beta-invite-waves",
+        text: "Beta invite waves",
+        content: [
+          {
+            type: "text",
+            value: "Beta invite waves",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Before signup opens to everyone on September 1, 2026, beta access is admitted in three numbered waves:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value: "Wave 1: 100 invites",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Wave 2: 250 invites",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Wave 3: 500 invites",
+            },
+          ],
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "A qualified seller signup chooses Sell or Buy and sell, names at least one supported game, and selects an inventory-size range. Wave 1 requires at least 500 total signups, 50 qualified sellers, and at least five qualified sellers for each of the five supported games. It prioritizes those qualified sellers and then the highest-intent buyers.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Wave 2 prioritizes qualified sellers with a live TCGplayer or eBay store link and referral-queue leaders. Wave 3 continues from the referral queue. Later waves open only while checkout failures stay below 2%, projections remain near real time, and support load stays within a solo operator's capacity.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "An invite starts the 60-day founders window, but it does not claim a founder number. The first listing or offer claims the next number while one of the 500 remains.",
           },
         ],
       },
