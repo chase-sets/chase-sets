@@ -68,7 +68,9 @@ export default function OrderingAccountPurchaseRoute() {
           ? `/account/payments/new?orderIds=${encodeURIComponent(data.purchase.order_id)}`
           : null
       }
-      supportHref={`/account/support?orderId=${encodeURIComponent(data.purchase.order_id)}&role=buyer`}
+      supportHref={`/account/support?orderId=${encodeURIComponent(data.purchase.order_id)}${
+        data.purchase.cancellation_unavailable_reason === "fulfillment-started" ? "&flow=buyer-cancel-request" : ""
+      }`}
       fulfillmentHref="/account/shipments"
       order={data.purchase as PurchaseDetail}
       errorMessage={actionData?.error ?? null}

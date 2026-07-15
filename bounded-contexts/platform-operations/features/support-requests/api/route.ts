@@ -154,7 +154,6 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       const result = await services.getSupportOrderContext({
         orderId: c.req.param("orderId"),
         accountId: access.actor.accountId,
-        openedByRole: c.req.query("role") ?? null,
       });
       return c.json(result);
     } catch (error) {
@@ -789,7 +788,6 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
           orderId: String(body.orderId ?? ""),
           accountId: access.actor.accountId,
           flowType: String(body.flowType ?? ""),
-          openedByRole: String(body.openedByRole ?? ""),
           ...(affectedLineIds !== null ? { affectedLineIds } : {}),
         },
         context,

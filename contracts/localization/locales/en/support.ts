@@ -37,9 +37,9 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportRequestListPage.no.requests": "No support requests",
   "support.features.supportRequests.ui.supportRequestListPage.no.requests.description":
     "Structured requests will appear here when an order needs support.",
-  "support.features.supportRequests.ui.supportRequestListPage.open.title": "Open an order issue",
+  "support.features.supportRequests.ui.supportRequestListPage.open.title": "Report a problem",
   "support.features.supportRequests.ui.supportRequestListPage.open.description":
-    "Start a structured support request from the order, role, and issue type so deadlines, evidence, and money holds can be tracked.",
+    "Start from a purchase or sale so Chase Sets can identify the order and your part in it.",
   "support.features.supportRequests.ui.supportRequestListPage.open.order": "Order ID",
   "support.features.supportRequests.ui.supportRequestListPage.open.order.hint": "Enter an order ID starting with ord_.",
   "support.features.supportRequests.ui.supportRequestListPage.open.order.placeholder": "ord_...",
@@ -136,6 +136,35 @@ export const supportEnglishTranslations = {
     "No action is needed unless support contacts you.",
   "support.features.supportRequests.ui.customerRemedyStatus.nextAction.none": "No action is needed right now.",
   "support.features.supportRequests.ui.customerRemedyStatus.policyLink": "How platform-covered resolutions work",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.fromOrder":
+    "Choose Report a problem from a purchase or sale. Your order and account ownership will be carried into the case automatically.",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.purchases": "View purchases",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.sales": "View sales",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.items": "Choose items",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.items.label": "Affected items",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.items.description":
+    "Select every item affected by the same problem.",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.item.label":
+    "{title} · Quantity {quantity} · {amount}",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.wholeOrder":
+    "This case will cover the whole order.",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.issue": "What went wrong?",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.issue.label": "Choose the problem",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.review": "Review outcome",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.affectedCount": "Affected items: {count}",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.sellerWindow": "Seller response window",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.automaticOutcome": "What happens automatically",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.photosRequired":
+    "Photos are required for this issue",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.photosBlocked":
+    "Keep the item and packaging. Support will collect the required photos before deciding the case.",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.back": "Back",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.continue": "Continue",
+  "support.features.supportRequests.ui.supportRequestListPage.intake.submit": "Open case",
+  "support.features.supportRequests.ui.supportRequestListPage.duplicate.title": "A case is already open for this order",
+  "support.features.supportRequests.ui.supportRequestListPage.duplicate.description":
+    "Only one case can be open for an order at a time. Continue with the existing case.",
+  "support.features.supportRequests.ui.supportRequestListPage.duplicate.view": "View existing case",
   "support.features.supportRequests.ui.supportOperationsPage.title": "Support operations",
   "support.features.supportRequests.ui.supportOperationsPage.description":
     "Review urgent, overdue, and support-owned marketplace order issues before they block refunds, settlement holds, or account trust decisions.",

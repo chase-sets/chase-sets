@@ -108,7 +108,7 @@ describe("ordering order detail page", () => {
       <OrderingOrderDetailPage
         role="buyer"
         backHref="/account/purchases"
-        supportHref="/account/support?orderId=ord_1&role=buyer"
+        supportHref="/account/support?orderId=ord_1"
         fulfillmentHref="/account/shipments"
         order={committedOrder as never}
       />,
@@ -118,6 +118,9 @@ describe("ordering order detail page", () => {
     expect(markup).toContain("chk_buy_1");
     expect(markup).toContain("View fulfillment");
     expect(markup).toContain('href="/account/shipments"');
+    expect(markup).toContain('href="/account/support?orderId=ord_1"');
+    expect(markup).toContain("Report a problem");
+    expect(markup).not.toContain("role=buyer");
     expect(markup).not.toContain("Latest seller confirmation");
     expect(markup).not.toContain("pending seller activity");
   });

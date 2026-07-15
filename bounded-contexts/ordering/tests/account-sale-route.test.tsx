@@ -348,4 +348,17 @@ describe("marketplace account sale route", () => {
 
     expect(screen.getByText("Leave account review")).toBeTruthy();
   });
+
+  it("starts seller-cannot-fulfill intake from the sale detail without a role query", () => {
+    mockUseLoaderData.mockReturnValue({ sale: order, reviewOpportunity: null });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountSaleRoute />
+      </ChaseRoot>,
+    );
+
+    const reportLink = screen.getByRole("link", { name: "Report a problem" });
+    expect(reportLink.getAttribute("href")).toBe("/account/support?orderId=ord_1&flow=seller-cannot-fulfill");
+  });
 });

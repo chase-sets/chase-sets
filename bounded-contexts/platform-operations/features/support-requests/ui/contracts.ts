@@ -7,6 +7,20 @@ export type SupportOrderLookup = Readonly<{
   openedByRole: "buyer" | "seller";
   status: string;
   totalAmount: string;
+  lines: readonly Readonly<{
+    lineId: string;
+    itemTitle: string;
+    productSummary: string | null;
+    quantity: number;
+    amount: string;
+    currencyCode: string;
+  }>[];
+  existingOpenRequest?: Readonly<{
+    supportRequestId: string;
+    displayReference: string;
+    flowType: string;
+    status: string;
+  }>;
 }>;
 export type SupportRequestListItem = SupportRequestListRow;
 export type SupportRequestDetail = SupportRequestDetailRow;

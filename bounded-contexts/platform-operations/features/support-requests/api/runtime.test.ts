@@ -101,10 +101,24 @@ describe("support request runtime", () => {
                 seller_account_id: "acc_seller",
                 status: "ready-for-fulfillment",
                 total_amount: "24.00",
-                return_context: [],
+                return_context: [
+                  {
+                    lineId: "line_1",
+                    listingId: "lst_1",
+                    itemTitle: "Charizard",
+                    productSummary: "Near mint",
+                    quantity: 1,
+                    gradedCard: null,
+                  },
+                ],
+                affected_line_amounts: [{ lineId: "line_1", amount: "24.00", currencyCode: "USD" }],
               },
             ],
           };
+        }
+
+        if (sql.includes("FROM support_request_pages")) {
+          return { rows: [] };
         }
 
         throw new Error(`Unexpected query: ${sql}`);
@@ -121,22 +135,80 @@ describe("support request runtime", () => {
       runtime.getSupportOrderContext({
         orderId: "ord_1",
         accountId: "acc_buyer",
-        openedByRole: "buyer",
       }),
     ).resolves.toEqual({
       orderId: "ord_1",
       openedByRole: "buyer",
       status: "ready-for-fulfillment",
       totalAmount: "24.00",
+      lines: [
+        {
+          lineId: "line_1",
+          itemTitle: "Charizard",
+          productSummary: "Near mint",
+          quantity: 1,
+          amount: "24.00",
+          currencyCode: "USD",
+        },
+      ],
     });
 
     await expect(
       runtime.getSupportOrderContext({
         orderId: "ord_1",
         accountId: "acc_seller",
-        openedByRole: "buyer",
       }),
-    ).rejects.toThrow("Only the buyer can open this buyer support flow.");
+    ).resolves.toMatchObject({ openedByRole: "seller" });
+  });
+
+  it("returns the existing open case for order-level duplicate blocking", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM support_order_sources")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                buyer_account_id: "acc_buyer",
+                seller_account_id: "acc_seller",
+                status: "ready-for-fulfillment",
+                total_amount: "24.00",
+                return_context: [],
+                affected_line_amounts: [],
+              },
+            ],
+          };
+        }
+        if (sql.includes("FROM support_request_pages")) {
+          return {
+            rows: [
+              {
+                support_request_id: "sup_existing",
+                display_reference: "SUP-EXISTING",
+                flow_type: "product-damaged",
+                status: "waiting-on-seller",
+              },
+            ],
+          };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const { eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    await expect(runtime.getSupportOrderContext({ orderId: "ord_1", accountId: "acc_buyer" })).resolves.toMatchObject({
+      existingOpenRequest: {
+        supportRequestId: "sup_existing",
+        displayReference: "SUP-EXISTING",
+        flowType: "product-damaged",
+        status: "waiting-on-seller",
+      },
+    });
   });
 
   it("opens a buyer support request from an order source and rejects duplicates", async () => {
@@ -176,7 +248,6 @@ describe("support request runtime", () => {
         orderId: "ord_1",
         accountId: "acc_buyer",
         flowType: "product-not-received",
-        openedByRole: "buyer",
       },
       context,
     );
@@ -188,6 +259,7 @@ describe("support request runtime", () => {
       buyerAccountId: "acc_buyer",
       sellerAccountId: "acc_seller",
       flowType: "product-not-received",
+      openedByRole: "buyer",
       status: "waiting-on-seller",
     });
   });
@@ -232,7 +304,7 @@ describe("support request runtime", () => {
     });
 
     await runtime.openSupportRequest(
-      { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-not-received", openedByRole: "buyer" },
+      { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-not-received" },
       context,
     );
 
@@ -282,7 +354,7 @@ describe("support request runtime", () => {
     });
 
     await runtime.openSupportRequest(
-      { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-not-received", openedByRole: "buyer" },
+      { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-not-received" },
       context,
     );
 
@@ -318,7 +390,6 @@ describe("support request runtime", () => {
           orderId: "order_1",
           accountId: "acc_buyer",
           flowType: "product-not-received",
-          openedByRole: "buyer",
         },
         context,
       ),
@@ -349,7 +420,6 @@ describe("support request runtime", () => {
           orderId: "ord_missing",
           accountId: "acc_buyer",
           flowType: "product-not-received",
-          openedByRole: "buyer",
         },
         context,
       ),
@@ -391,7 +461,6 @@ describe("support request runtime", () => {
           orderId: "ord_1",
           accountId: "acc_seller",
           flowType: "product-not-received",
-          openedByRole: "buyer",
         },
         {
           ...context,
@@ -401,7 +470,7 @@ describe("support request runtime", () => {
           },
         },
       ),
-    ).rejects.toThrow("Only the buyer can open this buyer support flow.");
+    ).rejects.toThrow("This support flow cannot be opened by that role.");
   });
 
   it("escalates a support request from the marketplace API and records the account-scoped escalator", async () => {
@@ -453,7 +522,6 @@ describe("support request runtime", () => {
         orderId: "ord_1",
         accountId: "acc_buyer",
         flowType: "product-not-received",
-        openedByRole: "buyer",
       },
       context,
     );
@@ -583,7 +651,7 @@ describe("support request runtime", () => {
       });
 
       const opened = await runtime.openSupportRequest(
-        { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-not-received", openedByRole: "buyer" },
+        { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-not-received" },
         context,
       );
       pendingId = opened.supportRequestId;
@@ -649,7 +717,7 @@ describe("support request runtime", () => {
       });
 
       const opened = await runtime.openSupportRequest(
-        { orderId: "ord_1", accountId: "acc_buyer", flowType: "missing-products", openedByRole: "buyer" },
+        { orderId: "ord_1", accountId: "acc_buyer", flowType: "missing-products" },
         context,
       );
       pendingId = opened.supportRequestId;
@@ -700,7 +768,7 @@ describe("support request runtime", () => {
       });
 
       const opened = await runtime.openSupportRequest(
-        { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-not-as-described", openedByRole: "buyer" },
+        { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-not-as-described" },
         context,
       );
       pendingId = opened.supportRequestId;
@@ -783,11 +851,11 @@ describe("support request runtime", () => {
       });
 
       const responseCase = await runtime.openSupportRequest(
-        { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-not-received", openedByRole: "buyer" },
+        { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-not-received" },
         context,
       );
       const reviewCase = await runtime.openSupportRequest(
-        { orderId: "ord_1", accountId: "acc_buyer", flowType: "authenticity-concern", openedByRole: "buyer" },
+        { orderId: "ord_1", accountId: "acc_buyer", flowType: "authenticity-concern" },
         context,
       );
       responseReminderPendingId = responseCase.supportRequestId;
@@ -867,7 +935,7 @@ describe("support request runtime", () => {
       });
 
       const opened = await runtime.openSupportRequest(
-        { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-not-received", openedByRole: "buyer" },
+        { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-not-received" },
         context,
       );
       pendingId = opened.supportRequestId;
@@ -938,7 +1006,7 @@ describe("support request runtime", () => {
       setPendingId: (id: string) => void,
     ) {
       const opened = await runtime.openSupportRequest(
-        { orderId: "ord_1", accountId: "acc_buyer", flowType: "return-request", openedByRole: "buyer" },
+        { orderId: "ord_1", accountId: "acc_buyer", flowType: "return-request" },
         context,
       );
       const supportRequestId = opened.supportRequestId;

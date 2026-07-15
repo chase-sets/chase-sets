@@ -65,7 +65,7 @@ import {
 } from "../integrations/transactional-email/transactional-email-projector";
 import { buildSupportRequestProjectionHandlers } from "../read-model/projection";
 import {
-  findOpenSupportRequestForOrderAndFlow,
+  findOpenSupportRequestForOrder,
   getAccountSupportRequest,
   getSupportOperationsRequest,
   listSupportOperationsQueue,
@@ -112,7 +112,20 @@ export type SupportOrderContext = Readonly<{
   openedByRole: "buyer" | "seller";
   status: string;
   totalAmount: string;
-  affectedLineItems?: readonly SupportAffectedLineItemAmount[];
+  lines: readonly Readonly<{
+    lineId: string;
+    itemTitle: string;
+    productSummary: string | null;
+    quantity: number;
+    amount: string;
+    currencyCode: string;
+  }>[];
+  existingOpenRequest?: Readonly<{
+    supportRequestId: string;
+    displayReference: string;
+    flowType: string;
+    status: string;
+  }>;
 }>;
 
 export type PlatformRemedyTermsInput = Readonly<{
@@ -163,14 +176,11 @@ export type SupportRequestServices = Readonly<{
       orderId: string;
       accountId: string;
       flowType: SupportFlowType | string;
-      openedByRole: SupportRequesterRole | string;
       affectedLineIds?: readonly string[] | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
-  getSupportOrderContext: (
-    params: Readonly<{ orderId: string; accountId: string; openedByRole?: string | null }>,
-  ) => Promise<SupportOrderContext>;
+  getSupportOrderContext: (params: Readonly<{ orderId: string; accountId: string }>) => Promise<SupportOrderContext>;
   submitEvidence: (
     params: Readonly<{
       supportRequestId: string;
@@ -425,6 +435,34 @@ function assertParticipantRole(order: SupportOrderSource, accountId: string, rol
   }
 }
 
+function participantRoleForOrder(order: SupportOrderSource, accountId: string): SupportOrderContext["openedByRole"] {
+  if (order.buyer_account_id === accountId) {
+    return "buyer";
+  }
+  if (order.seller_account_id === accountId) {
+    return "seller";
+  }
+  throw new SupportDomainError("Support request is not available for this account.");
+}
+
+function supportOrderLines(order: SupportOrderSource): SupportOrderContext["lines"] {
+  return order.return_context.flatMap((line) => {
+    const amount = order.affected_line_amounts.find((candidate) => candidate.lineId === line.lineId);
+    return amount
+      ? [
+          {
+            lineId: line.lineId,
+            itemTitle: line.itemTitle,
+            productSummary: line.productSummary,
+            quantity: line.quantity,
+            amount: amount.amount,
+            currencyCode: amount.currencyCode,
+          },
+        ]
+      : [];
+  });
+}
+
 function selectAffectedLineItems(
   order: SupportOrderSource,
   requestedLineIds: readonly string[] | null | undefined,
@@ -444,14 +482,6 @@ function selectAffectedLineItems(
     }
     return lineItem;
   });
-}
-
-function normalizeParticipantLookupRole(value: string): SupportOrderContext["openedByRole"] {
-  const role = normalizeRequesterRole(value);
-  if (role === "support") {
-    throw new SupportDomainError("Support order lookup must be opened as buyer or seller.");
-  }
-  return role;
 }
 
 async function requireAccountSupportRequest(db: PgQueryable, supportRequestId: string, accountId: string) {
@@ -677,20 +707,25 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
         throw new SupportDomainError("Order not found for support.");
       }
 
-      const openedByRole =
-        typeof params.openedByRole === "string" && params.openedByRole.trim()
-          ? normalizeParticipantLookupRole(params.openedByRole)
-          : order.buyer_account_id === params.accountId
-            ? "buyer"
-            : "seller";
-      assertParticipantRole(order, params.accountId, openedByRole);
+      const openedByRole = participantRoleForOrder(order, params.accountId);
+      const existingOpenRequest = await findOpenSupportRequestForOrder(deps.db, { orderId });
 
       return {
         orderId: order.order_id,
         openedByRole,
         status: order.status,
         totalAmount: order.total_amount,
-        ...(order.affected_line_amounts.length > 0 ? { affectedLineItems: order.affected_line_amounts } : {}),
+        lines: supportOrderLines(order),
+        ...(existingOpenRequest
+          ? {
+              existingOpenRequest: {
+                supportRequestId: existingOpenRequest.support_request_id,
+                displayReference: existingOpenRequest.display_reference,
+                flowType: existingOpenRequest.flow_type,
+                status: existingOpenRequest.status,
+              },
+            }
+          : {}),
       };
     },
     openSupportRequest: async (params, context) => {
@@ -701,17 +736,14 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       }
 
       const flowType = normalizeFlowType(params.flowType);
-      const openedByRole = normalizeRequesterRole(params.openedByRole);
+      const openedByRole = participantRoleForOrder(order, params.accountId);
       getSupportFlowDefinition(flowType);
       assertParticipantRole(order, params.accountId, openedByRole);
       const affectedLineItems = selectAffectedLineItems(order, params.affectedLineIds);
 
-      const existing = await findOpenSupportRequestForOrderAndFlow(deps.db, {
-        orderId,
-        flowType,
-      });
+      const existing = await findOpenSupportRequestForOrder(deps.db, { orderId });
       if (existing) {
-        throw new SupportDomainError("An open support request already exists for this order and issue.");
+        throw new SupportDomainError("A support case is already open for this order.");
       }
 
       // Resolve the support-deadline policy's current value once, here, at

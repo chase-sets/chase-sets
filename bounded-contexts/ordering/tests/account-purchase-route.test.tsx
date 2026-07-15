@@ -380,6 +380,8 @@ describe("marketplace account purchase route", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Cancel purchase" })).toBeNull();
-    expect(screen.getByRole("link", { name: "Ask to cancel" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Ask to cancel" }).getAttribute("href")).toBe(
+      "/account/support?orderId=ord_1&flow=buyer-cancel-request",
+    );
   });
 });

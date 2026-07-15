@@ -1,27 +1,27 @@
-import { formatDateTime, t } from "@chase-sets/localization";
+import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import type { SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import { useMemo, useState } from "react";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
-  HiddenInput,
   Badge,
   Banner,
   Button,
+  CheckboxGroup,
   Cluster,
   DataTable,
-  Grid,
-  Inset,
+  HiddenInput,
   Inline,
+  Inset,
   LinkButton,
   Page,
   PageHeader,
   PageSection,
-  Select,
+  PageStepper,
+  RadioGroup,
   Stack,
   Surface,
   Text,
-  TextInput,
   type DataColumn,
 } from "@chase-sets/design-system";
 import type { SupportFlowSummary, SupportOrderLookup, SupportRequestListItem } from "./contracts";
@@ -35,6 +35,7 @@ type SupportRequestListPageProps = Readonly<{
   lookupError?: string | null;
   openedSupportRequestId?: string | null;
   supportOrder?: SupportOrderLookup | null;
+  initialFlowType?: string | null;
 }>;
 
 function statusTone(status: string) {
@@ -50,11 +51,9 @@ function priorityTone(priority: string) {
 }
 
 function formatRequestDateTime(value: string | null) {
-  if (!value) {
-    return t("support.features.supportRequests.ui.supportRequestListPage.not.applicable");
-  }
-
-  return formatDateTime(value, { preset: "short" });
+  return value
+    ? formatDateTime(value, { preset: "short" })
+    : t("support.features.supportRequests.ui.supportRequestListPage.not.applicable");
 }
 
 function nextDeadline(request: SupportRequestListItem) {
@@ -68,6 +67,25 @@ function checklistSummary(request: SupportRequestListItem) {
     satisfied: satisfied.length,
     required: required.length,
   });
+}
+
+function resolutionLabel(resolution: SupportFlowSummary["defaultResolution"]) {
+  switch (resolution) {
+    case "full-refund":
+      return t("support.features.supportRequests.ui.supportOperationsPage.resolution.fullRefund");
+    case "partial-refund":
+      return t("support.features.supportRequests.ui.supportOperationsPage.resolution.partialRefund");
+    case "return-for-refund":
+      return t("support.features.supportRequests.ui.supportOperationsPage.resolution.returnForRefund");
+    case "replacement":
+      return t("support.features.supportRequests.ui.supportOperationsPage.resolution.replacement");
+    case "cancel-order":
+      return t("support.features.supportRequests.ui.supportOperationsPage.resolution.cancelOrder");
+    case "no-action":
+      return t("support.features.supportRequests.ui.supportOperationsPage.resolution.noAction");
+    case "support-reviewed":
+      return t("support.features.supportRequests.ui.supportOperationsPage.resolution.supportReviewed");
+  }
 }
 
 function SupportRequestTable({
@@ -140,7 +158,7 @@ function SupportFlowTable({ flows }: Readonly<{ flows: readonly SupportFlowSumma
     {
       key: "defaultOutcome",
       header: t("support.features.supportRequests.ui.supportRequestListPage.default.outcome"),
-      cell: (flow) => flow.defaultResolution,
+      cell: (flow) => resolutionLabel(flow.defaultResolution),
     },
     {
       key: "responseWindow",
@@ -157,152 +175,234 @@ function SupportFlowTable({ flows }: Readonly<{ flows: readonly SupportFlowSumma
   return <DataTable rows={[...flows]} columns={columns} getRowId={(flow) => flow.flowType} />;
 }
 
+function SupportIntakeStart() {
+  return (
+    <Surface>
+      <Stack>
+        <Text>{t("support.features.supportRequests.ui.supportRequestListPage.intake.fromOrder")}</Text>
+        <Cluster>
+          <LinkButton href="/account/purchases">
+            {t("support.features.supportRequests.ui.supportRequestListPage.intake.purchases")}
+          </LinkButton>
+          <LinkButton href="/account/sales" tone="secondary">
+            {t("support.features.supportRequests.ui.supportRequestListPage.intake.sales")}
+          </LinkButton>
+        </Cluster>
+      </Stack>
+    </Surface>
+  );
+}
+
+type IntakeStep = "items" | "issue" | "review";
+const intakeSteps: readonly IntakeStep[] = ["items", "issue", "review"];
+
 function SupportRequestOpenPanel({
   flows,
   supportOrder,
-}: Readonly<{ flows: readonly SupportFlowSummary[]; supportOrder?: SupportOrderLookup | null }>) {
-  type OpenedByRole = SupportFlowSummary["openedBy"][number];
-  const [lookupRole, setLookupRole] = useState<OpenedByRole>("buyer");
-  const openedByRole = supportOrder?.openedByRole ?? lookupRole;
+  initialFlowType,
+}: Readonly<{
+  flows: readonly SupportFlowSummary[];
+  supportOrder: SupportOrderLookup;
+  initialFlowType?: string | null;
+}>) {
   const visibleFlows = useMemo(
-    () => flows.filter((flow) => flow.openedBy.includes(openedByRole)),
-    [flows, openedByRole],
+    () => flows.filter((flow) => flow.openedBy.includes(supportOrder.openedByRole)),
+    [flows, supportOrder.openedByRole],
   );
-  const [selectedFlowType, setSelectedFlowType] = useState(visibleFlows[0]?.flowType ?? "");
-  const selectedFlow = visibleFlows.find((flow) => flow.flowType === selectedFlowType) ?? visibleFlows[0];
-  const flowItems = visibleFlows.map((flow) => ({
-    value: flow.flowType,
-    label: flow.title,
-    description: flow.automationSummary,
-  }));
+  const initialFlow = visibleFlows.find((flow) => flow.flowType === initialFlowType) ?? visibleFlows[0];
+  const [step, setStep] = useState<IntakeStep>("items");
+  const [selectedLineIds, setSelectedLineIds] = useState<string[]>(
+    supportOrder.lines.length === 1 ? [supportOrder.lines[0]!.lineId] : [],
+  );
+  const [selectedFlowType, setSelectedFlowType] = useState(initialFlow?.flowType ?? "");
+  const selectedFlow = visibleFlows.find((flow) => flow.flowType === selectedFlowType) ?? initialFlow;
+  const selectedLines = supportOrder.lines.filter((line) => selectedLineIds.includes(line.lineId));
+  const currentStepIndex = intakeSteps.indexOf(step);
+  const photoRequired = Boolean(
+    selectedFlow?.checklist.some(
+      (item) => item.required && item.ownerRole === supportOrder.openedByRole && item.evidenceTypes.includes("photo"),
+    ),
+  );
 
-  function changeRole(nextRole: string) {
-    const role = nextRole as OpenedByRole;
-    const nextFlows = flows.filter((flow) => flow.openedBy.includes(role));
-    setLookupRole(role);
-    setSelectedFlowType(nextFlows[0]?.flowType ?? "");
-  }
-
-  if (!supportOrder) {
+  if (supportOrder.existingOpenRequest) {
+    const existing = supportOrder.existingOpenRequest;
+    const existingFlow = flows.find((flow) => flow.flowType === existing.flowType);
     return (
-      <Surface>
-        <RouterForm method="get" spacing="md">
-          <HiddenInput type="hidden" name="role" value={lookupRole} readOnly />
-          <Grid columns={{ base: 1, md: 3 }}>
-            <TextInput
-              label={t("support.features.supportRequests.ui.supportRequestListPage.lookup.order")}
-              name="orderId"
-              pattern="ord_.+"
-              placeholder={t("support.features.supportRequests.ui.supportRequestListPage.open.order.placeholder")}
-              required
-              title={t("support.features.supportRequests.ui.supportRequestListPage.open.order.hint")}
-            />
-            <Select
-              label={t("support.features.supportRequests.ui.supportRequestListPage.lookup.role")}
-              value={lookupRole}
-              onValueChange={changeRole}
-              items={[
-                {
-                  value: "buyer",
-                  label: t("support.features.supportRequests.ui.supportRequestListPage.open.role.buyer"),
-                },
-                {
-                  value: "seller",
-                  label: t("support.features.supportRequests.ui.supportRequestListPage.open.role.seller"),
-                },
-              ]}
-            />
-          </Grid>
-          <Cluster justify="end">
-            <Button type="submit">
-              {t("support.features.supportRequests.ui.supportRequestListPage.lookup.submit")}
-            </Button>
-          </Cluster>
-        </RouterForm>
-      </Surface>
+      <Stack>
+        <Banner
+          tone="warning"
+          title={t("support.features.supportRequests.ui.supportRequestListPage.duplicate.title")}
+          description={t("support.features.supportRequests.ui.supportRequestListPage.duplicate.description")}
+          actions={
+            <LinkButton href="#existing-support-request" tone="secondary">
+              {t("support.features.supportRequests.ui.supportRequestListPage.duplicate.view")}
+            </LinkButton>
+          }
+        />
+        <Surface id="existing-support-request">
+          <Stack>
+            <Inline>
+              <Text weight="semibold">{existing.displayReference || existing.supportRequestId}</Text>
+              <Badge tone={statusTone(existing.status)}>{existing.status}</Badge>
+            </Inline>
+            <Text tone="secondary">{existingFlow?.title ?? existing.flowType}</Text>
+          </Stack>
+        </Surface>
+      </Stack>
     );
   }
+
+  const stepperItems = intakeSteps.map((candidate, index) => ({
+    label:
+      candidate === "items"
+        ? t("support.features.supportRequests.ui.supportRequestListPage.intake.items")
+        : candidate === "issue"
+          ? t("support.features.supportRequests.ui.supportRequestListPage.intake.issue")
+          : t("support.features.supportRequests.ui.supportRequestListPage.intake.review"),
+    status:
+      index < currentStepIndex
+        ? ("complete" as const)
+        : index === currentStepIndex
+          ? ("current" as const)
+          : ("upcoming" as const),
+  }));
 
   return (
     <Surface>
       <RouterForm method="post" spacing="md">
         <HiddenInput type="hidden" name="orderId" value={supportOrder.orderId} readOnly />
-        <HiddenInput type="hidden" name="openedByRole" value={supportOrder.openedByRole} readOnly />
         <HiddenInput type="hidden" name="flowType" value={selectedFlowType} readOnly />
-        <Inset>
+        {selectedLineIds.map((lineId) => (
+          <HiddenInput key={lineId} type="hidden" name="affectedLineIds" value={lineId} readOnly />
+        ))}
+
+        <Stack>
+          <Inline>
+            <Text weight="semibold">{supportOrder.orderId}</Text>
+            <Badge tone="neutral">{supportOrder.status}</Badge>
+            <Text tone="secondary">
+              {formatMoney(supportOrder.totalAmount, supportOrder.lines[0]?.currencyCode || "USD")}
+            </Text>
+          </Inline>
+          <PageStepper items={stepperItems} variant="compact" />
+        </Stack>
+
+        {step === "items" ? (
           <Stack>
-            <Inline>
-              <Badge tone="neutral">{supportOrder.openedByRole}</Badge>
-              <Text element="span" size="sm" weight="semibold">
-                {supportOrder.orderId}
-              </Text>
-            </Inline>
-            <Inline>
-              <Text element="span" size="xs" tone="secondary" weight="semibold">
-                {t("support.features.supportRequests.ui.supportRequestListPage.lookup.status")}
-              </Text>
-              <Text element="span" size="sm">
-                {supportOrder.status}
-              </Text>
-              <Text element="span" size="xs" tone="secondary" weight="semibold">
-                {t("support.features.supportRequests.ui.supportRequestListPage.lookup.total")}
-              </Text>
-              <Text element="span" size="sm">
-                {supportOrder.totalAmount}
-              </Text>
-            </Inline>
+            <Text size="lg" weight="semibold">
+              {t("support.features.supportRequests.ui.supportRequestListPage.intake.items")}
+            </Text>
+            {supportOrder.lines.length > 0 ? (
+              <CheckboxGroup
+                label={t("support.features.supportRequests.ui.supportRequestListPage.intake.items.label")}
+                description={t("support.features.supportRequests.ui.supportRequestListPage.intake.items.description")}
+                items={supportOrder.lines.map((line) => ({
+                  value: line.lineId,
+                  label: t("support.features.supportRequests.ui.supportRequestListPage.intake.item.label", {
+                    title: line.itemTitle,
+                    quantity: line.quantity,
+                    amount: formatMoney(line.amount, line.currencyCode || "USD"),
+                  }),
+                  description: line.productSummary ?? undefined,
+                }))}
+                values={selectedLineIds}
+                onValuesChange={setSelectedLineIds}
+                required
+              />
+            ) : (
+              <Banner
+                tone="info"
+                title={t("support.features.supportRequests.ui.supportRequestListPage.intake.wholeOrder")}
+              />
+            )}
           </Stack>
-        </Inset>
-        <Grid columns={{ base: 1, md: 2 }}>
-          <Select
-            label={t("support.features.supportRequests.ui.supportRequestListPage.open.issue")}
-            value={selectedFlowType}
-            onValueChange={(nextValue) => setSelectedFlowType(nextValue as typeof selectedFlowType)}
-            items={flowItems}
-          />
-        </Grid>
-        {selectedFlow ? (
-          <Inset>
-            <Stack>
-              <Inline>
-                <Badge tone={priorityTone(selectedFlow.priority)}>{selectedFlow.priority}</Badge>
-                <Text element="span" size="sm" weight="semibold">
-                  {selectedFlow.title}
-                </Text>
-              </Inline>
-              <Text size="sm" tone="secondary">
-                {selectedFlow.automationSummary}
-              </Text>
-              <Inline>
-                <Text element="span" size="xs" tone="secondary" weight="semibold">
-                  {t("support.features.supportRequests.ui.supportRequestListPage.response.window")}
-                </Text>
-                <Text element="span" size="sm">
-                  {selectedFlow.sellerResponseHours === null
-                    ? t("support.features.supportRequests.ui.supportRequestListPage.support.owned")
-                    : t("support.features.supportRequests.ui.supportRequestListPage.hours", {
-                        hours: selectedFlow.sellerResponseHours,
-                      })}
-                </Text>
-              </Inline>
-              <Stack gap={1}>
-                <Text element="span" size="xs" tone="secondary" weight="semibold">
-                  {t("support.features.supportRequests.ui.supportRequestListPage.checklist")}
-                </Text>
-                {selectedFlow.checklist.map((item) => (
-                  <Text key={item.key} size="sm" tone="secondary">
-                    {item.label}
-                  </Text>
-                ))}
-              </Stack>
-            </Stack>
-          </Inset>
         ) : null}
+
+        {step === "issue" ? (
+          <Stack>
+            <Text size="lg" weight="semibold">
+              {t("support.features.supportRequests.ui.supportRequestListPage.intake.issue")}
+            </Text>
+            <RadioGroup
+              label={t("support.features.supportRequests.ui.supportRequestListPage.intake.issue.label")}
+              items={visibleFlows.map((flow) => ({
+                value: flow.flowType,
+                label: flow.title,
+                description: flow.automationSummary,
+              }))}
+              value={selectedFlowType}
+              onValueChange={(value) => setSelectedFlowType(value as SupportFlowSummary["flowType"])}
+              required
+            />
+          </Stack>
+        ) : null}
+
+        {step === "review" && selectedFlow ? (
+          <Stack>
+            <Text size="lg" weight="semibold">
+              {t("support.features.supportRequests.ui.supportRequestListPage.intake.review")}
+            </Text>
+            <Inset>
+              <Stack>
+                <Text weight="semibold">{selectedFlow.title}</Text>
+                <Text tone="secondary">
+                  {t("support.features.supportRequests.ui.supportRequestListPage.intake.affectedCount", {
+                    count: selectedLines.length || supportOrder.lines.length,
+                  })}
+                </Text>
+                <Inline>
+                  <Text weight="semibold">
+                    {t("support.features.supportRequests.ui.supportRequestListPage.default.outcome")}
+                  </Text>
+                  <Text>{resolutionLabel(selectedFlow.defaultResolution)}</Text>
+                </Inline>
+                <Inline>
+                  <Text weight="semibold">
+                    {t("support.features.supportRequests.ui.supportRequestListPage.intake.sellerWindow")}
+                  </Text>
+                  <Text>
+                    {selectedFlow.sellerResponseHours === null
+                      ? t("support.features.supportRequests.ui.supportRequestListPage.support.owned")
+                      : t("support.features.supportRequests.ui.supportRequestListPage.hours", {
+                          hours: selectedFlow.sellerResponseHours,
+                        })}
+                  </Text>
+                </Inline>
+                <Text weight="semibold">
+                  {t("support.features.supportRequests.ui.supportRequestListPage.intake.automaticOutcome")}
+                </Text>
+                <Text tone="secondary">{selectedFlow.automationSummary}</Text>
+              </Stack>
+            </Inset>
+            {photoRequired ? (
+              <Banner
+                tone="info"
+                title={t("support.features.supportRequests.ui.supportRequestListPage.intake.photosRequired")}
+                description={t("support.features.supportRequests.ui.supportRequestListPage.intake.photosBlocked")}
+              />
+            ) : null}
+          </Stack>
+        ) : null}
+
         <Cluster justify="end">
-          <LinkButton href="/account/support" tone="secondary">
-            {t("support.features.supportRequests.ui.supportRequestListPage.lookup.change")}
-          </LinkButton>
-          <Button type="submit">{t("support.features.supportRequests.ui.supportRequestListPage.open.submit")}</Button>
+          {step !== "items" ? (
+            <Button type="button" tone="secondary" onClick={() => setStep(step === "review" ? "issue" : "items")}>
+              {t("support.features.supportRequests.ui.supportRequestListPage.intake.back")}
+            </Button>
+          ) : null}
+          {step !== "review" ? (
+            <Button
+              type="button"
+              disabled={step === "items" && supportOrder.lines.length > 0 && selectedLineIds.length === 0}
+              onClick={() => setStep(step === "items" ? "issue" : "review")}
+            >
+              {t("support.features.supportRequests.ui.supportRequestListPage.intake.continue")}
+            </Button>
+          ) : (
+            <Button type="submit">
+              {t("support.features.supportRequests.ui.supportRequestListPage.intake.submit")}
+            </Button>
+          )}
         </Cluster>
       </RouterForm>
     </Surface>
@@ -317,6 +417,7 @@ export function SupportRequestListPage({
   lookupError,
   openedSupportRequestId,
   supportOrder,
+  initialFlowType,
 }: SupportRequestListPageProps) {
   return (
     <Page>
@@ -341,7 +442,11 @@ export function SupportRequestListPage({
         title={t("support.features.supportRequests.ui.supportRequestListPage.open.title")}
         description={t("support.features.supportRequests.ui.supportRequestListPage.open.description")}
       >
-        <SupportRequestOpenPanel flows={flows} supportOrder={supportOrder} />
+        {supportOrder ? (
+          <SupportRequestOpenPanel flows={flows} supportOrder={supportOrder} initialFlowType={initialFlowType} />
+        ) : (
+          <SupportIntakeStart />
+        )}
       </PageSection>
 
       <PageSection title={t("support.features.supportRequests.ui.supportRequestListPage.buyer.requests")}>

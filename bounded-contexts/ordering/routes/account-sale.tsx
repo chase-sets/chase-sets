@@ -70,7 +70,7 @@ export default function OrderingAccountSaleRoute() {
     <OrderingOrderDetailPage
       role="seller"
       backHref="/account/sales"
-      supportHref={`/account/support?orderId=${encodeURIComponent(data.sale.order_id)}&role=seller`}
+      supportHref={`/account/support?orderId=${encodeURIComponent(data.sale.order_id)}&flow=seller-cannot-fulfill`}
       fulfillmentHref="/account/sales/shipments"
       order={data.sale as SaleDetail}
       errorMessage={actionData?.error ?? null}

@@ -372,7 +372,7 @@ describe("platform operations mutation consistency route actions", () => {
     const form = new URLSearchParams({
       orderId: "ord_1",
       flowType: "product-not-received",
-      openedByRole: "buyer",
+      affectedLineIds: "line_1",
     });
 
     const response = (await accountSupportAction({
@@ -392,7 +392,7 @@ describe("platform operations mutation consistency route actions", () => {
         body: JSON.stringify({
           orderId: "ord_1",
           flowType: "product-not-received",
-          openedByRole: "buyer",
+          affectedLineIds: ["line_1"],
         }),
       }),
     );
@@ -409,12 +409,13 @@ describe("platform operations mutation consistency route actions", () => {
       if (url.endsWith("/support-requests/purchases") || url.endsWith("/support-requests/sales")) {
         return jsonResponse({ items: [], total: 0, count: 0 });
       }
-      if (url.endsWith("/support-requests/orders/ord_1?role=buyer")) {
+      if (url.endsWith("/support-requests/orders/ord_1")) {
         return jsonResponse({
           orderId: "ord_1",
           openedByRole: "buyer",
           status: "ready-for-fulfillment",
           totalAmount: "24.00",
+          lines: [],
         });
       }
 
@@ -424,13 +425,19 @@ describe("platform operations mutation consistency route actions", () => {
     mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["support.view"] });
 
     const result = (await accountSupportLoader({
-      request: new Request("http://localhost/account/support?orderId=ord_1&role=buyer", {
+      request: new Request("http://localhost/account/support?orderId=ord_1", {
         headers: { cookie: "session=abc" },
       }),
       params: {},
       context: undefined,
     } as never)) as {
-      supportOrder: { orderId: string; openedByRole: string; status: string; totalAmount: string } | null;
+      supportOrder: {
+        orderId: string;
+        openedByRole: string;
+        status: string;
+        totalAmount: string;
+        lines: readonly unknown[];
+      } | null;
       lookupError: string | null;
     };
 
@@ -439,7 +446,7 @@ describe("platform operations mutation consistency route actions", () => {
       permission: "support.view",
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost/api/marketplace/support-requests/orders/ord_1?role=buyer",
+      "http://localhost/api/marketplace/support-requests/orders/ord_1",
       expect.any(Object),
     );
     expect(result.supportOrder).toEqual({
@@ -447,6 +454,7 @@ describe("platform operations mutation consistency route actions", () => {
       openedByRole: "buyer",
       status: "ready-for-fulfillment",
       totalAmount: "24.00",
+      lines: [],
     });
     expect(result.lookupError).toBeNull();
   });
