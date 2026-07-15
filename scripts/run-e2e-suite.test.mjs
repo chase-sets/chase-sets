@@ -237,6 +237,15 @@ describe("run e2e suite", () => {
     ).toEqual(["admin_platform"]);
   });
 
+  it("routes Seller Desk shell entries to seller journey coverage", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/marketplace/routes/account-desk.tsx")).toEqual([
+      "marketplace_seller",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/marketplace/routes/account-desk-settings.tsx")).toEqual([
+      "marketplace_seller",
+    ]);
+  });
+
   it("routes account admin routes to access admin coverage", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/identity/routes/admin/accounts-detail.tsx")).toEqual([
       "admin_access",

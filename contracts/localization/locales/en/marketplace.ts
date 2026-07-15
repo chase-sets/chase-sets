@@ -2,6 +2,33 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.api.route.evidence.incomplete":
     "Listing evidence requirements changed or remain incomplete. Follow the current readiness actions before publishing.",
   "marketplace.app.host.inventory": "Inventory",
+  "marketplace.features.sellerDesk.ui.routeShell.title": "Seller Desk",
+  "marketplace.features.sellerDesk.ui.routeShell.description":
+    "One place to manage inventory, listings, fulfillment, money, and offers.",
+  "marketplace.features.sellerDesk.ui.routeShell.navigation": "Seller Desk navigation",
+  "marketplace.features.sellerDesk.ui.routeShell.home": "Home",
+  "marketplace.features.sellerDesk.ui.routeShell.fulfillment": "Fulfillment",
+  "marketplace.features.sellerDesk.ui.routeShell.money": "Money",
+  "marketplace.features.sellerDesk.ui.routeShell.offers": "Offers",
+  "marketplace.features.sellerDesk.ui.routeShell.settings": "Settings",
+  "marketplace.features.sellerDesk.ui.index.meta.title": "Seller Desk | Marketplace",
+  "marketplace.features.sellerDesk.ui.index.eyebrow": "Seller Desk",
+  "marketplace.features.sellerDesk.ui.index.title": "Run your selling operation",
+  "marketplace.features.sellerDesk.ui.index.description":
+    "Choose a workspace above to manage fulfillment, money, offers, inventory, and listings.",
+  "marketplace.features.sellerDesk.ui.settings.meta.title": "Seller settings | Marketplace",
+  "marketplace.features.sellerDesk.ui.settings.eyebrow": "Seller Desk",
+  "marketplace.features.sellerDesk.ui.settings.title": "Seller settings",
+  "marketplace.features.sellerDesk.ui.settings.description":
+    "Manage the seller controls you use less often without leaving the Desk.",
+  "marketplace.features.sellerDesk.ui.settings.inventory.title": "Inventory locations",
+  "marketplace.features.sellerDesk.ui.settings.inventory.description":
+    "Maintain the storage locations used by Inventory and listing workflows.",
+  "marketplace.features.sellerDesk.ui.settings.inventory.action": "Manage inventory locations",
+  "marketplace.features.sellerDesk.ui.settings.payouts.title": "Payout account",
+  "marketplace.features.sellerDesk.ui.settings.payouts.description":
+    "Review and update the account used to receive seller payouts.",
+  "marketplace.features.sellerDesk.ui.settings.payouts.action": "Manage payout account",
   "marketplace.app.host.listings": "Listings",
   "marketplace.app.host.offer.matches": "Offer Matches",
   "marketplace.app.host.notifications": "Notifications",

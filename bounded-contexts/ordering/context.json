@@ -734,6 +734,13 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "seller-desk-sale",
+          "routePath": "account/desk/sales/:orderId",
+          "fileExport": "./routes/account-sale",
+          "routeType": "route",
+          "sourceContext": "ordering"
+        },
+        {
           "routeId": "account-purchase",
           "routePath": "account/purchases/:purchaseId",
           "fileExport": "./routes/account-purchase",

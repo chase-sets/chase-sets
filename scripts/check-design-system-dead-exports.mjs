@@ -81,7 +81,6 @@ const canonicalReserveZeroConsumerExports = [
   "Menu",
   "MessageThreadPreview",
   "NavigationDrawer",
-  "NavigationHeader",
   "NavigationMenu",
   "NavRail",
   "normalizeFormErrors",

@@ -15,6 +15,8 @@ const syntheticAccountNonce = Math.random().toString(36).slice(2, 8);
 const authProjectionTimeoutMs = 90_000;
 
 const accountCriticalRoutes = [
+  { path: "/account/desk", heading: /^Run your selling operation$/i, flow: "Seller Desk" },
+  { path: "/account/desk/settings", heading: /^Seller settings$/i, flow: "Seller Desk settings" },
   { path: "/account/cart", heading: /^Your cart$/i, flow: "buy cart" },
   { path: "/account/sell-list", heading: /^Sell List$/i, flow: "sell list" },
   { path: "/account/listings", heading: /^Listings$/i, flow: "listings" },

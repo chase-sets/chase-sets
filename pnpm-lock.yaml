@@ -730,6 +730,9 @@ importers:
       '@chase-sets/seller-attention-queue':
         specifier: workspace:*
         version: link:../../contracts/seller-attention-queue
+      '@chase-sets/seller-desk':
+        specifier: workspace:*
+        version: link:../../contracts/seller-desk
       hono:
         specifier: ^4.12.12
         version: 4.12.18

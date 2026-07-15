@@ -625,6 +625,20 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "seller-desk-inventory-item",
+          "routePath": "account/desk/inventory/:itemId",
+          "fileExport": "./routes/marketplace/account-inventory-item",
+          "routeType": "route",
+          "sourceContext": "inventory"
+        },
+        {
+          "routeId": "seller-desk-inventory-locations",
+          "routePath": "account/desk/settings/locations",
+          "fileExport": "./routes/marketplace/account-inventory-locations",
+          "routeType": "route",
+          "sourceContext": "inventory"
+        },
+        {
           "routeId": "account-inventory",
           "routePath": "account/inventory",
           "fileExport": "./routes/marketplace/account-inventory",

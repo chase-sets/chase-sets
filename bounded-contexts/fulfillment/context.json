@@ -202,7 +202,12 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeIds": ["account-sale-shipment", "account-sale-shipment-packing"],
+        "routeIds": [
+          "account-sale-shipment",
+          "account-sale-shipment-packing",
+          "seller-desk-shipment",
+          "seller-desk-shipment-packing"
+        ],
         "actions": [
           "Start packing",
           "Complete packing",
@@ -214,7 +219,12 @@
         "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
-        "routeIds": ["account-sale-shipment", "account-sale-shipment-packing"],
+        "routeIds": [
+          "account-sale-shipment",
+          "account-sale-shipment-packing",
+          "seller-desk-shipment",
+          "seller-desk-shipment-packing"
+        ],
         "apiContextName": "fulfillment",
         "apiRoutePath": "/account/sales/shipments/:id",
         "readModelTables": [
@@ -405,6 +415,27 @@
     {
       "deployable": "marketplace-web",
       "routes": [
+        {
+          "routeId": "seller-desk-shipments",
+          "routePath": "account/desk/shipments",
+          "fileExport": "./routes/marketplace/account-sale-shipments",
+          "routeType": "route",
+          "sourceContext": "fulfillment"
+        },
+        {
+          "routeId": "seller-desk-shipment",
+          "routePath": "account/desk/shipments/:shipmentId",
+          "fileExport": "./routes/marketplace/account-sale-shipment",
+          "routeType": "route",
+          "sourceContext": "fulfillment"
+        },
+        {
+          "routeId": "seller-desk-shipment-packing",
+          "routePath": "account/desk/shipments/:shipmentId/packing",
+          "fileExport": "./routes/marketplace/account-sale-shipment-packing",
+          "routeType": "route",
+          "sourceContext": "fulfillment"
+        },
         {
           "routeId": "account-sale-shipment-packing-slips",
           "routePath": "account/sales/shipments/packing-slips",

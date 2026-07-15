@@ -503,6 +503,16 @@ export type SellerRouteMapping = Readonly<{
   // What the route does today — the capability that must survive.
   capability: string;
   note?: string;
+  // Optional route state carried across a legacy redirect. Drawers preserve the
+  // entity/action the seller was opening; absorbed overview routes preserve the
+  // selected module view instead of collapsing every old deep link to an
+  // indistinguishable Desk home URL.
+  redirectState?: Readonly<{
+    view?: string;
+    drawer?: Extract<SellerDeskSurfaceId, "resolution-drawer" | "activity-drawer">;
+    action?: string;
+    entityParam?: string;
+  }>;
 }>;
 
 export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
@@ -516,6 +526,7 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     newHome: "seller-home",
     redirectTo: "/account/desk",
     capability: "Inventory list with in-row stock actions.",
+    redirectState: { view: "inventory" },
   },
   {
     routeId: "account-inventory-imports",
@@ -527,6 +538,7 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     redirectTo: "/account/desk",
     capability: "Import batch list.",
     note: "Import activity surfaces on the Desk home; batch review opens the resolution drawer.",
+    redirectState: { view: "imports" },
   },
   {
     routeId: "account-inventory-import",
@@ -537,6 +549,11 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     newHome: "resolution-drawer",
     redirectTo: "/account/desk",
     capability: "Import batch detail with in-cell SKU resolution forms.",
+    redirectState: {
+      drawer: "resolution-drawer",
+      action: "import-batch.resolve-row",
+      entityParam: "batchId",
+    },
   },
   {
     routeId: "account-inventory-locations",
@@ -547,6 +564,7 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     newHome: "seller-settings",
     redirectTo: "/account/desk/settings",
     capability: "Storage location management.",
+    redirectState: { view: "inventory" },
   },
   {
     routeId: "account-inventory-item",
@@ -568,6 +586,7 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     redirectTo: "/account/desk",
     capability: "Restock decision queue.",
     note: "Restock attention is a Desk-home source; decisions resolve inline on the inventory item.",
+    redirectState: { view: "restock" },
   },
   // Listings
   {
@@ -579,6 +598,7 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     newHome: "seller-home",
     redirectTo: "/account/desk",
     capability: "Listing list with filters, bulk actions, and eight row intents.",
+    redirectState: { view: "listings" },
   },
   {
     routeId: "account-listing",
@@ -611,6 +631,7 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     newHome: "sell-list",
     redirectTo: "/account/desk/offers",
     capability: "Offers matched to the seller's listings.",
+    redirectState: { view: "matches" },
   },
   {
     routeId: "account-offer-match",
@@ -621,6 +642,11 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     newHome: "sell-list",
     redirectTo: "/account/desk/offers",
     capability: "Single matched offer with offer/terms comparison.",
+    redirectState: {
+      drawer: "resolution-drawer",
+      action: "offer.manage-sell-list",
+      entityParam: "offerId",
+    },
   },
   {
     routeId: "account-sell-list",
@@ -642,6 +668,7 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     newHome: "seller-home",
     redirectTo: "/account/desk",
     capability: "Sold-order list.",
+    redirectState: { view: "sales" },
   },
   {
     routeId: "account-sale",
@@ -662,6 +689,11 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     newHome: "sale",
     redirectTo: "/account/desk/sales/:orderId",
     capability: "Leave a review for the counterparty on a sale.",
+    redirectState: {
+      drawer: "resolution-drawer",
+      action: "sale-order.leave-review",
+      entityParam: "orderId",
+    },
   },
   // Fulfillment (seller outbound)
   {
@@ -671,7 +703,7 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     scope: "seller",
     disposition: "absorbed",
     newHome: "seller-home",
-    redirectTo: "/account/desk",
+    redirectTo: "/account/desk/shipments",
     capability: "Sale-shipment list ordered by ship-by.",
   },
   {
@@ -693,6 +725,11 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     newHome: "shipment",
     redirectTo: "/account/desk/shipments/:shipmentId",
     capability: "Packing workspace.",
+    redirectState: {
+      drawer: "resolution-drawer",
+      action: "shipment.pack",
+      entityParam: "shipmentId",
+    },
   },
   {
     routeId: "account-sale-shipment-packing-slips",
@@ -703,6 +740,7 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     newHome: "shipment",
     redirectTo: "/account/desk/shipments",
     capability: "Bulk packing-slip printing.",
+    redirectState: { drawer: "resolution-drawer", action: "shipment.pack" },
   },
   // Settlement / money
   {
@@ -714,6 +752,7 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     newHome: "settlement-dashboard",
     redirectTo: "/account/desk/money",
     capability: "Payout list.",
+    redirectState: { view: "payouts" },
   },
   {
     routeId: "account-payout",
@@ -734,6 +773,7 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     newHome: "seller-settings",
     redirectTo: "/account/desk/settings",
     capability: "Payout account setup.",
+    redirectState: { view: "payouts" },
   },
   {
     routeId: "account-settlement",
@@ -754,6 +794,11 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     newHome: "settlement-dashboard",
     redirectTo: "/account/desk/money",
     capability: "Wallet adjustment detail.",
+    redirectState: {
+      drawer: "activity-drawer",
+      action: "wallet-adjustment.reconcile",
+      entityParam: "reference",
+    },
   },
   // Pricing
   {
@@ -766,6 +811,7 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     redirectTo: "/account/desk",
     capability: "Repricing controls.",
     note: "Repricing becomes a drawer on the listing and a bulk action on the Desk listings view.",
+    redirectState: { drawer: "resolution-drawer", action: "listing.reprice" },
   },
   {
     routeId: "account-bulk-reprice",
@@ -776,6 +822,7 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     newHome: "listing",
     redirectTo: "/account/desk",
     capability: "Bulk reprice upload.",
+    redirectState: { drawer: "resolution-drawer", action: "listing.reprice" },
   },
   // Shared reputation — kept, feeds the Desk reputation KPI
   {
@@ -1170,6 +1217,87 @@ export const SELLER_DESK_DISCLOSURE_RULES: readonly string[] = [
 export function findSellerRouteRedirect(currentPath: string): string | null {
   const mapping = SELLER_ROUTE_MAP.find((route) => route.currentPath === currentPath);
   return mapping?.redirectTo ?? null;
+}
+
+function matchSellerRoutePath(pattern: string, pathname: string): ReadonlyMap<string, string> | null {
+  const patternSegments = pattern.replace(/\/$/, "").split("/");
+  const pathSegments = pathname.replace(/\/$/, "").split("/");
+  if (patternSegments.length !== pathSegments.length) {
+    return null;
+  }
+
+  const params = new Map<string, string>();
+  for (let index = 0; index < patternSegments.length; index += 1) {
+    const patternSegment = patternSegments[index];
+    const pathSegment = pathSegments[index];
+    if (patternSegment === undefined || pathSegment === undefined) {
+      return null;
+    }
+    if (patternSegment.startsWith(":")) {
+      params.set(patternSegment.slice(1), pathSegment);
+      continue;
+    }
+    if (patternSegment !== pathSegment) {
+      return null;
+    }
+  }
+
+  return params;
+}
+
+function substituteSellerRouteParams(target: string, params: ReadonlyMap<string, string>): string {
+  return target
+    .split("/")
+    .map((segment) => (segment.startsWith(":") ? (params.get(segment.slice(1)) ?? segment) : segment))
+    .join("/");
+}
+
+// Resolve a legacy seller URL into its canonical Seller Desk destination. This is
+// intentionally pure and transport-neutral: the web host uses it for HTTP redirects,
+// while route and acceptance tests can prove the exact migration without mounting a
+// React Router app. Existing query state is retained and canonical Desk state wins only
+// for the reserved view/drawer/action/entity keys declared by the route contract.
+export function resolveSellerRouteRedirect(pathname: string, search = ""): string | null {
+  const routesBySpecificity = [...SELLER_ROUTE_MAP].sort((left, right) => {
+    const leftDynamicSegments = left.currentPath.split("/").filter((segment) => segment.startsWith(":")).length;
+    const rightDynamicSegments = right.currentPath.split("/").filter((segment) => segment.startsWith(":")).length;
+    return leftDynamicSegments - rightDynamicSegments || right.currentPath.length - left.currentPath.length;
+  });
+
+  for (const mapping of routesBySpecificity) {
+    if (mapping.scope !== "seller" || mapping.redirectTo === null) {
+      continue;
+    }
+
+    const routeParams = matchSellerRoutePath(mapping.currentPath, pathname);
+    if (routeParams === null) {
+      continue;
+    }
+
+    const target = substituteSellerRouteParams(mapping.redirectTo, routeParams);
+    const query = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+    const state = mapping.redirectState;
+    if (state?.view) {
+      query.set("view", state.view);
+    }
+    if (state?.drawer) {
+      query.set("drawer", state.drawer);
+    }
+    if (state?.action) {
+      query.set("action", state.action);
+    }
+    if (state?.entityParam) {
+      const entityId = routeParams.get(state.entityParam);
+      if (entityId) {
+        query.set(state.entityParam, entityId);
+      }
+    }
+
+    const serialized = query.toString();
+    return serialized ? `${target}?${serialized}` : target;
+  }
+
+  return null;
 }
 
 export function sellerSurfaceById(id: SellerDeskSurfaceId): SellerDeskSurface | undefined {

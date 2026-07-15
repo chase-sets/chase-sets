@@ -688,13 +688,13 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeId": "account-listing",
+        "routeIds": ["account-listing", "seller-desk-listing"],
         "actions": ["Update listing", "Publish listing"],
         "command": "Marketplace listing commands",
         "helperUses": ["navigateAfterWriteWithCompactToken"]
       },
       "destination": {
-        "routeId": "account-listing",
+        "routeIds": ["account-listing", "seller-desk-listing"],
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/listings/:id",
         "readModelTables": ["marketplace_listing_pages"],
@@ -715,7 +715,7 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeId": "account-listings-new",
+        "routeIds": ["account-listings-new", "seller-desk-listing-new"],
         "actions": ["Create listing", "Create and publish listing"],
         "command": "Marketplace listing commands",
         "helperUses": ["navigateAfterWriteFromSourcesWithCompactToken"]
@@ -802,7 +802,7 @@
         "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
-        "routeId": "account-listings-new",
+        "routeIds": ["account-listings-new", "seller-desk-listing-new"],
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/listing-inventory",
         "readModelTables": [
@@ -1567,6 +1567,34 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "account-desk",
+          "routePath": "account/desk",
+          "fileExport": "./routes/account-desk",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-desk-settings",
+          "routePath": "account/desk/settings",
+          "fileExport": "./routes/account-desk-settings",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "seller-desk-listing",
+          "routePath": "account/desk/listings/:listingId",
+          "fileExport": "./routes/account-listing",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "seller-desk-listing-new",
+          "routePath": "account/desk/listings/new",
+          "fileExport": "./routes/account-listings-new",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
           "routeId": "account-listing",
           "routePath": "account/listings/:listingId",
           "fileExport": "./routes/account-listing",
@@ -1661,6 +1689,18 @@
     }
   ],
   "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "placements": ["top-nav", "bottom-nav"],
+      "key": "seller-desk",
+      "label": "Seller Desk",
+      "icon": "dashboard",
+      "href": "/account/desk",
+      "order": 105,
+      "visibility": "signed-in",
+      "requiredPermissions": []
+    },
     {
       "deployable": "admin-web",
       "slot": "primary-nav",

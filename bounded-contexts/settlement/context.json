@@ -365,7 +365,7 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeId": "account-payout-setup",
+        "routeIds": ["account-payout-setup", "seller-desk-payout-setup"],
         "actions": ["Refresh payout setup status", "Complete provider payout setup"],
         "command": "RecordPayoutReadiness",
         "helperUses": ["navigateAfterWrite", "navigateAfterWriteWithPlatformPostWriteToken"]
@@ -415,6 +415,34 @@
     {
       "deployable": "marketplace-web",
       "routes": [
+        {
+          "routeId": "seller-desk-money",
+          "routePath": "account/desk/money",
+          "fileExport": "./routes/marketplace/account-settlement",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        },
+        {
+          "routeId": "seller-desk-payout",
+          "routePath": "account/desk/payouts/:payoutId",
+          "fileExport": "./routes/marketplace/account-payout",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        },
+        {
+          "routeId": "seller-desk-payout-setup",
+          "routePath": "account/desk/settings/payouts",
+          "fileExport": "./routes/marketplace/account-payout-setup",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        },
+        {
+          "routeId": "seller-desk-wallet-adjustment",
+          "routePath": "account/desk/money/adjustments/:reference",
+          "fileExport": "./routes/marketplace/account-wallet-adjustment",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        },
         {
           "routeId": "account-payout-setup",
           "routePath": "account/payouts/setup",

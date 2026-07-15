@@ -1,11 +1,12 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
-import { Outlet, useLocation, useNavigate, useRouteLoaderData } from "react-router";
+import { Outlet, redirect, useLocation, useNavigate, useRouteLoaderData, type LoaderFunctionArgs } from "react-router";
 import { AccountMenu, Banner, Button, Form, LinkButton, Stack, type ColorMode } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import type { CurrentActorDisplay } from "@chase-sets/identity/server";
 import { useUserPreferencesAccountMenu } from "@chase-sets/identity/web";
 import { NotificationCenterShell } from "@chase-sets/notifications/web";
+import { resolveSellerDeskLegacyRoute, SellerDeskRouteShell } from "@chase-sets/marketplace/web";
 import { resolveMarketplaceAccountMenuItems, resolveMarketplaceNavItems } from "../host";
 
 const signOutFormId = "marketplace-account-menu-sign-out";
@@ -16,6 +17,9 @@ type MarketplaceActor = {
 } | null;
 
 function getActiveKey(pathname: string) {
+  if (pathname.startsWith("/account/desk")) {
+    return "seller-desk";
+  }
   if (pathname.startsWith("/account/offers/matches")) {
     return "offer-matches";
   }
@@ -77,6 +81,13 @@ function getActiveKey(pathname: string) {
   }
 
   return "search";
+}
+
+export function loader({ request }: LoaderFunctionArgs) {
+  const url = new URL(request.url);
+  const destination = resolveSellerDeskLegacyRoute(url.pathname, url.search);
+
+  return destination ? redirect(destination) : null;
 }
 
 function displayActorAccountName(display: CurrentActorDisplay) {
@@ -171,6 +182,23 @@ export default function MarketplaceLayoutRoute() {
       setNotificationRouteState(true, "feed");
     }
   };
+  const routeContent = (
+    <Stack gap={4}>
+      {showAddPasskeyPrompt ? (
+        <Banner
+          title={t("marketplace.app.routes.layout.add.passkey")}
+          description={t("marketplace.app.routes.layout.add.passkey.description")}
+          tone="accent"
+          actions={
+            <LinkButton href="/register" tone="secondary" size="sm" leadingIcon="shield">
+              {t("marketplace.app.routes.layout.add.passkey.action")}
+            </LinkButton>
+          }
+        />
+      ) : null}
+      <Outlet />
+    </Stack>
+  );
 
   return (
     <DiscoveryShellLayout
@@ -217,21 +245,13 @@ export default function MarketplaceLayoutRoute() {
         ) : null
       }
     >
-      <Stack gap={4}>
-        {showAddPasskeyPrompt ? (
-          <Banner
-            title={t("marketplace.app.routes.layout.add.passkey")}
-            description={t("marketplace.app.routes.layout.add.passkey.description")}
-            tone="accent"
-            actions={
-              <LinkButton href="/register" tone="secondary" size="sm" leadingIcon="shield">
-                {t("marketplace.app.routes.layout.add.passkey.action")}
-              </LinkButton>
-            }
-          />
-        ) : null}
-        <Outlet />
-      </Stack>
+      {location.pathname.startsWith("/account/desk") ? (
+        <SellerDeskRouteShell pathname={location.pathname} actor={actor}>
+          {routeContent}
+        </SellerDeskRouteShell>
+      ) : (
+        routeContent
+      )}
       {actor && !isGuestCheckoutActor ? (
         <NotificationCenterShell
           open={notificationSheetOpen}

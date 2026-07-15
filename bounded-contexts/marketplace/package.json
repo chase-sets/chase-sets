@@ -26,6 +26,7 @@
     "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/seller-attention-queue": "workspace:*",
+    "@chase-sets/seller-desk": "workspace:*",
     "@chase-sets/catalog-seed": "workspace:*",
     "@chase-sets/commercial-terms": "workspace:*",
     "@chase-sets/customer-feedback": "workspace:*",

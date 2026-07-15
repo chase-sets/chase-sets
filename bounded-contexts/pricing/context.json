@@ -312,6 +312,20 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "seller-desk-repricing",
+          "routePath": "account/desk/listings/repricing",
+          "fileExport": "./routes/marketplace/account-repricing",
+          "routeType": "route",
+          "sourceContext": "pricing"
+        },
+        {
+          "routeId": "seller-desk-bulk-reprice",
+          "routePath": "account/desk/listings/bulk-reprice",
+          "fileExport": "./routes/marketplace/bulk-reprice",
+          "routeType": "route",
+          "sourceContext": "pricing"
+        },
+        {
           "routeId": "account-repricing",
           "routePath": "account/repricing",
           "fileExport": "./routes/marketplace/account-repricing",

@@ -26,7 +26,7 @@ vi.mock("react-router", async () => {
 });
 
 import { MemoryRouter } from "react-router";
-import MarketplaceLayoutRoute from "./layout";
+import MarketplaceLayoutRoute, { loader } from "./layout";
 
 // DiscoveryShellLayout registers the DS RouterLinkAdapter, so rendering it requires
 // router context — exactly as it has in the production app tree.
@@ -70,6 +70,22 @@ describe("marketplace route layout", () => {
     vi.unstubAllGlobals();
   });
 
+  it("redirects legacy seller links before mounting their old route modules", () => {
+    const cases = [
+      ["https://marketplace.test/account/inventory/items/item-9", "/account/desk/inventory/item-9"],
+      ["https://marketplace.test/account/listings/listing-7", "/account/desk/listings/listing-7"],
+      ["https://marketplace.test/account/sales/shipments", "/account/desk/shipments"],
+      ["https://marketplace.test/account/payouts?status=blocked", "/account/desk/money?status=blocked&view=payouts"],
+      ["https://marketplace.test/account/sell-list", "/account/desk/offers"],
+    ] as const;
+
+    for (const [href, expected] of cases) {
+      const response = loader({ request: new Request(href) } as never) as Response;
+      expect(response.status).toBe(302);
+      expect(response.headers.get("Location")).toBe(expected);
+    }
+  });
+
   it("presents a simplified trader navigation tree for signed-in actors", () => {
     mockUseLocation.mockReturnValue({
       pathname: "/account/listings",
@@ -98,7 +114,7 @@ describe("marketplace route layout", () => {
 
     const html = ssr(<MarketplaceLayoutRoute />);
     const topNav = resolveMarketplaceNavItems("top-nav", actor);
-    const sellNav = topNav.find((item) => item.key === "selling-workspace");
+    const sellerDeskNav = topNav.find((item) => item.key === "seller-desk");
     const accountMenuItems = resolveMarketplaceAccountMenuItems(actor);
 
     expect(resolveMarketplaceNavItems("top-nav", null).map((item) => item.href)).toEqual([
@@ -108,57 +124,35 @@ describe("marketplace route layout", () => {
     ]);
     expect(topNav.map((item) => item.label)).toEqual([
       "Browse",
+      "Seller Desk",
       "Purchases",
       "Notifications",
-      "Sell List",
       "Support",
-      "Sell",
       "Buy Cart",
     ]);
-    expect(sellNav?.children?.map((item) => item.label)).toEqual([
-      "Inventory",
-      "Import",
-      "Restock",
-      "Listings",
-      "Offer Matches",
-      "Sales",
-      "Shipping",
-    ]);
-    expect(sellNav?.children?.map((item) => item.href)).toEqual([
-      "/account/inventory",
-      "/account/inventory/imports",
-      "/account/inventory/restock-decisions",
-      "/account/listings",
-      "/account/offers/matches",
-      "/account/sales",
-      "/account/sales/shipments",
-    ]);
-    expect(accountMenuItems.map((item) => item.label)).toEqual([
-      "Account",
-      "Wallet",
-      "Payouts",
-      "Submitted Offers",
-      "Reviews",
-    ]);
+    expect(sellerDeskNav?.href).toBe("/account/desk");
+    expect(sellerDeskNav?.children).toBeUndefined();
+    expect(accountMenuItems.map((item) => item.label)).toEqual(["Account", "Submitted Offers", "Reviews"]);
     expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toEqual([
       "Browse",
+      "Seller Desk",
       "Buy Cart",
       "Alerts",
-      "Sell",
-      "Wallet",
+      "Account",
     ]);
-    expect(html).toContain('href="/account/inventory"');
-    expect(html).toContain('href="/account/inventory/imports"');
-    expect(html).toContain('href="/account/inventory/restock-decisions"');
+    expect(html).toContain('href="/account/desk"');
+    expect(html).not.toContain('href="/account/inventory"');
+    expect(html).not.toContain('href="/account/inventory/imports"');
+    expect(html).not.toContain('href="/account/inventory/restock-decisions"');
     expect(html).toContain('href="/account/cart"');
     expect(html).not.toContain('href="/account/product-alerts"');
     expect(html).not.toContain('href="/account/notifications"');
     expect(html).toContain('href="/account/support"');
-    expect(html).toContain('href="/account/listings"');
-    expect(html).toContain('href="/account/offers/matches"');
-    expect(html).toContain('href="/account/settlement"');
+    expect(html).not.toContain('href="/account/listings"');
+    expect(html).not.toContain('href="/account/offers/matches"');
+    expect(html).not.toContain('href="/account/settlement"');
     expect(html).toContain('href="/account/purchases"');
-    expect(html).toContain('href="/account/sales"');
+    expect(html).not.toContain('href="/account/sales"');
     expect(html).not.toContain('href="/account/shipments"');
     expect(html).toContain('action="/sign-out"');
     expect(html).toContain("Account menu");
@@ -207,18 +201,18 @@ describe("marketplace route layout", () => {
 
     await user.click(screen.getByRole("button", { name: "Account menu" }));
 
-    const accountMenu = await screen.findByRole("dialog", { name: "Account menu" });
+    const accountMenu = await screen.findByRole("menu", { name: "Account menu" });
 
     expect(within(accountMenu).getByText("Alex Clerk")).toBeTruthy();
-    expect(within(accountMenu).getByRole("link", { name: "Account" }).getAttribute("href")).toBe("/account");
-    expect(within(accountMenu).getByRole("link", { name: "Wallet" }).getAttribute("href")).toBe("/account/settlement");
-    expect(within(accountMenu).getByRole("link", { name: "Payouts" }).getAttribute("href")).toBe("/account/payouts");
+    expect(within(accountMenu).getByRole("menuitem", { name: "Account" }).getAttribute("href")).toBe("/account");
+    expect(within(accountMenu).queryByRole("menuitem", { name: "Wallet" })).toBeNull();
+    expect(within(accountMenu).queryByRole("menuitem", { name: "Payouts" })).toBeNull();
     expect(within(accountMenu).getByRole("group", { name: "Color theme" })).toBeTruthy();
     expect(within(accountMenu).getByRole("radio", { name: "System" })).toBeTruthy();
     await user.click(within(accountMenu).getByRole("radio", { name: "Dark" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     expect(document.querySelector('[data-color-mode="dark"]')).toBeTruthy();
-    expect(within(accountMenu).getByRole("button", { name: "Sign Out" }).getAttribute("form")).toBe(
+    expect(within(accountMenu).getByRole("menuitem", { name: "Sign Out" }).getAttribute("form")).toBe(
       "marketplace-account-menu-sign-out",
     );
     const signOutForm = document.getElementById("marketplace-account-menu-sign-out");
@@ -237,7 +231,13 @@ describe("marketplace route layout", () => {
     const topNav = resolveMarketplaceNavItems("top-nav", actor);
     const accountNav = topNav.find((item) => item.key === "account");
 
-    expect(topNav.map((item) => item.label)).toEqual(["Browse", "Purchases", "Notifications", "Sell List", "Buy Cart"]);
+    expect(topNav.map((item) => item.label)).toEqual([
+      "Browse",
+      "Seller Desk",
+      "Purchases",
+      "Notifications",
+      "Buy Cart",
+    ]);
     expect(accountNav).toBeUndefined();
     expect(resolveMarketplaceAccountMenuItems(actor).map((item) => item.label)).toEqual([
       "Account",
@@ -245,42 +245,42 @@ describe("marketplace route layout", () => {
     ]);
     expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toEqual([
       "Browse",
+      "Seller Desk",
       "Buy Cart",
-      "Purchases",
       "Alerts",
       "Account",
     ]);
   });
 
-  it("keeps inventory workflows permission-scoped inside seller navigation", () => {
+  it("replaces legacy seller navigation with the single Seller Desk entry", () => {
     const actor = {
       permissions: ["accounts.view", "listings.view", "offers.view", "orders.view", "orders.manage"],
     };
 
-    const sellNav = resolveMarketplaceNavItems("top-nav", actor).find((item) => item.key === "selling-workspace");
+    const topNav = resolveMarketplaceNavItems("top-nav", actor);
 
-    expect(sellNav?.children?.map((item) => item.label)).toEqual(["Listings", "Offer Matches", "Sales"]);
-    expect(sellNav?.children?.map((item) => item.href)).not.toContain("/account/inventory");
-    expect(sellNav?.children?.map((item) => item.href)).not.toContain("/account/inventory/imports");
+    expect(topNav.filter((item) => item.key === "seller-desk")).toHaveLength(1);
+    expect(topNav.find((item) => item.key === "seller-desk")?.href).toBe("/account/desk");
+    expect(topNav.find((item) => item.key === "selling-workspace")).toBeUndefined();
   });
 
-  it("keeps wallet discoverable through account navigation without selling workflow permissions", () => {
+  it("routes payout-only accounts through Seller Desk instead of legacy wallet navigation", () => {
     const actor = {
       permissions: ["accounts.view", "orders.view", "orders.manage", "payouts.view"],
     };
 
     const accountMenuItems = resolveMarketplaceAccountMenuItems(actor);
     const bottomAccountNav = resolveMarketplaceNavItems("bottom-nav", actor).find((item) => item.key === "account");
-    const bottomWalletNav = resolveMarketplaceNavItems("bottom-nav", actor).find((item) => item.key === "wallet");
+    const sellerDeskNav = resolveMarketplaceNavItems("bottom-nav", actor).find((item) => item.key === "seller-desk");
 
-    expect(accountMenuItems.map((item) => item.label)).toEqual(["Account", "Wallet", "Payouts"]);
-    expect(bottomWalletNav?.href).toBe("/account/settlement");
-    expect(bottomAccountNav?.children?.map((item) => item.label)).toEqual(["Account", "Wallet", "Payouts"]);
+    expect(accountMenuItems.map((item) => item.label)).toEqual(["Account"]);
+    expect(sellerDeskNav?.href).toBe("/account/desk");
+    expect(bottomAccountNav?.children?.map((item) => item.label)).toEqual(["Account"]);
     expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toEqual([
       "Browse",
+      "Seller Desk",
       "Buy Cart",
       "Alerts",
-      "Wallet",
       "Account",
     ]);
   });

@@ -428,6 +428,10 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["marketplace_account", "marketplace_seller"],
   },
   {
+    pattern: /^bounded-contexts\/marketplace\/routes\/account-desk(?:-settings)?\./,
+    suites: ["marketplace_seller"],
+  },
+  {
     pattern: /^bounded-contexts\/ordering\/routes\/account-(?:purchase|sale)/,
     suites: ["marketplace_account"],
   },

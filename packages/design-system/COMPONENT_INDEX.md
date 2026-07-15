@@ -199,7 +199,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `MountPoint` | `packages/design-system/src/primitives/layout.tsx` | Sanctioned host node for imperative third-party mounts and behavior-only observer sentinels. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `NativeSelect` | `packages/design-system/src/components/forms/select.tsx` | Purpose not documented; symbol name suggests: Native Select. | `bounded-contexts/auth/features/sessions/ui/session-detail-page.tsx` |
 | `NavigationDrawer` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Navigation Drawer. | `No production consumer yet.` |
-| `NavigationHeader` | `packages/design-system/src/components/actions/navigation-header.tsx` | Purpose not documented; symbol name suggests: Navigation Header. | `No production consumer yet.` |
+| `NavigationHeader` | `packages/design-system/src/components/actions/navigation-header.tsx` | Purpose not documented; symbol name suggests: Navigation Header. | `bounded-contexts/marketplace/features/seller-desk/ui/seller-desk-route-shell.tsx` |
 | `NavigationMenu` | `packages/design-system/src/components/actions/navigation-menu.tsx` | Purpose not documented; symbol name suggests: Navigation Menu. | `No production consumer yet.` |
 | `NavRail` | `packages/design-system/src/components/actions/navigation.tsx` | Purpose not documented; symbol name suggests: Nav Rail. | `No production consumer yet.` |
 | `NoResultsRecovery` | `packages/design-system/src/components/commerce/search.tsx` | Purpose not documented; symbol name suggests: No Results Recovery. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |

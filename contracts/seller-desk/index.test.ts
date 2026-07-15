@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   compareSellerAttentionItems,
   findSellerRouteRedirect,
+  resolveSellerRouteRedirect,
   SELLER_ATTENTION_SEVERITY_RANK,
   SELLER_ATTENTION_SOURCE_PRIORITY,
   SELLER_ATTENTION_SOURCES,
@@ -169,6 +170,15 @@ describe("Route map", () => {
     }
   });
 
+  it("references only canonical actions from redirect state", () => {
+    const actionIds = new Set(SELLER_DESK_ACTIONS.map((action) => action.id));
+    for (const route of SELLER_ROUTE_MAP) {
+      if (route.redirectState?.action) {
+        expect(actionIds.has(route.redirectState.action), `${route.routeId} needs a canonical action`).toBe(true);
+      }
+    }
+  });
+
   it("points every redirect at a real Desk surface route", () => {
     const pagePrefixes = pageSurfaces.map((surface) => (surface.routePath as string).replace(/\/:[^/]+/g, ""));
     for (const route of SELLER_ROUTE_MAP) {
@@ -199,6 +209,36 @@ describe("Route map", () => {
     expect(findSellerRouteRedirect("/account/listings")).toBe("/account/desk");
     expect(findSellerRouteRedirect("/account/security")).toBeNull();
     expect(findSellerRouteRedirect("/does/not/exist")).toBeNull();
+  });
+
+  it("substitutes entity ids into kept Seller Desk routes and preserves the original query", () => {
+    expect(resolveSellerRouteRedirect("/account/inventory/items/item%2F9", "?afterWrite=receipt-1")).toBe(
+      "/account/desk/inventory/item%2F9?afterWrite=receipt-1",
+    );
+    expect(resolveSellerRouteRedirect("/account/listings/listing-7", "?tab=evidence")).toBe(
+      "/account/desk/listings/listing-7?tab=evidence",
+    );
+  });
+
+  it("carries drawer identity and action context into fulfillment redirects", () => {
+    expect(resolveSellerRouteRedirect("/account/sales/shipments/shipment-3/packing", "?step=items")).toBe(
+      "/account/desk/shipments/shipment-3?step=items&drawer=resolution-drawer&action=shipment.pack&shipmentId=shipment-3",
+    );
+  });
+
+  it("lands settlement and sell-list links on their shared Seller Desk modules", () => {
+    expect(resolveSellerRouteRedirect("/account/payouts", "?status=blocked")).toBe(
+      "/account/desk/money?status=blocked&view=payouts",
+    );
+    expect(resolveSellerRouteRedirect("/account/sell-list", "?confirmation=ready")).toBe(
+      "/account/desk/offers?confirmation=ready",
+    );
+  });
+
+  it("normalizes trailing slashes without redirecting buyer or account-settings routes", () => {
+    expect(resolveSellerRouteRedirect("/account/listings/", "")).toBe("/account/desk?view=listings");
+    expect(resolveSellerRouteRedirect("/account/purchases", "?status=open")).toBeNull();
+    expect(resolveSellerRouteRedirect("/account/security", "")).toBeNull();
   });
 });
 

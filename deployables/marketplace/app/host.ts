@@ -23,9 +23,9 @@ export function resolveMarketplaceNavItems(
     );
   }
 
-  const items = resolveWebHostNavItems(webContextRegistry, "marketplace-web", slot, actor).map((item) =>
-    toTraderNavItem(item, slot),
-  );
+  const items = resolveWebHostNavItems(webContextRegistry, "marketplace-web", slot, actor)
+    .filter((item) => !absorbedSellerNavigationKeys.has(item.key))
+    .map((item) => toTraderNavItem(item, slot));
   const cartCount = options.cartCount ?? 0;
 
   if (!actor || slot === "bottom-nav") {
@@ -47,6 +47,7 @@ export function resolveMarketplaceAccountMenuItems(
 
   return orderAccountChildNav(
     resolveWebHostNavItems(webContextRegistry, "marketplace-web", "top-nav", actor)
+      .filter((item) => !absorbedSellerNavigationKeys.has(item.key))
       .map((item) => toTraderNavItem(item, "top-nav"))
       .filter((item) => accountChildKeys.has(item.key) && Boolean(item.href)),
   ).flatMap((item) =>
@@ -74,6 +75,19 @@ const sellingWorkflowKeys = new Set([
 ]);
 
 const sellingInfrastructureKeys = new Set(["shipments"]);
+const absorbedSellerNavigationKeys = new Set([
+  "inventory",
+  "inventory-imports",
+  "inventory-restock-decisions",
+  "listings",
+  "offer-matches",
+  "payouts",
+  "repricing",
+  "sale-shipments",
+  "sales",
+  "sell-list",
+  "wallet",
+]);
 const topNavUtilityKeys = new Set(["account", "cart", "notifications", "register", "sign-in"]);
 
 function isGuestCheckoutActor(actor?: Readonly<{ roleKey?: string | null }> | null) {
@@ -81,7 +95,7 @@ function isGuestCheckoutActor(actor?: Readonly<{ roleKey?: string | null }> | nu
 }
 
 const accountChildKeys = new Set(["account", "wallet", "payouts", "submitted-offers", "reviews"]);
-const accountTopNavOrder = ["search", "cart", "purchases", "notifications", "account", "reviews"];
+const accountTopNavOrder = ["search", "seller-desk", "cart", "purchases", "notifications", "account", "reviews"];
 const accountChildNavOrder = ["account", "wallet", "payouts", "submitted-offers", "reviews"];
 const sellingNavOrder = [
   "inventory",
@@ -145,6 +159,10 @@ const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
   payouts: {
     label: t("marketplace.app.host.payouts"),
     icon: "wallet",
+  },
+  "seller-desk": {
+    label: t("marketplace.features.sellerDesk.ui.routeShell.title"),
+    icon: "dashboard",
   },
 };
 
@@ -279,7 +297,7 @@ function buildMarketplaceBottomNav(items: NavigationItem[]): NavigationItem[] {
   const sellingItems = orderSellingNav(visibleItems.filter((item) => sellingWorkflowKeys.has(item.key)));
   const accountItems = orderAccountNav(
     visibleItems.filter((item) =>
-      ["search", "cart", "purchases", "notifications", "account", "reviews"].includes(item.key),
+      ["search", "seller-desk", "cart", "purchases", "notifications", "account", "reviews"].includes(item.key),
     ),
   );
   const walletItem = visibleItems.find((item) => item.key === "wallet");
