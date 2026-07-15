@@ -475,6 +475,25 @@
       }
     },
     {
+      "id": "inventory.list-from-inventory-create-publish-snapshot",
+      "owner": "inventory",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/list-from-inventory-drawer.tsx:H2df726441e2a#1"
+      ],
+      "visibleDestination": {
+        "description": "The list-from-inventory drawer posts to the marketplace create-and-publish listing route from the inventory item; on success the marketplace route redirects to the new listing detail with a post-write receipt token, so the seller lands on the command-owned listing without visiting the listings section or trusting a stale projection."
+      },
+      "proof": {
+        "authoritativeResponse": "The marketplace create route returns the command-owned listing id, version, and fee-quote fingerprint, and publish returns the published version; the redirect carries those receipts via the marketplace post-write token, so the inventory item surface performs no post-write read of an inventory projection.",
+        "tests": [
+          "bounded-contexts/inventory/features/inventory-items/ui/list-from-inventory-drawer.test.tsx",
+          "bounded-contexts/marketplace/tests/account-listings-new-route.test.ts"
+        ]
+      }
+    },
+    {
       "id": "inventory.restock-decision-record-to-list",
       "owner": "inventory",
       "risk": "important",
