@@ -30,7 +30,8 @@ vi.mock("../../support/request-support/api-client", () => ({
   },
 }));
 
-import { loader as accountPayoutLoader } from "./account-payout";
+import { loader as accountPayoutLoader } from "./account-desk-payout";
+import { loader as legacyAccountPayoutLoader } from "./account-payout";
 
 function settlementCommit(position = "42", eventId = "evt_settlement_payout") {
   return {
@@ -49,13 +50,13 @@ function settlementCommit(position = "42", eventId = "evt_settlement_payout") {
 
 function freshPayoutRequest() {
   return new Request(
-    `http://localhost${navigateAfterWrite(settlementCommit(), "/account/payouts/pyo_test?requested=1")}`,
+    `http://localhost${navigateAfterWrite(settlementCommit(), "/account/desk/payouts/pyo_test?requested=1")}`,
   );
 }
 
 function expiredPayoutRequest() {
   return new Request(
-    `http://localhost${navigateAfterWrite(settlementCommit(), "/account/payouts/pyo_test?requested=1", {
+    `http://localhost${navigateAfterWrite(settlementCommit(), "/account/desk/payouts/pyo_test?requested=1", {
       nowMs: Date.now() - 31_000,
     })}`,
   );
@@ -92,7 +93,6 @@ describe("settlement account payout route loader", () => {
       payout: null,
       recovery: "fresh-write-preparing",
       requestSuccess: true,
-      showSupportDetails: false,
     });
   });
 
@@ -138,7 +138,7 @@ describe("settlement account payout route loader", () => {
     let response: Response | null = null;
     try {
       await accountPayoutLoader({
-        request: new Request("http://localhost/account/payouts/pyo_test"),
+        request: new Request("http://localhost/account/desk/payouts/pyo_test"),
         params: { payoutId: "pyo_test" },
         context: undefined,
       } as never);
@@ -177,5 +177,16 @@ describe("settlement account payout route loader", () => {
     expect(response?.status).toBe(404);
     await expect(response?.text()).resolves.toBe("Payout not found.");
     expect(mockGetPayout).toHaveBeenCalledTimes(1);
+  });
+
+  it("redirects the legacy payout detail route to its Seller Desk entity surface", () => {
+    const response = legacyAccountPayoutLoader({
+      request: new Request("http://localhost/account/payouts/pyo_test?requested=1"),
+      params: { payoutId: "pyo_test" },
+      context: undefined,
+    } as never) as Response;
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/desk/payouts/pyo_test?requested=1");
   });
 });
