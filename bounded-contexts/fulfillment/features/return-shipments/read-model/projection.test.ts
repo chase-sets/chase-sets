@@ -162,4 +162,97 @@ describe("return shipment projection", () => {
     expect(customerUpdate?.sql).not.toContain("current_exception_notes");
     expect(JSON.stringify(customerUpdate?.params)).not.toContain("stuck");
   });
+
+  it("exposes the customer-safe label document and postage cost on label-ready", async () => {
+    const { db, captured } = mockDb();
+    const handlers = buildFulfillmentReturnShipmentProjectionHandlers(db);
+    await handlers["fulfillment.return-shipment.label-ready.v1"]({
+      type: "fulfillment.return-shipment.label-ready.v1",
+      data: {
+        returnShipmentId: "rsh_1",
+        carrierName: "USPS",
+        trackingIdentifier: "9400-1",
+        labelProviderReference: "lbl_1",
+        labelDocumentUrl: "https://labels.test/rsh_1.pdf",
+        postageProviderName: "sandbox-usps",
+        postageProviderMode: "test",
+        postageProviderShipmentId: "ps_1",
+        postageProviderLabelId: "pl_1",
+        postageAmountCents: 499,
+        estimatedPostageAmountCents: 450,
+        postageCurrency: "USD",
+        metadata: { correlationRemedyId: "rmd_1", causationId: null, idempotencyKey: "m", policyVersion: "p" },
+        readyAt: "2026-06-02T00:00:00.000Z",
+      },
+    } as never);
+
+    const operatorUpdate = captured.find((entry) =>
+      entry.sql.includes("UPDATE fulfillment_return_shipment_operator_pages"),
+    );
+    const customerUpdate = captured.find((entry) =>
+      entry.sql.includes("UPDATE fulfillment_return_shipment_customer_pages"),
+    );
+    expect(operatorUpdate?.sql).toContain("postage_amount_cents = $10");
+    expect(JSON.stringify(operatorUpdate?.params)).toContain("ps_1");
+    // The buyer can retrieve the label; the operator-only provider handles never reach the customer row.
+    expect(customerUpdate?.sql).toContain("label_document_url = $4");
+    expect(JSON.stringify(customerUpdate?.params)).toContain("https://labels.test/rsh_1.pdf");
+    expect(JSON.stringify(customerUpdate?.params)).not.toContain("ps_1");
+  });
+
+  it("marks a machine-readable failure without leaking operator detail to customers", async () => {
+    const { db, captured } = mockDb();
+    const handlers = buildFulfillmentReturnShipmentProjectionHandlers(db);
+    await handlers["fulfillment.return-shipment.label-purchase-failed.v1"]({
+      type: "fulfillment.return-shipment.label-purchase-failed.v1",
+      data: {
+        returnShipmentId: "rsh_1",
+        failureReason: "provider-timeout",
+        failureDetail: "USPS rating gateway timed out",
+        postageProviderName: "sandbox-usps",
+        postageProviderMode: "test",
+        metadata: { correlationRemedyId: "rmd_1", causationId: null, idempotencyKey: "m", policyVersion: "p" },
+        failedAt: "2026-06-02T00:00:00.000Z",
+      },
+    } as never);
+
+    const operatorUpdate = captured.find((entry) =>
+      entry.sql.includes("UPDATE fulfillment_return_shipment_operator_pages"),
+    );
+    const customerUpdate = captured.find((entry) =>
+      entry.sql.includes("UPDATE fulfillment_return_shipment_customer_pages"),
+    );
+    expect(operatorUpdate?.sql).toContain("label_status = 'failed'");
+    expect(JSON.stringify(operatorUpdate?.params)).toContain("provider-timeout");
+    expect(JSON.stringify(operatorUpdate?.params)).toContain("USPS rating gateway timed out");
+    // Customers see the machine-readable code, not the raw operator detail.
+    expect(JSON.stringify(customerUpdate?.params)).toContain("provider-timeout");
+    expect(JSON.stringify(customerUpdate?.params)).not.toContain("USPS rating gateway timed out");
+  });
+
+  it("records a void refund and clears the customer label document", async () => {
+    const { db, captured } = mockDb();
+    const handlers = buildFulfillmentReturnShipmentProjectionHandlers(db);
+    await handlers["fulfillment.return-shipment.label-voided.v1"]({
+      type: "fulfillment.return-shipment.label-voided.v1",
+      data: {
+        returnShipmentId: "rsh_1",
+        refundStatus: "submitted",
+        refundReference: "refund_1",
+        reason: "case cancelled",
+        metadata: { correlationRemedyId: "rmd_1", causationId: null, idempotencyKey: "m", policyVersion: "p" },
+        voidedAt: "2026-06-02T12:00:00.000Z",
+      },
+    } as never);
+
+    const operatorUpdate = captured.find((entry) =>
+      entry.sql.includes("UPDATE fulfillment_return_shipment_operator_pages"),
+    );
+    const customerUpdate = captured.find((entry) =>
+      entry.sql.includes("UPDATE fulfillment_return_shipment_customer_pages"),
+    );
+    expect(operatorUpdate?.sql).toContain("label_status = 'voided'");
+    expect(JSON.stringify(operatorUpdate?.params)).toContain("refund_1");
+    expect(customerUpdate?.sql).toContain("label_document_url = NULL");
+  });
 });

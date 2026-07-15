@@ -15,8 +15,11 @@ export type CustomerReturnShipmentView = Readonly<{
   return_shipment_id: string;
   remedy_id: string;
   status: string;
+  label_status: string;
   carrier_name: string | null;
   tracking_identifier: string | null;
+  label_document_url: string | null;
+  label_failure_reason: string | null;
   destination_display_name: string;
   destination_display_instructions: string;
   destination_region: string;
@@ -33,10 +36,10 @@ export type CustomerReturnShipmentView = Readonly<{
   updated_at: string;
 }>;
 
-const customerColumns = `return_shipment_id, remedy_id, status, carrier_name, tracking_identifier,
-  destination_display_name, destination_display_instructions, destination_region, destination_city,
-  destination_state, ship_by_deadline_at, return_by_deadline_at, current_exception_type, requested_at,
-  delivered_at, received_at, cancelled_at, return_expired_at, updated_at`;
+const customerColumns = `return_shipment_id, remedy_id, status, label_status, carrier_name, tracking_identifier,
+  label_document_url, label_failure_reason, destination_display_name, destination_display_instructions,
+  destination_region, destination_city, destination_state, ship_by_deadline_at, return_by_deadline_at,
+  current_exception_type, requested_at, delivered_at, received_at, cancelled_at, return_expired_at, updated_at`;
 
 export async function getCustomerReturnShipment(
   db: PgQueryable,
@@ -81,8 +84,20 @@ export type OperatorReturnShipmentView = Readonly<{
   package_requirements: unknown;
   label_status: string;
   label_provider_reference: string | null;
+  label_document_url: string | null;
   carrier_name: string | null;
   tracking_identifier: string | null;
+  postage_provider_name: string | null;
+  postage_provider_mode: string | null;
+  postage_provider_shipment_id: string | null;
+  postage_provider_label_id: string | null;
+  postage_amount_cents: number | null;
+  estimated_postage_amount_cents: number | null;
+  postage_currency: string | null;
+  label_failure_reason: string | null;
+  label_failure_detail: string | null;
+  label_refund_status: string | null;
+  label_refund_reference: string | null;
   cost_payer: string;
   cost_allocation_reference: string | null;
   ship_by_deadline_at: string;
@@ -95,6 +110,8 @@ export type OperatorReturnShipmentView = Readonly<{
   exceptions: unknown;
   requested_at: string;
   label_ready_at: string | null;
+  label_failed_at: string | null;
+  label_voided_at: string | null;
   carrier_accepted_at: string | null;
   delivered_at: string | null;
   received_at: string | null;
@@ -105,10 +122,13 @@ export type OperatorReturnShipmentView = Readonly<{
 
 const operatorColumns = `return_shipment_id, remedy_id, support_request_id, order_id, outbound_shipment_id,
   return_directive, status, ship_from_snapshot, destination_snapshot, facility_id, facility_config_version,
-  selection_policy_version, package_requirements, label_status, label_provider_reference, carrier_name,
-  tracking_identifier, cost_payer, cost_allocation_reference, ship_by_deadline_at, return_by_deadline_at,
-  policy_version, idempotency_key, current_exception_type, current_exception_notes, milestones, exceptions,
-  requested_at, label_ready_at, carrier_accepted_at, delivered_at, received_at, cancelled_at,
+  selection_policy_version, package_requirements, label_status, label_provider_reference, label_document_url,
+  carrier_name, tracking_identifier, postage_provider_name, postage_provider_mode, postage_provider_shipment_id,
+  postage_provider_label_id, postage_amount_cents, estimated_postage_amount_cents, postage_currency,
+  label_failure_reason, label_failure_detail, label_refund_status, label_refund_reference, cost_payer,
+  cost_allocation_reference, ship_by_deadline_at, return_by_deadline_at, policy_version, idempotency_key,
+  current_exception_type, current_exception_notes, milestones, exceptions, requested_at, label_ready_at,
+  label_failed_at, label_voided_at, carrier_accepted_at, delivered_at, received_at, cancelled_at,
   return_expired_at, updated_at`;
 
 export async function getOperatorReturnShipment(

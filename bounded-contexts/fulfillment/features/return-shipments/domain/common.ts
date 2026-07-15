@@ -96,10 +96,53 @@ export function normalizeReturnShipmentCostPayer(value: string): ReturnShipmentC
   return normalized;
 }
 
-/** Provider status of the reverse-shipment carrier label. Label purchase itself is out of this slice's scope. */
+/** Provider status of the reverse-shipment carrier label. */
 export const returnShipmentLabelStatuses = ["pending", "ready", "voided", "failed"] as const;
 
 export type ReturnShipmentLabelStatus = (typeof returnShipmentLabelStatuses)[number];
+
+/**
+ * Machine-readable, closed taxonomy of why a return-label purchase failed. Support
+ * surfaces these directly (they are actionable, not free-form provider text), so the
+ * set intentionally names each failure scenario a buyer-to-platform label can hit.
+ */
+export const returnShipmentLabelFailureReasons = [
+  "invalid-buyer-address",
+  "no-eligible-facility",
+  "unsupported-parcel",
+  "provider-timeout",
+  "duplicate-authorization",
+  "expired-directive",
+  "label-purchase-rejected",
+  "secure-document-storage-failure",
+  "policy-cancelled",
+  "provider-error",
+] as const;
+
+export type ReturnShipmentLabelFailureReason = (typeof returnShipmentLabelFailureReasons)[number];
+
+export function isReturnShipmentLabelFailureReason(value: string): value is ReturnShipmentLabelFailureReason {
+  return (returnShipmentLabelFailureReasons as readonly string[]).includes(value);
+}
+
+export function normalizeReturnShipmentLabelFailureReason(value: string): ReturnShipmentLabelFailureReason {
+  const normalized = value.trim().toLowerCase();
+  if (!isReturnShipmentLabelFailureReason(normalized)) {
+    throw new FulfillmentDomainError(
+      "Return shipment label failure reason must be a recognized machine-readable code.",
+    );
+  }
+  return normalized;
+}
+
+/** Ensures a non-negative integer cents amount, or null when the provider does not report a cost. */
+export function normalizeOptionalCents(value: number | null | undefined, message: string): number | null {
+  if (value == null) {
+    return null;
+  }
+  assert(Number.isInteger(value) && value >= 0, message);
+  return value;
+}
 
 export function normalizeRequiredText(value: string, message: string): string {
   const normalized = value.trim();

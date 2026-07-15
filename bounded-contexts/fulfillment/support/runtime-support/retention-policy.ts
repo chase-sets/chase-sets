@@ -17,4 +17,10 @@ export const fulfillmentRetentionExemptions: readonly BcRetentionExemption[] = [
     owner: "fulfillment",
     reason: "Postage purchase/void operation history is reconciliation evidence and requires an archive decision.",
   },
+  {
+    tableName: "fulfillment_return_shipment_label_operations",
+    owner: "fulfillment",
+    reason:
+      "Return-label purchase/void operation history is reconciliation evidence for Settlement and requires an archive decision.",
+  },
 ];

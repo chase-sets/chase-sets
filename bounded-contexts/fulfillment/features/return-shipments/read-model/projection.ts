@@ -7,7 +7,9 @@ import type {
   ReturnShipmentExceptionRaisedEvent,
   ReturnShipmentExpiredEvent,
   ReturnShipmentInTransitRecordedEvent,
+  ReturnShipmentLabelPurchaseFailedEvent,
   ReturnShipmentLabelReadyEvent,
+  ReturnShipmentLabelVoidedEvent,
   ReturnShipmentReceivedEvent,
   ReturnShipmentRequestedEvent,
 } from "../domain/domain";
@@ -151,23 +153,67 @@ export function buildFulfillmentReturnShipmentProjectionHandlers(db: PgQueryable
       await db.query(
         `UPDATE fulfillment_return_shipment_operator_pages
          SET status = 'ready-to-ship', label_status = 'ready', carrier_name = $2, tracking_identifier = $3,
-             label_provider_reference = $4, label_ready_at = $5, updated_at = $5,
-             milestones = milestones || $6::jsonb
+             label_provider_reference = $4, label_document_url = $5, postage_provider_name = $6,
+             postage_provider_mode = $7, postage_provider_shipment_id = $8, postage_provider_label_id = $9,
+             postage_amount_cents = $10, estimated_postage_amount_cents = $11, postage_currency = $12,
+             label_failure_reason = NULL, label_failure_detail = NULL, label_ready_at = $13, updated_at = $13,
+             milestones = milestones || $14::jsonb
          WHERE return_shipment_id = $1`,
         [
           data.returnShipmentId,
           data.carrierName,
           data.trackingIdentifier,
           data.labelProviderReference,
+          data.labelDocumentUrl,
+          data.postageProviderName,
+          data.postageProviderMode,
+          data.postageProviderShipmentId,
+          data.postageProviderLabelId,
+          data.postageAmountCents,
+          data.estimatedPostageAmountCents,
+          data.postageCurrency,
           data.readyAt,
           milestoneJson("ready-to-ship", data.readyAt, null),
         ],
       );
       await db.query(
         `UPDATE fulfillment_return_shipment_customer_pages
-         SET status = 'ready-to-ship', carrier_name = $2, tracking_identifier = $3, updated_at = $4
+         SET status = 'ready-to-ship', label_status = 'ready', carrier_name = $2, tracking_identifier = $3,
+             label_document_url = $4, label_failure_reason = NULL, updated_at = $5
          WHERE return_shipment_id = $1`,
-        [data.returnShipmentId, data.carrierName, data.trackingIdentifier, data.readyAt],
+        [data.returnShipmentId, data.carrierName, data.trackingIdentifier, data.labelDocumentUrl, data.readyAt],
+      );
+    },
+    "fulfillment.return-shipment.label-purchase-failed.v1": async (event) => {
+      const data = event.data as ReturnShipmentLabelPurchaseFailedEvent["data"];
+      await db.query(
+        `UPDATE fulfillment_return_shipment_operator_pages
+         SET label_status = 'failed', label_failure_reason = $2, label_failure_detail = $3,
+             label_failed_at = $4, updated_at = $4
+         WHERE return_shipment_id = $1`,
+        [data.returnShipmentId, data.failureReason, data.failureDetail, data.failedAt],
+      );
+      await db.query(
+        `UPDATE fulfillment_return_shipment_customer_pages
+         SET label_status = 'failed', label_failure_reason = $2, updated_at = $3
+         WHERE return_shipment_id = $1`,
+        [data.returnShipmentId, data.failureReason, data.failedAt],
+      );
+    },
+    "fulfillment.return-shipment.label-voided.v1": async (event) => {
+      const data = event.data as ReturnShipmentLabelVoidedEvent["data"];
+      await db.query(
+        `UPDATE fulfillment_return_shipment_operator_pages
+         SET label_status = 'voided', label_refund_status = $2, label_refund_reference = $3,
+             label_voided_at = $4, updated_at = $4
+         WHERE return_shipment_id = $1`,
+        [data.returnShipmentId, data.refundStatus, data.refundReference, data.voidedAt],
+      );
+      await db.query(
+        `UPDATE fulfillment_return_shipment_customer_pages
+         SET label_status = 'voided', label_document_url = NULL, updated_at = $2
+         WHERE return_shipment_id = $1`,
+        [data.returnShipmentId, data.voidedAt],
       );
     },
     "fulfillment.return-shipment.carrier-accepted.v1": async (event) => {

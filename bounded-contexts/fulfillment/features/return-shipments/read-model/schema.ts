@@ -21,8 +21,11 @@ CREATE TABLE IF NOT EXISTS fulfillment_return_shipment_customer_pages (
   return_shipment_id text PRIMARY KEY,
   remedy_id text NOT NULL,
   status text NOT NULL,
+  label_status text NOT NULL DEFAULT 'pending',
   carrier_name text NULL,
   tracking_identifier text NULL,
+  label_document_url text NULL,
+  label_failure_reason text NULL,
   destination_display_name text NOT NULL,
   destination_display_instructions text NOT NULL,
   destination_region text NOT NULL,
@@ -58,8 +61,20 @@ CREATE TABLE IF NOT EXISTS fulfillment_return_shipment_operator_pages (
   package_requirements jsonb NOT NULL DEFAULT '{}'::jsonb,
   label_status text NOT NULL,
   label_provider_reference text NULL,
+  label_document_url text NULL,
   carrier_name text NULL,
   tracking_identifier text NULL,
+  postage_provider_name text NULL,
+  postage_provider_mode text NULL,
+  postage_provider_shipment_id text NULL,
+  postage_provider_label_id text NULL,
+  postage_amount_cents integer NULL,
+  estimated_postage_amount_cents integer NULL,
+  postage_currency text NULL,
+  label_failure_reason text NULL,
+  label_failure_detail text NULL,
+  label_refund_status text NULL,
+  label_refund_reference text NULL,
   cost_payer text NOT NULL,
   cost_allocation_reference text NULL,
   ship_by_deadline_at timestamptz NOT NULL,
@@ -72,6 +87,8 @@ CREATE TABLE IF NOT EXISTS fulfillment_return_shipment_operator_pages (
   exceptions jsonb NOT NULL DEFAULT '[]'::jsonb,
   requested_at timestamptz NOT NULL,
   label_ready_at timestamptz NULL,
+  label_failed_at timestamptz NULL,
+  label_voided_at timestamptz NULL,
   carrier_accepted_at timestamptz NULL,
   delivered_at timestamptz NULL,
   received_at timestamptz NULL,
@@ -85,6 +102,32 @@ CREATE INDEX IF NOT EXISTS fulfillment_return_shipment_operator_pages_remedy_idx
 
 CREATE INDEX IF NOT EXISTS fulfillment_return_shipment_operator_pages_status_idx
   ON fulfillment_return_shipment_operator_pages (status, updated_at DESC, return_shipment_id DESC);
+
+CREATE TABLE IF NOT EXISTS fulfillment_return_shipment_label_operations (
+  operation_key text PRIMARY KEY,
+  operation_kind text NOT NULL CHECK (operation_kind IN ('purchase-label', 'void-label')),
+  return_shipment_id text NOT NULL,
+  remedy_id text NOT NULL,
+  provider_name text NOT NULL,
+  provider_mode text NOT NULL,
+  idempotency_key text NOT NULL,
+  request_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status text NOT NULL CHECK (status IN ('pending', 'provider-succeeded', 'succeeded', 'failed')),
+  provider_shipment_id text NULL,
+  provider_label_id text NULL,
+  tracking_identifier text NULL,
+  error_message text NULL,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  completed_at timestamptz NULL
+);
+
+CREATE INDEX IF NOT EXISTS fulfillment_return_shipment_label_operations_status_idx
+  ON fulfillment_return_shipment_label_operations (status, updated_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS fulfillment_return_shipment_label_operations_active_kind_idx
+  ON fulfillment_return_shipment_label_operations (return_shipment_id, operation_kind)
+  WHERE status IN ('pending', 'provider-succeeded');
 `;
 
 export const fulfillmentReturnShipmentSchemaMigrations: readonly BcSchemaMigration[] = [];
