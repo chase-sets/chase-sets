@@ -139,7 +139,7 @@ describe("catalog admin post-write default-safe contract", () => {
     const result: CatalogIntegrationsCommandResult = {
       feedback: {
         status: "success",
-        intent: "activate-provider-profile",
+        intent: "provider-profile.activate",
         result: "profile-activated",
       },
       context: parseCatalogPrimaryWorkbenchRouteContext(

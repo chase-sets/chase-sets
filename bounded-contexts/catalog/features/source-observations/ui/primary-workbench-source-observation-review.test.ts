@@ -102,7 +102,7 @@ describe("Catalog primary workbench read model - source observation review", () 
 
     expect(review.counts).toMatchObject({ observed: 102, eligible: 102 });
     expect(review.promotionReadyCount).toBe(102);
-    expect(review.rows[0]?.actions.find((action) => action.key === "preview-promotion")).toMatchObject({
+    expect(review.rows[0]?.actions.find((action) => action.key === "observation.promote")).toMatchObject({
       state: "available",
       blockers: [],
     });
@@ -150,8 +150,8 @@ describe("Catalog primary workbench read model - source observation review", () 
       redactionSummary: expect.stringContaining("Provider payload withheld"),
       commandPreview: { disposition: "eligible", confirmationRequired: true },
       actions: expect.arrayContaining([
-        expect.objectContaining({ key: "preview-promotion", state: "available" }),
-        expect.objectContaining({ key: "reject-source-observations", state: "available" }),
+        expect.objectContaining({ key: "observation.promote", state: "available" }),
+        expect.objectContaining({ key: "observation.reject", state: "available" }),
       ]),
     });
     expect(readModel.sourceObservationReview.rows[0]?.payloadSummary).not.toMatch(/raw JSON/i);
@@ -381,14 +381,11 @@ describe("Catalog primary workbench read model - source observation review", () 
     expect(readModel.promotionPreview.blockers).toEqual(
       expect.arrayContaining(["no-promotion-eligible-observations", "stale-promotion-preview"]),
     );
-    expect(readModel.actions.find((action) => action.key === "preview-promotion")).toMatchObject({
+    expect(readModel.actions.find((action) => action.key === "observation.promote")).toMatchObject({
       state: "disabled",
       blockers: ["no-promotion-eligible-observations"],
     });
-    expect(readModel.actions.find((action) => action.key === "execute-promotion")).toMatchObject({
-      state: "blocked",
-      blockers: expect.arrayContaining(["stale-promotion-preview"]),
-    });
+    expect(readModel.actions.filter((action) => action.key === "observation.promote")).toHaveLength(1);
   });
 
   it("keeps visible promotion readiness counts tied to fetched review rows", () => {
@@ -496,9 +493,9 @@ describe("Catalog primary workbench read model - source observation review", () 
     });
     expect(readModel.sourceObservationReview.rows[0]?.actions).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ key: "preview-promotion", state: "blocked", blockers: ["permission-denied"] }),
+        expect.objectContaining({ key: "observation.promote", state: "blocked", blockers: ["permission-denied"] }),
         expect.objectContaining({
-          key: "reject-source-observations",
+          key: "observation.reject",
           state: "denied",
           blockers: ["permission-denied"],
         }),

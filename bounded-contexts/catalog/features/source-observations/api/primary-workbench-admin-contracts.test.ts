@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CATALOG_CONTROL_PLANE_ACTIONS } from "../ui/admin-control-plane/information-architecture-v2";
 import {
   assertCatalogPrimaryWorkbenchActionState,
   assertCatalogPrimaryWorkbenchBlockerCategory,
@@ -358,12 +359,17 @@ describe("Catalog primary workbench admin contracts", () => {
   it("pins command contracts with permission, idempotency, and confirmation semantics", () => {
     const actionsByKey = new Map(catalogPrimaryWorkbenchActions.map((action) => [action.key, action]));
 
-    expect(actionsByKey.get("start-provider-import")).toMatchObject({
+    expect(new Set(catalogPrimaryWorkbenchActions.map((action) => action.key))).toEqual(
+      new Set(CATALOG_CONTROL_PLANE_ACTIONS.map((action) => action.id)),
+    );
+    expect(catalogPrimaryWorkbenchActions).toHaveLength(25);
+
+    expect(actionsByKey.get("scope.import")).toMatchObject({
       method: "POST",
       requiredPermission: "catalog.manage",
       idempotencyRequired: true,
     });
-    expect(actionsByKey.get("execute-promotion")).toMatchObject({
+    expect(actionsByKey.get("observation.promote")).toMatchObject({
       requiredPermission: "catalog.manage",
       confirmationRequired: true,
       idempotencyRequired: true,
@@ -374,14 +380,14 @@ describe("Catalog primary workbench admin contracts", () => {
         "security-privacy-blocked",
       ]),
     });
-    expect(actionsByKey.get("clone-provider-profile")).toMatchObject({
+    expect(actionsByKey.get("provider-profile.clone")).toMatchObject({
       method: "POST",
       routePattern: "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/clone",
       requiredPermission: "catalog.manage",
       idempotencyRequired: true,
       blockerCategories: expect.arrayContaining(["permission-denied", "profile-version-missing", "raw-json-retired"]),
     });
-    expect(actionsByKey.get("update-provider-profile-section")).toMatchObject({
+    expect(actionsByKey.get("provider-profile.edit-section")).toMatchObject({
       method: "PATCH",
       routePattern:
         "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/sections/:section",
@@ -394,7 +400,7 @@ describe("Catalog primary workbench admin contracts", () => {
         "raw-json-retired",
       ]),
     });
-    expect(actionsByKey.get("rollback-provider-profile")).toMatchObject({
+    expect(actionsByKey.get("provider-profile.rollback")).toMatchObject({
       method: "POST",
       routePattern: "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/rollback",
       requiredPermission: "catalog.manage",
@@ -402,7 +408,7 @@ describe("Catalog primary workbench admin contracts", () => {
       idempotencyRequired: true,
       blockerCategories: expect.arrayContaining(["profile-lifecycle-conflict", "active-job-conflict"]),
     });
-    expect(actionsByKey.get("deprecate-provider-profile")).toMatchObject({
+    expect(actionsByKey.get("provider-profile.deprecate")).toMatchObject({
       method: "POST",
       routePattern: "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/deprecate",
       requiredPermission: "catalog.manage",
@@ -410,7 +416,7 @@ describe("Catalog primary workbench admin contracts", () => {
       idempotencyRequired: true,
       blockerCategories: expect.arrayContaining(["profile-lifecycle-conflict", "active-job-conflict"]),
     });
-    expect(actionsByKey.get("retire-provider-profile")).toMatchObject({
+    expect(actionsByKey.get("provider-profile.retire")).toMatchObject({
       method: "POST",
       routePattern: "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/retire",
       requiredPermission: "catalog.manage",
@@ -422,23 +428,17 @@ describe("Catalog primary workbench admin contracts", () => {
         "active-job-conflict",
       ]),
     });
-    expect(actionsByKey.get("select-provider-scope")).toMatchObject({
-      method: "GET",
-      requiredPermission: "catalog.view",
-    });
-    expect(actionsByKey.get("ignore-merge-candidate")).toMatchObject({
+    expect(actionsByKey.get("candidate.ignore")).toMatchObject({
       method: "POST",
       routePattern: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/ignore",
       requiredPermission: "catalog.manage",
       confirmationRequired: true,
       idempotencyRequired: true,
     });
-    expect(actionsByKey.get("ignore-merge-candidate")?.routePattern).not.toMatch(/delete/i);
+    expect(actionsByKey.get("candidate.ignore")?.routePattern).not.toMatch(/delete/i);
 
     for (const action of catalogPrimaryWorkbenchActions) {
-      expect(action.routePattern).toMatch(
-        /^\/api\/catalog\/source-observations\/(?:admin\/|catalog-sync-scope\/runs$)/,
-      );
+      expect(action.routePattern).toMatch(/^\/api\/catalog\/(?:source-observations\/|alias-equivalence\/)/);
       expect(action.routePattern).not.toContain("/catalog/integrations");
       expect(action.routePattern).not.toContain("/admin/catalog/source-observations");
       expect(action.routePattern).not.toMatch(/raw-json|legacy|compat/i);
@@ -711,19 +711,19 @@ describe("Catalog primary workbench admin contracts", () => {
             },
             actions: {
               import: {
-                key: "start-provider-import",
+                key: "scope.import",
                 state: "available",
                 blockers: [],
                 copyKey: null,
               },
               previewPromotion: {
-                key: "preview-promotion",
+                key: "observation.promote",
                 state: "available",
                 blockers: [],
                 copyKey: null,
               },
               reapply: {
-                key: "start-reapply",
+                key: "observation.reapply",
                 state: "available",
                 blockers: [],
                 copyKey: null,
@@ -781,7 +781,7 @@ describe("Catalog primary workbench admin contracts", () => {
           ],
         },
         action: {
-          key: "start-catalog-sync",
+          key: "scope.sync",
           state: "available",
           blockers: [],
           copyKey: null,
@@ -1015,7 +1015,7 @@ describe("Catalog primary workbench admin contracts", () => {
             staleState: "fresh",
             saveOutcome: "not-submitted",
             submitHref: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=profile-work",
-            commandKey: "update-provider-profile-section",
+            commandKey: "provider-profile.edit-section",
             fields: [
               {
                 key: "displayName",
@@ -1038,7 +1038,7 @@ describe("Catalog primary workbench admin contracts", () => {
           },
         ],
         cloneDraft: {
-          commandKey: "clone-provider-profile",
+          commandKey: "provider-profile.clone",
           sourceProviderKey: "tcgdex",
           sourceProfileVersion: "2026.06.04",
           targetProfileVersion: "2026.06.04-draft",
@@ -1110,7 +1110,7 @@ describe("Catalog primary workbench admin contracts", () => {
         jobs: [
           {
             jobId: "job_001",
-            action: "start-provider-import",
+            action: "scope.import",
             state: "running",
             operatorStatus: "running",
             summary: "import job job_001 is running",
@@ -1179,7 +1179,7 @@ describe("Catalog primary workbench admin contracts", () => {
         bulkSelection: {
           selectedCount: 1,
           eligibleSelectedCount: 1,
-          actions: ["preview-promotion", "reject-source-observations", "defer-source-observations"],
+          actions: ["observation.promote", "observation.reject", "observation.defer"],
         },
         rows: [
           {
@@ -1214,7 +1214,7 @@ describe("Catalog primary workbench admin contracts", () => {
                 href: "/catalog/integrations?providerKey=tcgdex&selectedObservationIds=obs_001&section=source-observation-review",
               },
               {
-                key: "preview-promotion",
+                key: "observation.promote",
                 state: "available",
                 blockers: [],
                 href: "/catalog/integrations?providerKey=tcgdex&selectedObservationIds=obs_001&section=source-observation-review",
@@ -1302,35 +1302,35 @@ describe("Catalog primary workbench admin contracts", () => {
             proposedFacts: [{ key: "name", value: "Charizard" }],
             actions: [
               {
-                key: "promote-merge-candidate",
+                key: "candidate.promote",
                 state: "available",
                 blockers: [],
                 reasonRequired: true,
                 commandPreview: null,
               },
               {
-                key: "split-merge-candidate",
+                key: "candidate.split",
                 state: "blocked",
                 blockers: ["unsupported-command"],
                 reasonRequired: true,
                 commandPreview: null,
               },
               {
-                key: "update-merge-candidate",
+                key: "candidate.edit",
                 state: "blocked",
                 blockers: ["unsupported-command"],
                 reasonRequired: true,
                 commandPreview: null,
               },
               {
-                key: "ignore-merge-candidate",
+                key: "candidate.ignore",
                 state: "available",
                 blockers: [],
                 reasonRequired: true,
                 commandPreview: null,
               },
               {
-                key: "defer-merge-candidate",
+                key: "candidate.defer",
                 state: "available",
                 blockers: [],
                 reasonRequired: true,
@@ -1428,7 +1428,7 @@ describe("Catalog primary workbench admin contracts", () => {
       },
       actions: [
         {
-          key: "execute-promotion",
+          key: "observation.promote",
           state: "available",
           blockers: [],
           copyKey: null,
@@ -1801,8 +1801,8 @@ function validationReadinessFixture(): CatalogPrimaryWorkbenchReadModel["validat
       blockers: [],
       saveEvidenceState: "available",
       saveEvidenceBlockers: [],
-      activationCommandKey: "activate-provider-profile",
-      evidenceCommandKey: "update-provider-profile-section",
+      activationCommandKey: "provider-profile.activate",
+      evidenceCommandKey: "provider-profile.edit-section",
       workspaceHref: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=readiness",
       providerKey: "tcgdex",
       profileVersion: "2026.06.04",
@@ -1866,7 +1866,7 @@ function governanceControlsFixture(): CatalogPrimaryWorkbenchReadModel["governan
         status: "blocked",
         metricKey: "catalog.integration.rollout.stop",
         evidenceUrl: auditEvidenceUrl,
-        commandKeys: ["start-provider-import"],
+        commandKeys: ["scope.import"],
         blockers: ["kill-switch-active"],
         providerKeys: ["tcgdex"],
         unitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
@@ -1879,7 +1879,7 @@ function governanceControlsFixture(): CatalogPrimaryWorkbenchReadModel["governan
         status: "blocked",
         metricKey: "catalog.integration.worker.state",
         evidenceUrl: auditEvidenceUrl,
-        commandKeys: ["start-provider-import", "start-reapply", "start-replay"],
+        commandKeys: ["scope.import", "observation.reapply", "observation.replay"],
         blockers: ["kill-switch-active"],
         providerKeys: [],
         unitKeys: [],
@@ -1905,12 +1905,12 @@ function governanceControlsFixture(): CatalogPrimaryWorkbenchReadModel["governan
         actionKey: action.key,
         requiredPermission: action.requiredPermission,
         routePattern: action.routePattern,
-        state: action.key === "start-provider-import" ? "blocked" : "available",
-        blockers: action.key === "start-provider-import" ? ["kill-switch-active"] : [],
+        state: action.key === "scope.import" ? "blocked" : "available",
+        blockers: action.key === "scope.import" ? ["kill-switch-active"] : [],
         confirmationRequired: action.confirmationRequired,
         destructive: action.confirmationRequired,
         deniedCopy: `${action.requiredPermission} checked; command state is ${
-          action.key === "start-provider-import" ? "blocked" : "available"
+          action.key === "scope.import" ? "blocked" : "available"
         }.`,
       })),
     observability: {
@@ -2034,7 +2034,7 @@ function lifecycleRecoveryFixture(): CatalogPrimaryWorkbenchReadModel["lifecycle
         operation: "activation",
         label: "Activation recovery",
         description: "Open validation readiness when activation evidence is needed.",
-        commandKey: "activate-provider-profile",
+        commandKey: "provider-profile.activate",
         providerKey: "tcgdex",
         profileVersion: "2026.06.04",
         lifecycle: "active",
@@ -2057,7 +2057,7 @@ function lifecycleRecoveryFixture(): CatalogPrimaryWorkbenchReadModel["lifecycle
         operation: "rollback",
         label: "Rollback profile",
         description: "Restore a previous validated profile version.",
-        commandKey: "rollback-provider-profile",
+        commandKey: "provider-profile.rollback",
         providerKey: "tcgdex",
         profileVersion: "2026.06.04",
         lifecycle: "active",
@@ -2080,7 +2080,7 @@ function lifecycleRecoveryFixture(): CatalogPrimaryWorkbenchReadModel["lifecycle
         operation: "deprecate",
         label: "Deprecate profile",
         description: "Mark the active profile out of normal use.",
-        commandKey: "deprecate-provider-profile",
+        commandKey: "provider-profile.deprecate",
         providerKey: "tcgdex",
         profileVersion: "2026.06.04",
         lifecycle: "active",
@@ -2103,7 +2103,7 @@ function lifecycleRecoveryFixture(): CatalogPrimaryWorkbenchReadModel["lifecycle
         operation: "retire",
         label: "Retire profile",
         description: "Remove the profile from supported use when references are gone.",
-        commandKey: "retire-provider-profile",
+        commandKey: "provider-profile.retire",
         providerKey: "tcgdex",
         profileVersion: "2026.06.04",
         lifecycle: "active",
