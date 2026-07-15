@@ -3,6 +3,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { AggregateEvolver } from "@chase-sets/event-core/domain";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { EventStoreError } from "@chase-sets/event-core/event-store";
 import {
   createProjectionHandlerSet,
   type ProjectionHandlerSet,
@@ -49,6 +50,13 @@ import {
   type CommercialTermsAgreementPolicyValue,
   type CommercialTermsSchedulePolicyValue,
 } from "./terms-policy";
+import {
+  commercialTermsPolicyWindowStreamId,
+  decideCommercialTermsPolicyWindow,
+  evolveCommercialTermsPolicyWindow,
+  initialCommercialTermsPolicyWindowState,
+  type CommercialTermsPolicyWindowRecordedEvent,
+} from "./policy-window";
 
 /**
  * The commercial-terms-wide policy runtime: one shared platform-policy
@@ -309,18 +317,104 @@ export function createCommercialTermsPolicyRuntime(
   deps: CommercialTermsPolicyRuntimeDeps,
 ): CommercialTermsPolicyRuntime {
   const cache = deps.cache ?? createPolicyCache();
+  const policyCodec = createPassthroughDomainEventCodec<CommercialTermsPolicyDocumentEvent>();
   const { commandHandler, repository } = createAggregateCommandHandler<
     PolicyDocumentState,
     PolicyDocumentCommand,
     CommercialTermsPolicyDocumentEvent
   >({
     eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<CommercialTermsPolicyDocumentEvent>(),
+    codec: policyCodec,
     initialState: () => initialPolicyDocumentState,
     evolve: evolveCommercialTermsPolicyDocument,
     decide: decidePolicyDocument,
   });
+  const windowCodec = createPassthroughDomainEventCodec<CommercialTermsPolicyWindowRecordedEvent>();
+  const { repository: policyWindowRepository } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: windowCodec,
+    initialState: () => initialCommercialTermsPolicyWindowState,
+    evolve: evolveCommercialTermsPolicyWindow,
+    decide: decideCommercialTermsPolicyWindow,
+  });
   const resolver = createPolicyResolver({ db: deps.db, cache, now: deps.now });
+
+  function isConcurrencyConflict(error: unknown): error is EventStoreError {
+    return Boolean(error && typeof error === "object" && "code" in error && error.code === "concurrency_conflict");
+  }
+
+  async function commitWindowedPolicyDocument(
+    params: Readonly<{
+      definition: PolicyDefinition<CommercialTermsSchedulePolicyValue | CommercialTermsAgreementPolicyValue>;
+      documentId: string;
+      documentStreamId: string;
+      command: PolicyDocumentCommand;
+      context: EventStoreContext;
+      overlapMessage: (overlapDocumentId: string) => string;
+    }>,
+  ): Promise<number> {
+    const appendToStreams = deps.eventStore.appendToStreams;
+    if (!appendToStreams) {
+      throw new PlatformPolicyDomainError("Atomic commercial terms policy-window writes are unavailable.");
+    }
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const windowStreamId = commercialTermsPolicyWindowStreamId(params.definition.policyKey);
+      const [document, window] = await Promise.all([
+        repository.load(params.documentStreamId),
+        policyWindowRepository.load(windowStreamId),
+      ]);
+      if (params.command.type === "CreatePolicyDocument" && document.state.documentId !== null) {
+        return document.version;
+      }
+
+      await assertNoActiveOverlap(
+        deps.db,
+        {
+          policyKey: params.definition.policyKey,
+          status: params.command.status,
+          effectiveFrom: params.command.effectiveFrom,
+          effectiveUntil: params.command.effectiveUntil,
+          excludeDocumentId: params.command.type === "RevisePolicyDocument" ? params.documentId : null,
+        },
+        params.overlapMessage,
+      );
+
+      const documentEvents = decidePolicyDocument(document.state, params.command);
+      const windowEvents = decideCommercialTermsPolicyWindow(window.state, {
+        type: "RecordCommercialTermsPolicyWindow",
+        documentId: params.documentId,
+        status: params.command.status,
+        effectiveFrom: params.command.effectiveFrom,
+        effectiveUntil: params.command.effectiveUntil,
+        overlapMessage: params.overlapMessage,
+      });
+
+      try {
+        await appendToStreams([
+          {
+            streamId: windowStreamId,
+            expectedVersion: window.version,
+            context: params.context,
+            events: windowEvents.map(windowCodec.encode),
+          },
+          {
+            streamId: params.documentStreamId,
+            expectedVersion: document.version,
+            context: params.context,
+            events: documentEvents.map(policyCodec.encode),
+          },
+        ]);
+        return document.version + documentEvents.length;
+      } catch (error) {
+        if (!isConcurrencyConflict(error) || attempt === 4) {
+          throw error;
+        }
+      }
+    }
+
+    throw new PlatformPolicyDomainError("Commercial terms policy-window write did not converge.");
+  }
 
   return {
     commandHandler,
@@ -350,35 +444,30 @@ export function createCommercialTermsPolicyRuntime(
     },
     async createScheduleDocument(definition, params, context) {
       const scheduleId = createId("cts");
-      await assertNoActiveOverlap(
-        deps.db,
-        {
-          policyKey: definition.policyKey,
-          status: params.status,
-          effectiveFrom: params.effectiveFrom,
-          effectiveUntil: params.effectiveUntil,
-        },
-        (overlapId) => `Active schedule ${overlapId} already covers that account type and effective window.`,
-      );
       const command = buildCreatePolicyDocumentCommand(definition, { ...params, documentId: scheduleId });
-      const result = await commandHandler({ streamId: scheduleStreamId(scheduleId), command, context });
-      return { scheduleId, version: result.version };
+      const version = await commitWindowedPolicyDocument({
+        definition,
+        documentId: scheduleId,
+        documentStreamId: scheduleStreamId(scheduleId),
+        command,
+        context,
+        overlapMessage: (overlapId) =>
+          `Active schedule ${overlapId} already covers that account type and effective window.`,
+      });
+      return { scheduleId, version };
     },
     async reviseScheduleDocument(definition, scheduleId, params, context) {
-      await assertNoActiveOverlap(
-        deps.db,
-        {
-          policyKey: definition.policyKey,
-          status: params.status,
-          effectiveFrom: params.effectiveFrom,
-          effectiveUntil: params.effectiveUntil,
-          excludeDocumentId: scheduleId,
-        },
-        (overlapId) => `Active schedule ${overlapId} already covers that account type and effective window.`,
-      );
       const command = buildRevisePolicyDocumentCommand(definition, params);
-      const result = await commandHandler({ streamId: scheduleStreamId(scheduleId), command, context });
-      return { scheduleId, version: result.version };
+      const version = await commitWindowedPolicyDocument({
+        definition,
+        documentId: scheduleId,
+        documentStreamId: scheduleStreamId(scheduleId),
+        command,
+        context,
+        overlapMessage: (overlapId) =>
+          `Active schedule ${overlapId} already covers that account type and effective window.`,
+      });
+      return { scheduleId, version };
     },
     async createAgreementDocument(definition, params, context) {
       const agreementId = params.documentId ?? createId("cag");
@@ -389,35 +478,30 @@ export function createCommercialTermsPolicyRuntime(
           return { agreementId, version: existing.version };
         }
       }
-      await assertNoActiveOverlap(
-        deps.db,
-        {
-          policyKey: definition.policyKey,
-          status: params.status,
-          effectiveFrom: params.effectiveFrom,
-          effectiveUntil: params.effectiveUntil,
-        },
-        (overlapId) => `Active agreement ${overlapId} already covers that account and effective window.`,
-      );
       const command = buildCreatePolicyDocumentCommand(definition, { ...params, documentId: agreementId });
-      const result = await commandHandler({ streamId, command, context });
-      return { agreementId, version: result.version };
+      const version = await commitWindowedPolicyDocument({
+        definition,
+        documentId: agreementId,
+        documentStreamId: streamId,
+        command,
+        context,
+        overlapMessage: (overlapId) =>
+          `Active agreement ${overlapId} already covers that account and effective window.`,
+      });
+      return { agreementId, version };
     },
     async reviseAgreementDocument(definition, agreementId, params, context) {
-      await assertNoActiveOverlap(
-        deps.db,
-        {
-          policyKey: definition.policyKey,
-          status: params.status,
-          effectiveFrom: params.effectiveFrom,
-          effectiveUntil: params.effectiveUntil,
-          excludeDocumentId: agreementId,
-        },
-        (overlapId) => `Active agreement ${overlapId} already covers that account and effective window.`,
-      );
       const command = buildRevisePolicyDocumentCommand(definition, params);
-      const result = await commandHandler({ streamId: agreementStreamId(agreementId), command, context });
-      return { agreementId, version: result.version };
+      const version = await commitWindowedPolicyDocument({
+        definition,
+        documentId: agreementId,
+        documentStreamId: agreementStreamId(agreementId),
+        command,
+        context,
+        overlapMessage: (overlapId) =>
+          `Active agreement ${overlapId} already covers that account and effective window.`,
+      });
+      return { agreementId, version };
     },
     resolvePolicy: resolver.resolvePolicy,
     getPolicyDocument: (documentId) => getPolicyDocument(deps.db, documentId),

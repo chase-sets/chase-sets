@@ -5,6 +5,7 @@ import {
   applyFeeFormula,
   assert,
   calculateSellerNetUnitAmount,
+  CommercialTermsDomainError,
   DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
   normalizeMoneyAmount,
   type CommercialAccountType,
@@ -162,6 +163,22 @@ type ActiveAgreement = Readonly<{
   shipping_allowance_percentage_bps: number;
 }>;
 
+function failOnActivePolicyOverlap(kind: "agreements" | "schedules", accountId?: string): never {
+  recordPlatformPostWriteConsistencyEvent({
+    boundedContextName: "commercial-terms",
+    surface: "commercial-terms-resolution",
+    strategy: "active-policy-overlap-detection",
+    outcome: "reconciliation",
+    correctionSource: `overlapping-active-${kind}`,
+  });
+  if (kind === "agreements") {
+    throw new CommercialTermsDomainError(
+      `Overlapping active commercial agreements were found for account ${accountId}.`,
+    );
+  }
+  throw new CommercialTermsDomainError("Overlapping active marketplace sales fee schedules were found.");
+}
+
 async function getProjectedAccount(db: PgQueryable, accountId: string) {
   const result = await db.query<ProjectedAccount>(
     `SELECT account_id, account_type, status,
@@ -230,10 +247,13 @@ async function getActiveSchedule(db: PgQueryable, effectiveAt: string) {
        AND effective_from <= $2
        AND (effective_until IS NULL OR effective_until > $2)
      ORDER BY effective_from DESC, updated_at DESC, document_id DESC
-     LIMIT 1`,
+     LIMIT 2`,
     [MARKETPLACE_SALES_FEE_SCHEDULE_POLICY_KEY, effectiveAt],
   );
 
+  if (result.rows.length > 1) {
+    failOnActivePolicyOverlap("schedules");
+  }
   return result.rows[0] ?? null;
 }
 
@@ -250,10 +270,13 @@ async function getActiveAgreement(db: PgQueryable, accountId: string, effectiveA
        AND effective_from <= $2
        AND (effective_until IS NULL OR effective_until > $2)
      ORDER BY effective_from DESC, updated_at DESC, document_id DESC
-     LIMIT 1`,
+     LIMIT 2`,
     [commercialTermsAgreementPolicyKey(accountId), effectiveAt],
   );
 
+  if (result.rows.length > 1) {
+    failOnActivePolicyOverlap("agreements", accountId);
+  }
   return result.rows[0] ?? null;
 }
 

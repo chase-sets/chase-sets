@@ -388,6 +388,106 @@ describe("marketplace listing runtime", () => {
     });
   });
 
+  it("allows only one concurrent publish when two listing caps compete for the final inventory unit", async () => {
+    const { eventStore, streams } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM marketplace_supply_items AS item")) {
+          return {
+            rows: [
+              {
+                item_id: "inv_1",
+                account_id: "acc_seller",
+                catalog_catalog_item_id: "cat_1",
+                product_id: "cat_1::",
+                item_title: "Charizard",
+                item_subtitle: null,
+                selected_options: [],
+                product_summary: null,
+                product_measure_snapshot: productMeasureSnapshot,
+                storage_location_name: "North shelf",
+                ship_from_code: "CHI",
+                ship_from_address: shipFromAddress,
+                available_quantity: 1,
+              },
+            ],
+          };
+        }
+        if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+          return { rows: [{ quantity_cap: "0" }] };
+        }
+        throw new Error(`Unexpected query in test: ${sql}`);
+      }),
+    };
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      commercialTermsResolver: {
+        resolveListingTerms: vi.fn(async ({ amount, accountId }) => ({
+          accountId,
+          accountType: "business" as const,
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "1.00",
+          sellerNetUnitAmount: "19.00",
+          scheduleId: "cts_default",
+          agreementId: null,
+          resolvedAt: "2026-04-17T00:00:00.000Z",
+        })),
+      } as never,
+    });
+
+    for (const listingId of ["lst_concurrent_1", "lst_concurrent_2"]) {
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_1",
+          priceAmount: "20.00",
+          quantityCap: 1,
+          listingIdOverride: listingId as never,
+        },
+        context,
+      );
+    }
+
+    const results = await Promise.allSettled(
+      ["lst_concurrent_1", "lst_concurrent_2"].map((listingId) =>
+        services.publishListing({ accountId: "acc_seller", listingId }, context),
+      ),
+    );
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    expect((rejected?.reason as Error).message).toBe(
+      "Active listing quantity caps cannot exceed current sellable inventory.",
+    );
+    const published = await Promise.all(
+      ["lst_concurrent_1", "lst_concurrent_2"].map(
+        async (listingId) =>
+          (await eventStore.readStream({ streamId: `marketplace.listing-${listingId}` })).filter(
+            (event) => event.eventType === "marketplace.listing.published",
+          ).length,
+      ),
+    );
+    expect(published).toEqual(expect.arrayContaining([0, 1]));
+
+    streams.delete("marketplace.inventory-listing-capacity-inv_1");
+    await services.createListing(
+      {
+        accountId: "acc_seller" as never,
+        inventoryItemId: "inv_1",
+        priceAmount: "20.00",
+        quantityCap: 1,
+        listingIdOverride: "lst_after_rollout" as never,
+      },
+      context,
+    );
+
+    await expect(
+      services.publishListing({ accountId: "acc_seller", listingId: "lst_after_rollout" }, context),
+    ).rejects.toThrow("Active listing quantity caps cannot exceed current sellable inventory.");
+  });
+
   it("suppresses the price-updated event when a recommendation resubmits the current price (no-op)", async () => {
     const { eventStore } = createInMemoryEventStore();
     const db = {

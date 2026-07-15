@@ -83,6 +83,12 @@ function createDb(
       effective_from?: string;
       effective_until?: string;
     } | null;
+    overlappingAgreement?: {
+      agreement_id: string;
+      marketplace_sales_fee_percentage_bps: number;
+      marketplace_sales_fee_fixed_amount: string;
+      shipping_allowance_percentage_bps?: number;
+    } | null;
   }>,
 ): PgQueryable {
   return {
@@ -123,7 +129,11 @@ function createDb(
             options.agreement &&
             (!options.agreement.effective_from || options.agreement.effective_from <= effectiveAt) &&
             (!options.agreement.effective_until || options.agreement.effective_until > effectiveAt);
-          return { rows: active ? [options.agreement as TRow] : [] };
+          return {
+            rows: active
+              ? ([options.agreement, ...(options.overlappingAgreement ? [options.overlappingAgreement] : [])] as TRow[])
+              : [],
+          };
         }
       }
 
@@ -247,6 +257,43 @@ describe("commercial terms resolver", () => {
         effectiveAt: "2026-07-15T00:00:00.000Z",
       }),
     ).rejects.toThrow("Founders window agreement is not ready for account acc_test.");
+  });
+
+  it("emits an operator signal and fails closed when overlapping active agreements reach resolution", async () => {
+    const resolver = createCommercialTermsResolver({
+      db: createDb({
+        schedule: {
+          schedule_id: "cts_launch",
+          marketplace_sales_fee_percentage_bps: 500,
+          marketplace_sales_fee_fixed_amount: "0.00",
+        },
+        agreement: {
+          agreement_id: "cag_first",
+          marketplace_sales_fee_percentage_bps: 400,
+          marketplace_sales_fee_fixed_amount: "0.00",
+        },
+        overlappingAgreement: {
+          agreement_id: "cag_second",
+          marketplace_sales_fee_percentage_bps: 300,
+          marketplace_sales_fee_fixed_amount: "0.00",
+        },
+      }),
+    });
+
+    await expect(
+      resolver.resolveListingTerms({
+        accountId: "acc_test",
+        amount: "100.00",
+        effectiveAt: "2026-07-15T00:00:00.000Z",
+      }),
+    ).rejects.toThrow("Overlapping active commercial agreements were found for account acc_test.");
+    expect(accountSourceTelemetryRecorder).toHaveBeenCalledWith({
+      boundedContextName: "commercial-terms",
+      surface: "commercial-terms-resolution",
+      strategy: "active-policy-overlap-detection",
+      outcome: "reconciliation",
+      correctionSource: "overlapping-active-agreements",
+    });
   });
 
   it("resolves the default schedule for personal accounts", async () => {
