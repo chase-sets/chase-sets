@@ -38,14 +38,21 @@ export type UcpCapabilityDeclaration = Readonly<{
   config?: Readonly<Record<string, unknown>>;
 }>;
 
+export type UcpSigningJsonWebKey = Readonly<
+  JsonWebKey & {
+    kid: string;
+    use?: string;
+  }
+>;
+
 export type UcpBusinessProfile = Readonly<{
-  signing_keys?: readonly JsonWebKey[];
+  signing_keys?: readonly UcpSigningJsonWebKey[];
   ucp: Readonly<{
     version: string;
     services: Readonly<Record<string, readonly UcpServiceDeclaration[]>>;
     capabilities: Readonly<Record<string, readonly UcpCapabilityDeclaration[]>>;
     supported_versions: Readonly<Record<string, string>>;
-    signing_keys?: readonly JsonWebKey[];
+    signing_keys?: readonly UcpSigningJsonWebKey[];
   }>;
 }>;
 
@@ -413,7 +420,7 @@ export function normalizeUcpOrigin(origin: string) {
 export function buildUcpBusinessProfile(
   origin: string,
   options: Readonly<{
-    signingKeys?: readonly JsonWebKey[];
+    signingKeys?: readonly UcpSigningJsonWebKey[];
     ap2Readiness?: UcpAp2Readiness;
   }> = {},
 ): UcpBusinessProfile {

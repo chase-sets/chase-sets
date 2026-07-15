@@ -548,7 +548,9 @@ function loadUcpBusinessSigningKeys(productionLike: boolean): UcpBusinessSigning
   const kid = getOptionalEnv("UCP_BUSINESS_SIGNING_KEY_ID");
   const alg = getOptionalEnv("UCP_BUSINESS_SIGNING_ALG") ?? "ES256";
   const previousPublicJwks =
-    getOptionalJsonEnv<readonly JsonWebKey[]>("UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS") ?? [];
+    getOptionalJsonEnv<NonNullable<UcpBusinessSigningKeySet["previousPublicJwks"]>>(
+      "UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS",
+    ) ?? [];
 
   if (!privateJwk && !kid) {
     return undefined;

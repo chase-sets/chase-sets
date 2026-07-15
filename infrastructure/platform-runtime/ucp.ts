@@ -37,6 +37,7 @@ import {
   type UcpEnvelope,
   type UcpMcpResourceDescriptor,
   type UcpMcpToolDescriptor,
+  type UcpSigningJsonWebKey,
 } from "./ucp-contracts";
 import type { McpToolCallLease, McpToolCallLimitKind, McpToolCallLimiter } from "./mcp-tool-call-limiter";
 import type { ResolvedActor } from "./auth";
@@ -149,7 +150,7 @@ export type UcpBusinessSigningKey = Readonly<{
 
 export type UcpBusinessSigningKeySet = Readonly<{
   current: UcpBusinessSigningKey;
-  previousPublicJwks?: readonly JsonWebKey[];
+  previousPublicJwks?: readonly UcpSigningJsonWebKey[];
 }>;
 
 export type UcpRuntimeObserver = Readonly<{
@@ -959,17 +960,19 @@ function checkoutPayloadForMerchantAuthorization(checkout: Readonly<Record<strin
   return payload;
 }
 
-function publicJwkForPrivateKey(key: UcpBusinessSigningKey): JsonWebKey {
+function publicJwkForPrivateKey(key: UcpBusinessSigningKey): UcpSigningJsonWebKey {
   const publicJwk = createPublicKey(createPrivateKey({ key: key.privateJwk, format: "jwk" })).export({ format: "jwk" });
   return {
     ...publicJwk,
     kid: key.kid,
     alg: key.alg,
     use: "sig",
-  } as JsonWebKey;
+  };
 }
 
-export function publicUcpBusinessSigningKeys(keys: UcpBusinessSigningKeySet | undefined): readonly JsonWebKey[] {
+export function publicUcpBusinessSigningKeys(
+  keys: UcpBusinessSigningKeySet | undefined,
+): readonly UcpSigningJsonWebKey[] {
   if (!keys) {
     return [];
   }
