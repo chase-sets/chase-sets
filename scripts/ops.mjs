@@ -44,6 +44,10 @@ export const SUBCOMMANDS = {
     script: "catalog-provider-refresh-status.mjs",
     description: "Support-safe scheduled provider scope refresh health check for the catalog context.",
   },
+  "catalog:production-completion-report": {
+    script: "run-catalog-production-completion-report.mjs",
+    description: "Reconcile a frozen production Catalog completion manifest and gate launch on completeness blockers.",
+  },
   "emergency-recovery:guide": {
     script: "emergency-recovery-guide.mjs",
     description: "Emergency recovery guide record for platform incidents.",

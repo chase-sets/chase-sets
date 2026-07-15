@@ -26,6 +26,7 @@
     "blueprints",
     "catalog-items",
     "categories",
+    "completion-report",
     "components",
     "dimensions",
     "display-templates",
@@ -630,6 +631,11 @@
       "classification": "slice",
       "purpose": "Own server-resolved Scope Sync Batch previews, stale-evidence confirmation, bounded durable progress, and recovery over existing Catalog Sync Runs.",
       "expectedConsumers": ["source-observations", "routes", "Internal catalog module composition"]
+    },
+    "completion-report": {
+      "classification": "slice",
+      "purpose": "Own the versioned Production Catalog Completion Report contract, the read-model reconciliation query, and the deterministic completeness verifier that gates launch on a frozen Scope Sync Batch manifest.",
+      "expectedConsumers": ["scope-sync-batches", "source-observations", "Retained ops completion verifier"]
     },
     "provider-scope-discovery": {
       "classification": "slice",
