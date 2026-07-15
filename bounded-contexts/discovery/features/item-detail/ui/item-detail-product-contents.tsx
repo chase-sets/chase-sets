@@ -1,11 +1,13 @@
-import { t } from "@chase-sets/localization";
-import { Badge, Card, KeyValueList, LinkText, Stack, Text } from "@chase-sets/design-system";
+import { formatDisplayIdentity, t } from "@chase-sets/localization";
+import { Badge, Grid, LinkButton, ListingCard, PageSection, Stack } from "@chase-sets/design-system";
 import type {
   DiscoveryItemDetail,
   DiscoveryProductContentItemRef,
   DiscoveryProductContentLine,
   DiscoveryProductContentSelectedOption,
 } from "../../../support/client-support/contracts";
+import { imageVariantSrcSet } from "../../../support/client-support/assets";
+import { buildDiscoveryProductAssetImage } from "../../../support/client-support/product-assets";
 
 type ProductContentsDirection = "contents" | "included_in";
 
@@ -44,20 +46,13 @@ function ProductContentSection({
   direction: ProductContentsDirection;
 }) {
   return (
-    <Card variant="feature">
-      <Card.Header>
-        <Card.Title>{title}</Card.Title>
-      </Card.Header>
-      <Card.Body>
-        <KeyValueList
-          density="compact"
-          items={lines.map((line) => ({
-            key: line.content_type_label,
-            value: <ProductContentLine line={line} direction={direction} />,
-          }))}
-        />
-      </Card.Body>
-    </Card>
+    <PageSection title={title}>
+      <Grid columns={{ base: 1, lg: 2 }} gap={4}>
+        {lines.map((line) => (
+          <ProductContentLine key={line.line_id} line={line} direction={direction} />
+        ))}
+      </Grid>
+    </PageSection>
   );
 }
 
@@ -79,25 +74,22 @@ function ProductContentLine({
       ? t("discovery.features.itemDetail.ui.itemDetailPage.quantity.variable")
       : t("discovery.features.itemDetail.ui.itemDetailPage.quantity.count", { quantity: line.quantity });
 
+  const quantityDetails = line.inclusion_policy_label
+    ? t("discovery.features.itemDetail.ui.itemDetailPage.quantity.policy", {
+        policy: line.inclusion_policy_label,
+        quantity: quantityLabel,
+      })
+    : quantityLabel;
+
   return (
-    <Stack gap={1}>
-      <Stack gap={1}>
-        <ProductContentTarget
-          target={target}
-          targetCatalogItemId={targetCatalogItemId}
-          selectedOptions={selectedOptions}
-          lifecycleStatus={lifecycleStatus}
-        />
-        <Text size="xs" tone="secondary">
-          {line.inclusion_policy_label
-            ? t("discovery.features.itemDetail.ui.itemDetailPage.quantity.policy", {
-                policy: line.inclusion_policy_label,
-                quantity: quantityLabel,
-              })
-            : quantityLabel}
-        </Text>
-      </Stack>
-    </Stack>
+    <ProductContentTarget
+      target={target}
+      targetCatalogItemId={targetCatalogItemId}
+      selectedOptions={selectedOptions}
+      lifecycleStatus={lifecycleStatus}
+      contentTypeLabel={line.content_type_label}
+      quantityDetails={quantityDetails}
+    />
   );
 }
 
@@ -106,38 +98,63 @@ function ProductContentTarget({
   targetCatalogItemId,
   selectedOptions,
   lifecycleStatus,
+  contentTypeLabel,
+  quantityDetails,
 }: {
   target: DiscoveryProductContentItemRef | null;
   targetCatalogItemId: string | null;
   selectedOptions: readonly DiscoveryProductContentSelectedOption[] | null;
   lifecycleStatus: string | null;
+  contentTypeLabel: string;
+  quantityDetails: string;
 }) {
   const title =
     target?.title ?? targetCatalogItemId ?? t("discovery.features.itemDetail.ui.itemDetailPage.unresolved.content");
-  const subtitle = target?.subtitle;
   const isActiveTarget = target?.status === "active" && lifecycleStatus !== "archived";
   const href = isActiveTarget && target ? buildItemDetailHref(target.slug, selectedOptions) : null;
+  const displayIdentity = formatDisplayIdentity(title, target?.subtitle);
+  const productAssetImage = buildDiscoveryProductAssetImage(
+    target?.product_asset_sets ?? [],
+    "search-card",
+    "(min-width: 768px) 164px, 124px",
+  );
+  const imageSrc =
+    productAssetImage?.src ??
+    target?.image_urls[0] ??
+    (target?.image_fallback?.usage === "permanent" ? target.image_fallback.url : undefined);
 
   return (
-    <Stack gap={1}>
-      {href ? (
-        <LinkText href={href}>{title}</LinkText>
-      ) : (
-        <Text element="span" weight="medium">
-          {title}
-        </Text>
-      )}
-      <Stack gap={1}>
-        {subtitle ? (
-          <Text size="xs" tone="secondary">
-            {subtitle}
-          </Text>
-        ) : null}
-        {!href ? (
+    <ListingCard
+      cardLayout="search-result"
+      href={href ?? undefined}
+      title={title}
+      subtitle={target?.subtitle}
+      image={productAssetImage ?? undefined}
+      imageSrc={imageSrc}
+      imageSlot="compact-product"
+      imageAlt={displayIdentity}
+      imageFallbackSrc={target?.image_fallback?.url}
+      imageFallbackAlt={displayIdentity}
+      imageFallbackSrcSet={imageVariantSrcSet(target?.image_fallback, "card")}
+      imageFallbackSizes="(min-width: 768px) 164px, 124px"
+      imageFallbackMode={target?.image_fallback?.usage ?? "permanent"}
+      condition={contentTypeLabel}
+      valueCue={quantityDetails}
+      detailLinkLabel={t("localization.listingCard.view.details.for", { identity: displayIdentity })}
+      saveLabel={t("localization.listingCard.save", { identity: displayIdentity })}
+      savedLabel={t("localization.listingCard.saved", { identity: displayIdentity })}
+      watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
+      primaryAction={
+        href ? (
+          <LinkButton href={href} size="sm">
+            {t("discovery.features.itemDetail.ui.similarItems.viewItem")}
+          </LinkButton>
+        ) : (
           <Badge tone="neutral">{t("discovery.features.itemDetail.ui.itemDetailPage.content.unavailable")}</Badge>
-        ) : null}
-      </Stack>
-    </Stack>
+        )
+      }
+      secondaryAction={false}
+    />
   );
 }
 
