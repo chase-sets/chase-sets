@@ -570,6 +570,58 @@ function allocateRefundDebitAmounts(
   return allocateMoneyByLargestRemainder(centsToMoneyAmount(cappedDebitCents), weights);
 }
 
+/**
+ * Per-order seller-funded refund clawback allocation for the compatibility
+ * default (a seller-funded refund with no authorized liability allocation).
+ *
+ * Each refund event carries per-order attribution (this event's delta, the
+ * cumulative refunded amount, and the order's refundable cap). We debit ONLY
+ * the seller of each refunded order -- never the other sellers on a
+ * multi-seller payment. Every order maps to a single seller payout, so a
+ * seller's clawback for an order is its payout exposure scaled by the fraction
+ * of the order that has been refunded, computed cumulatively (this event's
+ * cumulative share minus the prior cumulative share). That keeps successive
+ * partial refunds summing exactly to the seller payout with no rounding drift,
+ * mirroring the Order Protection reversal allocation in
+ * `recordProtectionReserveReversals`.
+ *
+ * When an event lacks per-order attribution (older events emitted before the
+ * refund-model rework carried per-order amounts), we fall back to prorating
+ * this event's refund delta across every participant so no clawback is
+ * silently dropped.
+ */
+function allocateSellerRefundDebitAmounts(
+  data: Readonly<{
+    paymentAmount: string;
+    refundAmount: string;
+    sellerPayouts: readonly SellerPayoutComponent[];
+    orderRefundAmounts?: readonly OrderAmount[];
+    refundedOrderAmounts?: readonly OrderAmount[];
+    orderRefundCaps?: readonly OrderAmount[];
+  }>,
+) {
+  const hasPerOrderAttribution = (data.orderRefundCaps?.length ?? 0) > 0 && (data.orderRefundAmounts?.length ?? 0) > 0;
+  if (!hasPerOrderAttribution) {
+    return allocateRefundDebitAmounts(data.refundAmount, data.paymentAmount, data.sellerPayouts);
+  }
+
+  return data.sellerPayouts.map((payout) => {
+    const capCents = moneyToCents(orderAmount(data.orderRefundCaps, payout.orderId));
+    const deltaRefundCents = moneyToCents(orderAmount(data.orderRefundAmounts, payout.orderId));
+    const cumulativeRefundCents = moneyToCents(orderAmount(data.refundedOrderAmounts, payout.orderId));
+    if (capCents === 0n || deltaRefundCents === 0n) {
+      return "0.00";
+    }
+    const previousRefundCents =
+      cumulativeRefundCents > deltaRefundCents ? cumulativeRefundCents - deltaRefundCents : 0n;
+    const exposureCents = moneyToCents(payout.sellerPayoutAmount);
+    const debitCents =
+      proportionalCents(exposureCents, cumulativeRefundCents, capCents) -
+      proportionalCents(exposureCents, previousRefundCents, capCents);
+    return debitCents > 0n ? centsToMoneyAmount(debitCents) : "0.00";
+  });
+}
+
 function ledgerIdPart(value: string) {
   return value.replaceAll(/[^a-zA-Z0-9_]+/g, "_").replaceAll(/^_+|_+$/g, "");
 }
@@ -624,6 +676,13 @@ async function postSellerRefundDebits(
         paymentId: data.paymentId as PaymentId,
         description: `Refund debit for payment ${data.paymentId}`,
         postedAt: data.refundedAt,
+        // A refund can complete after the seller has already withdrawn their
+        // proceeds. The seller-funded shortfall becomes a receivable (negative
+        // available balance) rather than throwing inside the projection and
+        // poisoning the payment stream under the strict poison policy. Payout
+        // eligibility subtracts the negative balance and future sale credits
+        // net against it before the seller is paid out again.
+        allowNegativeBalance: true,
       },
       context,
     );
@@ -699,15 +758,20 @@ async function reconcileRefundLiability(
     currencyCode: string;
     refundedAt: string;
     sellerPayouts: readonly SellerPayoutComponent[];
+    orderRefundAmounts?: readonly OrderAmount[];
+    refundedOrderAmounts?: readonly OrderAmount[];
+    orderRefundCaps?: readonly OrderAmount[];
   }>,
   event: TransportEvent,
 ) {
   const allocationRow = data.refundId ? await loadRefundAllocation(db, data.refundId) : null;
 
   if (!allocationRow || !data.refundId) {
-    // Documented compatibility default: no authorized allocation means a seller-funded
-    // (or legacy) refund; preserve the existing prorated, capped seller debit.
-    const debitAmounts = allocateRefundDebitAmounts(data.refundAmount, data.paymentAmount, data.sellerPayouts);
+    // Documented compatibility default: no authorized allocation means a
+    // seller-funded refund. Debit only the refunded order's seller(s), keyed off
+    // the refund event's per-order attribution, and record a receivable for any
+    // shortfall rather than poisoning the stream.
+    const debitAmounts = allocateSellerRefundDebitAmounts(data);
     await postSellerRefundDebits(
       wallets,
       {
@@ -1181,6 +1245,9 @@ export function buildSettlementPaymentInputProjectionHandlers(
           currencyCode: data.currencyCode,
           refundedAt: data.refundedAt,
           sellerPayouts,
+          orderRefundAmounts: data.orderRefundAmounts,
+          refundedOrderAmounts: data.refundedOrderAmounts,
+          orderRefundCaps: data.orderRefundCaps,
         },
         event,
       );
