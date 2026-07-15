@@ -217,7 +217,7 @@ describe("platform operations request API clients", () => {
         evidenceType: "photo",
         summary: "Damaged corner",
       }),
-    ).resolves.toEqual({ id: "sup_1", version: 3, status: "evidence-submitted" });
+    ).resolves.toEqual({ id: "sup_1", version: 2, status: "evidence-submitted" });
     await expect(
       client.recordSupportResponse("sup_1", {
         submittedByRole: "seller",
