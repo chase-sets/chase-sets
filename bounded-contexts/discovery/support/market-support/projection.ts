@@ -1468,6 +1468,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
     "marketplace.review.submitted": async (event) => {
       const data = event.data as {
         reviewId: string;
+        orderId: string;
         authorAccountId: string;
         subjectAccountId: string;
         authorRole: string;
@@ -1479,6 +1480,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       await db.query(
         `INSERT INTO discovery_market_account_reviews (
            review_id,
+           order_id,
            author_account_id,
            subject_account_id,
            author_role,
@@ -1486,9 +1488,11 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
            feedback,
            status,
            submitted_at,
-           updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $7)
+           updated_at,
+           held
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $8, false)
          ON CONFLICT (review_id) DO UPDATE SET
+           order_id = EXCLUDED.order_id,
            author_account_id = EXCLUDED.author_account_id,
            subject_account_id = EXCLUDED.subject_account_id,
            author_role = EXCLUDED.author_role,
@@ -1499,6 +1503,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
            updated_at = EXCLUDED.updated_at`,
         [
           data.reviewId,
+          data.orderId,
           data.authorAccountId,
           data.subjectAccountId,
           data.authorRole,
@@ -1634,6 +1639,39 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         await emitAccountReputationPatches(db, event, subjectAccountId);
       }
     },
+    ...Object.fromEntries(
+      [
+        "marketplace.review-hold.placed",
+        "marketplace.review-hold.extended",
+        "marketplace.review-hold.reduced",
+        "marketplace.review-hold.released",
+        "marketplace.review-hold.terminal-recorded",
+      ].map((eventType) => [
+        eventType,
+        async (event: Parameters<ProjectorHandlerMap[string]>[0]) => {
+          const data = event.data as {
+            orderId: string;
+            heldDirections: readonly string[];
+            lifecycleAt: string;
+          };
+          const affected = await db.query<{ subject_account_id: string }>(
+            `UPDATE discovery_market_account_reviews
+             SET held = CASE
+               WHEN author_role = 'buyer' THEN 'buyer-to-seller' = ANY($2::text[])
+               ELSE 'seller-to-buyer' = ANY($2::text[])
+             END,
+                 updated_at = GREATEST(updated_at, $3::timestamptz)
+             WHERE order_id = $1
+             RETURNING subject_account_id`,
+            [data.orderId, data.heldDirections, data.lifecycleAt],
+          );
+          for (const subjectAccountId of new Set(affected.rows.map((row) => row.subject_account_id))) {
+            await refreshAccountReputation(db, subjectAccountId, data.lifecycleAt);
+            await emitAccountReputationPatches(db, event, subjectAccountId);
+          }
+        },
+      ]),
+    ),
   };
 }
 
@@ -1690,6 +1728,7 @@ async function refreshAccountReputation(db: PgQueryable, accountId: string, upda
      WHERE subject_account_id = $1
        AND status = 'active'
        AND revealed_at IS NOT NULL
+       AND held = false
      ON CONFLICT (account_id) DO UPDATE SET
        average_rating_as_seller = EXCLUDED.average_rating_as_seller,
        review_count_as_seller = EXCLUDED.review_count_as_seller,

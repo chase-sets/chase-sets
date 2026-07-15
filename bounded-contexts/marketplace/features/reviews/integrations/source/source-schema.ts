@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS marketplace_review_support_request_sources (
   status text NOT NULL,
   responsibility text NULL,
   resolution_type text NULL,
+  review_directions text[] NOT NULL DEFAULT ARRAY['buyer-to-seller', 'seller-to-buyer']::text[],
   opened_at timestamptz NULL,
   updated_at timestamptz NOT NULL,
   cancelled_at timestamptz NULL,
@@ -75,7 +76,9 @@ CREATE TABLE IF NOT EXISTS marketplace_review_support_request_sources (
 
 ALTER TABLE marketplace_review_support_request_sources
   ADD COLUMN IF NOT EXISTS responsibility text NULL,
-  ADD COLUMN IF NOT EXISTS resolution_type text NULL;
+  ADD COLUMN IF NOT EXISTS resolution_type text NULL,
+  ADD COLUMN IF NOT EXISTS review_directions text[] NOT NULL
+    DEFAULT ARRAY['buyer-to-seller', 'seller-to-buyer']::text[];
 
 CREATE INDEX IF NOT EXISTS marketplace_review_support_request_sources_order_idx
   ON marketplace_review_support_request_sources (order_id, updated_at DESC, support_request_id DESC);

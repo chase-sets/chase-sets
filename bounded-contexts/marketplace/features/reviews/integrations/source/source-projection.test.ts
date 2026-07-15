@@ -16,6 +16,13 @@ type EligibilityRow = {
   subject_account_id: string;
   author_role: string;
   eligible_at: string;
+  effective_deadline_at: string;
+  submission_state: "allowed" | "held" | "expired";
+  hold_started_at: string | null;
+  paused_remaining_ms: string | null;
+  reminder_armed_at: string;
+  reminder_notified_at: string | null;
+  hold_cycle: number;
   updated_at: string;
 };
 
@@ -33,6 +40,7 @@ class ReviewSourceProjectionDb implements PgQueryable {
       responsibility: string | null;
       resolution_type: string | null;
       resolved_at: string | null;
+      review_directions: readonly ("buyer-to-seller" | "seller-to-buyer")[];
     }
   >();
   public readonly remedies = new Map<string, { remedy_id: string; coverage_id: string | null; remedy_kind: string }>();
@@ -118,6 +126,7 @@ class ReviewSourceProjectionDb implements PgQueryable {
           responsibility: values[2] === null ? null : String(values[2]),
           resolution_type: String(values[3]),
           resolved_at: String(values[4]),
+          review_directions: ["buyer-to-seller", "seller-to-buyer"],
         });
       } else if (sql.includes("VALUES ($1, $2, 'cancelled'")) {
         this.supportRequests.set(supportRequestId, {
@@ -126,6 +135,7 @@ class ReviewSourceProjectionDb implements PgQueryable {
           responsibility: null,
           resolution_type: null,
           resolved_at: null,
+          review_directions: ["buyer-to-seller", "seller-to-buyer"],
         });
       } else {
         this.supportRequests.set(supportRequestId, {
@@ -134,6 +144,10 @@ class ReviewSourceProjectionDb implements PgQueryable {
           responsibility: null,
           resolution_type: null,
           resolved_at: null,
+          review_directions: (values[3] as readonly ("buyer-to-seller" | "seller-to-buyer")[]) ?? [
+            "buyer-to-seller",
+            "seller-to-buyer",
+          ],
         });
       }
       return { rows: [], rowCount: 1 };
@@ -160,6 +174,7 @@ class ReviewSourceProjectionDb implements PgQueryable {
           remedy_id: this.remedies.get(supportRequestId)?.remedy_id ?? null,
           coverage_id: this.remedies.get(supportRequestId)?.coverage_id ?? null,
           remedy_kind: this.remedies.get(supportRequestId)?.remedy_kind ?? null,
+          review_directions: request.review_directions,
         }));
       return { rows: rows as Row[], rowCount: rows.length };
     }
@@ -173,10 +188,10 @@ class ReviewSourceProjectionDb implements PgQueryable {
       return { rows: (request ? [{ order_id: request.order_id }] : []) as Row[], rowCount: request ? 1 : 0 };
     }
 
-    if (sql.includes("SELECT 1") && sql.includes("FROM marketplace_review_eligibility_pages")) {
+    if (sql.includes("FROM marketplace_review_eligibility_pages") && sql.includes("effective_deadline_at::text")) {
       const [orderId, authorAccountId, subjectAccountId] = values.map(String);
-      const exists = this.eligibilities.has(`${orderId}:${authorAccountId}:${subjectAccountId}`);
-      return { rows: (exists ? [{ "?column?": 1 }] : []) as Row[], rowCount: exists ? 1 : 0 };
+      const eligibility = this.eligibilities.get(`${orderId}:${authorAccountId}:${subjectAccountId}`);
+      return { rows: (eligibility ? [eligibility] : []) as Row[], rowCount: eligibility ? 1 : 0 };
     }
 
     if (sql.includes("INSERT INTO marketplace_review_eligibility_pages")) {
@@ -187,7 +202,14 @@ class ReviewSourceProjectionDb implements PgQueryable {
         subject_account_id: subjectAccountId,
         author_role: authorRole,
         eligible_at: String(values[4]),
-        updated_at: String(values[5]),
+        effective_deadline_at: String(values[5]),
+        submission_state: values[6] as "allowed" | "held" | "expired",
+        hold_started_at: values[7] === null ? null : String(values[7]),
+        paused_remaining_ms: values[8] === null ? null : String(values[8]),
+        reminder_armed_at: String(values[9]),
+        reminder_notified_at: values[10] === null ? null : String(values[10]),
+        hold_cycle: Number(values[11]),
+        updated_at: String(values[12]),
       });
       return { rows: [], rowCount: 1 };
     }
@@ -280,7 +302,7 @@ describe("marketplace review source projection eligibility", () => {
     expect(db.eligibilities.size).toBe(2);
 
     await harness.openSupport("sup_1", "ord_1", "2026-04-04T00:00:00.000Z");
-    expect(db.eligibilities.size).toBe(0);
+    expect([...db.eligibilities.values()].map((row) => row.submission_state)).toEqual(["held", "held"]);
 
     await harness.resolveSupport("sup_1", "ord_1", "full-refund", "carrier", "2026-04-06T00:00:00.000Z");
 
@@ -397,7 +419,7 @@ describe("marketplace review source projection eligibility", () => {
     expect(db.sellerEligibility()).not.toBeNull();
   });
 
-  it("does not restore eligibility on delivery while a support request is open", async () => {
+  it("persists paused review clocks without allowing submission while a support request is open", async () => {
     const db = new ReviewSourceProjectionDb();
     const harness = buildHarness(db);
 
@@ -405,7 +427,7 @@ describe("marketplace review source projection eligibility", () => {
     await harness.openSupport("sup_1", "ord_1", "2026-04-02T12:00:00.000Z");
     await harness.deliverShipment("shp_1", "ord_1", "2026-04-03T00:00:00.000Z");
 
-    expect(db.eligibilities.size).toBe(0);
+    expect([...db.eligibilities.values()].map((row) => row.submission_state)).toEqual(["held", "held"]);
   });
 
   it("heals seller-cancellation eligibility when order lifecycle facts land after the Support resolution", async () => {

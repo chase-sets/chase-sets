@@ -11,6 +11,8 @@ const opportunity = {
   active_review_id: null,
   window_expired: false,
   window_expires_at: "2026-06-01T00:00:00.000Z",
+  submission_state: "allowed" as const,
+  hold_reason: null,
 };
 
 describe("review submission page", () => {
@@ -46,5 +48,18 @@ describe("review submission page", () => {
 
     expect(markup).not.toContain("Submit account review");
     expect(markup).toContain("Review window closed");
+  });
+
+  it("shows a neutral hold state without the submission form", () => {
+    const markup = renderToString(
+      <ReviewSubmissionPage
+        backHref="/account/sales/ord_1"
+        opportunity={{ ...opportunity, submission_state: "held", hold_reason: "feedback-on-hold" }}
+      />,
+    );
+
+    expect(markup).toContain("Review paused");
+    expect(markup).toContain("while support reviews the order");
+    expect(markup).not.toContain("Submit account review");
   });
 });

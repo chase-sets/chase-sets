@@ -252,7 +252,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-market-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
       "order": 21,
       "projectionHandlerSetNames": ["discovery-market-projection"]
@@ -312,7 +312,12 @@
         "marketplace.review.revealed",
         "marketplace.review.feedback-redacted",
         "marketplace.review.reply-submitted",
-        "marketplace.review.reply-withdrawn"
+        "marketplace.review.reply-withdrawn",
+        "marketplace.review-hold.placed",
+        "marketplace.review-hold.extended",
+        "marketplace.review-hold.reduced",
+        "marketplace.review-hold.released",
+        "marketplace.review-hold.terminal-recorded"
       ],
       "order": 30,
       "projectionHandlerSetNames": ["discovery-market-projection"]

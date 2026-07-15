@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { ReputationApiEnv } from "./http";
 import type { ReviewServices } from "./runtime";
+import { ReputationDomainError } from "../domain/common";
 
 function readRoleFilter(value: string | undefined): "seller" | "buyer" | undefined {
   return value === "seller" || value === "buyer" ? value : undefined;
@@ -52,6 +53,10 @@ function requireReviewAccess(
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("reputation.features.reviews.api.route.request.failed");
+}
+
+function errorCode(error: unknown) {
+  return error instanceof ReputationDomainError ? error.code : "validation_failed";
 }
 
 export function createPublicReputationRoutes(services: ReviewServices) {
@@ -202,7 +207,7 @@ export function createAccountReviewRoutes(services: ReviewServices) {
       );
       return c.json({ id: result.reviewId, version: result.version, status: "submitted" }, 201);
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
   });
 
@@ -239,7 +244,7 @@ export function createAccountReviewRoutes(services: ReviewServices) {
       );
       return c.json({ id: result.reviewId, version: result.version, status: "updated" });
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
   });
 
@@ -272,7 +277,7 @@ export function createAccountReviewRoutes(services: ReviewServices) {
       );
       return c.json({ id: result.reviewId, version: result.version, status: "withdrawn" });
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
   });
 
@@ -314,7 +319,7 @@ export function createAccountReviewRoutes(services: ReviewServices) {
         201,
       );
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
   });
 

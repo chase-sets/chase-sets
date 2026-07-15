@@ -20,6 +20,7 @@ const reviews = [
     withdrawn_at: null,
     revealed_at: "2026-04-05T00:00:00.000Z",
     reveal_reason: "counterpart-submitted",
+    held: false,
     withdrawn_by_actor_type: null,
     moderation_operator_user_id: null,
     moderation_reason: null,
@@ -65,5 +66,21 @@ describe("review list page", () => {
 
     expect(markup).not.toContain("Packed carefully.");
     expect(markup).not.toContain("Review author:");
+  });
+
+  it("shows neutral hold copy without held review content", () => {
+    const markup = renderToString(
+      <ReviewListPage
+        title="Reviews"
+        eyebrow="Reviews"
+        emptyTitle="No reviews"
+        emptyDescription="Nothing yet."
+        reviewDetailBasePath="/account/reviews"
+        reviews={[{ ...reviews[0]!, held: true, rating: null, feedback: null }]}
+      />,
+    );
+
+    expect(markup).toContain("Review paused");
+    expect(markup).not.toContain("Packed carefully.");
   });
 });

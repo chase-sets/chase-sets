@@ -117,6 +117,8 @@ describe("marketplace review routes", () => {
       active_review_id: null,
       window_expired: false,
       window_expires_at: "2026-06-01T00:00:00.000Z",
+      submission_state: "allowed",
+      hold_reason: null,
     });
     const app = buildApp({
       actor: {
@@ -143,6 +145,8 @@ describe("marketplace review routes", () => {
       active_review_id: null,
       window_expired: false,
       window_expires_at: "2026-06-01T00:00:00.000Z",
+      submission_state: "allowed",
+      hold_reason: null,
     });
     expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1", "acc_buyer");
   });
@@ -158,6 +162,8 @@ describe("marketplace review routes", () => {
       active_review_id: null,
       window_expired: false,
       window_expires_at: "2026-06-01T00:00:00.000Z",
+      submission_state: "allowed",
+      hold_reason: null,
     });
     const app = buildApp({
       actor: {

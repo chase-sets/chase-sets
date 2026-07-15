@@ -50,10 +50,15 @@ export type ReviewSnapshot = Readonly<{
   withdrawnAt: string | null;
 }>;
 
+export type ReputationDomainErrorCode = "validation_failed" | "review_held";
+
 export class ReputationDomainError extends Error {
-  public constructor(message: string) {
+  public readonly code: ReputationDomainErrorCode;
+
+  public constructor(message: string, code: ReputationDomainErrorCode = "validation_failed") {
     super(message);
     this.name = "ReputationDomainError";
+    this.code = code;
   }
 }
 

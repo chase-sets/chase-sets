@@ -28,6 +28,7 @@ function reviewRow(overrides: Partial<ReviewListRow> = {}): ReviewListRow {
     withdrawn_at: null,
     revealed_at: "2026-04-02T00:00:00.000Z",
     reveal_reason: "counterpart-submitted",
+    held: false,
     withdrawn_by_actor_type: null,
     moderation_operator_user_id: null,
     moderation_reason: null,

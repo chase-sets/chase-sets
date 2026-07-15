@@ -105,7 +105,12 @@ export function ReviewSubmissionPage({
       </PageSection>
 
       <PageSection title={t("reputation.features.reviews.ui.reviewSubmissionPage.your.review")}>
-        {opportunity.window_expired ? (
+        {opportunity.submission_state === "held" ? (
+          <MarketplaceEmptyState
+            title={t("reputation.features.reviews.ui.reviewSubmissionPage.feedback.on.hold.title")}
+            description={t("reputation.features.reviews.ui.reviewSubmissionPage.feedback.on.hold.description")}
+          />
+        ) : opportunity.window_expired ? (
           <MarketplaceEmptyState
             title={t("reputation.features.reviews.ui.reviewSubmissionPage.review.window.closed.title")}
             description={t("reputation.features.reviews.ui.reviewSubmissionPage.review.window.closed.description")}

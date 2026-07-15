@@ -243,6 +243,16 @@ Notes:
 
 **Review Eligibility** is the order-lifecycle fact that determines whether a transaction can support directional feedback. Delivery establishes eligibility by default. A seller-responsible cancellation can establish buyer-to-seller eligibility without delivery once the cancellation is recorded; a buyer-caused, mutually agreed, external, or indeterminate cancellation does not automatically establish it.
 
+## Review Hold
+
+A **Review Hold** is Marketplace's order-scoped record that one or more review-affecting Support requests are open. Each request is identified by its stable Support request id and holds both review directions unless Support explicitly identifies narrower directions. The first open request places the affected directions on hold; further concurrent requests extend that hold without pausing time again; the final terminal request releases it. Duplicate, reordered, and replayed facts converge, including a terminal fact that arrives before its open fact. Reopening a terminal request with a later open timestamp starts a new hold.
+
+While held, feedback cannot be submitted, revealed, changed, withdrawn, replied to, reminded, published, or counted in reputation aggregates. Already revealed feedback becomes private until release, while its stored content remains unchanged except through moderation. The public state is the neutral **Review paused** status and never reveals the Support request, allegations, remedy, responsibility, or either party's feedback content.
+
+## Paused Review Clock
+
+A **Paused Review Clock** preserves the remaining submission time when a Review Hold begins. Only the first concurrent hold pauses the clock. When the final hold ends, Marketplace sets the effective deadline to the greater of the preserved remaining duration or 14 days from release. A clock that expired before the hold is not revived, a submitted direction receives no second submission opportunity, and a later reopen pauses the then-current remaining duration. Reminder eligibility is re-armed once for each completed hold cycle.
+
 ## Directional Review Disposition
 
 A **Directional Review Disposition** is Marketplace's canonical policy decision for one reviewer and subject on an Order. It combines transaction eligibility, submission state (`allowed`, `held`, `expired`, or `ineligible`), visibility state (`double-blind-pending`, `held`, `revealed`, or `suppressed`), Scoring Disposition, a neutral reason code, and any effective submission deadline. Buyer and Seller are transaction roles, so the same Account may receive either direction on different Orders.

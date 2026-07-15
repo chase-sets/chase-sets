@@ -315,7 +315,8 @@ export async function getDiscoveryPublicAccountBySlug(
        FROM discovery_market_account_reviews AS review
        WHERE review.subject_account_id = $1
          AND review.status = 'active'
-         AND review.revealed_at IS NOT NULL${reviewRoleClause}`,
+         AND review.revealed_at IS NOT NULL
+         AND review.held = false${reviewRoleClause}`,
       reviewValues,
     ),
     db.query<DiscoveryPublicAccountReviewRow>(
@@ -336,7 +337,8 @@ export async function getDiscoveryPublicAccountBySlug(
          ON author.account_id = review.author_account_id
        WHERE review.subject_account_id = $1
          AND review.status = 'active'
-         AND review.revealed_at IS NOT NULL${reviewRoleClause}
+         AND review.revealed_at IS NOT NULL
+         AND review.held = false${reviewRoleClause}
        ORDER BY review.updated_at DESC, review.review_id DESC
        LIMIT $${reviewValues.length + 1} OFFSET $${reviewValues.length + 2}`,
       [...reviewValues, limit, offset],

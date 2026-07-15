@@ -139,12 +139,17 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "marketplace-identity-account-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "marketplace.review.submitted",
         "marketplace.review.updated",
         "marketplace.review.withdrawn",
-        "marketplace.review.revealed"
+        "marketplace.review.revealed",
+        "marketplace.review-hold.placed",
+        "marketplace.review-hold.extended",
+        "marketplace.review-hold.reduced",
+        "marketplace.review-hold.released",
+        "marketplace.review-hold.terminal-recorded"
       ],
       "streamPrefixes": ["marketplace.review-"],
       "order": 40,
@@ -244,6 +249,21 @@
   "eventReactions": [
     {
       "sourceContextName": "platform-operations",
+      "reactionName": "marketplace-review-hold-reaction",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.resolved",
+        "support.support-request.cancelled"
+      ],
+      "order": 91,
+      "reactionHandlerSetNames": ["marketplace-review-hold-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "platform-operations",
       "reactionName": "marketplace-review-moderation-reaction",
       "subscriptionVersion": 1,
       "eventTypes": ["platform-operations.reported-content.action-recorded"],
@@ -312,6 +332,13 @@
       "resetStrategy": "truncate-owned-tables"
     },
     {
+      "projectionName": "marketplace-review-hold-projection",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["marketplace_review_hold_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "marketplace-review-account-source-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["marketplace_review_account_sources"],
@@ -366,6 +393,14 @@
       "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "marketplace-review-hold-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "marketplace-review-moderation-reaction",

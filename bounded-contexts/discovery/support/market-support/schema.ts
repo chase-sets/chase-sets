@@ -65,6 +65,7 @@ ALTER TABLE discovery_market_accounts
 
 CREATE TABLE IF NOT EXISTS discovery_market_account_reviews (
   review_id text PRIMARY KEY,
+  order_id text NULL,
   author_account_id text NOT NULL DEFAULT '',
   subject_account_id text NOT NULL,
   author_role text NOT NULL DEFAULT '',
@@ -72,14 +73,17 @@ CREATE TABLE IF NOT EXISTS discovery_market_account_reviews (
   feedback text NULL,
   status text NOT NULL,
   submitted_at timestamptz NULL,
-  updated_at timestamptz NOT NULL
+  updated_at timestamptz NOT NULL,
+  held boolean NOT NULL DEFAULT false
 );
 
 ALTER TABLE discovery_market_account_reviews
   ADD COLUMN IF NOT EXISTS author_account_id text NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS author_role text NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS feedback text NULL,
-  ADD COLUMN IF NOT EXISTS submitted_at timestamptz NULL;
+  ADD COLUMN IF NOT EXISTS submitted_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS order_id text NULL,
+  ADD COLUMN IF NOT EXISTS held boolean NOT NULL DEFAULT false;
 
 -- Double-blind reveal (m108): a review contributes to
 -- discovery_market_accounts reputation counters only once revealed_at is set.
@@ -268,6 +272,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_sell_list_lines_offer_un
   WHERE offer_id IS NOT NULL;`;
 
 export const discoveryMarketSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260714_discovery_market_review_holds",
+    description: "Exclude held order reviews from Discovery profiles and reputation inputs.",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `ALTER TABLE discovery_market_account_reviews
+  ADD COLUMN IF NOT EXISTS order_id text NULL,
+  ADD COLUMN IF NOT EXISTS held boolean NOT NULL DEFAULT false`,
+    ],
+  },
   {
     migrationId: "20260707_discovery_market_slug_and_supply_lookup_indexes",
     description: "Create Discovery market lookup indexes for seller, listing, product, and supply facts.",

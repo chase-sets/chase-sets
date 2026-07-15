@@ -16,6 +16,7 @@ export interface ReviewListItem {
   withdrawn_at: string | null;
   revealed_at: string | null;
   reveal_reason: string | null;
+  held: boolean;
   // Moderation (m108).
   withdrawn_by_actor_type: string | null;
   moderation_operator_user_id: string | null;
@@ -42,6 +43,8 @@ export interface ReviewOpportunity {
   // elapsed with no review submitted yet.
   window_expired: boolean;
   window_expires_at: string;
+  submission_state: "allowed" | "held" | "expired";
+  hold_reason: "feedback-on-hold" | null;
 }
 
 export interface ReviewSummary {
