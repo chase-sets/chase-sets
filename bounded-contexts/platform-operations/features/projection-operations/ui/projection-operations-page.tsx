@@ -141,8 +141,8 @@ export function ProjectionOperationsPage({
       filters,
     ),
   );
-  const canOperate = actorPermissions.includes(operatePermission);
-  const canRebuild = actorPermissions.includes(rebuildPermission);
+  const canOperate = hasPermission(actorPermissions, operatePermission);
+  const canRebuild = hasPermission(actorPermissions, rebuildPermission);
 
   return (
     <Page>
@@ -163,12 +163,12 @@ export function ProjectionOperationsPage({
         <LinkButton href="/platform/projections/reference" tone="secondary" leadingIcon="settings">
           {t(`${routeKey}.reference`)}
         </LinkButton>
-        {actorPermissions.includes("catalog.view") ? (
+        {hasPermission(actorPermissions, "catalog.view") ? (
           <LinkButton href="/catalog/dimensions" tone="secondary">
             {t(`${routeKey}.catalog`)}
           </LinkButton>
         ) : null}
-        {actorPermissions.includes("accounts.view") ? (
+        {hasPermission(actorPermissions, "accounts.view") ? (
           <LinkButton href="/access/accounts" tone="secondary">
             {t(`${routeKey}.identity`)}
           </LinkButton>
@@ -444,4 +444,8 @@ function operationSearchText(operation: ProjectionOperation) {
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+function hasPermission(actorPermissions: readonly string[], permission: string) {
+  return actorPermissions.includes(permission);
 }
