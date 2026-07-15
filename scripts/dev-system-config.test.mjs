@@ -2,16 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   applyDevTargetEnvOverrides,
   browserE2ePlatformAdminEnv,
-  browserE2eProjectionWakeEnv,
   browserE2eRateLimitEnv,
   browserE2eReadConsistencyEnv,
 } from "./dev-system-config.mjs";
 
 describe("dev system target env overrides", () => {
-  it("configures browser e2e API freshness and projection wake capacity", () => {
+  it("configures only the browser e2e platform api with test-safe runtime overrides", () => {
     const processes = [
       { name: "platform-api", env: { PORT: "6182" } },
-      { name: "platform-worker", env: { PORT: "6183" } },
       { name: "marketplace", env: { PORT: "6173" } },
     ];
 
@@ -28,15 +26,7 @@ describe("dev system target env overrides", () => {
         ...browserE2eReadConsistencyEnv,
       },
     });
-    expect(browserE2eProcesses[1]).toMatchObject({
-      name: "platform-worker",
-      env: {
-        PORT: "6183",
-        ...browserE2eProjectionWakeEnv,
-      },
-    });
-    expect(browserE2eProcesses[2]).toBe(processes[2]);
+    expect(browserE2eProcesses[1]).toBe(processes[1]);
     expect(processes[0].env).toEqual({ PORT: "6182" });
-    expect(processes[1].env).toEqual({ PORT: "6183" });
   });
 });
