@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
-const searchExtraPagesStorageKey = "discovery.search.extra-pages.v1";
+const searchRestorationStorageKey = "discovery.search.restoration.v2";
 
 type SearchItem = Record<string, unknown> & Readonly<{ catalog_item_id: string; title: string }>;
 type SearchResponse = Readonly<{
@@ -33,9 +33,9 @@ test.describe("marketplace search scroll restoration", () => {
     const firstLoadedPage = pageFrom(template!, "loaded-once", "restoration-cursor-2");
     const secondLoadedPage = pageFrom(template!, "loaded-twice", null);
     const resultSetKey = JSON.stringify([searchQuery, "", "", "", "", "", "", false, "relevance", []]);
-    const storedSnapshot = JSON.stringify({ version: 1, resultSetKey, pages: [preloadPage] });
+    const storedSnapshot = JSON.stringify({ version: 2, resultSetKey, pages: [preloadPage], scrollY: 0 });
     await page.evaluate(({ key, value }) => window.sessionStorage.setItem(key, value), {
-      key: searchExtraPagesStorageKey,
+      key: searchRestorationStorageKey,
       value: storedSnapshot,
     });
 

@@ -3,21 +3,21 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { DiscoverySearchResponse } from "../../../support/request-support/api-client";
 import {
   MAX_PERSISTED_SEARCH_EXTRA_PAGES,
-  persistSearchExtraPages,
-  restoreSearchExtraPages,
+  persistSearchRestoration,
+  restoreSearchRestoration,
 } from "./search-scroll-restoration";
 
 describe("search scroll restoration", () => {
   beforeEach(() => window.sessionStorage.clear());
 
-  it("restores only cursor pages for the matching Result Set", () => {
+  it("restores cursor pages and scroll offset only for the matching Result Set", () => {
     const pages = [page("second", "cursor_3")];
 
-    persistSearchExtraPages(window.sessionStorage, "pikachu", pages);
+    persistSearchRestoration(window.sessionStorage, "pikachu", pages, 640);
 
-    expect(restoreSearchExtraPages(window.sessionStorage, "pikachu")).toEqual(pages);
-    expect(restoreSearchExtraPages(window.sessionStorage, "raichu")).toEqual([]);
-    expect(restoreSearchExtraPages(window.sessionStorage, "pikachu")).toEqual([]);
+    expect(restoreSearchRestoration(window.sessionStorage, "pikachu")).toEqual({ pages, scrollY: 640 });
+    expect(restoreSearchRestoration(window.sessionStorage, "raichu")).toEqual({ pages: [], scrollY: null });
+    expect(restoreSearchRestoration(window.sessionStorage, "pikachu")).toEqual({ pages: [], scrollY: null });
   });
 
   it("caps persisted pages at a contiguous prefix so its final cursor remains resumable", () => {
@@ -25,13 +25,14 @@ describe("search scroll restoration", () => {
       page(`page-${index + 2}`, `cursor_${index + 3}`),
     );
 
-    persistSearchExtraPages(window.sessionStorage, "all-items", pages);
+    persistSearchRestoration(window.sessionStorage, "all-items", pages, 1_200);
 
-    const restored = restoreSearchExtraPages(window.sessionStorage, "all-items");
-    expect(restored).toHaveLength(MAX_PERSISTED_SEARCH_EXTRA_PAGES);
-    expect(restored.map((entry) => entry.items[0]?.catalog_item_id)).toEqual(
+    const restored = restoreSearchRestoration(window.sessionStorage, "all-items");
+    expect(restored.pages).toHaveLength(MAX_PERSISTED_SEARCH_EXTRA_PAGES);
+    expect(restored.pages.map((entry) => entry.items[0]?.catalog_item_id)).toEqual(
       pages.slice(0, MAX_PERSISTED_SEARCH_EXTRA_PAGES).map((entry) => entry.items[0]?.catalog_item_id),
     );
+    expect(restored.scrollY).toBe(1_200);
   });
 });
 

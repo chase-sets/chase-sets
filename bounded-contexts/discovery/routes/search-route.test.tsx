@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeProjectionPatch, RealtimeSyncRequired } from "@chase-sets/platform-runtime/realtime";
 import type { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import type { DiscoveryBulkCartPreview, DiscoverySearchResponse } from "../support/request-support/api-client";
-import { buildSearchResultSetKey, persistSearchExtraPages } from "../features/search/ui/search-scroll-restoration";
+import { buildSearchResultSetKey, persistSearchRestoration } from "../features/search/ui/search-scroll-restoration";
 
 const {
   mockUseLoaderData,
@@ -153,6 +153,7 @@ describe("marketplace search route", () => {
   beforeEach(() => {
     mockUseLocation.mockReturnValue({ pathname: "/search", search: "", hash: "", state: null, key: "test" });
     mockUseRevalidator.mockReturnValue({ revalidate: vi.fn(), state: "idle" });
+    Object.defineProperty(window, "scrollTo", { configurable: true, value: vi.fn() });
   });
 
   afterEach(() => {
@@ -528,7 +529,7 @@ describe("marketplace search route", () => {
   it("rehydrates cursor-loaded results before a matching search route remounts", async () => {
     const secondPage = persistedSearchPage("cat_raichu", "raichu", "Raichu");
     const loaderData = searchDataWithCursor("pikachu");
-    persistSearchExtraPages(window.sessionStorage, resultSetKey(loaderData), [secondPage]);
+    persistSearchRestoration(window.sessionStorage, resultSetKey(loaderData), [secondPage], 640);
     mockUseLoaderData.mockReturnValue(loaderData);
     mockUseNavigate.mockReturnValue(vi.fn());
     mockUseNavigation.mockReturnValue({ state: "idle" });
@@ -536,6 +537,7 @@ describe("marketplace search route", () => {
 
     const firstVisit = render(<SearchRoute />);
     expect(screen.getByText("Raichu")).toBeTruthy();
+    expect(window.scrollTo).toHaveBeenCalledWith({ top: 640, left: 0, behavior: "instant" });
     firstVisit.unmount();
 
     render(<SearchRoute />);
@@ -545,7 +547,7 @@ describe("marketplace search route", () => {
   it("does not rehydrate cursor pages after the Discovery Query changes", () => {
     const secondPage = persistedSearchPage("cat_raichu", "raichu", "Raichu");
     const pikachuData = searchDataWithCursor("pikachu");
-    persistSearchExtraPages(window.sessionStorage, resultSetKey(pikachuData), [secondPage]);
+    persistSearchRestoration(window.sessionStorage, resultSetKey(pikachuData), [secondPage], 640);
     let loaderData: ReturnType<typeof searchDataWithCursor> | ReturnType<typeof searchDataWithResults> = pikachuData;
     mockUseLoaderData.mockImplementation(() => loaderData);
     mockUseNavigate.mockReturnValue(vi.fn());

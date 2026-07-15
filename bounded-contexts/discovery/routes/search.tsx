@@ -31,8 +31,8 @@ import { applyDiscoverySearchPatch } from "../support/client-support/realtime-ma
 import { SearchPage } from "../features/search/ui/search-page";
 import {
   buildSearchResultSetKey,
-  persistSearchExtraPages,
-  restoreSearchExtraPages,
+  persistSearchRestoration,
+  restoreSearchRestoration,
 } from "../features/search/ui/search-scroll-restoration";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 import { useDiscoveryRealtimeRevalidation } from "../support/realtime-support/revalidation";
@@ -479,13 +479,18 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     dynamicFilters,
   });
   const resultSetKeyRef = useRef(resultSetKey);
+  const pendingScrollRestorationRef = useRef<{
+    key: string;
+    pageCount: number;
+    scrollY: number;
+  } | null>(null);
+  const lastObservedScrollYRef = useRef(0);
   const [extraPageState, setExtraPageState] = useState<{
     key: string;
     pages: DiscoverySearchResponse[];
-  }>(() => ({
-    key: resultSetKey,
-    pages: restoreSearchExtraPages(getSearchSessionStorage(), resultSetKey),
-  }));
+  }>({ key: resultSetKey, pages: [] });
+  const extraPageStateRef = useRef(extraPageState);
+  extraPageStateRef.current = extraPageState;
   const [loadMoreState, setLoadMoreState] = useState<{
     loading: boolean;
     error: string | null;
@@ -520,17 +525,58 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   useEffect(() => {
     resultSetKeyRef.current = resultSetKey;
     loadMoreInFlightRef.current = false;
-    setExtraPageState((current) =>
-      current.key === resultSetKey
-        ? current
-        : {
-            key: resultSetKey,
-            pages: restoreSearchExtraPages(getSearchSessionStorage(), resultSetKey),
-          },
-    );
+    const restoration = restoreSearchRestoration(getSearchSessionStorage(), resultSetKey);
+    pendingScrollRestorationRef.current =
+      restoration.scrollY === null
+        ? null
+        : { key: resultSetKey, pageCount: restoration.pages.length, scrollY: restoration.scrollY };
+    setExtraPageState({ key: resultSetKey, pages: restoration.pages });
     setLoadMoreState({ loading: false, error: null });
     setBulkAddState({ status: "idle" });
   }, [resultSetKey]);
+
+  useEffect(() => {
+    const pending = pendingScrollRestorationRef.current;
+    if (
+      !pending ||
+      pending.key !== resultSetKey ||
+      extraPageState.key !== pending.key ||
+      extraPageState.pages.length !== pending.pageCount
+    ) {
+      return;
+    }
+
+    pendingScrollRestorationRef.current = null;
+    lastObservedScrollYRef.current = pending.scrollY;
+    window.scrollTo({ top: pending.scrollY, left: 0, behavior: "instant" });
+  }, [extraPageState, resultSetKey]);
+
+  useEffect(() => {
+    lastObservedScrollYRef.current = window.scrollY;
+    const observeScrollPosition = () => {
+      lastObservedScrollYRef.current = window.scrollY;
+    };
+    const persistCurrentRestoration = () => {
+      const current = extraPageStateRef.current;
+      const currentKey = resultSetKeyRef.current;
+      if (current.key !== currentKey) {
+        return;
+      }
+      persistSearchRestoration(getSearchSessionStorage(), currentKey, current.pages, lastObservedScrollYRef.current);
+    };
+    const persistPageHideRestoration = () => {
+      observeScrollPosition();
+      persistCurrentRestoration();
+    };
+
+    window.addEventListener("scroll", observeScrollPosition, { passive: true });
+    window.addEventListener("pagehide", persistPageHideRestoration);
+    return () => {
+      window.removeEventListener("scroll", observeScrollPosition);
+      window.removeEventListener("pagehide", persistPageHideRestoration);
+      persistCurrentRestoration();
+    };
+  }, []);
 
   if (
     draftSearchState.committedSearch !== data.search &&
@@ -795,7 +841,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
           return current;
         }
         const pages = [...current.pages, nextPage];
-        persistSearchExtraPages(getSearchSessionStorage(), requestKey, pages);
+        persistSearchRestoration(getSearchSessionStorage(), requestKey, pages, window.scrollY);
         return { key: current.key, pages };
       });
       setLoadMoreState({ loading: false, error: null });

@@ -1,9 +1,9 @@
 import type { DiscoverySearchResponse } from "../../../support/request-support/api-client";
 
-const SEARCH_EXTRA_PAGES_STORAGE_KEY = "discovery.search.extra-pages.v1";
+const SEARCH_RESTORATION_STORAGE_KEY = "discovery.search.restoration.v2";
 export const MAX_PERSISTED_SEARCH_EXTRA_PAGES = 8;
 const MAX_PERSISTED_SEARCH_CHARACTERS = 750_000;
-const STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2;
 
 type SearchResultSetIdentity = Readonly<{
   search: string;
@@ -20,10 +20,16 @@ type SearchResultSetIdentity = Readonly<{
 
 type SearchPageStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-type StoredSearchExtraPages = Readonly<{
+type StoredSearchRestoration = Readonly<{
   version: typeof STORAGE_VERSION;
   resultSetKey: string;
   pages: readonly DiscoverySearchResponse[];
+  scrollY: number;
+}>;
+
+export type SearchRestoration = Readonly<{
+  pages: DiscoverySearchResponse[];
+  scrollY: number | null;
 }>;
 
 export function buildSearchResultSetKey(identity: SearchResultSetIdentity): string {
@@ -41,34 +47,35 @@ export function buildSearchResultSetKey(identity: SearchResultSetIdentity): stri
   ]);
 }
 
-export function restoreSearchExtraPages(storage: SearchPageStorage | null, resultSetKey: string) {
+export function restoreSearchRestoration(storage: SearchPageStorage | null, resultSetKey: string): SearchRestoration {
   if (!storage) {
-    return [];
+    return { pages: [], scrollY: null };
   }
 
   try {
-    const value = storage.getItem(SEARCH_EXTRA_PAGES_STORAGE_KEY);
+    const value = storage.getItem(SEARCH_RESTORATION_STORAGE_KEY);
     if (!value) {
-      return [];
+      return { pages: [], scrollY: null };
     }
 
     const stored: unknown = JSON.parse(value);
-    if (!isStoredSearchExtraPages(stored) || stored.resultSetKey !== resultSetKey) {
-      storage.removeItem(SEARCH_EXTRA_PAGES_STORAGE_KEY);
-      return [];
+    if (!isStoredSearchRestoration(stored) || stored.resultSetKey !== resultSetKey) {
+      storage.removeItem(SEARCH_RESTORATION_STORAGE_KEY);
+      return { pages: [], scrollY: null };
     }
 
-    return [...stored.pages];
+    return { pages: [...stored.pages], scrollY: stored.scrollY };
   } catch {
     safelyRemoveStoredPages(storage);
-    return [];
+    return { pages: [], scrollY: null };
   }
 }
 
-export function persistSearchExtraPages(
+export function persistSearchRestoration(
   storage: SearchPageStorage | null,
   resultSetKey: string,
   pages: readonly DiscoverySearchResponse[],
+  scrollY: number,
 ) {
   if (!storage) {
     return;
@@ -83,7 +90,8 @@ export function persistSearchExtraPages(
       version: STORAGE_VERSION,
       resultSetKey,
       pages: candidatePages,
-    } satisfies StoredSearchExtraPages);
+      scrollY: normalizeScrollY(scrollY),
+    } satisfies StoredSearchRestoration);
     if (candidate.length > MAX_PERSISTED_SEARCH_CHARACTERS) {
       break;
     }
@@ -93,28 +101,35 @@ export function persistSearchExtraPages(
 
   try {
     if (!serialized) {
-      storage.removeItem(SEARCH_EXTRA_PAGES_STORAGE_KEY);
+      storage.removeItem(SEARCH_RESTORATION_STORAGE_KEY);
       return;
     }
-    storage.setItem(SEARCH_EXTRA_PAGES_STORAGE_KEY, serialized);
+    storage.setItem(SEARCH_RESTORATION_STORAGE_KEY, serialized);
   } catch {
     safelyRemoveStoredPages(storage);
   }
 }
 
-function isStoredSearchExtraPages(value: unknown): value is StoredSearchExtraPages {
+function isStoredSearchRestoration(value: unknown): value is StoredSearchRestoration {
   if (!value || typeof value !== "object") {
     return false;
   }
 
-  const candidate = value as Partial<StoredSearchExtraPages>;
+  const candidate = value as Partial<StoredSearchRestoration>;
   return (
     candidate.version === STORAGE_VERSION &&
     typeof candidate.resultSetKey === "string" &&
     Array.isArray(candidate.pages) &&
     candidate.pages.length <= MAX_PERSISTED_SEARCH_EXTRA_PAGES &&
-    candidate.pages.every(isDiscoverySearchResponse)
+    candidate.pages.every(isDiscoverySearchResponse) &&
+    typeof candidate.scrollY === "number" &&
+    Number.isFinite(candidate.scrollY) &&
+    candidate.scrollY >= 0
   );
+}
+
+function normalizeScrollY(scrollY: number) {
+  return Number.isFinite(scrollY) && scrollY >= 0 ? scrollY : 0;
 }
 
 function isDiscoverySearchResponse(value: unknown): value is DiscoverySearchResponse {
@@ -133,7 +148,7 @@ function isDiscoverySearchResponse(value: unknown): value is DiscoverySearchResp
 
 function safelyRemoveStoredPages(storage: SearchPageStorage) {
   try {
-    storage.removeItem(SEARCH_EXTRA_PAGES_STORAGE_KEY);
+    storage.removeItem(SEARCH_RESTORATION_STORAGE_KEY);
   } catch {
     // Storage can be unavailable in privacy modes; search remains usable without restoration.
   }
