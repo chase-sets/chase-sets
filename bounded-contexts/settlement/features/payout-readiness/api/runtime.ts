@@ -380,7 +380,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         recipient: { accountId: params.accountId },
         title,
         body,
-        actionHref: "/account/payouts/setup",
+        actionHref: "/account/desk/settings",
       },
     ];
     const [firstChannel, ...otherChannels] = channels;
@@ -393,7 +393,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         criticality: "security",
         title,
         body,
-        actionHref: "/account/payouts/setup",
+        actionHref: "/account/desk/settings",
         templateId: "settlement_payout_destination_changed",
         templateVersion: 1,
         locale: "en",

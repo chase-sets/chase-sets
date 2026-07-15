@@ -233,7 +233,7 @@ describe("Catalog integrations route", () => {
       importScope: "en:OP16",
     });
     expect(
-      routeData.readModel.actions.find((actionEntry) => actionEntry.key === "start-provider-import")?.blockers,
+      routeData.readModel.actions.find((actionEntry) => actionEntry.key === "scope.import")?.blockers,
     ).not.toContain("import-scope-required");
     await expect(routeData.deferredImportPreview).resolves.toMatchObject({
       providerKey: "scrydex",

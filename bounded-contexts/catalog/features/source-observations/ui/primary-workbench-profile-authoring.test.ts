@@ -75,7 +75,7 @@ describe("Catalog primary workbench read model - profile authoring", () => {
       },
     });
     expect(readModel.profileAuthoring.cloneDraft).toMatchObject({
-      commandKey: "clone-provider-profile",
+      commandKey: "provider-profile.clone",
       sourceProviderKey: "tcgdex",
       sourceProfileVersion: "2026.06.04",
       targetProfileVersion: "2026.06.04-draft",
@@ -91,7 +91,7 @@ describe("Catalog primary workbench read model - profile authoring", () => {
       "connector-kind",
       "supported-scopes",
     ]);
-    expect(readModel.actions.find((action) => action.key === "clone-provider-profile")).toMatchObject({
+    expect(readModel.actions.find((action) => action.key === "provider-profile.clone")).toMatchObject({
       state: "available",
       blockers: [],
     });
@@ -122,7 +122,7 @@ describe("Catalog primary workbench read model - profile authoring", () => {
       ...catalogProviderProfileEditableSectionKeys,
     ]);
     for (const workspace of readModel.profileAuthoring.sectionWorkspaces) {
-      expect(workspace.commandKey).toBe("update-provider-profile-section");
+      expect(workspace.commandKey).toBe("provider-profile.edit-section");
       expect(workspace.actionState).toBe("available");
       expect(workspace.fields.length).toBeGreaterThan(0);
       expect(`${workspace.displayName} ${workspace.fields.map((field) => field.label).join(" ")}`).not.toMatch(
@@ -476,7 +476,7 @@ describe("Catalog primary workbench read model - profile authoring", () => {
   it("marks section save outcomes, diagnostics, and stale conflicts at section scope", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:
-        "https://admin.example/catalog/integrations?providerKey=tcgdex&section=profile-work&profileVersion=2026.06.04-draft&commandIntent=update-provider-profile-section&commandStatus=error&commandResult=section-conflict&commandSection=source-contract",
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&section=profile-work&profileVersion=2026.06.04-draft&commandIntent=provider-profile.edit-section&commandStatus=error&commandResult=section-conflict&commandSection=source-contract",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
       profileReviews: {
         items: [
@@ -534,7 +534,7 @@ describe("Catalog primary workbench read model - profile authoring", () => {
       state: "denied",
       blockers: ["permission-denied"],
     });
-    expect(readModel.actions.find((action) => action.key === "clone-provider-profile")).toMatchObject({
+    expect(readModel.actions.find((action) => action.key === "provider-profile.clone")).toMatchObject({
       state: "denied",
       blockers: ["permission-denied"],
     });

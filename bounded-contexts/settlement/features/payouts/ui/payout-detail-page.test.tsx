@@ -38,16 +38,18 @@ function payout(overrides: Partial<SettlementPayoutRow> = {}): SettlementPayoutR
 describe("payout detail recovery paths", () => {
   it("renders failed payout recovery actions without exposing provider failure details to regular accounts", () => {
     const html = renderToStaticMarkup(
-      <SettlementPayoutDetailPage backHref="/account/payouts" payout={payout()} showSupportDetails={false} />,
+      <SettlementPayoutDetailPage backHref="/account/desk/money" payout={payout()} showSupportDetails={false} />,
     );
 
     expect(html).toContain("Payout PYO-TEST1234");
     expect(html).toContain("Payout account needs review");
     expect(html).toContain("Review payout details");
     expect(html).toContain("Contact support");
-    expect(html).toContain('href="/account/payouts/setup?mode=manage"');
+    expect(html).toContain('href="/account/desk/settings?mode=manage"');
     expect(html).not.toContain("account_closed");
     expect(html).not.toContain("Bank account is closed.");
+    expect(html).not.toContain("tr_test");
+    expect(html).not.toContain("po_test");
     expect(html).not.toContain("Express Dashboard");
   });
 
@@ -56,6 +58,6 @@ describe("payout detail recovery paths", () => {
 
     expect(html).toContain("Preparing payout");
     expect(html).toContain("preparing your payout details");
-    expect(html).toContain('href="/account/payouts"');
+    expect(html).toContain('href="/account/desk/money"');
   });
 });

@@ -1,7 +1,10 @@
+// @vitest-environment jsdom
+
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LoaderFunctionArgs } from "react-router";
 import { defineAuthHost } from "./auth-host";
-import { createMagicLinkLandingLoader } from "./magic-link-landing";
+import { createMagicLinkLandingLoader, MagicLinkLandingPage } from "./magic-link-landing";
 
 const host = defineAuthHost({
   signInPath: "/sign-in",
@@ -12,6 +15,7 @@ const host = defineAuthHost({
 });
 
 afterEach(() => {
+  cleanup();
   vi.unstubAllGlobals();
 });
 
@@ -48,6 +52,21 @@ function createSessionStartedResult() {
 }
 
 describe("magic link landing route", () => {
+  it("renders one top-level heading when authentication cannot continue", () => {
+    render(
+      <MagicLinkLandingPage
+        data={{
+          title: "Magic link expired or was already used",
+          description: "Request a new sign-in link to continue.",
+          signInHref: "/sign-in",
+        }}
+      />,
+    );
+
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1, name: "Magic link expired or was already used" })).toBeTruthy();
+  });
+
   it("consumes a token from a GET landing route and starts the browser session", async () => {
     let requestBody: unknown;
     const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {

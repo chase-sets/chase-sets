@@ -86,7 +86,7 @@ describe("Catalog primary workbench read model - lifecycle recovery", () => {
     expect(readModel.lifecycleRecovery.strictRetirement.summary).not.toMatch(
       /runbooks|release notes|operator instructions/i,
     );
-    expect(readModel.actions.find((action) => action.key === "retire-provider-profile")).toMatchObject({
+    expect(readModel.actions.find((action) => action.key === "provider-profile.retire")).toMatchObject({
       state: "blocked",
       blockers: expect.arrayContaining(["profile-retirement-references"]),
     });
@@ -135,9 +135,9 @@ describe("Catalog primary workbench read model - lifecycle recovery", () => {
       providerKey: "tcgdex",
       profileVersion: "2026.06.03",
       confirmationRequired: true,
-      commandKey: "retire-provider-profile",
+      commandKey: "provider-profile.retire",
     });
-    expect(readModel.actions.find((action) => action.key === "retire-provider-profile")).toMatchObject({
+    expect(readModel.actions.find((action) => action.key === "provider-profile.retire")).toMatchObject({
       state: "available",
       blockers: [],
     });

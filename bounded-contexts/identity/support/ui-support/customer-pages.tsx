@@ -3,6 +3,7 @@ import {
   Form,
   Button,
   Card,
+  Heading,
   LiveRegion,
   Stack,
   Text,
@@ -44,9 +45,9 @@ export function AuthFormPage({
   return (
     <Stack gap={4}>
       <Stack gap={2}>
-        <Text size="lg" weight="semibold">
+        <Heading level={1} visualSize={5}>
           {title}
-        </Text>
+        </Heading>
         <Text tone="secondary">{description}</Text>
       </Stack>
       <Card>
@@ -95,24 +96,29 @@ export function AuthFormPage({
 export function CustomerSummaryPage({
   title,
   description,
+  controls,
   sections,
 }: {
   title: string;
   description: string;
+  controls?: ReactNode;
   sections: readonly { title: string; body: string; action?: ReactNode }[];
 }) {
   return (
     <Stack gap={4}>
       <Stack gap={2}>
-        <Text size="lg" weight="semibold">
+        <Heading level={1} visualSize={5}>
           {title}
-        </Text>
+        </Heading>
         <Text tone="secondary">{description}</Text>
       </Stack>
+      {controls}
       {sections.map((section) => (
         <Card key={section.title}>
           <Stack gap={2}>
-            <Text weight="semibold">{section.title}</Text>
+            <Heading level={2} visualSize={6}>
+              {section.title}
+            </Heading>
             <Text tone="secondary">{section.body}</Text>
             {section.action}
           </Stack>

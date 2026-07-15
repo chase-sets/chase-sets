@@ -36,7 +36,7 @@ describe("Catalog primary workbench read model - governance controls", () => {
     expect(readModel.governanceControls.rbacMatrix).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          actionKey: "start-provider-import",
+          actionKey: "scope.import",
           requiredPermission: "catalog.manage",
           state: "denied",
           blockers: ["permission-denied"],
@@ -126,9 +126,7 @@ describe("Catalog primary workbench read model - governance controls", () => {
         expect.objectContaining({ kind: "worker-pause", status: "blocked" }),
       ]),
     );
-    expect(readModel.actions.find((action) => action.key === "start-provider-import")?.blockers).toContain(
-      "kill-switch-active",
-    );
+    expect(readModel.actions.find((action) => action.key === "scope.import")?.blockers).toContain("kill-switch-active");
     expect(readModel.governanceControls.observability.signals[0]?.alertLinks[0]?.href).toBe(
       "https://grafana.chasesets.com/d/chase-sets-catalog-control-plane/catalog-integration-control-plane",
     );

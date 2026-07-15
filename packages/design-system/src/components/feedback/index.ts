@@ -58,6 +58,9 @@ export type {
   SkeletonProps,
 } from "./loading";
 
+export { SearchResultsTransition } from "./search-results-transition";
+export type { SearchResultsTransitionProps } from "./search-results-transition";
+
 export { EmptyState } from "./empty-state";
 export type { EmptyStateProps } from "./empty-state";
 
