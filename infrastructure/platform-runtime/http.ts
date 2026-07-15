@@ -25,6 +25,8 @@ import {
   type PlatformPostWriteConsistencyEvent,
   type PlatformPostWriteConsistencyOutcome,
 } from "./post-write-consistency";
+import { t } from "@chase-sets/localization";
+import type { ResolvedActor } from "./auth";
 
 export const PLATFORM_INTERNAL_AUTH_HEADER = "x-chase-sets-internal-auth";
 export const PLATFORM_INTERNAL_AUTH_SECRET_ENV = "PLATFORM_INTERNAL_AUTH_SECRET";
@@ -103,6 +105,127 @@ export type PlatformRequestApiBaseUrlOptions = PlatformRequestOriginOptions &
   Readonly<{
     requireInternalApiOrigin?: boolean;
   }>;
+
+export type RouteFunctionArgs = Readonly<{
+  request: Request;
+  params: Readonly<Record<string, string | undefined>>;
+  context?: unknown;
+}>;
+
+export type RouteApiErrorAdapter = Readonly<{
+  isError(error: unknown): boolean;
+  getStatus(error: unknown): number | null;
+  getBody(error: unknown): unknown;
+  getErrorCode(error: unknown): string | null;
+  getMessage(error: unknown): string;
+}>;
+
+export type RouteAuthorization = Readonly<{
+  permission?: string;
+  signInPath?: string;
+  authApiBasePath?: string;
+}>;
+
+export type RouteAuthorizer = (args: RouteFunctionArgs) => Promise<ResolvedActor | null>;
+
+export type FormActionContext = RouteFunctionArgs &
+  Readonly<{
+    actor: ResolvedActor | null;
+    formData: FormData;
+    intent: string;
+  }>;
+
+export type FormActionRedirect = Readonly<{
+  kind: "form-action-redirect";
+  commandResults: readonly unknown[];
+  destination: string;
+  options?: PlatformRedirectAfterWriteOptions;
+}>;
+
+export type FormActionIntentHandler = (context: FormActionContext) => unknown | Promise<unknown>;
+
+export type DefineFormActionOptions<
+  TIntents extends Readonly<Record<string, FormActionIntentHandler>>,
+  TApiErrorResult = never,
+  TErrorResult = never,
+  TUnknownIntentResult = never,
+  TErrorAdapter extends RouteApiErrorAdapter | undefined = undefined,
+> = Readonly<{
+  intents: TIntents;
+  prepare?: (args: RouteFunctionArgs) => RouteFunctionArgs | Promise<RouteFunctionArgs>;
+  authorization?: RouteAuthorization | RouteAuthorizer;
+  errorAdapter?: TErrorAdapter;
+  intentField?: string;
+  readIntent?: (formData: FormData, intentField: string) => string;
+  defaultIntent?: keyof TIntents & string;
+  onApiError?: (error: unknown, context: FormActionContext) => TApiErrorResult | Promise<TApiErrorResult>;
+  onError?: (error: unknown, context: FormActionContext) => TErrorResult | Promise<TErrorResult>;
+  onUnknownIntent?: (context: FormActionContext) => TUnknownIntentResult | Promise<TUnknownIntentResult>;
+}>;
+
+type FinalizedFormActionResult<TResult> = TResult extends FormActionRedirect ? Response : TResult;
+
+type FormActionResult<
+  TIntents extends Readonly<Record<string, FormActionIntentHandler>>,
+  TApiErrorResult,
+  TErrorResult,
+  TUnknownIntentResult,
+  TErrorAdapter extends RouteApiErrorAdapter | undefined,
+> = FinalizedFormActionResult<
+  | Awaited<ReturnType<TIntents[keyof TIntents]>>
+  | Awaited<TApiErrorResult>
+  | Awaited<TErrorResult>
+  | Awaited<TUnknownIntentResult>
+  | (TErrorAdapter extends RouteApiErrorAdapter ? { error: string } : never)
+>;
+
+type ReadAfterWriteRouteEndpoint = Readonly<{
+  routeId?: string;
+  routeIds?: readonly string[];
+  helperUses?: readonly string[];
+}>;
+
+export type RouteContextManifest = Readonly<{
+  contextName: string;
+  readAfterWriteRouteInventory?: readonly Readonly<{
+    source?: ReadAfterWriteRouteEndpoint;
+    destination?: ReadAfterWriteRouteEndpoint;
+  }>[];
+}>;
+
+export type ResourceRouteLoadContext = RouteFunctionArgs & Readonly<{ actor: ResolvedActor | null }>;
+
+export type ResourceRouteFailureMessages = Readonly<{
+  pending?: string;
+  pendingStatusText?: string;
+  unverified?: string;
+  notFound?: string;
+}>;
+
+export type DefineResourceRouteOptions<
+  TResource,
+  TData,
+  TPendingData = TData,
+  TPermanentFailureData = TData,
+> = Readonly<{
+  manifest: RouteContextManifest;
+  routeId: string;
+  prepare?: (args: RouteFunctionArgs) => RouteFunctionArgs | Promise<RouteFunctionArgs>;
+  authorization?: RouteAuthorization | RouteAuthorizer;
+  errorAdapter: RouteApiErrorAdapter;
+  load(context: ResourceRouteLoadContext): Promise<TResource>;
+  map(resource: TResource, context: ResourceRouteLoadContext): TData | Promise<TData>;
+  messages?: ResourceRouteFailureMessages;
+  telemetry?: Omit<PlatformPostWriteTelemetry, "boundedContextName" | "routeId">;
+  onPending?: (
+    result: Extract<LoadAfterWriteResult<TResource>, { kind: "pending" }>,
+    context: ResourceRouteLoadContext,
+  ) => TPendingData | Promise<TPendingData>;
+  onPermanentFailure?: (
+    result: Extract<LoadAfterWriteResult<TResource>, { kind: "permanent-failure" }>,
+    context: ResourceRouteLoadContext,
+  ) => TPermanentFailureData | Promise<TPermanentFailureData>;
+}>;
 
 export type OffsetPageParams = Readonly<{
   limit: number;
@@ -398,6 +521,221 @@ export async function loadAfterWrite<T>(options: PlatformLoadAfterWriteOptions<T
   });
 
   return result;
+}
+
+function readErrorCodeFromBody(body: unknown): string | null {
+  const detail = typeof body === "object" && body !== null && "error" in body ? body.error : null;
+  const code = typeof detail === "object" && detail !== null && "code" in detail ? detail.code : null;
+  return typeof code === "string" && code.trim() ? code : null;
+}
+
+export function defineApiErrorAdapter<TError>(
+  options: Readonly<{
+    isError(error: unknown): error is TError;
+    getStatus(error: TError): number | null;
+    getBody?: (error: TError) => unknown;
+    getErrorCode?: (error: TError) => string | null;
+    getMessage?: (error: TError) => string;
+  }>,
+): RouteApiErrorAdapter {
+  const body = (error: TError) => options.getBody?.(error) ?? null;
+
+  return {
+    isError: options.isError,
+    getStatus: (error) => (options.isError(error) ? options.getStatus(error) : null),
+    getBody: (error) => (options.isError(error) ? body(error) : null),
+    getErrorCode: (error) =>
+      options.isError(error) ? (options.getErrorCode?.(error) ?? readErrorCodeFromBody(body(error))) : null,
+    getMessage: (error) =>
+      options.isError(error)
+        ? (options.getMessage?.(error) ?? (error instanceof Error ? error.message : String(error)))
+        : "",
+  };
+}
+
+export function formActionRedirect(
+  commandResult: unknown,
+  destination: string,
+  options?: PlatformRedirectAfterWriteOptions,
+): FormActionRedirect {
+  return formActionRedirectFromSources([commandResult], destination, options);
+}
+
+export function formActionRedirectFromSources(
+  commandResults: readonly unknown[],
+  destination: string,
+  options?: PlatformRedirectAfterWriteOptions,
+): FormActionRedirect {
+  return {
+    kind: "form-action-redirect",
+    commandResults,
+    destination,
+    ...(options ? { options } : {}),
+  };
+}
+
+function isFormActionRedirect(value: unknown): value is FormActionRedirect {
+  return typeof value === "object" && value !== null && "kind" in value && value.kind === "form-action-redirect";
+}
+
+async function authorizeRoute(
+  args: RouteFunctionArgs,
+  authorization: RouteAuthorization | RouteAuthorizer | undefined,
+): Promise<ResolvedActor | null> {
+  if (!authorization) {
+    return null;
+  }
+
+  if (typeof authorization === "function") {
+    return authorization(args);
+  }
+
+  const { requireActorFromAuthApi } = await import("@chase-sets/platform-runtime/auth");
+  return requireActorFromAuthApi({
+    request: args.request,
+    ...(authorization.permission ? { permission: authorization.permission } : {}),
+    ...(authorization.signInPath ? { signInPath: authorization.signInPath } : {}),
+    ...(authorization.authApiBasePath ? { authApiBasePath: authorization.authApiBasePath } : {}),
+  });
+}
+
+export function defineFormAction<
+  const TIntents extends Readonly<Record<string, FormActionIntentHandler>>,
+  TApiErrorResult = never,
+  TErrorResult = never,
+  TUnknownIntentResult = never,
+  TErrorAdapter extends RouteApiErrorAdapter | undefined = undefined,
+>(
+  options: DefineFormActionOptions<TIntents, TApiErrorResult, TErrorResult, TUnknownIntentResult, TErrorAdapter>,
+): (
+  args: RouteFunctionArgs,
+) => Promise<FormActionResult<TIntents, TApiErrorResult, TErrorResult, TUnknownIntentResult, TErrorAdapter>> {
+  const action = async (args: RouteFunctionArgs) => {
+    const finalize = (result: unknown) =>
+      isFormActionRedirect(result)
+        ? redirectAfterWriteFromSources(result.commandResults, result.destination, result.options)
+        : result;
+    args = options.prepare ? await options.prepare(args) : args;
+    const actor = await authorizeRoute(args, options.authorization);
+    const formData = await args.request.formData();
+    const intentField = options.intentField ?? "intent";
+    const intent = options.readIntent
+      ? options.readIntent(formData, intentField)
+      : String(formData.get(intentField) ?? options.defaultIntent ?? "");
+    const context: FormActionContext = { ...args, actor, formData, intent };
+    const handler = options.intents[intent];
+
+    if (!handler) {
+      if (options.onUnknownIntent) {
+        return finalize(await options.onUnknownIntent(context));
+      }
+
+      throw new Response(t("localization.routeAction.unsupportedIntent"), { status: 400 });
+    }
+
+    try {
+      const result = await handler(context);
+      return finalize(result);
+    } catch (error) {
+      if (error instanceof Response) {
+        throw error;
+      }
+
+      if (options.errorAdapter?.isError(error)) {
+        if (options.onApiError) {
+          return finalize(await options.onApiError(error, context));
+        }
+
+        return { error: options.errorAdapter.getMessage(error) };
+      }
+
+      if (options.onError) {
+        return finalize(await options.onError(error, context));
+      }
+
+      throw error;
+    }
+  };
+
+  return action as (
+    args: RouteFunctionArgs,
+  ) => Promise<FormActionResult<TIntents, TApiErrorResult, TErrorResult, TUnknownIntentResult, TErrorAdapter>>;
+}
+
+function endpointIncludesRoute(endpoint: ReadAfterWriteRouteEndpoint | undefined, routeId: string) {
+  return endpoint?.routeId === routeId || endpoint?.routeIds?.includes(routeId) === true;
+}
+
+function assertManifestDeclaresResourceRoute(manifest: RouteContextManifest, routeId: string) {
+  const declared = manifest.readAfterWriteRouteInventory?.some(
+    (entry) =>
+      endpointIncludesRoute(entry.destination, routeId) && entry.destination?.helperUses?.includes("loadAfterWrite"),
+  );
+
+  if (!declared) {
+    throw new Error(
+      `Context '${manifest.contextName}' route '${routeId}' must declare loadAfterWrite in readAfterWriteRouteInventory.`,
+    );
+  }
+}
+
+export function defineResourceRoute<TResource, TData, TPendingData = TData, TPermanentFailureData = TData>(
+  options: DefineResourceRouteOptions<TResource, TData, TPendingData, TPermanentFailureData>,
+) {
+  assertManifestDeclaresResourceRoute(options.manifest, options.routeId);
+
+  return async (args: RouteFunctionArgs): Promise<TData | TPendingData | TPermanentFailureData> => {
+    args = options.prepare ? await options.prepare(args) : args;
+    const actor = await authorizeRoute(args, options.authorization);
+    const context: ResourceRouteLoadContext = { ...args, actor };
+    const result = await loadAfterWrite({
+      request: args.request,
+      load: () => options.load(context),
+      isNotFound: (error) => options.errorAdapter.getStatus(error) === 404,
+      getStatus: options.errorAdapter.getStatus,
+      getErrorCode: options.errorAdapter.getErrorCode,
+      getBody: options.errorAdapter.getBody,
+      telemetry: {
+        boundedContextName: options.manifest.contextName,
+        surface: options.telemetry?.surface ?? options.routeId,
+        routeId: options.routeId,
+        ...options.telemetry,
+      },
+    });
+
+    if (result.kind === "data") {
+      return options.map(result.data, context);
+    }
+
+    if (result.kind === "pending") {
+      if (options.onPending) {
+        return options.onPending(result, context);
+      }
+
+      throw new Response(options.messages?.pending ?? t("localization.routeResource.pending"), {
+        status: 503,
+        ...(options.messages?.pendingStatusText ? { statusText: options.messages.pendingStatusText } : {}),
+      });
+    }
+
+    if (options.onPermanentFailure) {
+      return options.onPermanentFailure(result, context);
+    }
+
+    if (result.reason !== "fresh-write-read-permanent") {
+      throw new Response(options.messages?.unverified ?? t("localization.routeResource.unverified"), { status: 409 });
+    }
+
+    if ("error" in result && options.errorAdapter.getStatus(result.error) === 404) {
+      throw new Response(options.messages?.notFound ?? t("localization.routeResource.notFound"), { status: 404 });
+    }
+
+    if ("error" in result) {
+      throw result.error;
+    }
+
+    throw new Response(options.messages?.notFound ?? t("localization.routeResource.notFound"), { status: 404 });
+  };
 }
 
 export function createPlatformInternalAuthHeaders(

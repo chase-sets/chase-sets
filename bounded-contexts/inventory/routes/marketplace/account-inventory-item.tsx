@@ -1,125 +1,57 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
-import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import type { MetaFunction } from "react-router";
+import { useActionData, useLoaderData, useLocation } from "react-router";
+import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { InventoryApiError, type InventoryItemDetail } from "../../support/request-support/api-client";
-import { createInventoryRequestApiClient } from "../../support/request-support/api-client";
+import contextManifest from "../../context.json";
+import { createInventoryRequestApiClient, type InventoryItemDetail } from "../../support/request-support/api-client";
+import { inventoryApiErrorAdapter } from "../../support/request-support/route-api-error";
 import { InventoryItemDetailPage } from "../../features/inventory-items/ui/inventory-item-detail-page";
 
-function inventoryApiErrorStatus(error: unknown) {
-  return error instanceof InventoryApiError ? error.status : null;
-}
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "account-inventory-item",
+  authorization: { permission: "inventory.view" },
+  errorAdapter: inventoryApiErrorAdapter,
+  load: ({ request, params }) => createInventoryRequestApiClient(request).getItem(params.itemId!),
+  map: (item) => ({ item }),
+  messages: {
+    pending: "Inventory item is still updating. Reload this page in a moment.",
+    unverified: "Inventory item update could not be verified. Reload this page and try again.",
+    notFound: t("inventory.routes.marketplace.accountInventoryItem.inventory.item.not.found"),
+  },
+});
 
-function inventoryApiErrorBody(error: unknown) {
-  return error instanceof InventoryApiError ? error.body : null;
-}
-
-function inventoryApiErrorCode(error: unknown) {
-  const body = inventoryApiErrorBody(error);
-  const apiError = typeof body === "object" && body !== null && "error" in body ? body.error : null;
-  const code = typeof apiError === "object" && apiError !== null ? (apiError as { code?: unknown }).code : null;
-  return typeof code === "string" && code.trim() ? code : null;
-}
-
-export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "inventory.view",
-  });
-  const api = createInventoryRequestApiClient(request);
-
-  const itemRead = await loadAfterWrite({
-    request,
-    load: () => api.getItem(params.itemId!),
-    isNotFound: (error) => inventoryApiErrorStatus(error) === 404,
-    getStatus: inventoryApiErrorStatus,
-    getErrorCode: inventoryApiErrorCode,
-    getBody: inventoryApiErrorBody,
-  });
-
-  if (itemRead.kind === "data") {
-    return {
-      item: itemRead.data,
-    };
-  }
-
-  if (itemRead.kind === "pending") {
-    throw new Response("Inventory item is still updating. Reload this page in a moment.", {
-      status: 503,
-    });
-  }
-
-  if (itemRead.reason !== "fresh-write-read-permanent") {
-    throw new Response("Inventory item update could not be verified. Reload this page and try again.", {
-      status: 409,
-    });
-  }
-
-  if (inventoryApiErrorStatus(itemRead.error) === 404) {
-    throw new Response(t("inventory.routes.marketplace.accountInventoryItem.inventory.item.not.found"), {
-      status: 404,
-    });
-  }
-
-  throw itemRead.error;
-}
-
-export async function action({ request, params }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "inventory.manage",
-  });
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const api = createInventoryRequestApiClient(request);
-
-  try {
-    switch (intent) {
-      case "adjust-item":
-        return redirect(
-          navigateAfterWrite(
-            await api.adjustItem(params.itemId!, {
-              quantityDelta: Number(formData.get("quantityDelta") ?? 0),
-              reason: formData.get("reason"),
-            }),
-            new URL(request.url).pathname,
-          ),
-        );
-      case "create-hold":
-        return redirect(
-          navigateAfterWrite(
-            await api.createHold(params.itemId!, {
-              quantity: Number(formData.get("quantity") ?? 0),
-              reason: formData.get("reason"),
-              notes: String(formData.get("notes") ?? "").trim() || null,
-            }),
-            new URL(request.url).pathname,
-          ),
-        );
-      case "release-hold":
-        return redirect(
-          navigateAfterWrite(
-            await api.releaseHold(String(formData.get("holdId") ?? "")),
-            new URL(request.url).pathname,
-          ),
-        );
-      default:
-        break;
-    }
-
-    return redirect(new URL(request.url).pathname);
-  } catch (error) {
-    if (error instanceof InventoryApiError) {
-      return {
-        error: error.message,
-      };
-    }
-
-    throw error;
-  }
-}
+export const action = defineFormAction({
+  authorization: { permission: "inventory.manage" },
+  errorAdapter: inventoryApiErrorAdapter,
+  intents: {
+    "adjust-item": async ({ request, params, formData }) =>
+      formActionRedirect(
+        await createInventoryRequestApiClient(request).adjustItem(params.itemId!, {
+          quantityDelta: Number(formData.get("quantityDelta") ?? 0),
+          reason: formData.get("reason"),
+        }),
+        new URL(request.url).pathname,
+      ),
+    "create-hold": async ({ request, params, formData }) =>
+      formActionRedirect(
+        await createInventoryRequestApiClient(request).createHold(params.itemId!, {
+          quantity: Number(formData.get("quantity") ?? 0),
+          reason: formData.get("reason"),
+          notes: String(formData.get("notes") ?? "").trim() || null,
+        }),
+        new URL(request.url).pathname,
+      ),
+    "release-hold": async ({ request, formData }) =>
+      formActionRedirect(
+        await createInventoryRequestApiClient(request).releaseHold(String(formData.get("holdId") ?? "")),
+        new URL(request.url).pathname,
+      ),
+  },
+  onUnknownIntent: ({ request }) =>
+    new Response(null, { status: 302, headers: { Location: new URL(request.url).pathname } }),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
@@ -129,7 +61,7 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceInventoryItemRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const actionData = useActionData<typeof action>() as { error?: string } | undefined;
   const location = useLocation();
 
   return (

@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData, useMatches } from "react-router";
-import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData, useMatches } from "react-router";
+import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { PlatformFeedbackAdminListPage } from "../../features/platform-feedback/ui/admin-pages";
 import { createExperienceRequestApiClient } from "../../support/request-support/api-client";
 
@@ -41,24 +41,27 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const api = createExperienceRequestApiClient(request);
-  const url = new URL(request.url);
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const feedbackIds = formData.getAll("feedbackIds").map(String).filter(Boolean);
-  let result: unknown = null;
+const feedbackListDestination = (request: Request) => `/support/platform-feedback${new URL(request.url).search}`;
 
-  if (intent === "bulk-review") {
-    result = await api.bulkMarkReviewed({ feedbackIds });
-  }
-
-  if (intent === "bulk-archive") {
-    result = await api.bulkArchive({ feedbackIds });
-  }
-
-  throw redirect(navigateAfterWrite(result, `/support/platform-feedback${url.search}`));
-}
+export const action = defineFormAction({
+  intents: {
+    "bulk-review": async ({ request, formData }) =>
+      formActionRedirect(
+        await createExperienceRequestApiClient(request).bulkMarkReviewed({
+          feedbackIds: formData.getAll("feedbackIds").map(String).filter(Boolean),
+        }),
+        feedbackListDestination(request),
+      ),
+    "bulk-archive": async ({ request, formData }) =>
+      formActionRedirect(
+        await createExperienceRequestApiClient(request).bulkArchive({
+          feedbackIds: formData.getAll("feedbackIds").map(String).filter(Boolean),
+        }),
+        feedbackListDestination(request),
+      ),
+  },
+  onUnknownIntent: ({ request }) => formActionRedirect(null, feedbackListDestination(request)),
+});
 
 export const meta: MetaFunction = () => [
   { title: t("experience.routes.admin.platformFeedback.platform.feedback.experience.admin") },

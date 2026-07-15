@@ -1,5 +1,6 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useActionData, useLoaderData } from "react-router";
+import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { t } from "@chase-sets/localization";
 import { tryMoneyToCents } from "@chase-sets/primitives/money";
@@ -29,50 +30,47 @@ function centsFromAmountField(value: FormDataEntryValue | null): number | null {
   return cents === null ? null : Number(cents);
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
-  const api = createUcpOAuthRequestApiClient(request);
-  const grantId = params.id!;
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
+const agentDestination = (id: string) => `/account/agents/${id}`;
 
-  if (intent === "revoke") {
-    await api.revokeAgentGrant(grantId);
-  }
-
-  if (intent === "update-mandate") {
-    const allowedRails = formData.getAll("allowed_rails").map(String);
-    await api.updateAgentGrantMandate(grantId, {
-      max_per_order_cents: centsFromAmountField(formData.get("max_per_order_amount")),
-      daily_cap_cents: centsFromAmountField(formData.get("daily_cap_amount")),
-      monthly_cap_cents: centsFromAmountField(formData.get("monthly_cap_amount")),
-      human_present_required: formData.get("human_present_required") !== "false",
-      allowed_rails: allowedRails.length > 0 ? allowedRails : ["handoff-only"],
-    });
-  }
-
-  if (intent === "update-webhook") {
-    const callbackUrl = String(formData.get("callback_url") ?? "").trim();
-    const result = await api.updateAgentGrantWebhook<{ webhook: AgentGrantWebhook | null }>(
-      grantId,
-      callbackUrl || null,
-    );
-    return { webhook: result.webhook };
-  }
-
-  if (intent === "disable-webhook") {
-    const result = await api.updateAgentGrantWebhook<{ webhook: AgentGrantWebhook | null }>(grantId, null);
-    return { webhook: result.webhook };
-  }
-
-  return redirect(`/account/agents/${grantId}`);
-}
+export const action = defineFormAction({
+  intents: {
+    revoke: async ({ request, params }) => {
+      await createUcpOAuthRequestApiClient(request).revokeAgentGrant(params.id!);
+      return formActionRedirect(null, agentDestination(params.id!));
+    },
+    "update-mandate": async ({ request, params, formData }) => {
+      const allowedRails = formData.getAll("allowed_rails").map(String);
+      await createUcpOAuthRequestApiClient(request).updateAgentGrantMandate(params.id!, {
+        max_per_order_cents: centsFromAmountField(formData.get("max_per_order_amount")),
+        daily_cap_cents: centsFromAmountField(formData.get("daily_cap_amount")),
+        monthly_cap_cents: centsFromAmountField(formData.get("monthly_cap_amount")),
+        human_present_required: formData.get("human_present_required") !== "false",
+        allowed_rails: allowedRails.length > 0 ? allowedRails : ["handoff-only"],
+      });
+      return formActionRedirect(null, agentDestination(params.id!));
+    },
+    "update-webhook": async ({ request, params, formData }) => {
+      const result = await createUcpOAuthRequestApiClient(request).updateAgentGrantWebhook<{
+        webhook: AgentGrantWebhook | null;
+      }>(params.id!, String(formData.get("callback_url") ?? "").trim() || null);
+      return { webhook: result.webhook };
+    },
+    "disable-webhook": async ({ request, params }) => {
+      const result = await createUcpOAuthRequestApiClient(request).updateAgentGrantWebhook<{
+        webhook: AgentGrantWebhook | null;
+      }>(params.id!, null);
+      return { webhook: result.webhook };
+    },
+  },
+  onUnknownIntent: ({ params }) => formActionRedirect(null, agentDestination(params.id!)),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: t("auth.features.agentGrants.ui.agentGrantListPage.connected.agents") });
 
 export default function MarketplaceAccountAgentDetailRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const actionData = useActionData<typeof action>() as { webhook?: AgentGrantWebhook | null } | undefined;
   return (
     <AgentGrantDetailPage
       grant={data.grant}

@@ -1,5 +1,6 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData, useMatches, useRevalidator } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData, useMatches, useRevalidator } from "react-router";
+import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { t } from "@chase-sets/localization";
 import {
   cancelProjectionOperation,
@@ -35,34 +36,39 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
+const afterProjectionOperation = (request: Request) => formActionRedirect(null, currentRoutePath(request));
 
-  if (intent === "refresh-status") {
-    await refreshProjectionStatus(request);
-  } else if (intent === "retry-stream") {
-    await retryBlockedStream(request, {
-      projectionKey: String(formData.get("projectionKey") ?? ""),
-      streamId: String(formData.get("streamId") ?? ""),
-    });
-  } else if (intent === "rebuild-group") {
-    await rebuildProjectionGroup(request, {
-      contextName: String(formData.get("contextName") ?? ""),
-      projectionName: String(formData.get("projectionName") ?? ""),
-    });
-  } else if (intent === "rebuild-context") {
-    await rebuildProjectionContext(request, {
-      contextName: String(formData.get("contextName") ?? ""),
-    });
-  } else if (intent === "cancel-operation") {
-    await cancelProjectionOperation(request, {
-      operationId: String(formData.get("operationId") ?? ""),
-    });
-  }
-
-  return redirect(currentRoutePath(request));
-}
+export const action = defineFormAction({
+  intents: {
+    "refresh-status": async ({ request }) => {
+      await refreshProjectionStatus(request);
+      return afterProjectionOperation(request);
+    },
+    "retry-stream": async ({ request, formData }) => {
+      await retryBlockedStream(request, {
+        projectionKey: String(formData.get("projectionKey") ?? ""),
+        streamId: String(formData.get("streamId") ?? ""),
+      });
+      return afterProjectionOperation(request);
+    },
+    "rebuild-group": async ({ request, formData }) => {
+      await rebuildProjectionGroup(request, {
+        contextName: String(formData.get("contextName") ?? ""),
+        projectionName: String(formData.get("projectionName") ?? ""),
+      });
+      return afterProjectionOperation(request);
+    },
+    "rebuild-context": async ({ request, formData }) => {
+      await rebuildProjectionContext(request, { contextName: String(formData.get("contextName") ?? "") });
+      return afterProjectionOperation(request);
+    },
+    "cancel-operation": async ({ request, formData }) => {
+      await cancelProjectionOperation(request, { operationId: String(formData.get("operationId") ?? "") });
+      return afterProjectionOperation(request);
+    },
+  },
+  onUnknownIntent: ({ request }) => afterProjectionOperation(request),
+});
 
 export default function ProjectionOperationsRoute() {
   const { data, filters, wakeStatus } = useLoaderData<typeof loader>();

@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import { defineFormAction, formActionRedirect, type FormActionContext } from "@chase-sets/platform-runtime/http";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useMatches, useSearchParams } from "react-router";
 import { SupportOperationsPage } from "../../features/support-requests/ui/support-operations-page";
 import {
@@ -7,8 +8,8 @@ import {
   supportOperationsQueuePagination,
   supportOperationsQueueQuery,
 } from "../../support/request-support/list-pagination";
-import { createSupportRequestRequestApiClient } from "../../support/request-support/support-request-api-client";
 import { executeSupportRequestAction } from "../../support/request-support/support-request-action";
+import { createSupportRequestRequestApiClient } from "../../support/request-support/support-request-api-client";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("support.routes.admin.operationsQueue.request.failed");
@@ -51,30 +52,16 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const api = createSupportRequestRequestApiClient(request);
-
-  if (intent === "escalate-overdue") {
-    try {
-      const result = await api.escalateOverdueSupportRequests({ limit: 100 });
-      const url = new URL(request.url);
-      url.searchParams.set("escalated", String(result.escalated));
-      url.searchParams.set("skipped", String(result.skipped));
-      url.searchParams.set("capped", String(result.capped));
-      url.searchParams.set("escalationTotal", String(result.total));
-      return redirect(`${url.pathname}${url.search}`);
-    } catch (error) {
-      return { error: errorMessage(error) };
-    }
-  }
-
+async function handleSupportRequestAction({ request, formData }: FormActionContext) {
   const supportRequestId = String(formData.get("supportRequestId") ?? "").trim();
   if (!supportRequestId) return null;
 
   try {
-    const result = await executeSupportRequestAction(api, supportRequestId, formData);
+    const result = await executeSupportRequestAction(
+      createSupportRequestRequestApiClient(request),
+      supportRequestId,
+      formData,
+    );
     if (!result) return null;
     if (result.kind === "preview") {
       return { preview: result.preview, proposalInput: result.proposalInput };
@@ -89,6 +76,40 @@ export async function action({ request }: ActionFunctionArgs) {
     return { error: errorMessage(error) };
   }
 }
+
+export const action = defineFormAction({
+  intents: {
+    "escalate-overdue": async ({ request }) => {
+      try {
+        const result = await createSupportRequestRequestApiClient(request).escalateOverdueSupportRequests({
+          limit: 100,
+        });
+        const url = new URL(request.url);
+        url.searchParams.set("escalated", String(result.escalated));
+        url.searchParams.set("skipped", String(result.skipped));
+        url.searchParams.set("capped", String(result.capped));
+        url.searchParams.set("escalationTotal", String(result.total));
+        return formActionRedirect(null, `${url.pathname}${url.search}`);
+      } catch (error) {
+        return { error: errorMessage(error) };
+      }
+    },
+    note: handleSupportRequestAction,
+    response: handleSupportRequestAction,
+    escalate: handleSupportRequestAction,
+    resolve: handleSupportRequestAction,
+    close: handleSupportRequestAction,
+    cancel: handleSupportRequestAction,
+    "preview-remedy": handleSupportRequestAction,
+    "propose-remedy": handleSupportRequestAction,
+    "approve-remedy": handleSupportRequestAction,
+    "retry-remedy-effect": handleSupportRequestAction,
+    "waive-remedy-effect": handleSupportRequestAction,
+    "release-remedy-refund": handleSupportRequestAction,
+    "request-remedy-correction": handleSupportRequestAction,
+  },
+  onUnknownIntent: () => null,
+});
 
 export const meta: MetaFunction = () => [{ title: t("support.routes.admin.operationsQueue.meta.title") }];
 

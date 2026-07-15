@@ -1,10 +1,11 @@
 import { formatDateTime, t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { defineFormAction } from "@chase-sets/platform-runtime/http";
 import {
   HiddenInput,
   AutoGrid,
@@ -75,52 +76,48 @@ async function loadPaymentMethodSnapshot(paymentsApi: PaymentsRequestApiClient) 
   return (await paymentsApi.listPaymentMethods()).items;
 }
 
-export async function action({ request }: ActionFunctionArgs): Promise<PaymentMethodsActionData> {
-  await requireActorFromAuthApi({ request });
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const paymentsApi = createPaymentsRequestApiClient(request);
-
-  try {
-    if (intent === "add") {
+export const action = defineFormAction({
+  authorization: ({ request }) => requireActorFromAuthApi({ request }),
+  intents: {
+    add: async ({ request }) => {
+      const paymentsApi = createPaymentsRequestApiClient(request);
       const setup = await paymentsApi.createSavedPaymentSetupSession({
         returnUrlPath: "/account/payment-methods",
       });
       return { setup, paymentMethods: await loadPaymentMethodSnapshot(paymentsApi) };
-    }
-    if (intent === "default") {
+    },
+    default: async ({ request, formData }) => {
+      const paymentsApi = createPaymentsRequestApiClient(request);
       await paymentsApi.setDefaultPaymentMethod(String(formData.get("instrumentId") ?? ""));
       return { paymentMethods: await loadPaymentMethodSnapshot(paymentsApi) };
-    }
-    if (intent === "remove") {
+    },
+    remove: async ({ request, formData }) => {
+      const paymentsApi = createPaymentsRequestApiClient(request);
       await paymentsApi.removePaymentMethod(String(formData.get("instrumentId") ?? ""));
       return { paymentMethods: await loadPaymentMethodSnapshot(paymentsApi) };
-    }
-    if (intent === "reconcile") {
-      const result = await paymentsApi.reconcilePaymentMethods();
+    },
+    reconcile: async ({ request }) => {
+      const result = await createPaymentsRequestApiClient(request).reconcilePaymentMethods();
       return { paymentMethods: result.items };
-    }
-  } catch (error) {
-    if (error instanceof Response) {
-      throw error;
-    }
-    return {
-      error:
-        error instanceof PaymentsApiError || error instanceof Error
-          ? error.message
-          : t("payments.routes.marketplace.accountPaymentMethods.payment.method.update.failed"),
-    };
-  }
-
-  return { error: t("payments.routes.marketplace.accountPaymentMethods.choose.payment.method.action") };
-}
+    },
+  },
+  onUnknownIntent: () => ({
+    error: t("payments.routes.marketplace.accountPaymentMethods.choose.payment.method.action"),
+  }),
+  onError: (error) => ({
+    error:
+      error instanceof PaymentsApiError || error instanceof Error
+        ? error.message
+        : t("payments.routes.marketplace.accountPaymentMethods.payment.method.update.failed"),
+  }),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: t("payments.routes.marketplace.accountPaymentMethods.saved.payment.methods") });
 
 export default function AccountPaymentMethodsRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const actionData = useActionData<typeof action>() as PaymentMethodsActionData | undefined;
   const [setup, setSetup] = useState<PaymentMethodsActionData["setup"] | null>(actionData?.setup ?? null);
   const [setupSaved, setSetupSaved] = useState(false);
   useEffect(() => {

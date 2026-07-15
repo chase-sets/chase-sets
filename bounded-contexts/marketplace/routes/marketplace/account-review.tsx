@@ -1,13 +1,18 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useLocation, useNavigation } from "react-router";
-import { classifyPostWriteDestinationResult } from "@chase-sets/http/responses";
-import { loadAfterWrite, navigateAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
+import {
+  defineResourceRoute,
+  navigateAfterWrite,
+  type PlatformPostWriteTelemetry,
+} from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { ReputationApiError, type ReviewDetail } from "../../support/request-support/reputation-api-client";
 import { createReputationRequestApiClient } from "../../support/request-support/reputation-api-client";
 import { ReviewDetailPage, ReviewDetailRecoveryPage } from "../../features/reviews/ui/review-detail-page";
+import contextManifest from "../../context.json";
+import { marketplaceApiErrorAdapter } from "../../support/request-support/route-api-error";
 
 const ACCOUNT_REVIEW_POST_WRITE_TELEMETRY = {
   boundedContextName: "marketplace",
@@ -33,47 +38,24 @@ function replyErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : t("reputation.routes.marketplace.accountReview.reply.failed");
 }
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
-  const actor = await requireActorFromAuthApi({
-    request,
-    permission: "reputation.view",
-  });
-  const api = createReputationRequestApiClient(request);
-
-  const reviewRead = await loadAfterWrite({
-    request,
-    isNotFound: (error) => error instanceof ReputationApiError && error.status === 404,
-    load: async () => ({
-      review: await api.getAccountReview(params.reviewId!),
-      viewerAccountId: actor.accountId,
-    }),
-    telemetry: ACCOUNT_REVIEW_POST_WRITE_TELEMETRY,
-  });
-  const reviewDestination = classifyPostWriteDestinationResult(reviewRead);
-
-  if (reviewDestination.kind === "recover") {
-    return {
-      review: null,
-      viewerAccountId: actor.accountId,
-      recovery: "fresh-write-preparing" as const,
-    };
-  }
-
-  if (reviewDestination.kind === "pass-through") {
-    const error = "error" in reviewDestination.result ? reviewDestination.result.error : null;
-    if (error instanceof ReputationApiError && error.status === 404) {
-      throw new Response(t("reputation.routes.marketplace.accountReview.review.not.found"), { status: 404 });
-    }
-
-    if (error) {
-      throw error;
-    }
-
-    throw new Response(t("reputation.routes.marketplace.accountReview.review.not.found"), { status: 404 });
-  }
-
-  return reviewDestination.data;
-}
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "account-review",
+  authorization: { permission: "reputation.view" },
+  errorAdapter: marketplaceApiErrorAdapter,
+  load: async ({ request, params, actor }) => ({
+    review: await createReputationRequestApiClient(request).getAccountReview(params.reviewId!),
+    viewerAccountId: actor!.accountId,
+  }),
+  map: (result) => result,
+  onPending: (_result, { actor }) => ({
+    review: null,
+    viewerAccountId: actor!.accountId,
+    recovery: "fresh-write-preparing" as const,
+  }),
+  messages: { notFound: t("reputation.routes.marketplace.accountReview.review.not.found") },
+  telemetry: ACCOUNT_REVIEW_POST_WRITE_TELEMETRY,
+});
 
 // Subject reply compose (m108): posts the one threaded subject response for
 // this review. The API's domain decider is authoritative for the subject-only,

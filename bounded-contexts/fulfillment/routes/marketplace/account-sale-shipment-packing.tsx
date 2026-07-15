@@ -5,6 +5,7 @@ import { navigateAfterWrite, readApiErrorMessage, recoverFreshWriteReadError } f
 import { LinkButton, MarketplaceNotice, Page, PageHeader } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { defineFormAction, type FormActionContext } from "@chase-sets/platform-runtime/http";
 import { FulfillmentApiError, type FulfillmentShipmentDetail } from "../../support/request-support/api-client";
 import { createFulfillmentRequestApiClient } from "../../support/request-support/api-client";
 import { FulfillmentShipmentPackingPage } from "../../features/shipments/ui/shipment-packing-page";
@@ -53,14 +54,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "fulfillment.manage",
-  });
+async function handleAction(intent: string, { request, params, formData }: FormActionContext) {
   const api = createFulfillmentRequestApiClient(request);
-  const formData = await request.formData();
-  const intent = formValue(formData, "intent");
   const shipmentId = params.shipmentId!;
 
   try {
@@ -103,6 +98,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
     };
   }
 }
+
+export const action = defineFormAction({
+  authorization: { permission: "fulfillment.manage" },
+  intents: {
+    "start-packing": (context) => handleAction("start-packing", context),
+    "complete-packing": (context) => handleAction("complete-packing", context),
+    "set-line-confirmed": (context) => handleAction("set-line-confirmed", context),
+  },
+  onUnknownIntent: (context) => handleAction("", context),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

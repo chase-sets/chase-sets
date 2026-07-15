@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
-import { readOffsetPageParams } from "@chase-sets/platform-runtime/http";
+import { defineFormAction, readOffsetPageParams } from "@chase-sets/platform-runtime/http";
 import type { ApiKey, User } from "../../support/request-support/api-client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { ApiKeyListPage } from "../../features/api-keys/ui/api-key-list-page";
@@ -30,23 +30,23 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return { apiKeys: { ...apiKeys, limit: page.limit, offset: page.offset }, users: users.items, filters };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const api = createIdentityRequestApiClient(request);
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-
-  if (intent !== "create") {
+export const action = defineFormAction({
+  intents: {
+    create: async ({ request, formData }) => {
+      const created = await createIdentityRequestApiClient(request).createApiKey<ApiKeySecretMutationResult>({
+        userId: String(formData.get("userId") ?? ""),
+        name: String(formData.get("name") ?? ""),
+      });
+      return Response.json(
+        { oneTimeSecret: oneTimeSecretFromMutation(created, "created") } satisfies ApiKeyActionData,
+        { status: 201 },
+      );
+    },
+  },
+  onUnknownIntent: () => {
     throw new Response("Unsupported API key action.", { status: 400 });
-  }
-
-  const created = await api.createApiKey<ApiKeySecretMutationResult>({
-    userId: String(formData.get("userId") ?? ""),
-    name: String(formData.get("name") ?? ""),
-  });
-  return Response.json({ oneTimeSecret: oneTimeSecretFromMutation(created, "created") } satisfies ApiKeyActionData, {
-    status: 201,
-  });
-}
+  },
+});
 
 export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.apiKeys.api.keys.identity.admin") }];
 

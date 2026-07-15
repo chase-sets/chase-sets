@@ -1,19 +1,24 @@
 import { t } from "@chase-sets/localization";
 import { useCallback, useState } from "react";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useRevalidator, useRouteLoaderData } from "react-router";
-import { navigateAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useActionData, useLoaderData, useRevalidator, useRouteLoaderData } from "react-router";
+import {
+  defineFormAction,
+  formActionRedirect,
+  navigateAfterWrite,
+  type PlatformPostWriteTelemetry,
+} from "@chase-sets/platform-runtime/http";
 import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { requireActorFromAuthApi, resolveRequiredActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { resolveRequiredActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { Card, LinkButton, Page, PageHeader, PageSection, Stack, Text } from "@chase-sets/design-system";
 import {
-  SettlementApiError,
   createSettlementApiClient,
   type SettlementPayoutReadinessRow,
   type SettlementPayoutSetupRefreshResult,
 } from "../../client";
 import { createSettlementRequestApiClient } from "../../support/request-support/api-client";
+import { settlementApiErrorAdapter } from "../../support/request-support/route-api-error";
 import { PayoutSetupPage, type PayoutSetupMode } from "../../features/payout-readiness/ui/payout-setup-page";
 import {
   CONNECT_EMBEDDED_COMPONENT_CSP,
@@ -184,40 +189,34 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "payouts.setup",
-  });
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const mode = formData.get("mode") === "management" ? "management" : "setup";
-  const returnTo = safeAccountReturnTo(new URL(request.url).searchParams.get("returnTo"));
-  const settlementApi = createSettlementRequestApiClient(request);
-
-  try {
-    if (intent === "refresh-payout-setup") {
-      const payoutReadiness = await settlementApi.refreshPayoutSetup();
+export const action = defineFormAction({
+  authorization: { permission: "payouts.setup" },
+  errorAdapter: settlementApiErrorAdapter,
+  intents: {
+    "refresh-payout-setup": async ({ request }) => {
+      const returnTo = safeAccountReturnTo(new URL(request.url).searchParams.get("returnTo"));
+      const payoutReadiness = await createSettlementRequestApiClient(request).refreshPayoutSetup();
       const returnHref = await returnToWithCompactPayoutFreshness(returnTo, payoutReadiness);
       if (returnHref) {
-        return redirect(returnHref);
+        return formActionRedirect(null, returnHref);
       }
 
       return {
         payoutReadiness,
         setupNotice: t("settlement.routes.marketplace.accountPayoutSetup.payout.setup.status.was.refreshed"),
       };
-    }
-
-    return redirect(setupRouteForMode(mode, undefined, returnTo));
-  } catch (error) {
-    if (error instanceof SettlementApiError) {
-      return { error: error.message };
-    }
-
-    throw error;
-  }
-}
+    },
+  },
+  onUnknownIntent: ({ request, formData }) =>
+    formActionRedirect(
+      null,
+      setupRouteForMode(
+        formData.get("mode") === "management" ? "management" : "setup",
+        undefined,
+        safeAccountReturnTo(new URL(request.url).searchParams.get("returnTo")),
+      ),
+    ),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: t("settlement.routes.marketplace.accountPayoutSetup.payout.setup.marketplace") });

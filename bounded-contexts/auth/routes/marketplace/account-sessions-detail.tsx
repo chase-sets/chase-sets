@@ -1,6 +1,6 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
-import { appendFreshWriteTokenFromSources } from "@chase-sets/http/responses";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData } from "react-router";
+import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { t } from "@chase-sets/localization";
 import { createAuthRequestApiClient } from "../../support/request-support/api-client";
@@ -15,23 +15,26 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
-  const api = createAuthRequestApiClient(request);
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const sessionId = params.id!;
-  const results: unknown[] = [];
+const sessionDestination = (id: string) => `/account/sessions/${id}`;
 
-  if (intent === "switch-account") {
-    results.push(await api.switchSessionAccount(sessionId, String(formData.get("accountId") ?? "")));
-  }
-
-  if (intent === "revoke") {
-    results.push(await api.revokeSession(sessionId));
-  }
-
-  return redirect(appendFreshWriteTokenFromSources(`/account/sessions/${sessionId}`, results));
-}
+export const action = defineFormAction({
+  intents: {
+    "switch-account": async ({ request, params, formData }) =>
+      formActionRedirect(
+        await createAuthRequestApiClient(request).switchSessionAccount(
+          params.id!,
+          String(formData.get("accountId") ?? ""),
+        ),
+        sessionDestination(params.id!),
+      ),
+    revoke: async ({ request, params }) =>
+      formActionRedirect(
+        await createAuthRequestApiClient(request).revokeSession(params.id!),
+        sessionDestination(params.id!),
+      ),
+  },
+  onUnknownIntent: ({ params }) => formActionRedirect(null, sessionDestination(params.id!)),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: t("auth.features.sessions.ui.sessionListPage.session") });

@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
 import { type ListResponse } from "@chase-sets/http/responses";
-import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -13,6 +13,7 @@ import {
 import { createInventoryRequestApiClient } from "../../support/request-support/api-client";
 import { InventoryItemListPage } from "../../features/inventory-items/ui/inventory-item-list-page";
 import { inventoryItemPageQuery } from "../../support/request-support/list-pagination";
+import { inventoryApiErrorAdapter } from "../../support/request-support/route-api-error";
 
 const ACCOUNT_INVENTORY_READ_TIMEOUT_MS = 10_000;
 const TEMPORARY_INVENTORY_ITEMS_LOAD_ERROR =
@@ -138,18 +139,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "inventory.manage",
-  });
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const api = createInventoryRequestApiClient(request);
-
-  try {
-    if (intent === "create-item") {
-      const result = (await api.createItem({
+export const action = defineFormAction({
+  authorization: { permission: "inventory.manage" },
+  errorAdapter: inventoryApiErrorAdapter,
+  intents: {
+    "create-item": async ({ request, formData }) => {
+      const result = (await createInventoryRequestApiClient(request).createItem({
         catalogItemId: formData.get("catalogItemId"),
         selectedOptions: formData.get("selectedOptions"),
         storageLocationId: formData.get("storageLocationId"),
@@ -159,24 +154,15 @@ export async function action({ request }: ActionFunctionArgs) {
       if (result.id) {
         const returnTo = safeAccountReturnTo(formData.get("returnTo"));
         if (returnTo) {
-          return redirect(navigateAfterWrite(result, returnTo));
+          return formActionRedirect(result, returnTo);
         }
-        return redirect(navigateAfterWrite(result, `/account/inventory/items/${encodeURIComponent(result.id)}`));
+        return formActionRedirect(result, `/account/inventory/items/${encodeURIComponent(result.id)}`);
       }
-      return redirect("/account/inventory");
-    }
-
-    return redirect("/account/inventory");
-  } catch (error) {
-    if (error instanceof InventoryApiError) {
-      return {
-        error: error.message,
-      };
-    }
-
-    throw error;
-  }
-}
+      return formActionRedirect(null, "/account/inventory");
+    },
+  },
+  onUnknownIntent: () => formActionRedirect(null, "/account/inventory"),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

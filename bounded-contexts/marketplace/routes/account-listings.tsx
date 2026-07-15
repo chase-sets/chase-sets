@@ -7,8 +7,10 @@ import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtim
 import { type FreshWriteReadErrorClassification, type ListResponse } from "@chase-sets/http/responses";
 import { Card, LinkButton, Page, PageHeader, PageSection, Stack, Text } from "@chase-sets/design-system";
 import {
+  defineFormAction,
   loadAfterWrite,
   navigateAfterWriteWithCompactToken,
+  type FormActionContext,
   type PlatformPostWriteTelemetry,
 } from "@chase-sets/platform-runtime/http";
 import {
@@ -348,10 +350,7 @@ async function fetchSellerOpenOrderCount(request: Request): Promise<number | nul
   }
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "listings.manage" });
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
+async function handleAction(intent: string, { request, formData }: FormActionContext) {
   const api = createMarketplaceRequestApiClient(request);
 
   try {
@@ -476,6 +475,21 @@ export async function action({ request }: ActionFunctionArgs) {
     throw error;
   }
 }
+
+export const action = defineFormAction({
+  authorization: { permission: "listings.manage" },
+  intents: {
+    "disable-listing-availability": (context) => handleAction("disable-listing-availability", context),
+    "enable-listing-availability": (context) => handleAction("enable-listing-availability", context),
+    "schedule-away-window": (context) => handleAction("schedule-away-window", context),
+    "cancel-away-window": (context) => handleAction("cancel-away-window", context),
+    "set-order-capacity": (context) => handleAction("set-order-capacity", context),
+    "clear-order-capacity": (context) => handleAction("clear-order-capacity", context),
+    "bulk-pause-listings": (context) => handleAction("bulk-pause-listings", context),
+    "bulk-withdraw-listings": (context) => handleAction("bulk-withdraw-listings", context),
+  },
+  onUnknownIntent: (context) => handleAction("", context),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

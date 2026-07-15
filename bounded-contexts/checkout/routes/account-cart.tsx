@@ -12,6 +12,7 @@ import {
   type PostWriteHandoffState,
 } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { defineFormAction, type FormActionContext } from "@chase-sets/platform-runtime/http";
 import {
   navigateAfterWriteFromSourcesWithPlatformPostWriteToken,
   resolvePlatformPostWriteRequest,
@@ -286,10 +287,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return loadCartWithPostWriteRecovery(resolvedRequest, () => api.getCart(), "account");
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const intentValues = formData.getAll("intent");
-  const intent = String(intentValues.at(-1) ?? "");
+async function handleAction(intent: string, { request, formData }: FormActionContext) {
   const api = createCheckoutRequestApiClient(request);
   const actor = await resolveActorFromAuthApi({ request });
   const anonymousCartId = readAnonymousCartId(request);
@@ -395,6 +393,16 @@ export async function action({ request }: ActionFunctionArgs) {
     };
   }
 }
+
+export const action = defineFormAction({
+  readIntent: (formData, intentField) => String(formData.getAll(intentField).at(-1) ?? ""),
+  intents: {
+    "update-cart-line": (context) => handleAction("update-cart-line", context),
+    "lock-preferred-listing": (context) => handleAction("lock-preferred-listing", context),
+    "remove-cart-line": (context) => handleAction("remove-cart-line", context),
+  },
+  onUnknownIntent: (context) => handleAction("", context),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

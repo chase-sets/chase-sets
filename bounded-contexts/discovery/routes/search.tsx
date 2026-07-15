@@ -15,6 +15,7 @@ import { formatDisplayIdentity } from "@chase-sets/localization";
 import type { SavedListProductSelection } from "@chase-sets/collections/server";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { defineFormAction, type FormActionContext } from "@chase-sets/platform-runtime/http";
 import { createDiscoveryRequestApiClient } from "../support/request-support/api-client";
 import type {
   CategoryListResponse,
@@ -239,9 +240,7 @@ type BulkAddActionData =
       requestedLineCount: number;
     }>;
 
-export async function action({ request, params }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
+async function handleAction(intent: string, { request, params, formData }: FormActionContext) {
   if (intent === "commit-saved-list") {
     return commitSavedListAddition(request, formData);
   }
@@ -365,6 +364,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
     requestedLineCount: result.requestedLineCount,
   } satisfies BulkAddActionData);
 }
+
+export const action = defineFormAction({
+  intents: {
+    "commit-saved-list": (context) => handleAction("commit-saved-list", context),
+    "prepare-saved-list": (context) => handleAction("prepare-saved-list", context),
+    "preview-bulk-add": (context) => handleAction("preview-bulk-add", context),
+    "commit-bulk-add": (context) => handleAction("commit-bulk-add", context),
+  },
+  onUnknownIntent: (context) => handleAction("", context),
+});
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
   ...buildOpenGraphMeta({

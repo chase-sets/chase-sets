@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData, useMatches } from "react-router";
+import { defineFormAction } from "@chase-sets/platform-runtime/http";
 import {
   createSettlementRequestApiClient,
   SettlementApiError,
@@ -155,123 +156,117 @@ function optionalText(value: FormDataEntryValue | null): string | null {
   return text.length > 0 ? text : null;
 }
 
-export async function action({ request, params }: ActionFunctionArgs): Promise<WalletWorkbenchLastAction | null> {
-  const accountId = params.accountId!;
-  const settlementApi = createSettlementRequestApiClient(request);
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-
-  if (intent === "preview-adjustment") {
-    const values = readWalletAdjustmentGuidedFlowValues(formData);
-    try {
-      const preview: SettlementWalletAdjustmentPreview = await settlementApi.previewWalletAdjustment({
-        targetAccountId: accountId,
-        direction: values.direction,
-        amount: values.amount,
-        reasonCode: values.reasonCode,
-      });
-      return { intent, values, preview };
-    } catch (error) {
-      return {
-        intent,
-        values,
-        error: describeWalletAdjustmentFlowError(
-          error,
-          t("settlement.features.wallets.ui.walletWorkbenchPage.preview.could.not.be.generated"),
-        ),
-      };
-    }
-  }
-
-  if (intent === "request-adjustment") {
-    const values = readWalletAdjustmentGuidedFlowValues(formData);
-    const expectedBalanceRevision = optionalText(formData.get("expectedBalanceRevision"));
-    try {
-      const snapshot = await settlementApi.requestWalletAdjustment({
-        targetAccountId: accountId,
-        direction: values.direction,
-        amount: values.amount,
-        reasonCode: values.reasonCode,
-        explanation: optionalText(formData.get("explanation")),
-        evidenceReferences: values.evidenceReferences,
-        ...(expectedBalanceRevision ? { expectedBalanceRevision } : {}),
-      });
-      return { intent, snapshot };
-    } catch (error) {
-      return {
-        intent,
-        values,
-        error: describeWalletAdjustmentFlowError(
-          error,
-          t("settlement.features.wallets.ui.walletWorkbenchPage.adjustment.could.not.be.submitted"),
-        ),
-      };
-    }
-  }
-
-  if (intent === "approve-adjustment") {
-    const adjustmentId = String(formData.get("adjustmentId") ?? "");
-    const elevationApprovedByUserId = optionalText(formData.get("elevationApprovedByUserId"));
-    try {
-      const snapshot = await settlementApi.approveWalletAdjustment(
-        adjustmentId,
-        elevationApprovedByUserId ? { elevationApprovedByUserId } : {},
-      );
-      return { intent, adjustmentId, snapshot };
-    } catch (error) {
-      return {
-        intent,
-        adjustmentId,
-        error: describeWalletAdjustmentFlowError(
-          error,
-          t("settlement.features.wallets.ui.walletWorkbenchPage.approval.could.not.be.completed"),
-        ),
-      };
-    }
-  }
-
-  if (intent === "reject-adjustment") {
-    const adjustmentId = String(formData.get("adjustmentId") ?? "");
-    try {
-      const snapshot = await settlementApi.rejectWalletAdjustment(adjustmentId, {
-        rejectionReason: optionalText(formData.get("rejectionReason")),
-      });
-      return { intent, adjustmentId, snapshot };
-    } catch (error) {
-      return {
-        intent,
-        adjustmentId,
-        error: describeWalletAdjustmentFlowError(
-          error,
-          t("settlement.features.wallets.ui.walletWorkbenchPage.rejection.could.not.be.completed"),
-        ),
-      };
-    }
-  }
-
-  if (intent === "reverse-adjustment") {
-    const adjustmentId = String(formData.get("adjustmentId") ?? "");
-    try {
-      const result = await settlementApi.reverseWalletAdjustment(adjustmentId, {
-        approvedByUserId: String(formData.get("approvedByUserId") ?? ""),
-        elevationApprovedByUserId: String(formData.get("elevationApprovedByUserId") ?? ""),
-        explanation: optionalText(formData.get("explanation")),
-      });
-      return { intent, adjustmentId, snapshot: result.original, reversal: result.reversal };
-    } catch (error) {
-      return {
-        intent,
-        adjustmentId,
-        error: describeWalletAdjustmentFlowError(
-          error,
-          t("settlement.features.wallets.ui.walletWorkbenchPage.reversal.could.not.be.completed"),
-        ),
-      };
-    }
-  }
-
-  return null;
-}
+export const action = defineFormAction({
+  intents: {
+    "preview-adjustment": async ({ request, params, formData, intent }) => {
+      const values = readWalletAdjustmentGuidedFlowValues(formData);
+      try {
+        const preview: SettlementWalletAdjustmentPreview = await createSettlementRequestApiClient(
+          request,
+        ).previewWalletAdjustment({
+          targetAccountId: params.accountId!,
+          direction: values.direction,
+          amount: values.amount,
+          reasonCode: values.reasonCode,
+        });
+        return { intent, values, preview };
+      } catch (error) {
+        return {
+          intent,
+          values,
+          error: describeWalletAdjustmentFlowError(
+            error,
+            t("settlement.features.wallets.ui.walletWorkbenchPage.preview.could.not.be.generated"),
+          ),
+        };
+      }
+    },
+    "request-adjustment": async ({ request, params, formData, intent }) => {
+      const values = readWalletAdjustmentGuidedFlowValues(formData);
+      const expectedBalanceRevision = optionalText(formData.get("expectedBalanceRevision"));
+      try {
+        const snapshot = await createSettlementRequestApiClient(request).requestWalletAdjustment({
+          targetAccountId: params.accountId!,
+          direction: values.direction,
+          amount: values.amount,
+          reasonCode: values.reasonCode,
+          explanation: optionalText(formData.get("explanation")),
+          evidenceReferences: values.evidenceReferences,
+          ...(expectedBalanceRevision ? { expectedBalanceRevision } : {}),
+        });
+        return { intent, snapshot };
+      } catch (error) {
+        return {
+          intent,
+          values,
+          error: describeWalletAdjustmentFlowError(
+            error,
+            t("settlement.features.wallets.ui.walletWorkbenchPage.adjustment.could.not.be.submitted"),
+          ),
+        };
+      }
+    },
+    "approve-adjustment": async ({ request, formData, intent }) => {
+      const adjustmentId = String(formData.get("adjustmentId") ?? "");
+      const elevationApprovedByUserId = optionalText(formData.get("elevationApprovedByUserId"));
+      try {
+        const snapshot = await createSettlementRequestApiClient(request).approveWalletAdjustment(
+          adjustmentId,
+          elevationApprovedByUserId ? { elevationApprovedByUserId } : {},
+        );
+        return { intent, adjustmentId, snapshot };
+      } catch (error) {
+        return {
+          intent,
+          adjustmentId,
+          error: describeWalletAdjustmentFlowError(
+            error,
+            t("settlement.features.wallets.ui.walletWorkbenchPage.approval.could.not.be.completed"),
+          ),
+        };
+      }
+    },
+    "reject-adjustment": async ({ request, formData, intent }) => {
+      const adjustmentId = String(formData.get("adjustmentId") ?? "");
+      try {
+        const snapshot = await createSettlementRequestApiClient(request).rejectWalletAdjustment(adjustmentId, {
+          rejectionReason: optionalText(formData.get("rejectionReason")),
+        });
+        return { intent, adjustmentId, snapshot };
+      } catch (error) {
+        return {
+          intent,
+          adjustmentId,
+          error: describeWalletAdjustmentFlowError(
+            error,
+            t("settlement.features.wallets.ui.walletWorkbenchPage.rejection.could.not.be.completed"),
+          ),
+        };
+      }
+    },
+    "reverse-adjustment": async ({ request, formData, intent }) => {
+      const adjustmentId = String(formData.get("adjustmentId") ?? "");
+      try {
+        const result = await createSettlementRequestApiClient(request).reverseWalletAdjustment(adjustmentId, {
+          approvedByUserId: String(formData.get("approvedByUserId") ?? ""),
+          elevationApprovedByUserId: String(formData.get("elevationApprovedByUserId") ?? ""),
+          explanation: optionalText(formData.get("explanation")),
+        });
+        return { intent, adjustmentId, snapshot: result.original, reversal: result.reversal };
+      } catch (error) {
+        return {
+          intent,
+          adjustmentId,
+          error: describeWalletAdjustmentFlowError(
+            error,
+            t("settlement.features.wallets.ui.walletWorkbenchPage.reversal.could.not.be.completed"),
+          ),
+        };
+      }
+    },
+  },
+  onUnknownIntent: () => null,
+});
 
 export const meta: MetaFunction = () => [
   { title: t("settlement.routes.admin.walletWorkbench.wallet.workbench.settlement.admin") },

@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect } from "react-router";
-import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import type { Membership } from "../../support/request-support/api-client";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
 
@@ -13,27 +13,31 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   );
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
-  const api = createIdentityRequestApiClient(request);
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const membershipId = params.id!;
-  let result: unknown = null;
+const membershipDestination = (id: string) => `/access/memberships/${id}`;
 
-  if (intent === "change-role") {
-    result = await api.changeMembershipRole(membershipId, String(formData.get("roleKey") ?? ""));
-  }
-
-  if (intent === "revoke") {
-    result = await api.revokeMembership(membershipId);
-  }
-
-  if (intent === "reinstate") {
-    result = await api.reinstateMembership(membershipId);
-  }
-
-  return redirect(navigateAfterWrite(result, `/access/memberships/${membershipId}`));
-}
+export const action = defineFormAction({
+  intents: {
+    "change-role": async ({ request, params, formData }) =>
+      formActionRedirect(
+        await createIdentityRequestApiClient(request).changeMembershipRole(
+          params.id!,
+          String(formData.get("roleKey") ?? ""),
+        ),
+        membershipDestination(params.id!),
+      ),
+    revoke: async ({ request, params }) =>
+      formActionRedirect(
+        await createIdentityRequestApiClient(request).revokeMembership(params.id!),
+        membershipDestination(params.id!),
+      ),
+    reinstate: async ({ request, params }) =>
+      formActionRedirect(
+        await createIdentityRequestApiClient(request).reinstateMembership(params.id!),
+        membershipDestination(params.id!),
+      ),
+  },
+  onUnknownIntent: ({ params }) => formActionRedirect(null, membershipDestination(params.id!)),
+});
 
 export const meta: MetaFunction = () => [
   { title: t("identity.routes.admin.membershipsDetail.membership.detail.identity.admin") },

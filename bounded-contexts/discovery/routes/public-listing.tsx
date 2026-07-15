@@ -1,5 +1,5 @@
 import { formatBpsPercent, formatDate, t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
   AccountReputationSummary,
@@ -28,6 +28,7 @@ import {
   ensureAnonymousReportId,
 } from "@chase-sets/marketplace/server";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/request-support/api-client";
 import type { DiscoveryPublicListing } from "../support/client-support/contracts";
@@ -278,27 +279,25 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const listingId = String(formData.get("listingId") ?? "");
-  const slug = params.listingSlug ?? "";
-
-  if (intent !== "report-listing" || !listingId || !slug) {
-    throw redirect(`/listings/${slug}`);
-  }
-
-  const anonymousReportId = ensureAnonymousReportId(request);
-  await createMarketplaceRequestApiClient(request).reportListing(listingId, anonymousReportId, {
-    reason: String(formData.get("reason") ?? "") as never,
-    details: String(formData.get("details") ?? "") || null,
-    sourceRoutePath: `/listings/${slug}`,
-  });
-
-  const headers = new Headers();
-  appendAnonymousReportCookie(headers, anonymousReportId, request);
-  throw redirect(`/listings/${slug}?reported=1`, { headers });
-}
+export const action = defineFormAction({
+  intents: {
+    "report-listing": async ({ request, params, formData }) => {
+      const listingId = String(formData.get("listingId") ?? "");
+      const slug = params.listingSlug ?? "";
+      if (!listingId || !slug) return formActionRedirect(null, `/listings/${slug}`);
+      const anonymousReportId = ensureAnonymousReportId(request);
+      await createMarketplaceRequestApiClient(request).reportListing(listingId, anonymousReportId, {
+        reason: String(formData.get("reason") ?? "") as never,
+        details: String(formData.get("details") ?? "") || null,
+        sourceRoutePath: `/listings/${slug}`,
+      });
+      const headers = new Headers();
+      appendAnonymousReportCookie(headers, anonymousReportId, request);
+      return formActionRedirect(null, `/listings/${slug}?reported=1`, { headers });
+    },
+  },
+  onUnknownIntent: ({ params }) => formActionRedirect(null, `/listings/${params.listingSlug ?? ""}`),
+});
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
   ...buildOpenGraphMeta({

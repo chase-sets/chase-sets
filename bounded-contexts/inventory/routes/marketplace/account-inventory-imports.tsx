@@ -1,10 +1,9 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
-import { readApiErrorCode } from "@chase-sets/http/responses";
-import { loadAfterWrite } from "@chase-sets/platform-runtime/http";
+import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import contextManifest from "../../context.json";
 import { parseSelectedOptionsInput } from "../../features/inventory-items/integrations/catalog/versioning";
 import {
   createInventoryRequestApiClient,
@@ -12,6 +11,7 @@ import {
   type InventoryImportBatchDetail,
 } from "../../support/request-support/api-client";
 import { InventoryImportBatchPage } from "../../features/import-batches/ui/import-batch-page";
+import { inventoryApiErrorAdapter } from "../../support/request-support/route-api-error";
 
 const DEFAULT_IMPORT_QUERY = "limit=25&offset=0";
 const IMPORT_BATCH_UPDATING_MESSAGE = t(
@@ -29,69 +29,25 @@ function requestWithoutFreshWrite(request: Request) {
   });
 }
 
-function inventoryApiErrorStatus(error: unknown) {
-  return error instanceof InventoryApiError ? error.status : null;
-}
+const loadImportBatchDetail = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "account-inventory-import",
+  authorization: { permission: "inventory.view" },
+  errorAdapter: inventoryApiErrorAdapter,
+  load: ({ request, params }) => createInventoryRequestApiClient(request).getImportBatch(params.batchId!),
+  map: (detail: InventoryImportBatchDetail) => ({ detail, detailLoadMessage: null }),
+  onPending: () => ({ detail: null, detailLoadMessage: IMPORT_BATCH_UPDATING_MESSAGE }),
+  messages: {
+    unverified: "Import batch update could not be verified. Reload this page and try again.",
+    notFound: t("inventory.features.importBatches.api.route.import.batch.not.found"),
+  },
+});
 
-function inventoryApiErrorBody(error: unknown) {
-  return error instanceof InventoryApiError ? error.body : null;
-}
-
-function inventoryApiErrorCode(error: unknown) {
-  return readApiErrorCode(inventoryApiErrorBody(error));
-}
-
-async function loadImportBatchDetail(
-  request: Request,
-  load: () => Promise<InventoryImportBatchDetail>,
-): Promise<Readonly<{ detail: InventoryImportBatchDetail | null; detailLoadMessage: string | null }>> {
-  const detailRead = await loadAfterWrite({
-    request,
-    isNotFound: (error) => inventoryApiErrorStatus(error) === 404,
-    getStatus: inventoryApiErrorStatus,
-    getErrorCode: inventoryApiErrorCode,
-    getBody: inventoryApiErrorBody,
-    load,
-  });
-
-  if (detailRead.kind === "data") {
-    return {
-      detail: detailRead.data,
-      detailLoadMessage: null,
-    };
-  }
-
-  if (detailRead.kind === "pending") {
-    return {
-      detail: null,
-      detailLoadMessage: IMPORT_BATCH_UPDATING_MESSAGE,
-    };
-  }
-
-  if (detailRead.reason !== "fresh-write-read-permanent") {
-    throw new Response("Import batch update could not be verified. Reload this page and try again.", {
-      status: 409,
-    });
-  }
-
-  if (inventoryApiErrorStatus(detailRead.error) === 404) {
-    throw new Response(t("inventory.features.importBatches.api.route.import.batch.not.found"), { status: 404 });
-  }
-
-  throw detailRead.error;
-}
-
-export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "inventory.view",
-  });
-  const api = createInventoryRequestApiClient(request);
+export async function loader(args: LoaderFunctionArgs) {
+  const { request, params } = args;
   const nonFreshApi = createInventoryRequestApiClient(requestWithoutFreshWrite(request));
   const batchId = params.batchId;
-  const detailResult = batchId
-    ? await loadImportBatchDetail(request, () => api.getImportBatch(batchId))
-    : { detail: null, detailLoadMessage: null };
+  const detailResult = batchId ? await loadImportBatchDetail(args) : { detail: null, detailLoadMessage: null };
 
   return {
     batches: await nonFreshApi.listImportBatches(DEFAULT_IMPORT_QUERY),
@@ -102,57 +58,40 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "inventory.manage",
-  });
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const api = createInventoryRequestApiClient(request);
-
-  try {
-    if (intent === "create-batch") {
+export const action = defineFormAction({
+  authorization: { permission: "inventory.manage" },
+  errorAdapter: inventoryApiErrorAdapter,
+  intents: {
+    "create-batch": async ({ request, formData }) => {
       const uploadedFile = formData.get("file");
       const file = uploadedFile instanceof File && uploadedFile.size > 0 ? uploadedFile : null;
-      const job = await api.createImportBatch({
+      const job = await createInventoryRequestApiClient(request).createImportBatch({
         csvText: file ? await file.text() : String(formData.get("csvText") ?? ""),
         sourceKey: String(formData.get("sourceKey") ?? "native-csv"),
         quantityMode: String(formData.get("quantityMode") ?? "add"),
         defaultStorageLocationId: String(formData.get("defaultStorageLocationId") ?? "").trim() || null,
         sourceFilename: (file?.name ?? String(formData.get("sourceFilename") ?? "").trim()) || null,
       });
-      return redirect(`/account/inventory/imports?jobId=${encodeURIComponent(job.jobId)}`);
-    }
-
-    if (intent === "commit-batch") {
+      return formActionRedirect(null, `/account/inventory/imports?jobId=${encodeURIComponent(job.jobId)}`);
+    },
+    "commit-batch": async ({ request, formData }) => {
       const batchId = String(formData.get("batchId") ?? "");
-      const job = await api.commitImportBatch(batchId);
-      return redirect(`/account/inventory/imports/${batchId}?jobId=${encodeURIComponent(job.jobId)}`);
-    }
-
-    if (intent === "resolve-row") {
+      const job = await createInventoryRequestApiClient(request).commitImportBatch(batchId);
+      return formActionRedirect(null, `/account/inventory/imports/${batchId}?jobId=${encodeURIComponent(job.jobId)}`);
+    },
+    "resolve-row": async ({ request, formData }) => {
       const batchId = String(formData.get("batchId") ?? "");
       const rowId = String(formData.get("rowId") ?? "");
-      await api.resolveImportBatchRow(batchId, rowId, {
+      await createInventoryRequestApiClient(request).resolveImportBatchRow(batchId, rowId, {
         catalogItemId: String(formData.get("catalogItemId") ?? ""),
         selectedOptions: parseSelectedOptionsInput(String(formData.get("selectedOptions") ?? "")),
         storageLocationId: String(formData.get("storageLocationId") ?? ""),
       });
-      return redirect(`/account/inventory/imports/${batchId}`);
-    }
-
-    return redirect("/account/inventory/imports");
-  } catch (error) {
-    if (error instanceof InventoryApiError) {
-      return {
-        error: error.message,
-      };
-    }
-
-    throw error;
-  }
-}
+      return formActionRedirect(null, `/account/inventory/imports/${batchId}`);
+    },
+  },
+  onUnknownIntent: () => formActionRedirect(null, "/account/inventory/imports"),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

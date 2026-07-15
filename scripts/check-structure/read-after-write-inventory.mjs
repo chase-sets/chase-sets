@@ -11,6 +11,9 @@ const freshWriteHelperNames = new Set([
   "appendPostWriteHandoff",
   "appendPostWriteHandoffFromSources",
   "evaluatePostWriteHandoff",
+  "defineResourceRoute",
+  "formActionRedirect",
+  "formActionRedirectFromSources",
   "loadAfterWrite",
   "loadFreshlyWrittenResource",
   "navigateAfterWrite",
@@ -40,7 +43,35 @@ const receiptProducingFreshWriteHelperNames = new Set([
   "navigateAfterWriteFromSourcesWithPlatformPostWriteToken",
   "navigateAfterWriteWithCompactToken",
   "navigateAfterWriteWithPlatformPostWriteToken",
+  "formActionRedirect",
+  "formActionRedirectFromSources",
 ]);
+const routeRuntimeContractHelperNames = new Set([
+  "defineResourceRoute",
+  "formActionRedirect",
+  "formActionRedirectFromSources",
+]);
+
+function helperUseSatisfiesClaim(usedHelpers, claimedHelper) {
+  if (usedHelpers.has(claimedHelper)) return true;
+  if (usedHelpers.has("defineResourceRoute") && claimedHelper === "loadAfterWrite") return true;
+  if (
+    (usedHelpers.has("formActionRedirect") || usedHelpers.has("formActionRedirectFromSources")) &&
+    receiptProducingFreshWriteHelperNames.has(claimedHelper)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function helperUsageIsCovered(usedHelper, coveredHelpers) {
+  if (coveredHelpers.has(usedHelper)) return true;
+  if (usedHelper === "defineResourceRoute" && coveredHelpers.has("loadAfterWrite")) return true;
+  if (usedHelper === "formActionRedirect" || usedHelper === "formActionRedirectFromSources") {
+    return [...coveredHelpers].some((helper) => receiptProducingFreshWriteHelperNames.has(helper));
+  }
+  return false;
+}
 const helperImportPattern =
   /from\s+["']@chase-sets\/(?:http\/responses|platform-runtime\/http|platform-runtime\/post-write-tokens)["']/;
 const rawPostWriteHandoffMetadataPattern =
@@ -454,7 +485,7 @@ export async function collectFreshWriteHelperUsage(options) {
     }
 
     const helperUses = [...freshWriteHelperNames].filter((helperName) =>
-      new RegExp(`\\b${helperName}\\s*(?:<[^>\\n]+>\\s*)?\\(`).test(content),
+      new RegExp(`\\b${helperName}\\s*(?:<[^>]+>\\s*)?\\(`).test(content),
     );
     if (helperUses.length === 0) {
       continue;
@@ -905,7 +936,7 @@ function validateHelperUseClaims(options) {
     for (const routeId of routeIds) {
       const usedHelpers = helpersUsedByRoute.get(routeId) ?? new Set();
       for (const helperName of claimedHelpers) {
-        if (!usedHelpers.has(helperName)) {
+        if (!helperUseSatisfiesClaim(usedHelpers, helperName)) {
           violations.push(
             `${entryLabel}: ${sectionName}.helperUses claims '${helperName}' on route '${routeId}' but no production route module for that route uses it`,
           );
@@ -919,7 +950,7 @@ function validateHelperUseClaims(options) {
       }
       const usedHelpers = helpersUsedByFile.get(file) ?? new Set();
       for (const helperName of claimedHelpers) {
-        if (!usedHelpers.has(helperName)) {
+        if (!helperUseSatisfiesClaim(usedHelpers, helperName)) {
           violations.push(
             `${entryLabel}: ${sectionName}.helperUses claims '${helperName}' for file '${file}' but the file does not use it`,
           );
@@ -1689,7 +1720,9 @@ export async function validateReadAfterWriteRouteInventory(options) {
   for (const usage of helperUsages) {
     if (usage.routeIds.length === 0) {
       const coveredHelpers = helperCoverageByFile.get(usage.file) ?? new Set();
-      const missingHelpers = usage.helpers.filter((helper) => !coveredHelpers.has(helper));
+      const missingHelpers = usage.helpers.filter(
+        (helper) => !routeRuntimeContractHelperNames.has(helper) && !helperUsageIsCovered(helper, coveredHelpers),
+      );
       if (missingHelpers.length > 0) {
         violations.push(
           `${usage.file}: fresh-write helper(s) ${missingHelpers.join(", ")} must map to a manifest route contribution or file-level inventory exception`,
@@ -1702,7 +1735,10 @@ export async function validateReadAfterWriteRouteInventory(options) {
       const coveredHelpers = helperCoverageByRoute.get(routeId) ?? new Set();
       const fileCoveredHelpers = helperCoverageByFile.get(usage.file) ?? new Set();
       const missingHelpers = usage.helpers.filter(
-        (helper) => !coveredHelpers.has(helper) && !fileCoveredHelpers.has(helper),
+        (helper) =>
+          !routeRuntimeContractHelperNames.has(helper) &&
+          !helperUsageIsCovered(helper, coveredHelpers) &&
+          !helperUsageIsCovered(helper, fileCoveredHelpers),
       );
       if (missingHelpers.length > 0) {
         violations.push(

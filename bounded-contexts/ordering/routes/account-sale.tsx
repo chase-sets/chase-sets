@@ -1,8 +1,8 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createOrderingRequestApiClient,
@@ -10,6 +10,8 @@ import {
   type SaleDetail,
 } from "../support/request-support/api-client";
 import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page";
+import contextManifest from "../context.json";
+import { orderingApiErrorAdapter } from "../support/request-support/route-api-error";
 import {
   OrderReviewOpportunityCallout,
   type OrderReviewOpportunity,
@@ -17,69 +19,41 @@ import {
 
 const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountSale.inspect.a.sale.cancel.it.while");
 
-function salePreparingResponse() {
-  return new Response("We are preparing your sale. Refresh in a moment and it should appear.", {
-    status: 503,
-    statusText: "Preparing sale",
-  });
-}
-
-export async function loader({ request, params }: LoaderFunctionArgs) {
-  const actor = await requireActorFromAuthApi({
-    request,
-    permission: "orders.view",
-  });
-  if (!actor.permissions.includes("listings.view")) {
-    throw new Response(t("ordering.routes.accountSale.forbidden"), { status: 403 });
-  }
-
-  const orderingApi = createOrderingRequestApiClient(request);
-
-  try {
-    const saleRead = await loadAfterWrite({
-      request,
-      load: () => orderingApi.getSale(params.orderId!),
-      isNotFound: (error) => error instanceof OrderingApiError && error.status === 404,
-    });
-    if (saleRead.kind === "pending") {
-      throw salePreparingResponse();
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "account-sale",
+  authorization: async ({ request }) => {
+    const actor = await requireActorFromAuthApi({ request, permission: "orders.view" });
+    if (!actor.permissions.includes("listings.view")) {
+      throw new Response(t("ordering.routes.accountSale.forbidden"), { status: 403 });
     }
-    if (saleRead.kind === "permanent-failure") {
-      throw "error" in saleRead ? saleRead.error : new Response("Sale handoff is no longer valid.", { status: 410 });
-    }
+    return actor;
+  },
+  errorAdapter: orderingApiErrorAdapter,
+  load: ({ request, params }) => createOrderingRequestApiClient(request).getSale(params.orderId!),
+  map: (sale) => ({ sale, reviewOpportunity: sale.reviewOpportunity ?? null }),
+  messages: {
+    pending: "We are preparing your sale. Refresh in a moment and it should appear.",
+    pendingStatusText: "Preparing sale",
+    unverified: "Sale handoff is no longer valid.",
+    notFound: t("ordering.routes.accountSale.sale.not.found"),
+  },
+});
 
-    return {
-      sale: saleRead.data,
-      reviewOpportunity: saleRead.data.reviewOpportunity ?? null,
-    };
-  } catch (error) {
-    if (error instanceof OrderingApiError && error.status === 404) {
-      throw new Response(t("ordering.routes.accountSale.sale.not.found"), { status: 404 });
-    }
-
-    throw error;
-  }
-}
-
-export async function action({ request, params }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "orders.manage" });
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const api = createOrderingRequestApiClient(request);
-
-  try {
-    if (intent === "cancel-sale") {
-      const result = await api.cancelSale(params.orderId!);
-      return redirect(navigateAfterWrite(result, `/account/sales/${params.orderId!}`));
-    }
-
-    return null;
-  } catch (error) {
-    return {
-      error: error instanceof Error ? error.message : t("ordering.routes.accountSale.request.failed"),
-    };
-  }
-}
+export const action = defineFormAction({
+  authorization: { permission: "orders.manage" },
+  intents: {
+    "cancel-sale": async ({ request, params }) =>
+      formActionRedirect(
+        await createOrderingRequestApiClient(request).cancelSale(params.orderId!),
+        `/account/sales/${params.orderId!}`,
+      ),
+  },
+  onUnknownIntent: () => null,
+  onError: (error) => ({
+    error: error instanceof Error ? error.message : t("ordering.routes.accountSale.request.failed"),
+  }),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
+import { defineFormAction } from "@chase-sets/platform-runtime/http";
 import { PromoBarAdminPage } from "../../features/promo-bar/ui/admin-pages";
 import type { PromoBarMessage, PromoBarMessageTone } from "../../features/promo-bar/api/contracts";
 import { PublicPresenceApiError, createPublicPresenceRequestApiClient } from "../../support/request-support/api-client";
@@ -39,47 +40,72 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return { ...messages, currentTime: new Date().toISOString(), marketplaceOrigin: resolveMarketplaceOrigin(request) };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
+async function promoActionResult(request: Request, message: string) {
   const api = createPublicPresenceRequestApiClient(request);
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const id = String(formData.get("id") ?? "");
+  const refreshed = await api.listPromoBarMessages();
+  return { message, error: null, currentTime: new Date().toISOString(), items: refreshed.items };
+}
 
-  try {
-    let message = t("publicPresence.promoBar.action.noop");
-
-    if (intent === "create") {
-      await api.createPromoBarMessage(messageBody(formData));
-      message = t("publicPresence.promoBar.action.created");
-    } else if (intent === "update" && id) {
-      await api.updatePromoBarMessage(id, messageBody(formData));
-      message = t("publicPresence.promoBar.action.updated");
-    } else if (intent === "activate" && id) {
-      await api.activatePromoBarMessage(id);
-      message = t("publicPresence.promoBar.action.activated");
-    } else if (intent === "deactivate" && id) {
-      await api.deactivatePromoBarMessage(id);
-      message = t("publicPresence.promoBar.action.deactivated");
-    } else if (intent === "delete" && id) {
-      await api.deletePromoBarMessage(id);
-      message = t("publicPresence.promoBar.action.deleted");
-    }
-
-    const refreshed = await api.listPromoBarMessages();
-    return { message, error: null, currentTime: new Date().toISOString(), items: refreshed.items };
-  } catch (error) {
+export const action = defineFormAction({
+  intents: {
+    create: async ({ request, formData }) => {
+      await createPublicPresenceRequestApiClient(request).createPromoBarMessage(messageBody(formData));
+      return promoActionResult(request, t("publicPresence.promoBar.action.created"));
+    },
+    update: async ({ request, formData }) => {
+      const id = String(formData.get("id") ?? "");
+      if (id) await createPublicPresenceRequestApiClient(request).updatePromoBarMessage(id, messageBody(formData));
+      return promoActionResult(
+        request,
+        t(id ? "publicPresence.promoBar.action.updated" : "publicPresence.promoBar.action.noop"),
+      );
+    },
+    activate: async ({ request, formData }) => {
+      const id = String(formData.get("id") ?? "");
+      if (id) await createPublicPresenceRequestApiClient(request).activatePromoBarMessage(id);
+      return promoActionResult(
+        request,
+        t(id ? "publicPresence.promoBar.action.activated" : "publicPresence.promoBar.action.noop"),
+      );
+    },
+    deactivate: async ({ request, formData }) => {
+      const id = String(formData.get("id") ?? "");
+      if (id) await createPublicPresenceRequestApiClient(request).deactivatePromoBarMessage(id);
+      return promoActionResult(
+        request,
+        t(id ? "publicPresence.promoBar.action.deactivated" : "publicPresence.promoBar.action.noop"),
+      );
+    },
+    delete: async ({ request, formData }) => {
+      const id = String(formData.get("id") ?? "");
+      if (id) await createPublicPresenceRequestApiClient(request).deletePromoBarMessage(id);
+      return promoActionResult(
+        request,
+        t(id ? "publicPresence.promoBar.action.deleted" : "publicPresence.promoBar.action.noop"),
+      );
+    },
+  },
+  onUnknownIntent: ({ request }) => promoActionResult(request, t("publicPresence.promoBar.action.noop")),
+  onError: (error) => {
     if (error instanceof PublicPresenceApiError || error instanceof Error) {
       return { message: null, error: error.message, currentTime: new Date().toISOString(), items: null };
     }
     throw error;
-  }
-}
+  },
+});
 
 export const meta: MetaFunction = () => [{ title: t("publicPresence.routes.admin.promoBar.meta.title") }];
 
 export default function PromoBarAdminRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const actionData = useActionData<typeof action>() as
+    | {
+        message: string | null;
+        error: string | null;
+        currentTime: string;
+        items: PromoBarMessage[] | null;
+      }
+    | undefined;
   const messages = (actionData?.items as PromoBarMessage[] | null | undefined) ?? data.items;
 
   return (

@@ -1,8 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/http/responses";
-import { readOffsetPageParams } from "@chase-sets/platform-runtime/http";
+import { navigateAfterWrite } from "@chase-sets/http/responses";
+import { defineResourceRoute, readOffsetPageParams } from "@chase-sets/platform-runtime/http";
 import { ScheduleListPage } from "../../features/schedules/ui/schedule-list-page";
 import {
   CommercialTermsApiError,
@@ -14,41 +14,40 @@ import {
   commercialTermsApiErrorStatus,
   formatCommercialTermsAdminLoadError,
 } from "../../support/request-support/admin-loader-error";
+import contextManifest from "../../context.json";
+import { commercialTermsApiErrorAdapter } from "../../support/request-support/route-api-error";
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  const api = createCommercialTermsRequestApiClient(request);
-  const page = readOffsetPageParams(request);
-  try {
-    const schedulesRead = await loadAfterWrite({
-      request,
-      load: () => api.listSchedules(page.query),
-      isNotFound: (error) => commercialTermsApiErrorStatus(error) === 404,
-      getStatus: commercialTermsApiErrorStatus,
-      getErrorCode: commercialTermsApiErrorCode,
-      getBody: commercialTermsApiErrorBody,
-    });
-
-    if (schedulesRead.kind !== "data") {
-      return {
-        items: [],
-        pagination: { limit: page.limit, offset: page.offset, total: 0 },
-        loadError: formatCommercialTermsAdminLoadError("error" in schedulesRead ? schedulesRead.error : undefined),
-      };
-    }
-
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "commercial-terms-schedules",
+  errorAdapter: commercialTermsApiErrorAdapter,
+  load: ({ request }) =>
+    createCommercialTermsRequestApiClient(request).listSchedules(readOffsetPageParams(request).query),
+  map: (schedules, { request }) => {
+    const page = readOffsetPageParams(request);
     return {
-      items: schedulesRead.data.items,
-      pagination: { limit: page.limit, offset: page.offset, total: schedulesRead.data.total },
-      loadError: null,
+      items: schedules.items,
+      pagination: { limit: page.limit, offset: page.offset, total: schedules.total },
+      loadError: null as string | null,
     };
-  } catch (error) {
+  },
+  onPending: (result, { request }) => {
+    const page = readOffsetPageParams(request);
     return {
       items: [],
       pagination: { limit: page.limit, offset: page.offset, total: 0 },
-      loadError: formatCommercialTermsAdminLoadError(error),
+      loadError: formatCommercialTermsAdminLoadError("error" in result ? result.error : undefined),
     };
-  }
-}
+  },
+  onPermanentFailure: (result, { request }) => {
+    const page = readOffsetPageParams(request);
+    return {
+      items: [],
+      pagination: { limit: page.limit, offset: page.offset, total: 0 },
+      loadError: formatCommercialTermsAdminLoadError("error" in result ? result.error : undefined),
+    };
+  },
+});
 
 export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();

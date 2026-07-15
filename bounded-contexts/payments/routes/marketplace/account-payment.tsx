@@ -18,7 +18,7 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { loadAfterWrite } from "@chase-sets/platform-runtime/http";
+import { defineFormAction, defineResourceRoute, type FormActionContext } from "@chase-sets/platform-runtime/http";
 import {
   navigateAfterWriteWithPlatformPostWriteToken,
   resolvePlatformPostWriteRequest,
@@ -43,6 +43,8 @@ import type {
 import { isClaimablePayment } from "../../features/payments/ui/account-payment/account-payment-display";
 import { AccountPaymentErrorBoundary } from "../../features/payments/ui/account-payment/account-payment-error-boundary";
 import { AccountPaymentPage } from "../../features/payments/ui/account-payment/account-payment-page";
+import contextManifest from "../../context.json";
+import { paymentsApiErrorAdapter } from "../../support/request-support/route-api-error";
 
 export { AccountPaymentErrorBoundary as ErrorBoundary };
 
@@ -139,98 +141,102 @@ function canExposeGuestPaymentClaimLocalRecoveryToken() {
   return truthyEnvValues.has((process.env[GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENV] ?? "").trim().toLowerCase());
 }
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
-  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
-  const url = new URL(resolvedRequest.url);
-  const pathname = url.pathname;
-  const isGuestCheckoutPayment = pathname.startsWith("/checkout/payments/");
-  const claimContinuation = url.searchParams.get("claimContinuation")?.trim();
-  if (isGuestCheckoutPayment && claimContinuation) {
-    const result = await createInternalAuthRequestApiClient(
-      resolvedRequest,
-    ).claimGuestCheckoutWithClaimContinuation<InteractiveAuthResult>({
-      continuation: claimContinuation,
-      paymentId: params.paymentId,
-    });
-    const response = completeBrowserAuthentication(resolvedRequest, result, {
-      defaultSuccessPath: `/account/payments/${params.paymentId}`,
-      accountSelectionPath: "/account/select",
-    });
-    clearGuestCheckoutCookie(response.headers, resolvedRequest);
-    throw response;
-  }
-
-  const actor = isGuestCheckoutPayment
-    ? await resolveActorFromAuthApi({ request: resolvedRequest })
-    : await requireActorFromAuthApi({
-        request: resolvedRequest,
-        permission: "orders.view",
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "account-payment",
+  prepare: async (args) => {
+    const resolvedRequest = await resolvePlatformPostWriteRequest(args.request);
+    const url = new URL(resolvedRequest.url);
+    const isGuestCheckoutPayment = url.pathname.startsWith("/checkout/payments/");
+    const claimContinuation = url.searchParams.get("claimContinuation")?.trim();
+    if (isGuestCheckoutPayment && claimContinuation) {
+      const result = await createInternalAuthRequestApiClient(
+        resolvedRequest,
+      ).claimGuestCheckoutWithClaimContinuation<InteractiveAuthResult>({
+        continuation: claimContinuation,
+        paymentId: args.params.paymentId,
       });
-  if (isGuestCheckoutPayment && actor && actor.roleKey !== "guest-buyer") {
-    throw redirect(`/account/payments/${params.paymentId}`);
-  }
-  const paymentsApi = createPaymentsRequestApiClient(resolvedRequest);
-
-  try {
-    const paymentRead = await loadAfterWrite({
-      request: resolvedRequest,
-      isNotFound: isPaymentNotFound,
-      load: () => paymentsApi.getAccountPayment(params.paymentId!),
-    });
-    if (paymentRead.kind === "pending") {
-      throw paymentPreparingResponse();
+      const response = completeBrowserAuthentication(resolvedRequest, result, {
+        defaultSuccessPath: `/account/payments/${args.params.paymentId}`,
+        accountSelectionPath: "/account/select",
+      });
+      clearGuestCheckoutCookie(response.headers, resolvedRequest);
+      throw response;
     }
-    if (paymentRead.kind === "permanent-failure") {
-      throw "error" in paymentRead
-        ? paymentRead.error
-        : new Response("Payment handoff is no longer valid.", { status: 410 });
+    return { ...args, request: resolvedRequest };
+  },
+  authorization: async ({ request, params }) => {
+    const isGuestCheckoutPayment = new URL(request.url).pathname.startsWith("/checkout/payments/");
+    const actor = isGuestCheckoutPayment
+      ? await resolveActorFromAuthApi({ request })
+      : await requireActorFromAuthApi({ request, permission: "orders.view" });
+    if (isGuestCheckoutPayment && actor && actor.roleKey !== "guest-buyer") {
+      throw redirect(`/account/payments/${params.paymentId}`);
     }
-
-    const payment = paymentRead.data;
-    const { orders } = await paymentsApi.listAccountOrderInputs({ orderIds: payment.order_ids });
-    const guestClaimContext =
-      isGuestCheckoutPayment && isClaimablePayment(payment)
-        ? await createInternalAuthRequestApiClient(
-            resolvedRequest,
-          ).getGuestCheckoutClaimContext<GuestCheckoutClaimContext>({
-            paymentId: params.paymentId,
-          })
-        : null;
-
-    return {
-      payment,
-      orders: orders.map(orderView),
-      isGuestCheckoutPayment,
-      guestClaimContext,
-      showSupportDetails: isInternalPaymentSupportActor(actor),
-      paymentElementDefaultValues: needsPaymentElementDefaultValues(payment)
-        ? resolvePaymentElementDefaultValues(orders)
-        : null,
-    };
-  } catch (error) {
+    return actor;
+  },
+  errorAdapter: paymentsApiErrorAdapter,
+  load: ({ request, params }) => createPaymentsRequestApiClient(request).getAccountPayment(params.paymentId!),
+  map: async (payment, { request, params, actor }) => {
+    const isGuestCheckoutPayment = new URL(request.url).pathname.startsWith("/checkout/payments/");
+    try {
+      const paymentsApi = createPaymentsRequestApiClient(request);
+      const { orders } = await paymentsApi.listAccountOrderInputs({ orderIds: payment.order_ids });
+      const guestClaimContext =
+        isGuestCheckoutPayment && isClaimablePayment(payment)
+          ? await createInternalAuthRequestApiClient(request).getGuestCheckoutClaimContext<GuestCheckoutClaimContext>({
+              paymentId: params.paymentId,
+            })
+          : null;
+      return {
+        payment,
+        orders: orders.map(orderView),
+        isGuestCheckoutPayment,
+        guestClaimContext,
+        showSupportDetails: isInternalPaymentSupportActor(actor),
+        paymentElementDefaultValues: needsPaymentElementDefaultValues(payment)
+          ? resolvePaymentElementDefaultValues(orders)
+          : null,
+      };
+    } catch (error) {
+      if (
+        isGuestCheckoutPayment &&
+        (isAuthOrAuthorizationStatus(error, 401) || isAuthOrAuthorizationStatus(error, 403))
+      ) {
+        throw guestPaymentAccessExpiredResponse();
+      }
+      throw error;
+    }
+  },
+  onPending: () => {
+    throw paymentPreparingResponse();
+  },
+  onPermanentFailure: (result, { request }) => {
+    const error = "error" in result ? result.error : null;
+    const isGuestCheckoutPayment = new URL(request.url).pathname.startsWith("/checkout/payments/");
     if (
       isGuestCheckoutPayment &&
       (isAuthOrAuthorizationStatus(error, 401) || isAuthOrAuthorizationStatus(error, 403))
     ) {
       throw guestPaymentAccessExpiredResponse();
     }
-
     if (isPaymentNotFound(error)) {
       throw new Response(t("payments.routes.marketplace.accountPayment.payment.not.found"), { status: 404 });
     }
+    if (error) throw error;
+    throw new Response("Payment handoff is no longer valid.", { status: 410 });
+  },
+});
 
-    throw error;
-  }
-}
-
-export async function action({ request, params }: ActionFunctionArgs): Promise<Response | GuestClaimActionData | null> {
+async function handleAction(
+  intent: string,
+  { request, params, formData }: FormActionContext,
+): Promise<Response | GuestClaimActionData | null> {
   const pathname = new URL(request.url).pathname;
   if (!pathname.startsWith("/checkout/payments/")) {
     throw new Response("Not found.", { status: 404 });
   }
 
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
   const displayName = String(formData.get("displayName") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const paymentsApi = createPaymentsRequestApiClient(request);
@@ -360,6 +366,16 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<R
     };
   }
 }
+
+export const action = defineFormAction({
+  intents: {
+    "retry-payment": (context) => handleAction("retry-payment", context),
+    "claim-link-request": (context) => handleAction("claim-link-request", context),
+    "claim-link-consume": (context) => handleAction("claim-link-consume", context),
+    "claim-passkey": (context) => handleAction("claim-passkey", context),
+  },
+  onUnknownIntent: (context) => handleAction("", context),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: t("payments.routes.marketplace.accountPayment.payment.marketplace") });

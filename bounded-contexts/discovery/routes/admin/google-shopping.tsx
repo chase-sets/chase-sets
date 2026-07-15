@@ -8,6 +8,7 @@ import {
 } from "../../features/google-shopping-operations/api/request-client";
 import { GoogleShoppingOperationsPage } from "../../features/google-shopping-operations/ui/google-shopping-operations-page";
 import type { GoogleShoppingOperationsNotice } from "../../features/google-shopping-operations/ui/contracts";
+import { defineFormAction, type FormActionContext } from "@chase-sets/platform-runtime/http";
 
 const routeKey = "discovery.googleShoppingOperations";
 const routePath = "/growth/google-shopping";
@@ -56,9 +57,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
+async function handleAction(intent: string, { request, formData }: FormActionContext) {
   const api = createGoogleShoppingOperationsRequestApiClient(request);
   const currentUrl = new URL(request.url);
 
@@ -102,6 +101,18 @@ export async function action({ request }: ActionFunctionArgs) {
 
   return null;
 }
+
+export const action = defineFormAction({
+  intents: {
+    "dry-run-diagnostics-refresh": (context) => handleAction("dry-run-diagnostics-refresh", context),
+    "dry-run-full-sync": (context) => handleAction("dry-run-full-sync", context),
+    "dry-run-maintenance-sync": (context) => handleAction("dry-run-maintenance-sync", context),
+    "live-full-sync": (context) => handleAction("live-full-sync", context),
+    "live-maintenance-sync": (context) => handleAction("live-maintenance-sync", context),
+    "targeted-retry": (context) => handleAction("targeted-retry", context),
+  },
+  onUnknownIntent: (context) => handleAction("", context),
+});
 
 export default function GoogleShoppingOperationsRoute() {
   const data = useLoaderData<typeof loader>();

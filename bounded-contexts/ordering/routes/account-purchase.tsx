@@ -1,8 +1,7 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createOrderingRequestApiClient,
@@ -10,6 +9,8 @@ import {
   type PurchaseDetail,
 } from "../support/request-support/api-client";
 import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page";
+import contextManifest from "../context.json";
+import { orderingApiErrorAdapter } from "../support/request-support/route-api-error";
 import {
   OrderReviewOpportunityCallout,
   type OrderReviewOpportunity,
@@ -17,67 +18,35 @@ import {
 
 const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountPurchase.inspect.a.purchase.cancel.it.while");
 
-function purchasePreparingResponse() {
-  return new Response("We are preparing your purchase. Refresh in a moment and it should appear.", {
-    status: 503,
-    statusText: "Preparing purchase",
-  });
-}
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "account-purchase",
+  authorization: { permission: "orders.view" },
+  errorAdapter: orderingApiErrorAdapter,
+  load: ({ request, params }) => createOrderingRequestApiClient(request).getPurchase(params.purchaseId!),
+  map: (purchase) => ({ purchase, reviewOpportunity: purchase.reviewOpportunity ?? null }),
+  messages: {
+    pending: "We are preparing your purchase. Refresh in a moment and it should appear.",
+    pendingStatusText: "Preparing purchase",
+    unverified: "Purchase handoff is no longer valid.",
+    notFound: t("ordering.routes.accountPurchase.purchase.not.found"),
+  },
+});
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "orders.view",
-  });
-  const orderingApi = createOrderingRequestApiClient(request);
-
-  try {
-    const purchaseRead = await loadAfterWrite({
-      request,
-      load: () => orderingApi.getPurchase(params.purchaseId!),
-      isNotFound: (error) => error instanceof OrderingApiError && error.status === 404,
-    });
-    if (purchaseRead.kind === "pending") {
-      throw purchasePreparingResponse();
-    }
-    if (purchaseRead.kind === "permanent-failure") {
-      throw "error" in purchaseRead
-        ? purchaseRead.error
-        : new Response("Purchase handoff is no longer valid.", { status: 410 });
-    }
-
-    return {
-      purchase: purchaseRead.data,
-      reviewOpportunity: purchaseRead.data.reviewOpportunity ?? null,
-    };
-  } catch (error) {
-    if (error instanceof OrderingApiError && error.status === 404) {
-      throw new Response(t("ordering.routes.accountPurchase.purchase.not.found"), { status: 404 });
-    }
-
-    throw error;
-  }
-}
-
-export async function action({ request, params }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "orders.manage" });
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const api = createOrderingRequestApiClient(request);
-
-  try {
-    if (intent === "cancel-purchase") {
-      const result = await api.cancelPurchase(params.purchaseId!);
-      return redirect(navigateAfterWrite(result, `/account/purchases/${params.purchaseId!}`));
-    }
-
-    return null;
-  } catch (error) {
-    return {
-      error: error instanceof Error ? error.message : t("ordering.routes.accountPurchase.request.failed"),
-    };
-  }
-}
+export const action = defineFormAction({
+  authorization: { permission: "orders.manage" },
+  intents: {
+    "cancel-purchase": async ({ request, params }) =>
+      formActionRedirect(
+        await createOrderingRequestApiClient(request).cancelPurchase(params.purchaseId!),
+        `/account/purchases/${params.purchaseId!}`,
+      ),
+  },
+  onUnknownIntent: () => null,
+  onError: (error) => ({
+    error: error instanceof Error ? error.message : t("ordering.routes.accountPurchase.request.failed"),
+  }),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
