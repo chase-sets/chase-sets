@@ -119,6 +119,8 @@ A seller-responsible cancellation may establish buyer-to-seller transaction elig
 
 Durable review events use the `marketplace.review.*` namespace, review-hold events use the `marketplace.review-hold.*` namespace, review and hold streams use Marketplace-owned prefixes, and review read-model tables use Marketplace-owned names.
 
+The cross-context fair order-issue and review journeys, their acceptance matrix, traceability, and the Support-Marketplace-Settlement-Notifications diagnosis runbook are documented in [Reputation and Support Fair Journey Acceptance](./docs/reputation-support-fair-journey-acceptance.md).
+
 Marketplace's seed slot runs before Ordering and Fulfillment, so the reviews seed cannot see a delivered shipment on its first pass; it skips and completes during the host's final seed reconciliation pass. The seed dataset therefore contains two delivered orders: the earliest-ready one receives the support-request seeds (which delete review eligibility), and the latest-ready one never does, so seeded reviews always have a review-eligible delivered order to attach to. Seed orders identify by `ready_for_fulfillment_at` (fixed by the payments seed's capture timestamps) because accepted-offer orders can be auto-created with generated ids before the ordering seed pins `reputationReservedSeedIds.orders.reviewEligibleDelivered`.
 
 ## Open Extraction Candidates

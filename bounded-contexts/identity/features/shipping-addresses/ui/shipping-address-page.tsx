@@ -43,58 +43,68 @@ function AddressFields({ address }: { address?: ShippingAddress }) {
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.recipient.name")}
         name="name"
+        autoComplete="name"
         defaultValue={address?.recipient_name ?? ""}
         required
       />
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.company")}
         name="company"
+        autoComplete="organization"
         defaultValue={address?.company ?? ""}
       />
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.country")}
         name="country"
+        autoComplete="country"
         defaultValue={address?.country ?? "US"}
         required
       />
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.address.line1")}
         name="line1"
+        autoComplete="address-line1"
         defaultValue={address?.line1 ?? ""}
         required
       />
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.address.line2")}
         name="line2"
+        autoComplete="address-line2"
         defaultValue={address?.line2 ?? ""}
       />
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.city")}
         name="city"
+        autoComplete="address-level2"
         defaultValue={address?.city ?? ""}
         required
       />
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.state")}
         name="state"
+        autoComplete="address-level1"
         defaultValue={address?.state ?? ""}
         required
       />
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.postal.code")}
         name="postalCode"
+        autoComplete="postal-code"
         defaultValue={address?.postal_code ?? ""}
         required
       />
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.phone")}
         name="phone"
+        autoComplete="tel"
         defaultValue={address?.phone ?? ""}
       />
       <TextInput
         label={t("identity.features.shippingAddresses.ui.shippingAddressPage.email")}
         name="email"
         type="email"
+        autoComplete="email"
         defaultValue={address?.email ?? ""}
       />
       <NativeSelect

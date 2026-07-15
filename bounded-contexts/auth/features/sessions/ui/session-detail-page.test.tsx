@@ -27,6 +27,7 @@ describe("SessionDetailPage destructive actions", () => {
       />,
     );
 
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(document.querySelector('input[name="intent"][value="revoke"]')).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Revoke" }));

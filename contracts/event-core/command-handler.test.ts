@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createCommandHandler } from "./command-handler-internal";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "./consistency";
 import type { AggregateRepository } from "./aggregate-repository";
 import type { DomainEvent } from "./domain";
 import type { StoredEvent } from "./storage";
@@ -90,5 +91,40 @@ describe("command handler", () => {
       storedEvents: [],
     });
     expect(repository.append).not.toHaveBeenCalled();
+  });
+
+  it("records commits under an explicit owning source context", async () => {
+    const append = vi.fn<AggregateRepository<number, CounterEvent>["append"]>(async () => [storedEvent]);
+    const repository: AggregateRepository<number, CounterEvent> = {
+      load: vi.fn(async () => ({ state: 1, version: 2, events: [], storedEvents: [] })),
+      append,
+    };
+    const handler = createCommandHandler({
+      repository,
+      decide: (_state, command: CounterCommand) => [{ type: "counter.incremented" as const, data: { by: command.by } }],
+      evolve: (state, event) => state + event.data.by,
+      commitSourceContextName: "owning-context",
+    });
+
+    await runWithEventCommitMetadata(async () => {
+      await handler({
+        streamId: "legacy-prefix-1",
+        command: { type: "Increment", by: 2 },
+        context,
+      });
+
+      expect(getEventCommitMetadata().sources).toEqual([
+        {
+          sourceContextName: "owning-context",
+          eventIds: ["evt_1"],
+          maxGlobalPosition: "10",
+        },
+      ]);
+      expect(append).toHaveBeenCalledWith(
+        expect.objectContaining({
+          wakeSourceContextName: "owning-context",
+        }),
+      );
+    });
   });
 });

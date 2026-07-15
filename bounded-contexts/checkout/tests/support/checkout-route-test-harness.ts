@@ -64,6 +64,7 @@ export const mockListOfferMatches = vi.fn();
 export const mockPreviewPublicStandardListingTerms = vi.fn();
 export const mockPreviewOfferAcceptanceTerms = vi.fn();
 export const mockAcceptOfferMatch = vi.fn();
+export const mockDeclineOfferMatch = vi.fn();
 export const mockCreateListing = vi.fn();
 export const mockPublishListing = vi.fn();
 export const mockGetPayoutReadiness = vi.fn();

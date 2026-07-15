@@ -1,4 +1,10 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  DEFAULT_RETURN_SHIPMENT_DEADLINE_POLICY,
+  deriveReturnShipmentDeadlineSignals,
+  type ReturnShipmentDeadlinePolicy,
+  type ReturnShipmentDeadlineSignal,
+} from "./deadlines";
 
 /**
  * Read-model queries for the ReturnShipment aggregate.
@@ -178,6 +184,40 @@ export async function findReturnShipmentIdForRemedy(db: PgQueryable, remedyId: s
   return result.rows[0]?.return_shipment_id ?? null;
 }
 
+export type ReturnShipmentTrackingMatch = Readonly<{
+  return_shipment_id: string;
+  remedy_id: string;
+  status: string;
+  policy_version: string;
+}>;
+
+/**
+ * Resolves the reverse shipment a carrier tracking event belongs to. Matching is
+ * by the immutable label tracking identifier or the postage provider's shipment
+ * id, so a return label's carrier scans route back to the correct aggregate. The
+ * furthest-updated row wins when a tracking identifier is reused across facilities.
+ */
+export async function findReturnShipmentForTracking(
+  db: PgQueryable,
+  match: Readonly<{ trackingIdentifier?: string | null; providerShipmentId?: string | null }>,
+): Promise<ReturnShipmentTrackingMatch | null> {
+  const trackingIdentifier = match.trackingIdentifier?.trim() || null;
+  const providerShipmentId = match.providerShipmentId?.trim() || null;
+  if (!trackingIdentifier && !providerShipmentId) {
+    return null;
+  }
+  const result = await db.query<ReturnShipmentTrackingMatch>(
+    `SELECT return_shipment_id, remedy_id, status, policy_version
+     FROM fulfillment_return_shipment_operator_pages
+     WHERE ($1::text IS NOT NULL AND tracking_identifier = $1)
+        OR ($2::text IS NOT NULL AND postage_provider_shipment_id = $2)
+     ORDER BY updated_at DESC, return_shipment_id DESC
+     LIMIT 1`,
+    [trackingIdentifier, providerShipmentId],
+  );
+  return result.rows[0] ?? null;
+}
+
 export type ReturnShipmentIntakeResolution =
   | Readonly<{ outcome: "not-found" }>
   | Readonly<{ outcome: "ambiguous" }>
@@ -290,6 +330,67 @@ export async function listUnidentifiedReturnPackages(
     [facilityId.trim()],
   );
   return result.rows;
+}
+
+export type ReturnShipmentDeadlineReview = Readonly<{
+  return_shipment_id: string;
+  remedy_id: string;
+  support_request_id: string;
+  status: string;
+  signals: readonly ReturnShipmentDeadlineSignal[];
+}>;
+
+/**
+ * Lists the derived deadline/exception signals for every open reverse shipment as
+ * of `asOf`. The derivation is pure and deterministic, so this query is safe to run
+ * from an operator dashboard or the shared reminder job without mutating any state:
+ * it reports what is due, and lets the notification/escalation machinery act.
+ */
+export async function listReturnShipmentDeadlineSignals(
+  db: PgQueryable,
+  options: Readonly<{ asOf: string; policy?: ReturnShipmentDeadlinePolicy }>,
+): Promise<readonly ReturnShipmentDeadlineReview[]> {
+  const policy = options.policy ?? DEFAULT_RETURN_SHIPMENT_DEADLINE_POLICY;
+  const result = await db.query<{
+    return_shipment_id: string;
+    remedy_id: string;
+    support_request_id: string;
+    status: string;
+    ship_by_deadline_at: string;
+    label_status: string;
+    delivered_at: string | null;
+    received_at: string | null;
+    last_movement_at: string | null;
+  }>(
+    `SELECT return_shipment_id, remedy_id, support_request_id, status, ship_by_deadline_at, label_status,
+            delivered_at, received_at,
+            (SELECT MAX((milestone->>'occurredAt')::timestamptz)
+             FROM jsonb_array_elements(milestones) milestone
+             WHERE milestone->>'status' IN ('carrier-accepted', 'in-transit')) AS last_movement_at
+     FROM fulfillment_return_shipment_operator_pages
+     WHERE status NOT IN ('received', 'cancelled', 'expired')`,
+    [],
+  );
+  return result.rows
+    .map((row) => ({
+      return_shipment_id: row.return_shipment_id,
+      remedy_id: row.remedy_id,
+      support_request_id: row.support_request_id,
+      status: row.status,
+      signals: deriveReturnShipmentDeadlineSignals(
+        {
+          status: row.status,
+          shipByDeadlineAt: row.ship_by_deadline_at,
+          labelStatus: row.label_status,
+          lastMovementAt: row.last_movement_at,
+          deliveredAt: row.delivered_at,
+          receivedAt: row.received_at,
+        },
+        options.asOf,
+        policy,
+      ),
+    }))
+    .filter((review) => review.signals.length > 0);
 }
 
 export type ReturnIntakeEvidenceReference = Readonly<{

@@ -89,7 +89,7 @@ export function SettlementWalletAdjustmentAccountDetailPage({
         })}
         description={t("settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.description")}
         actions={
-          <LinkButton href="/account/settlement" tone="secondary">
+          <LinkButton href="/account/desk/money" tone="secondary">
             {t("settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.view.wallet")}
           </LinkButton>
         }

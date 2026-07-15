@@ -243,5 +243,113 @@ export function buildSupportShipmentSourceProjectionHandlers(
         context,
       );
     },
+    "fulfillment.return-shipment.carrier-accepted.v1": async (event) => {
+      const data = event.data as {
+        remedyId: string;
+        supportRequestId: string;
+        metadata: { idempotencyKey: string };
+        occurredAt: string;
+      };
+      await correlateReturnMilestoneToRefundTrigger(db, remedyEffects, {
+        event,
+        remedyId: data.remedyId,
+        supportRequestId: data.supportRequestId,
+        milestoneTrigger: "carrier-accepted",
+        effect: "carrier-accepted",
+        idempotencyKey: data.metadata.idempotencyKey,
+        occurredAt: data.occurredAt,
+        reasonCode: "return-carrier-accepted",
+      });
+    },
+    "fulfillment.return-shipment.delivered.v1": async (event) => {
+      const data = event.data as {
+        remedyId: string;
+        supportRequestId: string;
+        metadata: { idempotencyKey: string };
+        deliveredAt: string;
+      };
+      await correlateReturnMilestoneToRefundTrigger(db, remedyEffects, {
+        event,
+        remedyId: data.remedyId,
+        supportRequestId: data.supportRequestId,
+        milestoneTrigger: "delivered",
+        effect: "return-delivered",
+        idempotencyKey: data.metadata.idempotencyKey,
+        occurredAt: data.deliveredAt,
+        reasonCode: "return-delivered",
+      });
+    },
   };
+}
+
+/**
+ * Correlates a reverse-shipment carrier milestone to the remedy's authorized refund
+ * trigger. Fulfillment reports the logistics fact; Support decides whether it
+ * financially authorizes a release. The milestone is recorded as a remedy effect
+ * only when the remedy's authorized `refundTrigger` matches this milestone — a
+ * delivered scan never satisfies a facility-intake trigger, and a carrier-accepted
+ * scan never satisfies a delivered trigger. Recording is idempotent on the
+ * milestone's stable idempotency key, and the Support aggregate releases the refund
+ * at most once, so duplicate or replayed carrier facts converge without a second
+ * release. When the milestone is not the authorized trigger it is a no-op here; the
+ * logistics fact still lives in Fulfillment's own tracking projection.
+ */
+async function correlateReturnMilestoneToRefundTrigger(
+  db: PgQueryable,
+  remedyEffects: Pick<SupportRequestServices, "recordRemedyEffect"> | undefined,
+  params: Readonly<{
+    event: {
+      type: string;
+      id: string;
+      tenantId: EventStoreContext["tenantId"];
+      audit: EventStoreContext["audit"];
+      trace: EventStoreContext["trace"];
+    };
+    remedyId: string;
+    supportRequestId: string;
+    milestoneTrigger: string;
+    effect: "carrier-accepted" | "return-delivered";
+    idempotencyKey: string;
+    occurredAt: string;
+    reasonCode: string;
+  }>,
+): Promise<void> {
+  if (!remedyEffects) {
+    return;
+  }
+  const authorized = await db.query<{ refund_trigger: string | null }>(
+    `SELECT remedy->>'refundTrigger' AS refund_trigger
+     FROM support_request_pages
+     WHERE support_request_id = $1
+       AND remedy->>'remedyId' = $2`,
+    [params.supportRequestId, params.remedyId],
+  );
+  const refundTrigger = authorized.rows[0]?.refund_trigger ?? null;
+  if (refundTrigger !== params.milestoneTrigger) {
+    return;
+  }
+  const context: EventStoreContext = {
+    tenantId: params.event.tenantId,
+    audit: params.event.audit,
+    trace: params.event.trace,
+  };
+  await remedyEffects.recordRemedyEffect(
+    {
+      supportRequestId: params.supportRequestId,
+      remedyId: params.remedyId as never,
+      coverageId: null,
+      effect: params.effect,
+      outcome: "satisfied",
+      sourceFactType: params.event.type,
+      sourceFactId: params.event.id,
+      idempotencyKey: params.idempotencyKey,
+      occurredAt: params.occurredAt,
+      reasonCode: params.reasonCode,
+      refundId: null,
+      amount: null,
+      currencyCode: null,
+      allocation: null,
+    },
+    context,
+  );
 }

@@ -163,6 +163,26 @@ CREATE TABLE IF NOT EXISTS fulfillment_unidentified_return_package_pages (
 
 CREATE INDEX IF NOT EXISTS fulfillment_unidentified_return_package_pages_facility_status_idx
   ON fulfillment_unidentified_return_package_pages (facility_id, reconciled_at, received_at DESC);
+
+CREATE TABLE IF NOT EXISTS fulfillment_return_shipment_provider_events (
+  provider_event_id text PRIMARY KEY,
+  provider_name text NOT NULL,
+  provider_mode text NOT NULL,
+  event_kind text NOT NULL,
+  provider_object_reference text NOT NULL,
+  return_shipment_id text NULL,
+  tracking_identifier text NULL,
+  status text NULL,
+  status_detail text NULL,
+  semantic_milestone text NULL,
+  occurred_at timestamptz NOT NULL,
+  received_at timestamptz NOT NULL,
+  processing_result text NOT NULL,
+  payload_json jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS fulfillment_return_shipment_provider_events_shipment_idx
+  ON fulfillment_return_shipment_provider_events (return_shipment_id, occurred_at);
 `;
 
 export const fulfillmentReturnShipmentSchemaMigrations: readonly BcSchemaMigration[] = [
@@ -210,6 +230,31 @@ export const fulfillmentReturnShipmentSchemaMigrations: readonly BcSchemaMigrati
        )`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_unidentified_return_package_pages_facility_status_idx
          ON fulfillment_unidentified_return_package_pages (facility_id, reconciled_at, received_at DESC)`,
+    ],
+  },
+  {
+    migrationId: "20260715_fulfillment_return_shipment_provider_events",
+    description:
+      "Add the reverse-tracking provider-event dedup ledger so carrier webhooks and reconciliation polls emit each custody milestone at most once.",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS fulfillment_return_shipment_provider_events (
+         provider_event_id text PRIMARY KEY,
+         provider_name text NOT NULL,
+         provider_mode text NOT NULL,
+         event_kind text NOT NULL,
+         provider_object_reference text NOT NULL,
+         return_shipment_id text NULL,
+         tracking_identifier text NULL,
+         status text NULL,
+         status_detail text NULL,
+         semantic_milestone text NULL,
+         occurred_at timestamptz NOT NULL,
+         received_at timestamptz NOT NULL,
+         processing_result text NOT NULL,
+         payload_json jsonb NOT NULL DEFAULT '{}'::jsonb
+       )`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_return_shipment_provider_events_shipment_idx
+         ON fulfillment_return_shipment_provider_events (return_shipment_id, occurred_at)`,
     ],
   },
 ];

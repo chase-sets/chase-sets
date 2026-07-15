@@ -678,8 +678,8 @@ function validationActivationDecisionFor(input: {
     blockers: blockerList,
     saveEvidenceState: actionStateForBlockers(saveEvidenceBlockerList, input.canManage ? "available" : "denied"),
     saveEvidenceBlockers: saveEvidenceBlockerList,
-    activationCommandKey: "activate-provider-profile",
-    evidenceCommandKey: "update-provider-profile-section",
+    activationCommandKey: "provider-profile.activate",
+    evidenceCommandKey: "provider-profile.edit-section",
     workspaceHref: catalogProviderDetailHref(profile?.providerKey ?? input.routeContext.providerKey ?? null, {
       profileVersion: profile?.profileVersion ?? input.routeContext.profileVersion,
     }),

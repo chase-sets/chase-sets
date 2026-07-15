@@ -59,7 +59,7 @@ describe("support request transactional email projector", () => {
         supportRequestId: "sup_123",
         orderId: "ord_123",
         flowType: "item-not-as-described",
-        resolution: { resolutionType: "partial-refund" },
+        resolution: { resolutionType: "partial-refund", summary: "Adjudicated partial refund." },
       },
     } as never);
 
@@ -68,7 +68,7 @@ describe("support request transactional email projector", () => {
       message: {
         messageType: "support.support-request.resolved",
         templateId: "support_request_resolved",
-        templateData: { resolutionType: "partial-refund" },
+        templateData: { resolutionType: "partial-refund", resolutionSummary: "Adjudicated partial refund." },
         channels: [{ channel: "email", to: [{ email: "buyer@example.com" }] }],
       },
     });

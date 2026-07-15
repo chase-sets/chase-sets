@@ -254,9 +254,9 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByRole("button", { name: "Start Catalog sync" })).toBeTruthy();
 
     const syncForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="start-catalog-sync"]',
+      'form[data-catalog-primary-workbench-command="scope.sync"]',
     );
-    expect(syncForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("start-catalog-sync");
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("scope.sync");
     expect(syncForm?.querySelector<HTMLInputElement>('input[name="productDomain"]')?.value).toBe("pokemon");
     expect(syncForm?.querySelector<HTMLInputElement>('input[name="productForm"]')?.value).toBe("card");
     expect(syncForm?.querySelector<HTMLInputElement>('input[name="languageCode"]')?.value).toBe("ja");
@@ -389,7 +389,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(within(participationRow!).getByRole("checkbox", { name: "Selected" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Start Catalog sync" }).hasAttribute("disabled")).toBe(false);
     const syncForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="start-catalog-sync"]',
+      'form[data-catalog-primary-workbench-command="scope.sync"]',
     );
     expect(
       [...(syncForm?.querySelectorAll<HTMLInputElement>('input[name="selectedUnitKeys"]') ?? [])].map(
@@ -436,7 +436,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByRole("button", { name: /Defer: Charizard/ }).length).toBeGreaterThan(0);
 
     const promoteForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="promote-merge-candidate"]',
+      'form[data-catalog-primary-workbench-command="candidate.promote"]',
     );
     expect(promoteForm?.querySelector<HTMLInputElement>('input[name="candidateId"]')?.value).toBe(
       "cand_pokemon_base1_004_standard",
@@ -445,10 +445,10 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       "Promote from the scope-first Catalog sync workbench.",
     );
     const splitForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="split-merge-candidate"]',
+      'form[data-catalog-primary-workbench-command="candidate.split"]',
     );
     const updateForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="update-merge-candidate"]',
+      'form[data-catalog-primary-workbench-command="candidate.edit"]',
     );
     const splitBody = JSON.parse(
       splitForm?.querySelector<HTMLInputElement>('input[name="mergeCandidateCommandBody"]')?.value ?? "{}",
@@ -628,7 +628,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     ).toBe(true);
     expect(
       document.querySelector<HTMLInputElement>(
-        'form[data-catalog-primary-workbench-command="update-merge-candidate"] input[name="mergeCandidateCommandBody"]',
+        'form[data-catalog-primary-workbench-command="candidate.edit"] input[name="mergeCandidateCommandBody"]',
       )?.value,
     ).toBe("");
   });
@@ -1053,8 +1053,8 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/issue #801/i)).toBeNull();
     expect(screen.queryByText(/ops-release/i)).toBeNull();
     expect(screen.queryByText(/no issue/i)).toBeNull();
-    expect(screen.getAllByText("start-provider-import").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("execute-promotion").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("scope.import").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("observation.promote").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Alert catalog.integration.jobs.failure_rate").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Runbook Projection freshness").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Payload escape hatch").length).toBeGreaterThan(0);
@@ -1184,9 +1184,9 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     ).toBeGreaterThan(0);
 
     const cancelForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="cancel-import-job"]',
+      'form[data-catalog-primary-workbench-command="job.cancel"]',
     );
-    expect(cancelForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("cancel-import-job");
+    expect(cancelForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("job.cancel");
     expect(cancelForm?.querySelector<HTMLInputElement>('input[name="jobId"]')?.value).toBe("job_001");
 
     const reviewLinks = screen.getAllByRole("link", { name: "Review observations" });
@@ -1846,9 +1846,9 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     const syncForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="start-catalog-sync"]',
+      'form[data-catalog-primary-workbench-command="scope.sync"]',
     );
-    expect(syncForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("start-catalog-sync");
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("scope.sync");
     expect(syncForm?.querySelector<HTMLInputElement>('input[name="productDomain"]')?.value).toBe("pokemon");
     expect(syncForm?.querySelector<HTMLInputElement>('input[name="scopeRecordId"]')?.value).toBe("base1");
     expect(syncForm?.getAttribute("action")).toContain("/catalog/integrations?");
@@ -1865,10 +1865,10 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     // defer commands render eagerly as the bar's primary/secondary CommandFormButtons,
     // so their forms are queryable immediately.
     const selectedPreviewForm = Array.from(
-      document.querySelectorAll<HTMLFormElement>('form[data-catalog-primary-workbench-command="preview-promotion"]'),
+      document.querySelectorAll<HTMLFormElement>('form[data-catalog-primary-workbench-command="observation.promote"]'),
     ).find((form) => form.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value === "obs_001");
     const deferForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="defer-source-observations"]',
+      'form[data-catalog-primary-workbench-command="observation.defer"]',
     );
 
     expect(selectedPreviewForm).toBeTruthy();
@@ -1880,12 +1880,10 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     // Reject is destructive and reason-required, so it lives behind the BulkActionPanel
     // trigger. Opening the panel mounts the reject form (and its required reason input);
     // before it is opened the form is intentionally absent from the DOM.
-    expect(
-      document.querySelector('form[data-catalog-primary-workbench-command="reject-source-observations"]'),
-    ).toBeNull();
+    expect(document.querySelector('form[data-catalog-primary-workbench-command="observation.reject"]')).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Reject…" }));
     const rejectForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="reject-source-observations"]',
+      'form[data-catalog-primary-workbench-command="observation.reject"]',
     );
     expect(rejectForm?.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value).toBe("obs_001");
     expect(rejectForm?.querySelector<HTMLInputElement>('input[name="reason"]')?.required).toBe(true);
@@ -1917,17 +1915,17 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     const reapplyForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="start-reapply"]:not([data-catalog-source-scope-unit])',
+      'form[data-catalog-primary-workbench-command="observation.reapply"]:not([data-catalog-source-scope-unit])',
     );
     const replayForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="start-replay"]',
+      'form[data-catalog-primary-workbench-command="observation.replay"]',
     );
 
-    expect(reapplyForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("start-reapply");
+    expect(reapplyForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("observation.reapply");
     expect(reapplyForm?.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value).toBe(
       "obs_promoted",
     );
-    expect(replayForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("start-replay");
+    expect(replayForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("observation.replay");
     expect(replayForm?.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value).toBe(
       "obs_promoted",
     );
@@ -1966,7 +1964,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     ).toBe(false);
 
     const replayForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="start-replay"]',
+      'form[data-catalog-primary-workbench-command="observation.replay"]',
     );
     expect(replayForm?.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value).toBe(
       "obs_promoted",
@@ -2077,7 +2075,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     expect(commitButton?.hasAttribute("disabled")).toBe(false);
     const executeForms = document.querySelectorAll<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="execute-promotion"]',
+      'form[data-catalog-primary-workbench-command="observation.promote"]',
     );
     expect(executeForms.length).toBeGreaterThan(0);
   });

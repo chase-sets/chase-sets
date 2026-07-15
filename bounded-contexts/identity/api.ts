@@ -975,7 +975,7 @@ export function buildIdentityApi(services: IdentityServices) {
   app.route("/accounts", accountRoutes(services.accounts));
   app.route("/accounts/:accountId/shipping-addresses", shippingAddressRoutes(services.shippingAddresses));
   app.route("/users", userRoutes(services.users));
-  app.route("/memberships", membershipRoutes(services.memberships));
+  app.route("/memberships", membershipRoutes(services.memberships, services.accounts));
   app.route("/invitations", invitationRoutes(services.invitations, services.accounts));
   app.route(
     "/api-keys",

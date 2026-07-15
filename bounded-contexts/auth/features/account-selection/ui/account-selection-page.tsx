@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, Card, LiveRegion, Stack, Text } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, Card, Heading, LiveRegion, Stack, Text } from "@chase-sets/design-system";
 
 export function AccountSelectionPage({
   memberships,
@@ -15,9 +15,9 @@ export function AccountSelectionPage({
   return (
     <Stack gap={4}>
       <Stack gap={2}>
-        <Text size="lg" weight="semibold">
+        <Heading level={1} visualSize={5}>
           {t("auth.features.accountSelection.ui.accountSelectionPage.choose.account")}
-        </Text>
+        </Heading>
         <Text tone="secondary">
           {t("auth.features.accountSelection.ui.accountSelectionPage.this.user.can.act.for.more")}
         </Text>
@@ -33,7 +33,9 @@ export function AccountSelectionPage({
             <Stack gap={3}>
               <HiddenInput type="hidden" name="accountId" value={membership.accountId} readOnly />
               <Stack gap={1}>
-                <Text weight="semibold">{membership.accountName}</Text>
+                <Heading level={2} visualSize={6}>
+                  {membership.accountName}
+                </Heading>
                 <Text tone="secondary">
                   {t("auth.features.accountSelection.ui.accountSelectionPage.role", {
                     roleLabel: membership.roleLabel,

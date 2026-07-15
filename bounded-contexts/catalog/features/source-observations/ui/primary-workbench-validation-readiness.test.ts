@@ -118,7 +118,7 @@ describe("Catalog primary workbench read model - validation readiness", () => {
         requiresMigrationEvidence: true,
       },
     });
-    expect(readModel.actions.find((action) => action.key === "activate-provider-profile")).toMatchObject({
+    expect(readModel.actions.find((action) => action.key === "provider-profile.activate")).toMatchObject({
       state: "blocked",
       blockers: expect.arrayContaining(["migration-evidence-missing", "reference-impact-review-required"]),
     });
@@ -158,8 +158,8 @@ describe("Catalog primary workbench read model - validation readiness", () => {
       status: "ready",
       actionState: "available",
       blockers: [],
-      activationCommandKey: "activate-provider-profile",
-      evidenceCommandKey: "update-provider-profile-section",
+      activationCommandKey: "provider-profile.activate",
+      evidenceCommandKey: "provider-profile.edit-section",
       migrationEvidence: {
         state: "recorded",
         fixtureRunId: "fixture_run_123",

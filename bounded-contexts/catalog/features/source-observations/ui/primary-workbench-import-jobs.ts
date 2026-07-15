@@ -148,7 +148,7 @@ export function importJobsFor(
 
     return {
       jobId: job.jobId,
-      action: job.action === "reapply" ? "start-reapply" : "start-provider-import",
+      action: job.action === "reapply" ? "observation.reapply" : "scope.import",
       state,
       operatorStatus: job.operatorStatus,
       summary: job.summary,

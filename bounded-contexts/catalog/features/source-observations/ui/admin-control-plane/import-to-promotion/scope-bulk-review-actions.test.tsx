@@ -65,10 +65,7 @@ describe("CatalogScopeBulkReviewActions", () => {
     const { container } = render(<CatalogScopeBulkReviewActions readModel={readModel(rows)} />);
 
     const promoteForm = container.querySelector('[data-catalog-merge-candidate-bulk-promote="true"]');
-    expect(promoteForm?.querySelector('input[name="_intent"]')).toHaveProperty(
-      "value",
-      "bulk-promote-merge-candidates",
-    );
+    expect(promoteForm?.querySelector('input[name="_intent"]')).toHaveProperty("value", "bulk-candidate.promotes");
     expect(promoteForm?.querySelector('input[name="bulkCandidateIds"]')).toHaveProperty("value", "ready_1,ready_2");
 
     const deferForm = container.querySelector('[data-catalog-merge-candidate-bulk-defer="true"]');

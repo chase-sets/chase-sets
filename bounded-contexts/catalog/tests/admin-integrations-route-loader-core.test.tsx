@@ -338,7 +338,7 @@ describe("Catalog integrations route", () => {
       }),
     ]);
     expect(routeData.readModel.catalogSync.action).toMatchObject({
-      key: "start-catalog-sync",
+      key: "scope.sync",
       state: "available",
       blockers: [],
     });
@@ -466,7 +466,7 @@ describe("Catalog integrations route", () => {
     expect(previewedScope).not.toHaveProperty("providerHints");
     expect(routeData.readModel.catalogSync.preview.startAllowed).toBe(false);
     expect(routeData.readModel.catalogSync.action).toMatchObject({
-      key: "start-catalog-sync",
+      key: "scope.sync",
       state: "blocked",
       blockers: expect.arrayContaining(["import-scope-required"]),
     });

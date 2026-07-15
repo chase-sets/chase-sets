@@ -3,6 +3,7 @@ import {
   applyDevTargetEnvOverrides,
   browserE2ePlatformAdminEnv,
   browserE2eRateLimitEnv,
+  browserE2eReadConsistencyEnv,
 } from "./dev-system-config.mjs";
 
 describe("dev system target env overrides", () => {
@@ -18,7 +19,12 @@ describe("dev system target env overrides", () => {
     expect(browserE2eProcesses).not.toBe(processes);
     expect(browserE2eProcesses[0]).toMatchObject({
       name: "platform-api",
-      env: { PORT: "6182", ...browserE2eRateLimitEnv, ...browserE2ePlatformAdminEnv },
+      env: {
+        PORT: "6182",
+        ...browserE2eRateLimitEnv,
+        ...browserE2ePlatformAdminEnv,
+        ...browserE2eReadConsistencyEnv,
+      },
     });
     expect(browserE2eProcesses[1]).toBe(processes[1]);
     expect(processes[0].env).toEqual({ PORT: "6182" });

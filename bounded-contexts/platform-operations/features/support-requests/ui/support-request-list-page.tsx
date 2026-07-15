@@ -100,7 +100,11 @@ function SupportRequestTable({
     {
       key: "reference",
       header: t("support.features.supportRequests.ui.supportRequestListPage.reference"),
-      cell: (request) => request.display_reference || request.support_request_id,
+      cell: (request) => (
+        <LinkButton href={`/account/support/${request.support_request_id}`} tone="ghost" size="sm">
+          {request.display_reference || request.support_request_id}
+        </LinkButton>
+      ),
     },
     {
       key: "issue",

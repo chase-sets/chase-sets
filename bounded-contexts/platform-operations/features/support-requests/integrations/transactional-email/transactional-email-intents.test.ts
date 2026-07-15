@@ -19,6 +19,7 @@ describe("support request transactional email intents", () => {
       orderId: "ord_123",
       flowType: "item-not-as-described",
       resolutionType: "partial-refund",
+      resolutionSummary: "Adjudicated: partial refund of 15.00 issued.",
       correlationId: "trace_1",
     });
 
@@ -33,7 +34,10 @@ describe("support request transactional email intents", () => {
       messageType: "support.support-request.resolved",
       templateId: "support_request_resolved",
       title: "Support request SUP-E6K7M8N9 resolved for order ord_123",
-      templateData: { supportReference: "SUP-E6K7M8N9" },
+      templateData: {
+        supportReference: "SUP-E6K7M8N9",
+        resolutionSummary: "Adjudicated: partial refund of 15.00 issued.",
+      },
     });
   });
 });

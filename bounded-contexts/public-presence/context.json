@@ -7,11 +7,12 @@
     "promo-bar-message",
     "help-article",
     "help-category",
-    "developer-article"
+    "developer-article",
+    "public-policy-artifact"
   ],
   "streamPrefix": "public-presence.",
   "apiBasePath": "/api/public-presence",
-  "slices": ["waitlist", "promo-bar", "help", "developer-portal"],
+  "slices": ["waitlist", "promo-bar", "help", "developer-portal", "policies"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "shell-support", "ui-support"],
   "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [],
@@ -517,6 +518,11 @@
       "classification": "slice",
       "purpose": "Own the compiled public Help Article corpus, Help Category taxonomy, and public help routes.",
       "expectedConsumers": ["Public web routes", "Public web sitemap"]
+    },
+    "policies": {
+      "classification": "slice",
+      "purpose": "Own the policies slice: versioned Public Policy Artifacts, publication readiness, and public policy routes.",
+      "expectedConsumers": ["Public web policy routes", "Identity consent-version contract"]
     },
     "waitlist": {
       "classification": "slice",
