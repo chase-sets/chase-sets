@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AccountDetailPage } from "../features/accounts/ui/account-detail-page";
 import { SecurityPage } from "../features/api-keys/ui/account-security-page";
 import { ApiKeyDetailPage } from "../features/api-keys/ui/api-key-detail-page";
+import { ConsentHistoryPage } from "../features/consents/ui/consent-history-page";
 import { InvitationDetailPage } from "../features/invitations/ui/invitation-detail-page";
 import { TeamPage } from "../features/memberships/ui/account-team-page";
 import { MembershipDetailPage } from "../features/memberships/ui/membership-detail-page";
@@ -75,6 +76,33 @@ describe("Identity destructive action confirmations", () => {
             auth_methods: [],
             updated_at: "2026-07-14T12:00:00.000Z",
           }}
+        />
+      ),
+    },
+    {
+      action: "Withdraw consent",
+      dialogName: "Withdraw marketing-email consent?",
+      consequence:
+        "This ends your current agreement to marketing-email. The audit history will be retained, and you can agree again later.",
+      intent: "withdraw",
+      confirm: "Confirm withdrawal",
+      page: (
+        <ConsentHistoryPage
+          consents={[
+            {
+              consent_id: "cns_marketing",
+              subject_type: "user",
+              user_id: "usr_alex",
+              account_id: "acc_card_vault",
+              policy_key: "marketing-email",
+              policy_version: "v1",
+              status: "recorded",
+              recorded_at: "2026-07-14T12:00:00.000Z",
+              withdrawn_at: null,
+              updated_at: "2026-07-14T12:00:00.000Z",
+              is_current: true,
+            },
+          ]}
         />
       ),
     },

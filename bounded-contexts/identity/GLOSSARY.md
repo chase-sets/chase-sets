@@ -328,6 +328,7 @@ Notes:
 
 - Consents should be versioned.
 - Consents must be auditable.
+- A recorded Consent can be withdrawn. Withdrawal ends the current agreement without deleting its audit history; later agreement creates a new Consent record.
 
 ## Account Address Book
 
