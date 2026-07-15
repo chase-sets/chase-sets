@@ -129,7 +129,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `marketplace:marketplace-seller-metrics-support-source-projection` | Marketplace | **platform-operations** | push-enabled | 1/1 |
 | `marketplace:marketplace-settlement-negative-balance-projection` | Marketplace | **settlement** | push-enabled | 1/1 |
 | `marketplace:platform-policy-document-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
-| `notifications:notifications-source-facts-outbox-projection` | Notifications | customer-feedback, fulfillment, **inventory**, **marketplace**, **ordering**, **settlement** | push-eligible | 4/6 |
+| `notifications:notifications-source-facts-outbox-projection` | Notifications | customer-feedback, fulfillment, **inventory**, **marketplace**, **ordering**, **platform-operations**, **settlement** | push-eligible | 5/7 |
 | `ordering:ordering-account-projection` | Ordering | **identity** | push-enabled | 1/1 |
 | `ordering:ordering-fulfillment-cancellation-inputs` | Ordering | fulfillment | push-eligible | 0/1 |
 | `ordering:ordering-inventory-reservation-outcomes` | Ordering | **inventory** | push-enabled | 1/1 |

@@ -621,6 +621,7 @@ export const sourceContextWakeRegistry = [
       "platform-operations:public-doc-review-queue-projection",
       "platform-operations:reported-content-queue-projection",
       "platform-operations:risk-alert-queue-projection",
+      "notifications:notifications-source-facts-outbox-projection",
       "payments:payments-support-refund-effect",
       "marketplace:marketplace-review-hold-reaction",
       "marketplace:marketplace-review-moderation-reaction",

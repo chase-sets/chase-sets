@@ -19,6 +19,11 @@ import {
   type NotificationPreferenceKey,
 } from "../../preferences/domain/preferences";
 import { createCustomerFeedbackNotificationDeliveryOutcomeReporter } from "../domain/customer-feedback-delivery";
+import type {
+  SupportCaseDirectory,
+  SupportCaseRouting,
+} from "../integrations/source-events/support-dispute-notifications";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 export {
   defaultNotificationPreferences,
@@ -47,6 +52,7 @@ export type NotificationsServices = Readonly<{
   notificationDeliveryOutcomeReporter: NotificationDeliveryOutcomeReporter;
   notificationPreferenceResolver: NotificationPreferenceResolver;
   preferences: NotificationPreferenceStore;
+  supportCaseDirectory: SupportCaseDirectory;
 }>;
 
 export type NotificationsHostPorts = Readonly<{
@@ -83,6 +89,69 @@ export function createNotificationsServices(
     notificationDeliveryOutcomeReporter: createCustomerFeedbackNotificationDeliveryOutcomeReporter(eventStore),
     notificationPreferenceResolver: createNotificationPreferenceResolver(preferences),
     preferences,
+    supportCaseDirectory: createPostgresSupportCaseDirectory(db),
+  };
+}
+
+function createPostgresSupportCaseDirectory(db: PgQueryable): SupportCaseDirectory {
+  return {
+    async recordOpenedCase(input) {
+      await db.query(
+        `INSERT INTO notification_support_cases (
+           support_request_id,
+           order_id,
+           buyer_account_id,
+           seller_account_id,
+           flow_type,
+           seller_response_due_at,
+           last_stream_version
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (support_request_id) DO UPDATE
+         SET order_id = EXCLUDED.order_id,
+             buyer_account_id = EXCLUDED.buyer_account_id,
+             seller_account_id = EXCLUDED.seller_account_id,
+             flow_type = EXCLUDED.flow_type,
+             seller_response_due_at = EXCLUDED.seller_response_due_at,
+             last_stream_version = EXCLUDED.last_stream_version
+         WHERE notification_support_cases.last_stream_version < EXCLUDED.last_stream_version`,
+        [
+          input.supportRequestId,
+          input.orderId,
+          input.buyerAccountId,
+          input.sellerAccountId,
+          input.flowType,
+          input.sellerResponseDueAt,
+          input.streamVersion,
+        ],
+      );
+    },
+    async lookupCase(supportRequestId) {
+      const result = await db.query<{
+        support_request_id: string;
+        order_id: string;
+        buyer_account_id: string;
+        seller_account_id: string;
+        flow_type: string;
+        seller_response_due_at: string | null;
+      }>(
+        `SELECT support_request_id, order_id, buyer_account_id, seller_account_id, flow_type, seller_response_due_at
+         FROM notification_support_cases
+         WHERE support_request_id = $1
+         LIMIT 1`,
+        [supportRequestId],
+      );
+      const row = result.rows[0];
+      if (!row) return null;
+      const routing: SupportCaseRouting = {
+        supportRequestId: row.support_request_id,
+        orderId: row.order_id,
+        buyerAccountId: row.buyer_account_id as AccountId,
+        sellerAccountId: row.seller_account_id as AccountId,
+        flowType: row.flow_type,
+        sellerResponseDueAt: row.seller_response_due_at,
+      };
+      return routing;
+    },
   };
 }
 

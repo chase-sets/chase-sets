@@ -67,13 +67,40 @@
       ],
       "order": 70,
       "projectionHandlerSetNames": ["notifications-customer-feedback-facts-projection"]
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.response-recorded",
+        "support.support-request.offer-declined",
+        "support.support-request.escalated",
+        "support.support-request.resolved",
+        "support.support-request.cancelled",
+        "support.support-request.response-reminder-emitted",
+        "support.support-request.return-delivered",
+        "support.support-request.return-condition-disputed",
+        "support.support-request.return-refund-released"
+      ],
+      "order": 80,
+      "projectionHandlerSetNames": ["notifications-support-dispute-facts-projection"]
     }
   ],
   "projectionGroups": [
     {
       "projectionName": "notifications-source-facts-outbox-projection",
-      "sourceContextNames": ["ordering", "fulfillment", "inventory", "settlement", "marketplace", "customer-feedback"],
-      "ownedTables": ["notification_outbox"],
+      "sourceContextNames": [
+        "ordering",
+        "fulfillment",
+        "inventory",
+        "settlement",
+        "marketplace",
+        "customer-feedback",
+        "platform-operations"
+      ],
+      "ownedTables": ["notification_outbox", "notification_support_cases"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "append-only-no-reset"
     }

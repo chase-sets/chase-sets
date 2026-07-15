@@ -57,4 +57,18 @@ CREATE INDEX IF NOT EXISTS notification_email_provider_events_message_idx
 
 CREATE INDEX IF NOT EXISTS notification_email_provider_events_received_idx
   ON notification_email_provider_events (received_at DESC);
+
+-- Routing directory for the dispute lifecycle notification matrix. Populated from
+-- support.support-request.opened (the only event carrying both parties), then joined
+-- against mid-lifecycle events that carry only the support-request id so each
+-- notification reaches the right buyer/seller account.
+CREATE TABLE IF NOT EXISTS notification_support_cases (
+  support_request_id text PRIMARY KEY,
+  order_id text NOT NULL,
+  buyer_account_id text NOT NULL,
+  seller_account_id text NOT NULL,
+  flow_type text NOT NULL,
+  seller_response_due_at timestamptz NULL,
+  last_stream_version bigint NOT NULL
+);
 `;
