@@ -1779,13 +1779,13 @@
     },
     "seller-desk": {
       "classification": "slice",
-      "purpose": "Own the Marketplace seller-desk attention queue composition and its transport adapters while source contexts retain their read queries.",
-      "expectedConsumers": ["Seller Desk web surfaces", "Native MCP clients"]
-    },
-    "seller-desk": {
-      "classification": "slice",
-      "purpose": "Own the Seller Desk home surface — the seller landing page composing the shared attention queue (marketplace-owned offer and listing sources) with the server-computed KPI band, per the seller-desk blueprint.",
-      "expectedConsumers": ["Marketplace account-desk route", "Seller Desk MCP parity tools"]
+      "purpose": "Own the Seller Desk home surface and shared attention-queue composition, including marketplace-owned offer and listing sources, server-computed KPIs, and transport adapters while source contexts retain their read queries.",
+      "expectedConsumers": [
+        "Marketplace account-desk route",
+        "Seller Desk web surfaces",
+        "Native MCP clients",
+        "Seller Desk MCP parity tools"
+      ]
     },
     "seller-metrics": {
       "classification": "slice",
