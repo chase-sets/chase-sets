@@ -74,6 +74,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `customer-feedback:customer-feedback-feedback-case-opening` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-feedback-case-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `customer-feedback:customer-feedback-notification-delivery-recording` | Customer Feedback | notifications | push-eligible | 0/1 |
+| `customer-feedback:platform-policy-document-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
 | `discovery:discovery-category-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-google-shopping-feed-row-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-item-detail-projection` | Discovery | **catalog** | push-enabled | 1/1 |

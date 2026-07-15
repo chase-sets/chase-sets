@@ -16,7 +16,11 @@ const submission = {
   comment: "Sensitive customer text",
   followUpConsent: true,
   followUpConsentVersion: "feedback-follow-up-v1",
+  followUpConsentStatement: "Chase Sets may contact me about this feedback response.",
   followUpConsentAt: "2026-07-13T12:00:00.000Z",
+  followUpConsentSubjectAccountId: "acc_subject",
+  followUpConsentPurpose: "case-specific-follow-up" as const,
+  followUpConsentApplicability: "this-response-only" as const,
   submissionIdempotencyKey: "submission-01",
   submittedAt: "2026-07-13T12:00:00.000Z",
 };

@@ -7,7 +7,10 @@ import {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import { customerFeedbackRetentionExemptions } from "./support/runtime-support/retention-policy";
+import {
+  customerFeedbackRetentionExemptions,
+  customerFeedbackRetentionSweeps,
+} from "./support/runtime-support/retention-policy";
 import { customerFeedbackSchemaSql } from "./support/runtime-support/schema";
 import {
   createCustomerFeedbackServices,
@@ -16,6 +19,7 @@ import {
 } from "./support/runtime-support/services";
 import { buildFeedbackCaseOpeningReactionHandlers } from "./features/cases/integrations/csat/submission-reaction";
 import { buildNotificationDeliveryReactionHandlers } from "./features/cases/integrations/notifications/delivery-reaction";
+import { buildFeedbackCaseRedactionReactionHandlers } from "./features/cases/integrations/csat/redaction-reaction";
 import { buildCustomerFeedbackApi } from "./api";
 
 const customerFeedbackContextManifest = contextManifest as BcContextManifest;
@@ -36,6 +40,7 @@ export const module = defineBoundedContextModule<
   manifest: customerFeedbackContextManifest,
   schemaSql: customerFeedbackSchemaSql,
   retentionExemptions: customerFeedbackRetentionExemptions,
+  retentionSweeps: customerFeedbackRetentionSweeps,
   createServices: (pool, ports) => createCustomerFeedbackServices(pool, ports),
   buildApis: (services) => [buildCustomerFeedbackApi(services)],
   projectionHandlerSets: (services) => services.projectors,
@@ -46,7 +51,10 @@ export const module = defineBoundedContextModule<
       handlers: {
         "customer-feedback.customer-feedback-feedback-case-opening": {
           filterToEventTypes: true,
-          buildHandlers: () => buildFeedbackCaseOpeningReactionHandlers(services.cases.openFromSubmission),
+          buildHandlers: () => ({
+            ...buildFeedbackCaseOpeningReactionHandlers(services.cases.openFromSubmission),
+            ...buildFeedbackCaseRedactionReactionHandlers(services.cases.protectFromResponseRedaction),
+          }),
         },
         "notifications.customer-feedback-notification-delivery-recording": {
           filterToEventTypes: true,

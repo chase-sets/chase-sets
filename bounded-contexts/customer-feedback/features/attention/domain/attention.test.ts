@@ -18,7 +18,11 @@ const submission = {
   comment: "must not be copied",
   followUpConsent: true,
   followUpConsentVersion: "feedback-follow-up-v1",
+  followUpConsentStatement: "Chase Sets may contact me about this feedback response.",
   followUpConsentAt: "2026-07-13T12:00:00.000Z",
+  followUpConsentSubjectAccountId: "acc_subject",
+  followUpConsentPurpose: "case-specific-follow-up",
+  followUpConsentApplicability: "this-response-only",
   submissionIdempotencyKey: "attention-submission",
   submittedAt: "2026-07-13T12:00:00.000Z",
 } satisfies CsatSurveySubmittedEvent["data"];

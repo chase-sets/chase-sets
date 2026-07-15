@@ -6,6 +6,8 @@ import { createCsatInvitationRuntime } from "../../features/csat/api/runtime";
 import { createFeedbackCaseRuntime } from "../../features/cases/api/runtime";
 import { createFeedbackAttentionDigestRunner } from "../../features/attention/api/digest-runner";
 import { createFeedbackNotificationDeliveryGuard } from "../../features/attention/integrations/notifications/delivery-authorization";
+import { createCustomerFeedbackPrivacyRuntime } from "../../features/privacy/api/runtime";
+import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 
 /**
  * Runtime services for the Customer Feedback context.
@@ -19,6 +21,8 @@ export type CustomerFeedbackServices = Readonly<{
   runAttentionDigest: ReturnType<typeof createFeedbackAttentionDigestRunner>;
   notificationDeliveryGuard: ReturnType<typeof createFeedbackNotificationDeliveryGuard>;
   eventStore: ReturnType<typeof createPostgresEventStore>;
+  privacy: ReturnType<typeof createCustomerFeedbackPrivacyRuntime>;
+  policies: PolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -37,15 +41,19 @@ export function createCustomerFeedbackServices(
       sourceContextName: "customer-feedback",
     }),
   });
-  const invitations = createCsatInvitationRuntime({ eventStore, db });
+  const policies = createPolicyRuntime({ eventStore, db });
+  const invitations = createCsatInvitationRuntime({ eventStore, db, policies });
   const cases = createFeedbackCaseRuntime({ eventStore, db });
+  const privacy = createCustomerFeedbackPrivacyRuntime({ pool, db, invitations, policies });
   return {
     invitations,
     cases,
     runAttentionDigest: createFeedbackAttentionDigestRunner({ eventStore, db }),
     notificationDeliveryGuard: createFeedbackNotificationDeliveryGuard(cases.getByCaseId),
     eventStore,
-    projectors: [...invitations.projectors, ...cases.projectors],
+    privacy,
+    policies,
+    projectors: [...invitations.projectors, ...cases.projectors, ...policies.projectors],
     pool,
     db,
   };

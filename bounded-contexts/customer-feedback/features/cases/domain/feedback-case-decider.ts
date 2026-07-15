@@ -80,6 +80,12 @@ export type RecordFeedbackCaseAttentionDeliveryOutcomeCommand = AttributedComman
   }>;
 export type WithdrawFeedbackCaseFollowUpConsentCommand = AttributedCommand &
   Readonly<{ type: "WithdrawFeedbackCaseFollowUpConsent"; consentVersion: string }>;
+export type ProtectFeedbackCaseAfterResponseRedactionCommand = AttributedCommand &
+  Readonly<{
+    type: "ProtectFeedbackCaseAfterResponseRedaction";
+    scope: "response-content" | "direct-identifiers" | "all-sensitive";
+    reason: string;
+  }>;
 export type CloseFeedbackCaseCommand = AttributedCommand & Readonly<{ type: "CloseFeedbackCase" }>;
 export type ReopenFeedbackCaseCommand = AttributedCommand & Readonly<{ type: "ReopenFeedbackCase" }>;
 
@@ -99,6 +105,7 @@ export type FeedbackCaseCommand =
   | RecordFeedbackCaseFollowUpOutcomeCommand
   | RecordFeedbackCaseAttentionDeliveryOutcomeCommand
   | WithdrawFeedbackCaseFollowUpConsentCommand
+  | ProtectFeedbackCaseAfterResponseRedactionCommand
   | CloseFeedbackCaseCommand
   | ReopenFeedbackCaseCommand;
 
@@ -139,7 +146,7 @@ export const decideFeedbackCase: AggregateDecider<
   if (command.type === "OpenFeedbackCase") {
     if (state.feedbackCase) fail("case-already-opened", "Feedback case has already been opened.", state.feedbackCase);
     validateOpening(command);
-    const consentGranted = command.submission.followUpConsent && command.submission.followUpConsentAt !== null;
+    const consent = normalizeOpeningConsent(command.submission);
     const opened: FeedbackCaseOpenedEvent = {
       type: "customer-feedback.case.opened" as const,
       data: {
@@ -158,12 +165,7 @@ export const decideFeedbackCase: AggregateDecider<
         },
         openReason: command.openReason,
         priority: command.openReason === "flagged" ? "normal" : priorityForRating(command.submission.rating),
-        consent: {
-          status: consentGranted ? "granted" : "not-granted",
-          version: requireText(command.submission.followUpConsentVersion, "Follow-up consent version is required."),
-          grantedAt: consentGranted ? command.submission.followUpConsentAt : null,
-          withdrawnAt: null,
-        },
+        consent,
         actorId,
         actedAt,
       },
@@ -460,6 +462,21 @@ export const decideFeedbackCase: AggregateDecider<
           },
         },
       ];
+    case "ProtectFeedbackCaseAfterResponseRedaction":
+      if (feedbackCase.disposition === "redacted" && feedbackCase.consent.status === "withdrawn") return [];
+      return [
+        {
+          type: "customer-feedback.case.response-redacted",
+          data: {
+            eventSchemaVersion: 1,
+            caseId: feedbackCase.caseId,
+            scope: command.scope,
+            reason: requireText(command.reason, "Response redaction reason is required."),
+            actorId,
+            actedAt,
+          },
+        },
+      ];
     case "CloseFeedbackCase":
       requireStatus(feedbackCase, ["actioned"], "Only an actioned feedback case can be closed.");
       if (feedbackCase.disposition === null) {
@@ -500,6 +517,28 @@ export const decideFeedbackCase: AggregateDecider<
       return assertNever(command);
   }
 };
+
+function normalizeOpeningConsent(submission: CsatSurveySubmittedEvent["data"]): FeedbackCase["consent"] {
+  const legacy = submission as Partial<CsatSurveySubmittedEvent["data"]>;
+  const statement = legacy.followUpConsentStatement?.trim() || "Consent statement unavailable for legacy response.";
+  const subjectAccountId = legacy.followUpConsentSubjectAccountId?.trim() || "[unavailable]";
+  const metadataComplete =
+    Boolean(legacy.followUpConsentStatement?.trim()) &&
+    Boolean(legacy.followUpConsentSubjectAccountId?.trim()) &&
+    legacy.followUpConsentPurpose === "case-specific-follow-up" &&
+    legacy.followUpConsentApplicability === "this-response-only";
+  const consentGranted = submission.followUpConsent && submission.followUpConsentAt !== null && metadataComplete;
+  return {
+    status: consentGranted ? "granted" : "not-granted",
+    version: requireText(submission.followUpConsentVersion, "Follow-up consent version is required."),
+    statement,
+    subjectAccountId,
+    purpose: "case-specific-follow-up",
+    applicability: "this-response-only",
+    grantedAt: consentGranted ? submission.followUpConsentAt : null,
+    withdrawnAt: null,
+  };
+}
 
 export const evolveFeedbackCase: AggregateEvolver<FeedbackCaseAggregateState, FeedbackCaseEvent> = (state, event) => {
   if (event.type === "customer-feedback.case.opened") {
@@ -608,6 +647,15 @@ export const evolveFeedbackCase: AggregateEvolver<FeedbackCaseAggregateState, Fe
             ? "cancelled"
             : feedbackCase.followUpStatus,
       });
+    case "customer-feedback.case.response-redacted":
+      return update(feedbackCase, {
+        status: "actioned",
+        disposition: "redacted",
+        actionedAt: event.data.actedAt,
+        consent: { ...feedbackCase.consent, status: "withdrawn", withdrawnAt: event.data.actedAt },
+        followUpStatus: "cancelled",
+        followUpDeliveryStatus: feedbackCase.followUpDeliveryStatus === "sent" ? "sent" : "suppressed",
+      });
     case "customer-feedback.case.closed":
       return update(feedbackCase, { status: "closed", closedAt: event.data.actedAt });
     case "customer-feedback.case.reopened":
@@ -684,7 +732,11 @@ function requireFollowUpConsent(feedbackCase: FeedbackCase, consentVersion: stri
   if (
     feedbackCase.consent.status !== "granted" ||
     feedbackCase.consent.grantedAt === null ||
-    feedbackCase.consent.version !== consentVersion
+    feedbackCase.consent.version !== consentVersion ||
+    !feedbackCase.consent.statement ||
+    !feedbackCase.consent.subjectAccountId ||
+    feedbackCase.consent.purpose !== "case-specific-follow-up" ||
+    feedbackCase.consent.applicability !== "this-response-only"
   ) {
     fail(
       "follow-up-not-consented",

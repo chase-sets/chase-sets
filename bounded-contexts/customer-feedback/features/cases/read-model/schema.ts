@@ -23,6 +23,10 @@ CREATE TABLE IF NOT EXISTS customer_feedback_feedback_cases (
   work_items jsonb NOT NULL DEFAULT '[]'::jsonb,
   consent_status text NOT NULL CHECK (consent_status IN ('granted', 'not-granted', 'withdrawn')),
   consent_version text NOT NULL,
+  consent_statement text NULL,
+  consent_subject_account_id text NULL,
+  consent_purpose text NULL,
+  consent_applicability text NULL,
   consent_granted_at timestamptz NULL,
   consent_withdrawn_at timestamptz NULL,
   follow_up_status text NOT NULL CHECK (
@@ -58,7 +62,11 @@ ALTER TABLE customer_feedback_feedback_cases
   ADD COLUMN IF NOT EXISTS follow_up_template_version integer NULL,
   ADD COLUMN IF NOT EXISTS follow_up_sent_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS attention_delivery_status text NOT NULL DEFAULT 'not-requested',
-  ADD COLUMN IF NOT EXISTS attention_delivery_reference text NULL;
+  ADD COLUMN IF NOT EXISTS attention_delivery_reference text NULL,
+  ADD COLUMN IF NOT EXISTS consent_statement text NULL,
+  ADD COLUMN IF NOT EXISTS consent_subject_account_id text NULL,
+  ADD COLUMN IF NOT EXISTS consent_purpose text NULL,
+  ADD COLUMN IF NOT EXISTS consent_applicability text NULL;
 
 CREATE INDEX IF NOT EXISTS customer_feedback_feedback_cases_queue_idx
   ON customer_feedback_feedback_cases (status, priority, due_at, opened_at, case_id);

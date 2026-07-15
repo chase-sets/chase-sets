@@ -1,8 +1,17 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { CustomerFeedbackInvitationEvent } from "../domain/invitation";
+import {
+  customerFeedbackRetentionPolicy,
+  type CustomerFeedbackRetentionPolicyValue,
+} from "../../privacy/domain/policy";
 
-export function buildCsatInvitationProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildCsatInvitationProjectionHandlers(
+  db: PgQueryable,
+  options: Readonly<{
+    resolveRetentionPolicy?: () => Promise<CustomerFeedbackRetentionPolicyValue>;
+  }> = {},
+): ProjectorHandlerMap {
   return {
     "customer-feedback.invitation.eligible": async (event) => {
       const eligible = event.data as Extract<
@@ -105,14 +114,19 @@ export function buildCsatInvitationProjectionHandlers(db: PgQueryable): Projecto
         event.timing.recordedAt,
         data.invitationId,
         `state = 'submitted', rating = $4, comment = $5, follow_up_consent = $6,
-         follow_up_consent_version = $7, follow_up_consent_at = $8,
-         submission_idempotency_key = $9, submitted_at = $10`,
+         follow_up_consent_version = $7, follow_up_consent_statement = $8, follow_up_consent_at = $9,
+         follow_up_consent_subject_account_id = $10, follow_up_consent_purpose = $11,
+         follow_up_consent_applicability = $12, submission_idempotency_key = $13, submitted_at = $14`,
         [
           data.rating,
           data.comment,
           data.followUpConsent,
           data.followUpConsentVersion,
+          data.followUpConsentStatement,
           data.followUpConsentAt,
+          data.followUpConsentSubjectAccountId,
+          data.followUpConsentPurpose,
+          data.followUpConsentApplicability,
           data.submissionIdempotencyKey,
           data.submittedAt,
         ],
@@ -166,7 +180,128 @@ export function buildCsatInvitationProjectionHandlers(db: PgQueryable): Projecto
         [data.revokedAt, data.reason],
       );
     },
+    "customer-feedback.response.privacy-hold-placed": async (event) => {
+      const data = event.data as Extract<
+        CustomerFeedbackInvitationEvent,
+        { type: "customer-feedback.response.privacy-hold-placed" }
+      >["data"];
+      await update(db, event.streamVersion, event.timing.recordedAt, data.invitationId, "privacy_hold = $4::jsonb", [
+        JSON.stringify({
+          holdId: data.holdId,
+          reason: data.reason,
+          actorId: data.actorId,
+          placedAt: data.placedAt,
+          releasedAt: null,
+        }),
+      ]);
+      await recordPrivacyAudit(
+        db,
+        data.invitationId,
+        "hold-placed",
+        data.actorId,
+        "manage-feedback-holds",
+        null,
+        data.reason,
+        data.placedAt,
+        options.resolveRetentionPolicy,
+      );
+    },
+    "customer-feedback.response.privacy-hold-released": async (event) => {
+      const data = event.data as Extract<
+        CustomerFeedbackInvitationEvent,
+        { type: "customer-feedback.response.privacy-hold-released" }
+      >["data"];
+      await update(
+        db,
+        event.streamVersion,
+        event.timing.recordedAt,
+        data.invitationId,
+        `privacy_hold = COALESCE(privacy_hold, '{}'::jsonb) || jsonb_build_object('releasedAt', $4::text)`,
+        [data.releasedAt],
+      );
+      await recordPrivacyAudit(
+        db,
+        data.invitationId,
+        "hold-released",
+        data.actorId,
+        "manage-feedback-holds",
+        null,
+        data.reason,
+        data.releasedAt,
+        options.resolveRetentionPolicy,
+      );
+    },
+    "customer-feedback.response.redacted": async (event) => {
+      const data = event.data as Extract<
+        CustomerFeedbackInvitationEvent,
+        { type: "customer-feedback.response.redacted" }
+      >["data"];
+      const redactContent = data.scope !== "direct-identifiers";
+      const redactIdentifiers = data.scope !== "response-content";
+      await update(
+        db,
+        event.streamVersion,
+        event.timing.recordedAt,
+        data.invitationId,
+        `comment = CASE WHEN $4 THEN NULL ELSE comment END,
+         response_content_redacted_at = CASE WHEN $4 THEN $5 ELSE response_content_redacted_at END,
+         public_reference = CASE WHEN $6 THEN NULL ELSE public_reference END,
+         source_entity_id = CASE WHEN $6 THEN '[redacted]' ELSE source_entity_id END,
+         outcome_idempotency_key = CASE WHEN $6 THEN 'redacted:' || invitation_id ELSE outcome_idempotency_key END,
+         correlation_id = CASE WHEN $6 THEN NULL ELSE correlation_id END,
+         subject_account_id = CASE WHEN $6 THEN 'redacted:' || invitation_id ELSE subject_account_id END,
+         follow_up_consent = CASE WHEN $6 THEN FALSE ELSE follow_up_consent END,
+         follow_up_consent_at = CASE WHEN $6 THEN NULL ELSE follow_up_consent_at END,
+         follow_up_consent_subject_account_id = CASE WHEN $6 THEN NULL ELSE follow_up_consent_subject_account_id END,
+         submission_idempotency_key = CASE WHEN $6 THEN NULL ELSE submission_idempotency_key END,
+         direct_identifiers_redacted_at = CASE WHEN $6 THEN $5 ELSE direct_identifiers_redacted_at END`,
+        [redactContent, data.redactedAt, redactIdentifiers],
+      );
+      await recordPrivacyAudit(
+        db,
+        data.invitationId,
+        "redacted",
+        data.actorId,
+        "redact-feedback",
+        data.scope,
+        data.reason,
+        data.redactedAt,
+        options.resolveRetentionPolicy,
+      );
+    },
   };
+}
+
+async function recordPrivacyAudit(
+  db: PgQueryable,
+  invitationId: string,
+  action: string,
+  actorId: string,
+  capability: string,
+  scope: string | null,
+  reason: string,
+  occurredAt: string,
+  resolveRetentionPolicy: (() => Promise<CustomerFeedbackRetentionPolicyValue>) | undefined,
+): Promise<void> {
+  const policy = resolveRetentionPolicy ? await resolveRetentionPolicy() : customerFeedbackRetentionPolicy.defaultValue;
+  await db.query(
+    `INSERT INTO customer_feedback_response_privacy_audit
+       (audit_id, invitation_id, action, actor_id, capability, scope, reason, outcome, occurred_at)
+     SELECT $1, $2, $3, $4, $5, $6, $7, 'succeeded', $8
+     WHERE $8::timestamptz >= $9::timestamptz
+     ON CONFLICT (audit_id) DO NOTHING`,
+    [
+      `${invitationId}:${action}:${occurredAt}`,
+      invitationId,
+      action,
+      actorId,
+      capability,
+      scope,
+      reason,
+      occurredAt,
+      new Date(Date.now() - policy.structuralAuditDays * 24 * 60 * 60 * 1_000).toISOString(),
+    ],
+  );
 }
 
 async function update(

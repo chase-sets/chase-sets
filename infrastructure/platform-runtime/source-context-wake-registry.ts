@@ -293,6 +293,7 @@ export const sourceContextWakeRegistry = [
       "customer-feedback:customer-feedback-csat-invitation-projection",
       "customer-feedback:customer-feedback-feedback-case-opening",
       "customer-feedback:customer-feedback-feedback-case-projection",
+      "customer-feedback:platform-policy-document-projection",
       "notifications:notifications-source-facts-outbox-projection",
     ],
     routeDependencyIds: [],

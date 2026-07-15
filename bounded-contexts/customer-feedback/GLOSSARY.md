@@ -75,6 +75,12 @@ A **CSAT Response** is a submitted survey answer: a 1–5 rating, an optional
 comment, and separately versioned follow-up consent, tied to the invitation and
 its survey version.
 
+## Response
+
+**Response** is the event noun for a submitted Customer Feedback answer and its
+privacy lifecycle. A Response may be held or redacted without changing its
+metric-only rating fact.
+
 ## Feedback Case
 
 A **Feedback Case** is the event-sourced operational lifecycle opened from one
@@ -179,3 +185,26 @@ submission, reclassified under the explicit non-CSAT
 `legacy-experience-rating` survey kind. This is the migrate-not-reset decision:
 legacy events stay replayable, and their ratings can never enter CSAT because the
 kind is not CSAT-eligible.
+
+## Feedback Redaction
+
+**Feedback Redaction** is an irreversible, attributed fact that masks response
+content, direct identifiers, or all sensitive response data from every rebuilt
+Customer Feedback projection while retaining content-free structural audit metadata.
+
+## Feedback Privacy Policy
+
+The **Feedback Privacy Policy** is the versioned Customer Feedback classification,
+retention, access, consent, redaction, hold, export, and residual-metadata contract.
+
+## Feedback Privacy Hold
+
+A **Feedback Privacy Hold** is an audited, response-scoped block on retention or
+operator redaction when preservation is legally or operationally required. A hold
+does not grant comment, export, follow-up, or audit access.
+
+## Sensitive Feedback Export
+
+A **Sensitive Feedback Export** is an authorized, reason-coded, normalized-filter
+artifact with a content-free audit record and a separate expiring payload that only
+the creating actor can fetch.

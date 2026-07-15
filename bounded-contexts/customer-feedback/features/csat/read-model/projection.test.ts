@@ -134,4 +134,37 @@ describe("CSAT invitation projection", () => {
     );
     expect(JSON.stringify(calls.at(-1)?.params)).not.toContain("comment");
   });
+
+  it("masks content and identifiers on replay and writes only content-free audit metadata", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const db = {
+      query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
+        calls.push({ sql, params });
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildCsatInvitationProjectionHandlers(db as never);
+    await handlers["customer-feedback.response.redacted"]?.(
+      event(
+        "customer-feedback.response.redacted",
+        {
+          eventSchemaVersion: 1,
+          invitationId: "csatinv_01",
+          scope: "all-sensitive",
+          reason: "customer-request",
+          actorId: "usr_privacy",
+          idempotencyKey: "redact-01",
+          redactedAt: "2026-07-14T00:05:00.000Z",
+          policyVersion: "customer-feedback-privacy.v1",
+        },
+        5,
+      ),
+    );
+
+    expect(calls[0]?.sql).toContain("comment = CASE WHEN $4 THEN NULL");
+    expect(calls[0]?.sql).toContain("public_reference = CASE WHEN $6 THEN NULL");
+    expect(calls[0]?.sql).toContain("follow_up_consent = CASE WHEN $6 THEN FALSE");
+    expect(calls[1]?.sql).toContain("customer_feedback_response_privacy_audit");
+    expect(JSON.stringify(calls[1]?.params)).not.toContain("Sensitive response content");
+  });
 });

@@ -19,7 +19,7 @@ import {
   type FeedbackCaseOpenReason,
 } from "../domain";
 import { buildFeedbackCaseProjectionHandlers } from "../read-model/projection";
-import { getFeedbackCaseStreamId } from "../read-model/queries";
+import { getFeedbackCaseStreamId, getFeedbackCaseStreamIdByInvitationId } from "../read-model/queries";
 import { getSubmittedCsatResponseForCase } from "../integrations/csat/submitted-response-source";
 import { buildFeedbackAttentionProjectionHandlers } from "../../attention/read-model/projection";
 
@@ -115,6 +115,31 @@ export function createFeedbackCaseRuntime(deps: FeedbackCaseRuntimeDeps) {
       const streamId = await getFeedbackCaseStreamId(deps.db, caseId);
       if (!streamId) return null;
       return repository.load(streamId).then((loaded) => loaded.state.feedbackCase);
+    },
+    protectFromResponseRedaction: async (
+      input: Readonly<{
+        invitationId: string;
+        scope: "response-content" | "direct-identifiers" | "all-sensitive";
+        reason: string;
+        actorId: string;
+        actedAt: string;
+      }>,
+      context: EventStoreContext,
+    ) => {
+      const streamId = await getFeedbackCaseStreamIdByInvitationId(deps.db, input.invitationId);
+      if (!streamId) return null;
+      const result = await commandHandler({
+        streamId,
+        context,
+        command: {
+          type: "ProtectFeedbackCaseAfterResponseRedaction",
+          scope: input.scope,
+          reason: input.reason,
+          actor: { actorId: input.actorId, authority: "manage-feedback-cases" },
+          actedAt: input.actedAt,
+        },
+      });
+      return requireCase(result.state.feedbackCase);
     },
     commandHandler,
     projectors: [
