@@ -959,311 +959,6 @@ describe("source observation runtime: provider integration jobs", () => {
     }
   });
 
-  it("imports TCGplayer set scopes as provider-product source observations", async () => {
-    const harness = createTcgplayerImportHarness();
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      {} as ReferenceDataServices,
-      createActiveTcgplayerProfileVersions(),
-    );
-
-    const result = await services.importTcgplayerScope({
-      scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
-      context,
-    });
-
-    expect(result).toMatchObject({
-      requested: 1,
-      imported: 1,
-      observed: 2,
-      failed: 0,
-      outcomes: [
-        expect.objectContaining({
-          providerKey: "tcgplayer",
-          expansionId: "set:3:Prismatic Evolutions",
-          status: "imported",
-          observed: 2,
-        }),
-      ],
-    });
-    expect(harness.appendedSourceEvents).toHaveLength(2);
-    expect(harness.appendedSourceEvents[0]).toMatchObject({
-      eventType: "catalog.source-observation.recorded",
-      payload: expect.objectContaining({
-        observationId: "tcgplayer_en_product_610001",
-        providerKey: "tcgplayer",
-        externalKey: "product:610001",
-        normalized: expect.objectContaining({
-          kind: "provider-product",
-          mergeIdentity: expect.objectContaining({
-            productLineName: "Pokemon",
-            setName: "Prismatic Evolutions",
-            collectorNumber: "131",
-          }),
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
-          externalProductReferences: [],
-          skuReferences: [
-            expect.objectContaining({
-              providerKey: "tcgplayer",
-              externalKey: "sku:987654",
-              reviewEvidence: expect.objectContaining({
-                condition: "Near Mint",
-                printing: "Normal",
-                language: "English",
-                productForm: "single",
-              }),
-            }),
-          ],
-        }),
-      }),
-    });
-  });
-
-  it("imports TCGplayer Magic single-card set scopes through the selected production profile unit", async () => {
-    const harness = createTcgplayerImportHarness({ productDomain: "mtg" });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      {} as ReferenceDataServices,
-      createActiveTcgplayerProfileVersions({ profileKey: "mtg-single-card-product-sku" }),
-    );
-
-    const result = await services.importTcgplayerScope({
-      scope: {
-        provider: "tcgplayer",
-        profileKey: "mtg-single-card-product-sku",
-        ingestionUnitKey: "tcgplayer:mtg:single-card:source-observation-import",
-        productLineId: "1",
-        setName: "Time Spiral",
-      },
-      context,
-    });
-
-    expect(result).toMatchObject({
-      requested: 1,
-      imported: 1,
-      observed: 1,
-      failed: 0,
-      outcomes: [
-        expect.objectContaining({
-          providerKey: "tcgplayer",
-          expansionId: "set:1:Time Spiral",
-          status: "imported",
-          observed: 1,
-        }),
-      ],
-    });
-    expect(harness.appendedSourceEvents).toHaveLength(1);
-    expect(harness.appendedSourceEvents[0]).toMatchObject({
-      eventType: "catalog.source-observation.recorded",
-      payload: expect.objectContaining({
-        observationId: "tcgplayer_en_product_14240",
-        providerKey: "tcgplayer",
-        externalKey: "product:14240",
-        sourceProfileKey: "mtg-single-card-product-sku",
-        sourceProfileVersion: "2026.06.19",
-        normalized: expect.objectContaining({
-          kind: "provider-product",
-          tcg: "magic",
-          providerProductName: "Fury Sliver",
-          productLineName: "Magic",
-          productCategoryName: "Cards",
-          productForm: "single",
-          mergeIdentity: expect.objectContaining({
-            tcg: "magic",
-            productLineName: "Magic",
-            setName: "Time Spiral",
-            collectorNumber: "157",
-            productForm: "single",
-          }),
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
-          skuReferences: [
-            expect.objectContaining({
-              providerKey: "tcgplayer",
-              externalKey: "sku:50014240",
-              reviewEvidence: expect.objectContaining({
-                condition: "Near Mint",
-                printing: "Normal",
-                language: "English",
-                productForm: "single",
-              }),
-            }),
-          ],
-        }),
-      }),
-    });
-  });
-
-  it("imports TCGplayer One Piece single-card set scopes through the selected production profile unit", async () => {
-    const harness = createTcgplayerImportHarness({ productDomain: "one-piece" });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      {} as ReferenceDataServices,
-      createActiveTcgplayerProfileVersions({ profileKey: "one-piece-single-card-product-sku" }),
-    );
-
-    const result = await services.importTcgplayerScope({
-      scope: {
-        provider: "tcgplayer",
-        profileKey: "one-piece-single-card-product-sku",
-        ingestionUnitKey: "tcgplayer:one-piece:single-card:source-observation-import",
-        productLineId: "68",
-        setName: "Romance Dawn",
-      },
-      context,
-    });
-
-    expect(result).toMatchObject({
-      requested: 1,
-      imported: 1,
-      observed: 1,
-      failed: 0,
-      outcomes: [
-        expect.objectContaining({
-          providerKey: "tcgplayer",
-          expansionId: "set:68:Romance Dawn",
-          status: "imported",
-          observed: 1,
-        }),
-      ],
-    });
-    expect(harness.appendedSourceEvents).toHaveLength(1);
-    expect(harness.appendedSourceEvents[0]).toMatchObject({
-      eventType: "catalog.source-observation.recorded",
-      payload: expect.objectContaining({
-        observationId: "tcgplayer_en_product_987650",
-        providerKey: "tcgplayer",
-        externalKey: "product:987650",
-        sourceProfileKey: "one-piece-single-card-product-sku",
-        sourceProfileVersion: "2026.06.22",
-        normalized: expect.objectContaining({
-          kind: "provider-product",
-          tcg: "one-piece",
-          name: "Monkey.D.Luffy",
-          providerProductName: "Monkey.D.Luffy",
-          productLineName: "One Piece Card Game",
-          productCategoryName: "Cards",
-          productForm: "single",
-          mergeIdentity: expect.objectContaining({
-            tcg: "one piece card game",
-            productLineName: "One Piece Card Game",
-            setName: "Romance Dawn",
-            collectorNumber: "OP01-001",
-            productForm: "single",
-          }),
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:987650" }],
-          skuReferences: [
-            expect.objectContaining({
-              providerKey: "tcgplayer",
-              externalKey: "sku:900987650",
-              reviewEvidence: expect.objectContaining({
-                condition: "Near Mint",
-                printing: "Normal",
-                language: "English",
-                productForm: "single",
-              }),
-            }),
-          ],
-        }),
-      }),
-    });
-  });
-
-  it("imports TCGplayer Magic sealed-product set scopes through the selected production profile unit", async () => {
-    const harness = createTcgplayerImportHarness({ productDomain: "mtg" });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      {} as ReferenceDataServices,
-      createActiveTcgplayerProfileVersions({ profileKey: "mtg-sealed-product-sku" }),
-    );
-
-    const result = await services.importTcgplayerScope({
-      scope: {
-        provider: "tcgplayer",
-        profileKey: "mtg-sealed-product-sku",
-        ingestionUnitKey: "tcgplayer:mtg:sealed-product:source-observation-import",
-        productLineId: "1",
-        setName: "Time Spiral",
-      },
-      context,
-    });
-
-    expect(result).toMatchObject({
-      requested: 1,
-      imported: 1,
-      observed: 1,
-      failed: 0,
-      outcomes: [
-        expect.objectContaining({
-          providerKey: "tcgplayer",
-          expansionId: "set:1:Time Spiral",
-          status: "imported",
-          observed: 1,
-        }),
-      ],
-    });
-    expect(harness.appendedSourceEvents).toHaveLength(1);
-    expect(harness.appendedSourceEvents[0]).toMatchObject({
-      eventType: "catalog.source-observation.recorded",
-      payload: expect.objectContaining({
-        observationId: "tcgplayer_en_product_96601",
-        providerKey: "tcgplayer",
-        externalKey: "product:96601",
-        sourceProfileKey: "mtg-sealed-product-sku",
-        sourceProfileVersion: "2026.06.19",
-        normalized: expect.objectContaining({
-          kind: "magic-sealed-product",
-          tcg: "magic",
-          name: "Time Spiral Booster Pack",
-          setCode: "tsp",
-          setName: "Time Spiral",
-          sealedProductForm: "booster-pack",
-          packCount: 1,
-          productLineName: "Magic: The Gathering",
-          barcode: "0653569123456",
-          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:96601" }],
-        }),
-      }),
-    });
-  });
-
-  it("records fetched TCGplayer products while reporting product detail failures", async () => {
-    const harness = createTcgplayerImportHarness({ failProductIds: new Set([610002]) });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      {} as ReferenceDataServices,
-      createActiveTcgplayerProfileVersions(),
-    );
-
-    const result = await services.importTcgplayerScope({
-      scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
-      context,
-    });
-
-    expect(result).toMatchObject({
-      requested: 1,
-      imported: 0,
-      observed: 1,
-      failed: 1,
-      outcomes: [
-        expect.objectContaining({
-          status: "failed",
-          observed: 1,
-          reason: "Imported 1 TCGplayer Pokemon Single Cards product details before Product 610002 unavailable.",
-        }),
-      ],
-    });
-    expect(harness.appendedSourceEvents).toHaveLength(1);
-    expect(harness.appendedSourceEvents[0]?.payload).toMatchObject({
-      observationId: "tcgplayer_en_product_610001",
-      externalKey: "product:610001",
-    });
-  });
-
   it("retries provider integration jobs by preserving successful outcomes and pruning failed outcomes", async () => {
     const harness = createIntegrationJobDedupeHarness({
       existingJob: {
@@ -1419,6 +1114,245 @@ describe("source observation runtime: provider integration jobs", () => {
       failed: 0,
     });
     expect(harness.appendedSourceEvents).toHaveLength(2);
+  });
+
+  it("imports TCGplayer set scopes as provider-product source observations", async () => {
+    const tcgplayerHarness = createTcgplayerImportHarness();
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
+      renewSucceeds: true,
+      tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      createActiveTcgplayerProfileVersions(),
+    );
+
+    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+      1,
+    );
+
+    expect(harness.job.status).toBe("completed");
+    expect(harness.job.result).toMatchObject({ requested: 1, imported: 1, observed: 2, failed: 0 });
+    expect(harness.appendedSourceEvents).toHaveLength(2);
+    expect(harness.appendedSourceEvents[0]).toMatchObject({
+      eventType: "catalog.source-observation.recorded",
+      payload: expect.objectContaining({
+        observationId: "tcgplayer_en_product_610001",
+        providerKey: "tcgplayer",
+        externalKey: "product:610001",
+        normalized: expect.objectContaining({
+          kind: "provider-product",
+          mergeIdentity: expect.objectContaining({
+            productLineName: "Pokemon",
+            setName: "Prismatic Evolutions",
+            collectorNumber: "131",
+          }),
+          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
+          externalProductReferences: [],
+          skuReferences: [
+            expect.objectContaining({
+              providerKey: "tcgplayer",
+              externalKey: "sku:987654",
+              reviewEvidence: expect.objectContaining({
+                condition: "Near Mint",
+                printing: "Normal",
+                language: "English",
+                productForm: "single",
+              }),
+            }),
+          ],
+        }),
+      }),
+    });
+  });
+
+  it("imports TCGplayer Magic single-card set scopes through the selected production profile unit", async () => {
+    const tcgplayerHarness = createTcgplayerImportHarness({ productDomain: "mtg" });
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: {
+        provider: "tcgplayer",
+        profileKey: "mtg-single-card-product-sku",
+        ingestionUnitKey: "tcgplayer:mtg:single-card:source-observation-import",
+        productLineId: "1",
+        setName: "Time Spiral",
+      },
+      renewSucceeds: true,
+      tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      createActiveTcgplayerProfileVersions({ profileKey: "mtg-single-card-product-sku" }),
+    );
+
+    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+      1,
+    );
+
+    expect(harness.job.status).toBe("completed");
+    expect(harness.job.result).toMatchObject({ requested: 1, imported: 1, observed: 1, failed: 0 });
+    expect(harness.appendedSourceEvents).toHaveLength(1);
+    expect(harness.appendedSourceEvents[0]).toMatchObject({
+      eventType: "catalog.source-observation.recorded",
+      payload: expect.objectContaining({
+        observationId: "tcgplayer_en_product_14240",
+        providerKey: "tcgplayer",
+        externalKey: "product:14240",
+        sourceProfileKey: "mtg-single-card-product-sku",
+        sourceProfileVersion: "2026.06.19",
+        normalized: expect.objectContaining({
+          kind: "provider-product",
+          tcg: "magic",
+          providerProductName: "Fury Sliver",
+          productLineName: "Magic",
+          productCategoryName: "Cards",
+          productForm: "single",
+          mergeIdentity: expect.objectContaining({
+            tcg: "magic",
+            productLineName: "Magic",
+            setName: "Time Spiral",
+            collectorNumber: "157",
+            productForm: "single",
+          }),
+          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
+          skuReferences: [
+            expect.objectContaining({
+              providerKey: "tcgplayer",
+              externalKey: "sku:50014240",
+              reviewEvidence: expect.objectContaining({
+                condition: "Near Mint",
+                printing: "Normal",
+                language: "English",
+                productForm: "single",
+              }),
+            }),
+          ],
+        }),
+      }),
+    });
+  });
+
+  it("imports TCGplayer One Piece single-card set scopes through the selected production profile unit", async () => {
+    const tcgplayerHarness = createTcgplayerImportHarness({ productDomain: "one-piece" });
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: {
+        provider: "tcgplayer",
+        profileKey: "one-piece-single-card-product-sku",
+        ingestionUnitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+        productLineId: "68",
+        setName: "Romance Dawn",
+      },
+      renewSucceeds: true,
+      tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      createActiveTcgplayerProfileVersions({ profileKey: "one-piece-single-card-product-sku" }),
+    );
+
+    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+      1,
+    );
+
+    expect(harness.job.status).toBe("completed");
+    expect(harness.job.result).toMatchObject({ requested: 1, imported: 1, observed: 1, failed: 0 });
+    expect(harness.appendedSourceEvents).toHaveLength(1);
+    expect(harness.appendedSourceEvents[0]).toMatchObject({
+      eventType: "catalog.source-observation.recorded",
+      payload: expect.objectContaining({
+        observationId: "tcgplayer_en_product_987650",
+        providerKey: "tcgplayer",
+        externalKey: "product:987650",
+        sourceProfileKey: "one-piece-single-card-product-sku",
+        sourceProfileVersion: "2026.06.22",
+        normalized: expect.objectContaining({
+          kind: "provider-product",
+          tcg: "one-piece",
+          name: "Monkey.D.Luffy",
+          providerProductName: "Monkey.D.Luffy",
+          productLineName: "One Piece Card Game",
+          productCategoryName: "Cards",
+          productForm: "single",
+          mergeIdentity: expect.objectContaining({
+            tcg: "one piece card game",
+            productLineName: "One Piece Card Game",
+            setName: "Romance Dawn",
+            collectorNumber: "OP01-001",
+            productForm: "single",
+          }),
+          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:987650" }],
+          skuReferences: [
+            expect.objectContaining({
+              providerKey: "tcgplayer",
+              externalKey: "sku:900987650",
+              reviewEvidence: expect.objectContaining({
+                condition: "Near Mint",
+                printing: "Normal",
+                language: "English",
+                productForm: "single",
+              }),
+            }),
+          ],
+        }),
+      }),
+    });
+  });
+
+  it("imports TCGplayer Magic sealed-product set scopes through the selected production profile unit", async () => {
+    const tcgplayerHarness = createTcgplayerImportHarness({ productDomain: "mtg" });
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: {
+        provider: "tcgplayer",
+        profileKey: "mtg-sealed-product-sku",
+        ingestionUnitKey: "tcgplayer:mtg:sealed-product:source-observation-import",
+        productLineId: "1",
+        setName: "Time Spiral",
+      },
+      renewSucceeds: true,
+      tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      createActiveTcgplayerProfileVersions({ profileKey: "mtg-sealed-product-sku" }),
+    );
+
+    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+      1,
+    );
+
+    expect(harness.job.status).toBe("completed");
+    expect(harness.job.result).toMatchObject({ requested: 1, imported: 1, observed: 1, failed: 0 });
+    expect(harness.appendedSourceEvents).toHaveLength(1);
+    expect(harness.appendedSourceEvents[0]).toMatchObject({
+      eventType: "catalog.source-observation.recorded",
+      payload: expect.objectContaining({
+        observationId: "tcgplayer_en_product_96601",
+        providerKey: "tcgplayer",
+        externalKey: "product:96601",
+        sourceProfileKey: "mtg-sealed-product-sku",
+        sourceProfileVersion: "2026.06.19",
+        normalized: expect.objectContaining({
+          kind: "magic-sealed-product",
+          tcg: "magic",
+          name: "Time Spiral Booster Pack",
+          setCode: "tsp",
+          setName: "Time Spiral",
+          sealedProductForm: "booster-pack",
+          packCount: 1,
+          productLineName: "Magic: The Gathering",
+          barcode: "0653569123456",
+          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:96601" }],
+        }),
+      }),
+    });
   });
 
   it("generates merge candidates from successful catalog-sync child imports without waiting for projection catch-up", async () => {

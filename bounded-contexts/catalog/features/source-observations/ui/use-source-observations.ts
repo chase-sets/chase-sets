@@ -3,7 +3,6 @@ import type {
   CatalogBulkActionProgress,
   CatalogIntegrationJob,
   CatalogBulkReviewJob,
-  CatalogImportProgress,
 } from "../../../support/shell-support/api/client";
 import { api } from "../../../support/shell-support/api/client";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
@@ -30,7 +29,6 @@ import type {
   TcgdexExpansionOption,
   TcgdexLanguageOption,
   TcgdexSeriesOption,
-  TcgdexSetImportResult,
 } from "./contracts";
 
 export function useSourceObservationList(query: string, initialData?: ListResponse<SourceObservationListItem> | null) {
@@ -186,13 +184,6 @@ export function deprecateSourceObservationProviderProfile(providerKey: string, p
 
 export function useSourceObservation(id: string, initialData?: SourceObservationDetail | null) {
   return useFetch(() => api.getSourceObservation<SourceObservationDetail>(id), [id], initialData);
-}
-
-export function importTcgdexSet(
-  body: { languageCode: string; setId: string },
-  options: { onProgress?: (progress: CatalogImportProgress) => void } = {},
-) {
-  return api.importTcgdexSet<TcgdexSetImportResult>(body, options);
 }
 
 export function useTcgdexLanguages() {

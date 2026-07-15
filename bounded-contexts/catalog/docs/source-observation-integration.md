@@ -189,11 +189,11 @@ only when the active profile declares the matching connector/capability, and
 they remain fixture-backed clean launch extension points rather than alternate
 provider import branches.
 
-The `importTcgdexSet` and `importTcgplayerScope` runtime service methods are
-temporary compatibility entry points for existing callers. `importTcgplayerScope`
-delegates to the shared profile-driven integration import path. `importTcgdexSet`
-is retained for the one-set admin/import compatibility surface while scope-sync
-and durable worker paths use the shared planner. New import, preview, enqueue,
+Import runs exclusively through the shared profile-driven integration path:
+callers enqueue an integration job scope and the durable worker resolves import
+targets, asks the matching ProviderAdapter for transport plans and payloads, and
+runs the executable mapping contract before recording Source Observations. There
+are no provider-key runtime service methods. New import, preview, enqueue,
 promotion, reapply, or option-query behavior must add profile data, shared
 interpreter support, or adapter transport methods instead of new provider-key
 runtime branches.

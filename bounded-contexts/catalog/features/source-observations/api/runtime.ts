@@ -133,8 +133,6 @@ import {
   type TcgdexLanguageOption,
   type TcgdexObservationPayload,
   type TcgdexSeriesOption,
-  type TcgdexSetImportProgress,
-  type TcgdexSetImportResult,
 } from "./tcgdex-client";
 import { extractApprovedLorcanaImageEvidence, normalizeLorcanaImageAsset } from "./product-asset-normalization";
 import { ingestTcgdexAliasCandidates } from "./tcgdex-alias-intake";
@@ -257,7 +255,6 @@ import type {
   ProviderAdapter,
   ProviderImportPlan,
   ProviderOptionAlias,
-  ProviderPayloadFetchProgress,
   ProviderTransportDiagnostic,
   ProviderUsageEstimate,
 } from "./provider-adapters/provider-adapter";
@@ -830,22 +827,6 @@ export type ProviderAdapterServices = Readonly<{
   providerAdapterRegistry: ProviderAdapterRegistry;
 }>;
 
-export type ProviderImportOrchestrationServices = Readonly<{
-  importTcgdexSet: (input: {
-    languageCode: string;
-    setId: string;
-    context: EventStoreContext;
-    onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
-    beforeRecordObservation?: () => Promise<void>;
-    runRecordObservation?: DurableSideEffectRunner;
-  }) => Promise<TcgdexSetImportResult>;
-  importTcgplayerScope: (input: {
-    scope: SourceObservationIntegrationJobScope;
-    context: EventStoreContext;
-    onProgress?: SourceObservationProgressHandler;
-  }) => Promise<SourceObservationIntegrationJobResult>;
-}>;
-
 export type ProviderOptionQueryServices = Readonly<{
   listTcgdexLanguages: () => Promise<readonly TcgdexLanguageOption[]>;
   listTcgdexSeries: (input: { languageCode: string }) => Promise<readonly TcgdexSeriesOption[]>;
@@ -1212,7 +1193,6 @@ export type SourceObservationProjectorServices = Readonly<{
 
 export type SourceObservationServices = SourceObservationCommandServices &
   ProviderAdapterServices &
-  ProviderImportOrchestrationServices &
   ProviderOptionQueryServices &
   ProviderProfileAdminServices &
   CatalogIntegrationEngineServices &
@@ -2431,107 +2411,6 @@ export function createSourceObservationRuntime(
     await input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
 
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
-  }
-
-  async function importTcgdexSetScope(input: {
-    languageCode: string;
-    setId: string;
-    seriesId?: string | null;
-    providerProfileVersion?: CatalogProviderIntegrationProfileVersionRecord;
-    syncRunId?: string | null;
-    context: EventStoreContext;
-    onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
-    beforeRecordObservation?: () => Promise<void>;
-    runRecordObservation?: DurableSideEffectRunner;
-    fetch?: typeof globalThis.fetch;
-    loadEnglishMirrorEntity?: Parameters<typeof ingestTcgdexAliasCandidates>[0]["loadEnglishMirrorEntity"];
-  }): Promise<TcgdexSetImportResult> {
-    rolloutControlPolicy.assertAllowed({ capability: "import", providerKey: "tcgdex" });
-    rolloutControlPolicy.assertAllowed({ capability: "provider-transport", providerKey: "tcgdex" });
-    const profileVersion =
-      input.providerProfileVersion ?? (await requireCatalogImportProfileVersion(profileVersions, "tcgdex"));
-    const profile = profileVersion.profile;
-    const contract = requireSourceObservationMappingContract(profileVersion);
-    const tcgdexAdapter = tcgdexAdapterForProfileVersion(providerAdapterRegistry, profileVersion);
-    const importPlan = await tcgdexAdapter.planImport({
-      unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      scopeKey: "expansion",
-      values: { languageCode: input.languageCode, setId: input.setId, seriesId: input.seriesId ?? "" },
-    });
-    const observationPayloads = await collectTcgdexObservationPayloads(tcgdexAdapter, importPlan, async (progress) =>
-      input.onProgress?.({
-        phase: "fetching",
-        completed: progress.completed,
-        total: progress.total,
-        currentName: progress.currentLabel,
-      }),
-    );
-    const observations = observationPayloads.map(({ observedAt, payload }) =>
-      requireCatalogProviderSourceObservation({
-        contract,
-        payload,
-        observedAt,
-      }),
-    );
-
-    const firstObservation = observations[0] ?? null;
-    if (firstObservation) {
-      if (!isPokemonCardSourceObservationNormalized(firstObservation.normalized)) {
-        throw new Error("TCGdex import profile must produce Pokemon card Source Observations.");
-      }
-      await ensurePokemonReferenceHierarchy({
-        deps,
-        referenceData,
-        profile,
-        normalized: firstObservation.normalized,
-        context: input.context,
-      });
-    }
-
-    for (const [index, observation] of observations.entries()) {
-      await input.beforeRecordObservation?.();
-      await (input.runRecordObservation ?? runSourceObservationSideEffectImmediately)(() =>
-        recordObservation({ ...observation, syncRunId: input.syncRunId ?? null }, input.context),
-      );
-      await input.onProgress?.({
-        phase: "recording",
-        completed: index + 1,
-        total: observations.length,
-        currentName: observation.normalized.name,
-      });
-    }
-    await input.onProgress?.({
-      phase: "completed",
-      completed: observations.length,
-      total: observations.length,
-      currentName: null,
-    });
-
-    // Alias intake: recording an observation produces and persists typed
-    // alias candidates via the sink. Indonesian (`id`) names are emitted as
-    // Indonesian provider-localized names, never as English official equivalents.
-    await ingestTcgdexAliasCandidates({
-      profile,
-      observations: observationPayloads.map((payload, index) => ({
-        observationId: observations[index]?.observationId ?? "",
-        sourceProfileKey: contract.profileKey,
-        sourceProfileVersion: contract.profileVersion,
-        mappingFingerprint: catalogProviderSourceMappingFingerprint(contract),
-        payload: payload.payload,
-      })),
-      persist: aliasCandidateSink,
-      observedAt: observationPayloads[0]?.observedAt ?? new Date().toISOString(),
-      fetch: input.fetch,
-      loadEnglishMirrorEntity: input.loadEnglishMirrorEntity,
-    });
-
-    return {
-      setId: input.setId,
-      expansionId: input.setId,
-      languageCode: input.languageCode,
-      observed: observations.length,
-      observationIds: observations.map((observation) => observation.observationId),
-    };
   }
 
   async function enqueueBulkReviewJob(input: {
@@ -4030,28 +3909,6 @@ export function createSourceObservationRuntime(
     };
   }
 
-  async function processIntegrationImportJob(input: {
-    scope: SourceObservationIntegrationJobScope;
-    context: EventStoreContext;
-    onProgress?: SourceObservationProgressHandler;
-  }): Promise<SourceObservationIntegrationJobResult> {
-    const scope = normalizeIntegrationJobScope(input.scope);
-    const providerProfileVersion = await requireCatalogImportProfileVersion(
-      profileVersions,
-      scope.provider,
-      profileSelectorFromScope(scope),
-    );
-    const providerProfile = providerProfileVersion.profile;
-
-    return processProviderAdapterIntegrationImportJob({
-      scope,
-      providerProfile,
-      providerProfileVersion,
-      context: input.context,
-      onProgress: input.onProgress,
-    });
-  }
-
   async function processProviderAdapterIntegrationImportJobTurn(input: {
     job: ClaimedSourceObservationIntegrationJob;
     scope: SourceObservationIntegrationJobScope;
@@ -4141,43 +3998,6 @@ export function createSourceObservationRuntime(
       progress: bulkProgress(result.outcomes.length, result.requested, nextTarget.name, outcome.status),
       result,
     };
-  }
-
-  async function processProviderAdapterIntegrationImportJob(input: {
-    scope: SourceObservationIntegrationJobScope;
-    providerProfile: CatalogProviderIntegrationProfile;
-    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
-    context: EventStoreContext;
-    onProgress?: SourceObservationProgressHandler;
-  }): Promise<SourceObservationIntegrationJobResult> {
-    const targets = await resolveProviderAdapterImportTargets(input.scope, input.providerProfileVersion);
-    const outcomes: SourceObservationIntegrationJobOutcome[] = [];
-    await input.onProgress?.(bulkProgress(0, targets.length));
-
-    for (const target of targets) {
-      const outcome = await importProviderAdapterIntegrationTarget({
-        target,
-        providerProfile: input.providerProfile,
-        providerProfileVersion: input.providerProfileVersion,
-        context: input.context,
-        onProgress: (targetProgress) =>
-          input.onProgress?.(
-            bulkProgress(
-              outcomes.length,
-              targets.length,
-              targetProgress.currentName ?? target.name,
-              null,
-              "processing",
-            ),
-          ),
-      });
-      outcomes.push(outcome);
-      await input.onProgress?.(bulkProgress(outcomes.length, targets.length, target.name, outcome.status));
-    }
-
-    await input.onProgress?.(bulkProgress(targets.length, targets.length, null, null, "completed"));
-
-    return summarizeIntegrationJobOutcomes(targets.length, outcomes);
   }
 
   async function resolveProviderAdapterImportTargets(
@@ -4823,8 +4643,6 @@ export function createSourceObservationRuntime(
       }),
     previewCatalogMergeCandidatePromotionPlan: (input) => planCatalogMergeCandidatePromotionCommands(input),
     providerAdapterRegistry,
-    importTcgdexSet: importTcgdexSetScope,
-    importTcgplayerScope: processIntegrationImportJob,
     listTcgdexLanguages: () => {
       rolloutControlPolicy.assertAllowed({ capability: "provider-option-query", providerKey: "tcgdex" });
       return listTcgdexLanguagesThroughAdapter(providerAdapterRegistry);
@@ -5556,33 +5374,6 @@ async function listTcgdexExpansionOptionRecordsThroughAdapter(
     cardCount: numberFromString(item.metadata?.cardCount),
     officialCardCount: numberFromString(item.metadata?.officialCardCount),
   }));
-}
-
-async function collectTcgdexObservationPayloads(
-  adapter: ProviderAdapter<TcgdexObservationPayload>,
-  plan: ProviderImportPlan,
-  onProgress?: (progress: ProviderPayloadFetchProgress) => void | Promise<void>,
-): Promise<readonly TcgdexObservationPayload[]> {
-  const payloads: TcgdexObservationPayload[] = [];
-
-  for await (const envelope of adapter.fetchPayloads(plan, { onProgress })) {
-    payloads.push(envelope.payload);
-  }
-
-  return payloads;
-}
-
-function tcgdexAdapterForProfileVersion(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  profileVersion: CatalogProviderIntegrationProfileVersionRecord,
-): ProviderAdapter<TcgdexObservationPayload> {
-  const registeredAdapter = requireTcgdexAdapter(providerAdapterRegistry);
-
-  if (profileVersion.active) {
-    return registeredAdapter;
-  }
-
-  return createTcgdexProviderAdapter({ loadActiveProfileVersion: async () => profileVersion });
 }
 
 function requireTcgdexAdapter(

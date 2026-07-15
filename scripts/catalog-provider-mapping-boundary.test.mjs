@@ -73,6 +73,20 @@ describe("Catalog provider mapping boundaries", () => {
     expect(content).not.toContain("previewTcgdexIntegrationImportTargets");
   });
 
+  it("keeps the retired provider-key compatibility import entry points from returning", () => {
+    const content = readFileSync(runtimePath, "utf8");
+
+    // The `importTcgdexSet` / `importTcgplayerScope` service facets and the
+    // provider-key one-set import branch (`importTcgdexSetScope`) were retired so
+    // the shared profile-driven integration path is the only way to import.
+    // Import must flow through the durable ...JobTurn worker, never a bespoke
+    // synchronous one-shot importer.
+    expect(content).not.toContain("importTcgdexSet");
+    expect(content).not.toContain("importTcgplayerScope");
+    expect(content).not.toMatch(/function\s+processIntegrationImportJob(?!Turn)\b/);
+    expect(content).not.toMatch(/function\s+processProviderAdapterIntegrationImportJob(?!Turn)\b/);
+  });
+
   it("keeps transport clients from owning Source Observation mapping semantics", () => {
     for (const filePath of transportClientPaths) {
       const content = readFileSync(filePath, "utf8");
