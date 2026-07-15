@@ -18,6 +18,7 @@ import type {
   SourceObservationOnePieceSealedProductNormalized,
   SourceObservationPokemonCardNormalized,
   SourceObservationPokemonSealedProductNormalized,
+  SourceObservationYugiohSealedProductNormalized,
   SourceObservationProductContentsPromotion,
   SourceObservationProductContentsPromotionLine,
 } from "../domain/domain";
@@ -215,7 +216,8 @@ function promotionDiagnostics(input: {
     input.normalized.kind !== "lorcana-card-print" &&
     input.normalized.kind !== "lorcana-sealed-product" &&
     input.normalized.kind !== "one-piece-card-print" &&
-    input.normalized.kind !== "one-piece-sealed-product"
+    input.normalized.kind !== "one-piece-sealed-product" &&
+    input.normalized.kind !== "yugioh-sealed-product"
   ) {
     diagnostics.push({
       code: "unsupported-observation-kind",
@@ -447,6 +449,34 @@ function promotionDiagnostics(input: {
       input.catalog.fieldIds.set,
       "catalog.fieldIds.set",
       "Lorcana sealed product promotion",
+      diagnostics,
+    );
+  }
+
+  if (input.normalized.kind === "yugioh-sealed-product") {
+    if (!input.setReferenceId) {
+      diagnostics.push({
+        code: "missing-reference-target",
+        path: "setReferenceId",
+        diagnosticText: "Yu-Gi-Oh! sealed product promotion requires one resolved Set Reference Record.",
+      });
+    }
+    requireNormalizedString(
+      input.normalized.name,
+      "normalized.name",
+      "Yu-Gi-Oh! sealed product promotion",
+      diagnostics,
+    );
+    requireNormalizedString(
+      input.normalized.sealedProductForm,
+      "normalized.sealedProductForm",
+      "Yu-Gi-Oh! sealed product promotion",
+      diagnostics,
+    );
+    requirePromotionField(
+      input.catalog.fieldIds.set,
+      "catalog.fieldIds.set",
+      "Yu-Gi-Oh! sealed product promotion",
       diagnostics,
     );
   }
@@ -706,16 +736,115 @@ function commandsForNormalizedKind(input: {
         normalized: input.normalized,
         setReferenceId: input.setReferenceId as ReferenceRecordId,
       });
+    case "yugioh-sealed-product":
+      return yugiohSealedProductCommands({
+        ...input,
+        normalized: input.normalized,
+        setReferenceId: input.setReferenceId as ReferenceRecordId,
+      });
     case "magic-set-reference":
     case "lorcana-set-reference":
     case "provider-product":
     case "yugioh-card-print":
     case "yugioh-set-reference":
-    case "yugioh-sealed-product":
     case "yugioh-pack-reference":
     case "one-piece-set-reference":
       return [];
   }
+}
+
+function yugiohSealedProductCommands(input: {
+  profile: CatalogProviderIntegrationProfile;
+  providerKey: string;
+  externalKey: string;
+  mode: CatalogProviderPromotionMode;
+  catalogItemId: CatalogItemId;
+  normalized: SourceObservationYugiohSealedProductNormalized;
+  catalog: CatalogProviderPromotionResolvedCatalogMapping;
+  setReferenceId: ReferenceRecordId;
+  metadata: Readonly<{ title: string; subtitle: string }>;
+  productAssetSet: ProductAssetSet | null;
+}): readonly CatalogItemCommand[] {
+  const commands = commonYugiohCatalogItemCommands(input, yugiohCatalogItemTags(input.profile, input.normalized));
+  commands.splice(
+    input.mode === "create" ? 2 : 1,
+    0,
+    ...yugiohSealedProductFieldCommands(input.normalized, input.catalog.fieldIds, input.setReferenceId),
+  );
+  return commands;
+}
+
+function commonYugiohCatalogItemCommands(
+  input: {
+    providerKey: string;
+    externalKey: string;
+    mode: CatalogProviderPromotionMode;
+    catalogItemId: CatalogItemId;
+    normalized: SourceObservationYugiohSealedProductNormalized;
+    catalog: CatalogProviderPromotionResolvedCatalogMapping;
+    metadata: Readonly<{ title: string; subtitle: string }>;
+    productAssetSet: ProductAssetSet | null;
+  },
+  tags: readonly string[],
+): CatalogItemCommand[] {
+  const commands: CatalogItemCommand[] = [];
+  const imageUrls = input.productAssetSet
+    ? productAssetSetCompatibilityImageUrls(input.productAssetSet)
+    : [...input.normalized.imageUrls];
+
+  if (input.mode === "create") {
+    commands.push({
+      type: "CreateCatalogItem",
+      itemId: input.catalogItemId,
+      languageCode: input.normalized.languageCode,
+      title: localizedText(input.metadata.title),
+      subtitle: localizedText(input.metadata.subtitle),
+      description: localizedText(""),
+    });
+    commands.push({ type: "AssignBlueprintToCatalogItem", blueprintId: input.catalog.blueprintId });
+  } else {
+    commands.push({
+      type: "ReviseCatalogItemMetadata",
+      languageCode: input.normalized.languageCode,
+      title: localizedText(input.metadata.title),
+      subtitle: localizedText(input.metadata.subtitle),
+      description: localizedText(""),
+    });
+  }
+
+  if (input.mode === "create") {
+    commands.push({ type: "AssignCatalogItemToCategory", categoryId: input.catalog.categoryId });
+  }
+
+  commands.push({ type: "SetCatalogItemTags", tags: [...tags] });
+  commands.push({ type: "SetCatalogItemImageUrls", imageUrls });
+  commands.push({
+    type: "SetCatalogItemProductAssetSets",
+    productAssetSets: input.productAssetSet ? [input.productAssetSet] : [],
+  });
+  commands.push({
+    type: "LinkExternalProductReference",
+    providerKey: input.providerKey,
+    externalKey: sourceObservationLinkExternalKey(input.normalized.languageCode, input.externalKey),
+  });
+
+  for (const reference of uniqueExternalCatalogItemReferences(input.normalized.externalCatalogItemReferences ?? [])) {
+    commands.push({
+      type: "LinkExternalCatalogItemReference",
+      providerKey: reference.providerKey,
+      externalKey: reference.externalKey,
+    });
+  }
+  for (const reference of uniqueExternalProductReferences(input.normalized.externalProductReferences ?? [])) {
+    commands.push({
+      type: "LinkExternalProductReference",
+      providerKey: reference.providerKey,
+      externalKey: reference.externalKey,
+      selectedOptions: reference.selectedOptions,
+    });
+  }
+
+  return commands;
 }
 
 function pokemonCardCommands(input: {
@@ -1487,6 +1616,18 @@ function lorcanaSealedProductFieldCommands(
   return commands;
 }
 
+function yugiohSealedProductFieldCommands(
+  normalized: SourceObservationYugiohSealedProductNormalized,
+  fieldIds: CatalogProviderPromotionResolvedCatalogMapping["fieldIds"],
+  setReferenceId: ReferenceRecordId,
+): readonly CatalogItemCommand[] {
+  return [
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardName, value: localizedJsonText(normalized.name) },
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.set as FieldId, value: { referenceId: setReferenceId } },
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardVariant, value: normalized.sealedProductForm },
+  ];
+}
+
 function pokemonCatalogItemTags(
   profile: CatalogProviderIntegrationProfile,
   normalized: SourceObservationPokemonCardNormalized,
@@ -1563,6 +1704,20 @@ function lorcanaCatalogItemTags(
       ? [`ink:${slugTagValue(normalized.inkColor)}`]
       : []),
     ...(normalized.kind === "lorcana-sealed-product" ? [`form:${normalized.sealedProductForm}`] : []),
+  ];
+}
+
+function yugiohCatalogItemTags(
+  profile: CatalogProviderIntegrationProfile,
+  normalized: SourceObservationYugiohSealedProductNormalized,
+): string[] {
+  const setId = normalized.boxOfSetEvidence?.find((candidate) => candidate.trim().length > 0);
+  return [
+    "yugioh",
+    profile.providerKey,
+    ...(setId ? [`set:${slugTagValue(setId)}`] : []),
+    `kind:${normalized.kind}`,
+    `form:${normalized.sealedProductForm}`,
   ];
 }
 

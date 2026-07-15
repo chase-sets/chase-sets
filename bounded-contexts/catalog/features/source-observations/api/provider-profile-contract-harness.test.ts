@@ -44,7 +44,7 @@ describe("Catalog provider profile contract harness", () => {
       "ygoprodeck@2026.06.21",
       "ygoprodeck@2026.06.21",
       "ygojson@2026.06.21",
-      "ygojson@2026.06.21",
+      "ygojson@2026.07.14",
       "tcgdex@2026.06.03",
       "tcgplayer@2026.06.19",
       "tcgplayer@2026.06.19",
@@ -74,7 +74,7 @@ describe("Catalog provider profile contract harness", () => {
       { providerKey: "ygoprodeck", profileKey: "yugioh-card-print-reference-data", profileVersion: "2026.06.21" },
       { providerKey: "ygoprodeck", profileKey: "yugioh-set-reference-data", profileVersion: "2026.06.21" },
       { providerKey: "ygojson", profileKey: "yugioh-set-reference-data", profileVersion: "2026.06.21" },
-      { providerKey: "ygojson", profileKey: "yugioh-sealed-product-reference-data", profileVersion: "2026.06.21" },
+      { providerKey: "ygojson", profileKey: "yugioh-sealed-product-reference-data", profileVersion: "2026.07.14" },
       { providerKey: "tcgdex", profileVersion: "2026.06.03" },
       { providerKey: "tcgplayer", profileKey: "mtg-single-card-product-sku", profileVersion: "2026.06.19" },
       { providerKey: "tcgplayer", profileKey: "mtg-sealed-product-sku", profileVersion: "2026.06.19" },
@@ -229,6 +229,31 @@ describe("Catalog provider profile contract harness", () => {
         "LinkExternalCatalogItemReference.references",
       ]),
     );
+  });
+
+  it("dry-runs YGOJSON sealed products as promotable and replay-safe", async () => {
+    const identity = {
+      providerKey: "ygojson",
+      profileKey: "yugioh-sealed-product-reference-data",
+      profileVersion: "2026.07.14",
+    };
+    const [promotable, replay] = await Promise.all([
+      dryRunFixture(identity, "normal"),
+      dryRunFixture(identity, "replay"),
+    ]);
+
+    expect(promotable.status).toBe("completed");
+    expect(promotable.observation?.sourceRecordHash).toBe(replay.observation?.sourceRecordHash);
+    expect(promotable.observation?.sourceMappingFingerprint).toBe(replay.observation?.sourceMappingFingerprint);
+    expect(promotable.promotionCommandPlan.commands.map((command) => command.commandName)).toEqual([
+      "CreateCatalogItem",
+      "AssignBlueprintToCatalogItem",
+      "SetCatalogItemFieldValue",
+      "AssignCatalogItemToCategory",
+      "SetCatalogItemImageUrls",
+      "LinkExternalCatalogItemReference",
+      "LinkExternalProductReference",
+    ]);
   });
 
   it("guards Catalog truth from pricing, inventory, seller, and secret evidence", () => {

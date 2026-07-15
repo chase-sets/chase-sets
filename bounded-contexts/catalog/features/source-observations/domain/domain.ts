@@ -310,6 +310,7 @@ export type SourceObservationYugiohSealedProductNormalized = JsonObject &
     releaseDate: string | null;
     productLineName: "Yu-Gi-Oh!";
     barcode: string | null;
+    boxOfSetEvidence?: readonly string[];
     imageUrls: readonly string[];
     mergeIdentity?: SourceObservationMergeIdentity;
     externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
@@ -500,6 +501,12 @@ export function isMagicSetReferenceSourceObservationNormalized(
   normalized: SourceObservationNormalized,
 ): normalized is SourceObservationMagicSetReferenceNormalized {
   return normalized.kind === "magic-set-reference";
+}
+
+export function isYugiohCatalogItemSourceObservationNormalized(
+  normalized: SourceObservationNormalized,
+): normalized is SourceObservationYugiohSealedProductNormalized {
+  return normalized.kind === "yugioh-sealed-product";
 }
 
 export function isOnePieceCatalogItemSourceObservationNormalized(

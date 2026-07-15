@@ -1125,7 +1125,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
       {
         profileKey: "yugioh-sealed-product-reference-data",
         ingestionUnitKey: "ygojson:yugioh:sealed-product:reference-data",
-        profileVersion: "2026.06.21",
+        profileVersion: "2026.07.14",
       },
       {
         normal: {
@@ -1136,9 +1136,23 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
               name: "Legend of Blue Eyes White Dragon Booster Box",
               ygojsonId: "22222222-2222-4222-8222-222222222222",
               releaseDate: "2002-03-08",
+              imageUrls: ["https://ms.yugipedia.com//placeholder/LOB-EN-box.png"],
               tcg: "yugioh",
               productLineName: "Yu-Gi-Oh!",
             },
+            externalCatalogItemReferences: [
+              {
+                providerKey: "ygojson",
+                externalKey: "sealed-product:22222222-2222-4222-8222-222222222222",
+              },
+            ],
+            externalProductReferences: [
+              {
+                providerKey: "ygojson",
+                externalKey: "sealed-product:22222222-2222-4222-8222-222222222222",
+                selectedOptions: [],
+              },
+            ],
           },
           expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
           expectedMergeEvidencePaths: [
@@ -1146,11 +1160,27 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             "duplicatePrevention.mergeCandidateEvidence.1",
             "duplicatePrevention.mergeCandidateEvidence.2",
           ],
-          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedPromotionCommands: [
+            "CreateCatalogItem",
+            "AssignBlueprintToCatalogItem",
+            "SetCatalogItemFieldValue",
+            "AssignCatalogItemToCategory",
+            "SetCatalogItemImageUrls",
+            "LinkExternalCatalogItemReference",
+            "LinkExternalProductReference",
+          ],
+          expectedPromotionInputPaths: [
+            "CreateCatalogItem.title",
+            "AssignBlueprintToCatalogItem.blueprintKey",
+            "SetCatalogItemFieldValue.value",
+            "SetCatalogItemImageUrls.imageUrls",
+            "LinkExternalCatalogItemReference.references",
+            "LinkExternalProductReference.references",
+          ],
           expectedDuplicatePrevention: yugiohSealedProductDuplicatePrevention(),
         },
         replay: {
-          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedPromotionCommands: ["CreateCatalogItem", "LinkExternalProductReference"],
           expectedDuplicatePrevention: yugiohSealedProductDuplicatePrevention(),
         },
       },

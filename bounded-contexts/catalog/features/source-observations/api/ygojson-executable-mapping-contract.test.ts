@@ -41,6 +41,15 @@ describe("YGOJSON executable mapping contracts", () => {
       uses: expect.arrayContaining(["normalized-observation", "hash-material"]),
       redaction: "none",
     });
+    expect(ygojsonYugiohSealedProductReferenceSourceObservationMappingContract.profileVersion).toBe("2026.07.14");
+    expect(ygojsonYugiohSealedProductReferenceSourceObservationMappingContract.promotionCommandPlan.commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ commandName: "CreateCatalogItem" }),
+        expect.objectContaining({ commandName: "SetCatalogItemImageUrls" }),
+        expect.objectContaining({ commandName: "LinkExternalCatalogItemReference" }),
+        expect.objectContaining({ commandName: "LinkExternalProductReference" }),
+      ]),
+    );
   });
 
   it("keeps provider governance and price/vendor exclusions explicit", () => {
@@ -53,8 +62,8 @@ describe("YGOJSON executable mapping contracts", () => {
     expect(JSON.stringify(ygojsonYugiohReferenceDataMappingContracts)).not.toMatch(/price|vendor|marketplace/i);
     for (const contract of ygojsonYugiohReferenceDataMappingContracts) {
       expect(contract.nonGoals).toContain("no-pricing-facts-as-catalog-truth");
-      expect(contract.promotionCommandPlan.commands).toEqual([]);
     }
+    expect(ygojsonYugiohSetReferenceSourceObservationMappingContract.promotionCommandPlan.commands).toEqual([]);
   });
 
   it("passes current executable mapping validation when cast through the pending central unions", () => {
