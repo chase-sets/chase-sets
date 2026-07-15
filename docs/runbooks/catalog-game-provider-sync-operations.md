@@ -1,6 +1,6 @@
 # Catalog Game Provider Sync Operations
 
-This runbook covers staging and production runtime posture for Catalog provider sync across Magic: The Gathering, One Piece, and Disney Lorcana. The shared operating posture below applies to all three games; the per-game sections add only the provider, credit, validation, and signoff facts that differ.
+This runbook covers staging and production runtime posture for Catalog provider sync across every product domain that can participate in the complete production Catalog synchronization: Magic: The Gathering, Pokemon, Yu-Gi-Oh!, One Piece, and Disney Lorcana. The active provider profile/unit registry (`catalogProviderIntegrationProfileVersions` in `bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts`) and its accepted mappings are the executable source of truth for "all production providers"; treat this runbook and the [Catalog Integration Production Signoff](../../bounded-contexts/catalog/docs/catalog-integration-production-signoff.md) as the operating narrative bound to that state. The shared operating posture below applies to all product domains; the per-domain sections add only the provider, credit, validation, and signoff facts that differ. The `catalog-integration-production-signoff-coverage` guard fails if an active production-capable provider unit lacks a matching signoff/runbook section.
 
 ## Shared operating posture
 
@@ -19,7 +19,7 @@ A per-game production-signoff reference env var (named in each game section) mus
 
 ### Credential posture
 
-- Public transports (MTGJSON, Scryfall, LorcanaJSON, Lorcast) do not require credentials.
+- Public transports (MTGJSON, Scryfall, TCGdex, YGOPRODeck, YGOJSON, LorcanaJSON, Lorcast) do not require credentials.
 - Scrydex requires a shared runtime API key and team identifier in the API and worker environments that execute provider transport. Configure `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID` once per environment for all Scrydex-backed product lines; do not create game-specific Scrydex secrets.
 - TCGplayer requires `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` in the executing API and worker environment before live option queries or imports can run, using the existing automation-provider credential posture documented in [TCGplayer Automation Operations](./tcgplayer-automation-operations.md).
 
@@ -172,6 +172,53 @@ Use this map when staging UAT records an expected failure mode. The automated te
 
 ### Magic related docs
 
+- [Catalog Integration Rollout Controls](../../bounded-contexts/catalog/docs/catalog-integration-rollout-controls.md)
+- [Catalog Integration Credential Readiness](../../bounded-contexts/catalog/docs/catalog-integration-credential-readiness.md)
+- [TCGplayer Automation Operations](./tcgplayer-automation-operations.md)
+
+## Pokemon
+
+Pokemon Catalog sync draws from TCGdex and the existing Chase Sets TCGplayer provider path. Pokemon is the foundational importer baseline, so `CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE` must name the accepted provider-data approval and the regression-baseline UAT evidence (#2039, #2285, and milestone #50 `all-provider-regression`) before production-like Pokemon writes are opened. The Pokemon provider keys are `tcgdex` and `tcgplayer`.
+
+| Provider | Credentials | Role |
+| --- | --- | --- |
+| TCGdex | None (public) | Card-print, series/expansion, language, and image-evidence data; bulk/list ingestion first. |
+| TCGplayer | `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` | Marketplace product ids, SKU mapping, sealed products; shared provider key. |
+
+Operator notes:
+
+- TCGdex public transport does not require credentials; TCGplayer requires the automation cookie before live option queries or imports can run.
+- Because TCGplayer is shared with Magic, Yu-Gi-Oh!, One Piece, and Lorcana, do not use a broad TCGplayer enablement as proof that Pokemon TCGplayer units are approved; production Pokemon enablement must name the Pokemon unit/profile evidence, and credential rotation must confirm the other domains' TCGplayer units remain independently governed.
+- Only TCGdex and TCGplayer Pokemon image URI evidence may enter the shared importer/review surfaces, and only when the provider-data signoff covers image evidence for that source. Official Pokemon (pokemon.com) images remain comparison-only.
+- Pokemon is the shared regression anchor: every other product domain's UAT must repeat UI-only smoke proof for one Pokemon set through the same shared importer controls.
+
+### Pokemon related docs
+
+- [Catalog Integration Pokemon Production Signoff](../../bounded-contexts/catalog/docs/catalog-integration-production-signoff.md#pokemon)
+- [Catalog Integration Rollout Controls](../../bounded-contexts/catalog/docs/catalog-integration-rollout-controls.md)
+- [Catalog Integration Credential Readiness](../../bounded-contexts/catalog/docs/catalog-integration-credential-readiness.md)
+- [TCGplayer Automation Operations](./tcgplayer-automation-operations.md)
+
+## Yu-Gi-Oh!
+
+Yu-Gi-Oh! Catalog sync draws from YGOPRODeck, YGOJSON, and the existing Chase Sets TCGplayer provider path. `CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE` must name the accepted provider-data approval and milestone #44 (#2126) UAT evidence before production-like Yu-Gi-Oh! writes are opened. The Yu-Gi-Oh! provider keys are `ygoprodeck`, `ygojson`, and `tcgplayer`.
+
+| Provider | Credentials | Role |
+| --- | --- | --- |
+| YGOPRODeck | None (public) | Card, printing, set, archetype, banlist/format, and image-evidence baseline; bulk/list ingestion first. |
+| YGOJSON | None (public) | Structured set/product, sealed-product, and pack-metadata reference and normalization cross-check; set-file/bulk ingestion first. |
+| TCGplayer | `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` | Marketplace product ids, group/set identity, SKU mapping, condition/language/printing/edition variants, and price-reference evidence; shared provider key. |
+
+Operator notes:
+
+- YGOPRODeck and YGOJSON public transports do not require credentials; their normal path must be bulk/list/search or set-file first and must not make one provider call per card, printing, or sealed product.
+- TCGplayer requires the automation cookie before live option queries or imports can run; because it is shared with Magic, Pokemon, One Piece, and Lorcana, do not use a broad TCGplayer enablement as proof that Yu-Gi-Oh! TCGplayer units are approved, and credential rotation must confirm the other domains' TCGplayer units remain independently governed.
+- Only YGOPRODeck and TCGplayer Yu-Gi-Oh! image URI evidence may enter the shared importer/review surfaces, and only when the provider-data signoff covers image evidence for that source. Official Konami database images remain comparison-only.
+- Regression: repeat UI-only smoke proof for one Pokemon set, one MTG set, and one One Piece set through the same shared importer controls.
+
+### Yu-Gi-Oh! related docs
+
+- [Catalog Integration Yu-Gi-Oh! Production Signoff](../../bounded-contexts/catalog/docs/catalog-integration-production-signoff.md#yu-gi-oh)
 - [Catalog Integration Rollout Controls](../../bounded-contexts/catalog/docs/catalog-integration-rollout-controls.md)
 - [Catalog Integration Credential Readiness](../../bounded-contexts/catalog/docs/catalog-integration-credential-readiness.md)
 - [TCGplayer Automation Operations](./tcgplayer-automation-operations.md)
