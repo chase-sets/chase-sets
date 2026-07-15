@@ -112,7 +112,7 @@ export const ADMIN_WEB_API_DEPENDENCIES = [
     section: "Commerce",
     surface: "Commercial Terms Admin Server Loaders",
     callerType: "server-loader/action",
-    sourceFile: "bounded-contexts/commercial-terms/support/request-support/api-client.ts",
+    sourceFile: "bounded-contexts/commercial-terms/features/home/integrations/admin-api-client.ts",
     apiPath: "/api/commercial-terms",
     sourceEvidence: ['resolveRequestApiBaseUrl(request, "/api/commercial-terms")'],
     contract: "internal-origin server call",

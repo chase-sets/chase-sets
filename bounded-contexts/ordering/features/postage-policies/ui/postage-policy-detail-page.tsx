@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   Checkbox,
+  ComparisonModule,
   DataTable,
   LinkButton,
   NativeSelect,
@@ -82,28 +83,23 @@ export function PostagePolicyDetailPage({
       </PageSection>
 
       <PageSection title={t("ordering.features.postagePolicies.ui.detail.active.comparison")}>
-        <DataTable
-          rows={[...activeComparison]}
-          getRowId={(row) => row.field}
-          columns={[
-            { key: "field", header: t("ordering.features.postagePolicies.ui.detail.field"), cell: (row) => row.field },
-            {
-              key: "active",
-              header: t("ordering.features.postagePolicies.ui.detail.active"),
-              cell: (row) => row.activeValue,
-            },
-            {
-              key: "candidate",
-              header: t("ordering.features.postagePolicies.ui.detail.this.policy"),
-              cell: (row) => row.candidateValue,
-            },
-          ]}
-          emptyTitle={
-            policy.status === "active"
-              ? t("ordering.features.postagePolicies.ui.detail.this.is.active.policy")
-              : t("ordering.features.postagePolicies.ui.detail.no.active.differences")
+        <ComparisonModule
+          description={
+            activeComparison.length === 0
+              ? policy.status === "active"
+                ? t("ordering.features.postagePolicies.ui.detail.this.is.active.policy")
+                : t("ordering.features.postagePolicies.ui.detail.no.active.differences")
+              : t("ordering.features.postagePolicies.ui.detail.material.differences.only")
           }
-          emptyDescription={t("ordering.features.postagePolicies.ui.detail.material.differences.only")}
+          signalLabel={t("ordering.features.postagePolicies.ui.detail.field")}
+          columns={[
+            t("ordering.features.postagePolicies.ui.detail.active"),
+            t("ordering.features.postagePolicies.ui.detail.this.policy"),
+          ]}
+          rows={activeComparison.map((row) => ({
+            label: row.field,
+            values: [row.activeValue, row.candidateValue],
+          }))}
         />
       </PageSection>
 

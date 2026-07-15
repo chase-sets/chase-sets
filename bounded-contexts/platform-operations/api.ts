@@ -4,6 +4,7 @@ import { createOpsDashboardRoutes } from "./features/insights-dashboards/api/ops
 import { createOfferEconomicsRoutes } from "./features/offer-economics/api/offer-economics-http";
 import { createPolicyConsoleRoutes } from "./features/policy-console/api/policy-console-route";
 import { createPublicDocReviewRoutes } from "./features/public-doc-reviews/api/routes";
+import { createCommercialTermsAttentionRoutes } from "./features/commercial-terms-attention/api/routes";
 import { createRateLimitPolicyRoutes } from "./features/rate-limit-policy/api/rate-limit-policy-route";
 import { createSupportDeadlinePolicyRoutes } from "./features/support-requests/api/deadline-policy-route";
 import { createSupportReferenceLookupRoutes } from "./features/support-reference-lookup/api/route";
@@ -18,6 +19,7 @@ export function buildPlatformOperationsApi(services: PlatformOperationsServices)
   app.route("/support-deadline-policy", createSupportDeadlinePolicyRoutes(services.policies));
   app.route("/policy-console", createPolicyConsoleRoutes(services.policyConsoleEntries));
   app.route("/public-doc-reviews", createPublicDocReviewRoutes(services.publicDocReviews));
+  app.route("/commercial-terms-attention", createCommercialTermsAttentionRoutes(services.commercialTermsAttention));
   app.route("/support-reference-lookup", createSupportReferenceLookupRoutes(services.supportReferenceLookup));
   app.route("/insights/ops", createOpsDashboardRoutes(services.opsDashboard));
   app.route("/insights/offer-economics", createOfferEconomicsRoutes(services.offerEconomics));

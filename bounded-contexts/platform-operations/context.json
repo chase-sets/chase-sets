@@ -25,6 +25,7 @@
   "apiBasePath": "/api/platform",
   "slices": [
     "projection-operations",
+    "commercial-terms-attention",
     "insights-dashboards",
     "offer-economics",
     "platform-feedback",
@@ -42,6 +43,15 @@
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
   "eventSubscriptions": [
+    {
+      "sourceContextName": "commercial-terms",
+      "projectionName": "commercial-terms-effective-date-attention-projection",
+      "subscriptionVersion": 1,
+      "sourceContextMount": "when-mounted",
+      "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
+      "order": 55,
+      "projectionHandlerSetNames": ["commercial-terms-effective-date-attention-projection"]
+    },
     {
       "sourceContextName": "commercial-terms",
       "projectionName": "public-doc-review-queue-projection",
@@ -158,6 +168,14 @@
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "commercial-terms-effective-date-attention-projection",
+      "sourceContextNames": ["commercial-terms"],
+      "optionalSourceContextNames": ["commercial-terms"],
+      "ownedTables": ["platform_operations_commercial_terms_attention_pages"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
     {
       "projectionName": "experience-platform-feedback-projection",
       "sourceContextNames": ["platform-operations"],
@@ -1032,6 +1050,11 @@
     }
   ],
   "directoryIntent": {
+    "commercial-terms-attention": {
+      "classification": "slice",
+      "purpose": "Own the commercial-terms-attention read model for upcoming schedules and expiring account overrides.",
+      "expectedConsumers": ["Policy Console admin route", "Internal platform-operations module composition"]
+    },
     "projection-operations": {
       "classification": "slice",
       "purpose": "Own projection-operations operator workflow, UI contracts, and admin console language for Platform Operations.",

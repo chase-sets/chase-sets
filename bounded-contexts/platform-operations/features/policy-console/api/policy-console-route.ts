@@ -28,7 +28,7 @@ import type {
  * detail history regardless of which surface wrote it.
  */
 
-export const COMMERCIAL_TERMS_SCHEDULES_HREF = "/terms/schedules";
+export const COMMERCIAL_TERMS_SCHEDULES_HREF = "/commerce/terms";
 
 function requireAccess(
   c: { get(key: "actor"): PlatformOperationsApiEnv["Variables"]["actor"] },
