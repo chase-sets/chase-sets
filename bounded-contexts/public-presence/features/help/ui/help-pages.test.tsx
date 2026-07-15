@@ -53,7 +53,7 @@ describe("public help pages", () => {
     render(<HelpArticlePage article={article} related={related} />, { wrapper: MemoryRouter });
     expect(screen.getByRole("heading", { name: "Order protection", level: 1 })).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "On this page" })).toBeTruthy();
-    expect(screen.getByText("Last reviewed July 12, 2026")).toBeTruthy();
+    expect(screen.getByText("Last reviewed July 14, 2026")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Related articles" })).toBeTruthy();
   });
 

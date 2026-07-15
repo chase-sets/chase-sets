@@ -8,14 +8,14 @@ export const publicHelpArticlePolicyCitations = [
     locale: "en",
     title: "Order protection",
     href: "/help/buying/order-protection",
-    citedPolicies: ["platform-operations.support-deadlines"],
+    citedPolicies: ["platform-operations.support-deadlines", "platform-operations.platform-remedies"],
   },
   {
     slug: "refunds-and-returns",
     locale: "en",
     title: "Refunds and returns",
     href: "/help/buying/refunds-and-returns",
-    citedPolicies: ["platform-operations.support-deadlines"],
+    citedPolicies: ["platform-operations.support-deadlines", "platform-operations.platform-remedies"],
   },
   {
     slug: "frequently-asked-questions",
@@ -36,7 +36,7 @@ export const publicHelpArticlePolicyCitations = [
     locale: "en",
     title: "Getting paid",
     href: "/help/selling/getting-paid",
-    citedPolicies: ["settlement.clearance-window", "settlement.payout-bounds"],
+    citedPolicies: ["settlement.clearance-window", "settlement.payout-bounds", "platform-operations.platform-remedies"],
   },
   {
     slug: "seller-migration-tcgplayer-ebay",

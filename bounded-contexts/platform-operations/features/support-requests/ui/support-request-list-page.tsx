@@ -25,6 +25,7 @@ import {
   type DataColumn,
 } from "@chase-sets/design-system";
 import type { SupportFlowSummary, SupportOrderLookup, SupportRequestListItem } from "./contracts";
+import { CustomerRemedyStatus, type CustomerRemedyRole } from "./customer-remedy-status";
 
 type SupportRequestListPageProps = Readonly<{
   buyerRequests: readonly SupportRequestListItem[];
@@ -69,7 +70,10 @@ function checklistSummary(request: SupportRequestListItem) {
   });
 }
 
-function SupportRequestTable({ requests }: Readonly<{ requests: readonly SupportRequestListItem[] }>) {
+function SupportRequestTable({
+  requests,
+  role,
+}: Readonly<{ requests: readonly SupportRequestListItem[]; role: CustomerRemedyRole }>) {
   const columns: DataColumn<SupportRequestListItem>[] = [
     {
       key: "reference",
@@ -106,6 +110,12 @@ function SupportRequestTable({ requests }: Readonly<{ requests: readonly Support
       key: "checklist",
       header: t("support.features.supportRequests.ui.supportRequestListPage.checklist"),
       cell: (request) => checklistSummary(request),
+    },
+    {
+      key: "resolution",
+      header: t("support.features.supportRequests.ui.supportRequestListPage.resolution"),
+      mobileLabel: t("support.features.supportRequests.ui.supportRequestListPage.resolution"),
+      cell: (request) => <CustomerRemedyStatus request={request} role={role} />,
     },
   ];
 
@@ -335,11 +345,11 @@ export function SupportRequestListPage({
       </PageSection>
 
       <PageSection title={t("support.features.supportRequests.ui.supportRequestListPage.buyer.requests")}>
-        <SupportRequestTable requests={buyerRequests} />
+        <SupportRequestTable requests={buyerRequests} role="buyer" />
       </PageSection>
 
       <PageSection title={t("support.features.supportRequests.ui.supportRequestListPage.seller.requests")}>
-        <SupportRequestTable requests={sellerRequests} />
+        <SupportRequestTable requests={sellerRequests} role="seller" />
       </PageSection>
 
       <PageSection

@@ -4,8 +4,8 @@ title: Refunds and returns
 description: How cancellations, order problems, returns, and refunds work — what each side provides and what happens on the deadlines.
 audience: buyer
 category: buying
-reviewedAt: "2026-07-13"
-citedPolicies: ["platform-operations.support-deadlines"]
+reviewedAt: "2026-07-14"
+citedPolicies: ["platform-operations.support-deadlines", "platform-operations.platform-remedies"]
 relatedFlows: ["return-request", "buyer-cancel-request", "product-not-received", "product-damaged", "wrong-product-received", "missing-products", "refund-status"]
 claimCategories: ["protection", "shipping"]
 promiseTable:
@@ -21,6 +21,9 @@ promiseTable:
   - claim: Return refunds require completed return evidence, are gated on return delivery, and release after the inspection window unless the seller disputes condition; high-value returns require support review.
     issues: ["#4248"]
     tests: ["bounded-contexts/platform-operations/features/support-requests/domain/domain.test.ts", "bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.test.ts"]
+  - claim: Platform-covered remedies present the approved refund, return obligation, funding allocation, and next action in neutral customer language.
+    issues: ["#5222"]
+    tests: ["bounded-contexts/platform-operations/features/support-requests/ui/customer-remedy-status.test.tsx"]
 ---
 ## Current availability
 
@@ -50,7 +53,9 @@ The refund itself is gated on the return: it is held until return delivery is co
 
 ## What refunds do on the seller side
 
-A refund reverses the seller's share of the order proportionally, and the order's Order Protection contribution is reversed with it. Open cases also hold the order's funds — see [Getting paid](/help/selling/getting-paid) for how holds interact with payouts.
+The support case shows how the refund is allocated. A seller-funded resolution assigns the refund to the seller, a fully platform-covered resolution shows a $0.00 seller allocation, and a split resolution shows the seller and Chase Sets amounts in the same currency. Platform coverage does not by itself establish seller fault. An approved allocation describes the resolution; the case remains in progress until the required refund and settlement effects are reconciled.
+
+Open cases can hold the order's funds — see [Getting paid](/help/selling/getting-paid) for how holds interact with payouts.
 
 ## Support
 

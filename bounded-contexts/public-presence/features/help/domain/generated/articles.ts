@@ -11,8 +11,8 @@ export const helpArticles = [
       "How Chase Sets applies buyer and seller safeguards around payment, fulfillment, disputes, returns, payout release, and negative balances.",
     audience: "buyer",
     category: "buying",
-    reviewedAt: "2026-07-12",
-    citedPolicies: ["platform-operations.support-deadlines"],
+    reviewedAt: "2026-07-14",
+    citedPolicies: ["platform-operations.support-deadlines", "platform-operations.platform-remedies"],
     relatedFlows: ["product-not-received", "product-not-as-described", "authenticity-concern"],
     claimCategories: ["protection", "payouts", "shipping"],
     promiseTable: [
@@ -49,6 +49,12 @@ export const helpArticles = [
           "bounded-contexts/settlement/features/payouts/api/runtime.test.ts",
         ],
       },
+      {
+        claim:
+          "Platform-covered resolution copy shows the approved remedy and allocation without implying seller fault or exposing internal funding details.",
+        issues: ["#5222"],
+        tests: ["bounded-contexts/platform-operations/features/support-requests/ui/customer-remedy-status.test.tsx"],
+      },
     ],
     href: "/help/buying/order-protection",
     headings: [
@@ -71,6 +77,11 @@ export const helpArticles = [
         level: 2,
         id: "getting-help-with-an-order",
         text: "Getting help with an order",
+      },
+      {
+        level: 2,
+        id: "platform-covered-resolutions",
+        text: "Platform-covered resolutions",
       },
       {
         level: 2,
@@ -212,6 +223,58 @@ export const helpArticles = [
           {
             type: "text",
             value: " for each flow in detail.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "platform-covered-resolutions",
+        text: "Platform-covered resolutions",
+        content: [
+          {
+            type: "text",
+            value: "Platform-covered resolutions",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "When the available evidence does not establish responsibility with enough confidence, Chase Sets may choose at its discretion to cover all or part of a resolution. This is not insurance and does not promise coverage for another case. The support case shows the approved buyer remedy, the seller allocation, the amount Chase Sets is covering, the return destination, the refund trigger, and the next action.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "A fully platform-covered resolution shows a seller allocation of $0.00; a split resolution shows both amounts in the remedy currency. Platform coverage does not by itself establish seller or buyer fault. Internal funding balances, approval limits, provider identifiers, and the other party's evidence are not shown.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Follow the return destination and deadline in the support case. Delivery to Chase Sets transfers custody, not ownership by itself; the case instructions state whether ownership changes or whether the item may be inspected, retained, returned, recovered, or disposed of as part of the resolution. Missing a required return deadline can pause or change the remedy.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "Refund release follows the trigger shown in the case: immediately after authorization, after carrier acceptance, after delivery, after Chase Sets intake, or after an explicit support release. External payment and carrier timing is shown only when a reliable date is available. If a return or refund fails, follow the recovery instructions in the case or contact support@chasesets.com for escalation.",
           },
         ],
       },
@@ -623,8 +686,8 @@ export const helpArticles = [
       "How cancellations, order problems, returns, and refunds work — what each side provides and what happens on the deadlines.",
     audience: "buyer",
     category: "buying",
-    reviewedAt: "2026-07-13",
-    citedPolicies: ["platform-operations.support-deadlines"],
+    reviewedAt: "2026-07-14",
+    citedPolicies: ["platform-operations.support-deadlines", "platform-operations.platform-remedies"],
     relatedFlows: [
       "return-request",
       "buyer-cancel-request",
@@ -671,6 +734,12 @@ export const helpArticles = [
           "bounded-contexts/platform-operations/features/support-requests/domain/domain.test.ts",
           "bounded-contexts/payments/features/refunds/integrations/support/support-refund-effect-projection.test.ts",
         ],
+      },
+      {
+        claim:
+          "Platform-covered remedies present the approved refund, return obligation, funding allocation, and next action in neutral customer language.",
+        issues: ["#5222"],
+        tests: ["bounded-contexts/platform-operations/features/support-requests/ui/customer-remedy-status.test.tsx"],
       },
     ],
     href: "/help/buying/refunds-and-returns",
@@ -902,7 +971,16 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "A refund reverses the seller's share of the order proportionally, and the order's Order Protection contribution is reversed with it. Open cases also hold the order's funds — see ",
+              "The support case shows how the refund is allocated. A seller-funded resolution assigns the refund to the seller, a fully platform-covered resolution shows a $0.00 seller allocation, and a split resolution shows the seller and Chase Sets amounts in the same currency. Platform coverage does not by itself establish seller fault. An approved allocation describes the resolution; the case remains in progress until the required refund and settlement effects are reconciled.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Open cases can hold the order's funds — see ",
           },
           {
             type: "link",
@@ -2019,8 +2097,8 @@ export const helpArticles = [
       "When sale proceeds become available, what the clearance window depends on, what pauses funds, and how payouts work.",
     audience: "seller",
     category: "selling",
-    reviewedAt: "2026-07-12",
-    citedPolicies: ["settlement.clearance-window", "settlement.payout-bounds"],
+    reviewedAt: "2026-07-14",
+    citedPolicies: ["settlement.clearance-window", "settlement.payout-bounds", "platform-operations.platform-remedies"],
     relatedFlows: ["refund-status"],
     claimCategories: ["payouts", "protection"],
     promiseTable: [
@@ -2059,6 +2137,12 @@ export const helpArticles = [
           "bounded-contexts/settlement/features/wallets/domain/domain.test.ts",
         ],
       },
+      {
+        claim:
+          "Platform-covered resolution copy separates the seller allocation from platform coverage and does not treat coverage as a fault finding.",
+        issues: ["#5222"],
+        tests: ["bounded-contexts/platform-operations/features/support-requests/ui/customer-remedy-status.test.tsx"],
+      },
     ],
     href: "/help/selling/getting-paid",
     headings: [
@@ -2076,6 +2160,11 @@ export const helpArticles = [
         level: 2,
         id: "what-pauses-funds",
         text: "What pauses funds",
+      },
+      {
+        level: 2,
+        id: "platform-covered-resolutions",
+        text: "Platform-covered resolutions",
       },
       {
         level: 2,
@@ -2261,6 +2350,38 @@ export const helpArticles = [
             type: "text",
             value:
               "Held amounts are excluded from what you can pay out, and orders under an active hold do not mature.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "platform-covered-resolutions",
+        text: "Platform-covered resolutions",
+        content: [
+          {
+            type: "text",
+            value: "Platform-covered resolutions",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "When Chase Sets approves platform coverage for all or part of a support resolution, the support case shows your allocation separately from the amount Chase Sets is covering. A fully platform-covered resolution shows a seller allocation of $0.00; a split resolution shows both amounts in the same currency. Coverage does not by itself establish seller fault.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "An approved remedy alone is not a hold-release confirmation. If the displayed allocation looks wrong or a hold remains after the support case completes, use the escalation path in the support case or contact support@chasesets.com.",
           },
         ],
       },

@@ -63,6 +63,7 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportRequestListPage.priority": "Priority",
   "support.features.supportRequests.ui.supportRequestListPage.next.deadline": "Next deadline",
   "support.features.supportRequests.ui.supportRequestListPage.checklist": "Checklist",
+  "support.features.supportRequests.ui.supportRequestListPage.resolution": "Resolution progress",
   "support.features.supportRequests.ui.supportRequestListPage.checklist.summary": "{satisfied}/{required} required",
   "support.features.supportRequests.ui.supportRequestListPage.not.applicable": "N/A",
   "support.features.supportRequests.ui.supportRequestListPage.available.flows": "Available flows",
@@ -73,6 +74,68 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportRequestListPage.response.window": "Response window",
   "support.features.supportRequests.ui.supportRequestListPage.support.owned": "Support owned",
   "support.features.supportRequests.ui.supportRequestListPage.hours": "{hours} hours",
+  "support.features.supportRequests.ui.customerRemedyStatus.state.proposed": "Resolution under review",
+  "support.features.supportRequests.ui.customerRemedyStatus.state.awaitingCoverage": "Awaiting coverage approval",
+  "support.features.supportRequests.ui.customerRemedyStatus.state.labelReady": "Return label ready",
+  "support.features.supportRequests.ui.customerRemedyStatus.state.inTransit": "Return in transit",
+  "support.features.supportRequests.ui.customerRemedyStatus.state.awaitingIntake":
+    "Delivered to Chase Sets — awaiting intake",
+  "support.features.supportRequests.ui.customerRemedyStatus.state.refundSubmitted": "Refund submitted",
+  "support.features.supportRequests.ui.customerRemedyStatus.state.refundConfirmed": "Refund confirmed",
+  "support.features.supportRequests.ui.customerRemedyStatus.state.reconciliationPending":
+    "Settlement reconciliation pending",
+  "support.features.supportRequests.ui.customerRemedyStatus.state.completed": "Resolution completed",
+  "support.features.supportRequests.ui.customerRemedyStatus.state.expired": "Coverage deadline expired",
+  "support.features.supportRequests.ui.customerRemedyStatus.state.carrierException": "Return exception",
+  "support.features.supportRequests.ui.customerRemedyStatus.state.refundFailure": "Refund needs attention",
+  "support.features.supportRequests.ui.customerRemedyStatus.state.manualReview": "Manual review",
+  "support.features.supportRequests.ui.customerRemedyStatus.state.inProgress": "Resolution in progress",
+  "support.features.supportRequests.ui.customerRemedyStatus.outcome.underReview":
+    "A refund of {amount} is under review.",
+  "support.features.supportRequests.ui.customerRemedyStatus.outcome.fullRefund": "Full refund of {amount} approved.",
+  "support.features.supportRequests.ui.customerRemedyStatus.outcome.partialRefund":
+    "Partial refund of {amount} approved.",
+  "support.features.supportRequests.ui.customerRemedyStatus.coverage.full": "Chase Sets is covering this resolution.",
+  "support.features.supportRequests.ui.customerRemedyStatus.coverage.partial":
+    "Chase Sets is covering {amount} of this resolution.",
+  "support.features.supportRequests.ui.customerRemedyStatus.coverage.noFaultFinding":
+    "Platform coverage does not by itself establish seller fault.",
+  "support.features.supportRequests.ui.customerRemedyStatus.sellerAllocation.sellerFunded":
+    "Seller allocation: {sellerAmount}.",
+  "support.features.supportRequests.ui.customerRemedyStatus.sellerAllocation.covered":
+    "Seller allocation: {sellerAmount}. Chase Sets is covering {platformAmount}.",
+  "support.features.supportRequests.ui.customerRemedyStatus.sellerAllocation.completedCovered":
+    "Seller charge: {sellerAmount}. Chase Sets covered {platformAmount}.",
+  "support.features.supportRequests.ui.customerRemedyStatus.return.buyer.platform":
+    "Return the item to Chase Sets when the case provides the label and ship-by instructions.",
+  "support.features.supportRequests.ui.customerRemedyStatus.return.seller.platform":
+    "The item is being returned to Chase Sets.",
+  "support.features.supportRequests.ui.customerRemedyStatus.return.buyer.seller":
+    "Return the item to the seller when the case provides the label and ship-by instructions.",
+  "support.features.supportRequests.ui.customerRemedyStatus.return.seller.seller":
+    "The item is being returned to the seller.",
+  "support.features.supportRequests.ui.customerRemedyStatus.return.none": "No return is required.",
+  "support.features.supportRequests.ui.customerRemedyStatus.refundTiming.immediate":
+    "The refund can be submitted after the resolution is authorized.",
+  "support.features.supportRequests.ui.customerRemedyStatus.refundTiming.carrierAccepted":
+    "The refund can be submitted after the carrier accepts the return.",
+  "support.features.supportRequests.ui.customerRemedyStatus.refundTiming.delivered":
+    "The refund can be submitted after the return is delivered.",
+  "support.features.supportRequests.ui.customerRemedyStatus.refundTiming.intake":
+    "The refund can be submitted after Chase Sets receives and checks the item.",
+  "support.features.supportRequests.ui.customerRemedyStatus.refundTiming.review":
+    "The refund can be submitted after support releases it.",
+  "support.features.supportRequests.ui.customerRemedyStatus.nextAction.label": "Next action",
+  "support.features.supportRequests.ui.customerRemedyStatus.nextAction.ship":
+    "Ship the item using the return label and deadline shown in your case.",
+  "support.features.supportRequests.ui.customerRemedyStatus.nextAction.waitForLabel":
+    "Wait for your return label and ship-by instructions.",
+  "support.features.supportRequests.ui.customerRemedyStatus.nextAction.followSupport":
+    "Follow the recovery instructions from support.",
+  "support.features.supportRequests.ui.customerRemedyStatus.nextAction.refundFailure":
+    "No action is needed unless support contacts you.",
+  "support.features.supportRequests.ui.customerRemedyStatus.nextAction.none": "No action is needed right now.",
+  "support.features.supportRequests.ui.customerRemedyStatus.policyLink": "How platform-covered resolutions work",
   "support.features.supportRequests.ui.supportOperationsPage.title": "Support operations",
   "support.features.supportRequests.ui.supportOperationsPage.description":
     "Review urgent, overdue, and support-owned marketplace order issues before they block refunds, settlement holds, or account trust decisions.",
