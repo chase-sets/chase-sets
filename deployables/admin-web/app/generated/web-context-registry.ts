@@ -7,6 +7,7 @@ import catalogManifest from "@chase-sets/catalog/context";
 import commercialTermsManifest from "@chase-sets/commercial-terms/context";
 import customerFeedbackManifest from "@chase-sets/customer-feedback/context";
 import discoveryManifest from "@chase-sets/discovery/context";
+import fulfillmentManifest from "@chase-sets/fulfillment/context";
 import identityManifest from "@chase-sets/identity/context";
 import marketplaceManifest from "@chase-sets/marketplace/context";
 import orderingManifest from "@chase-sets/ordering/context";
@@ -39,6 +40,11 @@ export const webContextRegistry = [
     contextName: "discovery",
     packageName: "@chase-sets/discovery",
     manifest: discoveryManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "fulfillment",
+    packageName: "@chase-sets/fulfillment",
+    manifest: fulfillmentManifest as WebContextRegistry[number]["manifest"],
   },
   {
     contextName: "identity",
