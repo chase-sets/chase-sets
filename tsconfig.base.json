@@ -822,6 +822,9 @@
       "@chase-sets/review-eligibility": [
         "./contracts/review-eligibility/index.ts"
       ],
+      "@chase-sets/seller-desk": [
+        "./contracts/seller-desk/index.ts"
+      ],
       "@chase-sets/ses-email": [
         "./infrastructure/ses-email/index.ts"
       ],
