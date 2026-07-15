@@ -72,6 +72,10 @@ export default defineConfig({
         target: platformApiTarget,
         changeOrigin: true,
       },
+      "/api/settlement": {
+        target: platformApiTarget,
+        changeOrigin: true,
+      },
       "/api/realtime": {
         target: platformApiTarget,
         changeOrigin: true,

@@ -23,8 +23,9 @@ test.describe("commerce admin wallet adjustments", () => {
     await expectPageOk(page, workbenchPath);
     await expectAdminPageReady(page, { heading: "Wallet for Demo Account" });
 
-    await page.getByLabel("Amount").fill("1.00");
-    await page.getByLabel("Reason").selectOption("goodwill-cash-credit");
+    await page.getByRole("spinbutton", { name: "Amount", exact: true }).fill("1.00");
+    await page.getByRole("combobox", { name: "Reason", exact: true }).click();
+    await page.getByRole("option", { name: "Goodwill cash credit", exact: true }).click();
     await page.getByLabel("Explanation (optional)").fill("Browser acceptance preview");
     await page.getByRole("button", { name: "Request preview" }).click();
 

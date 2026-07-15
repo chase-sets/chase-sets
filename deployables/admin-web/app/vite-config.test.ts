@@ -9,7 +9,7 @@ describe("admin web dev proxy", () => {
     const proxyPaths = Object.keys(viteConfig.server?.proxy ?? {});
 
     expect(proxyPaths).toEqual(
-      expect.arrayContaining(["/api/experience", "/api/marketplace", "/api/commercial-terms"]),
+      expect.arrayContaining(["/api/experience", "/api/marketplace", "/api/commercial-terms", "/api/settlement"]),
     );
   });
 });
