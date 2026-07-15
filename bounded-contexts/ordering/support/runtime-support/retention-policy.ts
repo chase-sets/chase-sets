@@ -1,4 +1,4 @@
-import type { BcRetentionSweep, BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import type { BcRetentionExemption, BcRetentionSweep, BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
 export const orderingRetentionSweeps: readonly BcRetentionSweep[] = [
   {
@@ -16,6 +16,15 @@ export const orderingRetentionSweeps: readonly BcRetentionSweep[] = [
     orderBySql: "candidate.released_at ASC",
     intervalMs: 6 * 60 * 60 * 1_000,
     batchLimit: 500,
+  },
+];
+
+export const orderingRetentionExemptions: readonly BcRetentionExemption[] = [
+  {
+    tableName: "ordering_order_source_claims",
+    owner: "ordering",
+    reason:
+      "Order source claims are permanent money-relevant idempotency records; deleting one could allow a duplicate order set.",
   },
 ];
 

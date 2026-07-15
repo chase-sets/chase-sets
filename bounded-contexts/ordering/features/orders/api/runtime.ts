@@ -56,7 +56,6 @@ import {
   getPurchaseListSummary,
   getSale,
   getSaleListSummary,
-  listOrderIdsForSource,
   listPendingPaymentOrdersPastDeadline,
   listPurchases,
   listSales,
@@ -102,6 +101,13 @@ import {
   reconcileSellerOrderCapacity,
   type SellerOrderCapacityGroup,
 } from "./order-capacity";
+import {
+  claimOrderSource,
+  completeOrderSourceClaim,
+  getOrderSourceClaim,
+  releasePendingOrderSourceClaim,
+  type OrderSourceClaim,
+} from "./order-source-claims";
 
 export const sellerOrderCapacityReachedReason = "Seller has reached their Order Capacity limit.";
 
@@ -1420,7 +1426,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
   const postagePolicyResolver = deps.postagePolicyResolver ?? defaultPostagePolicyResolver;
   const paymentDeadlinePolicy = deps.paymentDeadlinePolicy ?? defaultOrderPaymentDeadlinePolicy;
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<OrderingOrderEvent>(),
     initialState: () => initialOrderingOrderState,
@@ -1452,6 +1458,33 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         : { type: "ClearSellerAtCapacity", accountId: sellerAccountId },
       context,
     });
+  };
+
+  const claimedOrderStreamStatus = async (claim: OrderSourceClaim) => {
+    const loadedOrders = await Promise.all(
+      claim.orderIds.map((orderId) => repository.load(`ordering.order-${orderId}`)),
+    );
+    const existingCount = loadedOrders.filter(({ state }) => state.orderId !== null).length;
+    const matchingCount = loadedOrders.filter(
+      ({ state }) =>
+        state.orderId !== null &&
+        state.sourceType === claim.sourceType &&
+        state.sourceReferenceId === claim.sourceReferenceId &&
+        state.buyerAccountId === claim.buyerAccountId,
+    ).length;
+    return { existingCount, matchingCount };
+  };
+
+  const completedOrderSourceResult = async (claim: OrderSourceClaim) => {
+    if (claim.status === "created") {
+      return { orderIds: [...claim.orderIds], rejectedSellerAccountIds: [] };
+    }
+    const streamStatus = await claimedOrderStreamStatus(claim);
+    if (streamStatus.existingCount !== claim.orderIds.length || streamStatus.matchingCount !== claim.orderIds.length) {
+      return null;
+    }
+    await completeOrderSourceClaim(deps.db, claim, claim.orderIds);
+    return { orderIds: [...claim.orderIds], rejectedSellerAccountIds: [] };
   };
 
   const createOrdersFromPlan = async (
@@ -2124,9 +2157,16 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       });
     },
     createOrdersFromCheckout: async (params, context) => {
-      const existingOrderIds = await listOrderIdsForSource(deps.db, params.sourceType, params.checkoutSessionId);
-      if (existingOrderIds.length > 0) {
-        return { orderIds: existingOrderIds as OrderId[], rejectedSellerAccountIds: [] };
+      const existingClaim = await getOrderSourceClaim(deps.db, params.sourceType, params.checkoutSessionId);
+      if (existingClaim) {
+        if (existingClaim.buyerAccountId !== params.buyerAccountId) {
+          throw new OrderingDomainError("Order source identity is already claimed by another buyer account.");
+        }
+        const completed = await completedOrderSourceResult(existingClaim);
+        if (completed) {
+          return completed;
+        }
+        throw new OrderingDomainError("Checkout order creation is already in progress.");
       }
 
       if (params.lines.length === 0) {
@@ -2188,23 +2228,49 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         taxAdjustedPlan,
         params.authenticityCheckOptIn,
       );
-      const result = await createOrdersFromPlan(
-        params.buyerAccountId,
-        taxAdjustedPlan,
-        normalizeAddressSnapshot(params.shippingAddress, "Shipping destination"),
-        context,
-        params.orderIdsOverride,
-        authenticityPlan,
-      );
+      const proposedOrderIds =
+        params.orderIdsOverride ?? taxAdjustedPlan.orderDrafts.map(() => createId("ord") as OrderId);
+      const sourceClaimResult = await claimOrderSource(deps.db, {
+        sourceType: params.sourceType,
+        sourceReferenceId: params.checkoutSessionId,
+        buyerAccountId: params.buyerAccountId,
+        orderIds: proposedOrderIds,
+      });
+      if (sourceClaimResult.outcome === "existing") {
+        const completed = await completedOrderSourceResult(sourceClaimResult.claim);
+        if (completed) {
+          return completed;
+        }
+        throw new OrderingDomainError("Checkout order creation is already in progress.");
+      }
 
-      // Order Capacity enforcement (m127): per-group failure only --
-      // an at-capacity seller in a multi-seller cart drops out (mirroring
-      // how unavailable lines already get silently excluded above) while
-      // the other sellers' groups still create orders. Only when every
-      // group is at capacity does the buyer see a failure, the same shape
-      // as "no active supply can fulfill this product."
-      if (result.orderIds.length === 0 && result.rejectedSellerAccountIds.length > 0) {
-        throw new OrderingDomainError("No checkout lines are currently fulfillable.");
+      let result: OrderingOrderCreationResult;
+      try {
+        result = await createOrdersFromPlan(
+          params.buyerAccountId,
+          taxAdjustedPlan,
+          normalizeAddressSnapshot(params.shippingAddress, "Shipping destination"),
+          context,
+          proposedOrderIds,
+          authenticityPlan,
+        );
+
+        // Order Capacity enforcement (m127): per-group failure only --
+        // an at-capacity seller in a multi-seller cart drops out (mirroring
+        // how unavailable lines already get silently excluded above) while
+        // the other sellers' groups still create orders. Only when every
+        // group is at capacity does the buyer see a failure, the same shape
+        // as "no active supply can fulfill this product."
+        if (result.orderIds.length === 0 && result.rejectedSellerAccountIds.length > 0) {
+          throw new OrderingDomainError("No checkout lines are currently fulfillable.");
+        }
+
+        await completeOrderSourceClaim(deps.db, sourceClaimResult.claim, result.orderIds);
+      } catch (error) {
+        if ((await claimedOrderStreamStatus(sourceClaimResult.claim)).existingCount === 0) {
+          await releasePendingOrderSourceClaim(deps.db, sourceClaimResult.claim);
+        }
+        throw error;
       }
 
       return result;

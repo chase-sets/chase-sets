@@ -386,62 +386,92 @@ export type OrderingOrderEvent =
 
 function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
   assert(lines.length > 0, "Orders must include at least one line.");
-  return lines.map((line) => ({
-    lineId: line.lineId,
-    listingId: normalizeRequiredText(line.listingId, "Order lines must reference a listing."),
-    inventoryItemId: normalizeRequiredText(line.inventoryItemId, "Order lines must reference inventory."),
-    catalogItemId: normalizeRequiredText(
-      line.catalogItemId,
-      "Order lines must reference a catalog item.",
-    ) as CatalogItemId,
-    productId: normalizeRequiredText(String(line.productId), "Order lines must reference a product id.") as ProductKey,
-    itemTitle: normalizeRequiredText(line.itemTitle, "Order lines must include an item title snapshot."),
-    itemSubtitle: normalizeOptionalText(line.itemSubtitle),
-    selectedOptions: normalizeVersionSelection(line.selectedOptions),
-    productSummary: normalizeOptionalText(line.productSummary),
-    gradedCard: normalizeGradedCardSnapshot(line.gradedCard),
-    unitPriceAmount: normalizeMoneyAmount(line.unitPriceAmount, {
-      fieldName: "Unit price",
-    }),
-    quantity: ensurePositiveInteger(line.quantity, "Order line quantity must be a positive whole number."),
-    lineTotalAmount: normalizeMoneyAmount(line.lineTotalAmount, {
-      fieldName: "Line total",
-    }),
-    marketplaceSalesFeePercentageBps: ensureNonNegativeInteger(
-      line.marketplaceSalesFeePercentageBps ?? 0,
-      "Line marketplace sales fee percentage must be zero or more basis points.",
-    ),
-    marketplaceSalesFeeFixedAmount: normalizeMoneyAmount(
-      line.marketplaceSalesFeeFixedAmount ?? line.marketplaceSalesFeeUnitAmount,
-      {
-        fieldName: "Line marketplace sales fee fixed amount",
+  return lines.map((line) => {
+    const normalized = {
+      lineId: line.lineId,
+      listingId: normalizeRequiredText(line.listingId, "Order lines must reference a listing."),
+      inventoryItemId: normalizeRequiredText(line.inventoryItemId, "Order lines must reference inventory."),
+      catalogItemId: normalizeRequiredText(
+        line.catalogItemId,
+        "Order lines must reference a catalog item.",
+      ) as CatalogItemId,
+      productId: normalizeRequiredText(
+        String(line.productId),
+        "Order lines must reference a product id.",
+      ) as ProductKey,
+      itemTitle: normalizeRequiredText(line.itemTitle, "Order lines must include an item title snapshot."),
+      itemSubtitle: normalizeOptionalText(line.itemSubtitle),
+      selectedOptions: normalizeVersionSelection(line.selectedOptions),
+      productSummary: normalizeOptionalText(line.productSummary),
+      gradedCard: normalizeGradedCardSnapshot(line.gradedCard),
+      unitPriceAmount: normalizeMoneyAmount(line.unitPriceAmount, {
+        fieldName: "Unit price",
+      }),
+      quantity: ensurePositiveInteger(line.quantity, "Order line quantity must be a positive whole number."),
+      lineTotalAmount: normalizeMoneyAmount(line.lineTotalAmount, {
+        fieldName: "Line total",
+      }),
+      marketplaceSalesFeePercentageBps: ensureNonNegativeInteger(
+        line.marketplaceSalesFeePercentageBps ?? 0,
+        "Line marketplace sales fee percentage must be zero or more basis points.",
+      ),
+      marketplaceSalesFeeFixedAmount: normalizeMoneyAmount(
+        line.marketplaceSalesFeeFixedAmount ?? line.marketplaceSalesFeeUnitAmount,
+        {
+          fieldName: "Line marketplace sales fee fixed amount",
+          allowZero: true,
+        },
+      ),
+      marketplaceSalesFeeCapAmount:
+        line.marketplaceSalesFeeCapAmount == null
+          ? null
+          : normalizeMoneyAmount(line.marketplaceSalesFeeCapAmount, {
+              fieldName: "Line marketplace sales fee cap amount",
+            }),
+      marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(line.marketplaceSalesFeeUnitAmount, {
+        fieldName: "Line marketplace sales fee unit amount",
         allowZero: true,
-      },
-    ),
-    marketplaceSalesFeeCapAmount:
-      line.marketplaceSalesFeeCapAmount == null
-        ? null
-        : normalizeMoneyAmount(line.marketplaceSalesFeeCapAmount, {
-            fieldName: "Line marketplace sales fee cap amount",
-          }),
-    marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(line.marketplaceSalesFeeUnitAmount, {
-      fieldName: "Line marketplace sales fee unit amount",
-      allowZero: true,
-    }),
-    marketplaceSalesFeeTotalAmount: normalizeMoneyAmount(line.marketplaceSalesFeeTotalAmount, {
-      fieldName: "Line marketplace sales fee total amount",
-      allowZero: true,
-    }),
-    sellerNetUnitAmount: normalizeMoneyAmount(line.sellerNetUnitAmount, {
-      fieldName: "Line seller net unit amount",
-      allowZero: true,
-    }),
-    sellerNetTotalAmount: normalizeMoneyAmount(line.sellerNetTotalAmount, {
-      fieldName: "Line seller net total amount",
-      allowZero: true,
-    }),
-    listingEvidenceSnapshot: line.listingEvidenceSnapshot ?? null,
-  }));
+      }),
+      marketplaceSalesFeeTotalAmount: normalizeMoneyAmount(line.marketplaceSalesFeeTotalAmount, {
+        fieldName: "Line marketplace sales fee total amount",
+        allowZero: true,
+      }),
+      sellerNetUnitAmount: normalizeMoneyAmount(line.sellerNetUnitAmount, {
+        fieldName: "Line seller net unit amount",
+        allowZero: true,
+      }),
+      sellerNetTotalAmount: normalizeMoneyAmount(line.sellerNetTotalAmount, {
+        fieldName: "Line seller net total amount",
+        allowZero: true,
+      }),
+      listingEvidenceSnapshot: line.listingEvidenceSnapshot ?? null,
+    };
+
+    assert(
+      moneyToCents(normalized.unitPriceAmount) * BigInt(normalized.quantity) ===
+        moneyToCents(normalized.lineTotalAmount),
+      "Order line total must equal unit price times quantity.",
+    );
+    assert(
+      moneyToCents(normalized.marketplaceSalesFeeUnitAmount) * BigInt(normalized.quantity) ===
+        moneyToCents(normalized.marketplaceSalesFeeTotalAmount),
+      "Order line marketplace fee total must equal its unit fee times quantity.",
+    );
+    assert(
+      moneyToCents(normalized.sellerNetUnitAmount) * BigInt(normalized.quantity) ===
+        moneyToCents(normalized.sellerNetTotalAmount),
+      "Order line seller net total must equal its unit net times quantity.",
+    );
+    assert(
+      moneyToCents(normalized.marketplaceSalesFeeUnitAmount) + moneyToCents(normalized.sellerNetUnitAmount) ===
+        moneyToCents(normalized.unitPriceAmount) &&
+        moneyToCents(normalized.marketplaceSalesFeeTotalAmount) + moneyToCents(normalized.sellerNetTotalAmount) ===
+          moneyToCents(normalized.lineTotalAmount),
+      "Order line marketplace fee plus seller net must equal the line total.",
+    );
+
+    return normalized;
+  });
 }
 
 function normalizeGradedCardSnapshot(line: OrderingOrderLine["gradedCard"]) {
@@ -696,6 +726,39 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
         "The buyer Shipping amount must equal shipping and Order Protection overflow.",
       );
       const commercialTermsSnapshot = normalizeCommercialTermsSnapshot(command.commercialTermsSnapshot);
+      const itemSubtotalAmount = normalizeMoneyAmount(command.itemSubtotalAmount, {
+        fieldName: "Item subtotal",
+        allowZero: true,
+      });
+      const salesTaxAmount = normalizeMoneyAmount(command.salesTaxAmount, {
+        fieldName: "Sales tax amount",
+        allowZero: true,
+      });
+      const authenticityPlanSnapshot = normalizeAuthenticityPlanSnapshot(command.authenticityPlanSnapshot);
+      const totalAmount = normalizeMoneyAmount(command.totalAmount, {
+        fieldName: "Order total",
+        allowZero: true,
+      });
+      assert(
+        normalizedLines.reduce((sum, line) => sum + moneyToCents(line.lineTotalAmount), 0n) ===
+          moneyToCents(itemSubtotalAmount),
+        "Order item subtotal must equal the sum of line totals.",
+      );
+      assert(
+        normalizedLines.reduce((sum, line) => sum + moneyToCents(line.marketplaceSalesFeeTotalAmount), 0n) ===
+          moneyToCents(commercialTermsSnapshot.marketplaceSalesFeeAmount) &&
+          normalizedLines.reduce((sum, line) => sum + moneyToCents(line.sellerNetTotalAmount), 0n) ===
+            moneyToCents(commercialTermsSnapshot.sellerNetAmount),
+        "Order line fee and seller-net totals must match the commercial terms snapshot.",
+      );
+      assert(
+        moneyToCents(itemSubtotalAmount) +
+          moneyToCents(shippingChargeAmount) +
+          moneyToCents(salesTaxAmount) +
+          moneyToCents(authenticityPlanSnapshot?.feeAmount ?? "0.00") ===
+          moneyToCents(totalAmount),
+        "Order total must equal item subtotal, Shipping, sales tax, and authenticity check fee.",
+      );
       assert(
         commercialTermsSnapshot.protectionAmount === protectionAmount &&
           commercialTermsSnapshot.protectionAllowanceAmount === protectionAllowanceAmount &&
@@ -712,10 +775,7 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
             buyerAccountId: command.buyerAccountId,
             sellerAccountId: normalizedSellerAccountId as AccountId,
             shippingOption: normalizeShippingOption(command.shippingOption),
-            itemSubtotalAmount: normalizeMoneyAmount(command.itemSubtotalAmount, {
-              fieldName: "Item subtotal",
-              allowZero: true,
-            }),
+            itemSubtotalAmount,
             shippingBaseAmount: normalizeMoneyAmount(command.shippingBaseAmount, {
               fieldName: "Shipping base amount",
               allowZero: true,
@@ -737,17 +797,11 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
             protectionOverageAmount,
             shippingChargeAmount,
             shippingPlanSnapshot: command.shippingPlanSnapshot,
-            salesTaxAmount: normalizeMoneyAmount(command.salesTaxAmount, {
-              fieldName: "Sales tax amount",
-              allowZero: true,
-            }),
-            totalAmount: normalizeMoneyAmount(command.totalAmount, {
-              fieldName: "Order total",
-              allowZero: true,
-            }),
+            salesTaxAmount,
+            totalAmount,
             taxSnapshot: normalizeTaxSnapshot(command.taxSnapshot),
             commercialTermsSnapshot,
-            authenticityPlanSnapshot: normalizeAuthenticityPlanSnapshot(command.authenticityPlanSnapshot),
+            authenticityPlanSnapshot,
             shippingDestinationSnapshot: normalizeAddressSnapshot(
               command.shippingDestinationSnapshot,
               "Shipping destination",
@@ -776,7 +830,11 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
       }
 
       const holdId = normalizeRequiredText(command.holdId, "Reservation confirmation must include a hold id.");
-      const updated = updateReservationRequest(state, command.reservationRequestId, (request) => {
+      const reservationRequestId = normalizeRequiredText(
+        command.reservationRequestId,
+        "Reservation confirmation must include a request id.",
+      );
+      const updated = updateReservationRequest(state, reservationRequestId, (request) => {
         if (request.status === "confirmed" && request.holdId === holdId) {
           return request;
         }
@@ -788,36 +846,26 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
         };
       });
 
-      if (!updated.matched) {
-        return [];
-      }
+      assert(updated.matched, "Reservation confirmation must reference an existing reservation request.");
 
       const nextState = {
         ...state,
         reservationRequests: updated.reservationRequests,
       };
+      const confirmedRequest = nextState.reservationRequests.find(
+        (request) => request.reservationRequestId === reservationRequestId,
+      );
+      assert(confirmedRequest, "Reservation confirmation must reference an existing reservation request.");
 
       const events: OrderingOrderEvent[] = [
         {
           type: "ordering.order.reservation-confirmed",
           data: {
             orderId: state.orderId,
-            reservationRequestId: normalizeRequiredText(
-              command.reservationRequestId,
-              "Reservation confirmation must include a request id.",
-            ),
-            inventoryItemId:
-              nextState.reservationRequests.find(
-                (request) => request.reservationRequestId === command.reservationRequestId,
-              )?.inventoryItemId ?? "",
-            sellerAccountId:
-              nextState.reservationRequests.find(
-                (request) => request.reservationRequestId === command.reservationRequestId,
-              )?.sellerAccountId ?? "",
-            quantity:
-              nextState.reservationRequests.find(
-                (request) => request.reservationRequestId === command.reservationRequestId,
-              )?.quantity ?? 0,
+            reservationRequestId,
+            inventoryItemId: confirmedRequest.inventoryItemId,
+            sellerAccountId: confirmedRequest.sellerAccountId,
+            quantity: confirmedRequest.quantity,
             holdId,
             confirmedAt: normalizeRequiredText(
               command.confirmedAt,

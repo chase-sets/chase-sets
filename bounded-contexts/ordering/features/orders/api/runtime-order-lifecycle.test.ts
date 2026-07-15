@@ -543,10 +543,18 @@ describe("ordering order runtime: order creation and cancellation", () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const db = {
       query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
-        expect(sql).toContain("FROM ordering_order_pages");
+        expect(sql).toContain("FROM ordering_order_source_claims");
         expect(params).toEqual(["cart-checkout", "chk_existing"]);
         return {
-          rows: [{ order_id: "ord_existing" }],
+          rows: [
+            {
+              source_type: "cart-checkout",
+              source_reference_id: "chk_existing",
+              buyer_account_id: "acc_buyer",
+              order_ids: ["ord_existing"],
+              status: "created",
+            },
+          ],
         };
       }),
     };

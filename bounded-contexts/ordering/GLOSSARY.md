@@ -78,6 +78,16 @@ Notes:
 
 An **Order Split** is the decomposition of a checkout session into one or more orders grouped by seller account.
 
+## Order Source Claim
+
+An **Order Source Claim** is the command-side identity record that binds one checkout source identity to its complete order-id set before any order is created.
+
+Notes:
+
+- The claim is authoritative for checkout retry idempotency while order projections catch up.
+- A pending claim prevents another caller from creating a different order set.
+- A created claim returns the original order ids without consulting a read model.
+
 ## Shipping Quote Policy
 
 A **Shipping Quote Policy** is the Ordering-owned rule that estimates provisional shipping charges and discounts while checkout compares seller split plans.

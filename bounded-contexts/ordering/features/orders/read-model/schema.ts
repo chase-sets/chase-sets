@@ -145,6 +145,19 @@ CREATE TABLE IF NOT EXISTS ordering_order_hold_pages (
 CREATE INDEX IF NOT EXISTS ordering_order_hold_pages_order_idx
   ON ordering_order_hold_pages (order_id, created_at ASC);
 
+-- Command-side identity ledger: checkout retries consult this authoritative
+-- claim instead of waiting for ordering_order_pages projection catch-up.
+CREATE TABLE IF NOT EXISTS ordering_order_source_claims (
+  source_type text NOT NULL,
+  source_reference_id text NOT NULL,
+  buyer_account_id text NOT NULL,
+  order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  status text NOT NULL CHECK (status IN ('pending', 'created')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (source_type, source_reference_id)
+);
+
 CREATE TABLE IF NOT EXISTS ordering_listing_purchase_limit_claims (
   claim_id text PRIMARY KEY,
   source_type text NOT NULL,
@@ -205,6 +218,43 @@ CREATE INDEX IF NOT EXISTS ordering_seller_open_order_claims_open_idx
 `;
 
 export const orderingOrderSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260715_ordering_order_source_claims",
+    description: "Claim each checkout order source once before creating its durable order set.",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ordering_order_source_claims (
+  source_type text NOT NULL,
+  source_reference_id text NOT NULL,
+  buyer_account_id text NOT NULL,
+  order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  status text NOT NULL CHECK (status IN ('pending', 'created')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (source_type, source_reference_id)
+)`,
+      `INSERT INTO ordering_order_source_claims (
+  source_type,
+  source_reference_id,
+  buyer_account_id,
+  order_ids,
+  status,
+  created_at,
+  updated_at
+)
+SELECT
+  source_type,
+  source_reference_id,
+  buyer_account_id,
+  jsonb_agg(order_id ORDER BY order_id),
+  'created',
+  MIN(created_at),
+  MAX(updated_at)
+FROM ordering_order_pages
+WHERE source_reference_id IS NOT NULL
+GROUP BY source_type, source_reference_id, buyer_account_id
+ON CONFLICT (source_type, source_reference_id) DO NOTHING`,
+    ],
+  },
   {
     migrationId: "20260713_ordering_order_line_listing_evidence_snapshot",
     description: "Persist immutable accepted-offer Listing Evidence snapshots on order lines.",

@@ -7,6 +7,15 @@ import {
 import { orderingOrderSchemaMigrations, orderingOrderSchemaSql } from "../features/orders/read-model/schema";
 
 describe("fresh ordering schemas", () => {
+  it("keeps one durable claim per order source identity", () => {
+    const migrationSql = orderingOrderSchemaMigrations.flatMap((migration) => migration.statements).join("\n");
+
+    expect(orderingOrderSchemaSql).toContain("CREATE TABLE IF NOT EXISTS ordering_order_source_claims");
+    expect(orderingOrderSchemaSql).toContain("PRIMARY KEY (source_type, source_reference_id)");
+    expect(migrationSql).toContain("INSERT INTO ordering_order_source_claims");
+    expect(migrationSql).toContain("jsonb_agg(order_id ORDER BY order_id)");
+  });
+
   it("keeps payment-deadline order-page indexes out of boot-time schema SQL", () => {
     const migrationSql = orderingOrderSchemaMigrations.flatMap((migration) => migration.statements).join("\n");
 

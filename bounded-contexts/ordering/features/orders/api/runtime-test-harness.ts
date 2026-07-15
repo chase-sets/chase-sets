@@ -125,8 +125,62 @@ export function productMeasureForCandidate(candidate: SupplyCandidate): ProductM
 }
 
 export function createSupplyDb(resolver: (params: readonly unknown[] | undefined) => readonly SupplyCandidate[]) {
+  const sourceClaims = new Map<
+    string,
+    {
+      source_type: "cart-checkout" | "buy-now" | "offer-acceptance";
+      source_reference_id: string;
+      buyer_account_id: string;
+      order_ids: string[];
+      status: "pending" | "created";
+    }
+  >();
+
   return {
     query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      const sourceClaimKey = `${String(params?.[0] ?? "")}|${String(params?.[1] ?? "")}`;
+      if (sql.includes("INSERT INTO ordering_order_source_claims")) {
+        if (sourceClaims.has(sourceClaimKey)) {
+          return { rows: [], rowCount: 0 };
+        }
+        const claim = {
+          source_type: String(params?.[0]) as "cart-checkout" | "buy-now" | "offer-acceptance",
+          source_reference_id: String(params?.[1]),
+          buyer_account_id: String(params?.[2]),
+          order_ids: JSON.parse(String(params?.[3])) as string[],
+          status: "pending" as const,
+        };
+        sourceClaims.set(sourceClaimKey, claim);
+        return { rows: [claim], rowCount: 1 };
+      }
+
+      if (sql.includes("UPDATE ordering_order_source_claims")) {
+        const claim = sourceClaims.get(sourceClaimKey);
+        if (!claim || claim.buyer_account_id !== String(params?.[2]) || claim.status !== "pending") {
+          return { rows: [], rowCount: 0 };
+        }
+        sourceClaims.set(sourceClaimKey, {
+          ...claim,
+          order_ids: JSON.parse(String(params?.[3])) as string[],
+          status: "created",
+        });
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (sql.includes("DELETE FROM ordering_order_source_claims")) {
+        const claim = sourceClaims.get(sourceClaimKey);
+        if (claim?.buyer_account_id === String(params?.[2]) && claim.status === "pending") {
+          sourceClaims.delete(sourceClaimKey);
+          return { rows: [], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("FROM ordering_order_source_claims")) {
+        const claim = sourceClaims.get(sourceClaimKey);
+        return { rows: claim ? [claim] : [], rowCount: claim ? 1 : 0 };
+      }
+
       if (sql.includes("FROM ordering_order_pages")) {
         return { rows: [] };
       }

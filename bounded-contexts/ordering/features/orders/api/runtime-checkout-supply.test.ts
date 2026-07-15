@@ -10,6 +10,67 @@ import {
 } from "./runtime-test-harness";
 
 describe("ordering order runtime: checkout supply and grouping", () => {
+  it("returns the original order set when checkout creation is retried before projection catch-up", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = createSupplyDb(() => [
+      {
+        listingId: "lst_1",
+        sellerAccountId: "acc_seller",
+        inventoryItemId: "inv_1",
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        storageLocationName: "North shelf",
+        shipFromCode: "CHI",
+        priceAmount: "20.00",
+        availableQuantity: 1,
+        updatedAt: "2026-03-31T00:00:00.000Z",
+      },
+    ]);
+    const services = createOrderingOrderRuntimeForTest({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      shippingQuotePolicy: {
+        quote: () => ({
+          shippingOption: "standard",
+          baseAmount: "4.99",
+          discountAmount: "0.00",
+          chargeAmount: "4.99",
+        }),
+      },
+    });
+    const params = {
+      buyerAccountId: "acc_buyer" as never,
+      checkoutSessionId: "chk_retry_before_projection",
+      sourceType: "cart-checkout" as const,
+      shippingOption: "standard" as const,
+      shippingAddress,
+      lines: [
+        {
+          listingId: null,
+          cartLineId: "cli_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+    };
+
+    const first = await services.createOrdersFromCheckout(params, context);
+    const retried = await services.createOrdersFromCheckout(params, context);
+
+    expect(retried.orderIds).toEqual(first.orderIds);
+    expect(readAllEvents().filter((event) => event.eventType === "ordering.order.created")).toHaveLength(1);
+  });
+
   it("blocks checkout and previews unavailable lines when active supply is insufficient", async () => {
     const { eventStore } = createInMemoryEventStore();
     const carts = {
