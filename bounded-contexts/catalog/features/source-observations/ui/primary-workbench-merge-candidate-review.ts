@@ -242,8 +242,8 @@ function mergeCandidateActionsFor(
     candidate.status === "promoted" || candidate.status === "rejected"
       ? ["no-promotion-eligible-observations"]
       : manageBlockers;
-  const splitPreview = previewCatalogMergeCandidateReviewCommand(candidate, "split-merge-candidate");
-  const updatePreview = previewCatalogMergeCandidateReviewCommand(candidate, "update-merge-candidate");
+  const splitPreview = previewCatalogMergeCandidateReviewCommand(candidate, "candidate.split");
+  const updatePreview = previewCatalogMergeCandidateReviewCommand(candidate, "candidate.edit");
   const splitBlockers =
     splitPreview.status === "available"
       ? manageBlockers
@@ -254,41 +254,23 @@ function mergeCandidateActionsFor(
       : [...manageBlockers, ...commandPreviewBlockers(updatePreview.blockers)];
 
   return [
+    action("candidate.promote", actionStateForBlockers(promotionBlockers, manageState), promotionBlockers, true, null),
     action(
-      "promote-merge-candidate",
-      actionStateForBlockers(promotionBlockers, manageState),
-      promotionBlockers,
-      true,
-      null,
-    ),
-    action(
-      "split-merge-candidate",
+      "candidate.split",
       actionStateForBlockers(splitBlockers, manageState),
       splitBlockers,
       true,
       splitPreview.preview,
     ),
     action(
-      "update-merge-candidate",
+      "candidate.edit",
       actionStateForBlockers(updateBlockers, manageState),
       updateBlockers,
       true,
       updatePreview.preview,
     ),
-    action(
-      "ignore-merge-candidate",
-      actionStateForBlockers(terminalBlockers, manageState),
-      terminalBlockers,
-      true,
-      null,
-    ),
-    action(
-      "defer-merge-candidate",
-      actionStateForBlockers(terminalBlockers, manageState),
-      terminalBlockers,
-      true,
-      null,
-    ),
+    action("candidate.ignore", actionStateForBlockers(terminalBlockers, manageState), terminalBlockers, true, null),
+    action("candidate.defer", actionStateForBlockers(terminalBlockers, manageState), terminalBlockers, true, null),
   ];
 }
 

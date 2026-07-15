@@ -51,8 +51,8 @@ describe("CatalogMergeCandidateEditForm", () => {
     expect(container.querySelector('input[name="candidateEditBaseSnapshot"]')).toBeTruthy();
     expect(container.querySelector('input[name="candidateEditFact.name"]')).toBeTruthy();
     expect(container.querySelector('input[name="candidateEditCatalogItemId"]')).toBeTruthy();
-    // Editing submits the update-merge-candidate intent, preserving audit.
-    expect(container.querySelector('input[name="_intent"]')).toHaveProperty("value", "update-merge-candidate");
+    // Editing submits the candidate.edit intent, preserving audit.
+    expect(container.querySelector('input[name="_intent"]')).toHaveProperty("value", "candidate.edit");
     // A drop toggle exists for each proposed external reference.
     expect(container.querySelector('input[name="candidateEditDropCatalogRef.0"]')).toBeTruthy();
   });

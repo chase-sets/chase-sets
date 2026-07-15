@@ -152,7 +152,7 @@ export function sourceObservationReviewCompositionFor(input: {
       bulkSelection: {
         selectedCount: selectedObservationIds.length,
         eligibleSelectedCount: selectedRows.filter((row) => row.promotionReadiness.state === "eligible").length,
-        actions: ["preview-promotion", "reject-source-observations", "defer-source-observations"],
+        actions: ["observation.promote", "observation.reject", "observation.defer"],
       },
       rows,
     },
@@ -956,9 +956,9 @@ function rowActionsFor(
 
   return [
     { key: "view-source-observation", state: "available", blockers: [], href: input.detailHref },
-    { key: "preview-promotion", state: promotionState, blockers: promotionBlockers, href: input.detailHref },
+    { key: "observation.promote", state: promotionState, blockers: promotionBlockers, href: input.detailHref },
     {
-      key: "reject-source-observations",
+      key: "observation.reject",
       state: observation.status === "observed" || observation.status === "changed" ? manageState : "disabled",
       blockers:
         observation.status === "observed" || observation.status === "changed"
@@ -967,7 +967,7 @@ function rowActionsFor(
       href: input.detailHref,
     },
     {
-      key: "defer-source-observations",
+      key: "observation.defer",
       state: observation.status === "observed" || observation.status === "changed" ? manageState : "disabled",
       blockers:
         observation.status === "observed" || observation.status === "changed"
@@ -976,13 +976,13 @@ function rowActionsFor(
       href: input.detailHref,
     },
     {
-      key: "start-reapply",
+      key: "observation.reapply",
       state: observation.status === "promoted" ? manageState : "disabled",
       blockers: observation.status === "promoted" ? manageBlockers : ["no-promotion-eligible-observations"],
       href: input.detailHref,
     },
     {
-      key: "start-replay",
+      key: "observation.replay",
       state: replayState,
       blockers: replayBlockers,
       href: input.detailHref,

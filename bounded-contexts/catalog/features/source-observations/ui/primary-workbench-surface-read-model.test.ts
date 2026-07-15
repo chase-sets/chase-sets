@@ -38,15 +38,13 @@ function fullSurfaceInput(section: string) {
 // review/promotion slices); the lifecycle, clone, and activate action entries are
 // present in the array but never surfaced on the daily route.
 const dailyRenderedActionKeys = [
-  "select-provider-scope",
-  "start-provider-import",
-  "select-source-observations",
-  "preview-promotion",
-  "execute-promotion",
-  "reject-source-observations",
-  "defer-source-observations",
-  "start-reapply",
-  "start-replay",
+  "scope.sync",
+  "scope.import",
+  "observation.promote",
+  "observation.reject",
+  "observation.defer",
+  "observation.reapply",
+  "observation.replay",
 ] as const;
 
 describe("Catalog primary workbench read model - per-surface slicing", () => {

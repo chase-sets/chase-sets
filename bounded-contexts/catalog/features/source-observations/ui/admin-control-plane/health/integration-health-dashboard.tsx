@@ -510,7 +510,7 @@ function primaryActionLabel(action: CatalogPrimaryWorkbenchHealthTriageUnit["aff
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.primaryAction.pullProviderData");
     case "review-source-observations":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.primaryAction.reviewSourceObservations");
-    case "preview-promotion":
+    case "observation.promote":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.primaryAction.previewPromotion");
   }
 }

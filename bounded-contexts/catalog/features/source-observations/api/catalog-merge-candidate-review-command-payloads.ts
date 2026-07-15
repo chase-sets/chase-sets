@@ -8,7 +8,7 @@ import type {
 } from "../domain/catalog-merge-candidate";
 import type { CatalogMergeCandidateListRow } from "../read-model/queries";
 
-export type CatalogMergeCandidateReviewCommandKey = "split-merge-candidate" | "update-merge-candidate";
+export type CatalogMergeCandidateReviewCommandKey = "candidate.split" | "candidate.edit";
 
 export type CatalogMergeCandidateReviewCommandPreview =
   | CatalogMergeCandidateSplitCommandPreview
@@ -46,7 +46,7 @@ export type CatalogMergeCandidateReviewCommandProvenance = Readonly<{
 
 export type CatalogMergeCandidateUpdateProductMappingCommandPreview = Readonly<{
   commandKind: "update-catalog-merge-candidate-product-mapping";
-  commandKey: "update-merge-candidate";
+  commandKey: "candidate.edit";
   route: Readonly<{
     method: "POST";
     path: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/update";
@@ -66,7 +66,7 @@ export type CatalogMergeCandidateUpdateProductMappingCommandPreview = Readonly<{
 
 export type CatalogMergeCandidateSplitCommandPreview = Readonly<{
   commandKind: "split-catalog-merge-candidate-by-source-membership";
-  commandKey: "split-merge-candidate";
+  commandKey: "candidate.split";
   route: Readonly<{
     method: "POST";
     path: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/split";
@@ -104,7 +104,7 @@ export function previewCatalogMergeCandidateReviewCommand(
     return { status: "blocked", preview: null, blockers: ["missing-membership-provenance"] };
   }
 
-  if (commandKey === "update-merge-candidate") {
+  if (commandKey === "candidate.edit") {
     if (snapshot.proposedExternalProductReferences.length === 0) {
       return { status: "blocked", preview: null, blockers: ["update-requires-product-mapping"] };
     }
@@ -203,7 +203,7 @@ function previewSplitCommand(
     blockers: [],
     preview: {
       commandKind: "split-catalog-merge-candidate-by-source-membership",
-      commandKey: "split-merge-candidate",
+      commandKey: "candidate.split",
       route: {
         method: "POST",
         path: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/split",

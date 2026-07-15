@@ -36,7 +36,7 @@ describe("Catalog integration no-confusion UX acceptance gate", () => {
       "pull-provider-data",
       "monitor-import",
       "review-source-observations",
-      "preview-promotion",
+      "observation.promote",
       "promote-to-catalog-items",
       "verify-audit-release-evidence",
     ]);
@@ -72,7 +72,7 @@ describe("Catalog integration no-confusion UX acceptance gate", () => {
   it("fails closed when the primary workflow matrix loses a step or preserves a current-page artifact", () => {
     const missingWorkflow = {
       ...safePacket(),
-      workflows: safePacket().workflows.filter((workflow) => workflow.key !== "preview-promotion"),
+      workflows: safePacket().workflows.filter((workflow) => workflow.key !== "observation.promote"),
     } satisfies CatalogNoConfusionUxAcceptancePacket;
     expect(() => assertCatalogNoConfusionUxAcceptancePacketIsComplete(missingWorkflow)).toThrow(
       "Catalog no-confusion UX workflow matrix mismatch.",

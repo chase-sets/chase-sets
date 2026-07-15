@@ -154,7 +154,7 @@ describe("Catalog integrations route", () => {
     // The daily action stays put and returns its result as data; the route reads it
     // via useActionData and renders the same command-feedback banner in place.
     mockUseActionData.mockReturnValue({
-      feedback: { status: "success", intent: "start-provider-import", result: "job-queued" },
+      feedback: { status: "success", intent: "scope.import", result: "job-queued" },
       context: { section: "import-to-promotion" },
       section: "import-to-promotion",
     });
@@ -173,7 +173,7 @@ describe("Catalog integrations route", () => {
       actor: { permissions: ["catalog.view", "catalog.manage"] },
     });
     mockUseActionData.mockReturnValue({
-      feedback: { status: "error", intent: "start-catalog-sync", result: "catalog-sync-blocked" },
+      feedback: { status: "error", intent: "scope.sync", result: "catalog-sync-blocked" },
       context: { section: "import-to-promotion" },
       section: "import-to-promotion",
     });
@@ -194,7 +194,7 @@ describe("Catalog integrations route", () => {
       actor: { permissions: ["catalog.view", "catalog.manage"] },
     });
     mockUseActionData.mockReturnValue({
-      feedback: { status: "success", intent: "preview-promotion", result: "preview-ready" },
+      feedback: { status: "success", intent: "observation.promote", result: "preview-ready" },
       context: parseCatalogPrimaryWorkbenchRouteContext(
         `${requestUrl}&selectedObservationIds=obs_001&promotionPreviewId=preview_001`,
       ),
@@ -272,7 +272,7 @@ describe("Catalog integrations route", () => {
     expect(readModel.importJobs.activeJobCount).toBe(2);
     expect(readModel.importJobs.selectedScope?.readiness.blockers).toContain("active-job-conflict");
     expect(readModel.importJobs.selectedScope?.readiness.blockers).toContain("concurrent-job");
-    expect(readModel.actions.find((actionEntry) => actionEntry.key === "start-provider-import")?.state).toBe("blocked");
+    expect(readModel.actions.find((actionEntry) => actionEntry.key === "scope.import")?.state).toBe("blocked");
     expect(readModel.importJobs.jobs[0]?.sourceObservationReviewHref).toContain("jobId=job_selected_scope");
     expect(readModel.importJobs.jobs[0]?.sourceObservationReviewHref).toContain("importScope=en%3A3%3Abase%3Abase1");
   });
@@ -415,7 +415,7 @@ describe("Catalog integrations route", () => {
 
     expect(mockResolveActorFromAuthApi).toHaveBeenCalledTimes(2);
     expect(
-      routeData.readModel.actions.find((actionEntry) => actionEntry.key === "start-provider-import")?.blockers,
+      routeData.readModel.actions.find((actionEntry) => actionEntry.key === "scope.import")?.blockers,
     ).not.toContain("permission-denied");
   });
 });

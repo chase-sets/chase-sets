@@ -8,7 +8,7 @@ import type {
   CatalogSyncScope,
   CatalogSyncScopeReferenceKind,
 } from "../../../features/source-observations/api/catalog-sync-scope-planner";
-import type { CatalogPrimaryWorkbenchActionReadModel } from "../../../features/source-observations/api/primary-workbench-admin-contracts";
+import type { CatalogControlPlaneActionId } from "../../../features/source-observations/ui/admin-control-plane/information-architecture-v2";
 import type { SourceObservationIntegrationJobScope } from "../../../features/source-observations/ui/contracts";
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
@@ -22,25 +22,11 @@ import {
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import { stringValue } from "./integrations-form-values";
 
-export type CatalogPrimaryWorkbenchFormIntent = Extract<
-  CatalogPrimaryWorkbenchActionReadModel["key"],
-  | "start-provider-import"
-  | "start-catalog-sync"
-  | "retry-import-job"
-  | "resume-import-job"
-  | "cancel-import-job"
-  | "clone-provider-profile"
-  | "activate-provider-profile"
-  | "rollback-provider-profile"
-  | "deprecate-provider-profile"
-  | "retire-provider-profile"
-  | "update-provider-profile-section"
-  | "preview-promotion"
-  | "execute-promotion"
-  | "reject-source-observations"
-  | "defer-source-observations"
-  | "start-reapply"
-  | "start-replay"
+export type CatalogPrimaryWorkbenchFormIntent = CatalogControlPlaneActionId;
+
+type ProviderProfileLifecycleIntent = Extract<
+  CatalogPrimaryWorkbenchFormIntent,
+  "provider-profile.rollback" | "provider-profile.deprecate" | "provider-profile.retire"
 >;
 
 export type CatalogCommandJobResponse = Readonly<{
@@ -216,20 +202,17 @@ export async function previewPromotionForContext(
 
 export async function runProviderProfileLifecycleCommand(
   api: ReturnType<typeof createCatalogRequestApiClient>,
-  intent: Extract<
-    CatalogPrimaryWorkbenchFormIntent,
-    "rollback-provider-profile" | "deprecate-provider-profile" | "retire-provider-profile"
-  >,
+  intent: ProviderProfileLifecycleIntent,
   providerKey: string,
   profileVersion: string,
 ): Promise<CatalogProviderProfileVersionReview> {
-  if (intent === "rollback-provider-profile") {
+  if (intent === "provider-profile.rollback") {
     return api.rollbackSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
       providerKey,
       profileVersion,
     );
   }
-  if (intent === "deprecate-provider-profile") {
+  if (intent === "provider-profile.deprecate") {
     return api.deprecateSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
       providerKey,
       profileVersion,
@@ -241,10 +224,7 @@ export async function runProviderProfileLifecycleCommand(
 
 export function lifecycleConfirmationAccepted(
   formData: FormData,
-  intent: Extract<
-    CatalogPrimaryWorkbenchFormIntent,
-    "rollback-provider-profile" | "deprecate-provider-profile" | "retire-provider-profile"
-  >,
+  intent: ProviderProfileLifecycleIntent,
   providerKey: string,
   profileVersion: string,
 ): boolean {
@@ -255,10 +235,7 @@ export function lifecycleConfirmationAccepted(
 }
 
 function lifecycleConfirmationValue(
-  intent: Extract<
-    CatalogPrimaryWorkbenchFormIntent,
-    "rollback-provider-profile" | "deprecate-provider-profile" | "retire-provider-profile"
-  >,
+  intent: ProviderProfileLifecycleIntent,
   providerKey: string,
   profileVersion: string,
 ): string {
@@ -266,18 +243,15 @@ function lifecycleConfirmationValue(
 }
 
 export function lifecycleSuccessResult(
-  intent: Extract<
-    CatalogPrimaryWorkbenchFormIntent,
-    "rollback-provider-profile" | "deprecate-provider-profile" | "retire-provider-profile"
-  >,
+  intent: ProviderProfileLifecycleIntent,
 ): Extract<
   CatalogPrimaryWorkbenchCommandFeedback["result"],
   "profile-rolled-back" | "profile-deprecated" | "profile-retired"
 > {
-  if (intent === "rollback-provider-profile") {
+  if (intent === "provider-profile.rollback") {
     return "profile-rolled-back";
   }
-  if (intent === "deprecate-provider-profile") {
+  if (intent === "provider-profile.deprecate") {
     return "profile-deprecated";
   }
 

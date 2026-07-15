@@ -132,9 +132,7 @@ describe("Catalog integrations route", () => {
     expect(routeData).not.toHaveProperty("profileReviews");
     expect(routeData.readModel.readiness.rbacAllowed).toBe(false);
     expect(routeData.readModel.readiness.blockers).toContain("permission-denied");
-    expect(
-      routeData.readModel.actions.find((actionEntry) => actionEntry.key === "start-provider-import"),
-    ).toMatchObject({
+    expect(routeData.readModel.actions.find((actionEntry) => actionEntry.key === "scope.import")).toMatchObject({
       state: "blocked",
       blockers: expect.arrayContaining(["permission-denied"]),
     });
@@ -260,7 +258,7 @@ describe("Catalog integrations route", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
     const syncResult = await runDailyAction(
       {
-        _intent: "start-provider-import",
+        _intent: "scope.import",
         providerKey: "tcgdex",
         unitKey: "tcgdex:pokemon:single-card:source-observation-import",
         languageCode: "ja",
@@ -289,7 +287,7 @@ describe("Catalog integrations route", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
     const previewResponse = await runDailyActionRedirect(
       {
-        _intent: "preview-promotion",
+        _intent: "observation.promote",
         providerKey: "tcgdex",
         unitKey: "tcgdex:pokemon:single-card:source-observation-import",
         languageCode: "ja",
@@ -322,7 +320,7 @@ describe("Catalog integrations route", () => {
     });
     const promoteResult = await runDailyAction(
       {
-        _intent: "execute-promotion",
+        _intent: "observation.promote",
         providerKey: "tcgdex",
         unitKey: "tcgdex:pokemon:single-card:source-observation-import",
         languageCode: "ja",

@@ -139,11 +139,7 @@ export function commandTelemetryEvents(
   const events: CatalogControlPlaneTelemetryEventInput[] = [];
   const promotionResult = promotionTelemetryResult(input.result);
 
-  if (
-    input.intent === "start-provider-import" ||
-    input.intent === "retry-import-job" ||
-    input.intent === "resume-import-job"
-  ) {
+  if (input.intent === "scope.import" || input.intent === "job.retry" || input.intent === "job.resume") {
     events.push({
       eventName:
         input.status === "success" ? "catalog_control_plane.import_started" : "catalog_control_plane.import_failed",
@@ -154,7 +150,7 @@ export function commandTelemetryEvents(
     });
   }
 
-  if (input.intent === "preview-promotion" && input.status === "success") {
+  if (input.intent === "observation.promote" && input.status === "success" && input.result === "preview-ready") {
     events.push({
       eventName: "catalog_control_plane.promotion_preview_opened",
       ...base,
@@ -163,7 +159,7 @@ export function commandTelemetryEvents(
     });
   }
 
-  if (input.intent === "clone-provider-profile" && input.status === "success") {
+  if (input.intent === "provider-profile.clone" && input.status === "success") {
     events.push({
       eventName: "catalog_control_plane.profile_draft_created",
       ...base,
@@ -173,7 +169,7 @@ export function commandTelemetryEvents(
     });
   }
 
-  if (input.intent === "activate-provider-profile") {
+  if (input.intent === "provider-profile.activate") {
     events.push({
       eventName:
         input.status === "success" ? "catalog_control_plane.profile_activated" : "catalog_control_plane.blocker_hit",
@@ -186,9 +182,9 @@ export function commandTelemetryEvents(
   }
 
   if (
-    input.intent === "rollback-provider-profile" ||
-    input.intent === "deprecate-provider-profile" ||
-    input.intent === "retire-provider-profile"
+    input.intent === "provider-profile.rollback" ||
+    input.intent === "provider-profile.deprecate" ||
+    input.intent === "provider-profile.retire"
   ) {
     events.push({
       eventName:
@@ -201,7 +197,7 @@ export function commandTelemetryEvents(
     });
   }
 
-  if (input.intent === "update-provider-profile-section") {
+  if (input.intent === "provider-profile.edit-section") {
     const detourTarget =
       input.commandSection === "migration-evidence" && input.context.section === "validation-readiness"
         ? "validation-readiness"
@@ -220,7 +216,7 @@ export function commandTelemetryEvents(
     });
   }
 
-  if (input.intent === "execute-promotion" && input.status === "error") {
+  if (input.intent === "observation.promote" && input.status === "error") {
     events.push({
       eventName: "catalog_control_plane.blocker_hit",
       ...base,
@@ -229,7 +225,7 @@ export function commandTelemetryEvents(
     });
   }
 
-  if (input.intent === "reject-source-observations") {
+  if (input.intent === "observation.reject") {
     events.push({
       eventName: "catalog_control_plane.observation_rejected",
       ...base,
@@ -240,7 +236,7 @@ export function commandTelemetryEvents(
     });
   }
 
-  if (input.intent === "defer-source-observations") {
+  if (input.intent === "observation.defer") {
     events.push({
       eventName: "catalog_control_plane.observation_deferred",
       ...base,
@@ -251,7 +247,7 @@ export function commandTelemetryEvents(
     });
   }
 
-  if (input.intent === "start-reapply" || input.intent === "start-replay") {
+  if (input.intent === "observation.reapply" || input.intent === "observation.replay") {
     events.push({
       eventName: "catalog_control_plane.reapply_replay_started",
       ...base,
@@ -264,13 +260,13 @@ export function commandTelemetryEvents(
 
   if (
     input.status === "error" &&
-    input.intent !== "execute-promotion" &&
-    input.intent !== "start-provider-import" &&
-    input.intent !== "retry-import-job" &&
-    input.intent !== "resume-import-job" &&
-    input.intent !== "rollback-provider-profile" &&
-    input.intent !== "deprecate-provider-profile" &&
-    input.intent !== "retire-provider-profile"
+    input.intent !== "observation.promote" &&
+    input.intent !== "scope.import" &&
+    input.intent !== "job.retry" &&
+    input.intent !== "job.resume" &&
+    input.intent !== "provider-profile.rollback" &&
+    input.intent !== "provider-profile.deprecate" &&
+    input.intent !== "provider-profile.retire"
   ) {
     events.push({
       eventName: "catalog_control_plane.blocker_hit",
@@ -455,10 +451,10 @@ function lifecycleTelemetryEventName(
   | "catalog_control_plane.profile_deprecated"
   | "catalog_control_plane.profile_retired"
 > {
-  if (intent === "rollback-provider-profile") {
+  if (intent === "provider-profile.rollback") {
     return "catalog_control_plane.profile_rolled_back";
   }
-  if (intent === "deprecate-provider-profile") {
+  if (intent === "provider-profile.deprecate") {
     return "catalog_control_plane.profile_deprecated";
   }
 
