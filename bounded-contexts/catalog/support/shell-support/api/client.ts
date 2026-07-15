@@ -40,17 +40,6 @@ export interface CatalogApiClientOptions {
   credentials?: RequestCredentials;
 }
 
-export type CatalogImportProgress = Readonly<{
-  phase: string;
-  completed: number;
-  total: number;
-  currentName: string | null;
-}>;
-
-export type CatalogImportProgressOptions = Readonly<{
-  onProgress?: (progress: CatalogImportProgress) => void;
-}>;
-
 export type CatalogBulkActionProgress = Readonly<{
   phase: string;
   completed: number;
@@ -148,16 +137,6 @@ type CatalogSourceObservationIntegrationJobResult = Readonly<{
   failed: number;
   outcomes: readonly CatalogIntegrationJobOutcome[];
 }>;
-
-type CatalogTcgdexSetImportResult = Readonly<{
-  setId: string;
-  expansionId: string;
-  languageCode: string;
-  observed: number;
-  observationIds: readonly string[];
-}>;
-
-type CatalogIntegrationJobScopeInput = Readonly<Record<string, string | undefined>>;
 
 function queryFromString(query: string) {
   return Object.fromEntries(new URLSearchParams(query).entries());
@@ -1459,26 +1438,6 @@ export function createCatalogApiClient({
         body,
       });
     },
-    async importTcgdexSet<T>(body: unknown, options: CatalogImportProgressOptions = {}): Promise<T> {
-      const scope = tcgdexImportScope(body);
-      const job = await startIntegrationJob<CatalogSourceObservationIntegrationJobResult>({
-        baseUrl,
-        fetch: configuredFetch,
-        headers,
-        action: "import",
-        scope,
-      });
-      const result = await streamIntegrationJob<CatalogSourceObservationIntegrationJobResult>({
-        baseUrl,
-        fetch: configuredFetch,
-        headers,
-        jobId: job.jobId,
-        onProgress: options.onProgress ?? (() => {}),
-        errorMessage: "TCGdex import failed.",
-      });
-
-      return integrationImportResultToTcgdexSetResult(scope, result) as T;
-    },
     async bulkPromoteSourceObservations<T>(
       observationIds: string[],
       options: CatalogBulkActionProgressOptions = {},
@@ -2512,34 +2471,6 @@ async function readJobEventStream<
   }
 }
 
-function tcgdexImportScope(body: unknown): CatalogIntegrationJobScopeInput {
-  const record = isRecord(body) ? body : {};
-  return {
-    provider: "tcgdex",
-    language: String(record.languageCode ?? record.language ?? "en"),
-    setId: String(record.expansionId ?? record.setId ?? ""),
-  };
-}
-
-function integrationImportResultToTcgdexSetResult(
-  scope: CatalogIntegrationJobScopeInput,
-  result: CatalogSourceObservationIntegrationJobResult,
-): CatalogTcgdexSetImportResult {
-  const matchingOutcome =
-    result.outcomes.find((outcome) => outcome.expansionId === scope.setId && outcome.languageCode === scope.language) ??
-    result.outcomes[0];
-  const expansionId = matchingOutcome?.expansionId ?? scope.setId ?? "";
-  const languageCode = matchingOutcome?.languageCode || scope.language || "en";
-
-  return {
-    setId: expansionId,
-    expansionId,
-    languageCode,
-    observed: matchingOutcome?.observed ?? result.observed,
-    observationIds: [],
-  };
-}
-
 function waitForJobReconnect(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) {
     return Promise.resolve();
@@ -2571,10 +2502,6 @@ async function scopeSyncBatchRequest<T>(
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   return parseJsonResponse<T>(response);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function headersToRecord(headers?: HeadersInit): Record<string, string> {

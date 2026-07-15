@@ -109,14 +109,6 @@ export interface SourceObservationIntegrationScope {
   latest_source_updated_at: string | null;
 }
 
-export interface TcgdexSetImportResult {
-  setId: string;
-  expansionId: string;
-  languageCode: string;
-  observed: number;
-  observationIds: string[];
-}
-
 export interface TcgdexLanguageOption {
   languageCode: string;
 }

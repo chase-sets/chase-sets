@@ -114,14 +114,6 @@ type PokemonCardVariant = Readonly<{
   parallelSet: boolean;
 }>;
 
-export type TcgdexSetImportResult = Readonly<{
-  setId: string;
-  expansionId: string;
-  languageCode: string;
-  observed: number;
-  observationIds: readonly string[];
-}>;
-
 export type TcgdexSetImportProgress = Readonly<{
   phase: "fetching" | "recording" | "completed";
   completed: number;

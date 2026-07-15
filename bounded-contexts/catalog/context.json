@@ -802,7 +802,7 @@
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/cancel",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/resume",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/units/:scopeRecordId/retry",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5b9ce2c17140#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H9cad61d25b54#1",
         "route-action:bounded-contexts/catalog/support/route-support/admin-scope-sync-batches/scope-sync-batches-route.ts"
       ],
       "visibleDestination": {
