@@ -502,6 +502,9 @@ export type SupportResponseReminderEmittedEvent = DomainEvent<
     remindedAt: string;
     actingRole: SupportRequesterRole;
     dueAt: string;
+    deadlineOutcome:
+      | Readonly<{ type: "automatic-resolution"; resolutionType: SupportResolutionType }>
+      | Readonly<{ type: "support-review" }>;
   }>
 >;
 
@@ -1732,12 +1735,14 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
     }
     case "EmitSupportResponseReminder": {
       assert(state.supportRequestId !== null, "Support request must be opened first.");
+      assert(state.flowType !== null, "Support response reminder requires a support flow.");
       assert(
         state.status === "waiting-on-seller",
         "Support response reminders only apply while waiting on the seller.",
       );
       assert(state.sellerResponseDueAt !== null, "Support response reminder requires a response deadline.");
       assert(state.sellerResponseReminderSentAt === null, "Support response reminder has already been emitted.");
+      const definition = getSupportFlowDefinition(state.flowType);
       return [
         {
           type: "support.support-request.response-reminder-emitted",
@@ -1746,6 +1751,9 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
             remindedAt: normalizeIsoTimestamp(command.remindedAt, "Support response reminder must record a timestamp."),
             actingRole: "seller",
             dueAt: state.sellerResponseDueAt,
+            deadlineOutcome: definition.autoResolvesOnSellerSilence
+              ? { type: "automatic-resolution", resolutionType: definition.defaultResolution }
+              : { type: "support-review" },
           },
         },
       ];
