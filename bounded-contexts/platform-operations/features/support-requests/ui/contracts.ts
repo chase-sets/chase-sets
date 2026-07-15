@@ -47,7 +47,14 @@ export type SupportRequestEscalationSnapshot = Readonly<{
   total: number;
 }>;
 
-export type SupportOperationsQueueFilters = Readonly<{ status: string; priority: string; search: string }>;
+export type SupportOperationsQueueFilters = Readonly<{
+  status: string;
+  priority: string;
+  search: string;
+  flowType: string;
+  contested: boolean;
+  overdue: boolean;
+}>;
 
 export type PlatformRemedyProposalPreview = Readonly<{
   customerOutcome: string;
