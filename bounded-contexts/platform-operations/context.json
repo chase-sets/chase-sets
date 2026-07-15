@@ -149,6 +149,8 @@
         "fulfillment.shipment.delivered",
         "fulfillment.shipment.returned",
         "fulfillment.shipment.exception-raised",
+        "fulfillment.return-shipment.carrier-accepted.v1",
+        "fulfillment.return-shipment.delivered.v1",
         "fulfillment.return-shipment.facility-intake-completed.v1"
       ],
       "order": 80,

@@ -46,6 +46,8 @@ import {
 } from "../read-model/queries";
 import { createReturnShipmentLabelPurchaseService, type ReturnShipmentLabelPurchaseService } from "./label-purchase";
 import { loadReturnShipmentLinkageSource } from "../read-model/linkage";
+import { processReturnShipmentTrackingEvent, type ReturnShipmentTrackingIngestionResult } from "./tracking-ingestion";
+import type { PostageProviderWebhookEvent } from "@chase-sets/postage-labels";
 
 export const FULFILLMENT_RETURN_SHIPMENT_PROJECTION = "fulfillment-return-shipment-projection";
 
@@ -110,6 +112,15 @@ export type FulfillmentReturnShipmentServices = Readonly<{
   ) => ReturnType<typeof storeReturnIntakeEvidence>;
   getEvidence: (storageKey: string) => Promise<Awaited<ReturnType<ReturnIntakeEvidenceStorage["getObject"]>>>;
   verifyEvidence: (facilityId: string, attachments: readonly ReturnIntakeEvidenceAttachment[]) => Promise<void>;
+  /**
+   * Ingests one normalized carrier tracking event for a reverse shipment. Backs
+   * both live provider webhooks (routed here when no outbound shipment matches) and
+   * the scheduled reconciliation/poll path; both are exact-once by construction.
+   */
+  processTrackingEvent: (
+    event: PostageProviderWebhookEvent,
+    context: EventStoreContext,
+  ) => Promise<ReturnShipmentTrackingIngestionResult>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -134,8 +145,9 @@ function createUnconfiguredReturnPostageLabelProvider(): PostageLabelProvider {
  * Composition root for the ReturnShipment slice. Provides the aggregate command
  * handler, the return-label purchase/void workflow, the read-model query surface,
  * and the projection handler set that the fulfillment module registers. Carrier
- * webhook ingestion and refund release remain out of scope here; sibling slices
- * build on this foundation.
+ * tracking ingestion is provided via `processTrackingEvent`; policy-driven refund
+ * release is owned by Platform Operations, which correlates the milestone facts
+ * this slice publishes to the authorized refund trigger.
  */
 export function createFulfillmentReturnShipmentRuntime(
   deps: ReturnShipmentRuntimeDeps,
@@ -215,6 +227,12 @@ export function createFulfillmentReturnShipmentRuntime(
     getEvidence: async (storageKey) => deps.evidenceStorage?.getObject(storageKey) ?? null,
     verifyEvidence: (facilityId, attachments) =>
       verifyStoredReturnIntakeEvidence({ facilityId, attachments, storage: deps.evidenceStorage }),
+    processTrackingEvent: (event, context) =>
+      processReturnShipmentTrackingEvent(
+        { db: deps.db, commandHandler, streamIdFor: returnShipmentStreamId },
+        event,
+        context,
+      ),
     projectors: [
       createProjectionHandlerSet({
         projectionName: FULFILLMENT_RETURN_SHIPMENT_PROJECTION,

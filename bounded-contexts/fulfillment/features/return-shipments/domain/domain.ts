@@ -389,6 +389,8 @@ export type ReturnShipmentCarrierAcceptedEvent = DomainEvent<
   "fulfillment.return-shipment.carrier-accepted.v1",
   Readonly<{
     returnShipmentId: ReturnShipmentId;
+    remedyId: RemedyId;
+    supportRequestId: SupportRequestId;
     detail: string | null;
     metadata: ReturnShipmentFactMetadata;
     occurredAt: string;
@@ -409,6 +411,8 @@ export type ReturnShipmentDeliveredEvent = DomainEvent<
   "fulfillment.return-shipment.delivered.v1",
   Readonly<{
     returnShipmentId: ReturnShipmentId;
+    remedyId: RemedyId;
+    supportRequestId: SupportRequestId;
     detail: string | null;
     metadata: ReturnShipmentFactMetadata;
     deliveredAt: string;
@@ -742,6 +746,8 @@ export const decideReturnShipment: AggregateDecider<ReturnShipmentState, ReturnS
           type: "fulfillment.return-shipment.carrier-accepted.v1",
           data: {
             returnShipmentId: state.returnShipmentId!,
+            remedyId: state.remedyId!,
+            supportRequestId: state.supportRequestId!,
             detail: normalizeOptionalText(command.detail),
             metadata,
             occurredAt: ensureIsoTimestamp(command.occurredAt, "Carrier acceptance must record a timestamp."),
@@ -778,6 +784,8 @@ export const decideReturnShipment: AggregateDecider<ReturnShipmentState, ReturnS
           type: "fulfillment.return-shipment.delivered.v1",
           data: {
             returnShipmentId: state.returnShipmentId!,
+            remedyId: state.remedyId!,
+            supportRequestId: state.supportRequestId!,
             detail: normalizeOptionalText(command.detail),
             metadata,
             deliveredAt: ensureIsoTimestamp(command.occurredAt, "Delivery must record a timestamp."),

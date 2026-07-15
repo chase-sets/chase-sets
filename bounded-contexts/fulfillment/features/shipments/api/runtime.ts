@@ -71,6 +71,17 @@ type ShipmentRuntimeDeps = Readonly<{
   postageLabelProvider?: PostageLabelProvider;
   postageWebhookGateway?: PostageProviderWebhookGateway;
   notificationOutbox?: NotificationOutbox;
+  /**
+   * Optional sink for tracking webhooks that do not match any outbound shipment.
+   * Reverse-shipment labels ride the same postage provider, so their carrier scans
+   * arrive on the shared webhook endpoint; unmatched-outbound tracking events are
+   * offered here so the ReturnShipment slice can ingest them. Kept as a narrow
+   * callback so this slice takes no dependency on the return-shipments module.
+   */
+  returnTrackingFallback?: (
+    event: PostageProviderWebhookEvent,
+    context: EventStoreContext,
+  ) => Promise<{ returnShipmentId: string | null; processingResult: string }>;
 }>;
 
 type ShipmentForPostageProviderEvent = Readonly<{
@@ -997,8 +1008,15 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       }
 
       let processingResult = "recorded";
+      let returnShipmentId: string | null = null;
       if (!shipment) {
-        processingResult = "unmatched";
+        if (event.eventKind === "tracking-status" && deps.returnTrackingFallback) {
+          const fallback = await deps.returnTrackingFallback(event, context);
+          returnShipmentId = fallback.returnShipmentId;
+          processingResult = `return:${fallback.processingResult}`;
+        } else {
+          processingResult = "unmatched";
+        }
       } else if (event.eventKind === "tracking-status") {
         processingResult = await applyPostageProviderTrackingEvent(commandHandler, event, shipment, context);
       } else if (event.eventKind === "refund-status") {
@@ -1011,7 +1029,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         status: "recorded",
         providerEventId: event.providerEventId,
         eventKind: event.eventKind,
-        shipmentId: shipment?.shipment_id ?? null,
+        shipmentId: shipment?.shipment_id ?? returnShipmentId,
         processingResult,
       };
     },
