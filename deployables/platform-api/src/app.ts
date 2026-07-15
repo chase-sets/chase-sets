@@ -35,7 +35,11 @@ import type { SavedListProductCatalog } from "@chase-sets/collections/server";
 import { pricingRealtimeManifest } from "@chase-sets/pricing/server";
 import { module as identityModule } from "@chase-sets/identity";
 import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
-import type { InventoryDraftListingCreator, InventorySavedListImportBatchCreator } from "@chase-sets/inventory/server";
+import {
+  createImportResolutionAttentionSourceFromReadModel,
+  type InventoryDraftListingCreator,
+  type InventorySavedListImportBatchCreator,
+} from "@chase-sets/inventory/server";
 import {
   createOrderingUcpHandlers,
   lookupOrderBySupportId,
@@ -43,6 +47,7 @@ import {
   type OrderingSupportLookupRow,
 } from "@chase-sets/ordering/server";
 import {
+  createShipByAttentionSourceFromReadModel,
   lookupShipmentBySupportId,
   lookupShipmentBySupportReference,
   type FulfillmentSupportLookupRow,
@@ -82,6 +87,7 @@ import {
   marketStatHygienePolicy,
 } from "@chase-sets/pricing/server";
 import {
+  createBlockedPayoutAttentionSourceFromReadModel,
   createSettlementBalanceCreditResolver,
   getProtectionReserveSummary,
   lookupPayoutBySupportId,
@@ -205,12 +211,18 @@ export function createPlatformApiHost(
   const settlementPool = getPlatformApiPool(options.pools.settlement);
   const platformOperationsPool = getPlatformApiPool(options.pools["platform-operations"]);
   const marketplacePool = getPlatformApiPool(options.pools.marketplace);
+  const inventoryPool = getPlatformApiPool(options.pools.inventory);
   const checkoutPool = getPlatformApiPool(options.pools.checkout);
   const catalogPool = getPlatformApiPool(options.pools.catalog);
   const orderingPool = getPlatformApiPool(options.pools.ordering);
   const fulfillmentPool = getPlatformApiPool(options.pools.fulfillment);
   const pricingPool = getPlatformApiPool(options.pools.pricing);
   const publicPresencePool = getPlatformApiPool(options.pools["public-presence"]);
+  const sellerAttentionSources = [
+    ...(fulfillmentPool ? [createShipByAttentionSourceFromReadModel(fulfillmentPool)] : []),
+    ...(inventoryPool ? [createImportResolutionAttentionSourceFromReadModel(inventoryPool)] : []),
+    ...(settlementPool ? [createBlockedPayoutAttentionSourceFromReadModel(settlementPool)] : []),
+  ];
   const opsMarketAnalyticsCrossContext: OpsMarketAnalyticsCrossContextPort | undefined = pricingPool
     ? {
         getPlatformGmvSeries: (params) => getPlatformGmvSeries(pricingPool, params),
@@ -482,6 +494,7 @@ export function createPlatformApiHost(
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
       ...(offerEconomicsCrossContext ? { offerEconomicsCrossContext } : {}),
+      sellerAttentionSources,
       publicPolicySources,
       draftListingCreator,
       inventorySavedListImportBatchCreator,

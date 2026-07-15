@@ -10,6 +10,7 @@ import {
   type SellerAttentionItem,
   type SellerAttentionSource,
 } from "@chase-sets/seller-attention-queue";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 // The projected fields the source reads from the listing read model. Only
 // listings the seller can act on — gone unavailable, missing evidence, or with
@@ -50,4 +51,31 @@ export function createListingActionAttentionSource(
     id: "listing-action",
     load: async (context) => toListingActionAttentionItems(await dependencies.loadListingActionRows(context)),
   };
+}
+
+export function createListingActionAttentionSourceFromReadModel(db: PgQueryable): SellerAttentionSource {
+  return createListingActionAttentionSource({
+    loadListingActionRows: async (context) => {
+      const result = await db.query<{
+        listing_id: string;
+        item_title: string | null;
+        status: string;
+        updated_at: string;
+      }>(
+        `SELECT listing_id, item_title, status, updated_at
+         FROM marketplace_listing_pages
+         WHERE account_id = $1
+           AND status IN ('draft', 'paused')
+         ORDER BY updated_at ASC, listing_id ASC`,
+        [context.accountId],
+      );
+
+      return result.rows.map((row) => ({
+        listingId: row.listing_id,
+        reference: row.item_title ?? row.listing_id,
+        action: row.status,
+        observedAt: row.updated_at,
+      }));
+    },
+  });
 }

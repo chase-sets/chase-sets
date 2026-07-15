@@ -351,7 +351,32 @@ function mcpServicesVisibleToActor(
   services: readonly McpServiceDescriptor[],
   actor: ResolvedActor | null | undefined,
 ): readonly McpServiceDescriptor[] {
-  return actor ? services : publicAvailableMcpServices(services);
+  if (!actor) {
+    return publicAvailableMcpServices(services);
+  }
+  if (!actor.agentGrant) {
+    return services;
+  }
+
+  const grantedScopes = new Set(actor.agentGrant.scopes);
+  const visible = services
+    .map((serviceDescriptor) => ({
+      ...serviceDescriptor,
+      tools: serviceDescriptor.tools.filter(
+        (tool) =>
+          tool.permissionBoundary.requiredPermissions.every((permission) => actor.permissions.includes(permission)) &&
+          (tool.permissionBoundary.requiredScopes ?? []).every((scope) => grantedScopes.has(scope)),
+      ),
+      resources: serviceDescriptor.resources.filter(
+        (resource) =>
+          resource.permissionBoundary.requiredPermissions.every((permission) =>
+            actor.permissions.includes(permission),
+          ) && (resource.permissionBoundary.requiredScopes ?? []).every((scope) => grantedScopes.has(scope)),
+      ),
+    }))
+    .filter((serviceDescriptor) => serviceDescriptor.tools.length > 0 || serviceDescriptor.resources.length > 0);
+
+  return visible;
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

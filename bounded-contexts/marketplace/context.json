@@ -14,7 +14,7 @@
   ],
   "streamPrefix": "marketplace.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["listing-evidence-policy", "listings", "offers", "reports", "reviews", "seller-metrics"],
+  "slices": ["listing-evidence-policy", "listings", "offers", "reports", "reviews", "seller-desk", "seller-metrics"],
   "allowedSupportDirectories": [
     "request-support",
     "realtime-support",
@@ -430,6 +430,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "sellerAttentionSources",
+      "providedBy": "platform-api",
+      "purpose": "Compose Seller Desk attention sources published by Inventory, Fulfillment, and Settlement without querying their storage from Marketplace."
+    },
+    {
       "portName": "commercialTermsResolver",
       "providedBy": "commercial-terms",
       "purpose": "Resolve account listing terms without making Marketplace own commercial terms policy."
@@ -592,6 +597,10 @@
   ],
   "mcpCapabilities": {
     "tools": [
+      {
+        "name": "marketplace.get-seller-attention-queue",
+        "ownerSlice": "seller-desk"
+      },
       {
         "name": "marketplace.create-listing",
         "ownerSlice": "listings"
@@ -1748,6 +1757,11 @@
       "classification": "slice",
       "purpose": "Own post-transaction review behavior, review-summary read models, review eligibility, and UI contracts for the marketplace context.",
       "expectedConsumers": ["Internal marketplace module composition", "Discovery public-account presentation"]
+    },
+    "seller-desk": {
+      "classification": "slice",
+      "purpose": "Own the Marketplace seller-desk attention queue composition and its transport adapters while source contexts retain their read queries.",
+      "expectedConsumers": ["Seller Desk web surfaces", "Native MCP clients"]
     },
     "seller-metrics": {
       "classification": "slice",

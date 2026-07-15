@@ -7,6 +7,16 @@ import {
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
 import type { PostageAddress, PostagePackage } from "@chase-sets/postage-labels";
+import type { EventStoreContext } from "@chase-sets/event-core";
+import type { PostageLabelStatus, ShipmentStatus } from "../domain/common";
+import {
+  assertShipmentActionAllowed,
+  executeShipmentAction,
+  resolveShipmentActionPlan,
+  SHIPMENT_ACTION_RULES,
+  type ShipmentActionName,
+  type ShipmentLifecycleDispatcher,
+} from "../domain/shipment-action";
 import type { FulfillmentShipmentServices } from "./runtime";
 
 export type FulfillmentShipmentMcpHandlers = Readonly<{
@@ -158,6 +168,108 @@ function shipmentReceipt(
   };
 }
 
+type SellerShipmentActionInput = Readonly<{
+  action: ShipmentActionName | "advance";
+  shipmentId: string;
+  sellerAccountId: string;
+  packageCount?: number;
+  serviceLevel?: string;
+  sender?: PostageAddress | null;
+  recipient?: PostageAddress | null;
+  overrideReason?: string | null;
+  package?: PostagePackage | null;
+  exceptionType?: string;
+  notes?: string | null;
+}>;
+
+type SellerShipmentActionResult = Readonly<{
+  action: ShipmentActionName;
+  shipmentId: string;
+  version: number;
+  status: ShipmentStatus;
+  trackingIdentifier?: string;
+}>;
+
+async function runSellerShipmentAction(
+  services: FulfillmentShipmentServices,
+  input: SellerShipmentActionInput,
+  context: EventStoreContext,
+): Promise<SellerShipmentActionResult> {
+  const shipment = await services.getSellerShipment(input.shipmentId, input.sellerAccountId);
+  if (!shipment) {
+    throw new Error("Shipment not found.");
+  }
+
+  const current = {
+    status: shipment.status as ShipmentStatus,
+    labelStatus: shipment.label_status as PostageLabelStatus,
+  };
+  const action = input.action === "advance" ? resolveShipmentActionPlan(current).primary : input.action;
+  if (!action) {
+    throw new Error(`Shipment status ${current.status} has no seller next action.`);
+  }
+  const resultStatus = SHIPMENT_ACTION_RULES[action].resultsIn;
+  const status = resultStatus === "unchanged" ? current.status : resultStatus;
+
+  if (action === "buy-label") {
+    assertShipmentActionAllowed(action, current);
+    const result = await services.purchaseUspsLabel(
+      {
+        shipmentId: input.shipmentId,
+        sellerAccountId: input.sellerAccountId,
+        serviceLevel: input.serviceLevel ?? "USPS_GROUND_ADVANTAGE",
+        sender: input.sender,
+        recipient: input.recipient,
+        overrideReason: input.overrideReason,
+        package: input.package,
+      },
+      context,
+    );
+    return { action, status, ...result };
+  }
+
+  if (action === "void-label") {
+    assertShipmentActionAllowed(action, current);
+    return {
+      action,
+      status,
+      ...(await services.voidLabel({ shipmentId: input.shipmentId, sellerAccountId: input.sellerAccountId }, context)),
+    };
+  }
+
+  const dispatcher: ShipmentLifecycleDispatcher = {
+    startPacking: () =>
+      services.startPackingShipment({ shipmentId: input.shipmentId, sellerAccountId: input.sellerAccountId }, context),
+    completePacking: () =>
+      services.packShipment(
+        {
+          shipmentId: input.shipmentId,
+          sellerAccountId: input.sellerAccountId,
+          packageCount: input.packageCount ?? 1,
+        },
+        context,
+      ),
+    dispatch: () =>
+      services.dispatchShipment({ shipmentId: input.shipmentId, sellerAccountId: input.sellerAccountId }, context),
+    recordDelivery: () =>
+      services.deliverShipment({ shipmentId: input.shipmentId, sellerAccountId: input.sellerAccountId }, context),
+    returnShipment: () =>
+      services.returnShipment({ shipmentId: input.shipmentId, sellerAccountId: input.sellerAccountId }, context),
+    raiseException: () =>
+      services.raiseShipmentException(
+        {
+          shipmentId: input.shipmentId,
+          sellerAccountId: input.sellerAccountId,
+          exceptionType: input.exceptionType ?? "other",
+          notes: input.notes,
+        },
+        context,
+      ),
+  };
+  const result = await executeShipmentAction(dispatcher, { action, current });
+  return { action, status, ...result };
+}
+
 export function createFulfillmentShipmentMcpHandlers(
   services: FulfillmentShipmentServices,
 ): FulfillmentShipmentMcpHandlers {
@@ -189,8 +301,10 @@ export function createFulfillmentShipmentMcpHandlers(
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     requirePermission(scopedActor, "fulfillment.manage");
-    const result = await services.purchaseUspsLabel(
+    const result = await runSellerShipmentAction(
+      services,
       {
+        action: "buy-label",
         shipmentId: readMcpTypedIdArgument(args, "shipmentId", "shp"),
         sellerAccountId: scopedActor.accountId,
         serviceLevel: readMcpStringArgument(args, "serviceLevel") ?? "USPS_GROUND_ADVANTAGE",
@@ -202,7 +316,8 @@ export function createFulfillmentShipmentMcpHandlers(
       createActorEventStoreContext(scopedActor),
     );
 
-    return shipmentReceipt(scopedActor.accountId, result, "label-attached", {
+    return shipmentReceipt(scopedActor.accountId, result, result.status, {
+      action: result.action,
       trackingIdentifier: result.trackingIdentifier,
     });
   };
@@ -212,16 +327,49 @@ export function createFulfillmentShipmentMcpHandlers(
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     requirePermission(scopedActor, "fulfillment.manage");
-    const result = await services.voidLabel(
+    const result = await runSellerShipmentAction(
+      services,
       {
+        action: "void-label",
         shipmentId: readMcpTypedIdArgument(args, "shipmentId", "shp"),
         sellerAccountId: scopedActor.accountId,
       },
       createActorEventStoreContext(scopedActor),
     );
 
-    return shipmentReceipt(scopedActor.accountId, result, "label-voided");
+    return shipmentReceipt(scopedActor.accountId, result, result.status, { action: result.action });
   };
+
+  const runSellerAction =
+    (action: "advance" | "dispatch" | "raise-exception"): McpToolHandler =>
+    async ({ actor, arguments: args }) => {
+      rejectDryRun(args);
+      const accountId = readRequiredString(args, "accountId");
+      const scopedActor = ensureMcpActorAccount(actor, accountId);
+      requirePermission(scopedActor, "fulfillment.manage");
+      const result = await runSellerShipmentAction(
+        services,
+        {
+          action,
+          shipmentId: readMcpTypedIdArgument(args, "shipmentId", "shp"),
+          sellerAccountId: scopedActor.accountId,
+          packageCount: readOptionalPositiveInteger(args, "packageCount", 1),
+          serviceLevel: readMcpStringArgument(args, "serviceLevel") ?? "USPS_GROUND_ADVANTAGE",
+          sender: readAddress(args.sender, "sender"),
+          recipient: readAddress(args.recipient, "recipient"),
+          overrideReason: readMcpStringArgument(args, "overrideReason"),
+          package: readPackage(args.package),
+          exceptionType: readMcpStringArgument(args, "exceptionType") ?? undefined,
+          notes: readMcpStringArgument(args, "notes"),
+        },
+        createActorEventStoreContext(scopedActor),
+      );
+
+      return shipmentReceipt(scopedActor.accountId, result, result.status, {
+        action: result.action,
+        ...(result.trackingIdentifier ? { trackingIdentifier: result.trackingIdentifier } : {}),
+      });
+    };
 
   const getTracking: McpToolHandler = async ({ actor, arguments: args }) => {
     const accountId = readRequiredString(args, "accountId");
@@ -279,6 +427,9 @@ export function createFulfillmentShipmentMcpHandlers(
       "fulfillment.get-tracking": getTracking,
       "fulfillment.purchase-label": purchaseLabel,
       "fulfillment.void-label": voidLabel,
+      "fulfillment.advance-shipment": runSellerAction("advance"),
+      "fulfillment.dispatch-shipment": runSellerAction("dispatch"),
+      "fulfillment.raise-shipment-exception": runSellerAction("raise-exception"),
     },
     resourceHandlers: {
       "chase-sets://fulfillment/{accountId}/shipments/{shipmentId}": readShipmentResource,

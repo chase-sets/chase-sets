@@ -142,6 +142,10 @@ function services(): FulfillmentShipmentServices {
       trackingIdentifier: "940000000000000001",
     })),
     voidLabel: vi.fn(async (params) => ({ shipmentId: params.shipmentId, version: 6 })),
+    dispatchShipment: vi.fn(async (params) => ({ shipmentId: params.shipmentId, version: 7 })),
+    raiseShipmentException: vi.fn(async (params) => ({ shipmentId: params.shipmentId, version: 8 })),
+    startPackingShipment: vi.fn(async (params) => ({ shipmentId: params.shipmentId, version: 9 })),
+    packShipment: vi.fn(async (params) => ({ shipmentId: params.shipmentId, version: 10 })),
   } as unknown as FulfillmentShipmentServices;
 }
 
@@ -164,6 +168,9 @@ describe("fulfillment shipment MCP handlers", () => {
 
   it("purchases labels through Fulfillment and returns an MCP write receipt", async () => {
     const fakeServices = services();
+    vi.mocked(fakeServices.getSellerShipment).mockResolvedValueOnce(
+      shipmentRow({ status: "awaiting-label", label_status: "not-purchased" }) as never,
+    );
     const handlers = createFulfillmentShipmentMcpHandlers(fakeServices);
 
     const result = await handlers.toolHandlers["fulfillment.purchase-label"]?.(
@@ -214,12 +221,59 @@ describe("fulfillment shipment MCP handlers", () => {
 
     await expect(
       handlers.toolHandlers["fulfillment.void-label"]?.(mcpRequest({ accountId: "acc_seller", shipmentId: "shp_1" })),
-    ).resolves.toMatchObject({ shipmentId: "shp_1", version: 6, status: "label-voided" });
+    ).resolves.toMatchObject({ shipmentId: "shp_1", version: 6, status: "awaiting-label", action: "void-label" });
     await expect(
       handlers.toolHandlers["fulfillment.purchase-label"]?.(
         mcpRequest({ accountId: "acc_seller", shipmentId: "shp_1", dryRun: true }),
       ),
     ).rejects.toThrow("dryRun is not supported for fulfillment shipment MCP writes yet.");
+  });
+
+  it("advances, dispatches, and raises exceptions through the consolidated shipment action module", async () => {
+    const fakeServices = services();
+    const handlers = createFulfillmentShipmentMcpHandlers(fakeServices);
+
+    await expect(
+      handlers.toolHandlers["fulfillment.advance-shipment"]?.(
+        mcpRequest({ accountId: "acc_seller", shipmentId: "shp_1" }),
+      ),
+    ).resolves.toMatchObject({ shipmentId: "shp_1", version: 7, status: "dispatched", action: "dispatch" });
+    await expect(
+      handlers.toolHandlers["fulfillment.dispatch-shipment"]?.(
+        mcpRequest({ accountId: "acc_seller", shipmentId: "shp_1" }),
+      ),
+    ).resolves.toMatchObject({ shipmentId: "shp_1", version: 7, status: "dispatched" });
+    await expect(
+      handlers.toolHandlers["fulfillment.raise-shipment-exception"]?.(
+        mcpRequest({
+          accountId: "acc_seller",
+          shipmentId: "shp_1",
+          exceptionType: "carrier-delay",
+          notes: "Carrier missed the scan.",
+        }),
+      ),
+    ).resolves.toMatchObject({ shipmentId: "shp_1", version: 8, status: "exception" });
+
+    expect(fakeServices.dispatchShipment).toHaveBeenCalledTimes(2);
+    expect(fakeServices.raiseShipmentException).toHaveBeenCalledWith(
+      expect.objectContaining({ exceptionType: "carrier-delay", notes: "Carrier missed the scan." }),
+      expect.objectContaining({ audit: { performedByUserId: "usr_1", forAccountId: "acc_seller" } }),
+    );
+  });
+
+  it("rejects shipment actions that the shared command-center state machine does not allow", async () => {
+    const fakeServices = services();
+    vi.mocked(fakeServices.getSellerShipment).mockResolvedValueOnce(
+      shipmentRow({ status: "awaiting-package", label_status: "not-purchased" }) as never,
+    );
+    const handlers = createFulfillmentShipmentMcpHandlers(fakeServices);
+
+    await expect(
+      handlers.toolHandlers["fulfillment.dispatch-shipment"]?.(
+        mcpRequest({ accountId: "acc_seller", shipmentId: "shp_1" }),
+      ),
+    ).rejects.toThrow("Cannot dispatch a shipment that is awaiting-package.");
+    expect(fakeServices.dispatchShipment).not.toHaveBeenCalled();
   });
 
   it("rejects account mismatches and reads shipment resources by URI", async () => {

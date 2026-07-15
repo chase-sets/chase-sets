@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isSellerAttentionItem, type SellerAttentionContext } from "@chase-sets/seller-attention-queue";
 import {
   createImportResolutionAttentionSource,
+  createImportResolutionAttentionSourceFromReadModel,
   toImportResolutionAttentionItems,
   type ImportResolutionAttentionRow,
 } from "./seller-attention-source";
@@ -32,6 +33,26 @@ describe("toImportResolutionAttentionItems", () => {
 
   it("drops batches with nothing left to resolve", () => {
     expect(toImportResolutionAttentionItems([row({ unresolvedCount: 0 })])).toHaveLength(0);
+  });
+});
+
+describe("createImportResolutionAttentionSourceFromReadModel", () => {
+  it("queries unresolved rows for only the requested seller account", async () => {
+    const query = vi.fn(async () => ({
+      rows: [
+        {
+          batch_id: "batch-1",
+          source_filename: "inventory.csv",
+          unresolved_count: 2,
+          observed_at: "2026-07-13T00:00:00.000Z",
+        },
+      ],
+    }));
+
+    const items = await createImportResolutionAttentionSourceFromReadModel({ query } as never).load(CONTEXT);
+
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("row.resolution_status = 'unresolved'"), ["acct-1"]);
+    expect(items[0]?.summary.params).toEqual({ reference: "inventory.csv", count: 2 });
   });
 });
 
