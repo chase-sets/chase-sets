@@ -736,16 +736,13 @@ describe("Catalog primary workbench admin contracts", () => {
         status: "ready",
         generatedAt: "2026-06-09T00:00:00.000Z",
         scope: {
-          scopeVersion: "catalog-sync-scope-v1",
+          scopeVersion: "catalog-sync-scope-v2",
           productDomain: "pokemon",
           productForm: "single-card",
           languageCode: null,
           reference: {
             kind: null,
-            id: null,
-            name: null,
-            seriesId: null,
-            seriesName: null,
+            scopeRecordId: null,
           },
           label: "tcgdex / changed",
           hasConcreteScope: true,

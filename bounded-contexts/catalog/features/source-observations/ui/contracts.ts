@@ -797,23 +797,15 @@ export type CatalogSyncScopeReferenceKind = "product-line" | "series" | "expansi
 
 export interface CatalogSyncScopeReference {
   kind: CatalogSyncScopeReferenceKind;
-  id: string;
-  name: string | null;
-  seriesId?: string | null;
-  seriesName?: string | null;
+  scopeRecordId: string;
 }
 
 export interface CatalogSyncScope {
-  scopeVersion: "catalog-sync-scope-v1";
+  scopeVersion: "catalog-sync-scope-v2";
   productDomain: string;
   productForm: string;
   languageCode: string;
   reference: CatalogSyncScopeReference;
-  providerHints?: {
-    providerKey: string;
-    unitKey?: string | null;
-    providerScope?: SourceObservationIntegrationJobScope | null;
-  }[];
   providerParticipation?: {
     requiredUnitKeys?: string[];
     selectedUnitKeys?: string[];

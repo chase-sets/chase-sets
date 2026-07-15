@@ -17,8 +17,7 @@ function upsertInput(
     productForm: "single-card",
     languageCode: "en",
     referenceKind: "expansion",
-    referenceId: "sv4-5",
-    referenceName: "Paldean Fates",
+    scopeRecordId: "scope_paldean_fates",
     displayName: "tcgdex Pokemon card import",
     role: "primary-source-observation",
     requirement: "required",
@@ -45,7 +44,8 @@ describe("upsertCatalogScopeSyncUnitState", () => {
     expect(sql).toContain("ON CONFLICT (scope_key, provider_key, unit_key) DO UPDATE");
     expect(params?.[0]).toBe("scope_1");
     expect(params?.[1]).toBe("tcgdex");
-    expect(params?.[13]).toBe("settled");
+    expect(params?.[7]).toBe("scope_paldean_fates");
+    expect(params?.[12]).toBe("settled");
   });
 
   it("maps a failed provider unit to the failed state", async () => {
@@ -54,8 +54,8 @@ describe("upsertCatalogScopeSyncUnitState", () => {
     await upsertCatalogScopeSyncUnitState({ query }, upsertInput({ status: "failed", errorMessage: "boom" }));
 
     const params = query.mock.calls[0]?.[1];
-    expect(params?.[13]).toBe("failed");
-    expect(params?.[21]).toBe("boom");
+    expect(params?.[12]).toBe("failed");
+    expect(params?.[20]).toBe("boom");
   });
 
   it("passes null for omitted counters so the SQL COALESCE preserves prior values", async () => {
@@ -64,8 +64,8 @@ describe("upsertCatalogScopeSyncUnitState", () => {
     await upsertCatalogScopeSyncUnitState({ query }, upsertInput({ status: "running" }));
 
     const params = query.mock.calls[0]?.[1];
+    expect(params?.[16]).toBeNull();
     expect(params?.[17]).toBeNull();
-    expect(params?.[18]).toBeNull();
   });
 });
 

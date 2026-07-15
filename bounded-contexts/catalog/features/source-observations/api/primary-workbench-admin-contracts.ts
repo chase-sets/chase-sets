@@ -508,16 +508,13 @@ export type CatalogPrimaryWorkbenchCatalogSyncReadModel = Readonly<{
   status: CatalogPrimaryWorkbenchCatalogSyncStatus;
   generatedAt: string;
   scope: Readonly<{
-    scopeVersion: "catalog-sync-scope-v1";
+    scopeVersion: "catalog-sync-scope-v2";
     productDomain: string | null;
     productForm: string | null;
     languageCode: string | null;
     reference: Readonly<{
       kind: "product-line" | "series" | "expansion" | "set" | "catalog-item" | null;
-      id: string | null;
-      name: string | null;
-      seriesId: string | null;
-      seriesName: string | null;
+      scopeRecordId: string | null;
     }>;
     label: string;
     hasConcreteScope: boolean;

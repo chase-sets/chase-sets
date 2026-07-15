@@ -12,11 +12,19 @@ Workflow vocabulary:
 5. Promote approved Catalog Item and Product changes.
 
 `CatalogSyncScope` is the provider-neutral operator intent for step 1. It names
-the Catalog product domain, optional product form, language, and semantic
-reference such as Product Line, Series, Expansion, Set, or Catalog Item. For
-Pokemon TCG, an English Base Set sync is a Pokemon single-card Expansion scope;
-providers may execute that intent through their own Expansion IDs, Set names, or
-product-line parents.
+the Catalog product domain, optional product form, language, and a reference to a
+canonical Catalog Scope Record (`reference.scopeRecordId`) classified by kind —
+Product Line, Series, Expansion, Set, or Catalog Item. For Pokemon TCG, an
+English Base Set sync is a Pokemon single-card Expansion scope pointing at the
+Base Set scope record.
+
+The scope carries no raw provider coordinates. Each provider unit's child
+execution scope is resolved through the accepted (or auto-accepted) Provider
+Scope Mappings for that scope record — never from the reference's raw id or name.
+A scope with no accepted mapping supplying a coordinate a provider unit needs is
+an actionable `provider-scope-mapping-missing` blocker that points the operator
+at the unmapped-scope inbox, so a fully mapped scope requires no manually
+supplied provider coordinates.
 
 Provider selection is part of scope planning, not job execution. The provider
 participation preview answers one question before sync starts: "For this Catalog

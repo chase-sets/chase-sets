@@ -16,33 +16,32 @@ describe("Pokemon sealed-product integration", () => {
       throw new Error("Missing the active TCGplayer Pokemon sealed-product profile.");
     }
 
+    const scopeRecordId = "scope_pokemon_scarlet_violet";
     const preview = await previewCatalogSyncProviderParticipation({
       scope: {
-        scopeVersion: "catalog-sync-scope-v1",
+        scopeVersion: "catalog-sync-scope-v2",
         productDomain: "pokemon",
         productForm: "sealed-product",
         languageCode: "en",
-        reference: {
-          kind: "expansion",
-          id: "sv1",
-          name: "Scarlet & Violet",
-          seriesId: "sv",
-          seriesName: "Scarlet & Violet",
-        },
-        providerHints: [
-          {
-            providerKey: "tcgplayer",
-            unitKey: TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-            productLineId: "3",
-            productLineName: "Pokemon",
-            setId: "10001",
-            setName: "Scarlet & Violet",
-          },
-        ],
+        reference: { kind: "expansion", scopeRecordId },
         providerParticipation: {
           selectedUnitKeys: [TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY],
         },
       },
+      acceptedScopeMappings: [
+        {
+          scopeRecordId,
+          providerKey: "tcgplayer",
+          unitKey: TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+          productLineId: "3",
+          seriesId: "sv",
+          setId: "10001",
+          setName: "Scarlet & Violet",
+          mappingId: "mapping_tcgplayer_sealed",
+          mappingVersion: "2026-07-01T00:00:00.000Z",
+          reviewStatus: "accepted",
+        },
+      ],
       providerProfileVersions: [profileVersion],
       providerAdapterRegistry: new ProviderAdapterRegistry([
         createTcgplayerProviderAdapter({ loadProfileVersions: async () => [profileVersion] }),

@@ -91,65 +91,59 @@ describe("computeCatalogSyncScopeKey", () => {
       productForm: "single-card",
       languageCode: "en",
       referenceKind: "expansion",
-      referenceId: "sv4-5",
-      referenceName: "Paldean Fates",
+      scopeRecordId: "scope_paldean_fates",
     };
 
     expect(computeCatalogSyncScopeKey(descriptor)).toBe(computeCatalogSyncScopeKey({ ...descriptor }));
   });
 
-  it("is case/whitespace-insensitive", () => {
+  it("is whitespace-insensitive on the scope record id", () => {
     const descriptor = {
       productDomain: "trading-card",
       productForm: "single-card",
       languageCode: "en",
       referenceKind: "expansion",
-      referenceId: "sv4-5",
-      referenceName: "Paldean Fates",
+      scopeRecordId: "scope_paldean_fates",
     };
 
     expect(computeCatalogSyncScopeKey(descriptor)).toBe(
-      computeCatalogSyncScopeKey({ ...descriptor, referenceId: "  SV4-5  " }),
+      computeCatalogSyncScopeKey({ ...descriptor, scopeRecordId: "  scope_paldean_fates  " }),
     );
   });
 
-  it("falls back to the reference name when no reference id is present", () => {
-    const withId = computeCatalogSyncScopeKey({
+  it("keeps distinct scope records on distinct keys even when case differs", () => {
+    const lower = computeCatalogSyncScopeKey({
       productDomain: "trading-card",
       productForm: "single-card",
       languageCode: "en",
       referenceKind: "set",
-      referenceId: null,
-      referenceName: "Paldean Fates",
+      scopeRecordId: "scope_paldean_fates",
     });
-    const withNameOnly = computeCatalogSyncScopeKey({
+    const upper = computeCatalogSyncScopeKey({
       productDomain: "trading-card",
       productForm: "single-card",
       languageCode: "en",
       referenceKind: "set",
-      referenceId: "Paldean Fates",
-      referenceName: null,
+      scopeRecordId: "SCOPE_PALDEAN_FATES",
     });
 
-    expect(withId).toBe(withNameOnly);
+    expect(lower).not.toBe(upper);
   });
 
-  it("differs when the reference changes", () => {
+  it("differs when the scope record changes", () => {
     const first = computeCatalogSyncScopeKey({
       productDomain: "trading-card",
       productForm: "single-card",
       languageCode: "en",
       referenceKind: "expansion",
-      referenceId: "sv4-5",
-      referenceName: "Paldean Fates",
+      scopeRecordId: "scope_paldean_fates",
     });
     const second = computeCatalogSyncScopeKey({
       productDomain: "trading-card",
       productForm: "single-card",
       languageCode: "en",
       referenceKind: "expansion",
-      referenceId: "sv3-5",
-      referenceName: "Obsidian Flames",
+      scopeRecordId: "scope_obsidian_flames",
     });
 
     expect(first).not.toBe(second);

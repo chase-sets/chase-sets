@@ -261,8 +261,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(syncForm?.querySelector<HTMLInputElement>('input[name="productForm"]')?.value).toBe("card");
     expect(syncForm?.querySelector<HTMLInputElement>('input[name="languageCode"]')?.value).toBe("ja");
     expect(syncForm?.querySelector<HTMLInputElement>('input[name="referenceKind"]')?.value).toBe("expansion");
-    expect(syncForm?.querySelector<HTMLInputElement>('input[name="referenceId"]')?.value).toBe("SV8");
-    expect(syncForm?.querySelector<HTMLInputElement>('input[name="expansionId"]')?.value).toBe("SV8");
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="scopeRecordId"]')?.value).toBe("SV8");
     expect(syncForm?.querySelector<HTMLInputElement>('input[name="selectedUnitKeys"]')?.value).toBe(
       "tcgdex:pokemon:card:import",
     );
@@ -273,20 +272,11 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     const catalogSyncPreview = {
       previewVersion: "catalog-sync-provider-participation-preview-v1" as const,
       scope: {
-        scopeVersion: "catalog-sync-scope-v1" as const,
+        scopeVersion: "catalog-sync-scope-v2" as const,
         productDomain: "pokemon",
         productForm: "single-card",
         languageCode: "en",
-        reference: { kind: "set" as const, id: "Base Set", name: "Base Set", seriesId: null, seriesName: null },
-        providerHints: [
-          {
-            providerKey: "tcgplayer",
-            unitKey: pokemonUnit,
-            productLineId: "3",
-            productLineName: "Pokemon",
-            setName: "Base Set",
-          },
-        ],
+        reference: { kind: "set" as const, scopeRecordId: "scope_pokemon_base_set" },
         providerParticipation: {
           requiredUnitKeys: [],
           selectedUnitKeys: [],
@@ -1860,18 +1850,12 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     );
     expect(syncForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("start-catalog-sync");
     expect(syncForm?.querySelector<HTMLInputElement>('input[name="productDomain"]')?.value).toBe("pokemon");
-    expect(syncForm?.querySelector<HTMLInputElement>('input[name="referenceId"]')?.value).toBe("base1");
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="scopeRecordId"]')?.value).toBe("base1");
     expect(syncForm?.getAttribute("action")).toContain("/catalog/integrations?");
     expect(syncForm?.getAttribute("action")).not.toMatch(/raw-json|legacy|compat/i);
-    expect(
-      JSON.parse(syncForm?.querySelector<HTMLInputElement>('input[name="providerHints"]')?.value ?? "{}"),
-    ).toMatchObject({
-      providerKey: "tcgdex",
-      unitKey: "tcgdex:pokemon:card:import",
-      productLineId: "3",
-      seriesId: "base",
-      setId: "base1",
-    });
+    // Provider coordinates are resolved server-side from accepted scope
+    // mappings; the sync form no longer carries a providerHints escape hatch.
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="providerHints"]')).toBeNull();
 
     const reviewModule = screen.getByRole("heading", { name: "Source Observation review" }).closest("section");
     const checkbox = within(reviewModule as HTMLElement).getAllByRole("checkbox")[0];

@@ -83,18 +83,10 @@ export function parseCatalogSyncScope(input: unknown): CatalogSyncScope {
 
   const reference = isRecord(input.reference) ? input.reference : {};
   const referenceKind = parseCatalogSyncScopeReferenceKind(reference.kind);
-  const providerHints = Array.isArray(input.providerHints)
-    ? input.providerHints.filter(isRecord).map((hint) => ({
-        providerKey: stringField(hint.providerKey) ?? "",
-        unitKey: stringField(hint.unitKey),
-        productLineId: stringField(hint.productLineId),
-        productLineName: stringField(hint.productLineName),
-        seriesId: stringField(hint.seriesId),
-        setId: stringField(hint.setId),
-        setName: stringField(hint.setName),
-        productId: stringField(hint.productId),
-      }))
-    : [];
+  const scopeRecordId = stringField(reference.scopeRecordId)?.trim();
+  if (!scopeRecordId) {
+    throw new Error("Catalog sync scope reference.scopeRecordId is required.");
+  }
   const providerParticipation = isRecord(input.providerParticipation)
     ? {
         requiredUnitKeys: stringArrayField(input.providerParticipation.requiredUnitKeys),
@@ -104,18 +96,14 @@ export function parseCatalogSyncScope(input: unknown): CatalogSyncScope {
     : null;
 
   return {
-    scopeVersion: "catalog-sync-scope-v1",
+    scopeVersion: "catalog-sync-scope-v2",
     productDomain: stringField(input.productDomain) ?? "",
     productForm: stringField(input.productForm),
     languageCode: stringField(input.languageCode) ?? stringField(input.language),
     reference: {
       kind: referenceKind,
-      id: stringField(reference.id),
-      name: stringField(reference.name),
-      seriesId: stringField(reference.seriesId),
-      seriesName: stringField(reference.seriesName),
+      scopeRecordId,
     },
-    providerHints,
     providerParticipation,
   };
 }

@@ -164,7 +164,7 @@ export function CatalogSyncScopeModule({
           />
           <KeyValueList
             items={[
-              { key: "Reference", value: catalogSync.scope.reference.id ?? "Not selected" },
+              { key: "Reference", value: catalogSync.scope.reference.scopeRecordId ?? "Not selected" },
               { key: "Reference kind", value: catalogSync.scope.reference.kind ?? "Not selected" },
               { key: "Plan", value: catalogSync.preview.explanation },
               { key: "Start", value: startAllowedForCurrentSelection ? "Allowed" : "Blocked" },
@@ -208,27 +208,10 @@ export function CatalogSyncScopeModule({
           <HiddenInput name="productForm" value={catalogSync.scope.productForm ?? ""} />
           <HiddenInput name="languageCode" value={catalogSync.scope.languageCode ?? ""} />
           <HiddenInput name="referenceKind" value={catalogSync.scope.reference.kind ?? ""} />
-          <HiddenInput name="referenceId" value={catalogSync.scope.reference.id ?? ""} />
-          <HiddenInput name="referenceName" value={catalogSync.scope.reference.name ?? ""} />
-          <HiddenInput name="seriesId" value={catalogSync.scope.reference.seriesId ?? ""} />
-          <HiddenInput name="seriesName" value={catalogSync.scope.reference.seriesName ?? ""} />
-          {catalogSync.scope.reference.kind === "expansion" ? (
-            <>
-              <HiddenInput name="expansionId" value={catalogSync.scope.reference.id ?? ""} />
-              <HiddenInput name="expansionName" value={catalogSync.scope.reference.name ?? ""} />
-            </>
-          ) : null}
+          <HiddenInput name="scopeRecordId" value={catalogSync.scope.reference.scopeRecordId ?? ""} />
           {[...selectedUnitKeys].map((unitKey) => (
             <HiddenInput key={unitKey} name="selectedUnitKeys" value={unitKey} />
           ))}
-          {catalogSync.preview.units
-            .filter((unit) => unit.unitKey && selectedUnitKeys.has(unit.unitKey))
-            .map((unit) => {
-              const providerHint = providerHintValueForUnit(unit);
-              return providerHint ? (
-                <HiddenInput key={`${unit.unitKey}:provider-hint`} name="providerHints" value={providerHint} />
-              ) : null;
-            })}
           {catalogSync.preview.units
             .filter((unit) => unit.unitKey && !selectedUnitKeys.has(unit.unitKey))
             .map((unit) => (
@@ -290,30 +273,6 @@ function CatalogSyncCostPreview({
         ) : null}
       </WorkbenchStack>
     </WorkbenchDetailPanel>
-  );
-}
-
-function providerHintValueForUnit(unit: CatalogSyncUnitRow): string | null {
-  if (!unit.unitKey || !unit.childExecutionScope) {
-    return null;
-  }
-
-  return JSON.stringify(
-    compactProviderHint({
-      providerKey: unit.childExecutionScope.provider ?? unit.providerKey,
-      unitKey: unit.unitKey,
-      productLineId: unit.childExecutionScope.productLineId,
-      seriesId: unit.childExecutionScope.seriesId,
-      setId: unit.childExecutionScope.setId,
-      setName: unit.childExecutionScope.setName,
-      productId: unit.childExecutionScope.productId,
-    }),
-  );
-}
-
-function compactProviderHint(input: Record<string, string | null | undefined>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(input).filter((entry): entry is [string, string] => Boolean(entry[1]?.trim())),
   );
 }
 

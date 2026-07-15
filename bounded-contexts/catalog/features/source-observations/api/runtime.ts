@@ -121,7 +121,10 @@ import {
   type CatalogMergeCandidateMatchExclusion,
   type CatalogMergeCandidateMatchResult,
 } from "./catalog-merge-candidate-matcher";
-import { listAcceptedProviderScopeMappingsForProviders } from "../../provider-scope-mapping/read-model/queries";
+import {
+  listAcceptedProviderScopeMappingsByScopeRecord,
+  listAcceptedProviderScopeMappingsForProviders,
+} from "../../provider-scope-mapping/read-model/queries";
 import {
   planCatalogMergeCandidatePromotionCommands,
   type CatalogMergeCandidatePromotionCommandPlanResult,
@@ -188,8 +191,10 @@ import {
   type CatalogIntegrationImpactJobSample,
 } from "./catalog-integration-impact-analysis";
 import {
+  catalogSyncAcceptedScopeMappingFromRow,
   normalizeCatalogSyncScope,
   previewCatalogSyncProviderParticipation,
+  type CatalogSyncAcceptedScopeMapping,
   type CatalogSyncProviderParticipationPreview,
   type CatalogSyncScope,
 } from "./catalog-sync-scope-planner";
@@ -1027,6 +1032,7 @@ export type IntegrationJobServices = Readonly<{
     scope: CatalogSyncScope;
     context: EventStoreContext;
     includeOperationalGates?: boolean;
+    acceptedScopeMappings?: readonly CatalogSyncAcceptedScopeMapping[];
   }) => Promise<CatalogSyncProviderParticipationPreview>;
   enqueueCatalogSyncRun: (input: { scope: CatalogSyncScope; context: EventStoreContext }) => Promise<CatalogSyncRun>;
   getCatalogSyncRun: (input: { syncRunId: string; context: EventStoreContext }) => Promise<CatalogSyncRun | null>;
@@ -2870,16 +2876,34 @@ export function createSourceObservationRuntime(
     scope: CatalogSyncScope;
     context: EventStoreContext;
     includeOperationalGates?: boolean;
+    acceptedScopeMappings?: readonly CatalogSyncAcceptedScopeMapping[];
   }): Promise<CatalogSyncProviderParticipationPreview> {
     void input.context;
     const versions = await profileVersions.listProfileVersions();
+    // Provider coordinates are resolved from the scope record's accepted
+    // Provider Scope Mappings. The scope-sync batch planner has already loaded
+    // them and passes them through; the interactive path resolves them here.
+    const acceptedScopeMappings =
+      input.acceptedScopeMappings ?? (await resolveAcceptedScopeMappingsForScope(input.scope));
     return previewCatalogSyncProviderParticipation({
       scope: input.scope,
+      acceptedScopeMappings,
       providerProfileVersions: versions,
       providerAdapterRegistry,
       rolloutControlPolicy,
       includeOperationalGates: input.includeOperationalGates,
     });
+  }
+
+  async function resolveAcceptedScopeMappingsForScope(
+    scope: CatalogSyncScope,
+  ): Promise<readonly CatalogSyncAcceptedScopeMapping[]> {
+    const scopeRecordId = scope.reference.scopeRecordId?.trim();
+    if (!scopeRecordId) {
+      return [];
+    }
+    const rows = await listAcceptedProviderScopeMappingsByScopeRecord(deps.db, scopeRecordId);
+    return rows.map(catalogSyncAcceptedScopeMappingFromRow);
   }
 
   async function enqueueCatalogSyncRun(input: {
@@ -3045,8 +3069,7 @@ export function createSourceObservationRuntime(
           productForm: run.scope.productForm ?? null,
           languageCode: run.scope.languageCode ?? null,
           referenceKind: run.scope.reference.kind,
-          referenceId: run.scope.reference.id ?? null,
-          referenceName: run.scope.reference.name ?? null,
+          scopeRecordId: run.scope.reference.scopeRecordId,
           displayName: child.displayName,
           role: selectedUnit?.role ?? "supplemental-marketplace-reference",
           requirement: selectedUnit?.requirement ?? "optional",
@@ -3107,8 +3130,7 @@ export function createSourceObservationRuntime(
       productForm: parent.payload.scope.productForm ?? null,
       languageCode: parent.payload.scope.languageCode ?? null,
       referenceKind: parent.payload.scope.reference.kind,
-      referenceId: parent.payload.scope.reference.id ?? null,
-      referenceName: parent.payload.scope.reference.name ?? null,
+      scopeRecordId: parent.payload.scope.reference.scopeRecordId,
       displayName: unit.displayName,
       role: unit.role,
       requirement: unit.requirement,
@@ -8109,12 +8131,10 @@ function catalogSyncRunChildStatus(
 // the never-synced -> pending/settled/failed transition for every selected
 // unit in one shot) and when an individual child job reaches a terminal
 // status or is retried (`recordCatalogScopeSyncStateForChildJob`, covering
-// pending/running -> settled/failed and failed -> pending on retry). CatalogSyncScope
-// is still v1 (provider hints, no canonical scope record id yet), so the
-// durable row is keyed on a hash of the v1 scope descriptor
-// (`computeCatalogSyncScopeKey`) rather than a scope record id; once
-// CatalogSyncScope v2 lands this key derivation is the only place that needs
-// to change.
+// pending/running -> settled/failed and failed -> pending on retry).
+// CatalogSyncScope v2 carries the canonical scope record id, so the durable row
+// is keyed on a hash of the v2 scope descriptor (productDomain / productForm /
+// languageCode / referenceKind / scopeRecordId) via `computeCatalogSyncScopeKey`.
 
 function catalogScopeSyncStateDescriptor(scope: CatalogSyncScope): CatalogScopeSyncScopeDescriptor {
   return {
@@ -8122,8 +8142,7 @@ function catalogScopeSyncStateDescriptor(scope: CatalogSyncScope): CatalogScopeS
     productForm: scope.productForm ?? null,
     languageCode: scope.languageCode ?? null,
     referenceKind: scope.reference.kind,
-    referenceId: scope.reference.id ?? null,
-    referenceName: scope.reference.name ?? null,
+    scopeRecordId: scope.reference.scopeRecordId,
   };
 }
 

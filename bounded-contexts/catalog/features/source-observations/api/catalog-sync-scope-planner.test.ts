@@ -4,6 +4,7 @@ import type { ProviderAdapter, ProviderImportScope } from "./provider-adapters/p
 import {
   aggregateCatalogSyncProviderParticipationEstimate,
   previewCatalogSyncProviderParticipation,
+  type CatalogSyncAcceptedScopeMapping,
   type CatalogSyncScope,
 } from "./catalog-sync-scope-planner";
 import {
@@ -14,6 +15,8 @@ import { unitKeyForCatalogProviderProfileVersion } from "./catalog-integration-i
 import { LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY } from "./provider-adapters/lorcanajson";
 import { createCatalogIntegrationRolloutControlPolicy } from "./catalog-integration-rollout-controls";
 
+const BASE_SET_SCOPE_RECORD_ID = "scope_pokemon_base_set";
+
 describe("Catalog sync scope planner", () => {
   it("defaults every eligible mapped provider role into Pokemon Expansion participation", async () => {
     const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
@@ -23,10 +26,8 @@ describe("Catalog sync scope planner", () => {
     const tcgdexPlanImport = vi.fn(fakePlanImport(102));
     const tcgplayerPlanImport = vi.fn(fakePlanImport(205));
     const preview = await previewCatalogSyncProviderParticipation({
-      scope: pokemonBaseSetScope({
-        requiredUnitKeys: [],
-        selectedUnitKeys: [],
-      }),
+      scope: pokemonBaseSetScope(),
+      acceptedScopeMappings: [tcgdexBaseSetMapping(tcgdexUnitKey), tcgplayerBaseSetMapping(tcgplayerUnitKey)],
       providerProfileVersions: [tcgdex, tcgplayer],
       providerAdapterRegistry: new ProviderAdapterRegistry([
         fakeAdapter("tcgdex", tcgdexPlanImport),
@@ -87,9 +88,8 @@ describe("Catalog sync scope planner", () => {
     const tcgdexPlanImport = vi.fn(fakePlanImport(102));
     const tcgplayerPlanImport = vi.fn(fakePlanImport(205));
     const preview = await previewCatalogSyncProviderParticipation({
-      scope: pokemonBaseSetScope({
-        selectedUnitKeys: [tcgplayerUnitKey],
-      }),
+      scope: pokemonBaseSetScope({ selectedUnitKeys: [tcgplayerUnitKey] }),
+      acceptedScopeMappings: [tcgdexBaseSetMapping(tcgdexUnitKey), tcgplayerBaseSetMapping(tcgplayerUnitKey)],
       providerProfileVersions: [tcgdex, tcgplayer],
       providerAdapterRegistry: new ProviderAdapterRegistry([
         fakeAdapter("tcgdex", tcgdexPlanImport),
@@ -120,8 +120,10 @@ describe("Catalog sync scope planner", () => {
 
   it("blocks required provider units when the transport adapter is unsupported", async () => {
     const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
+    const tcgdexUnitKey = unitKeyForCatalogProviderProfileVersion(tcgdex);
     const preview = await previewCatalogSyncProviderParticipation({
       scope: pokemonBaseSetScope(),
+      acceptedScopeMappings: [tcgdexBaseSetMapping(tcgdexUnitKey)],
       providerProfileVersions: [tcgdex],
       providerAdapterRegistry: new ProviderAdapterRegistry([]),
     });
@@ -145,8 +147,10 @@ describe("Catalog sync scope planner", () => {
 
   it("captures rollout evidence and blocks batch planning when an import gate is closed", async () => {
     const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
+    const tcgdexUnitKey = unitKeyForCatalogProviderProfileVersion(tcgdex);
     const preview = await previewCatalogSyncProviderParticipation({
       scope: pokemonBaseSetScope(),
+      acceptedScopeMappings: [tcgdexBaseSetMapping(tcgdexUnitKey)],
       providerProfileVersions: [tcgdex],
       providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgdex", fakePlanImport(1))]),
       rolloutControlPolicy: createCatalogIntegrationRolloutControlPolicy({ disabledImports: ["tcgdex"] }),
@@ -166,6 +170,7 @@ describe("Catalog sync scope planner", () => {
       scope: pokemonBaseSetScope({
         requiredUnitKeys: ["tcgplayer:pokemon:single-card:source-observation-import"],
       }),
+      acceptedScopeMappings: [],
       providerProfileVersions: [tcgdex],
       providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgdex", vi.fn(fakePlanImport(102)))]),
     });
@@ -180,60 +185,124 @@ describe("Catalog sync scope planner", () => {
     ]);
   });
 
-  it("marks selected optional units ineligible without blocking the required unit", async () => {
-    const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
+  it("resolves a fully mapped scope with no manually supplied provider coordinates", async () => {
     const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
-    const tcgdexUnitKey = unitKeyForCatalogProviderProfileVersion(tcgdex);
     const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
     const preview = await previewCatalogSyncProviderParticipation({
-      scope: pokemonBaseSetScope({
-        requiredUnitKeys: [tcgdexUnitKey],
-        selectedUnitKeys: [tcgplayerUnitKey],
-        providerHints: [],
-      }),
-      providerProfileVersions: [tcgdex, tcgplayer],
-      providerAdapterRegistry: new ProviderAdapterRegistry([
-        fakeAdapter("tcgdex", vi.fn(fakePlanImport(102))),
-        fakeAdapter("tcgplayer", vi.fn(fakePlanImport(205))),
-      ]),
+      scope: pokemonBaseSetScope({ selectedUnitKeys: [tcgplayerUnitKey] }),
+      acceptedScopeMappings: [tcgplayerBaseSetMapping(tcgplayerUnitKey)],
+      providerProfileVersions: [tcgplayer],
+      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgplayer", vi.fn(fakePlanImport(205)))]),
     });
 
-    expect(preview.status).toBe("degraded");
+    expect(preview.status).toBe("ready");
     expect(preview.startAllowed).toBe(true);
-    expect(preview.units.find((unit) => unit.unitKey === tcgplayerUnitKey)).toMatchObject({
-      providerKey: "tcgplayer",
-      requirement: "optional",
-      eligibility: "ineligible",
-      blockers: [expect.objectContaining({ code: "scope-parent-required" })],
+    expect(preview.units[0]).toMatchObject({
+      eligibility: "eligible",
+      blockers: [],
+      childExecutionScope: {
+        provider: "tcgplayer",
+        productLineId: "3",
+        setName: "Base Set",
+      },
     });
+    // The scope reference carries no raw provider coordinates or names.
+    expect(preview.scope.reference).toEqual({ kind: "expansion", scopeRecordId: BASE_SET_SCOPE_RECORD_ID });
+  });
+
+  it("blocks a partially mapped scope, pointing at the unmapped-scope inbox", async () => {
+    const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
+    const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
+    const preview = await previewCatalogSyncProviderParticipation({
+      // TCGplayer needs both a product-line/category id and a set name; supply
+      // only the set name so the mapping is present but incomplete.
+      scope: pokemonBaseSetScope({ requiredUnitKeys: [tcgplayerUnitKey] }),
+      acceptedScopeMappings: [tcgplayerBaseSetMapping(tcgplayerUnitKey, { productLineId: null })],
+      providerProfileVersions: [tcgplayer],
+      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgplayer", vi.fn(fakePlanImport(205)))]),
+    });
+
+    expect(preview.status).toBe("blocked");
+    expect(preview.startAllowed).toBe(false);
+    expect(preview.units[0]).toMatchObject({
+      eligibility: "ineligible",
+      childExecutionScope: null,
+      blockers: [
+        expect.objectContaining({
+          code: "provider-scope-mapping-missing",
+          action: "Resolve this scope in the unmapped-scope inbox before selecting this provider unit.",
+        }),
+      ],
+    });
+    expect(preview.units[0]?.blockers[0]?.message).toContain("product-line/category");
+  });
+
+  it("blocks an unmapped scope with an actionable provider-scope-mapping-missing blocker", async () => {
+    const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
+    const tcgdexUnitKey = unitKeyForCatalogProviderProfileVersion(tcgdex);
+    const preview = await previewCatalogSyncProviderParticipation({
+      scope: pokemonBaseSetScope({ requiredUnitKeys: [tcgdexUnitKey] }),
+      acceptedScopeMappings: [],
+      providerProfileVersions: [tcgdex],
+      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgdex", vi.fn(fakePlanImport(102)))]),
+    });
+
+    expect(preview.status).toBe("blocked");
+    expect(preview.startAllowed).toBe(false);
+    expect(preview.blockers).toEqual([
+      expect.objectContaining({
+        code: "provider-scope-mapping-missing",
+        action: "Resolve this scope in the unmapped-scope inbox before selecting this provider unit.",
+      }),
+    ]);
+    expect(preview.units[0]).toMatchObject({ eligibility: "ineligible", childExecutionScope: null });
+  });
+
+  it("ignores accepted mappings that belong to a different scope record", async () => {
+    const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
+    const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
+    const preview = await previewCatalogSyncProviderParticipation({
+      scope: pokemonBaseSetScope({ requiredUnitKeys: [tcgplayerUnitKey] }),
+      acceptedScopeMappings: [
+        { ...tcgplayerBaseSetMapping(tcgplayerUnitKey), scopeRecordId: "scope_some_other_expansion" },
+      ],
+      providerProfileVersions: [tcgplayer],
+      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgplayer", vi.fn(fakePlanImport(205)))]),
+    });
+
+    expect(preview.status).toBe("blocked");
+    expect(preview.units[0]?.blockers[0]?.code).toBe("provider-scope-mapping-missing");
   });
 
   it("preserves provider set codes for LorcanaJSON set-name sync execution", async () => {
     const lorcanajson = activeProfile("lorcanajson", "lorcana-set-reference-data");
     const planImport = vi.fn(fakePlanImport(1));
+    const scopeRecordId = "scope_lorcana_first_chapter";
     const preview = await previewCatalogSyncProviderParticipation({
       scope: {
-        scopeVersion: "catalog-sync-scope-v1",
+        scopeVersion: "catalog-sync-scope-v2",
         productDomain: "lorcana",
         productForm: "set",
         languageCode: "en",
-        reference: {
-          kind: "set",
-          id: "1",
-          name: "The First Chapter",
-        },
-        providerHints: [
-          {
-            providerKey: "lorcanajson",
-            unitKey: LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
-            setId: "1",
-            setName: "The First Chapter",
-          },
-        ],
+        reference: { kind: "set", scopeRecordId },
         providerParticipation: {
           selectedUnitKeys: [LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY],
         },
       },
+      acceptedScopeMappings: [
+        {
+          scopeRecordId,
+          providerKey: "lorcanajson",
+          unitKey: LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+          productLineId: null,
+          seriesId: null,
+          setId: "1",
+          setName: "The First Chapter",
+          mappingId: "mapping_lorcanajson_first_chapter",
+          mappingVersion: "2026-07-01T00:00:00.000Z",
+          reviewStatus: "accepted",
+        },
+      ],
       providerProfileVersions: [lorcanajson],
       providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("lorcanajson", planImport)]),
     });
@@ -260,38 +329,49 @@ describe("Catalog sync scope planner", () => {
 });
 
 function pokemonBaseSetScope(
-  overrides: Partial<
-    Pick<CatalogSyncScope, "providerHints"> & {
-      requiredUnitKeys: readonly string[];
-      selectedUnitKeys: readonly string[];
-    }
-  > = {},
+  overrides: {
+    requiredUnitKeys?: readonly string[];
+    selectedUnitKeys?: readonly string[];
+  } = {},
 ): CatalogSyncScope {
   return {
-    scopeVersion: "catalog-sync-scope-v1",
+    scopeVersion: "catalog-sync-scope-v2",
     productDomain: "pokemon",
     productForm: "single-card",
     languageCode: "en",
-    reference: {
-      kind: "expansion",
-      id: "base1",
-      name: "Base Set",
-      seriesId: "base",
-      seriesName: "Base",
-    },
-    providerHints: overrides.providerHints ?? [
-      {
-        providerKey: "tcgplayer",
-        productLineId: "3",
-        productLineName: "Pokemon",
-        setName: "Base Set",
-      },
-    ],
+    reference: { kind: "expansion", scopeRecordId: BASE_SET_SCOPE_RECORD_ID },
     providerParticipation: {
       requiredUnitKeys: overrides.requiredUnitKeys ?? [],
       selectedUnitKeys: overrides.selectedUnitKeys ?? [],
     },
   };
+}
+
+function acceptedMapping(
+  overrides: Partial<CatalogSyncAcceptedScopeMapping> & { providerKey: string; unitKey: string },
+): CatalogSyncAcceptedScopeMapping {
+  return {
+    scopeRecordId: BASE_SET_SCOPE_RECORD_ID,
+    productLineId: null,
+    seriesId: null,
+    setId: null,
+    setName: null,
+    mappingId: `mapping_${overrides.providerKey}_${overrides.unitKey}`,
+    mappingVersion: "2026-07-01T00:00:00.000Z",
+    reviewStatus: "accepted",
+    ...overrides,
+  };
+}
+
+function tcgdexBaseSetMapping(unitKey: string): CatalogSyncAcceptedScopeMapping {
+  return acceptedMapping({ providerKey: "tcgdex", unitKey, setId: "base1", seriesId: "base" });
+}
+
+function tcgplayerBaseSetMapping(
+  unitKey: string,
+  overrides: Partial<CatalogSyncAcceptedScopeMapping> = {},
+): CatalogSyncAcceptedScopeMapping {
+  return acceptedMapping({ providerKey: "tcgplayer", unitKey, productLineId: "3", setName: "Base Set", ...overrides });
 }
 
 function requireProfile(providerKey: string, profileKey: string): CatalogProviderIntegrationProfileVersionRecord {

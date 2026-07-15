@@ -8,7 +8,6 @@ import type {
 } from "../../../client";
 import type {
   CatalogSyncProviderParticipationPreview,
-  CatalogSyncProviderScopeHint,
   CatalogSyncScope,
 } from "../../../features/source-observations/api/catalog-sync-scope-planner";
 import type {
@@ -424,47 +423,26 @@ function catalogSyncScopeFromReadModel(
     !catalogSync.scope.productForm ||
     !catalogSync.scope.languageCode ||
     !catalogSync.scope.reference.kind ||
-    !catalogSync.scope.reference.id
+    !catalogSync.scope.reference.scopeRecordId
   ) {
     return null;
   }
 
   return {
-    scopeVersion: "catalog-sync-scope-v1",
+    scopeVersion: "catalog-sync-scope-v2",
     productDomain: catalogSync.scope.productDomain,
     productForm: catalogSync.scope.productForm,
     languageCode: catalogSync.scope.languageCode,
     reference: {
       kind: catalogSync.scope.reference.kind,
-      id: catalogSync.scope.reference.id,
-      name: catalogSync.scope.reference.name,
-      seriesId: catalogSync.scope.reference.seriesId,
-      seriesName: catalogSync.scope.reference.seriesName,
+      scopeRecordId: catalogSync.scope.reference.scopeRecordId,
     },
-    providerHints: catalogSyncProviderHintsFromReadModel(catalogSync, new Set(selectedUnitKeys)),
     providerParticipation: {
       requiredUnitKeys: [],
       selectedUnitKeys,
       excludedUnitKeys,
     },
   };
-}
-
-function catalogSyncProviderHintsFromReadModel(
-  catalogSync: CatalogPrimaryWorkbenchReadModel["catalogSync"],
-  selectedUnitKeys: ReadonlySet<string>,
-): readonly CatalogSyncProviderScopeHint[] {
-  return catalogSync.preview.units
-    .filter((unit) => unit.unitKey && selectedUnitKeys.has(unit.unitKey) && unit.childExecutionScope)
-    .map((unit) => ({
-      providerKey: unit.childExecutionScope?.provider ?? unit.providerKey,
-      unitKey: unit.unitKey as CatalogSyncProviderScopeHint["unitKey"],
-      productLineId: unit.childExecutionScope?.productLineId,
-      seriesId: unit.childExecutionScope?.seriesId,
-      setId: unit.childExecutionScope?.setId,
-      setName: unit.childExecutionScope?.setName,
-      productId: unit.childExecutionScope?.productId,
-    }));
 }
 
 function importPreviewMatchesSelectedScope(

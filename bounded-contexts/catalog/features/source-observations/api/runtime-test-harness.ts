@@ -992,6 +992,7 @@ export function createIntegrationJobDedupeHarness(
     existingJob?: Record<string, unknown>;
     recentJobs?: readonly Record<string, unknown>[];
     reapplyObservationIds?: readonly string[];
+    acceptedScopeMappings?: readonly Record<string, unknown>[];
   } = {},
 ) {
   let existingJob = input.existingJob ? { ...input.existingJob } : undefined;
@@ -1034,6 +1035,11 @@ export function createIntegrationJobDedupeHarness(
           const rows = (input.reapplyObservationIds ?? []).map((observationId) => ({
             observation_id: observationId,
           }));
+          return { rowCount: rows.length, rows: rows as T[] };
+        }
+
+        if (sql.includes("FROM catalog_provider_scope_mappings")) {
+          const rows = input.acceptedScopeMappings ?? [];
           return { rowCount: rows.length, rows: rows as T[] };
         }
 

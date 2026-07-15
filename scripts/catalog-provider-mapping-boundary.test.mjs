@@ -13,18 +13,19 @@ const executableMappingImportPattern = new RegExp(
 
 // Scope-first sync planning boundary: the functions that decide WHICH provider
 // units participate in a Catalog sync scope by default (eligibility + default
-// participation) must derive that decision purely from the canonical scope
-// descriptor (productDomain / productForm / reference.kind / unitKey shape),
-// never from a literal provider-key branch or a raw provider set-name /
-// product-line-name equality check, and never from the opt-in `providerHints`
-// escape hatch (that field stays reserved for translating an ALREADY-selected
-// provider's canonical scope into its own transport-scoped import parameters,
-// asserted separately below).
+// participation) AND the function that resolves a unit's child execution scope
+// must derive their result purely from the canonical scope descriptor
+// (productDomain / productForm / reference.kind / unitKey shape) and the
+// accepted Provider Scope Mapping — never from a literal provider-key branch, a
+// raw provider set-name / product-line-name equality check, the deleted
+// `providerHints` escape hatch, or the scope reference's raw id/name (raw-name
+// scope resolution is forbidden: coordinates come from accepted mappings only).
 const scopePlannerPath = "bounded-contexts/catalog/features/source-observations/api/catalog-sync-scope-planner.ts";
 const scopePlannerDefaultParticipationFunctionNames = [
   "unitMatchesCatalogSyncScope",
   "eligibilityBlockers",
   "unitSupportsReferenceScope",
+  "childScopeForProviderUnit",
 ];
 const providerKeyLiteralBranchPattern =
   /\.providerKey\s*(?:===|!==)\s*["'][a-z0-9-]+["']|["'][a-z0-9-]+["']\s*(?:===|!==)\s*[a-zA-Z0-9.]*\.providerKey\b/;
@@ -128,6 +129,27 @@ describe("Catalog scope-first sync-planning boundaries", () => {
     const content = readFileSync(runtimePath, "utf8");
 
     expect(content).not.toMatch(providerKeyLiteralBranchPattern);
+  });
+
+  it("forbids the deleted providerHints escape hatch and raw scope-reference name/id resolution anywhere in the planner", () => {
+    const content = readFileSync(scopePlannerPath, "utf8");
+
+    // providerHints is gone; provider coordinates come only from accepted
+    // Provider Scope Mappings keyed by the canonical scope record id.
+    expect(content).not.toContain("providerHints");
+    // A sync scope reference carries only { kind, scopeRecordId } — the planner
+    // must never fall back to a raw reference id/name/series coordinate.
+    expect(content).not.toMatch(/\.reference\.(?:id|name|seriesId|seriesName)\b/);
+  });
+
+  it("[fixture] flags raw scope-reference name/id resolution reintroduced into the planner", () => {
+    const violatingFixture = `
+      function childScopeForProviderUnit(scope, version, unitKey, mapping) {
+        return { setId: mapping?.setId ?? scope.reference.id ?? undefined };
+      }
+    `;
+
+    expect(violatingFixture).toMatch(/\.reference\.(?:id|name|seriesId|seriesName)\b/);
   });
 
   it("[fixture] flags a provider-key literal branch reintroduced into scope-eligibility resolution", () => {
