@@ -21,6 +21,8 @@ describe("sign-in page two-step journey", () => {
   it("starts with social login and one sign-in identifier field", () => {
     render(<SignInPage />);
 
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1, name: "Sign In" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Continue with Google" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Continue with Facebook" })).toBeTruthy();
     expect(screen.getByLabelText(/Email or phone/).getAttribute("autocomplete")).toBe("username");

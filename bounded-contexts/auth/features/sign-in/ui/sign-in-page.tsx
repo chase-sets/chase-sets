@@ -5,6 +5,7 @@ import {
   Banner,
   Button,
   Card,
+  Heading,
   Inline,
   LinkButton,
   PasswordInput,
@@ -209,9 +210,9 @@ export function SignInPage(
   return (
     <Stack gap={4}>
       <Stack gap={2}>
-        <Text size="lg" weight="semibold">
+        <Heading level={1} visualSize={5}>
           {t("auth.features.signIn.ui.signInPage.sign.in")}
-        </Text>
+        </Heading>
         <Text tone="secondary">{t("auth.features.signIn.ui.signInPage.use.social.email.or.phone")}</Text>
       </Stack>
 
