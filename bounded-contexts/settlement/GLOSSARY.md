@@ -50,6 +50,10 @@ Notes:
 - Allocation components are non-negative and sum exactly to the completed refund; a mismatched, over-reservation, or wrong-currency allocation is quarantined into an operator repair queue rather than charged to the seller.
 - A wrong or legacy seller debit is corrected only through the governed Wallet Adjustment mechanism (ADR 0020), append-only and correlated, never by rewriting history.
 
+## Protection Recovery
+
+A **Protection Recovery** is Settlement's immutable attribution of Inventory-reported recovered-return value to the settled platform-funded Protection Coverage for the same Remedy. It preserves gross proceeds and direct costs separately; the net amount replenishes or reduces protection-pool availability without changing the original refund or coverage settlement.
+
 ## Balance
 
 A **Balance** is the current computed financial position of an account derived from ledger entries.

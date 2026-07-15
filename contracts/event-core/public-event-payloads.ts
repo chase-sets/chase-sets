@@ -189,6 +189,56 @@ export type InventoryRestockDecisionRecordedPayload = Readonly<{
   decidedAt: string;
 }>;
 
+export type InventoryRecoveredItemDispositionPayload = Readonly<{
+  recoveredItemId: string;
+  returnShipmentId: string;
+  remedyId: string;
+  disposition:
+    | "return-to-original-seller"
+    | "return-to-buyer"
+    | "platform-resale"
+    | "liquidation"
+    | "donation"
+    | "destruction"
+    | "carrier-claim"
+    | "lost-unresolved";
+  policyVersion: string;
+  authorityKind: string | null;
+  evidenceReferences: readonly string[];
+  targetAccountId: string | null;
+  storageLocationId: string | null;
+  occurredAt: string;
+}>;
+
+export type InventoryRecoveredItemAuthenticityReviewRequestedPayload = Readonly<{
+  recoveredItemId: string;
+  returnShipmentId: string;
+  remedyId: string;
+  catalogItemId: string;
+  productId: string;
+  selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
+  policyVersion: string;
+  reasonCode: string;
+  requestedByUserId: string;
+  evidenceReferences: readonly string[];
+  requestedAt: string;
+}>;
+
+export type InventoryRecoveredItemValueReportedPayload = Readonly<{
+  factSchemaVersion: 1;
+  recoveredItemId: string;
+  returnShipmentId: string;
+  remedyId: string;
+  recoveryId: string;
+  recoveryType: "resale-proceeds" | "liquidation-proceeds" | "carrier-claim" | "postage-refund" | "disposition-cost";
+  grossAmount: string;
+  costAmount: string;
+  currencyCode: string;
+  policyVersion: string;
+  evidenceReferences: readonly string[];
+  recordedAt: string;
+}>;
+
 export type InventoryEventPayloads = Readonly<{
   "inventory.item.adjusted": InventoryItemAdjustedPayload;
   "inventory.hold.placed": InventoryHoldPlacedPayload;
@@ -202,6 +252,11 @@ export type InventoryEventPayloads = Readonly<{
   "inventory.reservation.released": InventoryReservationReleasedPayload;
   "inventory.restock-decision.pending": InventoryRestockDecisionPendingPayload;
   "inventory.restock-decision.recorded": InventoryRestockDecisionRecordedPayload;
+  "inventory.recovered-item.authenticity-review-required.v1": InventoryRecoveredItemAuthenticityReviewRequestedPayload;
+  "inventory.recovered-item.sellable.v1": InventoryRecoveredItemDispositionPayload;
+  "inventory.recovered-item.transferred.v1": InventoryRecoveredItemDispositionPayload;
+  "inventory.recovered-item.disposed.v1": InventoryRecoveredItemDispositionPayload;
+  "inventory.recovered-item.value-reported.v1": InventoryRecoveredItemValueReportedPayload;
 }>;
 
 export type OrderingReservationRequestPayload = Readonly<{
@@ -657,6 +712,24 @@ export type SettlementNegativeBalanceRecoveredPayload = Readonly<{
   recoveredAt: string;
 }>;
 
+export type SettlementProtectionCoverageRecoveryPostedPayload = Readonly<{
+  factSchemaVersion: 1;
+  recoveryId: string;
+  coverageId: string;
+  remedyId: string;
+  recoveredItemId: string;
+  returnShipmentId: string;
+  recoveryType: InventoryRecoveredItemValueReportedPayload["recoveryType"];
+  grossAmount: string;
+  costAmount: string;
+  netAmount: string;
+  currencyCode: string;
+  policyVersion: string;
+  evidenceReferences: readonly string[];
+  causationId: string | null;
+  occurredAt: string;
+}>;
+
 export type SettlementEventPayloads = Readonly<{
   "settlement.payout-readiness.recorded": PayoutReadinessRecordedPayload;
   "settlement.wallet.negative-balance-entered": SettlementNegativeBalanceEnteredPayload;
@@ -666,6 +739,7 @@ export type SettlementEventPayloads = Readonly<{
   "settlement.protection-coverage.reserved.v1": ProtectionCoverageReservedV1Payload;
   "settlement.protection-coverage.rejected.v1": ProtectionCoverageRejectedV1Payload;
   "settlement.protection-coverage.settled.v1": ProtectionCoverageSettledV1Payload;
+  "settlement.protection-coverage.recovery-posted.v1": SettlementProtectionCoverageRecoveryPostedPayload;
 }>;
 
 /**

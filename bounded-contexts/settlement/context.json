@@ -87,6 +87,15 @@
       "projectionHandlerSetNames": ["settlement-fulfillment-source-projection"]
     },
     {
+      "sourceContextName": "inventory",
+      "projectionName": "settlement-inventory-recovery-workflow",
+      "subscriptionVersion": 1,
+      "sourceContextMount": "when-mounted",
+      "eventTypes": ["inventory.recovered-item.value-reported.v1"],
+      "order": 61,
+      "projectionHandlerSetNames": ["settlement-inventory-recovery-workflow"]
+    },
+    {
       "sourceContextName": "identity",
       "projectionName": "settlement-account-risk-source-projection",
       "subscriptionVersion": 1,
@@ -160,6 +169,15 @@
       "resetStrategy": "replay-only"
     },
     {
+      "projectionName": "settlement-inventory-recovery-workflow",
+      "sourceContextNames": ["inventory"],
+      "optionalSourceContextNames": ["inventory"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only",
+      "sideEffectOnly": true
+    },
+    {
       "projectionName": "settlement-fulfillment-source-projection",
       "sourceContextNames": ["fulfillment"],
       "ownedTables": ["settlement_order_fulfillment_sources"],
@@ -183,6 +201,17 @@
       "projectionName": "settlement-payout-projection",
       "sourceContextNames": ["settlement"],
       "ownedTables": ["settlement_payout_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "settlement-protection-coverage-projection",
+      "sourceContextNames": ["settlement"],
+      "ownedTables": [
+        "settlement_protection_coverage",
+        "settlement_protection_coverage_rejections",
+        "settlement_protection_coverage_recoveries"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },

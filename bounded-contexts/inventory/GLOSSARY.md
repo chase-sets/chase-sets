@@ -153,6 +153,22 @@ Notes:
 
 **Acquisition Cost** is the seller's recorded cost to acquire stock in inventory.
 
+## Recovered Item
+
+A **Recovered Item** is a physical return in platform custody after Fulfillment completes facility intake. It remains distinct from ordinary available Inventory stock until Inventory proves identity, condition, authority, and any required authenticity outcome.
+
+## Disposition Authority
+
+**Disposition Authority** is the evidence-backed policy decision that records a recovered item's legal owner, the allowed actions, policy version, acting operator, and authority basis. It is required before Inventory returns, resells, liquidates, donates, destroys, or submits a carrier claim for an item.
+
+## Recovered Item Disposition
+
+A **Recovered Item Disposition** is Inventory's append-only decision to return an item to its original seller or buyer, approve platform resale, liquidate, donate, destroy, submit a carrier claim, or record it as lost or unresolved.
+
+## Recovered Value
+
+**Recovered Value** preserves gross proceeds and direct costs separately for resale, liquidation, carrier claims, postage refunds, and disposition costs. Settlement attributes the net result to the original platform-funded Protection Coverage without rewriting the buyer refund.
+
 ## Planned Store, Location, And Channel Inventory
 
 These planned terms pre-register upcoming store, multi-location, and channel inventory language. They are not shipped behavior until Inventory adds the corresponding aggregates, events, imports, exports, and read models.

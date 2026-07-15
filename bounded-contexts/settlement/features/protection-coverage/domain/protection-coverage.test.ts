@@ -9,6 +9,7 @@ import {
   type ProtectionCoverageCommand,
   type ProtectionCoverageEvent,
   type ProtectionReserveState,
+  type RecordProtectionRecoveryCommand,
   type ReleaseProtectionCoverageCommand,
   type ReserveProtectionCoverageCommand,
   type SettleProtectionCoverageCommand,
@@ -80,6 +81,26 @@ function expireCommand(overrides: Partial<ExpireProtectionCoverageCommand> = {})
     causationId: null,
     deadline: "2026-07-21T00:00:00.000Z",
     occurredAt: "2026-07-21T00:00:01.000Z",
+    ...overrides,
+  };
+}
+
+function recoveryCommand(overrides: Partial<RecordProtectionRecoveryCommand> = {}): RecordProtectionRecoveryCommand {
+  return {
+    type: "RecordProtectionRecovery",
+    coverageId: "cov_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+    remedyId: "rmd_01JZ6DKP7S7Z4AZ5N5E6K7M8NA",
+    recoveredItemId: "rcv_1",
+    returnShipmentId: "rsh_1",
+    recoveryId: "recovery-1",
+    recoveryType: "carrier-claim",
+    grossAmount: "42.00",
+    costAmount: "5.25",
+    currencyCode: "usd",
+    policyVersion: "coverage-policy-2026-07",
+    evidenceReferences: ["claim-1"],
+    causationId: "evt-value-reported",
+    occurredAt: "2026-07-15T00:00:00.000Z",
     ...overrides,
   };
 }
@@ -285,5 +306,41 @@ describe("protection coverage — replay and stream identity", () => {
   it("scopes the pool stream by currency", () => {
     expect(protectionReserveStreamId("usd")).toBe("settlement.protection-reserve-usd");
     expect(protectionReserveStreamId("USD")).toBe("settlement.protection-reserve-usd");
+  });
+});
+
+describe("protection coverage — recovered value", () => {
+  const settled = apply(apply(initialProtectionReserveState, reserveCommand()), settleCommand());
+
+  it("posts gross and cost against settled coverage and replenishes net pool availability", () => {
+    const events = decide(settled, recoveryCommand());
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "settlement.protection-coverage.recovery-posted.v1",
+      data: {
+        grossAmount: "42.00",
+        costAmount: "5.25",
+        netAmount: "36.75",
+        coverageId: "cov_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+      },
+    });
+
+    const recovered = apply(settled, recoveryCommand());
+    expect(recovered.recoveredGrossAmount).toBe("42.00");
+    expect(recovered.recoveryCostAmount).toBe("5.25");
+    expect(recovered.recoveredNetAmount).toBe("36.75");
+    expect(availableProtectionAmount("100.00", recovered)).toBe("96.75");
+  });
+
+  it("is idempotent by recovery id and rejects semantic reuse", () => {
+    const recovered = apply(settled, recoveryCommand());
+    expect(decide(recovered, recoveryCommand())).toEqual([]);
+    expect(() => decide(recovered, recoveryCommand({ grossAmount: "43.00" }))).toThrow(/Recovery id was reused/);
+  });
+
+  it("rejects value before coverage settles or for a different remedy", () => {
+    const reserved = apply(initialProtectionReserveState, reserveCommand());
+    expect(() => decide(reserved, recoveryCommand())).toThrow(/settled coverage/);
+    expect(() => decide(settled, recoveryCommand({ remedyId: "rmd_other" }))).toThrow(/originating remedy/);
   });
 });

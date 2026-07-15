@@ -7,6 +7,7 @@ import { inventoryImportBatchRoutes } from "./features/import-batches/api/route"
 import { inventoryItemRoutes } from "./features/inventory-items/api/route";
 import { inventoryRestockDecisionRoutes } from "./features/restock-decisions/api/route";
 import { inventoryStorageLocationRoutes } from "./features/storage-locations/api/route";
+import { inventoryRecoveredItemRoutes } from "./features/recovered-items/api/route";
 
 export type InventoryActor = Readonly<{
   accountId: string;
@@ -21,6 +22,11 @@ export type InventoryApiEnv = {
 };
 
 function requiredPermissionForMethod(method: string, path: string) {
+  if (path.includes("/recovered-items")) {
+    return method.toUpperCase() === "GET" || method.toUpperCase() === "HEAD"
+      ? "recovered-inventory.view"
+      : "recovered-inventory.manage";
+  }
   if (method.toUpperCase() === "POST" && path.includes("/checkout-reservations")) {
     return "orders.manage";
   }
@@ -75,6 +81,7 @@ export function buildInventoryApi(services: InventoryServices) {
   app.route("/import-batches", inventoryImportBatchRoutes(services.importBatches));
   app.route("/items", inventoryItemRoutes(services.items, services.holds));
   app.route("/restock-decisions", inventoryRestockDecisionRoutes(services.restockDecisions));
+  app.route("/recovered-items", inventoryRecoveredItemRoutes(services.recoveredItems));
   app.route("/holds", inventoryHoldRoutes(services.holds));
   app.route("/checkout-reservations", inventoryCheckoutReservationRoutes(services.holds));
 

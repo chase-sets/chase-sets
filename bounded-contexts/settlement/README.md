@@ -16,6 +16,7 @@ Settlement owns internal financial truth for marketplace balances and payouts.
 - Payout batches
 - Statements and settlement summaries
 - Financial reconciliation against Payments
+- Recovered-return value attribution to platform-funded protection coverage
 
 ## Does Not Own
 
@@ -52,6 +53,7 @@ Account-money navigation and Wallet/Payouts placement are documented in [Account
 - `PayoutRequested`
 - `PayoutCompleted`
 - `StatementPublished`
+- `settlement.protection-coverage.recovery-posted.v1`
 
 ## Invariants
 
@@ -59,6 +61,7 @@ Account-money navigation and Wallet/Payouts placement are documented in [Account
 2. Every balance change must be explainable by ledger entries.
 3. Payouts are issued only after eligibility and payout-release rules are satisfied.
 4. Settlement reconciles against Payments but does not own payment processor state.
+5. Recovered value is posted as an immutable gross-and-cost fact and never rewrites a refund or prior protection settlement.
 
 ## Tests
 
@@ -81,16 +84,20 @@ in [ADR 0022: Platform-Covered Resolution Ownership and Contracts](../../docs/ad
 wallet adjustment remains a correction-only path per
 [ADR 0020](../../docs/adr/0020-wallet-adjustment-authority-and-balance-types.md).
 
+Inventory-reported recovered value is correlated by `remedyId` to the settled coverage. Settlement preserves gross proceeds and direct costs, posts net recovery back to protection-pool availability, and publishes an immutable recovery fact. This accounting boundary is ratified in [ADR 0024: Recovered Return Inventory And Protection Recovery](../../docs/adr/0024-recovered-return-inventory-and-value.md).
+
 - **Publishes** — `settlement.protection-coverage.reserved.v1`,
   `settlement.protection-coverage.rejected.v1`,
-  `settlement.protection-coverage.settled.v1`.
+  `settlement.protection-coverage.settled.v1`,
+  `settlement.protection-coverage.recovery-posted.v1`.
 - **Consumes** — `support.support-request.platform-coverage-requested.v1`,
   `support.support-request.refund-released.v1`, and Payments' refund completion fact,
-  correlated by `remedyId`/`coverageId`.
+  correlated by `remedyId`/`coverageId`, plus
+  `inventory.recovered-item.value-reported.v1` correlated by `remedyId`.
 
 The reservation aggregate and read models are implemented in
 `features/protection-coverage` (#5214). Availability is
-`funded − outstanding-reserved − consumed`; the funded ceiling stays owned by the
+`funded − outstanding-reserved − consumed + net recovered value`; the funded ceiling stays owned by the
 contribution read model (`settlement_protection_reserve_facts`) and is never turned
 into a transactional aggregate. Every reservation, settlement, and release for a
 currency folds into a single pool stream (`settlement.protection-reserve-{currency}`),

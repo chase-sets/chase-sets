@@ -183,6 +183,43 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
             },
           };
         },
+        "fulfillment.inventory-fulfillment-recovered-item-workflow": () => ({
+          "fulfillment.return-shipment.facility-intake-completed.v1": async (
+            event: Parameters<BcEventSubscriptionHandler>[0],
+          ) => {
+            const data = event.data as {
+              returnShipmentId: string;
+              remedyId: string;
+              intake: {
+                facilityId: string;
+                stationId: string;
+                custodyIdentifier: string;
+                receivedAt: string;
+                disposition: "completed" | "quarantine" | "manual-review";
+                evidence: readonly { attachmentId: string }[];
+                discrepancies: readonly { type: string; observedItemReference: string | null }[];
+              };
+              metadata: { policyVersion: string };
+            };
+            await services.recoveredItems.createFromFacilityIntake(
+              {
+                returnShipmentId: data.returnShipmentId,
+                remedyId: data.remedyId,
+                facilityId: data.intake.facilityId,
+                stationId: data.intake.stationId,
+                custodyIdentifier: data.intake.custodyIdentifier,
+                evidenceReferences: data.intake.evidence.map((attachment) => attachment.attachmentId),
+                intakeDisposition: data.intake.disposition,
+                hasDiscrepancy: data.intake.discrepancies.some((entry) => entry.type !== "expected"),
+                observedItemReference:
+                  data.intake.discrepancies.find((entry) => entry.observedItemReference)?.observedItemReference ?? null,
+                policyVersion: data.metadata.policyVersion,
+                receivedAt: data.intake.receivedAt,
+              },
+              { tenantId: event.tenantId, audit: event.audit, trace: event.trace },
+            );
+          },
+        }),
       },
     }),
   seed: seedInventoryDatabase,

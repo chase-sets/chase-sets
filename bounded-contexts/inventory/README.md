@@ -21,6 +21,7 @@ If an item uses a `condition` dimension, that condition is chosen through the se
 - Storage locations and their ship-from location mapping
 - Hold state
 - Bulk stock import workflows
+- Recovered return custody, identification, disposition, and value evidence
 
 ## Does Not Own
 
@@ -55,6 +56,11 @@ CSV import row formats and examples are documented in [Inventory CSV Import Exam
 - `InventoryHeld`
 - `InventoryReleased`
 - `InventoryItemAdjusted`
+- `inventory.recovered-item.authenticity-review-required.v1`
+- `inventory.recovered-item.sellable.v1`
+- `inventory.recovered-item.transferred.v1`
+- `inventory.recovered-item.disposed.v1`
+- `inventory.recovered-item.value-reported.v1`
 
 ## Invariants
 
@@ -66,6 +72,12 @@ CSV import row formats and examples are documented in [Inventory CSV Import Exam
 6. A listing can only be created from inventory that is available for sale.
 7. Reserved stock must preserve the ship-from location derived from its storage location so downstream shipping prices can use a single shipment origin.
 8. Platform import rows must resolve to Catalog-owned Product identity before they create inventory or draft listings.
+9. Facility intake creates quarantined recovered stock, never ordinary available stock.
+10. A recovered item can become sellable only after identity, inspection, explicit disposition authority, and every policy-required authenticity review are complete.
+
+## Recovered Returns
+
+Inventory consumes Fulfillment's facility-intake fact and creates one deterministic, event-sourced Recovered Item per Return Shipment. Inventory owns the custody audit, duplicate correction and merge workflow, legal-owner and disposition authority evidence, operator queue, terminal disposition, and separate gross recovery and disposition-cost facts. Settlement owns the financial attribution of those value facts. The ownership and policy boundary is ratified in [ADR 0024: Recovered Return Inventory And Protection Recovery](../../docs/adr/0024-recovered-return-inventory-and-value.md).
 
 ## Tests
 

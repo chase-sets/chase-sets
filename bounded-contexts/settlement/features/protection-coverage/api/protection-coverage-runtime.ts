@@ -81,6 +81,22 @@ export type ExpireProtectionCoverageInput = Readonly<{
   occurredAt?: string;
 }>;
 
+export type RecordProtectionRecoveryInput = Readonly<{
+  coverageId: string;
+  remedyId: string;
+  recoveredItemId: string;
+  returnShipmentId: string;
+  recoveryId: string;
+  recoveryType: "resale-proceeds" | "liquidation-proceeds" | "carrier-claim" | "postage-refund" | "disposition-cost";
+  grossAmount: string;
+  costAmount: string;
+  currencyCode: string;
+  policyVersion: string;
+  evidenceReferences: readonly string[];
+  causationId?: string | null;
+  occurredAt?: string;
+}>;
+
 export type ReserveProtectionCoverageResult = Readonly<{
   outcome: "reserved" | "rejected" | "already-reserved";
   coverageId: string;
@@ -109,6 +125,10 @@ export type ProtectionCoverageServices = Readonly<{
   ) => Promise<TerminalProtectionCoverageResult>;
   expire: (
     input: ExpireProtectionCoverageInput,
+    context: EventStoreContext,
+  ) => Promise<TerminalProtectionCoverageResult>;
+  recordRecovery: (
+    input: RecordProtectionRecoveryInput,
     context: EventStoreContext,
   ) => Promise<TerminalProtectionCoverageResult>;
   getPoolBalance: () => Promise<string>;
@@ -153,6 +173,7 @@ export function createProtectionCoverageRuntime(deps: ProtectionCoverageRuntimeD
       | "protection-coverage-settled"
       | "protection-coverage-released"
       | "protection-coverage-expired"
+      | "protection-coverage-recovery-posted"
       | "protection-coverage-concurrency-conflict"
       | "protection-coverage-idempotent-retry",
     fields: Readonly<{ amount?: string; safeCategory?: string | null }> = {},
@@ -341,6 +362,45 @@ export function createProtectionCoverageRuntime(deps: ProtectionCoverageRuntimeD
     return { outcome: "applied", coverageId: input.coverageId };
   }
 
+  async function recordRecovery(
+    input: RecordProtectionRecoveryInput,
+    context: EventStoreContext,
+  ): Promise<TerminalProtectionCoverageResult> {
+    const streamId = protectionReserveStreamId(input.currencyCode);
+    const { newEvents } = await runCommand(
+      streamId,
+      async () => ({
+        type: "RecordProtectionRecovery",
+        coverageId: input.coverageId,
+        remedyId: input.remedyId,
+        recoveredItemId: input.recoveredItemId,
+        returnShipmentId: input.returnShipmentId,
+        recoveryId: input.recoveryId,
+        recoveryType: input.recoveryType,
+        grossAmount: input.grossAmount,
+        costAmount: input.costAmount,
+        currencyCode: input.currencyCode,
+        policyVersion: input.policyVersion,
+        evidenceReferences: input.evidenceReferences,
+        causationId: input.causationId ?? null,
+        occurredAt: input.occurredAt ?? new Date().toISOString(),
+      }),
+      context,
+    );
+    if (newEvents.length === 0) {
+      recordSignal("protection-coverage-idempotent-retry");
+      return { outcome: "noop", coverageId: input.coverageId };
+    }
+    recordSignal("protection-coverage-recovery-posted", {
+      amount:
+        newEvents[0]?.type === "settlement.protection-coverage.recovery-posted.v1"
+          ? newEvents[0].data.netAmount
+          : undefined,
+      safeCategory: input.recoveryType,
+    });
+    return { outcome: "applied", coverageId: input.coverageId };
+  }
+
   const queries = buildQueries(deps.db);
 
   return {
@@ -348,6 +408,7 @@ export function createProtectionCoverageRuntime(deps: ProtectionCoverageRuntimeD
     settle,
     release,
     expire,
+    recordRecovery,
     getPoolBalance: () => getProtectionReservePoolBalance(deps.db),
     getAvailability: queries.getAvailability,
     getCoverage: queries.getCoverage,

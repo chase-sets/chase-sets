@@ -186,6 +186,7 @@ const adminContextRouteSuiteOwnership = new Map([
   ["discovery", ["admin_growth"]],
   ["identity", ["admin_access"]],
   ["fulfillment", ["admin_commerce"]],
+  ["inventory", ["admin_commerce"]],
   ["ordering", ["admin_commerce"]],
   ["platform-operations", ["admin_support", "admin_platform"]],
   ["public-presence", ["admin_growth"]],
@@ -324,6 +325,10 @@ const boundedContextRouteSuiteOwnership = [
   },
   {
     pattern: /^bounded-contexts\/ordering\/features\/postage-policies\/(?:api|ui)\//,
+    suites: ["admin_commerce"],
+  },
+  {
+    pattern: /^bounded-contexts\/inventory\/features\/recovered-items\/(?:api|ui)\//,
     suites: ["admin_commerce"],
   },
   {

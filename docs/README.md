@@ -200,6 +200,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0021: Customer Feedback Bounded Context And Versioned CSAT Contract](./adr/0021-customer-feedback-bounded-context-and-csat-contract.md)
 - [ADR 0022: Platform-Covered Resolution Ownership And Contracts](./adr/0022-platform-covered-resolution-contracts.md)
 - [ADR 0023: ReturnShipment Aggregate And Platform Return-Facility Directory](./adr/0023-return-shipment-aggregate.md)
+- [ADR 0024: Recovered Return Inventory And Protection Recovery](./adr/0024-recovered-return-inventory-and-value.md)
 
 ## Generated Markdown
 
