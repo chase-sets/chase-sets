@@ -72,6 +72,38 @@ describe("deployment contract preflight", () => {
     expect(staging.databaseUrlKeys.required).toEqual(production.databaseUrlKeys.required);
   });
 
+  it("uses strict workflow fallbacks when environment contract variables are absent", () => {
+    const emptyEnvironmentVariables = {
+      bootstrapOwnerOverride: "",
+      productionRuntimeProfileOverride: "",
+      productionMarketplacePublicEnabled: "",
+      argoRolloutsEnabled: "",
+      appPlatformLane: "",
+    };
+    const staging = renderWorkflowDeploymentContract({
+      ...emptyEnvironmentVariables,
+      environment: "staging",
+    });
+    const production = renderWorkflowDeploymentContract({
+      ...emptyEnvironmentVariables,
+      environment: "production",
+    });
+
+    expect(staging).toMatchObject({
+      bootstrapOwner: "doks",
+      bootstrapOwnerSource: "workflow-fallback",
+      rolloutMode: "doks-helm",
+      pass: true,
+    });
+    expect(production).toMatchObject({
+      runtimeProfile: "landing",
+      bootstrapOwner: "doks",
+      bootstrapOwnerSource: "workflow-fallback",
+      rolloutMode: "doks-helm",
+      pass: true,
+    });
+  });
+
   it("detects a removed production owner mapping before deployment", () => {
     const ownerMapping = "      TF_VAR_platform_bootstrap_owner: ${{ vars.PLATFORM_BOOTSTRAP_OWNER || 'doks' }}\n";
     const originalWorkflow = readFileSync(workflowPath, "utf8");
@@ -124,28 +156,33 @@ describe("deployment contract preflight", () => {
     expect(performance.now() - startedAt).toBeLessThan(60_000);
   });
 
-  it("runs both effective preflights in Resolve Release before build or staging mutation", () => {
+  it("runs both effective preflights with native environment variables before build or staging mutation", () => {
     const workflow = readFileSync(workflowPath, "utf8");
     const resolveRelease = workflowJob(workflow, "resolve-release");
+    const preflight = workflowJob(workflow, "deployment-contract-preflight");
+    const buildImage = workflowJob(workflow, "build-image");
+    const incidentNotifier = workflowJob(workflow, "notify-production-deploy-incident");
     const buildImageIndex = workflow.indexOf("  build-image:");
     const stagingMutationIndex = workflow.indexOf("- name: Terraform apply staging environment DNS");
-    const stagingPreflightIndex = workflow.indexOf("- name: Preflight staging deployment contract");
-    const productionPreflightIndex = workflow.indexOf("- name: Preflight production deployment contract");
 
-    expect(resolveRelease).toContain("repos/${{ github.repository }}/environments/staging/variables?per_page=100");
-    expect(resolveRelease).toContain("repos/${{ github.repository }}/environments/production/variables?per_page=100");
-    expect(resolveRelease).toContain('git show "${{ steps.release.outputs.release_commit }}:${source_path}"');
-    expect(resolveRelease).toContain('--root-dir "${{ steps.deployment_contract_inputs.outputs.contract_root }}"');
-    expect(resolveRelease).toContain("--environment staging");
-    expect(resolveRelease).toContain("--environment production");
-    expect(resolveRelease).toContain('--github-summary "$GITHUB_STEP_SUMMARY"');
-    expect(resolveRelease).toContain("name: deployment-contract-preflight");
-    expect(resolveRelease).toContain("Enforce deployment contract preflight");
-    expect(resolveRelease).not.toContain("secrets.");
-    expect(stagingPreflightIndex).toBeGreaterThan(-1);
-    expect(productionPreflightIndex).toBeGreaterThan(stagingPreflightIndex);
-    expect(productionPreflightIndex).toBeLessThan(buildImageIndex);
-    expect(productionPreflightIndex).toBeLessThan(stagingMutationIndex);
+    expect(resolveRelease).not.toContain("/actions/variables");
+    expect(preflight).toContain("if: needs.resolve-release.outputs.deployment_required == 'true'");
+    expect(preflight).toContain("environment: ${{ matrix.environment }}");
+    expect(preflight).toContain("environment: staging");
+    expect(preflight).toContain("environment: production");
+    expect(preflight).toContain("ARGO_ROLLOUTS_ENABLED: ${{ vars[matrix.argo_rollouts_variable] || '' }}");
+    expect(preflight).toContain("PLATFORM_BOOTSTRAP_OWNER: ${{ vars.PLATFORM_BOOTSTRAP_OWNER || '' }}");
+    expect(preflight).toContain('git show "${{ needs.resolve-release.outputs.release_commit }}:${source_path}"');
+    expect(preflight).toContain('--root-dir "${{ steps.deployment_contract_inputs.outputs.contract_root }}"');
+    expect(preflight).toContain('--environment "${{ matrix.environment }}"');
+    expect(preflight).toContain('--github-summary "$GITHUB_STEP_SUMMARY"');
+    expect(preflight).toContain("Enforce deployment contract preflight");
+    expect(preflight).not.toContain("gh api");
+    expect(preflight).not.toContain("secrets.");
+    expect(buildImage).toContain("- deployment-contract-preflight");
+    expect(incidentNotifier).toContain("- deployment-contract-preflight");
+    expect(workflow.indexOf("  deployment-contract-preflight:")).toBeLessThan(buildImageIndex);
+    expect(buildImageIndex).toBeLessThan(stagingMutationIndex);
   });
 });
 
