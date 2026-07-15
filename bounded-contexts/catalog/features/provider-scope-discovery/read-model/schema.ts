@@ -21,6 +21,14 @@ const catalogProviderScopeObservationTableSql = `CREATE TABLE IF NOT EXISTS cata
     CHECK (scope_kind IN ('language', 'product-line', 'series', 'expansion', 'set'))
 );`;
 
+// The v2 ledgered migration rebuilds this re-fetchable cache, but additive boot
+// SQL runs first. These fast-default columns let the v2 indexes compile against
+// the deployed v1 table so bootstrap can reach that migration.
+const catalogProviderScopeObservationCompatibilitySql = `ALTER TABLE catalog_provider_scope_observations
+  ADD COLUMN IF NOT EXISTS unit_key text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS scope_kind text NOT NULL DEFAULT 'set',
+  ADD COLUMN IF NOT EXISTS observation_hash text NOT NULL DEFAULT '';`;
+
 const catalogProviderScopeObservationIndexesSql = `CREATE INDEX IF NOT EXISTS catalog_provider_scope_observations_scan_idx
   ON catalog_provider_scope_observations (scan_id);
 
@@ -32,6 +40,7 @@ CREATE INDEX IF NOT EXISTS catalog_provider_scope_observations_hash_idx
 
 const catalogProviderScopeObservationSchemaSql = [
   catalogProviderScopeObservationTableSql,
+  catalogProviderScopeObservationCompatibilitySql,
   catalogProviderScopeObservationIndexesSql,
 ].join("\n\n");
 
