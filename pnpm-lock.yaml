@@ -526,6 +526,9 @@ importers:
       '@chase-sets/notification-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/notification-outbox
+      '@chase-sets/object-storage':
+        specifier: workspace:*
+        version: link:../../infrastructure/object-storage
       '@chase-sets/outbound-messaging':
         specifier: workspace:*
         version: link:../../contracts/outbound-messaging

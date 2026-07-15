@@ -7,6 +7,8 @@ export type {
   FulfillmentPackingSlipFormat,
   FulfillmentShipmentDetail,
   FulfillmentShipmentListItem,
+  FulfillmentReturnIntakeQueue,
+  FulfillmentReturnIntakeResolution,
 } from "../../client";
 import { createFulfillmentApiClient } from "../../client";
 

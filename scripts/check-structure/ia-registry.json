@@ -201,6 +201,13 @@
     {
       "deployable": "admin-web",
       "section": "commerce",
+      "family": "return-intake",
+      "owningContext": "fulfillment",
+      "purpose": "Facility return-intake and custody operations (fulfillment)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "commerce",
       "family": "terms",
       "owningContext": "commercial-terms",
       "purpose": "Operator commercial-terms authoring surface (commercial-terms)."

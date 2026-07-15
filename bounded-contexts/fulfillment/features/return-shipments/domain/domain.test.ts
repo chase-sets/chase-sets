@@ -8,6 +8,7 @@ import {
   type ReturnShipmentFactMetadata,
   type ReturnShipmentState,
   type RequestReturnShipmentCommand,
+  type ReturnShipmentFacilityIntake,
 } from "./domain";
 import { createReturnFacilityDirectory, selectReturnFacility } from "./facility-directory";
 
@@ -134,6 +135,46 @@ function readyState(): ReturnShipmentState {
   });
 }
 
+function facilityIntake(overrides: Partial<ReturnShipmentFacilityIntake> = {}): ReturnShipmentFacilityIntake {
+  return {
+    facilityId: "fac_east",
+    stationId: "station-7",
+    operatorUserId: "usr_operator",
+    receivedAt: "2026-06-06T00:00:00.000Z",
+    packageCondition: "intact",
+    sealCondition: "intact",
+    measuredWeightOunces: 10.2,
+    evidence: [
+      {
+        attachmentId: "rie_1",
+        storageKey: "return-intake/fac_east/rie_1/evidence.jpg",
+        contentType: "image/jpeg",
+        byteSize: 1200,
+        sha256: "a".repeat(64),
+        uploadedAt: "2026-06-05T23:59:00.000Z",
+        retentionUntil: "2027-06-05T23:59:00.000Z",
+        securityScanStatus: "clean",
+      },
+    ],
+    discrepancies: [
+      {
+        type: "expected",
+        expectedItemReference: "line-1",
+        observedItemReference: "line-1",
+        quantity: 1,
+        notes: null,
+        evidenceAttachmentIds: ["rie_1"],
+        owner: "Fulfillment",
+        nextAction: "Complete custody handoff",
+      },
+    ],
+    disposition: "completed",
+    custodyIdentifier: "CUST-1001",
+    idempotencyKey: "intake-1",
+    ...overrides,
+  };
+}
+
 describe("ReturnShipment aggregate", () => {
   it("requests a reverse shipment and snapshots the destination", () => {
     const state = requestedState();
@@ -214,9 +255,9 @@ describe("ReturnShipment aggregate", () => {
     expect(state.deliveredAt).toBe("2026-06-05T00:00:00.000Z");
     expect(state.receivedAt).toBeNull();
     state = apply(state, {
-      type: "RecordReturnShipmentReceived",
+      type: "CompleteReturnShipmentFacilityIntake",
       metadata: milestoneMeta,
-      receivedAt: "2026-06-06T00:00:00.000Z",
+      intake: facilityIntake(),
     });
     expect(state.status).toBe("received");
     expect(state.deliveredAt).toBe("2026-06-05T00:00:00.000Z");
@@ -290,9 +331,9 @@ describe("ReturnShipment aggregate", () => {
       occurredAt: "2026-06-06T00:00:00.000Z",
     });
     state = apply(state, {
-      type: "RecordReturnShipmentReceived",
+      type: "CompleteReturnShipmentFacilityIntake",
       metadata: milestoneMeta,
-      receivedAt: "2026-06-07T00:00:00.000Z",
+      intake: facilityIntake({ receivedAt: "2026-06-07T00:00:00.000Z" }),
     });
     expect(state.currentExceptionType).toBeNull();
   });
@@ -314,6 +355,111 @@ describe("ReturnShipment aggregate", () => {
         cancelledAt: "2026-06-03T00:00:00.000Z",
       }),
     ).toEqual([]);
+  });
+
+  it("requires custody evidence and routes discrepancies away from normal completion", () => {
+    expect(() =>
+      decideReturnShipment(requestedState(), {
+        type: "CompleteReturnShipmentFacilityIntake",
+        metadata: milestoneMeta,
+        intake: facilityIntake({ evidence: [] }),
+      }),
+    ).toThrow("custody evidence");
+
+    expect(() =>
+      decideReturnShipment(requestedState(), {
+        type: "CompleteReturnShipmentFacilityIntake",
+        metadata: milestoneMeta,
+        intake: facilityIntake({
+          discrepancies: [
+            {
+              type: "damaged",
+              expectedItemReference: "line-1",
+              observedItemReference: "line-1",
+              quantity: 1,
+              notes: "creased",
+              evidenceAttachmentIds: ["rie_1"],
+              owner: "Manual review",
+              nextAction: "Inspect damage",
+            },
+          ],
+          disposition: "completed",
+        }),
+      }),
+    ).toThrow("quarantine or manual review");
+  });
+
+  it("rejects wrong-facility intake and records a duplicate scan without a second completion", () => {
+    expect(() =>
+      decideReturnShipment(requestedState(), {
+        type: "CompleteReturnShipmentFacilityIntake",
+        metadata: milestoneMeta,
+        intake: facilityIntake({ facilityId: "fac_west" }),
+      }),
+    ).toThrow("different facility");
+
+    const completed = apply(requestedState(), {
+      type: "CompleteReturnShipmentFacilityIntake",
+      metadata: milestoneMeta,
+      intake: facilityIntake(),
+    });
+    const duplicateEvents = decideReturnShipment(completed, {
+      type: "CompleteReturnShipmentFacilityIntake",
+      metadata: milestoneMeta,
+      intake: facilityIntake({ idempotencyKey: "intake-duplicate" }),
+    });
+    expect(duplicateEvents.map((event) => event.type)).toEqual([
+      "fulfillment.return-shipment.duplicate-intake-scan-observed.v1",
+    ]);
+    const afterDuplicate = fold(duplicateEvents, completed);
+    expect(afterDuplicate.receivedAt).toBe(completed.receivedAt);
+    expect(afterDuplicate.duplicateIntakeScanCount).toBe(1);
+  });
+
+  it("records intake corrections append-only with a reason", () => {
+    const completed = apply(requestedState(), {
+      type: "CompleteReturnShipmentFacilityIntake",
+      metadata: milestoneMeta,
+      intake: facilityIntake(),
+    });
+    const corrected = apply(completed, {
+      type: "CorrectReturnShipmentFacilityIntake",
+      metadata: milestoneMeta,
+      correction: {
+        correctionId: "ric_1",
+        reason: "Custody label reprinted after printer failure",
+        correctedByUserId: "usr_supervisor",
+        correctedAt: "2026-06-06T00:05:00.000Z",
+        owner: null,
+        nextAction: null,
+        custodyIdentifier: "CUST-1001-R",
+      },
+    });
+    expect(corrected.intakeCorrections).toHaveLength(1);
+    expect(corrected.facilityIntake?.custodyIdentifier).toBe("CUST-1001-R");
+    expect(completed.facilityIntake?.custodyIdentifier).toBe("CUST-1001");
+  });
+
+  it("records physical custody after cancellation and routes the late package for review", () => {
+    const cancelled = apply(requestedState(), {
+      type: "CancelReturnShipment",
+      reason: "Support case resolved before shipment",
+      metadata: milestoneMeta,
+      cancelledAt: "2026-06-04T00:00:00.000Z",
+    });
+    const events = decideReturnShipment(cancelled, {
+      type: "CompleteReturnShipmentFacilityIntake",
+      metadata: milestoneMeta,
+      intake: facilityIntake({ disposition: "manual-review" }),
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      "fulfillment.return-shipment.facility-intake-completed.v1",
+      "fulfillment.return-shipment.exception-raised.v1",
+    ]);
+    const received = fold(events, cancelled);
+    expect(received.status).toBe("received");
+    expect(received.currentExceptionType).toBe("other");
+    expect(received.currentExceptionNotes).toContain("cancelled");
   });
 
   it("rejects cancelling once the parcel is in carrier custody", () => {
@@ -543,7 +689,7 @@ describe("ReturnShipment aggregate", () => {
       { type: "RecordReturnShipmentCarrierAccepted", metadata: milestoneMeta, occurredAt: "2026-06-03T00:00:00.000Z" },
       { type: "RecordReturnShipmentInTransit", metadata: milestoneMeta, occurredAt: "2026-06-04T00:00:00.000Z" },
       { type: "RecordReturnShipmentDelivered", metadata: milestoneMeta, occurredAt: "2026-06-05T00:00:00.000Z" },
-      { type: "RecordReturnShipmentReceived", metadata: milestoneMeta, receivedAt: "2026-06-06T00:00:00.000Z" },
+      { type: "CompleteReturnShipmentFacilityIntake", metadata: milestoneMeta, intake: facilityIntake() },
     ];
     const events: ReturnShipmentEvent[] = [];
     let live = initialReturnShipmentState;

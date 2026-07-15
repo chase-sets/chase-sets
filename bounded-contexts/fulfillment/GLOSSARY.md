@@ -131,7 +131,27 @@ Notes:
 Notes:
 
 - Intake establishes platform custody; carrier `Delivered` alone does not.
-- Discrepancy evidence and chain-of-custody detail are added by later reverse-logistics work.
+- Completion requires the facility, station, operator, receipt timestamp, package and seal condition, custody identifier, private evidence, and at least one expected or discrepancy state.
+- Duplicate and racing scans preserve one completion and return the accepted custody result.
+- A correction never replaces prior evidence; it appends a reasoned, permissioned fact.
+
+## Return Intake Discrepancy
+
+A **Return Intake Discrepancy** is a structured facility observation that the package is missing, extra, substituted, damaged, empty, or unreadable instead of matching expected contents.
+
+Notes:
+
+- Every state, including expected contents, records an owner and next action.
+- Any discrepancy requires evidence and routes the package to quarantine or manual review.
+
+## Unidentified Return Package
+
+An **Unidentified Return Package** is a package physically received by a platform facility that cannot yet be resolved to exactly one expected Return Shipment.
+
+Notes:
+
+- It receives its own custody identifier and immutable receipt evidence.
+- Later reconciliation links it to a Return Shipment without rewriting the original package history.
 
 ## Planned Multi-Location Fulfillment
 

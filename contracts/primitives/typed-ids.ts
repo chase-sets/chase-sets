@@ -74,6 +74,9 @@ export type ShipmentId = TypedUlid<"shp">;
 /** Fulfillment-owned handle for one buyer-to-platform reverse shipment. */
 export type ReturnShipmentId = TypedUlid<"rsh">;
 
+/** Fulfillment-owned handle for a facility package that has not yet been matched to a Return Shipment. */
+export type UnidentifiedReturnPackageId = TypedUlid<"urp">;
+
 export type ReviewId = TypedUlid<"rev">;
 
 export type SupportRequestId = TypedUlid<"sup">;

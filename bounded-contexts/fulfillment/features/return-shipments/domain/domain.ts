@@ -10,6 +10,22 @@ import type {
 } from "@chase-sets/primitives/typed-ids";
 import { normalizeReturnDestinationSnapshot, type ReturnDestinationSnapshot } from "./facility-directory";
 import {
+  normalizeReturnShipmentFacilityIntake,
+  normalizeReturnShipmentIntakeCorrection,
+  type ReturnShipmentFacilityIntake,
+  type ReturnShipmentIntakeCorrection,
+} from "./facility-intake";
+export type {
+  ReturnIntakeDiscrepancy,
+  ReturnIntakeDiscrepancyType,
+  ReturnIntakeDisposition,
+  ReturnIntakeEvidenceAttachment,
+  ReturnIntakePackageCondition,
+  ReturnIntakeSealCondition,
+  ReturnShipmentFacilityIntake,
+  ReturnShipmentIntakeCorrection,
+} from "./facility-intake";
+import {
   assert,
   assertNever,
   ensureIsoTimestamp,
@@ -101,6 +117,9 @@ export type ReturnShipmentState = Readonly<{
   carrierAcceptedAt: string | null;
   deliveredAt: string | null;
   receivedAt: string | null;
+  facilityIntake: ReturnShipmentFacilityIntake | null;
+  intakeCorrections: readonly ReturnShipmentIntakeCorrection[];
+  duplicateIntakeScanCount: number;
   cancelledAt: string | null;
   expiredAt: string | null;
 }>;
@@ -149,6 +168,9 @@ export const initialReturnShipmentState: ReturnShipmentState = {
   carrierAcceptedAt: null,
   deliveredAt: null,
   receivedAt: null,
+  facilityIntake: null,
+  intakeCorrections: [],
+  duplicateIntakeScanCount: 0,
   cancelledAt: null,
   expiredAt: null,
 };
@@ -233,11 +255,16 @@ export type RecordReturnShipmentDeliveredCommand = Readonly<{
   occurredAt: string;
 }>;
 
-export type RecordReturnShipmentReceivedCommand = Readonly<{
-  type: "RecordReturnShipmentReceived";
-  detail?: string | null;
+export type CompleteReturnShipmentFacilityIntakeCommand = Readonly<{
+  type: "CompleteReturnShipmentFacilityIntake";
+  intake: ReturnShipmentFacilityIntake;
   metadata: ReturnShipmentFactMetadata;
-  receivedAt: string;
+}>;
+
+export type CorrectReturnShipmentFacilityIntakeCommand = Readonly<{
+  type: "CorrectReturnShipmentFacilityIntake";
+  correction: ReturnShipmentIntakeCorrection;
+  metadata: ReturnShipmentFactMetadata;
 }>;
 
 export type CancelReturnShipmentCommand = Readonly<{
@@ -270,7 +297,8 @@ export type ReturnShipmentCommand =
   | RecordReturnShipmentCarrierAcceptedCommand
   | RecordReturnShipmentInTransitCommand
   | RecordReturnShipmentDeliveredCommand
-  | RecordReturnShipmentReceivedCommand
+  | CompleteReturnShipmentFacilityIntakeCommand
+  | CorrectReturnShipmentFacilityIntakeCommand
   | CancelReturnShipmentCommand
   | ExpireReturnShipmentCommand
   | RaiseReturnShipmentExceptionCommand;
@@ -375,13 +403,34 @@ export type ReturnShipmentDeliveredEvent = DomainEvent<
   }>
 >;
 
-export type ReturnShipmentReceivedEvent = DomainEvent<
-  "fulfillment.return-shipment.received.v1",
+export type ReturnShipmentFacilityIntakeCompletedEvent = DomainEvent<
+  "fulfillment.return-shipment.facility-intake-completed.v1",
   Readonly<{
     returnShipmentId: ReturnShipmentId;
-    detail: string | null;
+    remedyId: RemedyId;
+    supportRequestId: SupportRequestId;
+    intake: ReturnShipmentFacilityIntake;
     metadata: ReturnShipmentFactMetadata;
-    receivedAt: string;
+  }>
+>;
+
+export type ReturnShipmentFacilityIntakeCorrectedEvent = DomainEvent<
+  "fulfillment.return-shipment.facility-intake-corrected.v1",
+  Readonly<{
+    returnShipmentId: ReturnShipmentId;
+    correction: ReturnShipmentIntakeCorrection;
+    metadata: ReturnShipmentFactMetadata;
+  }>
+>;
+
+export type ReturnShipmentDuplicateIntakeScanObservedEvent = DomainEvent<
+  "fulfillment.return-shipment.duplicate-intake-scan-observed.v1",
+  Readonly<{
+    returnShipmentId: ReturnShipmentId;
+    facilityId: string;
+    operatorUserId: string;
+    observedAt: string;
+    metadata: ReturnShipmentFactMetadata;
   }>
 >;
 
@@ -424,7 +473,9 @@ export type ReturnShipmentEvent =
   | ReturnShipmentCarrierAcceptedEvent
   | ReturnShipmentInTransitRecordedEvent
   | ReturnShipmentDeliveredEvent
-  | ReturnShipmentReceivedEvent
+  | ReturnShipmentFacilityIntakeCompletedEvent
+  | ReturnShipmentFacilityIntakeCorrectedEvent
+  | ReturnShipmentDuplicateIntakeScanObservedEvent
   | ReturnShipmentCancelledEvent
   | ReturnShipmentExpiredEvent
   | ReturnShipmentExceptionRaisedEvent;
@@ -701,20 +752,75 @@ export const decideReturnShipment: AggregateDecider<ReturnShipmentState, ReturnS
         },
       ];
     }
-    case "RecordReturnShipmentReceived": {
-      assertActiveForMilestone(state);
-      if (!shouldAdvanceTo(state, "received")) {
-        return [];
-      }
+    case "CompleteReturnShipmentFacilityIntake": {
+      assert(state.returnShipmentId !== null, "Return shipment must be requested first.");
+      assert(state.remedyId !== null, "Return shipment must reference a remedy.");
+      const intake = normalizeReturnShipmentFacilityIntake(command.intake);
       const metadata = normalizeMetadata(state.remedyId!, command.metadata);
+      assert(
+        intake.facilityId === state.destinationSnapshot?.facilityId,
+        "This return shipment is assigned to a different facility.",
+      );
+      if (!shouldAdvanceTo(state, "received")) {
+        return [
+          {
+            type: "fulfillment.return-shipment.duplicate-intake-scan-observed.v1",
+            data: {
+              returnShipmentId: state.returnShipmentId!,
+              facilityId: intake.facilityId,
+              operatorUserId: intake.operatorUserId,
+              observedAt: intake.receivedAt,
+              metadata,
+            },
+          },
+        ];
+      }
+      const completion: ReturnShipmentFacilityIntakeCompletedEvent = {
+        type: "fulfillment.return-shipment.facility-intake-completed.v1",
+        data: {
+          returnShipmentId: state.returnShipmentId,
+          remedyId: state.remedyId,
+          supportRequestId: state.supportRequestId!,
+          intake,
+          metadata,
+        },
+      };
+      if (state.status !== "cancelled" && state.status !== "expired") {
+        return [completion];
+      }
+      assert(
+        intake.disposition !== "completed",
+        "A package received after cancellation or expiry must route to quarantine or manual review.",
+      );
+      return [
+        completion,
+        {
+          type: "fulfillment.return-shipment.exception-raised.v1",
+          data: {
+            returnShipmentId: state.returnShipmentId,
+            exceptionType: "other",
+            notes: `Package physically received after the Return Shipment was ${state.status}.`,
+            metadata,
+            raisedAt: intake.receivedAt,
+          },
+        },
+      ];
+    }
+    case "CorrectReturnShipmentFacilityIntake": {
+      assert(state.returnShipmentId !== null, "Return shipment must be requested first.");
+      assert(state.facilityIntake !== null, "Facility intake must be completed before it can be corrected.");
+      const correction = normalizeReturnShipmentIntakeCorrection(command.correction);
+      assert(
+        Date.parse(correction.correctedAt) >= Date.parse(state.facilityIntake.receivedAt),
+        "An intake correction cannot predate intake completion.",
+      );
       return [
         {
-          type: "fulfillment.return-shipment.received.v1",
+          type: "fulfillment.return-shipment.facility-intake-corrected.v1",
           data: {
-            returnShipmentId: state.returnShipmentId!,
-            detail: normalizeOptionalText(command.detail),
-            metadata,
-            receivedAt: ensureIsoTimestamp(command.receivedAt, "Facility receipt must record a timestamp."),
+            returnShipmentId: state.returnShipmentId,
+            correction,
+            metadata: normalizeMetadata(state.remedyId!, command.metadata),
           },
         },
       ];
@@ -883,15 +989,34 @@ export const evolveReturnShipment: AggregateEvolver<ReturnShipmentState, ReturnS
         deliveredAt: event.data.deliveredAt,
         milestones: withMilestone(state, "delivered", event.data.deliveredAt, event.data.detail),
       };
-    case "fulfillment.return-shipment.received.v1":
+    case "fulfillment.return-shipment.facility-intake-completed.v1":
       return {
         ...state,
         status: "received",
-        receivedAt: event.data.receivedAt,
+        receivedAt: event.data.intake.receivedAt,
+        facilityIntake: event.data.intake,
         currentExceptionType: null,
         currentExceptionNotes: null,
-        milestones: withMilestone(state, "received", event.data.receivedAt, event.data.detail),
+        milestones: withMilestone(state, "received", event.data.intake.receivedAt, event.data.intake.disposition),
       };
+    case "fulfillment.return-shipment.facility-intake-corrected.v1":
+      return {
+        ...state,
+        intakeCorrections: [...state.intakeCorrections, event.data.correction],
+        facilityIntake: state.facilityIntake
+          ? {
+              ...state.facilityIntake,
+              custodyIdentifier: event.data.correction.custodyIdentifier ?? state.facilityIntake.custodyIdentifier,
+              discrepancies: state.facilityIntake.discrepancies.map((entry) => ({
+                ...entry,
+                owner: event.data.correction.owner ?? entry.owner,
+                nextAction: event.data.correction.nextAction ?? entry.nextAction,
+              })),
+            }
+          : null,
+      };
+    case "fulfillment.return-shipment.duplicate-intake-scan-observed.v1":
+      return { ...state, duplicateIntakeScanCount: state.duplicateIntakeScanCount + 1 };
     case "fulfillment.return-shipment.cancelled.v1":
       return {
         ...state,

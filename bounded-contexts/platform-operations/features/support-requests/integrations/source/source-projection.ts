@@ -1,5 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { SupportRequestServices } from "../../api/runtime";
 
 export function buildSupportOrderSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -102,7 +104,10 @@ export function buildSupportOrderSourceProjectionHandlers(db: PgQueryable): Proj
   };
 }
 
-export function buildSupportShipmentSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildSupportShipmentSourceProjectionHandlers(
+  db: PgQueryable,
+  remedyEffects?: Pick<SupportRequestServices, "recordRemedyEffect">,
+): ProjectorHandlerMap {
   return {
     "fulfillment.shipment.created": async (event) => {
       const data = event.data as {
@@ -202,6 +207,40 @@ export function buildSupportShipmentSourceProjectionHandlers(db: PgQueryable): P
              updated_at = $4
          WHERE shipment_id = $1`,
         [data.shipmentId, data.exceptionType, data.notes, data.raisedAt],
+      );
+    },
+    "fulfillment.return-shipment.facility-intake-completed.v1": async (event) => {
+      if (!remedyEffects) {
+        return;
+      }
+      const data = event.data as {
+        remedyId: string;
+        supportRequestId: string;
+        intake: { receivedAt: string; idempotencyKey: string };
+      };
+      const context: EventStoreContext = {
+        tenantId: event.tenantId,
+        audit: event.audit,
+        trace: event.trace,
+      };
+      await remedyEffects.recordRemedyEffect(
+        {
+          supportRequestId: data.supportRequestId,
+          remedyId: data.remedyId as never,
+          coverageId: null,
+          effect: "facility-intake",
+          outcome: "satisfied",
+          sourceFactType: event.type,
+          sourceFactId: event.id,
+          idempotencyKey: data.intake.idempotencyKey,
+          occurredAt: data.intake.receivedAt,
+          reasonCode: "facility-intake-completed",
+          refundId: null,
+          amount: null,
+          currencyCode: null,
+          allocation: null,
+        },
+        context,
       );
     },
   };

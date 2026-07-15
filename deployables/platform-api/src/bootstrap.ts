@@ -48,6 +48,16 @@ async function bootstrap() {
             config.listingPhotoStorage.kind === "s3"
               ? createS3ObjectStorage(config.listingPhotoStorage)
               : createFilesystemObjectStorage(config.listingPhotoStorage),
+          returnIntakeEvidenceStorage:
+            config.listingPhotoStorage.kind === "s3"
+              ? createS3ObjectStorage({
+                  ...config.listingPhotoStorage,
+                  publicBaseUrl: "private://return-intake-evidence",
+                })
+              : createFilesystemObjectStorage({
+                  rootDir: `${config.listingPhotoStorage.rootDir}/private-return-intake`,
+                  publicBaseUrl: "private://return-intake-evidence",
+                }),
           ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
         },
       }),

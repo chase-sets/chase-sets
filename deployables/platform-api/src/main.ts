@@ -252,6 +252,7 @@ const waitlistAnalyticsRecorder = {
   },
 };
 const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
+const returnIntakeEvidenceStorage = createReturnIntakeEvidenceStorage(config.listingPhotoStorage);
 const taxQuoteResolver = shouldBlockProductionTaxQuotes(
   config.deploymentEnvironment,
   Boolean(config.taxProviderBackedQuotesRequired),
@@ -301,6 +302,7 @@ const runtime = createPlatformApiHost({
     checkoutObservabilityTelemetry,
     waitlistAnalyticsRecorder,
     listingPhotoStorage,
+    returnIntakeEvidenceStorage,
     ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
@@ -686,6 +688,16 @@ function createListingPhotoStorage(storageConfig: PlatformApiListingPhotoStorage
   return storageConfig.kind === "s3"
     ? createS3ObjectStorage(storageConfig)
     : createFilesystemObjectStorage(storageConfig);
+}
+
+function createReturnIntakeEvidenceStorage(storageConfig: PlatformApiListingPhotoStorageConfig): ObjectStorage {
+  if (storageConfig.kind === "s3") {
+    return createS3ObjectStorage({ ...storageConfig, publicBaseUrl: "private://return-intake-evidence" });
+  }
+  return createFilesystemObjectStorage({
+    rootDir: `${storageConfig.rootDir}/private-return-intake`,
+    publicBaseUrl: "private://return-intake-evidence",
+  });
 }
 
 function mountLocalCatalogAssetRoute(

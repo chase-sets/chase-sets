@@ -10,9 +10,15 @@ import type {
   ReturnShipmentLabelPurchaseFailedEvent,
   ReturnShipmentLabelReadyEvent,
   ReturnShipmentLabelVoidedEvent,
-  ReturnShipmentReceivedEvent,
+  ReturnShipmentDuplicateIntakeScanObservedEvent,
+  ReturnShipmentFacilityIntakeCompletedEvent,
+  ReturnShipmentFacilityIntakeCorrectedEvent,
   ReturnShipmentRequestedEvent,
 } from "../domain/domain";
+import type {
+  UnidentifiedReturnPackageReconciledEvent,
+  UnidentifiedReturnPackageRecordedEvent,
+} from "../domain/unidentified-package";
 
 type Milestone = Readonly<{ status: string; occurredAt: string; detail: string | null }>;
 
@@ -242,21 +248,66 @@ export function buildFulfillmentReturnShipmentProjectionHandlers(db: PgQueryable
         "delivered_at",
       );
     },
-    "fulfillment.return-shipment.received.v1": async (event) => {
-      const data = event.data as ReturnShipmentReceivedEvent["data"];
+    "fulfillment.return-shipment.facility-intake-completed.v1": async (event) => {
+      const data = event.data as ReturnShipmentFacilityIntakeCompletedEvent["data"];
       await db.query(
         `UPDATE fulfillment_return_shipment_operator_pages
          SET status = 'received', received_at = $2, updated_at = $2,
              current_exception_type = NULL, current_exception_notes = NULL,
-             milestones = milestones || $3::jsonb
+             facility_intake = $3::jsonb,
+             milestones = milestones || $4::jsonb
          WHERE return_shipment_id = $1`,
-        [data.returnShipmentId, data.receivedAt, milestoneJson("received", data.receivedAt, data.detail)],
+        [
+          data.returnShipmentId,
+          data.intake.receivedAt,
+          JSON.stringify(data.intake),
+          milestoneJson("received", data.intake.receivedAt, data.intake.disposition),
+        ],
       );
       await db.query(
         `UPDATE fulfillment_return_shipment_customer_pages
          SET status = 'received', received_at = $2, updated_at = $2, current_exception_type = NULL
          WHERE return_shipment_id = $1`,
-        [data.returnShipmentId, data.receivedAt],
+        [data.returnShipmentId, data.intake.receivedAt],
+      );
+    },
+    "fulfillment.return-shipment.facility-intake-corrected.v1": async (event) => {
+      const data = event.data as ReturnShipmentFacilityIntakeCorrectedEvent["data"];
+      await db.query(
+        `UPDATE fulfillment_return_shipment_operator_pages
+         SET intake_corrections = intake_corrections || $2::jsonb,
+             facility_intake = jsonb_set(
+               jsonb_set(
+                 jsonb_set(facility_intake, '{custodyIdentifier}',
+                   COALESCE(to_jsonb($3::text), facility_intake->'custodyIdentifier')),
+                 '{discrepancies}',
+                 COALESCE((
+                   SELECT jsonb_agg(
+                     jsonb_set(jsonb_set(entry, '{owner}', COALESCE(to_jsonb($4::text), entry->'owner')),
+                       '{nextAction}', COALESCE(to_jsonb($5::text), entry->'nextAction'))
+                   ) FROM jsonb_array_elements(facility_intake->'discrepancies') entry
+                 ), '[]'::jsonb)),
+               '{lastCorrectedAt}', to_jsonb($6::text)),
+             updated_at = $6::timestamptz
+         WHERE return_shipment_id = $1`,
+        [
+          data.returnShipmentId,
+          JSON.stringify([data.correction]),
+          data.correction.custodyIdentifier,
+          data.correction.owner,
+          data.correction.nextAction,
+          data.correction.correctedAt,
+        ],
+      );
+    },
+    "fulfillment.return-shipment.duplicate-intake-scan-observed.v1": async (event) => {
+      const data = event.data as ReturnShipmentDuplicateIntakeScanObservedEvent["data"];
+      await db.query(
+        `UPDATE fulfillment_return_shipment_operator_pages
+         SET duplicate_intake_scan_count = duplicate_intake_scan_count + 1,
+             updated_at = GREATEST(updated_at, $2::timestamptz)
+         WHERE return_shipment_id = $1`,
+        [data.returnShipmentId, data.observedAt],
       );
     },
     "fulfillment.return-shipment.cancelled.v1": async (event) => {
@@ -301,6 +352,55 @@ export function buildFulfillmentReturnShipmentProjectionHandlers(db: PgQueryable
          SET current_exception_type = $2, updated_at = $3
          WHERE return_shipment_id = $1`,
         [data.returnShipmentId, data.exceptionType, data.raisedAt],
+      );
+    },
+    "fulfillment.unidentified-return-package.recorded.v1": async (event) => {
+      const data = event.data as UnidentifiedReturnPackageRecordedEvent["data"];
+      await db.query(
+        `INSERT INTO fulfillment_unidentified_return_package_pages (
+           unidentified_package_id, facility_id, station_id, operator_user_id, received_at,
+           package_condition, seal_condition, measured_weight_ounces, evidence, custody_identifier,
+           notes, owner, next_action, updated_at
+         ) VALUES ($1, $2, $3, $4, $5::timestamptz, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $5::timestamptz)
+         ON CONFLICT (unidentified_package_id) DO UPDATE SET
+           facility_id = EXCLUDED.facility_id,
+           station_id = EXCLUDED.station_id,
+           operator_user_id = EXCLUDED.operator_user_id,
+           received_at = EXCLUDED.received_at,
+           package_condition = EXCLUDED.package_condition,
+           seal_condition = EXCLUDED.seal_condition,
+           measured_weight_ounces = EXCLUDED.measured_weight_ounces,
+           evidence = EXCLUDED.evidence,
+           custody_identifier = EXCLUDED.custody_identifier,
+           notes = EXCLUDED.notes,
+           owner = EXCLUDED.owner,
+           next_action = EXCLUDED.next_action,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          data.unidentifiedPackageId,
+          data.facilityId,
+          data.stationId,
+          data.operatorUserId,
+          data.receivedAt,
+          data.packageCondition,
+          data.sealCondition,
+          data.measuredWeightOunces,
+          JSON.stringify(data.evidence),
+          data.custodyIdentifier,
+          data.notes,
+          data.owner,
+          data.nextAction,
+        ],
+      );
+    },
+    "fulfillment.unidentified-return-package.reconciled.v1": async (event) => {
+      const data = event.data as UnidentifiedReturnPackageReconciledEvent["data"];
+      await db.query(
+        `UPDATE fulfillment_unidentified_return_package_pages
+         SET return_shipment_id = $2, reconciled_by_user_id = $3, reconciled_at = $4::timestamptz,
+             reconciliation_reason = $5, updated_at = $4::timestamptz
+         WHERE unidentified_package_id = $1`,
+        [data.unidentifiedPackageId, data.returnShipmentId, data.reconciledByUserId, data.reconciledAt, data.reason],
       );
     },
   };

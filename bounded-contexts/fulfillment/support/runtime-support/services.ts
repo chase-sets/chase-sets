@@ -12,6 +12,10 @@ import type { PostageLabelProvider, PostageProviderWebhookGateway } from "@chase
 import { createFulfillmentShipmentRuntime } from "../../features/shipments/api/runtime";
 import { createFulfillmentReturnShipmentRuntime } from "../../features/return-shipments/api/runtime";
 import type { ReturnFacilityDirectory } from "../../features/return-shipments/domain/facility-directory";
+import type {
+  ReturnIntakeEvidenceSecurityScanner,
+  ReturnIntakeEvidenceStorage,
+} from "../../features/return-shipments/api/evidence";
 
 export type FulfillmentServices = Readonly<{
   shipments: ReturnType<typeof createFulfillmentShipmentRuntime>;
@@ -26,6 +30,8 @@ export type FulfillmentHostPorts = Readonly<{
   postageWebhookGateway?: PostageProviderWebhookGateway;
   notificationOutbox?: NotificationOutbox;
   returnFacilityDirectory?: ReturnFacilityDirectory;
+  returnIntakeEvidenceStorage?: ReturnIntakeEvidenceStorage;
+  returnIntakeEvidenceSecurityScanner?: ReturnIntakeEvidenceSecurityScanner;
 }>;
 
 export function createFulfillmentServices(
@@ -52,6 +58,8 @@ export function createFulfillmentServices(
     db,
     postageLabelProvider: ports?.postageLabelProvider,
     facilityDirectory: ports?.returnFacilityDirectory,
+    evidenceStorage: ports?.returnIntakeEvidenceStorage,
+    evidenceSecurityScanner: ports?.returnIntakeEvidenceSecurityScanner,
   });
 
   return {

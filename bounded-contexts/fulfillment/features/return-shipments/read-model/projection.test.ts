@@ -255,4 +255,82 @@ describe("return shipment projection", () => {
     expect(JSON.stringify(operatorUpdate?.params)).toContain("refund_1");
     expect(customerUpdate?.sql).toContain("label_document_url = NULL");
   });
+
+  it("projects intake evidence only to the operator row and counts duplicate scans", async () => {
+    const { db, captured } = mockDb();
+    const handlers = buildFulfillmentReturnShipmentProjectionHandlers(db);
+    const intake = {
+      facilityId: "fac_east",
+      stationId: "station-1",
+      operatorUserId: "usr_operator",
+      receivedAt: "2026-07-14T12:00:00.000Z",
+      packageCondition: "intact",
+      sealCondition: "intact",
+      measuredWeightOunces: 10,
+      evidence: [{ attachmentId: "rie_1", storageKey: "private/key.jpg" }],
+      discrepancies: [{ type: "expected", owner: "Fulfillment", nextAction: "Complete" }],
+      disposition: "completed",
+      custodyIdentifier: "CUST-1",
+      idempotencyKey: "intake-1",
+    };
+    await handlers["fulfillment.return-shipment.facility-intake-completed.v1"]!({
+      type: "fulfillment.return-shipment.facility-intake-completed.v1",
+      data: { returnShipmentId: "rsh_1", remedyId: "rmd_1", supportRequestId: "sup_1", intake },
+    } as never);
+    await handlers["fulfillment.return-shipment.duplicate-intake-scan-observed.v1"]!({
+      type: "fulfillment.return-shipment.duplicate-intake-scan-observed.v1",
+      data: {
+        returnShipmentId: "rsh_1",
+        facilityId: "fac_east",
+        operatorUserId: "usr_operator",
+        observedAt: "2026-07-14T12:01:00.000Z",
+      },
+    } as never);
+
+    const operatorUpdate = captured.find((entry) => entry.sql.includes("facility_intake = $3::jsonb"));
+    const customerUpdate = captured.find(
+      (entry) =>
+        entry.sql.includes("UPDATE fulfillment_return_shipment_customer_pages") && entry.params.includes("rsh_1"),
+    );
+    expect(JSON.stringify(operatorUpdate?.params)).toContain("private/key.jpg");
+    expect(JSON.stringify(customerUpdate?.params)).not.toContain("private/key.jpg");
+    expect(captured.some((entry) => entry.sql.includes("duplicate_intake_scan_count + 1"))).toBe(true);
+  });
+
+  it("projects unidentified package reconciliation without replacing receipt evidence", async () => {
+    const { db, captured } = mockDb();
+    const handlers = buildFulfillmentReturnShipmentProjectionHandlers(db);
+    await handlers["fulfillment.unidentified-return-package.recorded.v1"]!({
+      type: "fulfillment.unidentified-return-package.recorded.v1",
+      data: {
+        unidentifiedPackageId: "urp_1",
+        facilityId: "fac_east",
+        stationId: "station-1",
+        operatorUserId: "usr_operator",
+        receivedAt: "2026-07-14T12:00:00.000Z",
+        packageCondition: "unreadable",
+        sealCondition: "broken",
+        measuredWeightOunces: 5,
+        evidence: [{ attachmentId: "rie_1", storageKey: "private/key.jpg" }],
+        custodyIdentifier: "CUST-U-1",
+        notes: null,
+        owner: "Fulfillment",
+        nextAction: "Identify from carrier manifest",
+      },
+    } as never);
+    await handlers["fulfillment.unidentified-return-package.reconciled.v1"]!({
+      type: "fulfillment.unidentified-return-package.reconciled.v1",
+      data: {
+        unidentifiedPackageId: "urp_1",
+        returnShipmentId: "rsh_1",
+        reconciledByUserId: "usr_supervisor",
+        reconciledAt: "2026-07-15T12:00:00.000Z",
+        reason: "Manifest match",
+      },
+    } as never);
+
+    expect(captured[0].sql).toContain("ON CONFLICT (unidentified_package_id) DO UPDATE");
+    expect(captured[1].sql).toContain("return_shipment_id = $2");
+    expect(captured[1].sql).not.toContain("evidence =");
+  });
 });

@@ -112,6 +112,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 ## Runbooks
 
 - [Customer Feedback Privacy Operations](./runbooks/customer-feedback-privacy.md): retention preview/execution, privacy holds, redaction propagation, and sensitive export incident response.
+- [Facility Return Intake](./runbooks/facility-return-intake.md) — custody, discrepancy, unidentified-package, outage, wrong-facility, and correction procedures.
 
 - [Beta Wave Exposure](./runbooks/beta-wave-exposure.md): policy-gated waitlist admission, proportional Argo exposure, monitoring, halt, and rollback procedure.
 - [Money Operations](./runbooks/money-operations.md): checkout, wallet, Stripe payments, Connect payouts, launch checks, and smoke tests.

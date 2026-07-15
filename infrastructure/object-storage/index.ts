@@ -1,12 +1,19 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { PutObjectCommand, S3Client, type S3ClientConfig } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+  type S3ClientConfig,
+} from "@aws-sdk/client-s3";
 
 export type ObjectStoragePutInput = Readonly<{
   key: string;
   body: Uint8Array;
   contentType: string;
   cacheControl?: string;
+  visibility?: "public" | "private";
 }>;
 
 export type ObjectStoragePutResult = Readonly<{
@@ -16,6 +23,8 @@ export type ObjectStoragePutResult = Readonly<{
 
 export type ObjectStorage = Readonly<{
   putObject(input: ObjectStoragePutInput): Promise<ObjectStoragePutResult>;
+  getObject(key: string): Promise<FilesystemObject | null>;
+  deleteObjects(keys: readonly string[]): Promise<void>;
 }>;
 
 export type FilesystemObjectStorageOptions = Readonly<{
@@ -55,6 +64,13 @@ export function createFilesystemObjectStorage(options: FilesystemObjectStorageOp
         publicUrl: joinPublicUrl(options.publicBaseUrl, safeKey),
       };
     },
+    async getObject(key) {
+      return readFilesystemObject(rootDir, key);
+    },
+    async deleteObjects(keys) {
+      const { rm } = await import("node:fs/promises");
+      await Promise.all(keys.map((key) => rm(resolveObjectPath(rootDir, normalizeObjectKey(key)), { force: true })));
+    },
   };
 }
 
@@ -84,7 +100,7 @@ export function createS3ObjectStorage(options: S3ObjectStorageOptions): ObjectSt
           Bucket: options.bucket,
           Key: safeKey,
           Body: input.body,
-          ACL: "public-read",
+          ...(input.visibility === "private" ? {} : { ACL: "public-read" as const }),
           ContentType: input.contentType,
           CacheControl: input.cacheControl,
         }),
@@ -94,6 +110,36 @@ export function createS3ObjectStorage(options: S3ObjectStorageOptions): ObjectSt
         key: safeKey,
         publicUrl: joinPublicUrl(options.publicBaseUrl, safeKey),
       };
+    },
+    async getObject(key) {
+      const safeKey = normalizeObjectKey(key);
+      try {
+        const response = await client.send(new GetObjectCommand({ Bucket: options.bucket, Key: safeKey }));
+        if (!response.Body) {
+          return null;
+        }
+        return {
+          body: new Uint8Array(await response.Body.transformToByteArray()),
+          contentType: response.ContentType ?? contentTypeFromKey(safeKey),
+        };
+      } catch (error) {
+        const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+        if (status === 404) {
+          return null;
+        }
+        throw error;
+      }
+    },
+    async deleteObjects(keys) {
+      if (keys.length === 0) {
+        return;
+      }
+      await client.send(
+        new DeleteObjectsCommand({
+          Bucket: options.bucket,
+          Delete: { Objects: keys.map((key) => ({ Key: normalizeObjectKey(key) })), Quiet: true },
+        }),
+      );
     },
   };
 }
