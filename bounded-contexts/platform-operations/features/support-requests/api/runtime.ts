@@ -597,6 +597,10 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     initialState: () => initialSupportRequestState,
     evolve: evolveSupportRequest,
     decide: decideSupportRequest,
+    // Support request streams keep their durable `support.` prefix, but the
+    // owning source context for wake routing and read-after-write receipts is
+    // Platform Operations.
+    commitSourceContextName: "platform-operations",
   });
 
   async function resolvePlatformRemedyPolicy(): Promise<{
