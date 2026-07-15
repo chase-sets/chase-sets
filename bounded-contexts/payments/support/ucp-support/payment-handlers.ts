@@ -3,10 +3,8 @@ import type { AgenticProcessorPaymentInput, PaymentProcessorPublicConfig } from 
 
 export type UcpAp2MandateVerificationInput = Readonly<{
   checkout: Readonly<Record<string, unknown>>;
-  request: Readonly<Record<string, unknown>>;
   checkoutMandate: UcpAp2MandateArtifact;
-  paymentMandate: UcpAp2MandateArtifact | null;
-  paymentToken: string | null;
+  paymentTokenPresent: boolean;
   verifiedAt: string;
 }>;
 
@@ -18,16 +16,20 @@ export type UcpAp2MandateArtifact = Readonly<{
 export type UcpAp2MandateVerificationResult =
   | Readonly<{
       ok: true;
+      mode: "human-present" | "human-not-present";
       evidence?: Readonly<Record<string, unknown>>;
     }>
   | Readonly<{
       ok: false;
       code:
+        | "mandate_required"
+        | "agent_missing_key"
         | "mandate_invalid_signature"
         | "mandate_expired"
         | "mandate_scope_mismatch"
         | "merchant_authorization_invalid"
-        | "merchant_authorization_missing";
+        | "merchant_authorization_missing"
+        | "mandate_verification_unavailable";
       message: string;
     }>;
 
@@ -45,6 +47,7 @@ export type UcpPaymentCompletionDecision =
   | Readonly<{
       kind: "headless-agentic-payment";
       agenticPayment: AgenticProcessorPaymentInput["agenticPayment"];
+      humanPresent: true;
       evidence?: Readonly<Record<string, unknown>>;
     }>
   | Readonly<{
@@ -62,7 +65,10 @@ export type UcpPaymentHandlerHandoff = Readonly<{
     handlers: readonly Readonly<Record<string, unknown>>[];
     ap2: Readonly<{
       mandate_verification: "enabled" | "not-enabled";
+      merchant_authorization: "enabled" | "not-enabled";
+      shared_payment_token: "enabled" | "not-enabled";
       headless_completion_enabled: boolean;
+      supported_modes: readonly ["human-present"];
     }>;
     stored_payment_method: Readonly<{
       off_session_completion_enabled: boolean;
@@ -79,10 +85,16 @@ export function createPaymentsUcpHandoff(
   publicConfig: PaymentProcessorPublicConfig,
   options: Readonly<{
     ap2Verifier?: UcpAp2MandateVerifier;
+    merchantAuthorizationEnabled?: boolean;
   }> = {},
 ): UcpPaymentHandlerHandoff {
   const agenticHandlers = publicConfig.agenticPaymentHandlers ?? [];
-  const canHeadlessComplete = Boolean(options.ap2Verifier && agenticHandlers.length > 0);
+  const sharedPaymentTokenEnabled = agenticHandlers.some(
+    (handler) => handler.provider === "stripe" && handler.type === "shared_payment_token",
+  );
+  const canHeadlessComplete = Boolean(
+    options.ap2Verifier && options.merchantAuthorizationEnabled && sharedPaymentTokenEnabled,
+  );
   return {
     payment: {
       handlers: [
@@ -101,7 +113,11 @@ export function createPaymentsUcpHandoff(
           processor: handler.provider,
           confirmation_experience: handler.confirmationExperience,
           requires_ap2_mandate: handler.requiresAp2Mandate,
-          requires_trusted_ui: !canHeadlessComplete,
+          requires_trusted_ui: !(
+            canHeadlessComplete &&
+            handler.provider === "stripe" &&
+            handler.type === "shared_payment_token"
+          ),
         })),
         {
           // Stored-payment-method rail: an agent completes off-session with a card the buyer saved
@@ -118,7 +134,10 @@ export function createPaymentsUcpHandoff(
       ],
       ap2: {
         mandate_verification: options.ap2Verifier ? "enabled" : "not-enabled",
+        merchant_authorization: options.merchantAuthorizationEnabled ? "enabled" : "not-enabled",
+        shared_payment_token: sharedPaymentTokenEnabled ? "enabled" : "not-enabled",
         headless_completion_enabled: canHeadlessComplete,
+        supported_modes: ["human-present"],
       },
       stored_payment_method: {
         off_session_completion_enabled: true,
@@ -170,7 +189,7 @@ export function createPaymentsUcpHandoff(
         return { kind: "respond", response: mandateShape.response };
       }
 
-      if (!options.ap2Verifier) {
+      if (!options.ap2Verifier || !options.merchantAuthorizationEnabled) {
         return {
           kind: "respond",
           response: createUcpEnvelope(
@@ -179,7 +198,7 @@ export function createPaymentsUcpHandoff(
               action: {
                 type: "trusted_checkout_handoff",
                 reason:
-                  "AP2 checkout mandates are recognized but not accepted for headless completion until Payments owns a production mandate verification model.",
+                  "AP2 checkout mandates require production mandate verification and merchant authorization signing before headless completion.",
               },
             },
             [
@@ -187,7 +206,7 @@ export function createPaymentsUcpHandoff(
                 severity: "warning",
                 code: "mandate_verification_unavailable",
                 message:
-                  "Continue through trusted checkout UI; AP2 mandate verification is not enabled for headless money movement.",
+                  "Continue through trusted checkout UI; AP2 verification or merchant authorization signing is not enabled for headless money movement.",
               },
             ],
           ),
@@ -195,7 +214,7 @@ export function createPaymentsUcpHandoff(
       }
 
       const sharedPaymentToken = readSharedPaymentToken(body);
-      if (!sharedPaymentToken || agenticHandlers.length === 0) {
+      if (!sharedPaymentToken || !sharedPaymentTokenEnabled) {
         return {
           kind: "respond",
           response: createUcpEnvelope(
@@ -218,29 +237,62 @@ export function createPaymentsUcpHandoff(
         };
       }
 
-      const verification = await options.ap2Verifier.verify({
-        checkout,
-        request: body,
-        checkoutMandate: mandateShape.checkoutMandate,
-        paymentMandate: mandateShape.paymentMandate,
-        paymentToken: sharedPaymentToken,
-        verifiedAt: new Date().toISOString(),
-      });
+      let verification: UcpAp2MandateVerificationResult;
+      try {
+        verification = await options.ap2Verifier.verify({
+          checkout,
+          checkoutMandate: mandateShape.checkoutMandate,
+          paymentTokenPresent: true,
+          verifiedAt: new Date().toISOString(),
+        });
+      } catch {
+        verification = {
+          ok: false,
+          code: "mandate_verification_unavailable",
+          message: "AP2 mandate verification is temporarily unavailable.",
+        };
+      }
       if (!verification.ok) {
         return {
           kind: "respond",
-          response: createUcpEnvelope("error", {}, [
+          response: createUcpEnvelope(
+            "requires_action",
             {
-              severity: "error",
-              code: verification.code,
-              message: verification.message,
+              action: {
+                type: "trusted_checkout_handoff",
+                reason: "AP2 mandate verification did not authorize headless completion.",
+              },
             },
-          ]),
+            [{ severity: "error", code: verification.code, message: safeVerificationMessage(verification.code) }],
+          ),
+        };
+      }
+
+      if (verification.mode !== "human-present") {
+        return {
+          kind: "respond",
+          response: createUcpEnvelope(
+            "requires_action",
+            {
+              action: {
+                type: "trusted_checkout_handoff",
+                reason: "Human-not-present AP2 completion waits for spending-mandate enforcement.",
+              },
+            },
+            [
+              {
+                severity: "error",
+                code: "mandate_scope_mismatch",
+                message: "Only verified human-present AP2 mandates are enabled for headless completion.",
+              },
+            ],
+          ),
         };
       }
 
       return {
         kind: "headless-agentic-payment",
+        humanPresent: true,
         agenticPayment: {
           kind: "stripe-shared-payment-token",
           sharedPaymentGrantedToken: sharedPaymentToken,
@@ -266,13 +318,22 @@ function readAp2Mandates(ap2: Readonly<Record<string, unknown>>):
   if (!checkoutMandate) {
     return {
       kind: "invalid",
-      response: createUcpEnvelope("error", {}, [
+      response: createUcpEnvelope(
+        "requires_action",
         {
-          severity: "error",
-          code: "invalid_ap2_mandate",
-          message: "AP2 completion requires checkout_mandate details.",
+          action: {
+            type: "trusted_checkout_handoff",
+            reason: "A valid AP2 Checkout Mandate is required for headless completion.",
+          },
         },
-      ]),
+        [
+          {
+            severity: "error",
+            code: "mandate_required",
+            message: "AP2 completion requires checkout_mandate details.",
+          },
+        ],
+      ),
     };
   }
 
@@ -374,6 +435,20 @@ function readSharedPaymentToken(body: Readonly<Record<string, unknown>>) {
 function readMandateId(token: string) {
   const hash = token.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24);
   return hash ? `ap2_${hash}` : null;
+}
+
+function safeVerificationMessage(code: Extract<UcpAp2MandateVerificationResult, { ok: false }>["code"]) {
+  const messages: Record<typeof code, string> = {
+    mandate_required: "AP2 mandate verification requires a Checkout Mandate.",
+    agent_missing_key: "The AP2 agent verification key is unavailable.",
+    mandate_invalid_signature: "The AP2 mandate signature is invalid.",
+    mandate_expired: "The AP2 mandate has expired.",
+    mandate_scope_mismatch: "The AP2 mandate does not authorize this checkout.",
+    merchant_authorization_invalid: "The AP2 merchant authorization is invalid.",
+    merchant_authorization_missing: "The AP2 merchant authorization is missing.",
+    mandate_verification_unavailable: "AP2 mandate verification is temporarily unavailable.",
+  };
+  return messages[code];
 }
 
 function readObject(value: unknown): Readonly<Record<string, unknown>> | null {

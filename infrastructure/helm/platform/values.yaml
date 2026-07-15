@@ -490,6 +490,27 @@ components:
       - name: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
         secret: true
         secretKey: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
+      - name: "UCP_AP2_VERIFIER_AUTH_TOKEN"
+        secret: true
+        secretKey: "UCP_AP2_VERIFIER_AUTH_TOKEN"
+      - name: "UCP_AP2_VERIFIER_TIMEOUT_MS"
+        secret: true
+        secretKey: "UCP_AP2_VERIFIER_TIMEOUT_MS"
+      - name: "UCP_AP2_VERIFIER_URL"
+        secret: true
+        secretKey: "UCP_AP2_VERIFIER_URL"
+      - name: "UCP_BUSINESS_SIGNING_ALG"
+        secret: true
+        secretKey: "UCP_BUSINESS_SIGNING_ALG"
+      - name: "UCP_BUSINESS_SIGNING_KEY_ID"
+        secret: true
+        secretKey: "UCP_BUSINESS_SIGNING_KEY_ID"
+      - name: "UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS"
+        secret: true
+        secretKey: "UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS"
+      - name: "UCP_BUSINESS_SIGNING_PRIVATE_JWK"
+        secret: true
+        secretKey: "UCP_BUSINESS_SIGNING_PRIVATE_JWK"
       - name: "VOYAGE_API_KEY"
         secret: true
         secretKey: "VOYAGE_API_KEY"

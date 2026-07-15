@@ -23,7 +23,9 @@ export type {
 } from "@chase-sets/payment-processing";
 export { PaymentsDomainError } from "./support/runtime-support/common";
 export { createPaymentsUcpHandoff } from "./support/ucp-support/payment-handlers";
+export { createRemoteUcpAp2MandateVerifier } from "./support/ucp-support/ap2-mandate-verifier";
 export type { UcpAp2MandateVerifier, UcpPaymentHandlerHandoff } from "./support/ucp-support/payment-handlers";
+export type { RemoteUcpAp2MandateVerifierConfig } from "./support/ucp-support/ap2-mandate-verifier";
 import {
   createPaymentsApiClient,
   createPaymentsRequestApiHeaders,

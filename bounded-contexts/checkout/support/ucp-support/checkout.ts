@@ -28,6 +28,7 @@ type UcpPaymentCompletionDecision =
   | Readonly<{
       kind: "headless-agentic-payment";
       agenticPayment: Parameters<typeof createCheckoutPaymentThroughPayments>[9];
+      humanPresent: true;
       evidence?: Readonly<Record<string, unknown>>;
     }>
   | Readonly<{
@@ -48,6 +49,7 @@ type HeadlessPaymentApproach =
   | Readonly<{
       kind: "agentic";
       agenticPayment: Parameters<typeof createCheckoutPaymentThroughPayments>[9];
+      humanPresent: true;
       evidence?: Readonly<Record<string, unknown>>;
     }>
   | Readonly<{
@@ -216,7 +218,7 @@ export function createCheckoutUcpHandlers(
         operation: "complete_checkout",
         operationId: `complete_checkout:${sessionId}:${readNullableString(body.idempotencyKey) ?? input.request.headers.get("Idempotency-Key") ?? "unknown"}`,
         amountCents: moneyToCents(checkoutStatus.marketplace_checkout_fee.total_amount),
-        ...readCheckoutSpendContext(body, approach),
+        ...readCheckoutSpendContext(approach),
       });
       if (spendGuard) {
         return spendGuard;
@@ -426,11 +428,15 @@ export function createCheckoutUcpHandlers(
       const checkoutPayload = sessionToUcpCheckout(session, options);
       const guardedPaymentResponse = await options.paymentHandoff?.evaluateCompleteRequest(body, checkoutPayload);
       if (guardedPaymentResponse?.kind === "respond") {
+        const responsePayload = withTrustedCheckoutHandoffUrl(
+          stripUcpEnvelope(guardedPaymentResponse.response),
+          sessionId,
+        );
         return createUcpEnvelope(
           guardedPaymentResponse.response.ucp.status,
           {
             checkout: checkoutPayload,
-            ...stripUcpEnvelope(guardedPaymentResponse.response),
+            ...responsePayload,
           },
           guardedPaymentResponse.response.messages ?? [],
         );
@@ -446,6 +452,7 @@ export function createCheckoutUcpHandlers(
               ? {
                   kind: "agentic",
                   agenticPayment: guardedPaymentResponse.agenticPayment,
+                  humanPresent: guardedPaymentResponse.humanPresent,
                   evidence: guardedPaymentResponse.evidence,
                 }
               : {
@@ -911,21 +918,29 @@ async function authorizeAgentGrantSpend(
 // Derives the payment-rail and human-presence signals a completion carries so the mandate
 // policy can decide whether an autonomous, human-not-present purchase is permitted.
 function readCheckoutSpendContext(
-  body: Readonly<Record<string, unknown>>,
   approach: HeadlessPaymentApproach,
 ): Readonly<{ rail: AgentGrantRail; humanPresent: boolean; humanNotPresentAuthorized: boolean }> {
-  const ap2 = readObject(body.ap2);
-  const humanPresent = ap2?.human_present === true || body.human_present === true;
   if (approach.kind === "stored-pm") {
     // The saved instrument carries the buyer's standing off-session consent captured at setup, so a
     // human-not-present charge is authorized here; the grant's mandate still gates the stored-pm rail
     // and the per-order/daily/monthly caps.
-    return { rail: "stored-pm", humanPresent, humanNotPresentAuthorized: true };
+    return { rail: "stored-pm", humanPresent: false, humanNotPresentAuthorized: true };
   }
-  const payment = readObject(approach.agenticPayment);
-  const humanNotPresentAuthorized =
-    readString(payment?.ap2PaymentMandateId) !== undefined || ap2?.human_not_present === true;
-  return { rail: "ap2", humanPresent, humanNotPresentAuthorized };
+  return { rail: "ap2", humanPresent: approach.humanPresent, humanNotPresentAuthorized: false };
+}
+
+function withTrustedCheckoutHandoffUrl(payload: Readonly<Record<string, unknown>>, sessionId: string) {
+  const action = readObject(payload.action);
+  if (action?.type !== "trusted_checkout_handoff" || readString(action.url)) {
+    return payload;
+  }
+  return {
+    ...payload,
+    action: {
+      ...action,
+      url: `/checkout/buy/session/${sessionId}`,
+    },
+  };
 }
 
 // A 3DS/SCA challenge shows up as a hosted next-action URL on a payment that has not yet settled.

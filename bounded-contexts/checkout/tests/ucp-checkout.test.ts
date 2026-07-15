@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/auth-context";
-import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
+import { createUcpEnvelope, type UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
 import { createCheckoutUcpHandlers } from "../support/ucp-support/checkout";
 import type { CheckoutSessionServices } from "../features/sessions/api/runtime";
 import type { CheckoutSessionRow } from "../features/sessions/read-model/queries";
@@ -288,6 +288,35 @@ describe("checkout UCP handlers", () => {
     expect(response.messages).toEqual([expect.objectContaining({ code: "trusted_ui_required" })]);
   });
 
+  it("adds a resumable checkout URL to a mandate rejection without money-moving effects", async () => {
+    const sessions = createSessions();
+    const handlers = createCheckoutUcpHandlers(
+      { sessions },
+      {
+        paymentHandoff: {
+          payment: {},
+          evaluateCompleteRequest: () => ({
+            kind: "respond",
+            response: createUcpEnvelope("requires_action", { action: { type: "trusted_checkout_handoff" } }, [
+              { severity: "error", code: "mandate_expired", message: "Mandate expired." },
+            ]),
+          }),
+        },
+      },
+    );
+
+    const response = await handlers.restHandlers.complete_checkout(input({}, { id: "chk_1" }));
+
+    expect(response).toMatchObject({
+      ucp: { status: "requires_action" },
+      action: { type: "trusted_checkout_handoff", url: "/checkout/buy/session/chk_1" },
+      messages: [{ severity: "error", code: "mandate_expired" }],
+    });
+    expect(sessions.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(sessions.recordPaymentStarted).not.toHaveBeenCalled();
+    expect(checkoutConfirmationMocks.createCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+  });
+
   it("cancels checkout sessions without trusted UI handoff", async () => {
     const sessions = createSessions();
     const handlers = createCheckoutUcpHandlers({ sessions });
@@ -325,6 +354,7 @@ describe("checkout UCP handlers", () => {
           evaluateCompleteRequest: () => ({
             kind: "headless-agentic-payment",
             agenticPayment: {} as never,
+            humanPresent: true,
             evidence: { mandate: "verified" },
           }),
         },
@@ -372,6 +402,7 @@ describe("checkout UCP handlers", () => {
           evaluateCompleteRequest: () => ({
             kind: "headless-agentic-payment",
             agenticPayment: {} as never,
+            humanPresent: true,
             evidence: { mandate: "verified" },
           }),
         },
@@ -430,6 +461,7 @@ describe("checkout UCP handlers", () => {
           evaluateCompleteRequest: () => ({
             kind: "headless-agentic-payment",
             agenticPayment: {} as never,
+            humanPresent: true,
             evidence: { mandate: "verified" },
           }),
         },
@@ -466,6 +498,9 @@ describe("checkout UCP handlers", () => {
         accountId: "acc_buyer",
         operation: "complete_checkout",
         amountCents: 2_605,
+        rail: "ap2",
+        humanPresent: true,
+        humanNotPresentAuthorized: false,
       }),
     );
     expect(checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
@@ -523,6 +558,7 @@ describe("checkout UCP handlers", () => {
           evaluateCompleteRequest: () => ({
             kind: "headless-agentic-payment",
             agenticPayment: {} as never,
+            humanPresent: true,
             evidence: { mandate: "verified" },
           }),
         },

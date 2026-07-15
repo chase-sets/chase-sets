@@ -412,7 +412,10 @@ export function normalizeUcpOrigin(origin: string) {
 
 export function buildUcpBusinessProfile(
   origin: string,
-  options: Readonly<{ signingKeys?: readonly JsonWebKey[] }> = {},
+  options: Readonly<{
+    signingKeys?: readonly JsonWebKey[];
+    ap2Readiness?: UcpAp2Readiness;
+  }> = {},
 ): UcpBusinessProfile {
   const baseUrl = normalizeUcpOrigin(origin);
   const signingKeys = options.signingKeys?.length ? options.signingKeys : undefined;
@@ -455,9 +458,18 @@ export function buildUcpBusinessProfile(
         ],
         [UCP_CAPABILITIES.ap2Mandate]: [
           capability("ap2-mandates", "shopping/ap2_mandate.json", {
-            status: signingKeys ? "merchant_authorization_available" : "guarded_scaffold",
+            status: options.ap2Readiness?.headlessCompletionEnabled
+              ? "human_present_enabled"
+              : signingKeys
+                ? "merchant_authorization_available"
+                : "guarded_scaffold",
             business_response_signing: signingKeys ? "enabled" : "not-configured",
-            headless_completion_enabled: false,
+            mandate_verification: options.ap2Readiness?.mandateVerification ?? "not-enabled",
+            shared_payment_token: options.ap2Readiness?.sharedPaymentToken ?? "not-enabled",
+            supported_modes: ["human-present"],
+            headless_completion_enabled: options.ap2Readiness?.headlessCompletionEnabled ?? false,
+            human_present_completion_enabled: options.ap2Readiness?.headlessCompletionEnabled ?? false,
+            human_not_present_completion_enabled: false,
           }),
         ],
       },
@@ -467,6 +479,12 @@ export function buildUcpBusinessProfile(
     },
   };
 }
+
+export type UcpAp2Readiness = Readonly<{
+  mandateVerification: "enabled" | "not-enabled";
+  sharedPaymentToken: "enabled" | "not-enabled";
+  headlessCompletionEnabled: boolean;
+}>;
 
 export function createUcpEnvelope<TPayload extends Readonly<Record<string, unknown>>>(
   status: UcpResponseStatus,

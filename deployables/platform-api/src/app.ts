@@ -711,6 +711,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   const paymentHandoff = isPaymentProcessorPublicConfig(paymentsServices?.publicConfig)
     ? createPaymentsUcpHandoff(paymentsServices.publicConfig, {
         ap2Verifier: options.ucpAp2MandateVerifier,
+        merchantAuthorizationEnabled: Boolean(options.ucp?.businessSigningKeys),
       })
     : undefined;
   const checkoutUcpHandlers = checkoutServices?.sessions
@@ -741,6 +742,13 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     discoveryUcpHandlers || checkoutUcpHandlers || orderingUcpHandlers
       ? {
           ...options.ucp,
+          ap2Readiness: paymentHandoff
+            ? {
+                mandateVerification: paymentHandoff.payment.ap2.mandate_verification,
+                sharedPaymentToken: paymentHandoff.payment.ap2.shared_payment_token,
+                headlessCompletionEnabled: paymentHandoff.payment.ap2.headless_completion_enabled,
+              }
+            : undefined,
           restHandlers: {
             ...discoveryUcpHandlers?.restHandlers,
             ...checkoutUcpHandlers?.restHandlers,
