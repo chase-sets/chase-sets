@@ -17,7 +17,7 @@ import {
 import { localizedTextMapValues } from "@chase-sets/localization";
 import type { DiscoveryDisplayBadge } from "../../../support/client-support/contracts";
 import { buildDiscoveryEmbeddingDocument } from "../domain/embedding-document";
-import { buildSimpleSearchText } from "../domain/normalization";
+import { buildSimpleSearchText, foldSearchDiacritics } from "../domain/normalization";
 import { aliasTextByWeight, type ResolvedAlias, type SearchTextWeight } from "../domain/alias-weighting";
 import { aliasSearchContributionEnabled } from "../domain/alias-rollout";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
@@ -501,7 +501,7 @@ async function upsertSearchProductContent(
   line: ProductContentLineResolvedEventData & { containedCatalogItemId: string },
   updatedAt: string,
 ): Promise<void> {
-  const contentSearchText = await buildContentSearchText(db, line.containedCatalogItemId);
+  const contentSearchText = foldSearchDiacritics(await buildContentSearchText(db, line.containedCatalogItemId));
   const contentSearchTextSimple = buildSimpleSearchText(contentSearchText);
 
   await db.query(
@@ -582,7 +582,7 @@ async function refreshSearchProductContentsForContainedItem(
   containedCatalogItemId: string,
   updatedAt: string,
 ): Promise<void> {
-  const contentSearchText = await buildContentSearchText(db, containedCatalogItemId);
+  const contentSearchText = foldSearchDiacritics(await buildContentSearchText(db, containedCatalogItemId));
   const contentSearchTextSimple = buildSimpleSearchText(contentSearchText);
 
   await db.query(
@@ -848,10 +848,10 @@ async function refreshDiscoverySearchItem(
       item.image_fallback === null ? null : JSON.stringify(item.image_fallback),
       setCode,
       cardNumber,
-      weightedText.A,
-      weightedText.B,
-      weightedText.C,
-      weightedText.D,
+      foldSearchDiacritics(weightedText.A),
+      foldSearchDiacritics(weightedText.B),
+      foldSearchDiacritics(weightedText.C),
+      foldSearchDiacritics(weightedText.D),
       buildSimpleSearchText(weightedText.A),
       buildSimpleSearchText(weightedText.B),
       buildSimpleSearchText(weightedText.C),
@@ -924,7 +924,7 @@ function formatFilterValueLabel(value: unknown): string {
 }
 
 function normalizeFilterValue(value: unknown): string {
-  return formatFilterValueLabel(value).trim().toLocaleLowerCase("en-US");
+  return formatFilterValueLabel(value).trim().toLowerCase();
 }
 
 function buildReferenceFieldFilterValues(
@@ -950,7 +950,7 @@ function buildReferenceFieldFilterValues(
     return {
       fieldId,
       label,
-      value: record.referenceId.toLocaleLowerCase("en-US"),
+      value: record.referenceId.toLowerCase(),
       valueLabel: record.name,
       valueType: definition.value_type,
       sortKind: sort.sortKind,
@@ -973,7 +973,7 @@ function buildReferenceTypeFilterValues(reference: ReferenceRecordRef | undefine
     return {
       typeKey: record.typeKey,
       label,
-      referenceId: record.referenceId.toLocaleLowerCase("en-US"),
+      referenceId: record.referenceId.toLowerCase(),
       referenceLabel: record.name,
       sortKind: sort.sortKind,
       sortValue: sort.sortValue,

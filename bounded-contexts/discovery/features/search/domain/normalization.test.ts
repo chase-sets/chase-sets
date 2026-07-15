@@ -11,6 +11,10 @@ describe("discovery search normalization", () => {
   it("keeps letters and numbers while collapsing punctuation and whitespace", () => {
     expect(normalizeSimpleSearchText("  Charizard--ex  199/165!!! ")).toBe("Charizard ex 199 165");
   });
+
+  it("folds Latin diacritics without changing CJK text", () => {
+    expect(normalizeSimpleSearchText("Pokémon リザードン")).toBe("Pokemon リザードン");
+  });
 });
 
 describe("CJK n-gram simple search text", () => {
@@ -44,6 +48,10 @@ describe("CJK n-gram simple search text", () => {
 describe("buildSimpleSearchQuery", () => {
   it("keeps Latin queries verbatim", () => {
     expect(buildSimpleSearchQuery("Charizard ex")).toBe("Charizard ex");
+  });
+
+  it("folds Latin query diacritics", () => {
+    expect(buildSimpleSearchQuery("Pokémon ex")).toBe("Pokemon ex");
   });
 
   it("drops the whole CJK run and queries only bigrams so substrings match", () => {

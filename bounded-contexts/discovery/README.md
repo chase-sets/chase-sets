@@ -25,6 +25,11 @@ The slice deliberately does not enable `pg_trgm`: fuzzy spelling recovery would 
 title index, and a second ranking policy without acceptance evidence that prefix and alias matching are insufficient.
 That option remains available if observed zero-result telemetry demonstrates the need.
 
+Latin diacritics are folded in application code before both weighted vectors and every lexical query are built, so
+accented and unaccented spellings match symmetrically without a database extension. The fold is limited to Latin
+combining marks so native CJK marks and the existing bigram behavior remain intact. Projection subscription version 7
+replays Catalog facts to refresh existing Search Index rows with the folded text.
+
 ## Does Not Own
 
 - Canonical catalog item truth

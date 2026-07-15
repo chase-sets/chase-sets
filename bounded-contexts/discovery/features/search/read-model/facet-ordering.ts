@@ -138,7 +138,7 @@ function includesFacetTerm(value: string, term: string): boolean {
 
 function normalizeFacetText(value: string): string {
   return ` ${value
-    .toLocaleLowerCase("en-US")
+    .toLowerCase()
     .replace(/[-_:]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()} `;

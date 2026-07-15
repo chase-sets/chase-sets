@@ -23,5 +23,5 @@ export function aliasSearchContributionEnabled(
     return true;
   }
 
-  return !DISABLED_VALUES.has(raw.trim().toLocaleLowerCase("en-US"));
+  return !DISABLED_VALUES.has(raw.trim().toLowerCase());
 }
