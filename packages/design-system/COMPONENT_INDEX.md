@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 361
-- Source modules covered: 126
+- Runtime exports indexed: 362
+- Source modules covered: 127
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -274,6 +274,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `SearchFilterPanel` | `packages/design-system/src/components/commerce/search.tsx` | Purpose not documented; symbol name suggests: Search Filter Panel. | `No production consumer yet.` |
 | `SearchInput` | `packages/design-system/src/components/forms/text-input.tsx` | Purpose not documented; symbol name suggests: Search Input. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `SearchResultsLayout` | `packages/design-system/src/patterns/app-shells/content-layouts.tsx` | Purpose not documented; symbol name suggests: Search Results Layout. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
+| `SearchResultsTransition` | `packages/design-system/src/components/feedback/search-results-transition.tsx` | Keeps stale results visible while exposing a consistent visual and assistive pending state. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `SectionNavigation` | `packages/design-system/src/components/actions/section-navigation.tsx` | Purpose not documented; symbol name suggests: Section Navigation. | `No production consumer yet.` |
 | `SecurePaymentCue` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Secure Payment Cue. | `bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx` |
 | `SecurePaymentIndicator` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Secure Payment Indicator. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |

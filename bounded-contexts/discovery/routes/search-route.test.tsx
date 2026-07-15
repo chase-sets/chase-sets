@@ -201,6 +201,29 @@ describe("marketplace search route", () => {
     expect(options).toMatchObject({ preventScrollReset: true, replace: true });
   });
 
+  it("flushes the pending search immediately when Enter submits", () => {
+    vi.useFakeTimers();
+    const setSearchParams = vi.fn();
+    mockUseLoaderData.mockReturnValue(searchData());
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("page=2"), setSearchParams]);
+
+    render(<SearchRoute />);
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "charizard" } });
+    fireEvent.submit(screen.getByRole("search"));
+
+    expect(setSearchParams).toHaveBeenCalledTimes(1);
+    act(() => vi.advanceTimersByTime(300));
+    expect(setSearchParams).toHaveBeenCalledTimes(1);
+    const [updater, options] = setSearchParams.mock.calls[0];
+    const next = updater(new URLSearchParams("page=2"));
+    expect(next.get("q")).toBe("charizard");
+    expect(next.has("page")).toBe(false);
+    expect(options).toMatchObject({ preventScrollReset: true, replace: true });
+  });
+
   it("keeps the user's draft when stale loader data renders before debounce completes", () => {
     vi.useFakeTimers();
     let loaderData = searchData("char");
@@ -259,6 +282,25 @@ describe("marketplace search route", () => {
     expect(next.has("q")).toBe(false);
     expect(next.has("search")).toBe(false);
     expect(next.has("page")).toBe(false);
+  });
+
+  it("clears only search immediately from zero-result recovery", () => {
+    const setSearchParams = vi.fn();
+    mockUseLoaderData.mockReturnValue(searchData("pikachu", "ja"));
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu&language=ja&page=3"), setSearchParams]);
+
+    render(<SearchRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+
+    expect(setSearchParams).toHaveBeenCalledTimes(1);
+    const [updater, options] = setSearchParams.mock.calls[0];
+    const next = updater(new URLSearchParams("q=pikachu&language=ja&page=3"));
+    expect(next.has("q")).toBe(false);
+    expect(next.get("language")).toBe("ja");
+    expect(next.has("page")).toBe(false);
+    expect(options).toMatchObject({ preventScrollReset: true, replace: true });
   });
 
   it("navigates category changes without forcing a document reload", () => {

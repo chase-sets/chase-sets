@@ -461,7 +461,7 @@ describe("design system panels, navigation, and shells", () => {
         <MarketplaceEmptyState
           title="No exact matches"
           description="Widen filters or save the search."
-          recommendations={["Remove PSA 10"]}
+          recommendationActions={<a href="/search">Remove PSA 10</a>}
         />
         <MarketplaceStatusTimeline
           steps={[
