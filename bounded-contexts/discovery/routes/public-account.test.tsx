@@ -3,12 +3,14 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiscoveryPublicAccount } from "../support/client-support/contracts";
 
-const { mockUseLoaderData, mockUseActionData, mockUseNavigation, mockSubscribeRealtimePatches } = vi.hoisted(() => ({
-  mockUseLoaderData: vi.fn(),
-  mockUseActionData: vi.fn(),
-  mockUseNavigation: vi.fn(() => ({ state: "idle", formData: undefined })),
-  mockSubscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
-}));
+const { mockUseLoaderData, mockUseActionData, mockUseNavigation, mockUseRevalidator, mockSubscribeRealtimePatches } =
+  vi.hoisted(() => ({
+    mockUseLoaderData: vi.fn(),
+    mockUseActionData: vi.fn(),
+    mockUseNavigation: vi.fn(() => ({ state: "idle", formData: undefined })),
+    mockUseRevalidator: vi.fn(() => ({ revalidate: vi.fn(), state: "idle" })),
+    mockSubscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
+  }));
 
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
@@ -18,6 +20,7 @@ vi.mock("react-router", async () => {
     useLoaderData: mockUseLoaderData,
     useActionData: mockUseActionData,
     useNavigation: mockUseNavigation,
+    useRevalidator: mockUseRevalidator,
   };
 });
 

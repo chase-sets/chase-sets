@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
+import type { RealtimeProjectionPatch, RealtimeSyncRequired } from "@chase-sets/platform-runtime/realtime";
 import type { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import type { DiscoveryBulkCartPreview } from "../support/request-support/api-client";
 
@@ -11,6 +11,7 @@ const {
   mockUseLocation,
   mockUseNavigate,
   mockUseNavigation,
+  mockUseRevalidator,
   mockUseSearchParams,
   mockSubscribeRealtimePatches,
 } = vi.hoisted(() => ({
@@ -18,6 +19,7 @@ const {
   mockUseLocation: vi.fn(),
   mockUseNavigate: vi.fn(),
   mockUseNavigation: vi.fn(),
+  mockUseRevalidator: vi.fn(),
   mockUseSearchParams: vi.fn(),
   mockSubscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
 }));
@@ -31,6 +33,7 @@ vi.mock("react-router", async () => {
     useLocation: mockUseLocation,
     useNavigate: mockUseNavigate,
     useNavigation: mockUseNavigation,
+    useRevalidator: mockUseRevalidator,
     useSearchParams: mockUseSearchParams,
   };
 });
@@ -148,6 +151,7 @@ function searchDataWithMarketOnlyResult(search = "") {
 describe("marketplace search route", () => {
   beforeEach(() => {
     mockUseLocation.mockReturnValue({ pathname: "/search", search: "", hash: "", state: null, key: "test" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn(), state: "idle" });
   });
 
   afterEach(() => {
@@ -573,6 +577,30 @@ describe("marketplace search route", () => {
     act(() => subscriptionOptions?.onPatch(patch));
 
     await waitFor(() => expect(screen.getByText("From $7.00")).toBeTruthy());
+  });
+
+  it("revalidates the current route when the realtime stream requires a full sync", () => {
+    const revalidate = vi.fn();
+    mockUseRevalidator.mockReturnValue({ revalidate, state: "idle" });
+    mockUseLoaderData.mockReturnValue(searchDataWithResults("pikachu"));
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+
+    render(<SearchRoute />);
+
+    const subscriptionOptions = (
+      mockSubscribeRealtimePatches.mock.calls.at(-1) as [SubscribeRealtimePatchesOptions] | undefined
+    )?.[0];
+    act(() => {
+      subscriptionOptions?.onSyncRequired({
+        kind: "sync.required",
+        reason: "cursor-expired",
+        contexts: ["discovery"],
+      } satisfies RealtimeSyncRequired);
+    });
+
+    expect(revalidate).toHaveBeenCalledOnce();
   });
 
   it("suppresses stale bulk add snapshots after the result set changes", async () => {

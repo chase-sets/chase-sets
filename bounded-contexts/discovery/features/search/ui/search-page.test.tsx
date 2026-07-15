@@ -243,6 +243,47 @@ describe("SearchPage", () => {
     expect(image.className).toContain("max-w-[7.25rem]");
   });
 
+  it("prioritizes the first result row and keeps later result images lazy", () => {
+    const items = Array.from({ length: 4 }, (_, index) => ({
+      ...standardAbraSearchResult,
+      catalog_item_id: `cat_abra_${index}`,
+      slug: `abra-${index}`,
+      title: `Abra ${index}`,
+      image_urls: [`/abra-${index}.webp`],
+    }));
+
+    renderSearchPage({
+      data: {
+        ...searchResponse,
+        items,
+        total: items.length,
+        count: items.length,
+      },
+    });
+
+    const images = screen.getAllByRole("img");
+    expect(images).toHaveLength(4);
+    for (const image of images.slice(0, 3)) {
+      expect(image.getAttribute("loading")).toBe("eager");
+      expect(image.getAttribute("fetchpriority")).toBe("high");
+    }
+    expect(images[3]?.getAttribute("loading")).toBe("lazy");
+    expect(images[3]?.getAttribute("fetchpriority")).toBe("auto");
+  });
+
+  it("gives compatibility image URLs intrinsic search-card dimensions", () => {
+    renderSearchPage({
+      data: {
+        ...searchResponse,
+        items: [standardAbraSearchResult],
+      },
+    });
+
+    const image = screen.getByRole("img", { name: "Abra — Base Set 43 Standard Set Common" });
+    expect(image.getAttribute("width")).toBe("224");
+    expect(image.getAttribute("height")).toBe("314");
+  });
+
   it("does not use card-back fallbacks as sealed-product search images", () => {
     renderSearchPage({
       data: {
