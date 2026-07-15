@@ -12,6 +12,7 @@ import {
   identityListQuery,
   readIdentityListFilters,
 } from "../../support/route-support/list-filters";
+import { requestInvitationAcceptanceLink } from "../../features/invitations/integrations/request-invitation-acceptance-link";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
@@ -32,16 +33,15 @@ export const action = defineFormAction({
   intents: {
     create: async ({ request, formData }) => {
       const invitationId = createId("ivt");
-      return formActionRedirect(
-        await createIdentityRequestApiClient(request).createInvitation({
-          invitationId,
-          accountId: String(formData.get("accountId") ?? ""),
-          email: String(formData.get("email") ?? ""),
-          roleKey: String(formData.get("roleKey") ?? "viewer"),
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        }),
-        `/access/invitations/${invitationId}`,
-      );
+      const result = await createIdentityRequestApiClient(request).createInvitation({
+        invitationId,
+        accountId: String(formData.get("accountId") ?? ""),
+        email: String(formData.get("email") ?? ""),
+        roleKey: String(formData.get("roleKey") ?? "viewer"),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+      await requestInvitationAcceptanceLink(request, invitationId, result);
+      return formActionRedirect(result, `/access/invitations/${invitationId}`);
     },
   },
   onUnknownIntent: () => {

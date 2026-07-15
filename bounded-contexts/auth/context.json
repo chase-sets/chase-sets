@@ -4,7 +4,7 @@
   "ownedNouns": ["authentication", "session-journey", "account-selection"],
   "streamPrefix": "auth.",
   "apiBasePath": "/api/auth",
-  "slices": ["account-selection", "agent-grants", "registration", "sessions", "sign-in"],
+  "slices": ["account-selection", "agent-grants", "invitation-acceptance", "registration", "sessions", "sign-in"],
   "allowedSupportDirectories": [
     "api-support",
     "auth-support",
@@ -230,6 +230,7 @@
     { "routePath": "/api/auth/passkeys/register", "methods": ["POST"] },
     { "routePath": "/api/auth/passkeys/sign-in", "methods": ["POST"] },
     { "routePath": "/api/auth/invitations/acceptance-link/request", "methods": ["POST"] },
+    { "routePath": "/api/auth/invitations/inspect", "methods": ["POST"] },
     { "routePath": "/api/auth/invitations/accept", "methods": ["POST"] },
     { "routePath": "/api/auth/guest-checkout/start", "methods": ["POST"] },
     { "routePath": "/api/auth/guest-checkout/claim-link/request", "methods": ["POST"] },
@@ -321,6 +322,13 @@
           "routeId": "register",
           "routePath": "register",
           "fileExport": "./routes/marketplace/register",
+          "routeType": "route",
+          "sourceContext": "auth"
+        },
+        {
+          "routeId": "invite",
+          "routePath": "invite/:invitationId",
+          "fileExport": "./routes/marketplace/invite",
           "routeType": "route",
           "sourceContext": "auth"
         },
@@ -474,6 +482,11 @@
       "purpose": "Own the connected-agents self-service UI: grant listing, connect instructions, spending-mandate controls, and per-grant activity, over the Identity-owned linked platform authorizations and the UCP OAuth ucp-support routes.",
       "expectedConsumers": ["Internal auth module composition"]
     },
+    "invitation-acceptance": {
+      "classification": "slice",
+      "purpose": "Own the recipient invitation inspection, credential choice, acceptance, and authenticated landing journey.",
+      "expectedConsumers": ["Marketplace recipient route", "Auth invitation API"]
+    },
     "registration": {
       "classification": "slice",
       "purpose": "Own registration feature behavior, read models, and UI contracts for the auth context.",
@@ -534,7 +547,7 @@
     "ui-support": {
       "classification": "support",
       "purpose": "Provide reusable ui-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["registration", "sign-in"]
+      "expectedConsumers": ["invitation-acceptance", "registration", "sign-in"]
     },
     "routes": {
       "classification": "routes",
@@ -699,6 +712,8 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "post-form:bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx:H7a156fe57c56#1",
+        "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:H5c166225bc84#1",
+        "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:Ha0e18eba9568#1",
         "post-form:bounded-contexts/auth/features/registration/ui/register-page.tsx:H9d861fd197ea#1",
         "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:H40557e616e62#1",
         "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:Hc6650289f31b#1",
@@ -712,6 +727,7 @@
         "route-action:bounded-contexts/auth/routes/catalog-admin/sign-in.tsx",
         "route-action:bounded-contexts/auth/routes/marketplace/account-select.tsx",
         "route-action:bounded-contexts/auth/routes/marketplace/guest-checkout-exit.tsx",
+        "route-action:bounded-contexts/auth/routes/marketplace/invite.tsx",
         "route-action:bounded-contexts/auth/routes/marketplace/register.tsx",
         "route-action:bounded-contexts/auth/routes/marketplace/sign-in.tsx",
         "route-action:bounded-contexts/auth/routes/marketplace/sign-out.tsx"
@@ -747,6 +763,7 @@
         "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/start",
         "api-route:bounded-contexts/auth/support/api-support/invitation-routes.ts:POST /invitations/acceptance-link/request",
         "api-route:bounded-contexts/auth/support/api-support/invitation-routes.ts:POST /invitations/accept",
+        "api-route:bounded-contexts/auth/support/api-support/invitation-routes.ts:POST /invitations/inspect",
         "api-route:bounded-contexts/auth/support/api-support/magic-link-routes.ts:POST /magic-link/consume",
         "api-route:bounded-contexts/auth/support/api-support/magic-link-routes.ts:POST /magic-link/request",
         "api-route:bounded-contexts/auth/support/api-support/passkey-routes.ts:POST /passkeys/challenge",

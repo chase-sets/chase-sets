@@ -298,6 +298,28 @@
   },
   "readAfterWriteRouteInventory": [
     {
+      "id": "identity.invitation-email-auth-projection-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "source": {
+        "routeIds": ["invitations", "invitations-detail", "account-team"],
+        "actions": ["Create invitation", "Resend invitation"],
+        "command": "Identity invitation commands"
+      },
+      "destination": {
+        "routeId": "invite"
+      },
+      "exception": {
+        "status": "accepted",
+        "owner": "identity",
+        "reviewBy": "2026-10-15",
+        "issue": "#3448",
+        "reason": "The shared invitation-email integration is not itself a route contribution. Its callers pass the authoritative Identity command receipt, and the helper forwards that receipt with Auth as the read target before the Auth API reads its invitation projection and issues the email token.",
+        "files": ["bounded-contexts/identity/features/invitations/integrations/request-invitation-acceptance-link.ts"],
+        "helperUses": ["appendFreshWriteTokenFromSources"]
+      }
+    },
+    {
       "id": "identity.admin-account-detail-fresh-read",
       "owner": "identity",
       "risk": "important",

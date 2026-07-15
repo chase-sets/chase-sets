@@ -112,8 +112,12 @@ CREATE TABLE IF NOT EXISTS auth_identity_invitations (
   status text NOT NULL,
   expires_at timestamptz NOT NULL,
   accepted_by_user_id text NULL,
+  invited_by_user_id text NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE auth_identity_invitations
+  ADD COLUMN IF NOT EXISTS invited_by_user_id text NULL;
 
 CREATE INDEX IF NOT EXISTS auth_identity_invitations_email_status_expires_at_idx
   ON auth_identity_invitations (email, status, expires_at DESC);`;
@@ -160,8 +164,15 @@ export type AuthIdentityInvitationRow = Readonly<{
   status: string;
   expires_at: string;
   accepted_by_user_id: string | null;
+  invited_by_user_id: string | null;
   updated_at: string;
 }>;
+
+export type AuthIdentityInvitationPresentationRow = AuthIdentityInvitationRow &
+  Readonly<{
+    account_display_name: string | null;
+    invited_by_display_name: string | null;
+  }>;
 
 export type AuthIdentitySessionMembership = Readonly<{
   membershipId: string;
@@ -943,6 +954,7 @@ export function buildAuthIdentityInvitationProjectionHandlers(db: PgQueryable): 
           "status",
           "expires_at",
           "accepted_by_user_id",
+          "invited_by_user_id",
           "updated_at",
         ],
         conflictColumns: ["invitation_id"],
@@ -954,6 +966,7 @@ export function buildAuthIdentityInvitationProjectionHandlers(db: PgQueryable): 
           status: "pending",
           expires_at: expiresAt,
           accepted_by_user_id: null,
+          invited_by_user_id: event.audit?.performedByUserId ?? null,
           updated_at: event.timing.recordedAt,
         },
       });
@@ -1115,8 +1128,14 @@ export async function getActiveAuthMembershipForUserAccount(db: PgQueryable, use
 }
 
 export async function getAuthIdentityInvitation(db: PgQueryable, invitationId: string) {
-  const result = await db.query<AuthIdentityInvitationRow>(
-    `SELECT * FROM auth_identity_invitations WHERE invitation_id = $1`,
+  const result = await db.query<AuthIdentityInvitationPresentationRow>(
+    `SELECT invitations.*,
+            accounts.display_name AS account_display_name,
+            inviter.display_name AS invited_by_display_name
+     FROM auth_identity_invitations AS invitations
+     LEFT JOIN auth_identity_accounts AS accounts ON accounts.account_id = invitations.account_id
+     LEFT JOIN auth_identity_users AS inviter ON inviter.user_id = invitations.invited_by_user_id
+     WHERE invitations.invitation_id = $1`,
     [invitationId],
   );
   return result.rows[0] ?? null;

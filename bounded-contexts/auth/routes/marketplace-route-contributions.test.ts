@@ -66,6 +66,19 @@ describe("Auth marketplace route contributions", () => {
     );
   });
 
+  it("declares the Auth-owned invitation recipient route", () => {
+    expect(marketplaceRoutes()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          routeId: "invite",
+          routePath: "invite/:invitationId",
+          fileExport: "./routes/marketplace/invite",
+          sourceContext: "auth",
+        }),
+      ]),
+    );
+  });
+
   it("declares the Auth-owned connected-agents routes", () => {
     expect(marketplaceRoutes()).toEqual(
       expect.arrayContaining([

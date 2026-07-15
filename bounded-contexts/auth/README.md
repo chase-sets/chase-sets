@@ -15,6 +15,7 @@ It is the canonical home for:
 - actor-resolution helpers used by hosts
 - the mounted Auth API at `/api/auth`
 - phone-code and email-link challenge journeys
+- invitation inspection, credential setup, and authenticated acceptance journeys
 
 ## Owns
 
@@ -69,6 +70,7 @@ Session/token security lifetimes -- values, env vars, bounds, and the env-tier-b
 4. Auth resolves the actor for hosts; Identity remains the sole owner of the underlying user, account, membership, and permission facts an actor carries.
 5. Social Login may auto-link by email only when the provider proves email ownership; otherwise linking requires an authenticated existing-user continuation.
 6. Dynamic Client Registration accepts only public OAuth clients; Auth does not issue, store, or echo client secrets.
+7. Invitation acceptance requires the emailed bearer token, consumes it through Identity exactly once, and starts the resulting session in the invited account with the invited role.
 
 ## Tests
 

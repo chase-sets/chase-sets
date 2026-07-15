@@ -4,6 +4,31 @@ export const authEnglishTranslations = {
   "auth.features.accountSelection.ui.accountSelectionPage.choose.account": "Choose Account",
   "auth.features.accountSelection.ui.accountSelectionPage.continue": "Continue",
   "auth.features.accountSelection.ui.accountSelectionPage.role": "Role: {roleLabel}",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.accept.invitation": "Accept your invitation",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.accept.passkey": "Accept with passkey",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.accept.password": "Accept with password",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.acceptance.failed":
+    "Invitation could not be accepted",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.acceptance.failed.fallback":
+    "Invitation could not be accepted.",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.create.password": "Enter or create a password",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.invitation.accepted":
+    "This invitation was already accepted",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.invitation.expired": "This invitation has expired",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.invitation.revoked": "This invitation was revoked",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.invitation.unavailable":
+    "This invitation is unavailable",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.invited.by":
+    "{invitedByName} invited you to {accountName} as {roleLabel}.",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.method": "How would you like to sign in?",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.new.invitation":
+    "Ask an account owner to send you a new invitation if you still need access.",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey": "Passkey",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.copy":
+    "Use your device's secure sign-in. No password is stored.",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.failed": "Passkey registration failed.",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.unavailable": "Passkey unavailable",
+  "auth.features.invitationAcceptance.ui.invitationAcceptancePage.password": "Password",
   "auth.features.accountSelection.ui.accountSelectionPage.this.user.can.act.for.more":
     "This user can act for more than one account.",
   "auth.features.registration.ui.registerPage.create.account": "Create an account with a passkey",
@@ -56,6 +81,7 @@ export const authEnglishTranslations = {
   "auth.routes.marketplace.accountGate.seller.checkout.description":
     "Your Sell List is saved. An account is required before offer acceptance, listing publication, payout, or shipping label work starts.",
   "auth.routes.marketplace.accountGate.seller.checkout.title": "Use an account to continue seller checkout",
+  "auth.routes.marketplace.invite.meta.title": "Accept invitation | Chase Sets",
   "auth.features.agentGrants.ui.agentGrantListPage.connected.agents": "Connected agents",
   "auth.features.agentGrants.ui.agentGrantListPage.agent": "Agent",
   "auth.features.agentGrants.ui.agentGrantListPage.scopes": "Scopes",
@@ -222,7 +248,10 @@ export const authEnglishTranslations = {
     "Account selection is invalid or has expired.",
   "auth.support.apiSupport.invitationRoutes.invitation.acceptance.token.invalid.or.expired":
     "Invitation acceptance token is invalid or expired.",
+  "auth.support.apiSupport.invitationRoutes.choose.a.password.or.passkey":
+    "Choose a password or passkey to accept this invitation.",
   "auth.support.apiSupport.invitationRoutes.invitation.is.unavailable": "Invitation is unavailable.",
+  "auth.support.apiSupport.invitationRoutes.password.is.incorrect": "The password is incorrect.",
   "auth.support.apiSupport.magicLinkRoutes.magic.link.is.invalid.or.has": "Magic link is invalid or has expired.",
   "auth.support.apiSupport.registrationGates.disposable.email.domains.are.not.allowed":
     "Disposable email domains are not allowed.",

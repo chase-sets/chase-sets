@@ -213,6 +213,26 @@ describe("platform email template renderer", () => {
     );
     expect(rendered.textBody).not.toContain("A Chase Sets account update is available.");
   });
+
+  it("renders invitation acceptance links with account and role context", () => {
+    const rendered = platformEmailTemplateRenderer.render(
+      message({
+        subject: "You're invited to Competitive Cards",
+        templateId: "auth_invitation_acceptance_link",
+        templateData: {
+          invitationLink: "https://marketplace.chasesets.com/invite/ivt_1?token=invite_token",
+          accountName: "Competitive Cards",
+          roleLabel: "Member",
+        },
+      }),
+    );
+
+    expect(rendered.subject).toBe("You're invited to Competitive Cards");
+    expect(rendered.textBody).toContain("Competitive Cards");
+    expect(rendered.textBody).toContain("Member");
+    expect(rendered.textBody).toContain("https://marketplace.chasesets.com/invite/ivt_1?token=invite_token");
+    expect(rendered.textBody).not.toContain("A Chase Sets account update is available.");
+  });
 });
 
 function message(
