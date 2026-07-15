@@ -1,9 +1,15 @@
 import { t } from "@chase-sets/localization";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
-import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import {
+  defineFormAction,
+  defineResourceRoute,
+  formActionRedirect,
+  type FormActionContext,
+} from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useMatches } from "react-router";
+import type { MetaFunction } from "react-router";
+import { useActionData, useLoaderData, useMatches } from "react-router";
+import contextManifest from "../../context.json";
 import type { AccountAccessHub } from "../../features/access-hub/api/contracts";
 import {
   AccountAccessHubPage,
@@ -16,25 +22,10 @@ import {
   type ApiKeySecretMutationResult,
   type OneTimeApiKeySecret,
 } from "../../features/api-keys/api/one-time-secret";
-import { IdentityApiError } from "../../support/request-support/api-client";
+import { identityApiErrorAdapter } from "../../support/request-support/route-api-error";
 import { createIdentityRequestApiClient, requestWithoutFreshWrite } from "../../support/route-support/identity-request";
 
 type AccountHubActionData = Readonly<{ oneTimeSecret: OneTimeApiKeySecret }>;
-
-function identityApiErrorStatus(error: unknown) {
-  return error instanceof IdentityApiError ? error.status : null;
-}
-
-function identityApiErrorBody(error: unknown) {
-  return error instanceof IdentityApiError ? error.body : null;
-}
-
-function identityApiErrorCode(error: unknown) {
-  const body = identityApiErrorBody(error);
-  const apiError = typeof body === "object" && body !== null && "error" in body ? body.error : null;
-  const code = typeof apiError === "object" && apiError !== null ? (apiError as { code?: unknown }).code : null;
-  return typeof code === "string" && code.trim() ? code : null;
-}
 
 function readAccountBadgeKey(value: FormDataEntryValue | null): AccountBadgeKey {
   const badgeKey = String(value ?? "");
@@ -53,41 +44,30 @@ function hubHref(accountId: string, tab: AccountAccessHubTab) {
   return `/access/accounts/${accountId}?tab=${tab}`;
 }
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
-  const api = createIdentityRequestApiClient(request);
-  const accountId = params.id!;
-  const response = await loadAfterWrite({
-    request,
-    load: () => api.getAccountAccessHub<AccountAccessHub>(accountId),
-    isNotFound: (error) => identityApiErrorStatus(error) === 404,
-    getStatus: identityApiErrorStatus,
-    getErrorCode: identityApiErrorCode,
-    getBody: identityApiErrorBody,
-  });
-
-  if (response.kind === "pending") {
-    const recoveryApi = createIdentityRequestApiClient(requestWithoutFreshWrite(request));
-    return {
-      id: accountId,
-      data: await recoveryApi.getAccountAccessHub<AccountAccessHub>(accountId),
-      initialTab: readTab(request),
-    };
-  }
-
-  if (response.kind === "permanent-failure") {
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "accounts-detail",
+  errorAdapter: identityApiErrorAdapter,
+  load: ({ request, params }) =>
+    createIdentityRequestApiClient(request).getAccountAccessHub<AccountAccessHub>(params.id!),
+  map: (data, { request, params }) => ({ id: params.id!, data, initialTab: readTab(request) }),
+  onPending: async (_result, { request, params }) => ({
+    id: params.id!,
+    data: await createIdentityRequestApiClient(requestWithoutFreshWrite(request)).getAccountAccessHub<AccountAccessHub>(
+      params.id!,
+    ),
+    initialTab: readTab(request),
+  }),
+  onPermanentFailure: (response) => {
     if ("error" in response) {
       throw response.error;
     }
     throw new Response("Account is unavailable.", { status: 404 });
-  }
+  },
+});
 
-  return { id: accountId, data: response.data, initialTab: readTab(request) };
-}
-
-export async function action({ request, params }: ActionFunctionArgs) {
+async function handleAccountAction({ request, params, formData, intent }: FormActionContext) {
   const api = createIdentityRequestApiClient(request);
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
   const accountId = params.id!;
   let result: unknown;
   let tab: AccountAccessHubTab = "overview";
@@ -114,7 +94,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     case "remove-account-badge":
       result = await api.removeAccountBadge(accountId, readAccountBadgeKey(formData.get("badgeKey")));
       break;
-    case "create-invitation": {
+    case "create-invitation":
       tab = "team";
       result = await api.createInvitation({
         invitationId: createId("ivt"),
@@ -124,7 +104,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       });
       break;
-    }
     case "change-membership-role":
       tab = "team";
       result = await api.changeMembershipRole(
@@ -228,8 +207,36 @@ export async function action({ request, params }: ActionFunctionArgs) {
       throw new Response("Unsupported account access action.", { status: 400 });
   }
 
-  return redirect(navigateAfterWrite(result, hubHref(accountId, tab)));
+  return formActionRedirect(result, hubHref(accountId, tab));
 }
+
+export const action = defineFormAction({
+  intents: {
+    "update-profile": handleAccountAction,
+    suspend: handleAccountAction,
+    reactivate: handleAccountAction,
+    close: handleAccountAction,
+    "assign-account-badge": handleAccountAction,
+    "remove-account-badge": handleAccountAction,
+    "create-invitation": handleAccountAction,
+    "change-membership-role": handleAccountAction,
+    "revoke-membership": handleAccountAction,
+    "reinstate-membership": handleAccountAction,
+    "resend-invitation": handleAccountAction,
+    "cancel-invitation": handleAccountAction,
+    "decline-invitation": handleAccountAction,
+    "update-user-profile": handleAccountAction,
+    "suspend-user": handleAccountAction,
+    "reactivate-user": handleAccountAction,
+    "add-user-contact-method": handleAccountAction,
+    "verify-user-contact-method": handleAccountAction,
+    "enable-user-auth-method": handleAccountAction,
+    "disable-user-auth-method": handleAccountAction,
+    "create-api-key": handleAccountAction,
+    "rotate-api-key": handleAccountAction,
+    "revoke-api-key": handleAccountAction,
+  },
+});
 
 export const meta: MetaFunction = () => [
   { title: t("identity.routes.admin.accountsDetail.account.detail.identity.admin") },

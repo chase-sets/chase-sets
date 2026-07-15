@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useActionData, useLoaderData } from "react-router";
+import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createPricingRequestApiClient, PricingApiError } from "../../support/request-support/api-client";
@@ -47,40 +48,33 @@ function selectedRecommendationIds(formData: FormData) {
     .filter(Boolean);
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "pricing.manage",
-  });
-  const api = createPricingRequestApiClient(request);
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
+const recommendationJobDestination = (jobId: string) => `/account/repricing?jobId=${encodeURIComponent(jobId)}`;
 
-  try {
-    if (intent === "refresh-recommendations") {
-      const job = await api.refreshRecommendations();
-      return redirect(`/account/repricing?jobId=${encodeURIComponent(job.jobId)}`);
-    }
-
-    if (intent === "apply-recommendations") {
-      const job = await api.applyRecommendations(selectedRecommendationIds(formData));
-      return redirect(`/account/repricing?jobId=${encodeURIComponent(job.jobId)}`);
-    }
-
-    if (intent === "dismiss-recommendations") {
-      const job = await api.dismissRecommendations(selectedRecommendationIds(formData));
-      return redirect(`/account/repricing?jobId=${encodeURIComponent(job.jobId)}`);
-    }
-
-    return {
-      error: t("pricing.routes.marketplace.accountRepricing.unknown.action"),
-    };
-  } catch (error) {
-    return {
-      error: error instanceof Error ? error.message : t("pricing.routes.marketplace.accountRepricing.action.failed"),
-    };
-  }
-}
+export const action = defineFormAction({
+  authorization: { permission: "pricing.manage" },
+  intents: {
+    "refresh-recommendations": async ({ request }) => {
+      const job = await createPricingRequestApiClient(request).refreshRecommendations();
+      return formActionRedirect(null, recommendationJobDestination(job.jobId));
+    },
+    "apply-recommendations": async ({ request, formData }) => {
+      const job = await createPricingRequestApiClient(request).applyRecommendations(
+        selectedRecommendationIds(formData),
+      );
+      return formActionRedirect(null, recommendationJobDestination(job.jobId));
+    },
+    "dismiss-recommendations": async ({ request, formData }) => {
+      const job = await createPricingRequestApiClient(request).dismissRecommendations(
+        selectedRecommendationIds(formData),
+      );
+      return formActionRedirect(null, recommendationJobDestination(job.jobId));
+    },
+  },
+  onUnknownIntent: () => ({ error: t("pricing.routes.marketplace.accountRepricing.unknown.action") }),
+  onError: (error) => ({
+    error: error instanceof Error ? error.message : t("pricing.routes.marketplace.accountRepricing.action.failed"),
+  }),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
@@ -90,7 +84,7 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceRepricingRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const actionData = useActionData<typeof action>() as { message?: string; error?: string } | undefined;
 
   return (
     <PricingRecommendationListPage

@@ -16,6 +16,10 @@ import {
   createForwardedAuthHeadersAsync,
   createForwardedAuthFetch,
   createForwardedAuthHeaders,
+  defineApiErrorAdapter,
+  defineFormAction,
+  defineResourceRoute,
+  formActionRedirect,
   loadAfterWrite,
   MissingInternalApiOriginError,
   navigateAfterWrite,
@@ -763,5 +767,103 @@ describe("default-safe post-write navigation runtime", () => {
       kind: "data",
       data: { listingId: "lst_1" },
     });
+  });
+});
+
+describe("deep route contracts", () => {
+  const apiErrors = defineApiErrorAdapter({
+    isError: (error): error is Error & { status: number; body: unknown } =>
+      error instanceof Error && "status" in error && "body" in error,
+    getStatus: (error) => error.status,
+    getBody: (error) => error.body,
+  });
+
+  it("dispatches a declared form intent and owns the post-write redirect", async () => {
+    const action = defineFormAction({
+      intents: {
+        publish: async ({ formData }) =>
+          formActionRedirect(
+            {
+              commitPositions: [{ sourceContextName: "marketplace", maxGlobalPosition: "42", eventIds: ["evt_42"] }],
+              commitEventIds: ["evt_42"],
+              title: String(formData.get("title")),
+            },
+            "/account/listings/lst_1",
+          ),
+      },
+    });
+
+    const response = await action({
+      request: new Request("https://marketplace.chasesets.test/account/listings/lst_1", {
+        method: "POST",
+        body: new URLSearchParams({ intent: "publish", title: "Base Set" }),
+      }),
+      params: { listingId: "lst_1" },
+    });
+
+    expect(response).toBeInstanceOf(Response);
+    expect((response as Response).status).toBe(302);
+    expect((response as Response).headers.get("Location")).toContain("/account/listings/lst_1?afterWrite=");
+  });
+
+  it("maps a registered context API error without route-local catch ceremony", async () => {
+    const action = defineFormAction({
+      errorAdapter: apiErrors,
+      intents: {
+        publish: () => {
+          throw Object.assign(new Error("Listing cannot be published."), {
+            status: 409,
+            body: { error: { code: "listing_invalid" } },
+          });
+        },
+      },
+    });
+
+    await expect(
+      action({
+        request: new Request("https://marketplace.chasesets.test/account/listings/lst_1", {
+          method: "POST",
+          body: new URLSearchParams({ intent: "publish" }),
+        }),
+        params: { listingId: "lst_1" },
+      }),
+    ).resolves.toEqual({ error: "Listing cannot be published." });
+  });
+
+  it("reads loadAfterWrite ownership from the context manifest", async () => {
+    const loader = defineResourceRoute({
+      manifest: {
+        contextName: "inventory",
+        readAfterWriteRouteInventory: [
+          {
+            destination: {
+              routeId: "account-inventory-item",
+              helperUses: ["loadAfterWrite"],
+            },
+          },
+        ],
+      },
+      routeId: "account-inventory-item",
+      errorAdapter: apiErrors,
+      load: async ({ params }) => ({ id: params.itemId }),
+      map: (item) => ({ item }),
+    });
+
+    await expect(
+      loader({
+        request: new Request("https://marketplace.chasesets.test/account/inventory/items/inv_1"),
+        params: { itemId: "inv_1" },
+      }),
+    ).resolves.toEqual({ item: { id: "inv_1" } });
+
+    expect(() =>
+      defineResourceRoute({
+        manifest: { contextName: "inventory", readAfterWriteRouteInventory: [] },
+        routeId: "account-inventory-item",
+        errorAdapter: apiErrors,
+        load: async () => ({ id: "inv_1" }),
+        map: (item) => item,
+      }),
+    ).toThrow("must declare loadAfterWrite in readAfterWriteRouteInventory");
   });
 });

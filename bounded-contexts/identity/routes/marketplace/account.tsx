@@ -1,12 +1,12 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData } from "react-router";
 import {
   classifyFreshWriteReadError,
   postWriteRecoveryKindForFreshWriteReadError,
   type PostWriteRecoveryKind,
 } from "@chase-sets/http/responses";
-import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { requestWithoutFreshWrite, requireActorFromIdentityApi } from "../../support/route-support/identity-request";
@@ -95,25 +95,20 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const actor = await requireActorFromIdentityApi({
-    request,
-    permission: "accounts.manage",
-  });
-  const api = createIdentityRequestApiClient(request);
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  let result: unknown = null;
-
-  if (intent === "update-profile") {
-    result = await api.updateAccount(actor.accountId, {
-      name: String(formData.get("name") ?? ""),
-      displayName: String(formData.get("displayName") ?? ""),
-    });
-  }
-
-  return redirect(navigateAfterWrite(result, "/account"));
-}
+export const action = defineFormAction({
+  authorization: ({ request }) => requireActorFromIdentityApi({ request, permission: "accounts.manage" }),
+  intents: {
+    "update-profile": async ({ request, actor, formData }) =>
+      formActionRedirect(
+        await createIdentityRequestApiClient(request).updateAccount(actor!.accountId, {
+          name: String(formData.get("name") ?? ""),
+          displayName: String(formData.get("displayName") ?? ""),
+        }),
+        "/account",
+      ),
+  },
+  onUnknownIntent: () => formActionRedirect(null, "/account"),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: t("identity.routes.marketplace.account.account.marketplace") });

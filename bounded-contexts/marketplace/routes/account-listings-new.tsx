@@ -5,8 +5,10 @@ import { requireActorFromAuthApi, resolveRequiredActorFromAuthApi } from "@chase
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { Card, LinkButton, Page, PageHeader, PageSection, Stack, Text } from "@chase-sets/design-system";
 import {
+  defineFormAction,
   loadAfterWrite,
   navigateAfterWriteFromSourcesWithCompactToken,
+  type FormActionContext,
   type PlatformPostWriteTelemetry,
 } from "@chase-sets/platform-runtime/http";
 import {
@@ -371,10 +373,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "listings.manage" });
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
+async function handleAction(intent: string, { request, formData }: FormActionContext) {
   const api = createMarketplaceRequestApiClient(request);
   const createForm = {
     inventoryItemId: String(formData.get("inventoryItemId") ?? ""),
@@ -503,6 +502,16 @@ export async function action({ request }: ActionFunctionArgs) {
     throw error;
   }
 }
+
+export const action = defineFormAction({
+  authorization: { permission: "listings.manage" },
+  intents: {
+    "preview-listing": (context) => handleAction("preview-listing", context),
+    "create-listing": (context) => handleAction("create-listing", context),
+    "create-and-publish-listing": (context) => handleAction("create-and-publish-listing", context),
+  },
+  onUnknownIntent: (context) => handleAction("", context),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

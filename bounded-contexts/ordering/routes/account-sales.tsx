@@ -4,49 +4,37 @@ import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { loadAfterWrite } from "@chase-sets/platform-runtime/http";
+import { defineResourceRoute } from "@chase-sets/platform-runtime/http";
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import { type SaleListItem } from "../support/request-support/api-client";
 import { createOrderingRequestApiClient } from "../support/request-support/api-client";
 import { OrderingOrderListPage } from "../features/orders/ui/order-list-page";
 import { orderListPageQuery } from "../support/request-support/list-pagination";
+import contextManifest from "../context.json";
+import { orderingApiErrorAdapter } from "../support/request-support/route-api-error";
 
 const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountSales.review.sales.created.by.checkout.and");
 
-function salesPreparingResponse() {
-  return new Response("We are preparing your sales. Refresh in a moment and they should appear.", {
-    status: 503,
-    statusText: "Preparing sales",
-  });
-}
-
-export async function loader({ request }: LoaderFunctionArgs) {
-  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
-  const actor = await requireActorFromAuthApi({
-    request: resolvedRequest,
-    permission: "orders.view",
-  });
-  if (!actor.permissions.includes("listings.view")) {
-    throw new Response(t("ordering.routes.accountSales.forbidden"), { status: 403 });
-  }
-
-  const api = createOrderingRequestApiClient(resolvedRequest);
-  const salesRead = await loadAfterWrite({
-    request: resolvedRequest,
-    load: () => api.listSales(orderListPageQuery(resolvedRequest)),
-    isNotFound: () => false,
-  });
-  if (salesRead.kind === "pending") {
-    throw salesPreparingResponse();
-  }
-  if (salesRead.kind === "permanent-failure") {
-    throw "error" in salesRead ? salesRead.error : new Response("Sales handoff is no longer valid.", { status: 410 });
-  }
-
-  return {
-    sales: salesRead.data,
-  };
-}
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "account-sales",
+  prepare: async (args) => ({ ...args, request: await resolvePlatformPostWriteRequest(args.request) }),
+  authorization: async ({ request }) => {
+    const actor = await requireActorFromAuthApi({ request, permission: "orders.view" });
+    if (!actor.permissions.includes("listings.view")) {
+      throw new Response(t("ordering.routes.accountSales.forbidden"), { status: 403 });
+    }
+    return actor;
+  },
+  errorAdapter: orderingApiErrorAdapter,
+  load: ({ request }) => createOrderingRequestApiClient(request).listSales(orderListPageQuery(request)),
+  map: (sales) => ({ sales }),
+  messages: {
+    pending: "We are preparing your sales. Refresh in a moment and they should appear.",
+    pendingStatusText: "Preparing sales",
+    unverified: "Sales handoff is no longer valid.",
+  },
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

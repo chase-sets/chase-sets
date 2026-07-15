@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
-import { navigateAfterWrite, readOffsetPageParams } from "@chase-sets/platform-runtime/http";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData } from "react-router";
+import { defineFormAction, formActionRedirect, readOffsetPageParams } from "@chase-sets/platform-runtime/http";
 import type { Account, Invitation } from "../../support/request-support/api-client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -28,26 +28,26 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const api = createIdentityRequestApiClient(request);
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-
-  if (intent !== "create") {
+export const action = defineFormAction({
+  intents: {
+    create: async ({ request, formData }) => {
+      const invitationId = createId("ivt");
+      return formActionRedirect(
+        await createIdentityRequestApiClient(request).createInvitation({
+          invitationId,
+          accountId: String(formData.get("accountId") ?? ""),
+          email: String(formData.get("email") ?? ""),
+          roleKey: String(formData.get("roleKey") ?? "viewer"),
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        }),
+        `/access/invitations/${invitationId}`,
+      );
+    },
+  },
+  onUnknownIntent: () => {
     throw new Response("Unsupported invitation action.", { status: 400 });
-  }
-
-  const invitationId = createId("ivt");
-  const result = await api.createInvitation({
-    invitationId,
-    accountId: String(formData.get("accountId") ?? ""),
-    email: String(formData.get("email") ?? ""),
-    roleKey: String(formData.get("roleKey") ?? "viewer"),
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-  });
-
-  return redirect(navigateAfterWrite(result, `/access/invitations/${invitationId}`));
-}
+  },
+});
 
 export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.invitations.invitations.identity.admin") }];
 

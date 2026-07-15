@@ -1,8 +1,12 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
-import { classifyPostWriteDestinationResult } from "@chase-sets/http/responses";
-import { loadAfterWrite, navigateAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
+import {
+  defineFormAction,
+  defineResourceRoute,
+  formActionRedirect,
+  type PlatformPostWriteTelemetry,
+} from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -16,6 +20,8 @@ import {
   OfferMatchDetailErrorBoundary,
 } from "../features/offers/ui/offer-detail-error-boundary";
 import { MarketplaceOfferMatchDetailPage } from "../features/offers/ui/offer-match-detail-page";
+import contextManifest from "../context.json";
+import { marketplaceApiErrorAdapter } from "../support/request-support/route-api-error";
 
 export { OfferMatchDetailErrorBoundary as ErrorBoundary };
 
@@ -27,105 +33,77 @@ const OFFER_MATCH_POST_WRITE_TELEMETRY = {
   routeTemplate: "/account/offers/matches/:offerId",
 } as const satisfies PlatformPostWriteTelemetry;
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
-  const actor = await requireActorFromAuthApi({
-    request,
-    permission: "offers.view",
-  });
-  if (!actor.permissions.includes("listings.view")) {
-    throw new Response(t("marketplace.routes.accountOfferMatch.forbidden"), { status: 403 });
-  }
-
-  const api = createMarketplaceRequestApiClient(request);
-
-  const offerMatchRead = await loadAfterWrite({
-    request,
-    isNotFound: (error) => error instanceof MarketplaceApiError && error.status === 404,
-    load: async () => {
-      const offerMatch = await api.getOfferMatch(params.offerId!);
-      return {
-        offerMatch,
-        acceptanceTerms:
-          offerMatch.status === "submitted"
-            ? await api.previewOfferAcceptanceTerms(params.offerId!, offerMatch.listing_id)
-            : null,
-      };
-    },
-    telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
-  });
-  const offerMatchDestination = classifyPostWriteDestinationResult(offerMatchRead);
-
-  if (offerMatchDestination.kind === "recover") {
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "account-offer-match",
+  authorization: async ({ request }) => {
+    const actor = await requireActorFromAuthApi({ request, permission: "offers.view" });
+    if (!actor.permissions.includes("listings.view")) {
+      throw new Response(t("marketplace.routes.accountOfferMatch.forbidden"), { status: 403 });
+    }
+    return actor;
+  },
+  errorAdapter: marketplaceApiErrorAdapter,
+  load: async ({ request, params }) => {
+    const api = createMarketplaceRequestApiClient(request);
+    const offerMatch = await api.getOfferMatch(params.offerId!);
     return {
-      offerMatch: null,
-      acceptanceTerms: null,
-      recovery: "fresh-write-preparing" as const,
+      offerMatch,
+      acceptanceTerms:
+        offerMatch.status === "submitted"
+          ? await api.previewOfferAcceptanceTerms(params.offerId!, offerMatch.listing_id)
+          : null,
     };
-  }
+  },
+  map: (result) => result,
+  onPending: () => ({
+    offerMatch: null,
+    acceptanceTerms: null,
+    recovery: "fresh-write-preparing" as const,
+  }),
+  messages: { notFound: t("marketplace.routes.accountOfferMatch.offer.match.not.found") },
+  telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
+});
 
-  if (offerMatchDestination.kind === "pass-through") {
-    const error = "error" in offerMatchDestination.result ? offerMatchDestination.result.error : null;
-
-    if (error instanceof MarketplaceApiError && error.status === 404) {
-      throw new Response(t("marketplace.routes.accountOfferMatch.offer.match.not.found"), { status: 404 });
+export const action = defineFormAction({
+  authorization: async ({ request }) => {
+    const actor = await requireActorFromAuthApi({ request, permission: "offers.manage" });
+    if (!actor.permissions.includes("listings.view")) {
+      throw new Response(t("marketplace.routes.accountOfferMatch.forbidden.2"), { status: 403 });
     }
-
-    if (error) {
-      throw error;
-    }
-
-    throw new Response(t("marketplace.routes.accountOfferMatch.offer.match.not.found"), { status: 404 });
-  }
-
-  return offerMatchDestination.data;
-}
-
-export async function action({ request, params }: ActionFunctionArgs) {
-  const actor = await requireActorFromAuthApi({
-    request,
-    permission: "offers.manage",
-  });
-  if (!actor.permissions.includes("listings.view")) {
-    throw new Response(t("marketplace.routes.accountOfferMatch.forbidden.2"), { status: 403 });
-  }
-
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const api = createMarketplaceRequestApiClient(request);
-
-  try {
-    if (intent === "accept-offer") {
-      const result = await api.acceptOfferMatch(params.offerId!, {
-        listingId: String(formData.get("listingId") ?? ""),
-        feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? ""),
-      });
-      return redirect(
-        navigateAfterWrite(result, `/account/offers/matches/${params.offerId}`, {
-          telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
+    return actor;
+  },
+  intents: {
+    "accept-offer": async ({ request, params, formData }) =>
+      formActionRedirect(
+        await createMarketplaceRequestApiClient(request).acceptOfferMatch(params.offerId!, {
+          listingId: String(formData.get("listingId") ?? ""),
+          feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? ""),
         }),
-      );
-    }
-
-    if (intent === "decline-offer") {
-      const result = await api.declineOfferMatch(params.offerId!);
-      return redirect(
-        navigateAfterWrite(result, "/account/offers/matches", {
+        `/account/offers/matches/${params.offerId}`,
+        {
           telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
-        }),
-      );
-    }
-
-    if (intent === "mute-offer-buyer") {
-      const result = await api.muteOfferBuyer(params.offerId!);
-      return redirect(
-        navigateAfterWrite(result, "/account/offers/matches", {
+        },
+      ),
+    "decline-offer": async ({ request, params }) =>
+      formActionRedirect(
+        await createMarketplaceRequestApiClient(request).declineOfferMatch(params.offerId!),
+        "/account/offers/matches",
+        {
           telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
-        }),
-      );
-    }
-
-    return null;
-  } catch (error) {
+        },
+      ),
+    "mute-offer-buyer": async ({ request, params }) =>
+      formActionRedirect(
+        await createMarketplaceRequestApiClient(request).muteOfferBuyer(params.offerId!),
+        "/account/offers/matches",
+        {
+          telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
+        },
+      ),
+  },
+  onUnknownIntent: () => null,
+  onError: (error) => {
     if (error instanceof MarketplaceApiError && error.status === 409) {
       const currentQuote =
         typeof error.body === "object" &&
@@ -147,8 +125,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
       error: error instanceof Error ? error.message : t("marketplace.routes.accountOfferMatch.request.failed"),
       currentQuote: null,
     };
-  }
-}
+  },
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

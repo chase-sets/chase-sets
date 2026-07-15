@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useMatches } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useActionData, useLoaderData, useMatches } from "react-router";
+import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { ListingEvidencePolicyPage } from "../../features/listing-evidence-policy/ui/listing-evidence-policy-page";
 import {
   activateListingEvidencePolicyDraft,
@@ -31,26 +32,31 @@ function isoTimestamp(value: FormDataEntryValue | null) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const policyId = String(formData.get("policyId") ?? "");
+const policyRedirect = formActionRedirect(null, "/listing-evidence-policy");
 
-  try {
-    if (intent === "create-draft") {
+export const action = defineFormAction({
+  intents: {
+    "create-draft": async ({ request, formData }) => {
       const rules = JSON.parse(String(formData.get("rules") ?? "[]")) as ListingEvidencePolicyRule[];
       await createListingEvidencePolicyDraft(request, {
         policyName: String(formData.get("policyName") ?? "").trim(),
         rules,
       });
-    } else if (intent === "validate") {
-      const validation = await validateListingEvidencePolicyDraft(request, policyId);
-      return { validation, error: null };
-    } else if (intent === "reject") {
-      await rejectListingEvidencePolicyDraft(request, policyId);
-    } else if (intent === "rollback") {
-      await createListingEvidencePolicyRollbackDraft(request, policyId);
-    } else if (intent === "activate") {
+      return policyRedirect;
+    },
+    validate: async ({ request, formData }) => ({
+      validation: await validateListingEvidencePolicyDraft(request, String(formData.get("policyId") ?? "")),
+      error: null,
+    }),
+    reject: async ({ request, formData }) => {
+      await rejectListingEvidencePolicyDraft(request, String(formData.get("policyId") ?? ""));
+      return policyRedirect;
+    },
+    rollback: async ({ request, formData }) => {
+      await createListingEvidencePolicyRollbackDraft(request, String(formData.get("policyId") ?? ""));
+      return policyRedirect;
+    },
+    activate: async ({ request, formData }) => {
       if (formData.get("impactAcknowledged") !== "yes") {
         return { validation: null, error: t("marketplace.features.listingEvidencePolicy.ui.impact.required") };
       }
@@ -58,23 +64,25 @@ export async function action({ request }: ActionFunctionArgs) {
       if (!effectiveFrom) {
         return { validation: null, error: t("marketplace.features.listingEvidencePolicy.ui.effective.required") };
       }
-      await activateListingEvidencePolicyDraft(request, policyId, {
+      await activateListingEvidencePolicyDraft(request, String(formData.get("policyId") ?? ""), {
         effectiveFrom,
         effectiveUntil: isoTimestamp(formData.get("effectiveUntil")),
         impactAcknowledgmentHash: String(formData.get("impactAcknowledgmentHash") ?? ""),
       });
-    } else {
-      return { validation: null, error: t("marketplace.features.listingEvidencePolicy.ui.intent.invalid") };
-    }
-  } catch (error) {
+      return policyRedirect;
+    },
+  },
+  onUnknownIntent: () => ({
+    validation: null,
+    error: t("marketplace.features.listingEvidencePolicy.ui.intent.invalid"),
+  }),
+  onError: (error) => {
     if (error instanceof ListingEvidencePolicyRequestError || error instanceof SyntaxError) {
       return { validation: null, error: error.message };
     }
     throw error;
-  }
-
-  return redirect("/listing-evidence-policy");
-}
+  },
+});
 
 export default function ListingEvidencePolicyRoute() {
   const { overview, selectorCatalog } = useLoaderData<typeof loader>();

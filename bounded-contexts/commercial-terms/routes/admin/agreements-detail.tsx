@@ -2,7 +2,8 @@ import { Banner, LinkButton, Page, PageHeader } from "@chase-sets/design-system"
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/http/responses";
+import { navigateAfterWrite } from "@chase-sets/http/responses";
+import { defineResourceRoute } from "@chase-sets/platform-runtime/http";
 import { AgreementDetailPage } from "../../features/agreements/ui/agreement-detail-page";
 import {
   CommercialTermsApiError,
@@ -14,37 +15,24 @@ import {
   commercialTermsApiErrorStatus,
   formatCommercialTermsAdminLoadError,
 } from "../../support/request-support/admin-loader-error";
+import contextManifest from "../../context.json";
+import { commercialTermsApiErrorAdapter } from "../../support/request-support/route-api-error";
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
-  const api = createCommercialTermsRequestApiClient(request);
-  try {
-    const agreementRead = await loadAfterWrite({
-      request,
-      load: () => api.getAgreement(params.id!),
-      isNotFound: (error) => commercialTermsApiErrorStatus(error) === 404,
-      getStatus: commercialTermsApiErrorStatus,
-      getErrorCode: commercialTermsApiErrorCode,
-      getBody: commercialTermsApiErrorBody,
-    });
-
-    if (agreementRead.kind !== "data") {
-      return {
-        agreement: null,
-        loadError: formatCommercialTermsAdminLoadError("error" in agreementRead ? agreementRead.error : undefined),
-      };
-    }
-
-    return {
-      agreement: agreementRead.data,
-      loadError: null,
-    };
-  } catch (error) {
-    return {
-      agreement: null,
-      loadError: formatCommercialTermsAdminLoadError(error),
-    };
-  }
-}
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "commercial-terms-agreements-detail",
+  errorAdapter: commercialTermsApiErrorAdapter,
+  load: ({ request, params }) => createCommercialTermsRequestApiClient(request).getAgreement(params.id!),
+  map: (agreement) => ({ agreement: agreement as typeof agreement | null, loadError: null as string | null }),
+  onPending: (result) => ({
+    agreement: null,
+    loadError: formatCommercialTermsAdminLoadError("error" in result ? result.error : undefined),
+  }),
+  onPermanentFailure: (result) => ({
+    agreement: null,
+    loadError: formatCommercialTermsAdminLoadError("error" in result ? result.error : undefined),
+  }),
+});
 
 export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();

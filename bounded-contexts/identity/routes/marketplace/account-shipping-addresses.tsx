@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createIdentityRequestApiClient,
@@ -10,6 +10,8 @@ import {
 } from "../../support/route-support/identity-request";
 import { IdentityApiError, type ShippingAddress } from "../../support/request-support/api-client";
 import { ShippingAddressPage } from "../../features/shipping-addresses/ui/shipping-address-page";
+import contextManifest from "../../context.json";
+import { identityApiErrorAdapter } from "../../support/request-support/route-api-error";
 
 type ActionData = Readonly<{ error?: string }>;
 
@@ -43,94 +45,48 @@ function emptyAddressList(): ListResponse<ShippingAddress> {
   return { items: [], total: 0, count: 0 };
 }
 
-function identityApiErrorStatus(error: unknown) {
-  return error instanceof IdentityApiError ? error.status : null;
-}
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "account-shipping-addresses",
+  authorization: ({ request }) => requireActorFromIdentityApi({ request, permission: "accounts.view" }),
+  errorAdapter: identityApiErrorAdapter,
+  load: ({ request, actor }) =>
+    createIdentityRequestApiClient(request).listShippingAddresses<ListResponse<ShippingAddress>>(actor!.accountId),
+  map: (response) => ({ addresses: response.items, loadError: null }),
+  onPending: () => ({
+    addresses: emptyAddressList().items,
+    loadError: t("identity.routes.marketplace.accountShippingAddresses.addresses.updating"),
+  }),
+  messages: { notFound: "Shipping addresses are unavailable." },
+});
 
-function identityApiErrorBody(error: unknown) {
-  return error instanceof IdentityApiError ? error.body : null;
-}
-
-function identityApiErrorCode(error: unknown) {
-  const body = identityApiErrorBody(error);
-  const apiError = typeof body === "object" && body !== null && "error" in body ? body.error : null;
-  const code = typeof apiError === "object" && apiError !== null ? (apiError as { code?: unknown }).code : null;
-  return typeof code === "string" && code.trim() ? code : null;
-}
-
-export async function loader({ request }: LoaderFunctionArgs) {
-  const actor = await requireActorFromIdentityApi({
-    request,
-    permission: "accounts.view",
-  });
-  const api = createIdentityRequestApiClient(request);
-  const response = await loadAfterWrite({
-    request,
-    load: () => api.listShippingAddresses<ListResponse<ShippingAddress>>(actor.accountId),
-    isNotFound: (error) => identityApiErrorStatus(error) === 404,
-    getStatus: identityApiErrorStatus,
-    getErrorCode: identityApiErrorCode,
-    getBody: identityApiErrorBody,
-  });
-
-  if (response.kind === "pending") {
-    return {
-      addresses: emptyAddressList().items,
-      loadError: t("identity.routes.marketplace.accountShippingAddresses.addresses.updating"),
-    };
-  }
-
-  if (response.kind === "permanent-failure") {
-    if ("error" in response) {
-      throw response.error;
-    }
-    throw new Response("Shipping addresses are unavailable.", { status: 404 });
-  }
-
-  return { addresses: response.data.items, loadError: null };
-}
-
-export async function action({ request }: ActionFunctionArgs) {
-  const actor = await requireActorFromIdentityApi({
-    request,
-    permission: "accounts.manage",
-  });
-  const formData = await request.formData();
-  const intent = text(formData, "intent");
+async function handleShippingAddressAction(intent: string, request: Request, formData: FormData, accountId: string) {
   const shippingAddressId = text(formData, "shippingAddressId");
   const api = createIdentityRequestApiClient(request);
 
   try {
     if (intent === "create") {
-      return redirect(
-        navigateAfterWrite(
-          await api.createShippingAddress(actor.accountId, addressBody(formData)),
-          "/account/shipping-addresses",
-        ),
+      return formActionRedirect(
+        await api.createShippingAddress(accountId, addressBody(formData)),
+        "/account/shipping-addresses",
       );
     }
     if (intent === "update" && shippingAddressId) {
-      return redirect(
-        navigateAfterWrite(
-          await api.updateShippingAddress(actor.accountId, shippingAddressId, addressBody(formData)),
-          "/account/shipping-addresses",
-        ),
+      return formActionRedirect(
+        await api.updateShippingAddress(accountId, shippingAddressId, addressBody(formData)),
+        "/account/shipping-addresses",
       );
     }
     if (intent === "default" && shippingAddressId) {
-      return redirect(
-        navigateAfterWrite(
-          await api.setDefaultShippingAddress(actor.accountId, shippingAddressId),
-          "/account/shipping-addresses",
-        ),
+      return formActionRedirect(
+        await api.setDefaultShippingAddress(accountId, shippingAddressId),
+        "/account/shipping-addresses",
       );
     }
     if (intent === "archive" && shippingAddressId) {
-      return redirect(
-        navigateAfterWrite(
-          await api.archiveShippingAddress(actor.accountId, shippingAddressId),
-          "/account/shipping-addresses",
-        ),
+      return formActionRedirect(
+        await api.archiveShippingAddress(accountId, shippingAddressId),
+        "/account/shipping-addresses",
       );
     }
     return { error: t("identity.routes.marketplace.accountShippingAddresses.unknown.action") };
@@ -143,6 +99,25 @@ export async function action({ request }: ActionFunctionArgs) {
     } satisfies ActionData;
   }
 }
+
+export const action = defineFormAction({
+  authorization: ({ request }) => requireActorFromIdentityApi({ request, permission: "accounts.manage" }),
+  intents: {
+    create: ({ request, formData, actor }) =>
+      handleShippingAddressAction("create", request, formData, actor!.accountId),
+    update: ({ request, formData, actor }) =>
+      handleShippingAddressAction("update", request, formData, actor!.accountId),
+    default: ({ request, formData, actor }) =>
+      handleShippingAddressAction("default", request, formData, actor!.accountId),
+    archive: ({ request, formData, actor }) =>
+      handleShippingAddressAction("archive", request, formData, actor!.accountId),
+  },
+  onUnknownIntent: () => ({ error: t("identity.routes.marketplace.accountShippingAddresses.unknown.action") }),
+  onError: (error) => ({
+    error:
+      error instanceof Error ? error.message : t("identity.routes.marketplace.accountShippingAddresses.request.failed"),
+  }),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

@@ -1,8 +1,9 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import { defineFormAction, type FormActionContext } from "@chase-sets/platform-runtime/http";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect } from "react-router";
-import { createSupportRequestRequestApiClient } from "../../support/request-support/support-request-api-client";
 import { executeSupportRequestAction } from "../../support/request-support/support-request-action";
+import { createSupportRequestRequestApiClient } from "../../support/request-support/support-request-api-client";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("support.routes.admin.operationsRequestDetail.request.failed");
@@ -33,13 +34,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   return redirect(queueReturnLocation(request, params.id ?? "", action));
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+async function handleAction({ request, params, formData }: FormActionContext) {
   const supportRequestId = params.id ?? "";
-  const api = createSupportRequestRequestApiClient(request);
-  const formData = await request.formData();
 
   try {
-    const result = await executeSupportRequestAction(api, supportRequestId, formData);
+    const result = await executeSupportRequestAction(
+      createSupportRequestRequestApiClient(request),
+      supportRequestId,
+      formData,
+    );
     if (!result) return null;
     if (result.kind === "preview") {
       return { preview: result.preview, proposalInput: result.proposalInput };
@@ -60,6 +63,25 @@ export async function action({ request, params }: ActionFunctionArgs) {
     return { error: message };
   }
 }
+
+export const action = defineFormAction({
+  intents: {
+    note: handleAction,
+    response: handleAction,
+    escalate: handleAction,
+    resolve: handleAction,
+    close: handleAction,
+    cancel: handleAction,
+    "preview-remedy": handleAction,
+    "propose-remedy": handleAction,
+    "approve-remedy": handleAction,
+    "retry-remedy-effect": handleAction,
+    "waive-remedy-effect": handleAction,
+    "release-remedy-refund": handleAction,
+    "request-remedy-correction": handleAction,
+  },
+  onUnknownIntent: handleAction,
+});
 
 export const meta: MetaFunction = () => [{ title: t("support.routes.admin.operationsQueue.meta.title") }];
 

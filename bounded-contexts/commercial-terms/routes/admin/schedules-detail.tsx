@@ -2,7 +2,8 @@ import { Banner, LinkButton, Page, PageHeader } from "@chase-sets/design-system"
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/http/responses";
+import { navigateAfterWrite } from "@chase-sets/http/responses";
+import { defineResourceRoute } from "@chase-sets/platform-runtime/http";
 import { ScheduleDetailPage } from "../../features/schedules/ui/schedule-detail-page";
 import {
   CommercialTermsApiError,
@@ -14,37 +15,24 @@ import {
   commercialTermsApiErrorStatus,
   formatCommercialTermsAdminLoadError,
 } from "../../support/request-support/admin-loader-error";
+import contextManifest from "../../context.json";
+import { commercialTermsApiErrorAdapter } from "../../support/request-support/route-api-error";
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
-  const api = createCommercialTermsRequestApiClient(request);
-  try {
-    const scheduleRead = await loadAfterWrite({
-      request,
-      load: () => api.getSchedule(params.id!),
-      isNotFound: (error) => commercialTermsApiErrorStatus(error) === 404,
-      getStatus: commercialTermsApiErrorStatus,
-      getErrorCode: commercialTermsApiErrorCode,
-      getBody: commercialTermsApiErrorBody,
-    });
-
-    if (scheduleRead.kind !== "data") {
-      return {
-        schedule: null,
-        loadError: formatCommercialTermsAdminLoadError("error" in scheduleRead ? scheduleRead.error : undefined),
-      };
-    }
-
-    return {
-      schedule: scheduleRead.data,
-      loadError: null,
-    };
-  } catch (error) {
-    return {
-      schedule: null,
-      loadError: formatCommercialTermsAdminLoadError(error),
-    };
-  }
-}
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "commercial-terms-schedules-detail",
+  errorAdapter: commercialTermsApiErrorAdapter,
+  load: ({ request, params }) => createCommercialTermsRequestApiClient(request).getSchedule(params.id!),
+  map: (schedule) => ({ schedule: schedule as typeof schedule | null, loadError: null as string | null }),
+  onPending: (result) => ({
+    schedule: null,
+    loadError: formatCommercialTermsAdminLoadError("error" in result ? result.error : undefined),
+  }),
+  onPermanentFailure: (result) => ({
+    schedule: null,
+    loadError: formatCommercialTermsAdminLoadError("error" in result ? result.error : undefined),
+  }),
+});
 
 export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();

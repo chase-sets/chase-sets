@@ -2,12 +2,13 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { type ListResponse } from "@chase-sets/http/responses";
-import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import contextManifest from "../../context.json";
 import { InventoryApiError, type InventoryStorageLocation } from "../../support/request-support/api-client";
 import { createInventoryRequestApiClient } from "../../support/request-support/api-client";
 import { StorageLocationPage } from "../../features/storage-locations/ui/storage-location-page";
+import { inventoryApiErrorAdapter } from "../../support/request-support/route-api-error";
 
 function shipFromAddressFromForm(formData: FormData) {
   return {
@@ -24,112 +25,67 @@ function shipFromAddressFromForm(formData: FormData) {
   };
 }
 
-function inventoryApiErrorStatus(error: unknown) {
-  return error instanceof InventoryApiError ? error.status : null;
-}
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "account-inventory-locations",
+  authorization: { permission: "inventory.view" },
+  errorAdapter: inventoryApiErrorAdapter,
+  load: ({ request }) => createInventoryRequestApiClient(request).listStorageLocations("includeArchived=true"),
+  map: (locations) => ({ locations, loadError: null }),
+  onPending: () => ({
+    locations: { items: [], total: 0, count: 0 } satisfies ListResponse<InventoryStorageLocation>,
+    loadError: "Storage locations are still updating. Reload this page in a moment.",
+  }),
+  messages: { unverified: "Storage location update could not be verified. Reload this page and try again." },
+});
 
-function inventoryApiErrorBody(error: unknown) {
-  return error instanceof InventoryApiError ? error.body : null;
-}
+const locationsDestination = "/account/inventory/locations";
 
-function inventoryApiErrorCode(error: unknown) {
-  const body = inventoryApiErrorBody(error);
-  const apiError = typeof body === "object" && body !== null && "error" in body ? body.error : null;
-  const code = typeof apiError === "object" && apiError !== null ? (apiError as { code?: unknown }).code : null;
-  return typeof code === "string" && code.trim() ? code : null;
-}
-
-export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "inventory.view",
-  });
-  const api = createInventoryRequestApiClient(request);
-  const locationsRead = await loadAfterWrite({
-    request,
-    load: () => api.listStorageLocations("includeArchived=true"),
-    isNotFound: (error) => inventoryApiErrorStatus(error) === 404,
-    getStatus: inventoryApiErrorStatus,
-    getErrorCode: inventoryApiErrorCode,
-    getBody: inventoryApiErrorBody,
-  });
-
-  if (locationsRead.kind === "data") {
-    return {
-      locations: locationsRead.data,
-      loadError: null,
-    };
-  }
-
-  if (locationsRead.kind === "pending") {
-    return {
-      locations: { items: [], total: 0, count: 0 } satisfies ListResponse<InventoryStorageLocation>,
-      loadError: "Storage locations are still updating. Reload this page in a moment.",
-    };
-  }
-
-  if (locationsRead.reason !== "fresh-write-read-permanent") {
-    throw new Response("Storage location update could not be verified. Reload this page and try again.", {
-      status: 409,
-    });
-  }
-
-  throw locationsRead.error;
-}
-
-export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "inventory.manage",
-  });
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const api = createInventoryRequestApiClient(request);
-
-  try {
-    let result: unknown = null;
-    switch (intent) {
-      case "create-location":
-        result = await api.createStorageLocation({
+export const action = defineFormAction({
+  authorization: { permission: "inventory.manage" },
+  errorAdapter: inventoryApiErrorAdapter,
+  intents: {
+    "create-location": async ({ request, formData }) =>
+      formActionRedirect(
+        await createInventoryRequestApiClient(request).createStorageLocation({
           name: formData.get("name"),
           description: String(formData.get("description") ?? "").trim() || null,
           shipFromCode: formData.get("shipFromCode"),
           shipFromAddress: shipFromAddressFromForm(formData),
-        });
-        break;
-      case "update-location":
-        result = await api.updateStorageLocation(String(formData.get("storageLocationId") ?? ""), {
-          name: formData.get("name"),
-          description: String(formData.get("description") ?? "").trim() || null,
-          shipFromCode: formData.get("shipFromCode"),
-          shipFromAddress: shipFromAddressFromForm(formData),
-          isArchived: false,
-        });
-        break;
-      case "archive-location":
-        result = await api.updateStorageLocation(String(formData.get("storageLocationId") ?? ""), {
-          name: formData.get("name"),
-          description: String(formData.get("description") ?? "").trim() || null,
-          shipFromCode: formData.get("shipFromCode"),
-          shipFromAddress: shipFromAddressFromForm(formData),
-          isArchived: true,
-        });
-        break;
-      default:
-        break;
-    }
-
-    return redirect(navigateAfterWrite(result, "/account/inventory/locations"));
-  } catch (error) {
-    if (error instanceof InventoryApiError) {
-      return {
-        error: error.message,
-      };
-    }
-
-    throw error;
-  }
-}
+        }),
+        locationsDestination,
+      ),
+    "update-location": async ({ request, formData }) =>
+      formActionRedirect(
+        await createInventoryRequestApiClient(request).updateStorageLocation(
+          String(formData.get("storageLocationId") ?? ""),
+          {
+            name: formData.get("name"),
+            description: String(formData.get("description") ?? "").trim() || null,
+            shipFromCode: formData.get("shipFromCode"),
+            shipFromAddress: shipFromAddressFromForm(formData),
+            isArchived: false,
+          },
+        ),
+        locationsDestination,
+      ),
+    "archive-location": async ({ request, formData }) =>
+      formActionRedirect(
+        await createInventoryRequestApiClient(request).updateStorageLocation(
+          String(formData.get("storageLocationId") ?? ""),
+          {
+            name: formData.get("name"),
+            description: String(formData.get("description") ?? "").trim() || null,
+            shipFromCode: formData.get("shipFromCode"),
+            shipFromAddress: shipFromAddressFromForm(formData),
+            isArchived: true,
+          },
+        ),
+        locationsDestination,
+      ),
+  },
+  onUnknownIntent: () => formActionRedirect(null, locationsDestination),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

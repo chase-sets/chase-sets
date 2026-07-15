@@ -1,6 +1,6 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
-import { appendFreshWriteTokenFromSources } from "@chase-sets/http/responses";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData } from "react-router";
+import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { adminAuthHostConfig } from "../../support/route-support/host-config";
 import { createAuthRequestApiClient } from "../../support/request-support/api-client";
 import type { Session } from "../../features/sessions/ui/contracts";
@@ -14,23 +14,26 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
-  const api = createAuthRequestApiClient(request);
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const sessionId = params.id!;
-  const results: unknown[] = [];
+const sessionDestination = (id: string) => `/access/sessions/${id}`;
 
-  if (intent === "switch-account") {
-    results.push(await api.switchSessionAccount(sessionId, String(formData.get("accountId") ?? "")));
-  }
-
-  if (intent === "revoke") {
-    results.push(await api.revokeSession(sessionId));
-  }
-
-  return redirect(appendFreshWriteTokenFromSources(`/access/sessions/${sessionId}`, results));
-}
+export const action = defineFormAction({
+  intents: {
+    "switch-account": async ({ request, params, formData }) =>
+      formActionRedirect(
+        await createAuthRequestApiClient(request).switchSessionAccount(
+          params.id!,
+          String(formData.get("accountId") ?? ""),
+        ),
+        sessionDestination(params.id!),
+      ),
+    revoke: async ({ request, params }) =>
+      formActionRedirect(
+        await createAuthRequestApiClient(request).revokeSession(params.id!),
+        sessionDestination(params.id!),
+      ),
+  },
+  onUnknownIntent: ({ params }) => formActionRedirect(null, sessionDestination(params.id!)),
+});
 
 export const meta: MetaFunction = () => [{ title: adminAuthHostConfig.titles.sessionDetail! }];
 

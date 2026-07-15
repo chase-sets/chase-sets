@@ -13,7 +13,7 @@ import {
 import { t } from "@chase-sets/localization";
 import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import { defineFormAction, navigateAfterWrite, type FormActionContext } from "@chase-sets/platform-runtime/http";
 import {
   navigateAfterWriteWithPlatformPostWriteToken,
   resolvePlatformPostWriteRequest,
@@ -912,9 +912,7 @@ function sellCheckoutRedirectUrl(
   return `/checkout/sell/session/${createId("chk")}?${query.toString()}`;
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
+async function handleAction(intent: string, { request, formData }: FormActionContext) {
   const api = createCheckoutRequestApiClient(request);
   const actor = await resolveActorFromAuthApi({ request });
   const useAccountSellList = canUseAccountSellList(actor);
@@ -1038,6 +1036,17 @@ export async function action({ request }: ActionFunctionArgs) {
     };
   }
 }
+
+export const action = defineFormAction({
+  intents: {
+    "add-listing-evidence": (context) => handleAction("add-listing-evidence", context),
+    "add-selected-offer": (context) => handleAction("add-selected-offer", context),
+    "classify-listing-evidence": (context) => handleAction("classify-listing-evidence", context),
+    "remove-sell-list-line": (context) => handleAction("remove-sell-list-line", context),
+    "review-sell-list-checkout": (context) => handleAction("review-sell-list-checkout", context),
+  },
+  onUnknownIntent: (context) => handleAction("", context),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

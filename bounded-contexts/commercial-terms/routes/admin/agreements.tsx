@@ -1,8 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/http/responses";
-import { readOffsetPageParams } from "@chase-sets/platform-runtime/http";
+import { navigateAfterWrite } from "@chase-sets/http/responses";
+import { defineResourceRoute, readOffsetPageParams } from "@chase-sets/platform-runtime/http";
 import { AgreementListPage } from "../../features/agreements/ui/agreement-list-page";
 import {
   CommercialTermsApiError,
@@ -15,41 +15,40 @@ import {
   commercialTermsApiErrorStatus,
   formatCommercialTermsAdminLoadError,
 } from "../../support/request-support/admin-loader-error";
+import contextManifest from "../../context.json";
+import { commercialTermsApiErrorAdapter } from "../../support/request-support/route-api-error";
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  const api = createCommercialTermsRequestApiClient(request);
-  const page = readOffsetPageParams(request);
-  try {
-    const agreementsRead = await loadAfterWrite({
-      request,
-      load: () => api.listAgreements(page.query),
-      isNotFound: (error) => commercialTermsApiErrorStatus(error) === 404,
-      getStatus: commercialTermsApiErrorStatus,
-      getErrorCode: commercialTermsApiErrorCode,
-      getBody: commercialTermsApiErrorBody,
-    });
-
-    if (agreementsRead.kind !== "data") {
-      return {
-        items: [],
-        pagination: { limit: page.limit, offset: page.offset, total: 0 },
-        loadError: formatCommercialTermsAdminLoadError("error" in agreementsRead ? agreementsRead.error : undefined),
-      };
-    }
-
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "commercial-terms-agreements",
+  errorAdapter: commercialTermsApiErrorAdapter,
+  load: ({ request }) =>
+    createCommercialTermsRequestApiClient(request).listAgreements(readOffsetPageParams(request).query),
+  map: (agreements, { request }) => {
+    const page = readOffsetPageParams(request);
     return {
-      items: agreementsRead.data.items,
-      pagination: { limit: page.limit, offset: page.offset, total: agreementsRead.data.total },
-      loadError: null,
+      items: agreements.items,
+      pagination: { limit: page.limit, offset: page.offset, total: agreements.total },
+      loadError: null as string | null,
     };
-  } catch (error) {
+  },
+  onPending: (result, { request }) => {
+    const page = readOffsetPageParams(request);
     return {
       items: [],
       pagination: { limit: page.limit, offset: page.offset, total: 0 },
-      loadError: formatCommercialTermsAdminLoadError(error),
+      loadError: formatCommercialTermsAdminLoadError("error" in result ? result.error : undefined),
     };
-  }
-}
+  },
+  onPermanentFailure: (result, { request }) => {
+    const page = readOffsetPageParams(request);
+    return {
+      items: [],
+      pagination: { limit: page.limit, offset: page.offset, total: 0 },
+      loadError: formatCommercialTermsAdminLoadError("error" in result ? result.error : undefined),
+    };
+  },
+});
 
 export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();

@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData, useMatches } from "react-router";
-import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData, useMatches } from "react-router";
+import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { PlatformFeedbackAdminDetailPage } from "../../features/platform-feedback/ui/admin-pages";
 import { createExperienceRequestApiClient } from "../../support/request-support/api-client";
 
@@ -18,29 +18,30 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
-  const api = createExperienceRequestApiClient(request);
-  const feedbackId = params.id ?? "";
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  let result: unknown = null;
+const feedbackDestination = (id: string) => `/support/platform-feedback/${id}`;
 
-  if (intent === "review") {
-    result = await api.markReviewed(feedbackId);
-  }
-
-  if (intent === "archive") {
-    result = await api.archive(feedbackId);
-  }
-
-  if (intent === "record-note") {
-    result = await api.recordOperatorNote(feedbackId, {
-      body: String(formData.get("body") ?? ""),
-    });
-  }
-
-  throw redirect(navigateAfterWrite(result, `/support/platform-feedback/${feedbackId}`));
-}
+export const action = defineFormAction({
+  intents: {
+    review: async ({ request, params }) =>
+      formActionRedirect(
+        await createExperienceRequestApiClient(request).markReviewed(params.id ?? ""),
+        feedbackDestination(params.id ?? ""),
+      ),
+    archive: async ({ request, params }) =>
+      formActionRedirect(
+        await createExperienceRequestApiClient(request).archive(params.id ?? ""),
+        feedbackDestination(params.id ?? ""),
+      ),
+    "record-note": async ({ request, params, formData }) =>
+      formActionRedirect(
+        await createExperienceRequestApiClient(request).recordOperatorNote(params.id ?? "", {
+          body: String(formData.get("body") ?? ""),
+        }),
+        feedbackDestination(params.id ?? ""),
+      ),
+  },
+  onUnknownIntent: ({ params }) => formActionRedirect(null, feedbackDestination(params.id ?? "")),
+});
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
   {

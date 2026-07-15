@@ -1,80 +1,48 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import contextManifest from "../../context.json";
 import { InventoryApiError, type InventoryRestockDecision } from "../../support/request-support/api-client";
 import { createInventoryRequestApiClient } from "../../support/request-support/api-client";
 import { RestockDecisionQueuePage } from "../../features/restock-decisions/ui/restock-decision-queue-page";
+import { inventoryApiErrorAdapter } from "../../support/request-support/route-api-error";
 
 const DEFAULT_QUERY = "limit=100&offset=0";
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "inventory.view",
-  });
-  const api = createInventoryRequestApiClient(request);
-  const decisionsRead = await loadAfterWrite({
-    request,
-    load: () => api.listRestockDecisions(DEFAULT_QUERY),
-    isNotFound: () => false,
-  });
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "account-inventory-restock-decisions",
+  authorization: { permission: "inventory.view" },
+  errorAdapter: inventoryApiErrorAdapter,
+  load: ({ request }) => createInventoryRequestApiClient(request).listRestockDecisions(DEFAULT_QUERY),
+  map: (decisions) => ({ decisions }),
+  messages: { pending: "Restock decisions are still updating. Reload this page in a moment." },
+});
 
-  if (decisionsRead.kind === "data") {
-    return {
-      decisions: decisionsRead.data,
-    };
-  }
-
-  throw new Response("Restock decisions are still updating. Reload this page in a moment.", {
-    status: 503,
-  });
-}
-
-export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "inventory.manage",
-  });
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const decisionId = String(formData.get("decisionId") ?? "");
-  const api = createInventoryRequestApiClient(request);
-
-  try {
-    if (intent === "restock") {
-      return redirect(
-        navigateAfterWrite(
-          await api.recordRestockDecision(decisionId, { outcome: "restocked" }),
-          new URL(request.url).pathname,
-        ),
-      );
-    }
-    if (intent === "write-off") {
-      return redirect(
-        navigateAfterWrite(
-          await api.recordRestockDecision(decisionId, {
-            outcome: "written-off",
-            damageNote: String(formData.get("damageNote") ?? "").trim() || null,
-          }),
-          new URL(request.url).pathname,
-        ),
-      );
-    }
-
-    return redirect(new URL(request.url).pathname);
-  } catch (error) {
-    if (error instanceof InventoryApiError) {
-      return {
-        error: error.message,
-      };
-    }
-
-    throw error;
-  }
-}
+export const action = defineFormAction({
+  authorization: { permission: "inventory.manage" },
+  errorAdapter: inventoryApiErrorAdapter,
+  intents: {
+    restock: async ({ request, formData }) =>
+      formActionRedirect(
+        await createInventoryRequestApiClient(request).recordRestockDecision(String(formData.get("decisionId") ?? ""), {
+          outcome: "restocked",
+        }),
+        new URL(request.url).pathname,
+      ),
+    "write-off": async ({ request, formData }) =>
+      formActionRedirect(
+        await createInventoryRequestApiClient(request).recordRestockDecision(String(formData.get("decisionId") ?? ""), {
+          outcome: "written-off",
+          damageNote: String(formData.get("damageNote") ?? "").trim() || null,
+        }),
+        new URL(request.url).pathname,
+      ),
+  },
+  onUnknownIntent: ({ request }) => formActionRedirect(null, new URL(request.url).pathname),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

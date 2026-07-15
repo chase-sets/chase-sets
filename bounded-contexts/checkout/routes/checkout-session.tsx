@@ -25,7 +25,9 @@ import { createAuthRequestApiClient } from "@chase-sets/auth/server";
 import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import {
   createForwardedAuthFetch,
+  defineFormAction,
   resolveRequestApiBaseUrl,
+  type FormActionContext,
   UnresolvedPostWriteTokenError,
 } from "@chase-sets/platform-runtime/http";
 import {
@@ -771,15 +773,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
-  const resolvedRequest = await resolveCheckoutSessionPostWriteRequest(request);
+async function handleAction(intent: string, { request, params, formData }: FormActionContext) {
+  const resolvedRequest = request;
   const actor = await resolveActorFromAuthApi({ request: resolvedRequest });
   if (!params.sessionId) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found.2"), { status: 404 });
   }
 
-  const formData = await resolvedRequest.formData();
-  const intent = String(formData.get("intent") ?? "");
   const internalApiRequest = requestWithoutReadAfterWrite(resolvedRequest);
   const readApi = createCheckoutRequestApiClient(resolvedRequest);
   const writeApi = createCheckoutRequestApiClient(internalApiRequest);
@@ -982,6 +982,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
     };
   }
 }
+
+export const action = defineFormAction({
+  prepare: async (args) => ({ ...args, request: await resolveCheckoutSessionPostWriteRequest(args.request) }),
+  intents: {
+    "confirm-checkout": (context) => handleAction("confirm-checkout", context),
+    "refresh-checkout-preview": (context) => handleAction("refresh-checkout-preview", context),
+    "select-optimization-goal": (context) => handleAction("select-optimization-goal", context),
+  },
+  onUnknownIntent: (context) => handleAction("", context),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

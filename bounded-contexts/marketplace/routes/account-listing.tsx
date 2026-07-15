@@ -3,8 +3,10 @@ import { useEffect, useRef } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
 import {
+  defineFormAction,
   loadAfterWrite,
   navigateAfterWriteWithCompactToken,
+  type FormActionContext,
   type PlatformPostWriteTelemetry,
 } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -161,10 +163,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "listings.manage" });
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
+async function handleAction(intent: string, { request, params, formData }: FormActionContext) {
   const api = createMarketplaceRequestApiClient(request);
   const priceDraftAmount = String(formData.get("priceAmount") ?? "");
 
@@ -301,6 +300,25 @@ export async function action({ request, params }: ActionFunctionArgs) {
     throw error;
   }
 }
+
+export const action = defineFormAction({
+  authorization: { permission: "listings.manage" },
+  intents: {
+    "preview-price": (context) => handleAction("preview-price", context),
+    "update-price": (context) => handleAction("update-price", context),
+    "update-quantity-cap": (context) => handleAction("update-quantity-cap", context),
+    "update-purchase-limits": (context) => handleAction("update-purchase-limits", context),
+    "add-photos": (context) => handleAction("add-photos", context),
+    "classify-photo": (context) => handleAction("classify-photo", context),
+    "replace-photo": (context) => handleAction("replace-photo", context),
+    "remove-photo": (context) => handleAction("remove-photo", context),
+    "reorder-photos": (context) => handleAction("reorder-photos", context),
+    publish: (context) => handleAction("publish", context),
+    pause: (context) => handleAction("pause", context),
+    withdraw: (context) => handleAction("withdraw", context),
+  },
+  onUnknownIntent: (context) => handleAction("", context),
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({

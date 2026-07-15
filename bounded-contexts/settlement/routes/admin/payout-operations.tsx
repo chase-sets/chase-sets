@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
+import { defineFormAction } from "@chase-sets/platform-runtime/http";
 import {
   type SettlementProviderIdempotencyKeyRow,
   type SettlementPayoutRow,
@@ -53,16 +54,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  if (intent !== "run-reconciliation") {
-    return null;
-  }
-
-  const settlementApi = createSettlementRequestApiClient(request);
-  return settlementApi.runPayoutReconciliation({ limit: 100 });
-}
+export const action = defineFormAction({
+  intents: {
+    "run-reconciliation": ({ request }) =>
+      createSettlementRequestApiClient(request).runPayoutReconciliation({ limit: 100 }),
+  },
+  onUnknownIntent: () => null,
+});
 
 export const meta: MetaFunction = () => [
   { title: t("settlement.routes.admin.payoutOperations.payout.operations.settlement.admin") },

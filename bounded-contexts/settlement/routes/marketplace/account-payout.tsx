@@ -1,11 +1,11 @@
 import { t } from "@chase-sets/localization";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { loadAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
+import { defineResourceRoute, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { SettlementApiError, type SettlementPayoutRow } from "../../support/request-support/api-client";
-import { createSettlementRequestApiClient } from "../../support/request-support/api-client";
+import contextManifest from "../../context.json";
+import { createSettlementRequestApiClient, type SettlementPayoutRow } from "../../support/request-support/api-client";
+import { settlementApiErrorAdapter } from "../../support/request-support/route-api-error";
 import {
   SettlementPayoutDetailPage,
   SettlementPayoutDetailRecoveryPage,
@@ -18,48 +18,33 @@ const PAYOUT_DETAIL_POST_WRITE_TELEMETRY = {
   routeTemplate: "/account/payouts/:payoutId",
 } as const satisfies PlatformPostWriteTelemetry;
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
-  const actor = await requireActorFromAuthApi({
-    request,
-    permission: "payouts.view",
-  });
-  const settlementApi = createSettlementRequestApiClient(request);
+type PayoutLoaderData = Readonly<{
+  payout: SettlementPayoutRow | null;
+  recovery?: "fresh-write-preparing";
+  requestSuccess: boolean;
+  showSupportDetails: boolean;
+}>;
 
-  const payoutRead = await loadAfterWrite<SettlementPayoutRow>({
-    request,
-    isNotFound: (error) => error instanceof SettlementApiError && error.status === 404,
-    load: () => settlementApi.getPayout(params.payoutId!),
-    telemetry: PAYOUT_DETAIL_POST_WRITE_TELEMETRY,
-  });
-
-  if (payoutRead.kind === "pending") {
-    return {
-      payout: null,
-      recovery: "fresh-write-preparing" as const,
-      requestSuccess: new URL(request.url).searchParams.get("requested") === "1",
-      showSupportDetails: actor.permissions.includes("payouts.reconcile"),
-    };
-  }
-
-  if (payoutRead.kind === "permanent-failure") {
-    const error = "error" in payoutRead ? payoutRead.error : null;
-    if (error instanceof SettlementApiError && error.status === 404) {
-      throw new Response(t("settlement.routes.marketplace.accountPayout.payout.not.found"), { status: 404 });
-    }
-
-    if (error) {
-      throw error;
-    }
-
-    throw new Response(t("settlement.routes.marketplace.accountPayout.payout.not.found"), { status: 404 });
-  }
-
-  return {
-    payout: payoutRead.data,
+export const loader = defineResourceRoute<SettlementPayoutRow, PayoutLoaderData>({
+  manifest: contextManifest,
+  routeId: "account-payout",
+  authorization: { permission: "payouts.view" },
+  errorAdapter: settlementApiErrorAdapter,
+  load: ({ request, params }) => createSettlementRequestApiClient(request).getPayout(params.payoutId!),
+  map: (payout, { request, actor }) => ({
+    payout,
     requestSuccess: new URL(request.url).searchParams.get("requested") === "1",
-    showSupportDetails: actor.permissions.includes("payouts.reconcile"),
-  };
-}
+    showSupportDetails: actor!.permissions.includes("payouts.reconcile"),
+  }),
+  telemetry: PAYOUT_DETAIL_POST_WRITE_TELEMETRY,
+  onPending: (_result, { request, actor }) => ({
+    payout: null,
+    recovery: "fresh-write-preparing" as const,
+    requestSuccess: new URL(request.url).searchParams.get("requested") === "1",
+    showSupportDetails: actor!.permissions.includes("payouts.reconcile"),
+  }),
+  messages: { notFound: t("settlement.routes.marketplace.accountPayout.payout.not.found") },
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: t("settlement.routes.marketplace.accountPayout.payout.marketplace") });
