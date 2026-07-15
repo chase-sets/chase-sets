@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createSourceObservationRuntime, ensurePokemonReferenceHierarchy } from "./runtime";
+import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
+import type { SourceObservationYugiohSealedProductNormalized } from "../domain/domain";
+import {
+  createSourceObservationRuntime,
+  ensurePokemonReferenceHierarchy,
+  resolveYugiohSealedProductSetReference,
+} from "./runtime";
 import { tcgdexPokemonTcgProviderProfile } from "./provider-integration-profiles";
 import {
   context,
@@ -17,6 +23,43 @@ import {
 } from "./runtime-test-harness";
 
 describe("source observation runtime: promotion and reapply", () => {
+  it("resolves exactly one YGOJSON boxed Set Reference Record and blocks missing or ambiguous evidence", async () => {
+    const normalized = yugiohSealedProductObservation();
+    const resolved = await resolveYugiohSealedProductSetReference({
+      deps: yugiohReferenceResolutionDeps(["ref_yugioh_set_lob"]),
+      normalized,
+    });
+
+    expect(resolved).toEqual({
+      targetReferenceRecordId: "ref_yugioh_set_lob",
+      referenceRecordIdsByTypeKey: { set: "ref_yugioh_set_lob" },
+    });
+    await expect(
+      resolveYugiohSealedProductSetReference({
+        deps: yugiohReferenceResolutionDeps([]),
+        normalized: yugiohSealedProductObservation({ boxOfSetEvidence: [] }),
+      }),
+    ).rejects.toThrow("no Yu-Gi-Oh! Set Reference Record id was observed");
+    await expect(
+      resolveYugiohSealedProductSetReference({
+        deps: yugiohReferenceResolutionDeps([]),
+        normalized,
+      }),
+    ).rejects.toThrow("Set Reference Record '11111111-1111-4111-8111-111111111111' is missing");
+    await expect(
+      resolveYugiohSealedProductSetReference({
+        deps: yugiohReferenceResolutionDeps([]),
+        normalized: yugiohSealedProductObservation({ boxOfSetEvidence: ["set-a", "set-b"] }),
+      }),
+    ).rejects.toThrow("resolves ambiguously to 2 Yu-Gi-Oh! sets");
+    await expect(
+      resolveYugiohSealedProductSetReference({
+        deps: yugiohReferenceResolutionDeps(["ref_yugioh_set_lob_a", "ref_yugioh_set_lob_b"]),
+        normalized,
+      }),
+    ).rejects.toThrow("is ambiguous (2 matches)");
+  });
+
   it("preloads and reuses TCGdex reference records by provider attributes", async () => {
     const harness = createReferencePreloadHarness();
 
@@ -1702,4 +1745,37 @@ function lorcanaCardSvg(): string {
       <rect x="10" y="96" width="100" height="48" rx="4" ry="4" fill="rgb(240, 240, 246)" />
     </svg>
   `;
+}
+
+function yugiohSealedProductObservation(
+  overrides: Partial<SourceObservationYugiohSealedProductNormalized> = {},
+): SourceObservationYugiohSealedProductNormalized {
+  return {
+    kind: "yugioh-sealed-product",
+    tcg: "yugioh",
+    languageCode: "en",
+    name: "Legend of Blue Eyes White Dragon Booster Box",
+    setCode: null,
+    setName: null,
+    expansionName: null,
+    cardNumber: null,
+    sealedProductForm: "booster-box",
+    releaseDate: "2002-03-08",
+    productLineName: "Yu-Gi-Oh!",
+    barcode: null,
+    imageUrls: [],
+    boxOfSetEvidence: ["11111111-1111-4111-8111-111111111111"],
+    ...overrides,
+  };
+}
+
+function yugiohReferenceResolutionDeps(referenceRecordIds: readonly string[]): CatalogRuntimeDeps {
+  return {
+    db: {
+      query: async <T>() => ({
+        rowCount: referenceRecordIds.length,
+        rows: referenceRecordIds.map((referenceRecordId) => ({ reference_record_id: referenceRecordId })) as T[],
+      }),
+    },
+  } as object as CatalogRuntimeDeps;
 }

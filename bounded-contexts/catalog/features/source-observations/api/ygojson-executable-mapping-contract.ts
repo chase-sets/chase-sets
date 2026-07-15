@@ -2,6 +2,7 @@ import type { JsonValue } from "@chase-sets/primitives/json";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import {
   YGOJSON_PRODUCTION_PROFILE_VERSION,
+  YGOJSON_YUGIOH_SEALED_PRODUCT_PROFILE_VERSION,
   YGOJSON_YUGIOH_SEALED_PRODUCT_REFERENCE_DATA_UNIT_KEY,
   YGOJSON_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
 } from "./provider-adapters/ygojson";
@@ -127,7 +128,7 @@ export const ygojsonYugiohSealedProductReferenceSourceObservationMappingContract
   providerKey: "ygojson",
   profileKey: "yugioh-sealed-product-reference-data",
   displayName: "YGOJSON Yu-Gi-Oh Sealed Product Reference Data",
-  profileVersion: YGOJSON_PRODUCTION_PROFILE_VERSION,
+  profileVersion: YGOJSON_YUGIOH_SEALED_PRODUCT_PROFILE_VERSION,
   ingestionUnitIdentity: {
     unitKey: YGOJSON_YUGIOH_SEALED_PRODUCT_REFERENCE_DATA_UNIT_KEY,
     providerKey: "ygojson",
@@ -148,7 +149,26 @@ export const ygojsonYugiohSealedProductReferenceSourceObservationMappingContract
     "sealedProduct.id",
   ),
   normalizedObservation: ygojsonSealedProductNormalizedObservation(),
-  externalReferences: [],
+  externalReferences: [
+    {
+      target: "catalog-item-reference",
+      providerKey: "ygojson",
+      externalKeyPrefix: "sealed-product:",
+      source: ygojsonPathExpression("sealedProduct.id", "external-reference", ["external-reference"]),
+      ambiguityPolicy: "review-evidence",
+    },
+    {
+      target: "product-reference",
+      providerKey: "ygojson",
+      externalKeyPrefix: "sealed-product:",
+      source: ygojsonPathExpression("sealedProduct.id", "external-reference", ["external-reference"]),
+      selectedOptions: {
+        dimensions: [],
+        missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence",
+      },
+      ambiguityPolicy: "review-evidence",
+    },
+  ],
   referenceHierarchy: [
     {
       targetTypeKey: "set",
@@ -159,7 +179,7 @@ export const ygojsonYugiohSealedProductReferenceSourceObservationMappingContract
     },
   ],
   duplicatePrevention: ygojsonSealedProductDuplicatePrevention(),
-  promotionCommandPlan: ygojsonReviewOnlyPromotionPlan(),
+  promotionCommandPlan: ygojsonSealedProductPromotionPlan(),
   nonGoals: ygojsonNonGoals(),
 } as const satisfies YgojsonExecutableMappingContract;
 
@@ -351,6 +371,7 @@ export const ygojsonYugiohSetReferenceProviderProfile = ygojsonBaseProviderProfi
 export const ygojsonYugiohSealedProductReferenceProviderProfile = {
   ...ygojsonBaseProviderProfile,
   displayName: "YGOJSON Sealed Products",
+  capabilities: [...ygojsonBaseProviderProfile.capabilities, "catalog-item-promotion"],
   supportedScopes: ["product"],
   optionQueries: [
     {
@@ -533,15 +554,57 @@ function ygojsonSealedProductNormalizedObservation(): YgojsonExecutableMappingCo
         "normalized-observation",
         "reference-hierarchy",
       ]),
-      imageUrls: ygojsonConstantExpression([], "catalog-truth", ["normalized-observation", "hash-material"]),
+      imageUrls: ygojsonArrayExpression(
+        [
+          ygojsonOptionalPathExpression("sealedProduct.locales.en.image", "catalog-truth", [
+            "normalized-observation",
+            "hash-material",
+          ]),
+        ],
+        "catalog-truth",
+        ["normalized-observation", "hash-material"],
+      ),
       productContentsEvidence: ygojsonOptionalPathExpression("sealedProduct.contents", "catalog-merge-evidence", [
         "normalized-observation",
         "hash-material",
       ]),
-      externalCatalogItemReferences: ygojsonConstantExpression([], "external-reference", [
-        "normalized-observation",
+      externalCatalogItemReferences: ygojsonArrayExpression(
+        [
+          ygojsonObjectExpression(
+            {
+              providerKey: ygojsonConstantExpression("ygojson", "external-reference", ["external-reference"]),
+              externalKey: ygojsonTemplateExpression("sealed-product:{sealedProductId}", {
+                sealedProductId: ygojsonPathExpression("sealedProduct.id", "external-reference", [
+                  "external-reference",
+                ]),
+              }),
+            },
+            "external-reference",
+            ["external-reference"],
+          ),
+        ],
         "external-reference",
-      ]),
+        ["normalized-observation", "external-reference"],
+      ),
+      externalProductReferences: ygojsonArrayExpression(
+        [
+          ygojsonObjectExpression(
+            {
+              providerKey: ygojsonConstantExpression("ygojson", "external-reference", ["external-reference"]),
+              externalKey: ygojsonTemplateExpression("sealed-product:{sealedProductId}", {
+                sealedProductId: ygojsonPathExpression("sealedProduct.id", "external-reference", [
+                  "external-reference",
+                ]),
+              }),
+              selectedOptions: ygojsonConstantExpression([], "external-reference", ["external-reference"]),
+            },
+            "external-reference",
+            ["external-reference"],
+          ),
+        ],
+        "external-reference",
+        ["normalized-observation", "external-reference"],
+      ),
     },
     hashMaterial: [
       ygojsonObjectExpression(
@@ -551,6 +614,7 @@ function ygojsonSealedProductNormalizedObservation(): YgojsonExecutableMappingCo
           releaseDate: ygojsonOptionalPathExpression("sealedProduct.locales.en.date", "catalog-truth", [
             "hash-material",
           ]),
+          image: ygojsonOptionalPathExpression("sealedProduct.locales.en.image", "catalog-truth", ["hash-material"]),
           boxOf: ygojsonOptionalPathExpression("sealedProduct.boxOf", "catalog-merge-evidence", ["hash-material"]),
           contents: ygojsonOptionalPathExpression("sealedProduct.contents", "catalog-merge-evidence", [
             "hash-material",
@@ -623,6 +687,60 @@ function ygojsonReviewOnlyPromotionPlan(): YgojsonExecutableMappingContract["pro
     planKind: "catalog-item-promotion",
     requiresReview: true,
     commands: [],
+  };
+}
+
+function ygojsonSealedProductPromotionPlan(): YgojsonExecutableMappingContract["promotionCommandPlan"] {
+  return {
+    planKind: "catalog-item-promotion",
+    requiresReview: true,
+    commands: [
+      {
+        commandName: "CreateCatalogItem",
+        inputs: {
+          title: ygojsonPathExpression("sealedProduct.name.en", "catalog-truth", ["promotion-command"]),
+        },
+      },
+      {
+        commandName: "AssignBlueprintToCatalogItem",
+        inputs: {
+          blueprintKey: ygojsonConstantExpression("yugioh-sealed-product", "catalog-truth", ["promotion-command"]),
+        },
+      },
+      {
+        commandName: "SetCatalogItemFieldValue",
+        inputs: {
+          fieldKey: ygojsonConstantExpression("set", "catalog-truth", ["promotion-command"]),
+          value: ygojsonPathExpression("sealedProduct.boxOf", "catalog-merge-evidence", ["promotion-command"]),
+        },
+      },
+      {
+        commandName: "AssignCatalogItemToCategory",
+        inputs: {
+          categoryKey: ygojsonConstantExpression("yugioh-sealed-products", "catalog-truth", ["promotion-command"]),
+        },
+      },
+      {
+        commandName: "SetCatalogItemImageUrls",
+        inputs: {
+          imageUrls: ygojsonOptionalPathExpression("sealedProduct.locales.en.image", "catalog-truth", [
+            "promotion-command",
+          ]),
+        },
+      },
+      {
+        commandName: "LinkExternalCatalogItemReference",
+        inputs: {
+          references: ygojsonPathExpression("sealedProduct.id", "external-reference", ["promotion-command"]),
+        },
+      },
+      {
+        commandName: "LinkExternalProductReference",
+        inputs: {
+          references: ygojsonPathExpression("sealedProduct.id", "external-reference", ["promotion-command"]),
+        },
+      },
+    ],
   };
 }
 
@@ -699,6 +817,19 @@ function ygojsonObjectExpression(
       kind: "object",
       fields,
     },
+    owner,
+    uses,
+    redaction: "none",
+  };
+}
+
+function ygojsonArrayExpression(
+  items: readonly CatalogProviderMappingValueExpression[],
+  owner: CatalogProviderMappingEvidenceOwner,
+  uses: readonly CatalogProviderMappingEvidenceUse[],
+): CatalogProviderMappingValueExpression {
+  return {
+    selector: { kind: "array", items },
     owner,
     uses,
     redaction: "none",

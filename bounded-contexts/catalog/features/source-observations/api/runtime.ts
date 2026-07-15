@@ -64,6 +64,7 @@ import {
   isOnePieceSetReferenceSourceObservationNormalized,
   isPokemonCardSourceObservationNormalized,
   isPokemonCatalogItemSourceObservationNormalized,
+  isYugiohCatalogItemSourceObservationNormalized,
   type SourceObservationCommand,
   type SourceObservationEvent,
   type SourceObservationLorcanaCardPrintNormalized,
@@ -78,6 +79,7 @@ import {
   type SourceObservationOnePieceSealedProductNormalized,
   type SourceObservationPokemonCardNormalized,
   type SourceObservationPokemonSealedProductNormalized,
+  type SourceObservationYugiohSealedProductNormalized,
   type SourceObservationPromotionProfileEvidence,
   type SourceObservationState,
 } from "../domain/domain";
@@ -6669,7 +6671,8 @@ type CatalogItemPromotableSourceObservationNormalized =
   | SourceObservationLorcanaCardPrintNormalized
   | SourceObservationLorcanaSealedProductNormalized
   | SourceObservationOnePieceCardPrintNormalized
-  | SourceObservationOnePieceSealedProductNormalized;
+  | SourceObservationOnePieceSealedProductNormalized
+  | SourceObservationYugiohSealedProductNormalized;
 
 type ReferenceHierarchySourceObservationNormalized =
   | CatalogItemPromotableSourceObservationNormalized
@@ -6713,7 +6716,8 @@ async function createCatalogDraftFromObservation(input: {
     input.normalized.kind === "lorcana-card-print" ||
     input.normalized.kind === "lorcana-sealed-product" ||
     input.normalized.kind === "one-piece-card-print" ||
-    input.normalized.kind === "one-piece-sealed-product"
+    input.normalized.kind === "one-piece-sealed-product" ||
+    input.normalized.kind === "yugioh-sealed-product"
       ? targetReferenceRecordId
       : undefined;
   const plan = planCatalogProviderPromotionCommands({
@@ -6787,7 +6791,8 @@ async function refreshCatalogItemFromObservation(input: {
     input.normalized.kind === "lorcana-card-print" ||
     input.normalized.kind === "lorcana-sealed-product" ||
     input.normalized.kind === "one-piece-card-print" ||
-    input.normalized.kind === "one-piece-sealed-product"
+    input.normalized.kind === "one-piece-sealed-product" ||
+    input.normalized.kind === "yugioh-sealed-product"
       ? targetReferenceRecordId
       : undefined;
   const plan = planCatalogProviderPromotionCommands({
@@ -7026,7 +7031,8 @@ function requireCatalogItemPromotionObservation(
     !isPokemonCatalogItemSourceObservationNormalized(normalized) &&
     !isMagicCatalogItemSourceObservationNormalized(normalized) &&
     !isLorcanaCatalogItemSourceObservationNormalized(normalized) &&
-    !isOnePieceCatalogItemSourceObservationNormalized(normalized)
+    !isOnePieceCatalogItemSourceObservationNormalized(normalized) &&
+    !isYugiohCatalogItemSourceObservationNormalized(normalized)
   ) {
     throw new Error(
       `Catalog promotion for provider '${providerKey}' requires a Catalog Item source observation. Normalized kind '${normalized.kind}' is not promotable.`,
@@ -7093,6 +7099,13 @@ async function resolvePromotionReferenceHierarchy(input: {
   targetReferenceRecordId: ReferenceRecordId;
   referenceRecordIdsByTypeKey: Readonly<Record<string, string>>;
 }> {
+  if (input.normalized.kind === "yugioh-sealed-product") {
+    return resolveYugiohSealedProductSetReference({
+      deps: input.deps,
+      normalized: input.normalized,
+    });
+  }
+
   const result = await provisionCatalogProviderReferenceHierarchy({
     profile: input.profile,
     payload: promotionReferenceHierarchyPayload(input.normalized),
@@ -7114,6 +7127,61 @@ async function resolvePromotionReferenceHierarchy(input: {
   return {
     targetReferenceRecordId: result.targetReferenceRecordId,
     referenceRecordIdsByTypeKey,
+  };
+}
+
+export async function resolveYugiohSealedProductSetReference(input: {
+  deps: CatalogRuntimeDeps;
+  normalized: SourceObservationYugiohSealedProductNormalized;
+}): Promise<{
+  targetReferenceRecordId: ReferenceRecordId;
+  referenceRecordIdsByTypeKey: Readonly<Record<string, string>>;
+}> {
+  const setIds = Array.from(
+    new Set(
+      (input.normalized.boxOfSetEvidence ?? [])
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (setIds.length === 0) {
+    throw new Error(
+      "YGOJSON sealed product promotion is blocked because no Yu-Gi-Oh! Set Reference Record id was observed in boxOf evidence.",
+    );
+  }
+  if (setIds.length > 1) {
+    throw new Error(
+      `YGOJSON sealed product promotion is blocked because boxOf evidence resolves ambiguously to ${setIds.length} Yu-Gi-Oh! sets.`,
+    );
+  }
+
+  const setId = setIds[0] as string;
+  const matches = await input.deps.db.query<{ reference_record_id: string }>(
+    `SELECT reference_record_id
+     FROM catalog_reference_records
+     WHERE type_key = $1
+       AND attributes ->> $2 = $3
+     ORDER BY reference_record_id ASC`,
+    ["set", "ygojson-set-id", setId],
+  );
+
+  if (matches.rows.length === 0) {
+    throw new Error(
+      `YGOJSON sealed product promotion is blocked because Yu-Gi-Oh! Set Reference Record '${setId}' is missing.`,
+    );
+  }
+  if (matches.rows.length > 1) {
+    throw new Error(
+      `YGOJSON sealed product promotion is blocked because Yu-Gi-Oh! Set Reference Record '${setId}' is ambiguous (${matches.rows.length} matches).`,
+    );
+  }
+
+  const targetReferenceRecordId = matches.rows[0]?.reference_record_id as ReferenceRecordId;
+  return {
+    targetReferenceRecordId,
+    referenceRecordIdsByTypeKey: { set: targetReferenceRecordId },
   };
 }
 

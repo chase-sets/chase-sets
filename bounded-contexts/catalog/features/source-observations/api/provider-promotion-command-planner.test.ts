@@ -14,6 +14,7 @@ import type {
   SourceObservationPokemonCardNormalized,
   SourceObservationPokemonSealedProductNormalized,
   SourceObservationProviderProductNormalized,
+  SourceObservationYugiohSealedProductNormalized,
 } from "../domain/domain";
 import {
   lorcanajsonLorcanaCardReferenceProviderProfile,
@@ -23,6 +24,7 @@ import {
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
   tcgplayerPokemonSealedProductProviderProfile,
+  ygojsonYugiohSealedProductReferenceProviderProfile,
   type CatalogProviderIntegrationProfile,
 } from "./provider-integration-profiles";
 import {
@@ -314,6 +316,144 @@ describe("planCatalogProviderPromotionCommands", () => {
         expect.objectContaining({ type: "AssignCatalogItemToCategory" }),
       ]),
     );
+  });
+
+  it("plans YGOJSON Yu-Gi-Oh! sealed-product creation with the resolved Set, assets, and external references", () => {
+    const assetSet = ygojsonSealedProductAssetSet();
+    const result = planCatalogProviderPromotionCommands({
+      profile: ygojsonYugiohSealedProductReferenceProviderProfile,
+      profileKey: "yugioh-sealed-product-reference-data",
+      profileVersion: "2026.07.14",
+      providerKey: "ygojson",
+      externalKey: "sealed-product:22222222-2222-4222-8222-222222222222",
+      mode: "create",
+      catalogItemId: "cat_yugioh_sealed_2222" as CatalogItemId,
+      normalized: yugiohSealedProductObservation(),
+      catalog: yugiohSealedProductCatalogMapping(),
+      setReferenceId: "ref_yugioh_set_lob" as ReferenceRecordId,
+      metadata: { title: "Legend of Blue Eyes White Dragon Booster Box", subtitle: "Yu-Gi-Oh! sealed product" },
+      productAssetSet: assetSet,
+      preflight: { status: "ready" },
+    });
+
+    expect(result.status).toBe("planned");
+    expect(result.plan?.review).toEqual({
+      normalizedKind: "yugioh-sealed-product",
+      commandCount: 12,
+      catalogItemReferencesLinked: 1,
+      sourceProductReferencesLinked: 2,
+    });
+    expect(result.plan?.commands.map((command) => command.type)).toEqual([
+      "CreateCatalogItem",
+      "AssignBlueprintToCatalogItem",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "AssignCatalogItemToCategory",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+      "LinkExternalCatalogItemReference",
+      "LinkExternalProductReference",
+    ]);
+    expect(result.plan?.commands).toEqual(
+      expect.arrayContaining([
+        {
+          type: "SetCatalogItemFieldValue",
+          fieldId: "field_set",
+          value: { referenceId: "ref_yugioh_set_lob" },
+        },
+        {
+          type: "SetCatalogItemTags",
+          tags: [
+            "yugioh",
+            "ygojson",
+            "set:11111111-1111-4111-8111-111111111111",
+            "kind:yugioh-sealed-product",
+            "form:booster-box",
+          ],
+        },
+        { type: "SetCatalogItemImageUrls", imageUrls: ["https://assets.example/detail.webp"] },
+        { type: "SetCatalogItemProductAssetSets", productAssetSets: [assetSet] },
+        {
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "ygojson",
+          externalKey: "sealed-product:22222222-2222-4222-8222-222222222222",
+        },
+        {
+          type: "LinkExternalProductReference",
+          providerKey: "ygojson",
+          externalKey: "product:22222222-2222-4222-8222-222222222222",
+          selectedOptions: [],
+        },
+      ]),
+    );
+  });
+
+  it("refreshes YGOJSON sealed products without recreating Catalog structure and blocks a missing Set", () => {
+    const input = {
+      profile: ygojsonYugiohSealedProductReferenceProviderProfile,
+      profileKey: "yugioh-sealed-product-reference-data",
+      profileVersion: "2026.07.14",
+      providerKey: "ygojson",
+      externalKey: "sealed-product:22222222-2222-4222-8222-222222222222",
+      mode: "refresh" as const,
+      catalogItemId: "cat_yugioh_sealed_2222" as CatalogItemId,
+      normalized: yugiohSealedProductObservation(),
+      catalog: yugiohSealedProductCatalogMapping(),
+      metadata: { title: "LOB Booster Box (updated)", subtitle: "Yu-Gi-Oh! sealed product" },
+      productAssetSet: null,
+    };
+    const refreshed = planCatalogProviderPromotionCommands({
+      ...input,
+      setReferenceId: "ref_yugioh_set_lob" as ReferenceRecordId,
+    });
+    const blocked = planCatalogProviderPromotionCommands(input);
+
+    expect(refreshed.status).toBe("planned");
+    expect(refreshed.plan?.commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "ReviseCatalogItemMetadata" }),
+        {
+          type: "SetCatalogItemFieldValue",
+          fieldId: "field_set",
+          value: { referenceId: "ref_yugioh_set_lob" },
+        },
+        {
+          type: "SetCatalogItemImageUrls",
+          imageUrls: ["https://images.example/yugioh/lob-booster-box.png"],
+        },
+        { type: "SetCatalogItemProductAssetSets", productAssetSets: [] },
+        {
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "ygojson",
+          externalKey: "sealed-product:22222222-2222-4222-8222-222222222222",
+        },
+        {
+          type: "LinkExternalProductReference",
+          providerKey: "ygojson",
+          externalKey: "product:22222222-2222-4222-8222-222222222222",
+          selectedOptions: [],
+        },
+      ]),
+    );
+    expect(refreshed.plan?.commands).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "CreateCatalogItem" }),
+        expect.objectContaining({ type: "AssignBlueprintToCatalogItem" }),
+        expect.objectContaining({ type: "AssignCatalogItemToCategory" }),
+      ]),
+    );
+    expect(blocked).toMatchObject({
+      status: "blocked",
+      diagnostics: [
+        expect.objectContaining({
+          code: "missing-reference-target",
+          path: "setReferenceId",
+        }),
+      ],
+    });
   });
 
   it("omits optional Pokemon card field commands when normalized values are absent", () => {
@@ -1098,6 +1238,24 @@ function magicCardPrintCatalogMapping(): CatalogProviderPromotionResolvedCatalog
   };
 }
 
+function yugiohSealedProductCatalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
+  return {
+    blueprintId: "bp_yugioh_sealed_product" as BlueprintId,
+    categoryId: "cat_yugioh_sealed_products" as CategoryId,
+    fieldIds: {
+      cardNumber: "field_sealed_product_id" as FieldId,
+      cardName: "field_sealed_product_name" as FieldId,
+      set: "field_set" as FieldId,
+      expansion: "field_set" as FieldId,
+      rarity: "field_product_kind" as FieldId,
+      cardVariant: "field_sealed_product_form" as FieldId,
+      cardIllustrator: "field_publisher" as FieldId,
+      releaseYear: "field_release_year" as FieldId,
+      packCount: "field_pack_count" as FieldId,
+    },
+  };
+}
+
 function magicSealedCatalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
   return {
     blueprintId: "bp_magic_sealed_product" as BlueprintId,
@@ -1371,6 +1529,38 @@ function magicSealedProductObservation(
   };
 }
 
+function yugiohSealedProductObservation(
+  overrides: Partial<SourceObservationYugiohSealedProductNormalized> = {},
+): SourceObservationYugiohSealedProductNormalized {
+  return {
+    kind: "yugioh-sealed-product",
+    tcg: "yugioh",
+    languageCode: "en",
+    name: "Legend of Blue Eyes White Dragon Booster Box",
+    setName: null,
+    expansionName: null,
+    cardNumber: null,
+    setCode: null,
+    sealedProductForm: "booster-box",
+    releaseDate: "2002-03-08",
+    productLineName: "Yu-Gi-Oh!",
+    barcode: null,
+    boxOfSetEvidence: ["11111111-1111-4111-8111-111111111111"],
+    imageUrls: ["https://images.example/yugioh/lob-booster-box.png"],
+    externalCatalogItemReferences: [
+      { providerKey: "ygojson", externalKey: "sealed-product:22222222-2222-4222-8222-222222222222" },
+    ],
+    externalProductReferences: [
+      {
+        providerKey: "ygojson",
+        externalKey: "product:22222222-2222-4222-8222-222222222222",
+        selectedOptions: [],
+      },
+    ],
+    ...overrides,
+  };
+}
+
 function productContentsPromotion(input: {
   contentTypeId: string | null;
   candidateContentTypeIds?: readonly string[];
@@ -1640,6 +1830,18 @@ function pokemonSealedProductAssetSet(): ProductAssetSet {
       ...assetSet.sourcePolicy,
       sourceProviderKey: "tcgplayer",
       sourceUrlHost: "images.tcgplayer.com",
+    },
+  };
+}
+
+function ygojsonSealedProductAssetSet(): ProductAssetSet {
+  const assetSet = productAssetSet();
+  return {
+    ...assetSet,
+    sourcePolicy: {
+      ...assetSet.sourcePolicy,
+      sourceProviderKey: "ygojson",
+      sourceUrlHost: "raw.githubusercontent.com",
     },
   };
 }
