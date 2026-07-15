@@ -109,6 +109,16 @@
       "resetStrategy": "truncate-owned-tables"
     }
   ],
+  "hostPorts": [],
+  "apiDeployables": ["platform-api"],
+  "apiRuntimeProfiles": ["proof", "public"],
+  "apiMounts": [
+    {
+      "mountPath": "/api/customer-feedback",
+      "kind": "primary",
+      "requiresAuth": true
+    }
+  ],
   "mutationConsistencyInventory": [
     {
       "id": "customer-feedback.privacy-command-snapshots",
@@ -131,19 +141,7 @@
           "bounded-contexts/customer-feedback/features/privacy/api/runtime.test.ts proves preview, execution, durable cursor counters, holds, and concurrent-run exclusion."
         ]
       }
-    }
-  ],
-  "hostPorts": [],
-  "apiDeployables": ["platform-api"],
-  "apiRuntimeProfiles": ["proof", "public"],
-  "apiMounts": [
-    {
-      "mountPath": "/api/customer-feedback",
-      "kind": "primary",
-      "requiresAuth": true
-    }
-  ],
-  "mutationConsistencyInventory": [
+    },
     {
       "id": "customer-feedback.case-attention-command-snapshots",
       "owner": "customer-feedback",
