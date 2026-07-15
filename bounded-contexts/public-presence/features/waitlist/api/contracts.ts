@@ -98,6 +98,11 @@ export type WaitlistMetrics = Readonly<{
   buy_count: number;
   sell_count: number;
   both_count: number;
+  wave_fill: readonly Readonly<{
+    waveNumber: 1 | 2 | 3;
+    admittedCount: number;
+    capacity: number;
+  }>[];
 }>;
 
 /**

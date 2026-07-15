@@ -24,6 +24,11 @@ function createServices(overrides: Partial<WaitlistServices> = {}) {
       buy_count: 0,
       sell_count: 0,
       both_count: 0,
+      wave_fill: [
+        { waveNumber: 1 as const, admittedCount: 0, capacity: 100 },
+        { waveNumber: 2 as const, admittedCount: 0, capacity: 250 },
+        { waveNumber: 3 as const, admittedCount: 0, capacity: 500 },
+      ],
     })),
     getWaitlistReferralSummary: vi.fn(async () => ({
       referralCount: 0,

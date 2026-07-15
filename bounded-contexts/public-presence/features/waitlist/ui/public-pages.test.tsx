@@ -407,6 +407,8 @@ describe("public waitlist form migration smoke", () => {
     expect(foundersSection.textContent).toContain(t("publicPresence.home.foundersOffer.point.badge"));
     expect(foundersSection.textContent).toContain(t("publicPresence.home.foundersOffer.point.window"));
     expect(foundersSection.textContent).toContain(t("publicPresence.home.foundersOffer.point.expiry"));
+    expect(foundersSection.textContent).toContain(t("publicPresence.home.foundersOffer.point.community"));
+    expect(foundersSection.textContent).toContain(t("publicPresence.home.foundersOffer.point.input"));
     expect(foundersSection.querySelector('a[href="/founders"]')).not.toBeNull();
 
     expect(container.querySelector('footer a[href="/founders"]')?.textContent).toBe(
@@ -414,7 +416,7 @@ describe("public waitlist form migration smoke", () => {
     );
   });
 
-  it("answers 'when can I use this?' with the launch timeline: September 1 date, beta-wave window, no per-wave dates (#3952)", () => {
+  it("answers when access opens with numbered invite capacities, qualification, and the public launch date", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -446,10 +448,14 @@ describe("public waitlist form migration smoke", () => {
     // from launch-config (no leaked tokens).
     expect(timelineSection.textContent).toContain("September 1, 2026");
     expect(timelineSection.textContent).toContain("late July 2026");
+    expect(timelineSection.textContent).toContain("Wave 1: 100 invites");
+    expect(timelineSection.textContent).toContain("Wave 2: 250 invites");
+    expect(timelineSection.textContent).toContain("Wave 3: 500 invites");
+    expect(timelineSection.textContent).toContain(t("publicPresence.home.launchTimeline.step.waves.qualification"));
+    expect(timelineSection.textContent).toContain(t("publicPresence.home.launchTimeline.step.waves.gates"));
     expect(timelineSection.textContent).not.toContain("{publicLaunchDate}");
     expect(timelineSection.textContent).not.toContain("{betaWavesWindow}");
-    // Truth gate (#3955): wave-to-wave progression is ops-metric conditioned,
-    // so no per-wave calendar dates may appear.
+    // Wave-to-wave progression is operations-gated, so target dates are not promises.
     expect(timelineSection.textContent).not.toMatch(/July 31|August \d/i);
     expect(timelineSection.querySelector('a[href="/#waitlist-form"]')).not.toBeNull();
 

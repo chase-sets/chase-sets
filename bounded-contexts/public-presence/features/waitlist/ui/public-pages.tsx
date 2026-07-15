@@ -1250,6 +1250,8 @@ function FoundersOfferSection() {
               t("publicPresence.home.foundersOffer.point.badge"),
               t("publicPresence.home.foundersOffer.point.window"),
               t("publicPresence.home.foundersOffer.point.expiry"),
+              t("publicPresence.home.foundersOffer.point.community"),
+              t("publicPresence.home.foundersOffer.point.input"),
             ]}
           />
           <Inline>
@@ -1304,6 +1306,14 @@ function LaunchTimelineSection() {
               <Text tone="secondary">
                 {t(`publicPresence.home.launchTimeline.step.${step.key}.description`, launchTimeline)}
               </Text>
+              {step.key === "waves" ? (
+                <List
+                  items={[
+                    t("publicPresence.home.launchTimeline.step.waves.qualification"),
+                    t("publicPresence.home.launchTimeline.step.waves.gates"),
+                  ]}
+                />
+              ) : null}
             </Stack>
           </Surface>
         ))}

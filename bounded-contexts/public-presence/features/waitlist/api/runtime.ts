@@ -163,7 +163,10 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
       return { signupId: params.signupId, version: result.version };
     },
     listWaitlistSignups: (params) => listWaitlistSignups(deps.db, params),
-    getWaitlistMetrics: () => getWaitlistMetrics(deps.db),
+    async getWaitlistMetrics() {
+      const resolved = await deps.policies.resolvePolicy(betaWavePolicy, { at: now().toISOString() });
+      return getWaitlistMetrics(deps.db, resolved.value.waves);
+    },
     getWaitlistReferralSummary: (signupId) => getWaitlistReferralSummary(deps.db, signupId),
     getCampaignQualityMetrics: () => getCampaignQualityMetrics(deps.db),
     getCampaignChannelAttribution: () => getCampaignChannelAttribution(deps.db),

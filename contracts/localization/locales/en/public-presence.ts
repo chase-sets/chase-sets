@@ -65,6 +65,11 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.admin.title": "Waitlist",
   "publicPresence.admin.total": "Total",
   "publicPresence.admin.updated": "Updated",
+  "publicPresence.admin.waveFill.description":
+    "Projected admissions compared with the active beta-wave policy capacities.",
+  "publicPresence.admin.waveFill.title": "Invite wave fill",
+  "publicPresence.admin.waveFill.value": "{admittedCount} of {capacity} admitted",
+  "publicPresence.admin.waveFill.wave": "Wave {waveNumber}",
   "publicPresence.api.authentication.required": "Sign in to review waitlist signups.",
   "publicPresence.api.forbidden": "You do not have access to waitlist signups.",
   "publicPresence.api.promoBar.notFound": "Promo bar message was not found.",
@@ -237,8 +242,12 @@ export const publicPresenceEnglishTranslations = {
     "Beta access opens a 60-day window and a shot at one of 500 numbered founder badges. Here is exactly how both work.",
   "publicPresence.home.foundersOffer.point.badge":
     "Claim your numbered founder badge with your first listing or offer — shown publicly on your profile and listings, permanently.",
+  "publicPresence.home.foundersOffer.point.community":
+    "Join the founders-circle Discord after your invite and help shape the early community.",
   "publicPresence.home.foundersOffer.point.expiry":
     "The badge and any listings you lock never expire. The 60-day window and the 500 numbers are what run out.",
+  "publicPresence.home.foundersOffer.point.input":
+    "Help shape seller tools for bulk listing, pricing, fulfillment, fee locks, and offers.",
   "publicPresence.home.foundersOffer.point.window":
     "Every listing you create in your first 60 days of beta access locks 0% seller fees until it sells.",
   "publicPresence.home.foundersOffer.title": "Founders beta: the first 500 accounts",
@@ -294,7 +303,11 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.launchTimeline.step.waves.badge": "Beta invite waves",
   "publicPresence.home.launchTimeline.step.waves.title": "Invites begin {betaWavesWindow}",
   "publicPresence.home.launchTimeline.step.waves.description":
-    "Invites go out in numbered waves as marketplace checks pass, so waves carry no fixed dates. Waitlist signups are reviewed for each wave.",
+    "Wave 1: {waveOneInviteCount} invites. Wave 2: {waveTwoInviteCount} invites. Wave 3: {waveThreeInviteCount} invites. Each wave opens only after marketplace checks pass.",
+  "publicPresence.home.launchTimeline.step.waves.gates":
+    "Later waves wait for checkout failures below 2%, near-real-time projections, and support load within a solo operator's capacity.",
+  "publicPresence.home.launchTimeline.step.waves.qualification":
+    "A qualified Wave 1 seller chooses Sell or Buy and sell, names at least one supported game, and selects an inventory-size range. Signup alone does not qualify.",
   "publicPresence.home.launchTimeline.title": "When can I use Chase Sets?",
   "publicPresence.home.openOffers.after.badge": "On Chase Sets",
   "publicPresence.home.openOffers.after.description":

@@ -83,6 +83,23 @@ export function WaitlistAdminPage({
         <Stat label={t("publicPresence.waitlist.role.sell")} value={metrics.sell_count} />
         <Stat label={t("publicPresence.waitlist.role.both")} value={metrics.both_count} />
       </StatGrid>
+      <PageSection
+        title={t("publicPresence.admin.waveFill.title")}
+        description={t("publicPresence.admin.waveFill.description")}
+      >
+        <StatGrid columns={{ base: 1, md: 3 }}>
+          {metrics.wave_fill.map((wave) => (
+            <Stat
+              key={wave.waveNumber}
+              label={t("publicPresence.admin.waveFill.wave", { waveNumber: wave.waveNumber })}
+              value={t("publicPresence.admin.waveFill.value", {
+                admittedCount: wave.admittedCount,
+                capacity: wave.capacity,
+              })}
+            />
+          ))}
+        </StatGrid>
+      </PageSection>
       <PageSection title={t("publicPresence.admin.filters")}>
         <Form spacing="none" method="get">
           <Grid columns={{ base: 1, md: 4, lg: 5 }} gap={3}>
