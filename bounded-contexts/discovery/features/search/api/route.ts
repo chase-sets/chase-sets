@@ -2,10 +2,22 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { DiscoveryItemSearchServices } from "./runtime";
 import type { DiscoveryMarketActivityFilter } from "../read-model/queries";
-import { truncateDiscoverySearchQuery } from "../domain/normalization";
+import { truncateDiscoverySearchQuery, truncateDiscoverySearchSuggestionQuery } from "../domain/normalization";
 
 export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices) {
   const app = new Hono<AuthenticatedApiEnv>();
+
+  app.get("/suggest", async (c) => {
+    const query = truncateDiscoverySearchSuggestionQuery(c.req.query("q") ?? "");
+    if (!query.trim()) {
+      return c.json({ items: [], count: 0 });
+    }
+
+    const requestedLimit = Number.parseInt(c.req.query("limit") ?? "", 10);
+    const items = await services.suggestItems(query, Number.isFinite(requestedLimit) ? requestedLimit : undefined);
+
+    return c.json({ items, count: items.length });
+  });
 
   app.get("/bulk-cart-preview", async (c) => {
     const params = searchParamsFromRequest(c.req.url, c.req.query.bind(c.req));

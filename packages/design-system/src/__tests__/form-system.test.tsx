@@ -393,6 +393,30 @@ describe("form system", () => {
     expect(formData.get("language")).toBe("en");
   });
 
+  it("supports caller-owned asynchronous Combobox input without filtering server matches", async () => {
+    const user = userEvent.setup();
+    const onInputValueChange = vi.fn();
+
+    render(
+      <Combobox
+        label="Search marketplace"
+        hideLabel
+        items={[{ value: "charizard", label: "Charizard ex", description: "Pokemon TCG" }]}
+        inputValue="dra"
+        onInputValueChange={onInputValueChange}
+        filterItems={false}
+      />,
+    );
+
+    const input = screen.getByRole("combobox", { name: "Search marketplace" });
+    await user.click(screen.getByRole("button", { name: "Search marketplace" }));
+
+    expect(await screen.findByRole("option", { name: /Charizard ex/ })).toBeTruthy();
+    fireEvent.change(input, { target: { value: "drac" } });
+
+    expect(onInputValueChange).toHaveBeenCalledWith("drac");
+  });
+
   it("updates controlled custom selects when caller state changes", async () => {
     const user = userEvent.setup();
 

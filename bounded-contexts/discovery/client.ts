@@ -22,6 +22,8 @@ export type {
   DiscoverySitemapEntityKind,
   DiscoverySitemapEntityCounts,
   DiscoverySearchResponse,
+  DiscoverySearchSuggestion,
+  DiscoverySearchSuggestionResponse,
 } from "./support/client-support/contracts";
 export { DISCOVERY_SITEMAP_ENTITY_KINDS, DISCOVERY_SITEMAP_PAGE_SIZE } from "./support/market-support/queries";
 export type { DiscoveryBulkCartPreview } from "./features/search/read-model/queries";
@@ -47,6 +49,7 @@ import type {
   DiscoverySitemapEntityKind,
   DiscoverySitemapEntityCounts,
   DiscoverySearchResponse,
+  DiscoverySearchSuggestionResponse,
 } from "./support/client-support/contracts";
 import type { DiscoveryBulkCartPreview } from "./features/search/read-model/queries";
 import type { DiscoveryBrowseSetPage } from "./features/browse/api/contracts";
@@ -115,6 +118,18 @@ export function createDiscoveryApiClient({
       const normalizedQuery = query.startsWith("?") ? query.slice(1) : query;
       const url = `${baseUrl.replace(/\/$/, "")}/items${normalizedQuery ? `?${normalizedQuery}` : ""}`;
       return parseJsonResponse(await configuredFetch(url, { headers }));
+    },
+    async suggestItems(
+      query: string,
+      options: Readonly<{ signal?: AbortSignal }> = {},
+    ): Promise<DiscoverySearchSuggestionResponse> {
+      const params = new URLSearchParams({ q: query });
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, `/items/suggest?${params.toString()}`), {
+          headers,
+          signal: options.signal,
+        }),
+      );
     },
     async previewBulkAddSearchResults(query = ""): Promise<DiscoveryBulkCartPreview> {
       const normalizedQuery = query.startsWith("?") ? query.slice(1) : query;

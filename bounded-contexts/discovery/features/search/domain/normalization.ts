@@ -15,9 +15,14 @@ const HAS_CJK_PATTERN = new RegExp(`[${CJK_CLASS}]`, "u");
  * Bounding Unicode code points here also bounds CJK bigram expansion downstream.
  */
 export const DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS = 256;
+export const DISCOVERY_SEARCH_SUGGESTION_QUERY_MAX_CODE_POINTS = 80;
 
 export function truncateDiscoverySearchQuery(value: string): string {
   return [...value].slice(0, DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS).join("");
+}
+
+export function truncateDiscoverySearchSuggestionQuery(value: string): string {
+  return [...value].slice(0, DISCOVERY_SEARCH_SUGGESTION_QUERY_MAX_CODE_POINTS).join("");
 }
 
 export function normalizeSimpleSearchText(value: string): string {

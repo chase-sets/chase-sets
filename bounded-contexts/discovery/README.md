@@ -15,6 +15,16 @@ Discovery owns the browse, search, and detail experience for catalog items.
 - Add to List picker views projected from Collections facts
 - Search index rebuild and projection workflows
 
+## Search Suggestions
+
+Header suggestions use bounded prefix matching against Discovery's existing `search_text_simple` vector, so the same
+projected aliases used by full search also participate in typeahead. The final normalized token is matched as a prefix;
+queries and result counts are capped, and only active items are eligible.
+
+The slice deliberately does not enable `pg_trgm`: fuzzy spelling recovery would add an extension, a write-maintained
+title index, and a second ranking policy without acceptance evidence that prefix and alias matching are insufficient.
+That option remains available if observed zero-result telemetry demonstrates the need.
+
 ## Does Not Own
 
 - Canonical catalog item truth

@@ -1933,6 +1933,7 @@ describe("design system components", () => {
           topNavItems={marketplaceNav}
           bottomNavItems={marketplaceNav}
           activeKey="browse"
+          search={<div>Marketplace search</div>}
         >
           <div>Body</div>
         </MarketplaceShell>
@@ -1944,10 +1945,12 @@ describe("design system components", () => {
     expect(main.getAttribute("id")).toBe("main-content");
     expect(main.getAttribute("tabindex")).toBe("-1");
     expect(main.getAttribute("class")).toContain("relative z-0");
-    expect(main.parentElement?.getAttribute("class")).toContain("[--shell-header-height:4rem]");
+    expect(main.parentElement?.getAttribute("class")).toContain("[--shell-header-height:7.75rem]");
+    expect(main.parentElement?.getAttribute("class")).toContain("md:[--shell-header-height:4rem]");
     expect(main.parentElement?.getAttribute("class")).toContain("[--shell-bottom-nav-height:5.25rem]");
     expect(main.parentElement?.getAttribute("class")).toContain("md:[--shell-bottom-nav-height:0px]");
     expect(screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")).toBe("#main-content");
+    expect(screen.getByText("Marketplace search")).toBeTruthy();
   });
 
   it("renders admin shells with a main landmark and skip link target", () => {
