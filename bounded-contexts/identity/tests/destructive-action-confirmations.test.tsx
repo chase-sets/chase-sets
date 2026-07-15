@@ -36,6 +36,27 @@ describe("Identity destructive action confirmations", () => {
       ),
     },
     {
+      action: "Close",
+      dialogName: "Close Card Vault?",
+      consequence: "Closing Card Vault ends its active lifecycle and cannot be undone from this workspace.",
+      intent: "close",
+      confirm: "Confirm closure",
+      page: (
+        <AccountDetailPage
+          data={{
+            account_id: "acc_card_vault",
+            account_type: "business",
+            badges: [],
+            founder_number: null,
+            display_name: "Card Vault",
+            name: "Card Vault LLC",
+            status: "active",
+            updated_at: "2026-07-14T12:00:00.000Z",
+          }}
+        />
+      ),
+    },
+    {
       action: "Suspend",
       dialogName: "Suspend Alex Clerk?",
       consequence: "Alex Clerk will not be able to sign in or act for any account until the user is reactivated.",

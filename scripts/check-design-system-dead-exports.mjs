@@ -131,7 +131,6 @@ const canonicalReserveZeroConsumerExports = [
   "ThemeScope",
   "ThemePreferenceControl",
   "Thumbnail",
-  "Timeline",
   "toastManager",
   "ToastProvider",
   "Toggle",

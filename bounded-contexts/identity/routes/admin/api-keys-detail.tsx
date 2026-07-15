@@ -1,9 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import { redirect } from "react-router";
 import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
-import type { ApiKey } from "../../support/request-support/api-client";
-import { ApiKeyDetailPage } from "../../features/api-keys/ui/api-key-detail-page";
+import type { ApiKey, UserAccountLink } from "../../support/request-support/api-client";
 import { createIdentityRequestApiClient, requestWithoutFreshWrite } from "../../support/route-support/identity-request";
 import { IdentityApiError } from "../../support/request-support/api-client";
 import {
@@ -43,10 +42,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   if (response.kind === "pending") {
     const recoveryApi = createIdentityRequestApiClient(requestWithoutFreshWrite(request));
-    return {
-      id: apiKeyId,
-      data: await recoveryApi.getApiKey<ApiKey>(apiKeyId),
-    };
+    const apiKey = await recoveryApi.getApiKey<ApiKey>(apiKeyId);
+    const link = await recoveryApi.getUserAccountLink<UserAccountLink>(apiKey.user_id);
+    return redirect(
+      link.account_id
+        ? `/access/accounts/${link.account_id}?tab=api-access&apiKey=${encodeURIComponent(apiKeyId)}`
+        : `/access/api-keys?search=${encodeURIComponent(apiKeyId)}`,
+    );
   }
 
   if (response.kind === "permanent-failure") {
@@ -56,10 +58,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw new Response("API key is unavailable.", { status: 404 });
   }
 
-  return {
-    id: apiKeyId,
-    data: response.data,
-  };
+  const link = await api.getUserAccountLink<UserAccountLink>(response.data.user_id);
+  return redirect(
+    link.account_id
+      ? `/access/accounts/${link.account_id}?tab=api-access&apiKey=${encodeURIComponent(apiKeyId)}`
+      : `/access/api-keys?search=${encodeURIComponent(apiKeyId)}`,
+  );
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -86,7 +90,5 @@ export const meta: MetaFunction = () => [
 ];
 
 export default function ApiKeyDetailRoute() {
-  const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as ApiKeyActionData | undefined;
-  return <ApiKeyDetailPage data={data.data} oneTimeSecret={actionData?.oneTimeSecret} />;
+  return null;
 }

@@ -15,6 +15,7 @@
   "streamPrefix": "identity.",
   "apiBasePath": "/api/identity",
   "slices": [
+    "access-hub",
     "accounts",
     "users",
     "memberships",
@@ -160,6 +161,27 @@
           ]
         },
         {
+          "routePath": "/access-hub/accounts/:accountId",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "identity_accounts"
+            },
+            {
+              "readModelTable": "identity_users"
+            },
+            {
+              "readModelTable": "identity_memberships"
+            },
+            {
+              "readModelTable": "identity_invitations"
+            },
+            {
+              "readModelTable": "identity_api_keys"
+            }
+          ]
+        },
+        {
           "routePath": "/current-actor-display",
           "methods": ["GET", "HEAD"],
           "dependencies": [
@@ -292,20 +314,43 @@
           "Reactivate account",
           "Close account",
           "Assign account badge",
-          "Remove account badge"
+          "Remove account badge",
+          "Create invitation",
+          "Resend invitation",
+          "Cancel invitation",
+          "Decline invitation",
+          "Change membership role",
+          "Revoke membership",
+          "Reinstate membership",
+          "Update user profile",
+          "Suspend user",
+          "Reactivate user",
+          "Add user contact method",
+          "Verify user contact method",
+          "Enable user auth method",
+          "Disable user auth method",
+          "Create API key",
+          "Rotate API key",
+          "Revoke API key"
         ],
-        "command": "Identity account commands",
+        "command": "Identity account, invitation, membership, user, and API-key commands",
         "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "accounts-detail",
         "apiContextName": "identity",
-        "apiRoutePath": "/accounts/:id",
+        "apiRoutePath": "/access-hub/accounts/:accountId",
         "helperUses": ["loadAfterWrite"],
-        "readModelTables": ["identity_accounts"],
+        "readModelTables": [
+          "identity_accounts",
+          "identity_users",
+          "identity_memberships",
+          "identity_invitations",
+          "identity_api_keys"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account detail redirects carry the Identity command receipt so the account detail loader reads after the account projection catches up. If the fresh projection wait times out, the loader retries without the freshness token so the Identity account API can return committed command-side state."
+          "behavior": "Account hub redirects carry the Identity command receipt so the composed account, user, membership, invitation, and API-key projections catch up before the account workspace reloads. If the fresh projection wait times out, the loader retries without the freshness token so the workspace remains recoverable while projections converge. API-key creation and rotation return their plaintext secret only as transient same-page action data."
         }
       },
       "proof": {
@@ -788,7 +833,6 @@
         "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#5",
         "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:Hb573b8e06471#1",
         "post-form:bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/identity/routes/admin/accounts-detail.tsx",
         "route-action:bounded-contexts/identity/routes/marketplace/account.tsx"
       ],
       "visibleDestination": {
@@ -803,6 +847,79 @@
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.account-access-hub-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#1",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#2",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#3",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#4",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#5",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#6",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#7",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#8",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#9",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#10",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#11",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#12",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#13",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#14",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#15",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#16",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#17",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#19",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H90fc6e797b84#1",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H2d99145c77a5#1",
+        "route-action:bounded-contexts/identity/routes/admin/accounts-detail.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "accounts-detail",
+        "apiContextName": "identity",
+        "apiRoutePath": "/access-hub/accounts/:accountId",
+        "readModelTables": [
+          "identity_accounts",
+          "identity_users",
+          "identity_memberships",
+          "identity_invitations",
+          "identity_api_keys"
+        ],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account, user, membership, invitation, and API-key mutations redirect back to the same account hub tab with an Identity commit receipt. The account-hub loader waits for the exact composed projections, then retries without freshness after a bounded timeout while those projections converge."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.test.tsx",
+          "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "identity.account-access-hub-api-key-secret-snapshot",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#18",
+        "post-form:bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx:H1abed2c1c746#20"
+      ],
+      "visibleDestination": {
+        "routeId": "accounts-detail",
+        "description": "Account-hub API-key create and rotate actions return the plaintext secret as same-page transient action data exactly once while persisted key metadata revalidates independently."
+      },
+      "proof": {
+        "authoritativeResponse": "bounded-contexts/identity/routes/admin/accounts-detail.tsx converts Identity API-key create and rotate command snapshots into one-time secret action data without a redirect, URL value, log, or loader-cacheable secret.",
+        "tests": [
+          "bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.test.tsx",
+          "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts",
+          "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts"
+        ]
       }
     },
     {
@@ -1496,6 +1613,11 @@
     }
   ],
   "directoryIntent": {
+    "access-hub": {
+      "classification": "slice",
+      "purpose": "Own the account-centric Access home, account hub read model, route behavior, and UI composition across Identity aggregates.",
+      "expectedConsumers": ["Identity admin routes"]
+    },
     "accounts": {
       "classification": "slice",
       "purpose": "Own accounts feature behavior, read models, and UI contracts for the identity context.",
@@ -1556,6 +1678,7 @@
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by identity-owned features and composition seams.",
       "expectedConsumers": [
+        "access-hub",
         "accounts",
         "api-keys",
         "consents",

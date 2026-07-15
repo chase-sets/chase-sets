@@ -1,4 +1,70 @@
 export const identityEnglishTranslations = {
+  "identity.features.accessHub.ui.accessHome.account": "Account",
+  "identity.features.accessHub.ui.accessHome.account.count": "{count} accounts found",
+  "identity.features.accessHub.ui.accessHome.account.search": "Find an account",
+  "identity.features.accessHub.ui.accessHome.account.search.description":
+    "Open one account workspace for profile, lifecycle, team, API access, and audit work.",
+  "identity.features.accessHub.ui.accessHome.accounts.empty": "No accounts found",
+  "identity.features.accessHub.ui.accessHome.accounts.empty.description":
+    "Try a different account name or clear the search.",
+  "identity.features.accessHub.ui.accessHome.api.key.rotation": "API key rotation due",
+  "identity.features.accessHub.ui.accessHome.api.key.rotation.detail": "{name} · {user} · {dueAt}",
+  "identity.features.accessHub.ui.accessHome.attention": "Attention queue",
+  "identity.features.accessHub.ui.accessHome.attention.description":
+    "Pending invitations, upcoming key rotations, suspended accounts, and memberships awaiting review.",
+  "identity.features.accessHub.ui.accessHome.attention.empty": "Nothing needs attention",
+  "identity.features.accessHub.ui.accessHome.attention.empty.description":
+    "There are no pending Access actions in your current scope.",
+  "identity.features.accessHub.ui.accessHome.attention.type": "Attention",
+  "identity.features.accessHub.ui.accessHome.description":
+    "Search accounts and handle the access work that needs attention without hopping between entity pages.",
+  "identity.features.accessHub.ui.accessHome.details": "Details",
+  "identity.features.accessHub.ui.accessHome.eyebrow": "Identity operations",
+  "identity.features.accessHub.ui.accessHome.membership.review": "Membership awaiting review",
+  "identity.features.accessHub.ui.accessHome.membership.review.detail": "{user} · {role}",
+  "identity.features.accessHub.ui.accessHome.open.account": "Open account",
+  "identity.features.accessHub.ui.accessHome.pending.invitation": "Pending invitation",
+  "identity.features.accessHub.ui.accessHome.pending.invitation.detail": "{email} · {role} · {expiresAt}",
+  "identity.features.accessHub.ui.accessHome.review": "Review",
+  "identity.features.accessHub.ui.accessHome.search": "Account name",
+  "identity.features.accessHub.ui.accessHome.search.action": "Search",
+  "identity.features.accessHub.ui.accessHome.search.clear": "Clear",
+  "identity.features.accessHub.ui.accessHome.search.placeholder": "Search by legal or display name",
+  "identity.features.accessHub.ui.accessHome.suspended.account": "Suspended account",
+  "identity.features.accessHub.ui.accessHome.title": "Access",
+  "identity.features.accessHub.ui.account.api.access": "API Access",
+  "identity.features.accessHub.ui.account.api.access.description":
+    "Create, rotate, and revoke keys for the account team without leaving this workspace.",
+  "identity.features.accessHub.ui.account.api.access.empty.description":
+    "Create a key for an eligible team user when this account needs API access.",
+  "identity.features.accessHub.ui.account.audit.empty": "No account activity found",
+  "identity.features.accessHub.ui.account.audit.empty.description":
+    "Identity events for this account and its access records will appear here.",
+  "identity.features.accessHub.ui.account.audit.event.description": "{streamId} · {performedByUserId}",
+  "identity.features.accessHub.ui.account.close.confirm.action": "Confirm closure",
+  "identity.features.accessHub.ui.account.close.confirm.description":
+    "Closing {account} ends its active lifecycle and cannot be undone from this workspace.",
+  "identity.features.accessHub.ui.account.close.confirm.title": "Close {account}?",
+  "identity.features.accessHub.ui.account.description":
+    "Manage this account's profile, lifecycle, team, API access, and Identity audit history in one place.",
+  "identity.features.accessHub.ui.account.disable.auth.method": "Disable {authMethod}",
+  "identity.features.accessHub.ui.account.eyebrow": "Account access hub",
+  "identity.features.accessHub.ui.account.invite.description": "Invite a user to act for {account}.",
+  "identity.features.accessHub.ui.account.invite.title": "Invite a team member",
+  "identity.features.accessHub.ui.account.overview.lifecycle": "Lifecycle",
+  "identity.features.accessHub.ui.account.overview.lifecycle.description":
+    "Suspend, reactivate, or close the account with explicit confirmation for high-impact changes.",
+  "identity.features.accessHub.ui.account.overview.profile": "Overview",
+  "identity.features.accessHub.ui.account.overview.profile.description":
+    "Account identity, commercial ownership, and current profile information.",
+  "identity.features.accessHub.ui.account.tab.api.access": "API Access",
+  "identity.features.accessHub.ui.account.tab.audit": "Audit",
+  "identity.features.accessHub.ui.account.tab.overview": "Overview",
+  "identity.features.accessHub.ui.account.tab.team": "Team",
+  "identity.features.accessHub.ui.account.team": "Team memberships",
+  "identity.features.accessHub.ui.account.team.empty": "No memberships found",
+  "identity.features.accessHub.ui.account.team.empty.description":
+    "Invite a team member to add access for this account.",
   "identity.features.accounts.api.route.account.not.found": "Account not found.",
   "identity.features.accounts.api.route.account.badge.not.supported": "Account badge is not supported.",
   "identity.features.accounts.api.route.forbidden": "Forbidden.",
@@ -337,6 +403,7 @@ export const identityEnglishTranslations = {
   "identity.features.users.ui.userListPage.status.filter.suspended": "Suspended",
   "identity.features.users.ui.userListPage.users": "Users",
   "identity.routes.admin.accounts.accounts.identity.admin": "Accounts | Identity Admin",
+  "identity.routes.admin.accessHome.access.identity.admin": "Access | Identity Admin",
   "identity.routes.admin.accountsDetail.account.detail.identity.admin": "Account Detail | Identity Admin",
   "identity.routes.admin.apiKeys.api.keys.identity.admin": "API Keys | Identity Admin",
   "identity.routes.admin.apiKeysDetail.api.key.detail.identity.admin": "API Key Detail | Identity Admin",

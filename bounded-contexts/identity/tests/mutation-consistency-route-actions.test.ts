@@ -92,7 +92,13 @@ async function captureRedirect(actionCall: Promise<unknown>) {
 
 function expectLocationPath(location: string, expectedPath: string | RegExp) {
   if (typeof expectedPath === "string") {
-    expect(location).toContain(`${expectedPath}?afterWrite=`);
+    const actual = new URL(location, "https://chasesets.test");
+    const expected = new URL(expectedPath, "https://chasesets.test");
+    expect(actual.pathname).toBe(expected.pathname);
+    for (const [key, value] of expected.searchParams) {
+      expect(actual.searchParams.get(key)).toBe(value);
+    }
+    expect(actual.searchParams.get("afterWrite")).toBeTruthy();
     return;
   }
 
@@ -139,7 +145,7 @@ describe("Identity mutation consistency route actions", () => {
           roleKey: "viewer",
         }),
         params: { id: "acc_1" },
-        expectedPath: /^\/access\/invitations\/ivt_[^?]+\?afterWrite=/,
+        expectedPath: "/access/accounts/acc_1?tab=team",
       },
       {
         action: accountDetailAction,
@@ -452,16 +458,23 @@ describe("Identity mutation consistency route actions", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = requestUrl(input);
 
-        if (url.includes("/api/identity/accounts/acc_1")) {
+        if (url.includes("/api/identity/access-hub/accounts/acc_1")) {
           observedHeaders.push(new Headers(init?.headers));
           return jsonResponse({
-            account_id: "acc_1",
-            account_type: "business",
-            badges: [],
-            display_name: "Card Vault",
-            name: "Card Vault LLC",
-            status: "active",
-            updated_at: "2026-06-15T00:00:00.000Z",
+            account: {
+              account_id: "acc_1",
+              account_type: "business",
+              badges: [],
+              display_name: "Card Vault",
+              name: "Card Vault LLC",
+              status: "active",
+              updated_at: "2026-06-15T00:00:00.000Z",
+            },
+            users: [],
+            memberships: [],
+            invitations: [],
+            api_keys: [],
+            audit_events: [],
           });
         }
 
@@ -494,7 +507,7 @@ describe("Identity mutation consistency route actions", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = requestUrl(input);
 
-        if (url.includes("/api/identity/accounts/acc_1")) {
+        if (url.includes("/api/identity/access-hub/accounts/acc_1")) {
           observedHeaders.push(new Headers(init?.headers));
           if (observedHeaders.length === 1) {
             return jsonResponse(
@@ -509,13 +522,20 @@ describe("Identity mutation consistency route actions", () => {
           }
 
           return jsonResponse({
-            account_id: "acc_1",
-            account_type: "business",
-            badges: ["founding-account"],
-            display_name: "Card Vault",
-            name: "Card Vault LLC",
-            status: "active",
-            updated_at: "2026-06-15T00:00:00.000Z",
+            account: {
+              account_id: "acc_1",
+              account_type: "business",
+              badges: ["founding-account"],
+              display_name: "Card Vault",
+              name: "Card Vault LLC",
+              status: "active",
+              updated_at: "2026-06-15T00:00:00.000Z",
+            },
+            users: [],
+            memberships: [],
+            invitations: [],
+            api_keys: [],
+            audit_events: [],
           });
         }
 
@@ -532,7 +552,7 @@ describe("Identity mutation consistency route actions", () => {
       context: undefined,
     } as never);
 
-    expect(data.data.badges).toEqual(["founding-account"]);
+    expect(data.data.account.badges).toEqual(["founding-account"]);
     expect(observedHeaders).toHaveLength(2);
     expect(observedHeaders[0]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
     expect(observedHeaders[1]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeNull();
@@ -576,7 +596,7 @@ describe("Identity mutation consistency route actions", () => {
     );
 
     const path = appendFreshWriteToken("/access/invitations/ivt_1", identityCommit("92"));
-    const data = await invitationDetailLoader({
+    const response = await invitationDetailLoader({
       request: new Request(`https://chasesets.test${path}`, {
         headers: { cookie: "session=identity" },
       }),
@@ -584,7 +604,7 @@ describe("Identity mutation consistency route actions", () => {
       context: undefined,
     } as never);
 
-    expect(data.data.status).toBe("cancelled");
+    expect(response.headers.get("Location")).toBe(`/access/accounts/${actor.accountId}?tab=team&invitation=ivt_1`);
     expect(observedHeaders).toHaveLength(2);
     expect(observedHeaders[0]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
     expect(observedHeaders[1]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeNull();

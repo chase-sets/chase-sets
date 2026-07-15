@@ -1,6 +1,7 @@
 export { IdentityApiError, createIdentityApiClient, identityApi } from "./support/shell-support/api/client";
 export type { IdentityApiClientOptions } from "./support/shell-support/api/client";
 export type { Account } from "./features/accounts/api/contracts";
+export type { AccessHome, AccountAccessHub, UserAccountLink } from "./features/access-hub/api/contracts";
 export type { ShippingAddress } from "./features/shipping-addresses/api/contracts";
 export type { User } from "./features/users/api/contracts";
 export type { Membership } from "./features/memberships/api/contracts";

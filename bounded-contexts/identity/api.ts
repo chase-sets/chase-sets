@@ -16,6 +16,7 @@ import {
 } from "./support/runtime-support/common";
 import type { IdentityServices } from "./support/runtime-support/services";
 import { accountRoutes } from "./features/accounts/api/route";
+import { accessHubRoutes } from "./features/access-hub/api/route";
 import { userRoutes } from "./features/users/api/route";
 import { membershipRoutes } from "./features/memberships/api/route";
 import { invitationRoutes } from "./features/invitations/api/route";
@@ -967,7 +968,10 @@ export function buildIdentityApi(services: IdentityServices) {
   app.use("/invitations/*", requirePermission("memberships.manage"));
   app.use("/api-keys", requirePermission("security.manage"));
   app.use("/api-keys/*", requirePermission("security.manage"));
+  app.use("/access-hub", requirePermission("accounts.view"));
+  app.use("/access-hub/*", requirePermission("accounts.view"));
 
+  app.route("/access-hub", accessHubRoutes(services.accessHub));
   app.route("/accounts", accountRoutes(services.accounts));
   app.route("/accounts/:accountId/shipping-addresses", shippingAddressRoutes(services.shippingAddresses));
   app.route("/users", userRoutes(services.users));

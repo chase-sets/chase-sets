@@ -1,17 +1,16 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { redirect } from "react-router";
 import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import type { Membership } from "../../support/request-support/api-client";
-import { MembershipDetailPage } from "../../features/memberships/ui/membership-detail-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
-  return {
-    id: params.id!,
-    data: await api.getMembership<Membership>(params.id!),
-  };
+  const membership = await api.getMembership<Membership>(params.id!);
+  return redirect(
+    `/access/accounts/${membership.account_id}?tab=team&membership=${encodeURIComponent(membership.membership_id)}`,
+  );
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -41,6 +40,5 @@ export const meta: MetaFunction = () => [
 ];
 
 export default function MembershipDetailRoute() {
-  const data = useLoaderData<typeof loader>();
-  return <MembershipDetailPage data={data.data} />;
+  return null;
 }

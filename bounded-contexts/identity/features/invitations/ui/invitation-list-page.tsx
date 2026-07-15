@@ -191,7 +191,9 @@ export function InvitationListPage({
         </>
       }
       emptyMessage={t("identity.features.invitations.ui.invitationListPage.no.invitations.yet")}
-      getHref={(row) => `/access/invitations/${row.invitation_id}`}
+      getHref={(row) =>
+        `/access/accounts/${row.account_id}?tab=team&invitation=${encodeURIComponent(row.invitation_id)}`
+      }
       pagination={initialData}
       onPageChange={onPageChange}
     />

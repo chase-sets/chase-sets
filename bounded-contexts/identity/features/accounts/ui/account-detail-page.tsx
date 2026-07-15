@@ -121,12 +121,26 @@ export function AccountDetailPage({
             </Form>
           ) : null}
           {data.status !== "closed" ? (
-            <Form spacing="none" method="post">
-              <HiddenInput type="hidden" name="intent" value="close" readOnly />
-              <Button type="submit" tone="danger">
-                {t("identity.features.accounts.ui.accountDetailPage.close")}
-              </Button>
-            </Form>
+            <ModalDialog
+              title={t("identity.features.accessHub.ui.account.close.confirm.title", {
+                account: data.display_name,
+              })}
+              description={t("identity.features.accessHub.ui.account.close.confirm.description", {
+                account: data.display_name,
+              })}
+              trigger={
+                <Button type="button" tone="danger">
+                  {t("identity.features.accounts.ui.accountDetailPage.close")}
+                </Button>
+              }
+            >
+              <Form spacing="none" method="post">
+                <HiddenInput type="hidden" name="intent" value="close" readOnly />
+                <Button type="submit" tone="danger">
+                  {t("identity.features.accessHub.ui.account.close.confirm.action")}
+                </Button>
+              </Form>
+            </ModalDialog>
           ) : null}
           <Form spacing="none" method="post">
             <Stack direction="row" align="end" gap={2}>
