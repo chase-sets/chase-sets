@@ -140,7 +140,6 @@ describe("support request runtime", () => {
           orderId: "ord_1",
           accountId: "acc_buyer",
           flowType: "product-damaged",
-          openedByRole: "buyer",
         },
         context,
       ),

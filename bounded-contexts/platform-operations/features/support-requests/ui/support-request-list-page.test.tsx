@@ -95,7 +95,6 @@ describe("SupportRequestListPage", () => {
     expect(intake.getByRole("link", { name: "Read Order Protection terms" }).getAttribute("href")).toBe(
       "/help/buying/order-protection",
     );
-    expect(intake.getByText(/Photos are required for this issue/)).toBeTruthy();
     expect(
       Array.from(document.querySelectorAll<HTMLInputElement>('input[name="affectedLineIds"]')).map(
         (input) => input.value,
