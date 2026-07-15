@@ -1,6 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
 import {
+  findOpenSupportRequestForOrder,
   getSupportOperationsRequest,
   getSupportRequestByDisplayReference,
   listSupportRequestsReadyForAutoClose,
@@ -22,6 +23,25 @@ function buildDb(calls: QueryCall[], countValue = "0", rows: unknown[] = []): Pg
 }
 
 describe("support operations queue read-model query", () => {
+  it("guards duplicate intake across every open flow for an order", async () => {
+    const calls: QueryCall[] = [];
+    const db = buildDb(calls, "0", [
+      {
+        support_request_id: "sup_existing",
+        display_reference: "SUP-EXISTING",
+        flow_type: "product-damaged",
+        status: "waiting-on-seller",
+      },
+    ]);
+
+    const existing = await findOpenSupportRequestForOrder(db, { orderId: "ord_1" });
+
+    expect(existing).toMatchObject({ support_request_id: "sup_existing", flow_type: "product-damaged" });
+    expect(calls[0]?.sql).toContain("WHERE order_id = $1");
+    expect(calls[0]?.sql).not.toContain("flow_type =");
+    expect(calls[0]?.params).toEqual(["ord_1"]);
+  });
+
   it("exposes the display reference in queue DTOs and supports indexed reference lookup", async () => {
     const calls: QueryCall[] = [];
     const db = buildDb(calls, "1", [

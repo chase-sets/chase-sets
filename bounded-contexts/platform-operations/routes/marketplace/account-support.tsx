@@ -19,7 +19,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const api = createSupportRequestRequestApiClient(request);
   const searchParams = new URL(request.url).searchParams;
   const orderId = searchParams.get("orderId");
-  const role = searchParams.get("role");
+  const initialFlowType = searchParams.get("flow");
   const [flows, buyerRequests, sellerRequests] = await Promise.all([
     api.listFlows(),
     api.listBuyerSupportRequests(),
@@ -30,7 +30,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   if (orderId) {
     try {
-      supportOrder = await api.getSupportOrderContext(orderId, role);
+      supportOrder = await api.getSupportOrderContext(orderId);
     } catch (error) {
       lookupError =
         error instanceof Error ? error.message : t("support.routes.marketplace.accountSupport.lookup.failed");
@@ -43,6 +43,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     sellerRequests,
     lookupError,
     supportOrder,
+    initialFlowType,
   };
 }
 
@@ -53,12 +54,13 @@ export async function action({ request }: ActionFunctionArgs) {
   });
   const api = createSupportRequestRequestApiClient(request);
   const formData = await request.formData();
+  const affectedLineIds = formData.getAll("affectedLineIds").map(String);
 
   try {
     const result = await api.openSupportRequest({
       orderId: formValue(formData, "orderId"),
       flowType: formValue(formData, "flowType"),
-      openedByRole: formValue(formData, "openedByRole"),
+      ...(affectedLineIds.length > 0 ? { affectedLineIds } : {}),
     });
     return redirect(`/account/support?opened=${encodeURIComponent(result.id)}`);
   } catch (error) {
@@ -86,6 +88,7 @@ export default function MarketplaceAccountSupportRoute() {
       lookupError={data.lookupError}
       openedSupportRequestId={openedSupportRequestId}
       supportOrder={data.supportOrder}
+      initialFlowType={data.initialFlowType}
     />
   );
 }

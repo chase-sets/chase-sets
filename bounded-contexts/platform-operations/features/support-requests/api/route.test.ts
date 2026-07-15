@@ -226,10 +226,11 @@ describe("support request routes", () => {
       openedByRole: "buyer" as const,
       status: "ready-for-fulfillment",
       totalAmount: "24.00",
+      lines: [],
     }));
     const services = createServices({ getSupportOrderContext });
 
-    const response = await buildApp(services, ["support.view"]).request("/support-requests/orders/ord_1?role=buyer");
+    const response = await buildApp(services, ["support.view"]).request("/support-requests/orders/ord_1");
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -237,11 +238,11 @@ describe("support request routes", () => {
       openedByRole: "buyer",
       status: "ready-for-fulfillment",
       totalAmount: "24.00",
+      lines: [],
     });
     expect(getSupportOrderContext).toHaveBeenCalledWith({
       orderId: "ord_1",
       accountId: "acc_operator",
-      openedByRole: "buyer",
     });
   });
 
@@ -249,7 +250,7 @@ describe("support request routes", () => {
     [
       "openSupportRequest",
       "/support-requests",
-      { orderId: "ord_1", flowType: "product-not-received", openedByRole: "buyer" },
+      { orderId: "ord_1", flowType: "product-not-received", affectedLineIds: ["line_1"] },
       { id: "sup_open", version: 1, status: "opened" },
     ],
     [

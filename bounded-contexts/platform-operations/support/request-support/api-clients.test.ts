@@ -80,12 +80,13 @@ describe("platform operations request API clients", () => {
   it("returns support request snapshots from mutating calls", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/orders/ord_1?role=buyer")) {
+      if (url.endsWith("/orders/ord_1")) {
         return jsonResponse({
           orderId: "ord_1",
           openedByRole: "buyer",
           status: "ready-for-fulfillment",
           totalAmount: "24.00",
+          lines: [],
         });
       }
       if (url.endsWith("/ops/escalate-overdue")) {
@@ -109,17 +110,18 @@ describe("platform operations request API clients", () => {
     });
     const client = createSupportRequestApiClient({ baseUrl: "https://api.example.test", fetch: fetchMock as never });
 
-    await expect(client.getSupportOrderContext("ord_1", "buyer")).resolves.toEqual({
+    await expect(client.getSupportOrderContext("ord_1")).resolves.toEqual({
       orderId: "ord_1",
       openedByRole: "buyer",
       status: "ready-for-fulfillment",
       totalAmount: "24.00",
+      lines: [],
     });
     await expect(
       client.openSupportRequest({
         orderId: "ord_1",
         flowType: "product-not-received",
-        openedByRole: "buyer",
+        affectedLineIds: ["line_1"],
       }),
     ).resolves.toEqual({ id: "sup_1", version: 1, status: "opened" });
     await expect(client.escalateOverdueSupportRequests({ limit: 25 })).resolves.toEqual({
@@ -165,8 +167,19 @@ describe("platform operations request API clients", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.example.test/support-requests/orders/ord_1?role=buyer",
+      "https://api.example.test/support-requests/orders/ord_1",
       expect.objectContaining({ headers: undefined }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/support-requests",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          orderId: "ord_1",
+          flowType: "product-not-received",
+          affectedLineIds: ["line_1"],
+        }),
+      }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.example.test/support-requests/ops/sup_1/evidence",

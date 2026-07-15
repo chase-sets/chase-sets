@@ -613,19 +613,25 @@ export async function listSupportRequestsAwaitingReturnDelivery(
   };
 }
 
-export async function findOpenSupportRequestForOrderAndFlow(
+export type OpenSupportRequestForOrderRow = Readonly<{
+  support_request_id: string;
+  display_reference: string;
+  flow_type: string;
+  status: string;
+}>;
+
+export async function findOpenSupportRequestForOrder(
   db: PgQueryable,
-  params: Readonly<{ orderId: string; flowType: string }>,
-): Promise<Pick<SupportRequestDetailRow, "support_request_id"> | null> {
-  const result = await db.query<{ support_request_id: string }>(
-    `SELECT support_request_id
+  params: Readonly<{ orderId: string }>,
+): Promise<OpenSupportRequestForOrderRow | null> {
+  const result = await db.query<OpenSupportRequestForOrderRow>(
+    `SELECT support_request_id, display_reference, flow_type, status
      FROM support_request_pages
      WHERE order_id = $1
-       AND flow_type = $2
        AND status NOT IN ('resolved', 'closed', 'cancelled')
      ORDER BY opened_at ASC, support_request_id ASC
      LIMIT 1`,
-    [params.orderId, params.flowType],
+    [params.orderId],
   );
 
   return result.rows[0] ?? null;

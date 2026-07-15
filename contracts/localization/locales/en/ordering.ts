@@ -179,7 +179,7 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.next.steps": "Next steps",
   "ordering.features.orders.ui.orderDetailPage.no.schedule.snapshot": "No schedule snapshot",
   "ordering.features.orders.ui.orderDetailPage.pay.now": "Pay now",
-  "ordering.features.orders.ui.orderDetailPage.open.support": "Get help",
+  "ordering.features.orders.ui.orderDetailPage.open.support": "Report a problem",
   "ordering.features.orders.ui.orderDetailPage.ask.to.cancel": "Ask to cancel",
   "ordering.features.orders.ui.orderDetailPage.payment.deadline.title": "Complete payment by deadline",
   "ordering.features.orders.ui.orderDetailPage.payment.deadline.description":

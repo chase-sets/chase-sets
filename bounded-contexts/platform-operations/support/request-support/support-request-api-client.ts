@@ -61,14 +61,12 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
           headers: resolveHeaders(options.headers),
         }),
       ),
-    getSupportOrderContext: async (orderId: string, role?: string | null) => {
-      const query = role ? `?role=${encodeURIComponent(role)}` : "";
-      return parseJsonResponse<SupportOrderLookup>(
-        await clientFetch(`${baseUrl}/support-requests/orders/${encodeURIComponent(orderId)}${query}`, {
+    getSupportOrderContext: async (orderId: string) =>
+      parseJsonResponse<SupportOrderLookup>(
+        await clientFetch(`${baseUrl}/support-requests/orders/${encodeURIComponent(orderId)}`, {
           headers: resolveHeaders(options.headers),
         }),
-      );
-    },
+      ),
     listSupportOperationsQueue: async (query = "") =>
       parseJsonResponse<{ items: readonly SupportRequestListItem[]; total: number; count: number }>(
         await clientFetch(`${baseUrl}/support-requests/ops${query ? `?${query}` : ""}`, {
@@ -91,7 +89,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
       body: Readonly<{
         orderId: string;
         flowType: string;
-        openedByRole: string;
+        affectedLineIds?: readonly string[];
       }>,
     ) =>
       parseJsonResponse<SupportRequestCommandSnapshot>(
