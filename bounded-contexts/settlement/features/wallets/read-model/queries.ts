@@ -1,6 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import { createEmptyWalletSummary } from "../../../support/runtime-support/common";
+import { createEmptyWalletSummary, type LedgerEntryDirection } from "../../../support/runtime-support/common";
+import type { WalletAdjustmentReasonCode } from "../domain/wallet-adjustment";
 
 export type SettlementWalletRow = Readonly<{
   account_id: string;
@@ -20,7 +21,7 @@ export type SettlementLedgerEntryRow = Readonly<{
   ledger_entry_id: string;
   account_id: string;
   kind: string;
-  direction: string;
+  direction: LedgerEntryDirection;
   amount: string;
   currency_code: string;
   funds_status: string;
@@ -44,7 +45,7 @@ export type SettlementLedgerEntryRow = Readonly<{
   adjustment_id?: string | null;
   adjustment_display_reference?: string | null;
   adjustment_status?: "requested" | "approved" | "rejected" | "posted" | "reversed" | null;
-  adjustment_reason_code?: string | null;
+  adjustment_reason_code?: WalletAdjustmentReasonCode | null;
   adjustment_reversal_of_adjustment_id?: string | null;
   adjustment_reversed_by_adjustment_id?: string | null;
 }>;

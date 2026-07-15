@@ -5,7 +5,9 @@ import { RouterForm } from "@chase-sets/design-system/react-router";
 import { AlertDialog, Banner, Button, HiddenInput, Stack, Text, TextInput, Textarea } from "@chase-sets/design-system";
 import type { SettlementWalletAdjustment } from "../../../client";
 import type { WalletAdjustmentFlowError } from "../../../support/request-support/wallet-adjustment-flow-error";
+import { WALLET_ADJUSTMENT_FORM_INTENTS } from "../../../support/request-support/wallet-adjustment-guided-flow-form-data";
 import { walletAdjustmentFlowErrorTitle, walletAdjustmentFlowErrorTone } from "./wallet-adjustment-copy";
+import { WalletAdjustmentReauthenticationLink } from "./wallet-adjustment-reauthentication-link";
 
 /**
  * Reversal is always elevated by construction (ADR 0020): the API requires a
@@ -16,10 +18,12 @@ import { walletAdjustmentFlowErrorTitle, walletAdjustmentFlowErrorTone } from ".
 export function WalletAdjustmentReversalActions({
   adjustment,
   targetAccountLabel,
+  returnTo,
   flowError,
 }: {
   adjustment: SettlementWalletAdjustment;
   targetAccountLabel: string;
+  returnTo: string;
   flowError: WalletAdjustmentFlowError | null;
 }) {
   const navigation = useNavigation();
@@ -39,11 +43,14 @@ export function WalletAdjustmentReversalActions({
   return (
     <Stack gap={3}>
       {flowError ? (
-        <Banner
-          tone={walletAdjustmentFlowErrorTone(flowError.kind)}
-          title={walletAdjustmentFlowErrorTitle(flowError.kind)}
-          description={flowError.message}
-        />
+        <Stack gap={2}>
+          <Banner
+            tone={walletAdjustmentFlowErrorTone(flowError.kind)}
+            title={walletAdjustmentFlowErrorTitle(flowError.kind)}
+            description={flowError.message}
+          />
+          <WalletAdjustmentReauthenticationLink errorKind={flowError.kind} returnTo={returnTo} />
+        </Stack>
       ) : null}
 
       <Text size="sm" tone="secondary">
@@ -102,7 +109,7 @@ export function WalletAdjustmentReversalActions({
         spacing="none"
         aria-hidden="true"
       >
-        <HiddenInput type="hidden" name="intent" value="reverse" />
+        <HiddenInput type="hidden" name="intent" value={WALLET_ADJUSTMENT_FORM_INTENTS.reverse} />
         <HiddenInput type="hidden" name="adjustmentId" value={adjustment.adjustment_id} />
         <HiddenInput type="hidden" name="approvedByUserId" value={approvedByUserId.trim()} />
         <HiddenInput type="hidden" name="elevationApprovedByUserId" value={elevationApprovedByUserId.trim()} />

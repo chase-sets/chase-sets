@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { WalletAdjustmentActivityWindow } from "../domain/wallet-adjustment-limits-policy";
+import type { WalletAdjustmentReasonCode } from "../domain/wallet-adjustment";
 
 export type SettlementWalletAdjustmentRow = Readonly<{
   adjustment_id: string;
@@ -10,7 +11,7 @@ export type SettlementWalletAdjustmentRow = Readonly<{
   direction: "credit" | "debit";
   amount: string;
   currency_code: string;
-  reason_code: string;
+  reason_code: WalletAdjustmentReasonCode;
   explanation: string | null;
   evidence_references: readonly string[];
   reversal_of_adjustment_id: string | null;
@@ -109,7 +110,7 @@ export type SettlementWalletAdjustmentAccountDetailRow = Readonly<{
   direction: "credit" | "debit";
   amount: string;
   currency_code: string;
-  reason_code: string;
+  reason_code: WalletAdjustmentReasonCode;
   requested_at: string;
   posted_at: string | null;
   available_balance_before: string | null;
