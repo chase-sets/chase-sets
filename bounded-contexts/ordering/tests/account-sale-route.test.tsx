@@ -118,6 +118,22 @@ describe("marketplace account sale route", () => {
           );
         }
 
+        if (url.includes("/api/marketplace/reviews/opportunities/orders/ord_1")) {
+          return Promise.resolve(
+            jsonResponse({
+              order_id: "ord_1",
+              subject_account_id: "acc_buyer",
+              subject_display_name: "Buyer",
+              author_role: "seller",
+              eligible_at: "2026-04-02T00:00:00.000Z",
+              active_review_id: null,
+              submission_state: "allowed",
+              hold_reason: null,
+              window_expired: false,
+            }),
+          );
+        }
+
         return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
       }),
     );
@@ -129,8 +145,8 @@ describe("marketplace account sale route", () => {
     } as never);
 
     expect(result.sale.order_id).toBe("ord_1");
-    expect(result.reviewOpportunity?.subject_account_id).toBe("acc_buyer");
-    expect(fetchCalls).not.toEqual(expect.arrayContaining([expect.stringContaining("/reviews/opportunities")]));
+    expect(result.reviewOutcome.opportunity?.subject_account_id).toBe("acc_buyer");
+    expect(fetchCalls).toEqual(expect.arrayContaining([expect.stringContaining("/reviews/opportunities")]));
   });
 
   it("redirects sale cancellation with the Ordering commit receipt", async () => {
@@ -193,7 +209,7 @@ describe("marketplace account sale route", () => {
 
     expect(result.sale.order_id).toBe("ord_1");
     expect(fetchCalls.filter((request) => request.url.includes("/account/sales/ord_1"))).toHaveLength(2);
-    expect(fetchCalls.some((request) => request.url.includes("/reviews/opportunities"))).toBe(false);
+    expect(fetchCalls.some((request) => request.url.includes("/reviews/opportunities"))).toBe(true);
     expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
     expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("ordering");
   });
@@ -330,13 +346,19 @@ describe("marketplace account sale route", () => {
   it("renders a verified-sale counterparty review CTA", () => {
     mockUseLoaderData.mockReturnValue({
       sale: order,
-      reviewOpportunity: {
-        order_id: "ord_1",
-        subject_account_id: "acc_buyer",
-        subject_display_name: "Buyer",
-        author_role: "seller",
-        eligible_at: "2026-04-02T00:00:00.000Z",
-        active_review_id: null,
+      reviewOutcome: {
+        status: "ready",
+        opportunity: {
+          order_id: "ord_1",
+          subject_account_id: "acc_buyer",
+          subject_display_name: "Buyer",
+          author_role: "seller",
+          eligible_at: "2026-04-02T00:00:00.000Z",
+          active_review_id: null,
+          submission_state: "allowed",
+          hold_reason: null,
+          window_expired: false,
+        },
       },
     });
 

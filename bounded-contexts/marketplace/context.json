@@ -20,9 +20,10 @@
     "realtime-support",
     "route-support",
     "runtime-support",
-    "seed-support"
+    "seed-support",
+    "ui-support"
   ],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [
     "@chase-sets/commercial-terms",
     "@chase-sets/customer-feedback",
@@ -1521,14 +1522,21 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/marketplace/features/reports/api/route.ts:POST /listings/:id/report",
-        "api-route:bounded-contexts/marketplace/features/reports/api/route.ts:POST /reviews/:id/report"
+        "api-route:bounded-contexts/marketplace/features/reports/api/route.ts:POST /reviews/:id/report",
+        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-report-action.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/marketplace/routes/marketplace/account-received-reviews.tsx",
+        "route-action:bounded-contexts/marketplace/routes/marketplace/account-review-summary.tsx",
+        "route-action:bounded-contexts/marketplace/routes/marketplace/account-written-reviews.tsx"
       ],
       "visibleDestination": {
         "description": "Report Listing returns the command-owned report id, version, target, distinct report count, threshold, and auto-unlisted flag. The public listing action redirects with a static reported marker and does not depend on a just-written projection. Report Review (m108, #4269) returns the same command-owned report id/version/target shape, feeding the same reported-content moderation queue with no auto-unlist equivalent."
       },
       "proof": {
         "authoritativeResponse": "Report listing writes return the report submission snapshot directly from the Marketplace report command and the immediate event-stream threshold count. Report review writes return the report submission snapshot directly from the same Marketplace report command.",
-        "tests": ["bounded-contexts/marketplace/features/reports/api/runtime.test.ts"]
+        "tests": [
+          "bounded-contexts/marketplace/features/reports/api/runtime.test.ts",
+          "bounded-contexts/marketplace/tests/account-review-route.test.ts"
+        ]
       }
     }
   ],
@@ -1733,13 +1741,13 @@
     },
     "reports": {
       "classification": "slice",
-      "purpose": "Own buyer and visitor reports about Marketplace content plus report-driven listing visibility policy.",
+      "purpose": "Own account and visitor reports about Marketplace content plus report-driven listing visibility policy.",
       "expectedConsumers": ["Internal marketplace module composition", "Platform Operations reported-content queue"]
     },
     "reviews": {
       "classification": "slice",
       "purpose": "Own post-transaction review behavior, review-summary read models, review eligibility, and UI contracts for the marketplace context.",
-      "expectedConsumers": ["Internal marketplace module composition"]
+      "expectedConsumers": ["Internal marketplace module composition", "Discovery public-account presentation"]
     },
     "seller-metrics": {
       "classification": "slice",
@@ -1775,6 +1783,11 @@
       "purpose": "Provide reusable seed-support assets shared by marketplace-owned features and composition seams.",
       "expectedConsumers": ["Multiple marketplace slices", "Deployable composition for marketplace"],
       "crossCuttingRuntimeComposition": true
+    },
+    "ui-support": {
+      "classification": "support",
+      "purpose": "Expose Marketplace-owned Review presentation and reporting through the deployable-facing web surface.",
+      "expectedConsumers": ["web.ts", "Discovery public-account routes"]
     },
     "routes": {
       "classification": "routes",

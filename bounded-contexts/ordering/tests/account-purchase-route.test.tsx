@@ -154,6 +154,34 @@ describe("marketplace account purchase route", () => {
           );
         }
 
+        if (url.includes("/api/marketplace/reviews/opportunities/orders/ord_1")) {
+          return Promise.resolve(
+            jsonResponse({
+              order_id: "ord_1",
+              subject_account_id: "acc_seller",
+              subject_display_name: "Seller",
+              author_role: "buyer",
+              eligible_at: "2026-04-02T00:00:00.000Z",
+              active_review_id: "rev_1",
+              submission_state: "allowed",
+              hold_reason: null,
+              window_expired: false,
+            }),
+          );
+        }
+
+        if (url.includes("/api/marketplace/reviews/rev_1")) {
+          return Promise.resolve(
+            jsonResponse({
+              review_id: "rev_1",
+              revealed_at: "2026-04-03T00:00:00.000Z",
+              scoring_disposition: "context-only",
+              reply_status: "active",
+              reply_feedback: "Thank you for sharing this.",
+            }),
+          );
+        }
+
         return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
       }),
     );
@@ -165,8 +193,11 @@ describe("marketplace account purchase route", () => {
     } as never);
 
     expect(result.purchase.order_id).toBe("ord_1");
-    expect(result.reviewOpportunity?.subject_account_id).toBe("acc_seller");
-    expect(fetchCalls).not.toEqual(expect.arrayContaining([expect.stringContaining("/reviews/opportunities")]));
+    expect(result.reviewOutcome.opportunity?.subject_account_id).toBe("acc_seller");
+    expect(result.reviewOutcome.opportunity?.response).toBe("Thank you for sharing this.");
+    expect(result.reviewOutcome.opportunity?.revealed).toBe(true);
+    expect(result.reviewOutcome.opportunity?.scoring_disposition).toBe("context-only");
+    expect(fetchCalls).toEqual(expect.arrayContaining([expect.stringContaining("/reviews/opportunities")]));
   });
 
   it("forwards fresh-write metadata and retries a temporarily missing purchase", async () => {
@@ -198,7 +229,7 @@ describe("marketplace account purchase route", () => {
 
     expect(result.purchase.order_id).toBe("ord_1");
     expect(fetchCalls.filter((request) => request.url.includes("/account/purchases/ord_1"))).toHaveLength(2);
-    expect(fetchCalls.some((request) => request.url.includes("/reviews/opportunities"))).toBe(false);
+    expect(fetchCalls.some((request) => request.url.includes("/reviews/opportunities"))).toBe(true);
     expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
     expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("ordering");
   });
@@ -306,13 +337,19 @@ describe("marketplace account purchase route", () => {
   it("renders a verified-purchase account review CTA", () => {
     mockUseLoaderData.mockReturnValue({
       purchase: order,
-      reviewOpportunity: {
-        order_id: "ord_1",
-        subject_account_id: "acc_seller",
-        subject_display_name: "Seller",
-        author_role: "buyer",
-        eligible_at: "2026-04-02T00:00:00.000Z",
-        active_review_id: null,
+      reviewOutcome: {
+        status: "ready",
+        opportunity: {
+          order_id: "ord_1",
+          subject_account_id: "acc_seller",
+          subject_display_name: "Seller",
+          author_role: "buyer",
+          eligible_at: "2026-04-02T00:00:00.000Z",
+          active_review_id: null,
+          submission_state: "allowed",
+          hold_reason: null,
+          window_expired: false,
+        },
       },
     });
 
@@ -328,7 +365,7 @@ describe("marketplace account purchase route", () => {
   it("hides the review CTA when the order is not verified for review", () => {
     mockUseLoaderData.mockReturnValue({
       purchase: order,
-      reviewOpportunity: null,
+      reviewOutcome: { status: "ready", opportunity: null },
     });
 
     render(
@@ -349,7 +386,7 @@ describe("marketplace account purchase route", () => {
         self_service_cancellation_available: true,
         cancellation_unavailable_reason: null,
       },
-      reviewOpportunity: null,
+      reviewOutcome: { status: "ready", opportunity: null },
     });
 
     render(
@@ -370,7 +407,7 @@ describe("marketplace account purchase route", () => {
         self_service_cancellation_available: false,
         cancellation_unavailable_reason: "fulfillment-started",
       },
-      reviewOpportunity: null,
+      reviewOutcome: { status: "ready", opportunity: null },
     });
 
     render(

@@ -247,11 +247,34 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderListPage.seller.payout": "Seller payout",
   "ordering.features.orders.ui.orderListPage.total": "Total",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.leave.account.review": "Leave account review",
+  "ordering.features.orders.ui.orderReviewOpportunityCallout.account.response": "Account response",
+  "ordering.features.orders.ui.orderReviewOpportunityCallout.awaiting.reveal": "Awaiting publication",
+  "ordering.features.orders.ui.orderReviewOpportunityCallout.context.only": "Published, context only",
+  "ordering.features.orders.ui.orderReviewOpportunityCallout.revealed": "Published",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.open.your.review": "Open your review",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.reviews.open.only.after.delivery.verifies":
     "Reviews open only after delivery verifies both accounts in the transaction.",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.your.account.review.is.already.active":
     "Your account review is already active.",
+  "ordering.features.orders.ui.orderOutcome.title": "Order outcome",
+  "ordering.features.orders.ui.orderOutcome.order.status": "Order status",
+  "ordering.features.orders.ui.orderOutcome.issue.status": "Issue resolution",
+  "ordering.features.orders.ui.orderOutcome.review.status": "Review status",
+  "ordering.features.orders.ui.orderOutcome.track.issue": "Track issue",
+  "ordering.features.orders.ui.orderOutcome.review.held": "Review paused",
+  "ordering.features.orders.ui.orderOutcome.review.held.description":
+    "Issue is being resolved before feedback continues.",
+  "ordering.features.orders.ui.orderOutcome.review.expired": "Review window expired",
+  "ordering.features.orders.ui.orderOutcome.review.expired.description":
+    "The feedback window for this order has closed.",
+  "ordering.features.orders.ui.orderOutcome.review.ineligible": "Review unavailable for this order",
+  "ordering.features.orders.ui.orderOutcome.review.awaiting": "Review not available yet",
+  "ordering.features.orders.ui.orderOutcome.review.awaiting.description":
+    "Review availability updates after the transaction reaches an eligible outcome.",
+  "ordering.features.orders.ui.orderOutcome.review.ineligible.description":
+    "This order does not currently have an eligible review opportunity.",
+  "ordering.features.orders.ui.orderOutcome.review.unavailable": "Review status is temporarily unavailable",
+  "ordering.features.orders.ui.orderOutcome.review.unavailable.description": "Refresh this page to try again.",
   "ordering.routes.accountPurchase.inspect.a.purchase.cancel.it.while":
     "Inspect a purchase, cancel it while still open, and review the counterparty after delivery.",
   "ordering.routes.accountPurchase.purchase": "purchase",
@@ -259,6 +282,7 @@ export const orderingEnglishTranslations = {
   "ordering.routes.accountPurchase.purchase.not.found": "Purchase not found.",
   "ordering.routes.accountPurchase.request.failed": "Request failed.",
   "ordering.routes.accountPurchase.review": "Review",
+  "ordering.routes.accountPurchase.order.outcome": "Order outcome",
   "ordering.routes.accountPurchases.buyer": "Buyer",
   "ordering.routes.accountPurchases.no.purchases.yet": "No purchases yet",
   "ordering.routes.accountPurchases.purchases": "Purchases",
@@ -276,6 +300,7 @@ export const orderingEnglishTranslations = {
     "Inspect a sale, cancel it while open, and review the counterpart feedback workflow.",
   "ordering.routes.accountSale.request.failed": "Request failed.",
   "ordering.routes.accountSale.review": "Review",
+  "ordering.routes.accountSale.order.outcome": "Order outcome",
   "ordering.routes.accountSale.sale": "sale",
   "ordering.routes.accountSale.sale.marketplace": "Sale | Marketplace",
   "ordering.routes.accountSale.sale.not.found": "Sale not found.",

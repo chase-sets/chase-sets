@@ -229,6 +229,7 @@ export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "ResponsiveSupportSheet",
   "Reveal",
   "ReviewCard",
+  "ReviewContext",
   "SavedSearchPrompt",
   "ScrollArea",
   "SearchControlBar",

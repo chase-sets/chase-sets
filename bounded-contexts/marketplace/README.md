@@ -26,7 +26,7 @@ If an item uses a `condition` dimension, that condition is part of the selected 
 - Marketplace-wide demand visibility for matching seller supply
 - Source liquidity lists that let sellers send selected offers to Checkout Sell List
 - Post-transaction reviews, ratings, written feedback, review eligibility, and canonical review summaries (`features/reviews`)
-- Buyer and visitor content reports plus report-driven Listing visibility policy (`features/reports`)
+- Account and visitor content reports plus report-driven Listing visibility policy (`features/reports`)
 - Versioned Listing Evidence Policy configuration, validation, impact previews, activation, and audit history (`features/listing-evidence-policy`)
 - Resolved Listing Evidence Requirement Snapshots and generic publication/Offer Acceptance readiness gates (`features/listings`)
 
@@ -112,6 +112,8 @@ The canonical directional policy produces transaction eligibility, submission st
 An open review-affecting Support request places both review directions on hold by default. Marketplace keys each hold to the stable Support request id, so concurrent requests do not multiply paused time and feedback resumes only after the final open request becomes terminal. Opening a hold pauses an allowed review clock at its current remaining duration. Releasing the final hold resumes the clock with the greater of that duration or 14 days; an already expired opportunity is never revived. A later reopen starts a new pause from the then-current deadline. Duplicate, reordered, and replayed lifecycle facts converge, including a terminal fact observed before its corresponding open fact.
 
 Held feedback is neutral and private: submission, reveal, reminders, replies, public reads, and reputation aggregates are suppressed. Feedback that was already revealed is retracted while held and restored after the final release without changing its stored content. The command path loads the hold aggregate authoritatively, while projections provide the compensating path when Support facts arrive after a racing command or reveal. Support owns request lifecycle and factual resolution; Marketplace owns review clocks and visibility.
+
+The reviewed account may publish one response after an active Review is revealed. The response is displayed inline with the Review on account, order-outcome, and public-profile surfaces; it is never a discussion thread. Authenticated accounts may report any active, revealed, non-held Review with a structured reason and optional explanation. Duplicate reports return an explicit status, and reporting never changes Review visibility or scoring by itself.
 
 A seller-responsible cancellation may establish buyer-to-seller transaction eligibility without delivery once Ordering records the cancellation; other undelivered cancellations do not establish eligibility. A missing legacy responsibility is explicitly Context-only, while an unknown future responsibility value is quarantined as `held`; neither can score by accident. Context-only feedback remains publishable when otherwise allowed, but its rating is excluded from reputation calculations. Double-blind reveal and moderation remain independent visibility concerns.
 

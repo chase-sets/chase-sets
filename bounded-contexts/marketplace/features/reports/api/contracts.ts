@@ -1,4 +1,4 @@
-import type { MarketplaceReportReason } from "../domain/domain";
+import type { MarketplaceListingReportReason, MarketplaceReviewReportReason } from "../domain/domain";
 
 export type MarketplaceReportSubmissionSnapshot = Readonly<{
   id: string;
@@ -12,13 +12,13 @@ export type MarketplaceReportSubmissionSnapshot = Readonly<{
 }>;
 
 export type ReportListingRequest = Readonly<{
-  reason: MarketplaceReportReason;
+  reason: MarketplaceListingReportReason;
   details?: string | null;
   sourceRoutePath?: string | null;
 }>;
 
 export type ReportReviewRequest = Readonly<{
-  reason: MarketplaceReportReason;
+  reason: MarketplaceReviewReportReason;
   details?: string | null;
   sourceRoutePath?: string | null;
 }>;

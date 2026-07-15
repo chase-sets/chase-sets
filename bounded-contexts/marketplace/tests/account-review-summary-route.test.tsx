@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
-const { mockUseLoaderData, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
+const { mockUseLoaderData, mockUseActionData, mockUseNavigation, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
+  mockUseActionData: vi.fn(),
+  mockUseNavigation: vi.fn(),
   mockRequireActorFromAuthApi: vi.fn(),
 }));
 
@@ -15,6 +17,8 @@ vi.mock("react-router", async () => {
   return {
     ...actual,
     useLoaderData: mockUseLoaderData,
+    useActionData: mockUseActionData,
+    useNavigation: mockUseNavigation,
   };
 });
 
@@ -33,6 +37,8 @@ import MarketplaceAccountReviewSummaryRoute, { loader } from "../routes/marketpl
 
 describe("marketplace account review summary route", () => {
   beforeEach(() => {
+    mockUseActionData.mockReturnValue(undefined);
+    mockUseNavigation.mockReturnValue({ state: "idle", formData: null });
     mockRequireActorFromAuthApi.mockResolvedValue({
       accountId: "acc_1",
       permissions: ["reputation.view"],
@@ -125,9 +131,37 @@ describe("marketplace account review summary route", () => {
         updated_at: "2026-04-02T00:00:00.000Z",
       },
       reviews: {
-        items: [],
-        total: 0,
-        count: 0,
+        items: [
+          {
+            review_id: "rev_1",
+            order_id: "ord_1",
+            author_account_id: "acc_buyer",
+            author_display_name: "Buyer account",
+            subject_account_id: "acc_1",
+            subject_display_name: "North Store",
+            author_role: "buyer",
+            rating: 5,
+            feedback: "Packed carefully.",
+            status: "active",
+            submitted_at: "2026-04-02T00:00:00.000Z",
+            updated_at: "2026-04-02T00:00:00.000Z",
+            withdrawn_at: null,
+            revealed_at: "2026-04-03T00:00:00.000Z",
+            reveal_reason: "counterparty-submitted",
+            held: false,
+            withdrawn_by_actor_type: null,
+            moderation_operator_user_id: null,
+            moderation_reason: null,
+            feedback_redacted_at: null,
+            reply_id: "rvr_1",
+            reply_feedback: "Thank you for the thoughtful review.",
+            reply_status: "active",
+            reply_submitted_at: "2026-04-04T00:00:00.000Z",
+            reply_withdrawn_at: null,
+          },
+        ],
+        total: 1,
+        count: 1,
       },
     });
 
@@ -140,5 +174,8 @@ describe("marketplace account review summary route", () => {
     expect(screen.getByText("North Store")).toBeTruthy();
     expect(screen.getByText("Received reviews")).toBeTruthy();
     expect(screen.getByText("Written reviews")).toBeTruthy();
+    expect(screen.getByText(/Account response/)).toBeTruthy();
+    expect(screen.getByText("Thank you for the thoughtful review.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Report review" })).toBeTruthy();
   });
 });

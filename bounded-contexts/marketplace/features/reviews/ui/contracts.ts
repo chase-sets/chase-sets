@@ -22,12 +22,16 @@ export interface ReviewListItem {
   moderation_operator_user_id: string | null;
   moderation_reason: string | null;
   feedback_redacted_at: string | null;
-  // Subject reply: one threaded, moderatable response per review.
+  // Subject response: one public, moderatable response per review.
   reply_id: string | null;
   reply_feedback: string | null;
   reply_status: string | null;
   reply_submitted_at: string | null;
   reply_withdrawn_at: string | null;
+  scoring_disposition?: "included" | "context-only" | null;
+  disposition_reason_code?: string | null;
+  resolution_context?: "seller" | "buyer" | "carrier" | "platform" | "shared" | "undetermined" | null;
+  remedy_kind?: "refund" | "replacement" | "return" | "cancellation" | null;
 }
 
 export interface ReviewDetail extends ReviewListItem {}

@@ -12,6 +12,8 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { ReviewListItem } from "./contracts";
+import { ReviewReportAction, type ReviewReportResult } from "./review-report-action";
+import { ReviewScoringContext } from "./review-scoring-context";
 
 function statusTone(status: string) {
   return status === "withdrawn" ? "danger" : "success";
@@ -32,6 +34,8 @@ export function ReviewListPage({
   reviews,
   actions,
   roleFilterActions,
+  reportResult,
+  submittingReportId,
 }: {
   title: string;
   eyebrow: string;
@@ -41,6 +45,8 @@ export function ReviewListPage({
   reviews: readonly ReviewListItem[];
   actions?: ReactNode;
   roleFilterActions?: ReactNode;
+  reportResult?: ReviewReportResult | null;
+  submittingReportId?: string | null;
 }) {
   return (
     <Page>
@@ -106,8 +112,19 @@ export function ReviewListPage({
                       </Stack>
                     }
                     verified
-                    sellerResponse={
+                    response={
                       review.reply_status === "active" && review.reply_feedback ? review.reply_feedback : undefined
+                    }
+                    responseLabel={t("reputation.features.reviews.ui.reviewListPage.reply.label")}
+                    context={<ReviewScoringContext review={review} />}
+                    actions={
+                      review.status === "active" && review.revealed_at !== null && !review.held ? (
+                        <ReviewReportAction
+                          reviewId={review.review_id}
+                          result={reportResult}
+                          isSubmitting={submittingReportId === review.review_id}
+                        />
+                      ) : undefined
                     }
                   />
                   <LinkButton href={`${reviewDetailBasePath}/${review.review_id}`} tone="secondary">

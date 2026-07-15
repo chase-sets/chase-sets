@@ -176,7 +176,7 @@ describe("marketplace account review route", () => {
 
   describe("subject reply action (m108)", () => {
     function replyFormRequest(feedback: string) {
-      const body = new URLSearchParams({ feedback });
+      const body = new URLSearchParams({ intent: "reply", feedback });
       return new Request("http://localhost/account/reviews/rev_1", {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -256,6 +256,90 @@ describe("marketplace account review route", () => {
         error: "A reply already exists for this review.",
         values: { feedback: "Second reply attempt." },
       });
+    });
+  });
+
+  describe("customer review report action", () => {
+    function reportFormRequest() {
+      return new Request("http://localhost/account/reviews/rev_1", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          intent: "report-review",
+          reviewId: "rev_1",
+          reason: "harassment-or-abuse",
+          details: "This contains abusive language.",
+        }),
+      });
+    }
+
+    it("routes a structured report through Marketplace moderation and returns submission status", async () => {
+      const reportBodies: unknown[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+          const url = requestUrl(input);
+          if (url.includes("/api/auth/session")) {
+            return jsonResponse({ actor });
+          }
+          if (url.includes("/api/marketplace/reviews/rev_1/report")) {
+            const request = input instanceof Request ? input : new Request(url, init);
+            reportBodies.push(await request.clone().json());
+            return jsonResponse(
+              { id: "rpt_1", version: 1, status: "submitted", targetType: "review", targetId: "rev_1" },
+              201,
+            );
+          }
+          return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+        }),
+      );
+
+      const result = await reviewAction({
+        request: reportFormRequest(),
+        params: { reviewId: "rev_1" },
+        context: undefined,
+      } as never);
+
+      expect(result).toEqual({ reviewId: "rev_1", status: "submitted" });
+      expect(reportBodies).toEqual([
+        {
+          reason: "harassment-or-abuse",
+          details: "This contains abusive language.",
+          sourceRoutePath: "/account/reviews/rev_1",
+        },
+      ]);
+    });
+
+    it("returns an explicit duplicate status for an account that already reported the review", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request) => {
+          const url = requestUrl(input);
+          if (url.includes("/api/auth/session")) {
+            return jsonResponse({ actor });
+          }
+          if (url.includes("/api/marketplace/reviews/rev_1/report")) {
+            return jsonResponse(
+              {
+                error: {
+                  code: "report_already_submitted",
+                  message: "This reporter has already reported this content.",
+                },
+              },
+              409,
+            );
+          }
+          return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+        }),
+      );
+
+      const result = await reviewAction({
+        request: reportFormRequest(),
+        params: { reviewId: "rev_1" },
+        context: undefined,
+      } as never);
+
+      expect(result).toEqual({ reviewId: "rev_1", status: "already-submitted" });
     });
   });
 });

@@ -26,6 +26,7 @@ export type {
   MarketplaceListingEvidenceCoverage,
   MarketplaceReportSubmissionSnapshot,
   ReportListingRequest,
+  ReportReviewRequest,
   SubmittedOfferDetail,
   SubmittedOfferListItem,
 } from "../../client";

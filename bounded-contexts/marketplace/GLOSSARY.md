@@ -194,13 +194,15 @@ Notes:
 
 ## Report
 
-A **Report** is a buyer or visitor submission that flags Marketplace content for Trust & Safety review.
+A **Report** is an account or visitor submission that flags Marketplace content for Trust & Safety review.
 
 Notes:
 
 - Reports are owned by Marketplace.
 - Reports are grouped by reported target and reporter; one reporter may report the same target once.
 - Listing Reports can automatically unlist an active Listing when the distinct-reporter threshold is reached.
+- Review Reports require an authenticated account, use a structured reason with an optional explanation, and never automatically remove the Review.
+- Review reporting is independent of Scoring Disposition and Review Response: reporting does not change either fact, and neither fact changes reporting eligibility.
 - Platform Operations consumes Report facts to render the operator moderation queue, but Marketplace owns report capture and listing visibility consequences.
 
 ## Offer Status
@@ -239,6 +241,10 @@ Notes:
 - A review is always attached to an Order, never directly to a listing or shipment.
 - Only accounts that were counterparties on the same completed order may review each other, with at most one active review per order, per direction.
 
+## Review Response
+
+A **Review Response** is the single public response the reviewed account may attach to a revealed, active Review. It appears with the Review wherever that Review is presented; it is not a thread, cannot receive nested replies, and remains subject to moderation. A held or private Review cannot receive or expose a response.
+
 ## Review Eligibility
 
 **Review Eligibility** is the order-lifecycle fact that determines whether a transaction can support directional feedback. Delivery establishes eligibility by default. A seller-responsible cancellation can establish buyer-to-seller eligibility without delivery once the cancellation is recorded; a buyer-caused, mutually agreed, external, or indeterminate cancellation does not automatically establish it.
@@ -265,7 +271,7 @@ A **Scoring Disposition** states whether an otherwise publishable Review is **In
 
 ## Review Summary
 
-A **Review Summary** is the canonical aggregate snapshot for an account derived from active reviews, including average rating, review count, and distribution. Review summaries are projected read models, not emitted domain events.
+A **Review Summary** is the canonical aggregate snapshot for an account derived from active, revealed Reviews. It distinguishes total published Reviews from the count of ratings Included in scoring, and derives averages and distributions only from Included ratings. Review summaries are projected read models, not emitted domain events.
 
 ## Seller Reliability
 
@@ -338,10 +344,6 @@ A **Reputation Appeal** is the planned account request to review a Reputation Ad
 ### Transaction Review Window
 
 A **Transaction Review Window** is the planned period after eligible order completion when counterparties may submit a Review.
-
-### Review Response
-
-A **Review Response** is the planned account-authored reply attached to a Review.
 
 ### Review Revision
 
