@@ -1,5 +1,5 @@
 import type { LoaderFunctionArgs } from "react-router";
-import { Banner, Container, LinkButton, Stack, Text } from "@chase-sets/design-system";
+import { Banner, Container, Heading, LinkButton, Stack, Text } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import { AuthApiError } from "../../client";
 import type { AuthHost, InteractiveAuthResult } from "./auth-host";
@@ -81,9 +81,9 @@ export function MagicLinkLandingPage(props: Readonly<{ data: MagicLinkLandingLoa
     <Container width="narrow" paddingX={0}>
       <Stack gap={4}>
         <Stack gap={2}>
-          <Text size="lg" weight="semibold">
+          <Heading level={1} visualSize={5}>
             {props.data.title}
-          </Text>
+          </Heading>
           <Text tone="secondary">{props.data.description}</Text>
         </Stack>
         <Banner title={props.data.title} description={props.data.description} tone="danger" role="alert" />

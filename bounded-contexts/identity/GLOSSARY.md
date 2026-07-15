@@ -383,6 +383,10 @@ The following rules must always hold:
 1. All actions are performed by a User for an Account.
 2. Accounts are the root of all commerce activity.
 3. Users never directly own listings, offers, wallets, or orders.
+4. Every non-closed Account retains at least one active owner Membership.
+
+Closing an Account preserves its Memberships for audit. Membership teardown is explicit and is permitted only after the
+Account is closed; closing the Account itself does not revoke or demote Memberships.
 
 ## Planned Account Capabilities And Channel Connections
 

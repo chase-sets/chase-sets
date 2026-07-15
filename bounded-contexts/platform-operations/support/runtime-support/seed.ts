@@ -301,9 +301,15 @@ export async function seedSupportDatabase(
       `SELECT COUNT(*) AS count
        FROM support_request_pages
        WHERE support_request_id = ANY($1::text[])`,
-      [[supportSeedIds.supportRequests.activeProductNotReceived, supportSeedIds.supportRequests.resolvedPartialRefund]],
+      [
+        [
+          supportSeedIds.supportRequests.activeProductNotReceived,
+          supportSeedIds.supportRequests.selfServiceProductDamaged,
+          supportSeedIds.supportRequests.resolvedPartialRefund,
+        ],
+      ],
     );
-    if (Number(seededCount.rows[0]?.count ?? 0) === 2) {
+    if (Number(seededCount.rows[0]?.count ?? 0) === 3) {
       console.log("Support already contains seed data. Skipping seed.");
       return;
     }
@@ -356,6 +362,60 @@ export async function seedSupportDatabase(
   } catch (error) {
     if (error instanceof SupportDomainError) {
       console.log("Support request active-product-not-received already seeded. Skipping.");
+    } else {
+      throw error;
+    }
+  }
+
+  try {
+    if (!(await supportRequestExists(support, supportSeedIds.supportRequests.selfServiceProductDamaged))) {
+      await support.supportRequests.commandHandler({
+        streamId: `support.support-request-${supportSeedIds.supportRequests.selfServiceProductDamaged}`,
+        command: {
+          type: "OpenSupportRequest",
+          supportRequestId: supportSeedIds.supportRequests.selfServiceProductDamaged as SupportRequestId,
+          orderId: order.order_id as OrderId,
+          orderTotalAmount: order.total_amount,
+          buyerAccountId: order.buyer_account_id as AccountId,
+          sellerAccountId: order.seller_account_id as AccountId,
+          flowType: "product-damaged",
+          openedByAccountId: order.buyer_account_id as AccountId,
+          openedByRole: "buyer",
+          openedAt: "2026-07-15T09:00:00.000Z",
+        },
+        context: buyerContext,
+      });
+      await support.supportRequests.commandHandler({
+        streamId: `support.support-request-${supportSeedIds.supportRequests.selfServiceProductDamaged}`,
+        command: {
+          type: "SubmitSupportEvidence",
+          evidenceId: supportSeedIds.evidence.selfServiceBuyerAttestation,
+          submittedByAccountId: order.buyer_account_id as AccountId,
+          submittedByRole: "buyer",
+          evidenceType: "buyer-attestation",
+          summary: "Buyer reports that the item arrived with a damaged corner.",
+          submittedAt: "2026-07-15T09:02:00.000Z",
+        },
+        context: buyerContext,
+      });
+      await support.supportRequests.commandHandler({
+        streamId: `support.support-request-${supportSeedIds.supportRequests.selfServiceProductDamaged}`,
+        command: {
+          type: "SubmitSupportEvidence",
+          evidenceId: supportSeedIds.evidence.selfServicePhoto,
+          submittedByAccountId: order.buyer_account_id as AccountId,
+          submittedByRole: "buyer",
+          evidenceType: "photo",
+          summary: "Photos show the damaged item and package corner.",
+          submittedAt: "2026-07-15T09:04:00.000Z",
+          attachments: ["seed://support/self-service-damaged-corner"],
+        },
+        context: buyerContext,
+      });
+    }
+  } catch (error) {
+    if (error instanceof SupportDomainError) {
+      console.log("Support request self-service-product-damaged already seeded. Skipping.");
     } else {
       throw error;
     }

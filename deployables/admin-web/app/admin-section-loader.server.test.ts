@@ -79,6 +79,8 @@ describe("admin section loader", () => {
     ["commerce", "/commerce/postage-policies", "commercial-terms.view", "postage-policies.view"],
     ["support", "/support/requests/request_1", "support.manage", "support.manage"],
     ["support", "/support/platform-feedback/pfb_1", "support.manage", "platform-feedback.view"],
+    ["platform", "/platform/operations-attention", "projection-operations.view", "projection-operations.view"],
+    ["platform", "/platform/projections", "projection-operations.view", "projection-operations.view"],
   ] as const)(
     "challenges %s route %s with the route-specific permission",
     async (section, pathname, defaultPermission, expectedPermission) => {
@@ -170,7 +172,7 @@ describe("admin section loader", () => {
     ["growth", "google-shopping.view", "public-presence.view", "/growth/waitlist"],
     ["commerce", "commercial-terms.view", "postage-policies.view", "/commerce/postage-policies"],
     ["support", "support.manage", "platform-feedback.view", "/support/csat"],
-    ["platform", "projection-operations.view", "projection-operations.view", "/platform/projections"],
+    ["platform", "projection-operations.view", "projection-operations.view", "/platform/operations-attention"],
   ] as const)(
     "redirects %s section home actors with %s to their first visible route",
     async (section, fallbackPermission, actorPermission, expectedLocation) => {

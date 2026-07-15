@@ -173,6 +173,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.category.filter.label": "Category: {category}",
   "discovery.features.search.ui.searchPage.clear.all": "Clear all",
   "discovery.features.search.ui.searchPage.clear.all.filters": "Clear filters",
+  "discovery.features.search.ui.searchPage.clear.search": "Clear search",
   "discovery.features.search.ui.searchPage.close.filters": "Close filters",
   "discovery.features.search.ui.searchPage.any.facet": "Any {facet}",
   "discovery.features.search.ui.searchPage.advanced.filters": "Advanced filters",
@@ -279,6 +280,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.search.pikachu.spider.man.jordan.vintage":
     "Search Pikachu, Spider-Man, Jordan, vintage packs...",
   "discovery.features.search.ui.searchPage.searching": "Searching...",
+  "discovery.features.search.ui.searchPage.updating.results": "Updating results...",
   "discovery.features.search.ui.searchPage.selected.facet.values": "{count} selected",
   "discovery.features.search.ui.searchPage.save.search": "Save search",
   "discovery.features.search.ui.searchPage.save.this.search": "Save this search",

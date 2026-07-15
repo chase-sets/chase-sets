@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { publicTermsOfServicePublicationMetadata } from "@chase-sets/public-docs";
 import {
   decodeTermsOfServicePolicyValue,
   identityTermsOfServicePolicy,
@@ -16,6 +17,9 @@ describe("identity terms of service policy", () => {
     expect(() =>
       decodeTermsOfServicePolicyValue({ version: IDENTITY_TERMS_OF_SERVICE_PLACEHOLDER_POLICY_VALUE.version }),
     ).not.toThrow();
+    expect(IDENTITY_TERMS_OF_SERVICE_PLACEHOLDER_POLICY_VALUE.version).toBe(
+      publicTermsOfServicePublicationMetadata.version,
+    );
   });
 
   it("decodes a well-formed value", () => {

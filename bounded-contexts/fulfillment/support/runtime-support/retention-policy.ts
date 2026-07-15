@@ -9,6 +9,14 @@ export const fulfillmentRetentionSweeps: readonly BcRetentionSweep[] = [
     intervalMs: 6 * 60 * 60 * 1_000,
     batchLimit: 500,
   },
+  {
+    name: "return-shipment-provider-events",
+    tableName: "fulfillment_return_shipment_provider_events",
+    predicateSql: "candidate.received_at < now() - interval '90 days'",
+    orderBySql: "candidate.received_at ASC",
+    intervalMs: 6 * 60 * 60 * 1_000,
+    batchLimit: 500,
+  },
 ];
 
 export const fulfillmentRetentionExemptions: readonly BcRetentionExemption[] = [

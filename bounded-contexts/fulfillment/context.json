@@ -111,7 +111,8 @@
       "ownedTables": [
         "fulfillment_return_shipment_customer_pages",
         "fulfillment_return_shipment_operator_pages",
-        "fulfillment_unidentified_return_package_pages"
+        "fulfillment_unidentified_return_package_pages",
+        "fulfillment_return_shipment_provider_events"
       ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"

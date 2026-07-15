@@ -24,4 +24,5 @@ export type CommandHandlerConfig<State, Command, Event extends DomainEvent> = Re
   repository: AggregateRepository<State, Event>;
   evolve: AggregateEvolver<State, Event>;
   decide: AggregateDecider<State, Command, Event>;
+  commitSourceContextName?: string;
 }>;

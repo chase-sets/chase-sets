@@ -43,9 +43,9 @@ type MarketplaceRootData = Readonly<{
 
 const ACCOUNT_PAYOUT_SETUP_POST_WRITE_TELEMETRY = {
   boundedContextName: "settlement",
-  surface: "account-payout-setup",
-  routeId: "account-payout-setup",
-  routeTemplate: "/account/payouts/setup",
+  surface: "account-desk-settings",
+  routeId: "account-desk-settings",
+  routeTemplate: "/account/desk/settings",
 } as const satisfies PlatformPostWriteTelemetry;
 
 export function headers() {
@@ -75,7 +75,7 @@ function safeAccountReturnTo(value: string | null | undefined) {
 }
 
 function setupRouteForMode(mode: PayoutSetupMode, setupNotice?: "updated", returnTo?: string | null) {
-  const url = new URL("http://local/account/payouts/setup");
+  const url = new URL("http://local/account/desk/settings");
   if (mode === "management") {
     url.searchParams.set("mode", "manage");
   }
@@ -160,6 +160,7 @@ export function resolvePayoutSetupMode(
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
+  const requestUrl = new URL(request.url);
   const actorResult = await resolveRequiredActorFromAuthApi({
     request,
     permission: "payouts.setup",
@@ -170,7 +171,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
   if (actorResult.kind === "forbidden") {
     return accountAccessRequired(currentAccountPath(request));
   }
-  const requestUrl = new URL(request.url);
   const settlementApi = createSettlementRequestApiClient(request);
   const payoutReadiness = await settlementApi.getPayoutReadiness();
   const mode = resolvePayoutSetupMode(requestUrl, payoutReadiness as SettlementPayoutReadinessRow);

@@ -4,7 +4,14 @@
   "ownedNouns": ["wallet", "wallet-adjustment", "payout", "payout-readiness", "ledger-entry"],
   "streamPrefix": "settlement.",
   "apiBasePath": "/api/settlement",
-  "slices": ["wallets", "payout-readiness", "payouts", "protection-coverage", "liability-allocation"],
+  "slices": [
+    "wallets",
+    "payout-readiness",
+    "payouts",
+    "money-dashboard",
+    "protection-coverage",
+    "liability-allocation"
+  ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity"],
@@ -345,13 +352,13 @@
         "p99Ms": 2250
       },
       "source": {
-        "routeId": "account-payouts",
+        "routeId": "account-desk-money",
         "actions": ["Request payout"],
         "command": "Settlement payout request command",
         "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
-        "routeId": "account-payout",
+        "routeId": "account-desk-payout",
         "apiContextName": "settlement",
         "apiRoutePath": "/payouts/:id",
         "readModelTables": ["settlement_payout_pages"],
@@ -372,7 +379,7 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeId": "account-payout-setup",
+        "routeId": "account-desk-settings",
         "actions": ["Refresh payout setup status", "Complete provider payout setup"],
         "command": "RecordPayoutReadiness",
         "helperUses": ["navigateAfterWrite", "navigateAfterWriteWithPlatformPostWriteToken"]
@@ -423,9 +430,30 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "account-desk-money",
+          "routePath": "account/desk/money",
+          "fileExport": "./routes/marketplace/account-desk-money",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        },
+        {
+          "routeId": "account-desk-payout",
+          "routePath": "account/desk/payouts/:payoutId",
+          "fileExport": "./routes/marketplace/account-desk-payout",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        },
+        {
+          "routeId": "account-desk-settings",
+          "routePath": "account/desk/settings",
+          "fileExport": "./routes/marketplace/account-payout-setup",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        },
+        {
           "routeId": "account-payout-setup",
           "routePath": "account/payouts/setup",
-          "fileExport": "./routes/marketplace/account-payout-setup",
+          "fileExport": "./routes/marketplace/account-desk-settings",
           "routeType": "route",
           "sourceContext": "settlement"
         },
@@ -489,23 +517,11 @@
       "deployable": "marketplace-web",
       "slot": "top-nav",
       "placements": ["top-nav", "bottom-nav"],
-      "key": "wallet",
-      "label": "Wallet",
+      "key": "money",
+      "label": "Money",
       "icon": "wallet",
-      "href": "/account/settlement",
+      "href": "/account/desk/money",
       "order": 180,
-      "visibility": "signed-in",
-      "requiredPermissions": ["payouts.view"]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "top-nav",
-      "placements": ["top-nav", "bottom-nav"],
-      "key": "payouts",
-      "label": "Payouts",
-      "icon": "wallet",
-      "href": "/account/payouts",
-      "order": 185,
       "visibility": "signed-in",
       "requiredPermissions": ["payouts.view"]
     }
@@ -524,6 +540,11 @@
     "payout-readiness": {
       "classification": "slice",
       "purpose": "Own payout readiness behavior, provider requirement state, read models, and UI contracts for the settlement context.",
+      "expectedConsumers": ["Internal settlement module composition"]
+    },
+    "money-dashboard": {
+      "classification": "slice",
+      "purpose": "Compose Settlement wallet, payout, readiness, attention, and account-facing money workflows into the Seller Desk Money surface.",
       "expectedConsumers": ["Internal settlement module composition"]
     },
     "protection-coverage": {
@@ -694,7 +715,33 @@
       }
     },
     {
-      "id": "settlement.account-payouts-route-snapshot-correction",
+      "id": "settlement.account-desk-money-route-snapshot-correction",
+      "owner": "settlement",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/settlement/features/money-dashboard/ui/money-dashboard-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-desk-money",
+        "description": "The Seller Desk money action returns payout preview, draft, and reconciliation snapshots for same-page controls; confirmed payout requests redirect with the original fresh-write receipt to payout detail recovery."
+      },
+      "proof": {
+        "authoritativeResponse": "preview-payout returns the computed preview snapshot, edit-payout returns the submitted draft snapshot, retry and run-reconciliation return reconciliation progress, and confirm-payout preserves the createPayout commit receipt via navigateAfterWrite.",
+        "tests": [
+          "bounded-contexts/settlement/routes/marketplace/account-payouts-route.test.ts",
+          "bounded-contexts/settlement/features/payouts/api/route.test.ts",
+          "bounded-contexts/settlement/features/payouts/ui/payout-detail-page.test.tsx",
+          "bounded-contexts/settlement/features/money-dashboard/ui/money-dashboard-page.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "settlement.account-desk-settings-route-snapshot-correction",
       "owner": "settlement",
       "risk": "critical",
       "strategy": "snapshot-return",
@@ -702,36 +749,11 @@
         "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-readiness-panel.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-readiness-panel.tsx:H2df726441e2a#2",
         "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-readiness-panel.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/settlement/features/payouts/ui/payout-list-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/settlement/features/payouts/ui/payout-list-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/settlement/features/payouts/ui/payout-list-page.tsx:H2df726441e2a#3",
-        "route-action:bounded-contexts/settlement/routes/marketplace/account-payouts.tsx"
-      ],
-      "visibleDestination": {
-        "routeId": "account-payouts",
-        "description": "The account payouts action returns payout preview, draft, or refreshed readiness snapshots for same-page controls; confirmed payout requests redirect with the original fresh-write receipt to payout detail recovery; start/manage setup intents are navigation-only and do not run a Settlement mutation."
-      },
-      "proof": {
-        "authoritativeResponse": "preview-payout returns the computed preview snapshot, edit-payout returns the submitted draft snapshot, refresh-payout-setup returns and renders the refreshed readiness snapshot, confirm-payout preserves the createPayout commit receipt via navigateAfterWrite, and start/manage setup branches only redirect to setup routes.",
-        "tests": [
-          "bounded-contexts/settlement/routes/marketplace/account-payouts-route.test.ts",
-          "bounded-contexts/settlement/features/payouts/api/route.test.ts",
-          "bounded-contexts/settlement/features/payouts/ui/payout-detail-page.test.tsx",
-          "bounded-contexts/settlement/features/payout-readiness/ui/payout-readiness-panel.test.tsx"
-        ]
-      }
-    },
-    {
-      "id": "settlement.account-payout-setup-route-snapshot-correction",
-      "owner": "settlement",
-      "risk": "critical",
-      "strategy": "snapshot-return",
-      "surfaces": [
         "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:H2df726441e2a#1",
         "route-action:bounded-contexts/settlement/routes/marketplace/account-payout-setup.tsx"
       ],
       "visibleDestination": {
-        "routeId": "account-payout-setup",
+        "routeId": "account-desk-settings",
         "description": "The payout setup page refresh form and provider-exit handler render the readiness snapshot returned by the refresh command before any loader revalidation can lag."
       },
       "proof": {

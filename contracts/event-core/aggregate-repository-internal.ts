@@ -72,6 +72,7 @@ export function createAggregateRepository<State, Event extends DomainEvent>(
 
       return config.eventStore.appendToStream({
         streamId: input.streamId,
+        ...(input.wakeSourceContextName ? { wakeSourceContextName: input.wakeSourceContextName } : {}),
         expectedVersion: input.expectedVersion,
         context: input.context,
         events: encodedEvents,

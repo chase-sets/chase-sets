@@ -178,6 +178,9 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       status: c.req.query("status") || undefined,
       priority: c.req.query("priority") || undefined,
       search: c.req.query("search") || undefined,
+      flowType: c.req.query("flowType") || undefined,
+      contested: c.req.query("contested") === "true" || undefined,
+      overdue: c.req.query("overdue") === "true" || undefined,
     });
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });

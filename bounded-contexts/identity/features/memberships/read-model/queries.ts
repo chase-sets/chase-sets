@@ -145,3 +145,15 @@ export async function getActiveMembershipForUserAccount(db: PgQueryable, userId:
   );
   return result.rows[0] ?? null;
 }
+
+export async function countActiveOwnersForAccount(db: PgQueryable, accountId: string) {
+  const result = await db.query<{ count: string | number }>(
+    `SELECT COUNT(*) AS count
+     FROM identity_memberships
+     WHERE account_id = $1
+       AND role_key = 'owner'
+       AND status = 'active'`,
+    [accountId],
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}

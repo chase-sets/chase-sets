@@ -44,6 +44,12 @@ describe("Checkout marketplace route contributions", () => {
           sourceContext: "checkout",
         }),
         expect.objectContaining({
+          routeId: "account-desk-offers",
+          routePath: "account/desk/offers",
+          fileExport: "./routes/account-desk-offers",
+          sourceContext: "checkout",
+        }),
+        expect.objectContaining({
           routeId: "sell-checkout-session",
           routePath: "checkout/sell/session/:sessionId",
           fileExport: "./routes/sell-checkout-session",

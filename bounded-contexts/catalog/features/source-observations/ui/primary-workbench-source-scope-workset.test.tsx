@@ -44,7 +44,7 @@ describe("Catalog source-scope workset", () => {
     expect(screen.getAllByRole("button", { name: "Preview Scryfall Magic card prints" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Reapply TCGplayer Magic Single Cards" }).length).toBeGreaterThan(0);
 
-    const mtgjsonForm = sourceScopeCommandForm("start-provider-import", "mtgjson:mtg:set:reference-data");
+    const mtgjsonForm = sourceScopeCommandForm("scope.import", "mtgjson:mtg:set:reference-data");
     expect(formPathname(mtgjsonForm)).toBe("/catalog/integrations");
     expect(mtgjsonForm?.getAttribute("action")).not.toContain("/api/");
     expect(hiddenValue(mtgjsonForm, "providerKey")).toBe("mtgjson");
@@ -53,10 +53,7 @@ describe("Catalog source-scope workset", () => {
     expect(hiddenValue(mtgjsonForm, "productLineName")).toBe("Magic: The Gathering");
     expect(hiddenValue(mtgjsonForm, "expansionName")).toBe("Fifth Dawn");
 
-    const tcgplayerForm = sourceScopeCommandForm(
-      "start-provider-import",
-      "tcgplayer:mtg:single-card:source-observation-import",
-    );
+    const tcgplayerForm = sourceScopeCommandForm("scope.import", "tcgplayer:mtg:single-card:source-observation-import");
     expect(hiddenValue(tcgplayerForm, "providerKey")).toBe("tcgplayer");
     expect(hiddenValue(tcgplayerForm, "productLineId")).toBe("1");
     expect(hiddenValue(tcgplayerForm, "expansionId")).toBe("2157");
@@ -106,10 +103,7 @@ describe("Catalog source-scope workset", () => {
     expect(screen.getAllByText("TCGdex Pokemon cards").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Sync TCGdex Pokemon cards" }).length).toBeGreaterThan(0);
 
-    const form = sourceScopeCommandForm(
-      "start-provider-import",
-      "tcgdex:pokemon:single-card:source-observation-import",
-    );
+    const form = sourceScopeCommandForm("scope.import", "tcgdex:pokemon:single-card:source-observation-import");
     expect(hiddenValue(form, "providerKey")).toBe("tcgdex");
     expect(hiddenValue(form, "unitKey")).toBe("tcgdex:pokemon:single-card:source-observation-import");
     expect(hiddenValue(form, "importScope")).toBe("en:3:base:base1");
@@ -151,10 +145,7 @@ describe("Catalog source-scope workset", () => {
     expect(screen.getAllByRole("button", { name: "Sync LorcanaJSON" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Sync Lorcast Lorcana cards" }).length).toBeGreaterThan(0);
 
-    const lorcanajsonForm = sourceScopeCommandForm(
-      "start-provider-import",
-      "lorcanajson:lorcana:single-card:reference-data",
-    );
+    const lorcanajsonForm = sourceScopeCommandForm("scope.import", "lorcanajson:lorcana:single-card:reference-data");
     expect(formPathname(lorcanajsonForm)).toBe("/catalog/integrations");
     expect(lorcanajsonForm?.getAttribute("action")).not.toContain("/api/");
     expect(hiddenValue(lorcanajsonForm, "providerKey")).toBe("lorcanajson");
@@ -164,7 +155,7 @@ describe("Catalog source-scope workset", () => {
     expect(hiddenValue(lorcanajsonForm, "expansionName")).toBe("The First Chapter");
 
     const tcgplayerForm = sourceScopeCommandForm(
-      "start-provider-import",
+      "scope.import",
       "tcgplayer:lorcana:single-card:source-observation-import",
     );
     expect(hiddenValue(tcgplayerForm, "providerKey")).toBe("tcgplayer");
@@ -278,7 +269,7 @@ describe("Catalog source-scope workset", () => {
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
     expect(screen.getAllByText("lorcast / en / Disney Lorcana / The First Chapter").length).toBeGreaterThan(0);
-    const form = sourceScopeCommandForm("start-provider-import", unitKey);
+    const form = sourceScopeCommandForm("scope.import", unitKey);
     expect(hiddenValue(form, "importScope")).toBe("en:1");
     expect(hiddenValue(form, "productLineName")).toBe("Disney Lorcana");
     expect(hiddenValue(form, "expansionId")).toBe("1");
@@ -338,7 +329,7 @@ describe("Catalog source-scope workset", () => {
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
     expect(screen.getAllByText("lorcast / en / Disney Lorcana / The First Chapter").length).toBeGreaterThan(0);
-    const form = sourceScopeCommandForm("start-provider-import", unitKey);
+    const form = sourceScopeCommandForm("scope.import", unitKey);
     expect(hiddenValue(form, "importScope")).toBe("en:1");
     expect(hiddenValue(form, "productLineName")).toBe("Disney Lorcana");
     expect(hiddenValue(form, "expansionId")).toBe("1");
@@ -392,8 +383,8 @@ describe("Catalog source-scope workset", () => {
 
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
-    expect(sourceScopeCommandForm("start-provider-import", mtgUnit)).not.toBeNull();
-    expect(sourceScopeCommandForm("start-provider-import", yugiohUnit)).toBeNull();
+    expect(sourceScopeCommandForm("scope.import", mtgUnit)).not.toBeNull();
+    expect(sourceScopeCommandForm("scope.import", yugiohUnit)).toBeNull();
   });
 
   it("keeps a selected TCGplayer Yu-Gi-Oh unit visible but blocked for a stale MTG scope", () => {
@@ -492,7 +483,7 @@ describe("Catalog source-scope workset", () => {
 
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
-    const form = sourceScopeCommandForm("start-provider-import", "ygoprodeck:yugioh:single-card:reference-data");
+    const form = sourceScopeCommandForm("scope.import", "ygoprodeck:yugioh:single-card:reference-data");
     expect(hiddenValue(form, "importScope")).toBe("");
     expect(hiddenValue(form, "seriesId")).toBe("");
     expect(hiddenValue(form, "expansionId")).toBe("");
@@ -527,7 +518,7 @@ describe("Catalog source-scope workset", () => {
 
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
-    const form = sourceScopeCommandForm("start-provider-import", "ygojson:yugioh:set:reference-data");
+    const form = sourceScopeCommandForm("scope.import", "ygojson:yugioh:set:reference-data");
     expect(hiddenValue(form, "importScope")).toBe(`en:${selectedSetId}`);
     expect(hiddenValue(form, "seriesId")).toBe("");
     expect(hiddenValue(form, "expansionId")).toBe("");
@@ -556,9 +547,9 @@ describe("Catalog source-scope workset", () => {
       unitKey: "scrydex:one-piece:single-card:source-observation-import",
       importScope: "en:OP16",
     });
-    expect(
-      readModel.actions.find((actionEntry) => actionEntry.key === "start-provider-import")?.blockers,
-    ).not.toContain("import-scope-required");
+    expect(readModel.actions.find((actionEntry) => actionEntry.key === "scope.import")?.blockers).not.toContain(
+      "import-scope-required",
+    );
     expect(unit?.commandContext).toMatchObject({
       providerKey: "scrydex",
       importScope: "en:OP16",
@@ -571,10 +562,7 @@ describe("Catalog source-scope workset", () => {
 
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
-    const form = sourceScopeCommandForm(
-      "start-provider-import",
-      "scrydex:one-piece:single-card:source-observation-import",
-    );
+    const form = sourceScopeCommandForm("scope.import", "scrydex:one-piece:single-card:source-observation-import");
     expect(hiddenValue(form, "importScope")).toBe("en:OP16");
     expect(hiddenValue(form, "seriesId")).toBe("");
     expect(hiddenValue(form, "expansionId")).toBe("");
@@ -608,7 +596,7 @@ describe("Catalog source-scope workset", () => {
 
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
-    const form = sourceScopeCommandForm("start-provider-import", unitKey);
+    const form = sourceScopeCommandForm("scope.import", unitKey);
     expect(hiddenValue(form, "importScope")).toBe("");
     expect(hiddenValue(form, "productLineName")).toBe("");
     expect(hiddenValue(form, "expansionName")).toBe("");
@@ -639,7 +627,7 @@ describe("Catalog source-scope workset", () => {
 
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
-    const form = sourceScopeCommandForm("start-provider-import", unitKey);
+    const form = sourceScopeCommandForm("scope.import", unitKey);
     expect(hiddenValue(form, "importScope")).toBe("en:lorcana:TFC");
     expect(hiddenValue(form, "expansionId")).toBe("TFC");
     expect(hiddenValue(form, "expansionName")).toBe("The First Chapter");
@@ -680,7 +668,7 @@ describe("Catalog source-scope workset", () => {
 
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
-    const form = sourceScopeCommandForm("start-provider-import", unitKey);
+    const form = sourceScopeCommandForm("scope.import", unitKey);
     expect(hiddenValue(form, "importScope")).toBe("en:1");
     expect(hiddenValue(form, "expansionId")).toBe("1");
     expect(hiddenValue(form, "expansionName")).toBe("The First Chapter");
@@ -713,7 +701,7 @@ describe("Catalog source-scope workset", () => {
 
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
-    const form = sourceScopeCommandForm("start-provider-import", unitKey);
+    const form = sourceScopeCommandForm("scope.import", unitKey);
     expect(hiddenValue(form, "importScope")).toBe("en:1");
     expect(hiddenValue(form, "expansionId")).toBe("1");
     expect(hiddenValue(form, "expansionName")).toBe("");
@@ -804,7 +792,7 @@ describe("Catalog source-scope workset", () => {
     const profiles = lorcanaProfiles();
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
-        "https://admin.example/catalog/integrations?providerKey=lorcanajson&unitKey=lorcanajson:lorcana:single-card:reference-data&importScope=en%3A1&languageCode=en&productLineName=Disney%20Lorcana&expansionId=1&expansionName=The%20First%20Chapter&profileVersion=2026.06.23&promotionPreviewId=preview-lorcanajson_lorcanajson_lorcana_single-card_reference-data_en_1_2026.06.23_en_1_all_none_filtered-242-242&filter.importScope=en%3A1&filter.providerKey=lorcanajson&commandStatus=success&commandIntent=preview-promotion&commandResult=preview-ready",
+        "https://admin.example/catalog/integrations?providerKey=lorcanajson&unitKey=lorcanajson:lorcana:single-card:reference-data&importScope=en%3A1&languageCode=en&productLineName=Disney%20Lorcana&expansionId=1&expansionName=The%20First%20Chapter&profileVersion=2026.06.23&promotionPreviewId=preview-lorcanajson_lorcanajson_lorcana_single-card_reference-data_en_1_2026.06.23_en_1_all_none_filtered-242-242&filter.importScope=en%3A1&filter.providerKey=lorcanajson&commandStatus=success&commandIntent=observation.promote&commandResult=preview-ready",
       scopes: {
         items: [
           sourceObservationScope({
@@ -951,7 +939,7 @@ describe("Catalog source-scope workset", () => {
 
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
-    const form = sourceScopeCommandForm("start-provider-import", "tcgplayer:mtg:single-card:source-observation-import");
+    const form = sourceScopeCommandForm("scope.import", "tcgplayer:mtg:single-card:source-observation-import");
     const action = new URL(form?.getAttribute("action") ?? "", "https://admin.example");
     expect(action.searchParams.get("providerKey")).toBe("tcgplayer");
     expect(action.searchParams.get("unitKey")).toBe("tcgplayer:mtg:single-card:source-observation-import");
@@ -993,7 +981,7 @@ describe("Catalog source-scope workset", () => {
 
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
-    const form = sourceScopeCommandForm("start-provider-import", "tcgplayer:mtg:single-card:source-observation-import");
+    const form = sourceScopeCommandForm("scope.import", "tcgplayer:mtg:single-card:source-observation-import");
     const action = new URL(form?.getAttribute("action") ?? "", "https://admin.example");
     expect(action.searchParams.get("importScope")).toBe("en:1:Classic Sixth Edition");
     expect(action.searchParams.get("filter.importScope")).toBeNull();
@@ -1030,7 +1018,7 @@ describe("Catalog source-scope workset", () => {
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
     expect(screen.getByText("Select a source scope")).toBeTruthy();
-    const scryfallForm = sourceScopeCommandForm("start-provider-import", "scryfall:mtg:single-card:reference-data");
+    const scryfallForm = sourceScopeCommandForm("scope.import", "scryfall:mtg:single-card:reference-data");
     expect(formPathname(scryfallForm)).toBe("/catalog/integrations");
     expect(hiddenValue(scryfallForm, "importScope")).toBe("");
     expect(hiddenValue(scryfallForm, "expansionId")).toBe("");

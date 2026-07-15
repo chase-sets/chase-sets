@@ -23,7 +23,7 @@ import type { CheckoutSellListConfirmationRow, CheckoutSellListLineRow } from ".
 import { SELLER_CHECKOUT_REGISTER_HREF, SELLER_CHECKOUT_SIGN_IN_HREF } from "./registration-return";
 import { LatestSellListConfirmationPanel } from "./sell-list-confirmation-panel";
 import { formatMoney } from "./sell-list-formatting";
-import { ProductLineRow, SelectedOfferRow } from "./sell-list-line-rows";
+import { SellListReviewGrid } from "./sell-list-review-grid";
 import { useSellListPageModel } from "./use-sell-list-page-model";
 import type {
   PayoutReadiness,
@@ -57,6 +57,7 @@ export function CheckoutSellListPage({
   errorMessage = null,
   recoveryMessage = null,
   recoveryState = null,
+  sellListPath = "/account/sell-list",
 }: {
   sellListLines: readonly CheckoutSellListLineRow[];
   isSignedIn?: boolean;
@@ -73,6 +74,7 @@ export function CheckoutSellListPage({
   errorMessage?: string | null;
   recoveryMessage?: string | null;
   recoveryState?: SellListRecoveryState | null;
+  sellListPath?: string;
 }) {
   const model = useSellListPageModel({
     sellListLines,
@@ -81,6 +83,7 @@ export function CheckoutSellListPage({
     productOfferReviews,
     inventoryItems,
     payoutReadiness,
+    sellListPath,
   });
 
   const summary = (
@@ -131,8 +134,16 @@ export function CheckoutSellListPage({
     <Page>
       <Stack gap={6}>
         <PageHeader
-          eyebrow={t("checkout.features.sellList.ui.sellListPage.checkout")}
-          title={t("checkout.features.sellList.ui.sellListPage.sell.list")}
+          eyebrow={
+            sellListPath === "/account/desk/offers"
+              ? t("checkout.features.sellList.ui.sellListPage.seller.desk")
+              : t("checkout.features.sellList.ui.sellListPage.checkout")
+          }
+          title={
+            sellListPath === "/account/desk/offers"
+              ? t("checkout.features.sellList.ui.sellListPage.offers.and.sell.list")
+              : t("checkout.features.sellList.ui.sellListPage.sell.list")
+          }
           description={t("checkout.features.sellList.ui.sellListPage.simple.review.description")}
         />
 
@@ -270,11 +281,7 @@ export function CheckoutSellListPage({
                       : t("checkout.features.sellList.ui.sellListPage.payout.readiness.unavailable.description")
                   }
                   action={
-                    <LinkButton
-                      href="/account/payouts/setup?returnTo=%2Faccount%2Fsell-list"
-                      tone="secondary"
-                      size="sm"
-                    >
+                    <LinkButton href={model.payoutSetupHref} tone="secondary" size="sm">
                       {t("checkout.features.sellList.ui.sellListPage.set.up.payouts")}
                     </LinkButton>
                   }
@@ -282,23 +289,13 @@ export function CheckoutSellListPage({
               ) : null}
 
               <PageSection title={t("checkout.features.sellList.ui.sellListPage.review.items")}>
-                <Stack gap={3}>
-                  {model.selectedOfferLines.map((line) => (
-                    <SelectedOfferRow
-                      key={line.line_id}
-                      line={line}
-                      review={model.offerReviewsByLineId.get(line.line_id)}
-                    />
-                  ))}
-                  {model.productLines.map((line) => (
-                    <ProductLineRow
-                      key={line.line_id}
-                      line={line}
-                      review={model.productOfferReviewsByLineId.get(line.line_id)}
-                      inventoryOptions={model.inventoryByProductId.get(line.product_id) ?? []}
-                    />
-                  ))}
-                </Stack>
+                <SellListReviewGrid
+                  lines={sellListLines}
+                  offerReviewsByLineId={model.offerReviewsByLineId}
+                  productOfferReviewsByLineId={model.productOfferReviewsByLineId}
+                  inventoryByProductId={model.inventoryByProductId}
+                  canAccept={model.canContinue}
+                />
               </PageSection>
 
               <Surface elevated>

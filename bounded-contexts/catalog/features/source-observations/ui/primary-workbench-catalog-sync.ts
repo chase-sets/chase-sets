@@ -87,7 +87,7 @@ export function catalogSyncFor(input: {
       units,
     },
     action: {
-      key: "start-catalog-sync",
+      key: "scope.sync",
       state:
         blockers.length === 0 && input.catalogSyncPreview?.status === "degraded"
           ? "degraded"

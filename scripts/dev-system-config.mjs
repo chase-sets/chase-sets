@@ -7,6 +7,10 @@ export const browserE2ePlatformAdminEnv = Object.freeze({
   PLATFORM_ADMIN_PASSWORD: "browser-e2e-platform-admin-password",
 });
 
+export const browserE2eReadConsistencyEnv = Object.freeze({
+  READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED: "true",
+});
+
 export function applyDevTargetEnvOverrides(targetName, processDefinitions) {
   if (targetName !== "browser-e2e") {
     return processDefinitions;
@@ -20,6 +24,7 @@ export function applyDevTargetEnvOverrides(targetName, processDefinitions) {
             ...definition.env,
             ...browserE2eRateLimitEnv,
             ...browserE2ePlatformAdminEnv,
+            ...browserE2eReadConsistencyEnv,
           },
         }
       : definition,

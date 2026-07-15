@@ -149,6 +149,42 @@ export const reputationEnglishTranslations = {
     "Tell the account what went well or what needs improvement.",
   "reputation.features.reviews.ui.reviewSubmissionPage.verified.order": "Verified order",
   "reputation.features.reviews.ui.reviewSubmissionPage.your.review": "Your review",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.action": "Problem with this order?",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.indicators.label":
+    "Was there a problem with this order?",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.indicators.description":
+    "Select anything that applies so we can open an order issue and review what happened.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.category.notReceived": "Item not received",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.category.damaged": "Arrived damaged",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.category.notAsDescribed": "Not as described",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.category.missingItems": "Missing items",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.category.authenticity":
+    "Authenticity or counterfeit concern",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.category.other": "Another problem to resolve",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.title": "Resolve this order first?",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.buyer.description":
+    "It looks like something went wrong with this order. Opening an order issue lets us review what happened and keeps eligible payments protected while it is open.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.general.description":
+    "If something went wrong with this order, our team can help resolve it.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.primary.title": "Resolve this issue",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.primary.description":
+    "Open an order issue so we can review what happened. Eligible payments stay protected while the issue is open.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.general.primary.description":
+    "Open order help so our team can look into what happened.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.primary.action": "Open an order issue",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.secondary.title": "Leave feedback only",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.secondary.description":
+    "Feedback shares your experience but does not request a refund, return, replacement, or payment hold.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.secondary.acknowledge":
+    "I understand that leaving feedback only will not request a refund, return, replacement, or payment hold.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.secondary.action": "Continue with feedback only",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.privacy.note":
+    "Your review text stays private and is not submitted as evidence for the order issue.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.dismiss": "Go back",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.unavailable.title": "An order issue can't be opened",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.unavailable.description":
+    "The support window for this order has closed, so a new order issue can't be opened. You can still leave feedback below.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.track.action": "Track order issue",
   "reputation.routes.marketplace.accountPurchaseReview.verified.purchase.not.found": "Verified purchase not found.",
   "reputation.routes.marketplace.accountPurchaseReview.write.review.marketplace": "Write Review | Marketplace",
   "reputation.routes.marketplace.accountReceivedReviews.all.roles": "All",

@@ -24,6 +24,7 @@ import {
   TextInput,
   ToggleGroup,
 } from "@chase-sets/design-system";
+import { supportFlowCatalog } from "../domain/flow-catalog";
 import type {
   PlatformRemedyProposalInput,
   PlatformRemedyProposalPreview,
@@ -68,6 +69,15 @@ const SUPPORT_OPERATIONS_QUEUE_STATUS_FILTERS = [
 ] as const;
 
 const SUPPORT_OPERATIONS_QUEUE_PRIORITY_FILTERS = ["all", "normal", "urgent"] as const;
+
+const SUPPORT_OPERATIONS_QUEUE_FLOW_TYPE_ITEMS = [
+  { value: "all", label: t("support.features.supportRequests.ui.supportOperationsPage.flowType.filter.all") },
+  ...supportFlowCatalog.map((flow) => ({ value: flow.flowType, label: flow.title })),
+] as const;
+
+function queueFlowTypeLabel(flowType: string) {
+  return supportFlowCatalog.find((flow) => flow.flowType === flowType)?.title ?? flowType;
+}
 
 function queueStatusFilterLabel(status: string) {
   switch (status) {
@@ -125,6 +135,26 @@ function buildQueueAppliedFilters(filters: SupportOperationsQueueFilters) {
       label: t("support.features.supportRequests.ui.supportOperationsPage.priority.filter.chip", {
         priority: queuePriorityFilterLabel(filters.priority),
       }),
+    });
+  }
+  if (filters.flowType !== "all") {
+    applied.push({
+      id: "flowType",
+      label: t("support.features.supportRequests.ui.supportOperationsPage.flowType.filter.chip", {
+        flowType: queueFlowTypeLabel(filters.flowType),
+      }),
+    });
+  }
+  if (filters.contested) {
+    applied.push({
+      id: "contested",
+      label: t("support.features.supportRequests.ui.supportOperationsPage.contested.filter.chip"),
+    });
+  }
+  if (filters.overdue) {
+    applied.push({
+      id: "overdue",
+      label: t("support.features.supportRequests.ui.supportOperationsPage.overdue.filter.chip"),
     });
   }
   return applied;
@@ -207,6 +237,11 @@ function SupportOperationsQueue({
             <Stack gap={1}>
               <Badge tone={request.status === "ready-for-support" ? "warning" : "neutral"}>{request.status}</Badge>
               {request.priority === "urgent" ? <Badge tone="danger">{request.priority}</Badge> : null}
+              {request.contested ? (
+                <Badge tone="warning">
+                  {t("support.features.supportRequests.ui.supportOperationsPage.contested.badge")}
+                </Badge>
+              ) : null}
             </Stack>
           ),
         },
@@ -242,7 +277,7 @@ function SupportOperationsQueue({
 
 export function SupportOperationsPage({
   queue,
-  filters = { status: "all", priority: "all", search: "" },
+  filters = { status: "all", priority: "all", search: "", flowType: "all", contested: false, overdue: false },
   pagination,
   selectedRequest = null,
   queueNow = new Date().toISOString(),
@@ -373,6 +408,47 @@ export function SupportOperationsPage({
                     value: priority,
                     label: queuePriorityFilterLabel(priority),
                   }))}
+                />,
+                <NativeSelect
+                  key="flowType"
+                  label={t("support.features.supportRequests.ui.supportOperationsPage.flowType")}
+                  name="flowType"
+                  defaultValue={filters.flowType}
+                  items={SUPPORT_OPERATIONS_QUEUE_FLOW_TYPE_ITEMS.map((item) => ({ ...item }))}
+                />,
+                <NativeSelect
+                  key="contested"
+                  label={t("support.features.supportRequests.ui.supportOperationsPage.contested")}
+                  name="contested"
+                  defaultValue={filters.contested ? "true" : ""}
+                  items={[
+                    {
+                      value: "",
+                      label: t("support.features.supportRequests.ui.supportOperationsPage.contested.filter.all"),
+                    },
+                    {
+                      value: "true",
+                      label: t(
+                        "support.features.supportRequests.ui.supportOperationsPage.contested.filter.contestedOnly",
+                      ),
+                    },
+                  ]}
+                />,
+                <NativeSelect
+                  key="overdue"
+                  label={t("support.features.supportRequests.ui.supportOperationsPage.next.deadline")}
+                  name="overdue"
+                  defaultValue={filters.overdue ? "true" : ""}
+                  items={[
+                    {
+                      value: "",
+                      label: t("support.features.supportRequests.ui.supportOperationsPage.contested.filter.all"),
+                    },
+                    {
+                      value: "true",
+                      label: t("support.features.supportRequests.ui.supportOperationsPage.overdue.filter.overdueOnly"),
+                    },
+                  ]}
                 />,
               ]}
               actions={

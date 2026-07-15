@@ -38,4 +38,17 @@ describe("event commit metadata", () => {
       });
     });
   });
+
+  it("uses an explicit source context for durable stream prefixes that differ from context ownership", async () => {
+    await runWithEventCommitMetadata(async () => {
+      recordCommittedEvents(
+        [storedEvent({ id: "evt_1", streamId: "support.support-request-sup_1", globalPosition: "4" })],
+        "platform-operations",
+      );
+
+      expect(getEventCommitMetadata().sources).toEqual([
+        { sourceContextName: "platform-operations", eventIds: ["evt_1"], maxGlobalPosition: "4" },
+      ]);
+    });
+  });
 });

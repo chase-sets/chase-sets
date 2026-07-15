@@ -7,7 +7,6 @@ import {
   CATALOG_CONTROL_PLANE_PAGES,
   CATALOG_CONTROL_PLANE_RETIRED_MACHINERY,
   CATALOG_CONTROL_PLANE_UTILITIES,
-  catalogControlPlaneActionByLegacyIntent,
   catalogControlPlaneActionsForEntity,
   catalogControlPlaneEntityByKey,
   catalogControlPlanePageByKey,
@@ -20,49 +19,32 @@ import {
 // even while no current entry uses it.
 const capabilityMap: readonly CatalogControlPlaneCapabilityMapEntry[] = CATALOG_CONTROL_PLANE_CAPABILITY_MAP;
 
-// The complete inventory of the current (deprecated) form intents this blueprint
-// replaces, sourced directly from the four command handlers:
-//   daily-command-handler.ts      (18)
-//   alias-review-command-handler  (5)
-//   provider-setup-command-handler(3)
-//   governance-command-handler    (3)
-// The 2026-07-03 review estimated ~31; the live handlers carry 29. Every one must
-// map to exactly one v2 action. The two scope-level bulk candidate intents
-// fold into the same candidate.promote / candidate.defer entity verbs.
-const CURRENT_FORM_INTENTS = [
-  // daily
-  "start-catalog-sync",
-  "start-provider-import",
-  "retry-import-job",
-  "resume-import-job",
-  "cancel-import-job",
-  "preview-promotion",
-  "execute-promotion",
-  "reject-source-observations",
-  "defer-source-observations",
-  "promote-merge-candidate",
-  "split-merge-candidate",
-  "update-merge-candidate",
-  "ignore-merge-candidate",
-  "defer-merge-candidate",
-  "bulk-promote-merge-candidates",
-  "bulk-defer-merge-candidates",
-  "start-reapply",
-  "start-replay",
-  // alias-review
-  "accept",
-  "auto-accept",
-  "reject",
-  "revoke",
-  "defer",
-  // provider-setup
-  "clone-provider-profile",
-  "activate-provider-profile",
-  "update-provider-profile-section",
-  // governance
-  "rollback-provider-profile",
-  "deprecate-provider-profile",
-  "retire-provider-profile",
+const ACTION_VOCABULARY = [
+  "scope.sync",
+  "scope.import",
+  "job.retry",
+  "job.resume",
+  "job.cancel",
+  "observation.promote",
+  "observation.reject",
+  "observation.defer",
+  "observation.reapply",
+  "observation.replay",
+  "candidate.promote",
+  "candidate.edit",
+  "candidate.split",
+  "candidate.ignore",
+  "candidate.defer",
+  "alias.accept",
+  "alias.reject",
+  "alias.revoke",
+  "alias.defer",
+  "provider-profile.clone",
+  "provider-profile.edit-section",
+  "provider-profile.activate",
+  "provider-profile.rollback",
+  "provider-profile.deprecate",
+  "provider-profile.retire",
 ] as const;
 
 const EIGHT_DEPRECATED_WORKSPACES = [
@@ -187,29 +169,14 @@ describe("Catalog Control Plane v2 — action vocabulary carries entity, permiss
   });
 });
 
-describe("Catalog Control Plane v2 — every current intent maps to exactly one action", () => {
-  it("covers all 29 current form intents with no orphans", () => {
-    for (const intent of CURRENT_FORM_INTENTS) {
-      const action = catalogControlPlaneActionByLegacyIntent(intent);
-      expect(action, `intent ${intent} has no v2 action`).toBeDefined();
-    }
+describe("Catalog Control Plane v2 — final action vocabulary", () => {
+  it("contains exactly the 25 entity actions from the blueprint", () => {
+    expect(CATALOG_CONTROL_PLANE_ACTIONS.map((action) => action.id)).toEqual(ACTION_VOCABULARY);
   });
 
-  it("maps each intent to exactly one action (no intent claimed twice)", () => {
-    for (const intent of CURRENT_FORM_INTENTS) {
-      const matches = CATALOG_CONTROL_PLANE_ACTIONS.filter((action) =>
-        (action.replacesIntents as readonly string[]).includes(intent),
-      );
-      expect(matches, `intent ${intent} is claimed ${matches.length} times`).toHaveLength(1);
-    }
-  });
-
-  it("never references a form intent outside the known current inventory", () => {
-    const known = new Set<string>(CURRENT_FORM_INTENTS);
+  it("does not retain a legacy-intent compatibility map", () => {
     for (const action of CATALOG_CONTROL_PLANE_ACTIONS) {
-      for (const intent of action.replacesIntents) {
-        expect(known.has(intent), `action ${action.id} maps unknown intent ${intent}`).toBe(true);
-      }
+      expect(action).not.toHaveProperty("replacesIntents");
     }
   });
 });
