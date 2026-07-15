@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS fulfillment_return_shipment_operator_pages (
   support_request_id text NOT NULL,
   order_id text NOT NULL,
   outbound_shipment_id text NOT NULL,
+  affected_order_line_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   return_directive text NOT NULL,
   status text NOT NULL,
   ship_from_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -165,6 +166,14 @@ CREATE INDEX IF NOT EXISTS fulfillment_unidentified_return_package_pages_facilit
 `;
 
 export const fulfillmentReturnShipmentSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260715_fulfillment_return_shipment_support_linkage",
+    description: "Add affected order-line linkage to replayable ReturnShipment operator pages.",
+    statements: [
+      `ALTER TABLE IF EXISTS fulfillment_return_shipment_operator_pages
+         ADD COLUMN IF NOT EXISTS affected_order_line_ids jsonb NOT NULL DEFAULT '[]'::jsonb`,
+    ],
+  },
   {
     migrationId: "20260714_fulfillment_return_shipment_facility_intake",
     description:

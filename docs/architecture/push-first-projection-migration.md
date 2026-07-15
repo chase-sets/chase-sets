@@ -88,6 +88,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `fulfillment:fulfillment-payment-fraud-source-projection` | Fulfillment | **payments** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-shipment-projection` | Fulfillment | fulfillment | push-eligible | 0/1 |
 | `fulfillment:fulfillment-return-shipment-projection` | Fulfillment | fulfillment | push-eligible | 0/1 |
+| `fulfillment:fulfillment-support-return-source-projection` | Fulfillment | **platform-operations** | push-enabled | 1/1 |
 | `identity:identity-account-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-api-key-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-consent-projection` | Identity | **identity** | push-enabled | 1/1 |

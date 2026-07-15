@@ -45,6 +45,7 @@ import {
   resolveOperatorReturnShipmentForIntake,
 } from "../read-model/queries";
 import { createReturnShipmentLabelPurchaseService, type ReturnShipmentLabelPurchaseService } from "./label-purchase";
+import { loadReturnShipmentLinkageSource } from "../read-model/linkage";
 
 export const FULFILLMENT_RETURN_SHIPMENT_PROJECTION = "fulfillment-return-shipment-projection";
 
@@ -159,6 +160,7 @@ export function createFulfillmentReturnShipmentRuntime(
     db: deps.db,
     postageLabelProvider: deps.postageLabelProvider ?? createUnconfiguredReturnPostageLabelProvider(),
     facilityDirectory: deps.facilityDirectory ?? createReturnFacilityDirectory([]),
+    loadLinkageSource: (linkage) => loadReturnShipmentLinkageSource(deps.db, linkage),
   });
 
   return {

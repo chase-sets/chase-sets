@@ -57,7 +57,7 @@ Platform Operations terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - `support.support-request.cancelled`
 - `platform-operations.public-doc-article-review.confirmed`
 
-Marketplace, Ordering, Payments, and Settlement subscribe to these `support.*` facts. Other `support.*` streams (`.affected-line-items-recorded`, `.evidence-submitted`, `.offer-accepted`, `.offer-declined`, `.response-recorded`) and the `platform-operations.reported-content.action-recorded` / `platform-operations.risk-alert.action-recorded` facts stay internal to Platform Operations today; only its own projections subscribe to them.
+Marketplace, Ordering, Payments, and Settlement subscribe to these `support.*` facts. Fulfillment also consumes `support.support-request.affected-line-items-recorded` with the opened case and authorized remedy facts so a reverse shipment can prove its case, order, shipment, and affected-line linkage. Other `support.*` streams (`.evidence-submitted`, `.offer-accepted`, `.offer-declined`, `.response-recorded`) and the `platform-operations.reported-content.action-recorded` / `platform-operations.risk-alert.action-recorded` facts stay internal to Platform Operations today; only its own projections subscribe to them.
 
 ## Invariants
 

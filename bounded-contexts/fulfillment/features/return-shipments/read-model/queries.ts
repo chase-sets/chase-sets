@@ -74,6 +74,7 @@ export type OperatorReturnShipmentView = Readonly<{
   support_request_id: string;
   order_id: string;
   outbound_shipment_id: string;
+  affected_order_line_ids: readonly string[];
   return_directive: string;
   status: string;
   ship_from_snapshot: unknown;
@@ -134,6 +135,7 @@ export type ExpectedReturnItemSummary = Readonly<{
 }>;
 
 const operatorColumns = `return_shipment_id, remedy_id, support_request_id, order_id, outbound_shipment_id,
+  affected_order_line_ids,
   return_directive, status, ship_from_snapshot, destination_snapshot, facility_id, facility_config_version,
   selection_policy_version, package_requirements, label_status, label_provider_reference, label_document_url,
   carrier_name, tracking_identifier, postage_provider_name, postage_provider_mode, postage_provider_shipment_id,
@@ -200,6 +202,9 @@ export async function resolveOperatorReturnShipmentForIntake(
          ) ORDER BY line_index ASC, line_id ASC)
          FROM fulfillment_shipment_line_pages
          WHERE shipment_id = outbound_shipment_id
+           AND order_line_id IN (
+             SELECT jsonb_array_elements_text(affected_order_line_ids)
+           )
        ), '[]'::jsonb) AS expected_items
      FROM fulfillment_return_shipment_operator_pages
      WHERE facility_id = $2

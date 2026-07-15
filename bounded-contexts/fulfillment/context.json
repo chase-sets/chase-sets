@@ -48,6 +48,18 @@
       ],
       "order": 30,
       "projectionHandlerSetNames": ["fulfillment-payment-fraud-source-projection"]
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "projectionName": "fulfillment-support-return-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.affected-line-items-recorded",
+        "support.support-request.remedy-authorized.v1"
+      ],
+      "order": 40,
+      "projectionHandlerSetNames": ["fulfillment-support-return-source-projection"]
     }
   ],
   "projectionGroups": [
@@ -69,6 +81,13 @@
       "projectionName": "fulfillment-payment-fraud-source-projection",
       "sourceContextNames": ["payments"],
       "ownedTables": ["fulfillment_payment_fraud_review_holds"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "fulfillment-support-return-source-projection",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": ["fulfillment_support_return_sources", "fulfillment_support_return_remedy_sources"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },

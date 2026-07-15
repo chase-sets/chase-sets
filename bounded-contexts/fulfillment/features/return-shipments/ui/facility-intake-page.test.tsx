@@ -28,6 +28,7 @@ function props(overrides: Partial<FacilityIntakePageProps> = {}): FacilityIntake
       support_request_id: "sup_1",
       order_id: "ord_1",
       outbound_shipment_id: "shp_1",
+      affected_order_line_ids: ["oli_1"],
       return_directive: "return-to-platform",
       status: "delivered",
       ship_from_snapshot: {},

@@ -8,6 +8,7 @@ import {
 } from "@chase-sets/postage-labels";
 import { createReturnFacilityDirectory, type ReturnFacilityDirectory } from "../domain/facility-directory";
 import { createReturnShipmentLabelPurchaseService, type ReturnLabelDirective } from "./label-purchase";
+import type { ReturnShipmentLinkageSource } from "../read-model/linkage";
 
 const context: EventStoreContext = {
   tenantId: "tnt_fulfillment" as never,
@@ -49,6 +50,7 @@ function directive(overrides: Partial<ReturnLabelDirective> = {}): ReturnLabelDi
     supportRequestId: "sup_1" as never,
     orderId: "ord_1" as never,
     outboundShipmentId: "shp_1" as never,
+    affectedOrderLineIds: ["oli_1"],
     returnProgram: "platform-custody",
     carrier: "usps",
     region: "us-east",
@@ -189,18 +191,36 @@ function createRecordingProvider(overrides: Partial<PostageLabelProvider> = {}):
   };
 }
 
-function buildService(deps: { provider?: PostageLabelProvider; directory?: ReturnFacilityDirectory } = {}) {
+function buildService(
+  deps: {
+    provider?: PostageLabelProvider;
+    directory?: ReturnFacilityDirectory;
+    linkageSource?: ReturnShipmentLinkageSource;
+  } = {},
+) {
   const { eventStore, readAllEvents } = createInMemoryEventStore();
   const db = createLedgerDb();
   const provider = deps.provider ?? createRecordingProvider();
+  const loadLinkageSource = vi.fn(
+    async () =>
+      deps.linkageSource ?? {
+        supportOrderId: "ord_1",
+        supportAffectedOrderLineIds: ["oli_1"],
+        remedySupportRequestId: "sup_1",
+        remedyReturnDirective: "return-to-platform",
+        shipmentOrderId: "ord_1",
+        shipmentOrderLineIds: ["oli_1"],
+      },
+  );
   const service = createReturnShipmentLabelPurchaseService({
     eventStore,
     db: db as never,
     postageLabelProvider: provider,
     facilityDirectory: deps.directory ?? directoryWith(),
+    loadLinkageSource,
     now: () => "2026-06-02T00:00:00.000Z",
   });
-  return { service, db, provider, readAllEvents };
+  return { service, db, provider, loadLinkageSource, readAllEvents };
 }
 
 function eventTypes(readAllEvents: () => readonly { eventType: string }[]) {
@@ -219,7 +239,7 @@ describe("return-shipment label purchase", () => {
     expect(provider.purchaseUspsLabel).toHaveBeenCalledTimes(1);
 
     const events = readAllEvents();
-    const requested = events.find((e) => e.eventType === "fulfillment.return-shipment.requested.v1");
+    const requested = events.find((e) => e.eventType === "fulfillment.return-shipment.requested.v2");
     const ready = events.find((e) => e.eventType === "fulfillment.return-shipment.label-ready.v1");
     expect((requested?.payload as { destinationSnapshot: { facilityId: string } }).destinationSnapshot.facilityId).toBe(
       "fac_east",
@@ -237,17 +257,54 @@ describe("return-shipment label purchase", () => {
   });
 
   it("is idempotent under retries: a second directive buys no second label", async () => {
-    const { service, provider, readAllEvents } = buildService();
+    const { service, provider, loadLinkageSource, readAllEvents } = buildService();
     const first = await service.issueReturnLabel(directive(), context);
     const second = await service.issueReturnLabel(directive(), context);
 
     expect(first.outcome).toBe("label-ready");
     expect(second.outcome).toBe("label-ready");
     expect(provider.purchaseUspsLabel).toHaveBeenCalledTimes(1);
+    expect(loadLinkageSource).toHaveBeenCalledTimes(1);
     const readyCount = eventTypes(readAllEvents).filter(
       (t) => t === "fulfillment.return-shipment.label-ready.v1",
     ).length;
     expect(readyCount).toBe(1);
+  });
+
+  it("rejects reusing a return-shipment identity across support cases from immutable state", async () => {
+    const { service, provider, loadLinkageSource } = buildService();
+    await service.issueReturnLabel(directive(), context);
+
+    const conflicting = await service.issueReturnLabel(directive({ supportRequestId: "sup_other" as never }), context);
+
+    expect(conflicting).toMatchObject({ outcome: "failed", failureReason: "invalid-return-linkage" });
+    expect(provider.purchaseUspsLabel).toHaveBeenCalledTimes(1);
+    expect(loadLinkageSource).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["support case/order", { supportOrderId: "ord_other" }],
+    ["remedy/case", { remedySupportRequestId: "sup_other" }],
+    ["outbound shipment/order", { shipmentOrderId: "ord_other" }],
+    ["affected line/shipment", { shipmentOrderLineIds: ["oli_other"] }],
+  ])("rejects invalid %s linkage before buying a label", async (_label, mismatch) => {
+    const { service, provider, readAllEvents } = buildService({
+      linkageSource: {
+        supportOrderId: "ord_1",
+        supportAffectedOrderLineIds: ["oli_1"],
+        remedySupportRequestId: "sup_1",
+        remedyReturnDirective: "return-to-platform",
+        shipmentOrderId: "ord_1",
+        shipmentOrderLineIds: ["oli_1"],
+        ...mismatch,
+      },
+    });
+
+    const result = await service.issueReturnLabel(directive(), context);
+
+    expect(result).toMatchObject({ outcome: "failed", failureReason: "invalid-return-linkage" });
+    expect(provider.purchaseUspsLabel).not.toHaveBeenCalled();
+    expect(readAllEvents()).toHaveLength(0);
   });
 
   it("does not buy a second label when the provider times out after success", async () => {
