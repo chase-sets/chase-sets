@@ -22,6 +22,7 @@ import { seedSettlementDatabase } from "./support/runtime-support/seed";
 import { buildSettlementPaymentInputProjectionHandlers } from "./features/wallets/integrations/payment-source/payment-source-projection";
 import { buildSettlementSupportHoldProjectionHandlers } from "./features/wallets/integrations/support-source/support-source-projection";
 import { buildSettlementCoverageReservationHandlers } from "./features/liability-allocation/integrations/coverage-request/coverage-reservation-projection";
+import { buildSupportHoldLifecycleReactionHandlers } from "./features/wallets/integrations/support-hold-lifecycle/support-hold-lifecycle-reaction";
 import { buildSettlementFulfillmentSourceProjectionHandlers } from "./features/wallets/integrations/fulfillment-source/fulfillment-source-projection";
 import {
   buildSettlementIdentityAccountRiskSourceProjectionHandlers,
@@ -85,6 +86,10 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
         },
         "platform-operations.settlement-liability-allocation-reserve-projection": {
           buildHandlers: () => buildSettlementCoverageReservationHandlers(services.protectionCoverage),
+          filterToEventTypes: true,
+        },
+        "platform-operations.settlement-support-hold-lifecycle-projection": {
+          buildHandlers: () => buildSupportHoldLifecycleReactionHandlers(services.supportHoldLifecycle),
           filterToEventTypes: true,
         },
         "fulfillment.settlement-fulfillment-source-projection": () =>

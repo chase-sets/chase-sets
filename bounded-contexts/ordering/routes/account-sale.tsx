@@ -1,21 +1,14 @@
 import { t } from "@chase-sets/localization";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import type { MetaFunction } from "react-router";
+import { useActionData, useLoaderData } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import {
-  createOrderingRequestApiClient,
-  OrderingApiError,
-  type SaleDetail,
-} from "../support/request-support/api-client";
+import { createOrderingRequestApiClient, type SaleDetail } from "../support/request-support/api-client";
 import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page";
+import { OrderOutcomePanel, type OrderReviewOpportunity } from "../features/orders/ui/order-review-opportunity-callout";
 import contextManifest from "../context.json";
 import { orderingApiErrorAdapter } from "../support/request-support/route-api-error";
-import {
-  OrderReviewOpportunityCallout,
-  type OrderReviewOpportunity,
-} from "../features/orders/ui/order-review-opportunity-callout";
 
 const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountSale.inspect.a.sale.cancel.it.while");
 
@@ -31,7 +24,13 @@ export const loader = defineResourceRoute({
   },
   errorAdapter: orderingApiErrorAdapter,
   load: ({ request, params }) => createOrderingRequestApiClient(request).getSale(params.orderId!),
-  map: (sale) => ({ sale, reviewOpportunity: sale.reviewOpportunity ?? null }),
+  map: (sale) => ({
+    sale,
+    reviewOutcome: {
+      status: "ready" as const,
+      opportunity: sale.reviewOpportunity ?? null,
+    },
+  }),
   messages: {
     pending: "We are preparing your sale. Refresh in a moment and it should appear.",
     pendingStatusText: "Preparing sale",
@@ -64,7 +63,6 @@ export const meta: MetaFunction = () =>
 export default function OrderingAccountSaleRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const reviewOpportunity = data.reviewOpportunity as OrderReviewOpportunity | null;
 
   return (
     <OrderingOrderDetailPage
@@ -74,15 +72,16 @@ export default function OrderingAccountSaleRoute() {
       fulfillmentHref="/account/sales/shipments"
       order={data.sale as SaleDetail}
       errorMessage={actionData?.error ?? null}
-      supplementarySectionTitle={t("ordering.routes.accountSale.review")}
+      supplementarySectionTitle={t("ordering.routes.accountSale.order.outcome")}
       supplementarySection={
-        reviewOpportunity ? (
-          <OrderReviewOpportunityCallout
-            opportunity={reviewOpportunity}
-            reviewHref={`/account/sales/${data.sale.order_id}/review`}
-            transactionLabel="sale"
-          />
-        ) : null
+        <OrderOutcomePanel
+          orderStatus={data.sale.status}
+          opportunity={data.reviewOutcome.opportunity as OrderReviewOpportunity | null}
+          reviewReadStatus={data.reviewOutcome.status}
+          reviewHref={`/account/sales/${data.sale.order_id}/review`}
+          supportHref={`/account/support?orderId=${encodeURIComponent(data.sale.order_id)}&role=seller`}
+          transactionLabel="sale"
+        />
       }
     />
   );

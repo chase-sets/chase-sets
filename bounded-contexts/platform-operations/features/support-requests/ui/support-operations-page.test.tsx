@@ -44,6 +44,7 @@ function buildQueueItem(overrides: Partial<SupportRequestListItem> = {}): Suppor
     closure_blocking_reasons: [],
     next_remedy_action: null,
     remedy_repair_guidance: [],
+    contested: false,
     ...overrides,
   };
 }
@@ -80,7 +81,14 @@ describe("SupportOperationsPage", () => {
   it("renders URL-persisted status, priority, and search filters as applied filter chips", () => {
     renderPage({
       queue: { items: [buildQueueItem()], total: 1, count: 1 },
-      filters: { status: "ready-for-support", priority: "urgent", search: "ord_1" },
+      filters: {
+        status: "ready-for-support",
+        priority: "urgent",
+        search: "ord_1",
+        flowType: "all",
+        contested: false,
+        overdue: false,
+      },
     });
 
     expect((screen.getByLabelText("Search") as HTMLInputElement).value).toBe("ord_1");
@@ -98,7 +106,10 @@ describe("SupportOperationsPage", () => {
   });
 
   it("renders no applied filter chips and a plain clear-filters state when no filters are active", () => {
-    renderPage({ queue: { items: [], total: 0, count: 0 }, filters: { status: "all", priority: "all", search: "" } });
+    renderPage({
+      queue: { items: [], total: 0, count: 0 },
+      filters: { status: "all", priority: "all", search: "", flowType: "all", contested: false, overdue: false },
+    });
 
     expect(screen.queryByText(/^Search:/)).toBeNull();
     expect(screen.queryByText(/^Status:/)).toBeNull();
@@ -262,6 +273,18 @@ describe("SupportOperationsPage", () => {
             submittedAt: "2026-06-01T01:00:00.000Z",
             attachments: [],
           },
+          {
+            evidenceId: "ev_photo",
+            submittedByAccountId: "acc_buyer" as never,
+            submittedByRole: "buyer",
+            evidenceType: "photo",
+            summary: "Damaged corner.",
+            occurredAt: null,
+            submittedAt: "2026-06-01T01:30:00.000Z",
+            attachments: [
+              "support-attachment:v1:sea_photo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:jpg",
+            ],
+          },
         ],
         offers: [
           {
@@ -290,6 +313,14 @@ describe("SupportOperationsPage", () => {
     expect(screen.getByText("Structured offers")).toBeTruthy();
     expect(screen.getAllByText("Refund five dollars.").length).toBeGreaterThan(0);
     expect(screen.getByText("Audit trail")).toBeTruthy();
+    expect(
+      screen
+        .getAllByRole("img", { name: "Evidence photo 1" })
+        .every(
+          (image) => image.getAttribute("src") === "/api/marketplace/support-requests/sup_1/attachments/sea_photo",
+        ),
+    ).toBe(true);
+    expect(screen.getAllByRole("link", { name: "View full-size photo 1" }).length).toBeGreaterThan(0);
   });
 
   it("posts drawer actions through the existing detail command route and returns to the filtered queue", () => {
@@ -341,6 +372,105 @@ describe("SupportOperationsPage", () => {
     expect(screen.getByText("100.00 usd")).toBeTruthy();
     expect(screen.getByText("Elevated approval is required.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Request reservation" })).not.toHaveProperty("disabled", true);
+  });
+
+  it("badges contested cases in the queue and renders issue-type and contested filter chips", () => {
+    renderPage({
+      queue: { items: [buildQueueItem({ contested: true })], total: 1, count: 1 },
+      filters: {
+        status: "all",
+        priority: "all",
+        search: "",
+        flowType: "product-not-as-described",
+        contested: true,
+        overdue: false,
+      },
+    });
+
+    expect(screen.getAllByText("Contested").length).toBeGreaterThan(0);
+    expect(screen.getByText("Issue type: Product not as described")).toBeTruthy();
+    expect(screen.getByText("Contested only")).toBeTruthy();
+  });
+
+  it("adjudicates a declined-offer case from one screen: positions, evidence, escalation, and a prefilled capped refund", () => {
+    renderPage({
+      selectedRequest: buildDetailItem({
+        flow_type: "product-not-as-described",
+        status: "ready-for-support",
+        contested: true,
+        affected_line_items: [{ lineId: "line_1", amount: "40.00", currencyCode: "usd" }],
+        escalated_at: "2026-06-01T05:00:00.000Z",
+        escalated_by_role: "buyer",
+        escalation_reason: "Seller refused the return.",
+        evidence: [
+          {
+            evidenceId: "ev_photo",
+            submittedByAccountId: "acc_buyer" as never,
+            submittedByRole: "buyer",
+            evidenceType: "photo",
+            summary: "Creased corner.",
+            occurredAt: null,
+            submittedAt: "2026-06-01T01:00:00.000Z",
+            attachments: ["https://cdn.example.com/photo-1.jpg"],
+          },
+        ],
+        responses: [
+          {
+            responseId: "res_challenge",
+            responseType: "challenge-with-evidence",
+            submittedByAccountId: "acc_seller" as never,
+            submittedByRole: "seller",
+            summary: "Card left in mint condition.",
+            submittedAt: "2026-06-01T02:00:00.000Z",
+            offerId: null,
+          },
+        ],
+        offers: [
+          {
+            offerId: "off_declined",
+            responseId: "res_offer",
+            offeredByAccountId: "acc_seller" as never,
+            offeredByRole: "seller",
+            pendingWithRole: "buyer",
+            responseType: "offer-partial-refund",
+            resolutionType: "partial-refund",
+            refundAmount: "15.00",
+            summary: "Fifteen dollar partial.",
+            offeredAt: "2026-06-01T03:00:00.000Z",
+            status: "declined",
+            decidedByAccountId: "acc_buyer" as never,
+            decidedByRole: "buyer",
+            decidedAt: "2026-06-01T04:00:00.000Z",
+            decisionSummary: "Not enough.",
+          },
+        ],
+      }),
+      queueNow: "2026-06-01T12:00:00.000Z",
+    });
+
+    expect(document.querySelector('[data-support-adjudication-panel="true"]')).toBeTruthy();
+    expect(screen.getByText("Buyer's claim")).toBeTruthy();
+    expect(screen.getByText("Seller's response")).toBeTruthy();
+    expect(screen.getAllByText("Card left in mint condition.").length).toBeGreaterThan(0);
+    // Escalation origin and reason are visible on the escalated case.
+    expect(screen.getByText("Raised by buyer")).toBeTruthy();
+    expect(screen.getAllByText("Seller refused the return.").length).toBeGreaterThan(0);
+    // Offer decline is shown in the offer history.
+    expect(screen.getAllByText("Declined by buyer").length).toBeGreaterThan(0);
+    // Evidence attachment renders inline.
+    const attachment = screen.getByRole("link", { name: /Attachment 1/ }) as HTMLAnchorElement;
+    expect(attachment.href).toBe("https://cdn.example.com/photo-1.jpg");
+    // Decision panel prefills the refund from the declined offer, within the 40.00 cap.
+    expect((screen.getByLabelText("Refund amount") as HTMLInputElement).value).toBe("15.00");
+    // Only the flow's allowed resolutions are offered.
+    const resolution = screen.getByLabelText("Resolution") as HTMLSelectElement;
+    expect([...resolution.options].map((option) => option.value)).toEqual([
+      "return-for-refund",
+      "partial-refund",
+      "replacement",
+      "no-action",
+      "support-reviewed",
+    ]);
   });
 
   it("lists exact remedy effects that block closure", () => {

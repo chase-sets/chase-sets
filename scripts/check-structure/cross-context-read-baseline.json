@@ -25,19 +25,6 @@
       "migration": "Project listing term preview data required by item-detail actions into Discovery's item-detail overlay."
     },
     {
-      "id": "bounded-contexts/discovery/routes/public-listing.tsx:marketplace:createMarketplaceRequestApiClient.reportListing#1",
-      "consumerContextName": "discovery",
-      "sourceContextName": "marketplace",
-      "file": "bounded-contexts/discovery/routes/public-listing.tsx",
-      "line": 263,
-      "clientFactory": "createMarketplaceRequestApiClient",
-      "methodName": "reportListing",
-      "classification": "composite-projection-servable",
-      "sourceWakePosture": "wave-1-listened",
-      "issue": "#2779",
-      "migration": "Project listing report submission data required by the public listing route into Discovery's listing view."
-    },
-    {
       "id": "bounded-contexts/discovery/routes/public-account.tsx:marketplace:createSellerMetricsRequestApiClient.getBehavioralMetricsChips#1",
       "consumerContextName": "discovery",
       "sourceContextName": "marketplace",

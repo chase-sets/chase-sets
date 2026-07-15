@@ -3,29 +3,28 @@ import type {
   CatalogPrimaryWorkbenchActionReadModel,
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
-import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
+import { useCatalogIntegrationCommandHref } from "./command-action-context";
 
 export type CatalogPrimaryWorkbenchSubmitIntent = Extract<
   CatalogPrimaryWorkbenchActionReadModel["key"],
-  | "start-catalog-sync"
-  | "start-provider-import"
-  | "retry-import-job"
-  | "resume-import-job"
-  | "cancel-import-job"
-  | "preview-promotion"
-  | "execute-promotion"
-  | "reject-source-observations"
-  | "defer-source-observations"
-  | "promote-merge-candidate"
-  | "split-merge-candidate"
-  | "update-merge-candidate"
-  | "ignore-merge-candidate"
-  | "defer-merge-candidate"
-  | "rollback-provider-profile"
-  | "deprecate-provider-profile"
-  | "retire-provider-profile"
-  | "start-reapply"
-  | "start-replay"
+  | "scope.sync"
+  | "scope.import"
+  | "job.retry"
+  | "job.resume"
+  | "job.cancel"
+  | "observation.promote"
+  | "observation.reject"
+  | "observation.defer"
+  | "candidate.promote"
+  | "candidate.split"
+  | "candidate.edit"
+  | "candidate.ignore"
+  | "candidate.defer"
+  | "provider-profile.rollback"
+  | "provider-profile.deprecate"
+  | "provider-profile.retire"
+  | "observation.reapply"
+  | "observation.replay"
 >;
 
 type CommandFormButtonProps = Omit<ButtonProps, "type" | "disabled"> & {
@@ -35,6 +34,7 @@ type CommandFormButtonProps = Omit<ButtonProps, "type" | "disabled"> & {
   candidateId?: string;
   reason?: string;
   mergeCandidateCommandBody?: string;
+  promotionPhase?: "preview" | "execute";
   disabled?: boolean;
 };
 
@@ -45,23 +45,22 @@ export function CommandFormButton({
   candidateId,
   reason,
   mergeCandidateCommandBody,
+  promotionPhase,
   disabled = false,
   children,
   ...buttonProps
 }: CommandFormButtonProps) {
+  const actionHref = useCatalogIntegrationCommandHref(readModel.routeContext);
+
   return (
-    <WorkbenchForm
-      variant="button"
-      method="post"
-      action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
-      data-catalog-primary-workbench-command={intent}
-    >
+    <WorkbenchForm variant="button" method="post" action={actionHref} data-catalog-primary-workbench-command={intent}>
       <CommandHiddenInputs
         readModel={readModel}
         intent={intent}
         selectedObservationIds={selectedObservationIds}
         candidateId={candidateId}
         mergeCandidateCommandBody={mergeCandidateCommandBody}
+        promotionPhase={promotionPhase}
       />
       {reason ? <HiddenInput name="reason" value={reason} /> : null}
       <Button type="submit" disabled={disabled || !isActionAvailable(readModel, intent)} {...buttonProps}>
@@ -78,6 +77,7 @@ export function CommandHiddenInputs({
   candidateId,
   jobId,
   mergeCandidateCommandBody,
+  promotionPhase,
 }: {
   readModel: CatalogPrimaryWorkbenchReadModel;
   intent: CatalogPrimaryWorkbenchSubmitIntent;
@@ -85,6 +85,7 @@ export function CommandHiddenInputs({
   candidateId?: string;
   jobId?: string | null;
   mergeCandidateCommandBody?: string;
+  promotionPhase?: "preview" | "execute";
 }) {
   const context = readModel.routeContext;
   const scope = context.scope;
@@ -110,6 +111,8 @@ export function CommandHiddenInputs({
       <HiddenInput name="mergeCandidateCommandBody" value={mergeCandidateCommandBody ?? ""} />
       <HiddenInput name="jobId" value={jobIdValue} />
       <HiddenInput name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
+      <HiddenInput name="scopeRecordId" value={context.scopeRecordId ?? ""} />
+      {promotionPhase ? <HiddenInput name="promotionPhase" value={promotionPhase} /> : null}
     </>
   );
 }

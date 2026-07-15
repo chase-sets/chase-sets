@@ -5,6 +5,7 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import { applyDiscoveryItemPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
+import { useDiscoveryRealtimeRevalidation } from "../support/realtime-support/revalidation";
 import { discoveryAssetUrls } from "../support/client-support/assets";
 import type { DiscoveryItemDetail } from "../support/client-support/contracts";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
@@ -165,13 +166,14 @@ function DiscoveryItemDetailRealtimeView({
   data: DiscoveryItemDetailRouteData;
   actionData: DiscoveryItemDetailActionData;
 }) {
+  const revalidateForRealtimeSync = useDiscoveryRealtimeRevalidation();
   const actionErrorMessage = getActionErrorMessage(actionData);
   const realtimeItem = useRealtimePatchedSnapshot({
     initialSnapshot: data.item,
     snapshotKey: JSON.stringify(data.item),
     topics: data.item ? discoveryRealtimeRouteTopics.itemDetail(data.item.catalog_item_id).topics : [],
     applyPatch: applyDiscoveryItemPatch,
-    onSyncRequired: reloadForRealtimeSync,
+    onSyncRequired: revalidateForRealtimeSync,
   });
   const productJsonLd = realtimeItem
     ? buildItemDetailProductJsonLd({ item: realtimeItem, canonicalUrl: data.canonicalUrl })
@@ -204,10 +206,4 @@ function DiscoveryItemDetailRealtimeView({
       />
     </>
   );
-}
-
-function reloadForRealtimeSync() {
-  if (typeof window !== "undefined") {
-    window.location.reload();
-  }
 }

@@ -73,7 +73,7 @@ export function CatalogWorkbenchShell({
         actions={showReturnLink ? <WorkbenchReturnLink routeContext={readModel.routeContext} /> : null}
       />
 
-      {commandFeedback ? <CommandFeedbackBanner feedback={commandFeedback} /> : null}
+      {commandFeedback ? <CatalogCommandFeedbackBanner feedback={commandFeedback} /> : null}
 
       {/* Top-of-page slot: the unified attention queue — the needs-you
           inbox — renders above the import context bar and metric strip on the
@@ -134,7 +134,9 @@ export function CatalogWorkbenchShell({
   );
 }
 
-function CommandFeedbackBanner({ feedback }: { feedback: CatalogPrimaryWorkbenchCommandFeedback }) {
+export function CatalogCommandFeedbackBanner({
+  feedback,
+}: Readonly<{ feedback: CatalogPrimaryWorkbenchCommandFeedback }>) {
   return (
     <OperationalStatusBanner
       tone={feedback.status === "success" ? "success" : "warning"}

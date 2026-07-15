@@ -17,11 +17,11 @@ import type {
   CatalogPrimaryWorkbenchMergeCandidateReviewRow,
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
-import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
 import { CommandHiddenInputs } from "./command-controls";
+import { useCatalogIntegrationCommandHref } from "./command-action-context";
 
 // Candidate edit form. Renders inline in the candidate review drawer. It
-// submits the typed `update-merge-candidate` intent carrying the base snapshot
+// submits the typed `candidate.edit` intent carrying the base snapshot
 // plus the operator's overrides; the command handler applies them onto the base
 // snapshot and calls UpdateCatalogMergeCandidate, so field corrections land as
 // `manual` provenance and promotion carries the edited value. The row-level
@@ -31,6 +31,7 @@ export function CatalogMergeCandidateEditForm({
   readModel,
 }: Readonly<{ row: CatalogPrimaryWorkbenchMergeCandidateReviewRow; readModel: CatalogPrimaryWorkbenchReadModel }>) {
   const editForm = row.editForm;
+  const actionHref = useCatalogIntegrationCommandHref(readModel.routeContext);
 
   if (editForm.state !== "available" || !editForm.baseSnapshotJson) {
     return (
@@ -51,13 +52,8 @@ export function CatalogMergeCandidateEditForm({
       headingLevel={3}
       density="compact"
     >
-      <WorkbenchForm
-        variant="surface"
-        method="post"
-        action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
-        data-catalog-merge-candidate-edit-form="true"
-      >
-        <CommandHiddenInputs readModel={readModel} intent="update-merge-candidate" candidateId={row.candidateId} />
+      <WorkbenchForm variant="surface" method="post" action={actionHref} data-catalog-merge-candidate-edit-form="true">
+        <CommandHiddenInputs readModel={readModel} intent="candidate.edit" candidateId={row.candidateId} />
         <HiddenInput name="candidateEditBaseSnapshot" value={editForm.baseSnapshotJson} />
         <RadioGroup
           name="candidateEditPromotionIntent"

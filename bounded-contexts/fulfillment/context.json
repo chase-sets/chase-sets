@@ -48,6 +48,18 @@
       ],
       "order": 30,
       "projectionHandlerSetNames": ["fulfillment-payment-fraud-source-projection"]
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "projectionName": "fulfillment-support-return-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.affected-line-items-recorded",
+        "support.support-request.remedy-authorized.v1"
+      ],
+      "order": 40,
+      "projectionHandlerSetNames": ["fulfillment-support-return-source-projection"]
     }
   ],
   "projectionGroups": [
@@ -73,6 +85,13 @@
       "resetStrategy": "replay-only"
     },
     {
+      "projectionName": "fulfillment-support-return-source-projection",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": ["fulfillment_support_return_sources", "fulfillment_support_return_remedy_sources"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "fulfillment-shipment-projection",
       "sourceContextNames": ["fulfillment"],
       "ownedTables": [
@@ -92,7 +111,8 @@
       "ownedTables": [
         "fulfillment_return_shipment_customer_pages",
         "fulfillment_return_shipment_operator_pages",
-        "fulfillment_unidentified_return_package_pages"
+        "fulfillment_unidentified_return_package_pages",
+        "fulfillment_return_shipment_provider_events"
       ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
@@ -120,6 +140,9 @@
       { "name": "fulfillment.list-shipments", "ownerSlice": "shipments" },
       { "name": "fulfillment.get-tracking", "ownerSlice": "shipments" },
       { "name": "fulfillment.purchase-label", "ownerSlice": "shipments" },
+      { "name": "fulfillment.advance-shipment", "ownerSlice": "shipments" },
+      { "name": "fulfillment.dispatch-shipment", "ownerSlice": "shipments" },
+      { "name": "fulfillment.raise-shipment-exception", "ownerSlice": "shipments" },
       { "name": "fulfillment.void-label", "ownerSlice": "shipments" }
     ],
     "resources": [
@@ -352,6 +375,28 @@
         "tests": [
           "bounded-contexts/fulfillment/features/return-shipments/api/route.test.ts",
           "bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "fulfillment.command-center-shipment-actions",
+      "owner": "fulfillment",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#1",
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#2",
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#3",
+        "route-action:bounded-contexts/fulfillment/routes/marketplace/account-sale-shipments.tsx"
+      ],
+      "visibleDestination": {
+        "description": "The fulfillment command center dispatches each named shipment action to the seller shipment command endpoints, which return authoritative command snapshots with shipment id and aggregate version. The work-ordered queue re-derives from those snapshots on reload and is treated as refreshable operational context, not a claimed inline read."
+      },
+      "proof": {
+        "authoritativeResponse": "runShipmentCommandCenterAction gates each action through the shipment-action state machine, then calls the seller shipment command endpoints whose responses are built from the Fulfillment command result before any projection read; the route redirects only after those authoritative responses succeed and surfaces command errors without claiming completion.",
+        "tests": [
+          "bounded-contexts/fulfillment/features/shipments/domain/shipment-action.test.ts",
+          "bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.test.tsx"
         ]
       }
     }

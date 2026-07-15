@@ -33,9 +33,11 @@ import {
   UCP_MCP_TOOLS,
   unsupportedUcpOperation,
   type UcpBusinessProfile,
+  type UcpAp2Readiness,
   type UcpEnvelope,
   type UcpMcpResourceDescriptor,
   type UcpMcpToolDescriptor,
+  type UcpSigningJsonWebKey,
 } from "./ucp-contracts";
 import type { McpToolCallLease, McpToolCallLimitKind, McpToolCallLimiter } from "./mcp-tool-call-limiter";
 import type { ResolvedActor } from "./auth";
@@ -148,7 +150,7 @@ export type UcpBusinessSigningKey = Readonly<{
 
 export type UcpBusinessSigningKeySet = Readonly<{
   current: UcpBusinessSigningKey;
-  previousPublicJwks?: readonly JsonWebKey[];
+  previousPublicJwks?: readonly UcpSigningJsonWebKey[];
 }>;
 
 export type UcpRuntimeObserver = Readonly<{
@@ -202,6 +204,7 @@ export type CreateUcpRoutesOptions = Readonly<{
   allowInMemoryIdempotencyStoreForTests?: boolean;
   signatureVerification?: UcpSignatureVerificationOptions;
   businessSigningKeys?: UcpBusinessSigningKeySet;
+  ap2Readiness?: UcpAp2Readiness;
   observer?: UcpRuntimeObserver;
 }>;
 
@@ -957,17 +960,19 @@ function checkoutPayloadForMerchantAuthorization(checkout: Readonly<Record<strin
   return payload;
 }
 
-function publicJwkForPrivateKey(key: UcpBusinessSigningKey): JsonWebKey {
+function publicJwkForPrivateKey(key: UcpBusinessSigningKey): UcpSigningJsonWebKey {
   const publicJwk = createPublicKey(createPrivateKey({ key: key.privateJwk, format: "jwk" })).export({ format: "jwk" });
   return {
     ...publicJwk,
     kid: key.kid,
     alg: key.alg,
     use: "sig",
-  } as JsonWebKey;
+  };
 }
 
-export function publicUcpBusinessSigningKeys(keys: UcpBusinessSigningKeySet | undefined): readonly JsonWebKey[] {
+export function publicUcpBusinessSigningKeys(
+  keys: UcpBusinessSigningKeySet | undefined,
+): readonly UcpSigningJsonWebKey[] {
   if (!keys) {
     return [];
   }
@@ -1062,9 +1067,14 @@ export function addUcpAp2MerchantAuthorization(
   };
 }
 
-function buildBusinessProfile(origin: string, keys: UcpBusinessSigningKeySet | undefined): UcpBusinessProfile {
+function buildBusinessProfile(
+  origin: string,
+  keys: UcpBusinessSigningKeySet | undefined,
+  ap2Readiness: UcpAp2Readiness | undefined,
+): UcpBusinessProfile {
   return buildUcpBusinessProfile(origin, {
     signingKeys: publicUcpBusinessSigningKeys(keys),
+    ap2Readiness,
   });
 }
 
@@ -1802,10 +1812,14 @@ function ucpMcpToolLimitEnvelope(reason: string) {
   ]);
 }
 
-export function createUcpProfileRoutes(options: Pick<CreateUcpRoutesOptions, "businessSigningKeys"> = {}) {
+export function createUcpProfileRoutes(
+  options: Pick<CreateUcpRoutesOptions, "businessSigningKeys" | "ap2Readiness"> = {},
+) {
   const app = new Hono();
 
-  app.get("/ucp", (c) => c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys)));
+  app.get("/ucp", (c) =>
+    c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys, options.ap2Readiness)),
+  );
 
   return app;
 }
@@ -1814,7 +1828,9 @@ export function createUcpRestRoutes(options: CreateUcpRoutesOptions = {}) {
   const app = new Hono<UcpRuntimeEnv>();
   const idempotencyStore = resolveUcpIdempotencyStore(options, "REST");
 
-  app.get("/", (c) => c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys)));
+  app.get("/", (c) =>
+    c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys, options.ap2Readiness)),
+  );
 
   app.post("/catalog/search", async (c) =>
     c.json(await invokeRestHandler(options.restHandlers, "search_catalog", handlerInput(c, {}))),

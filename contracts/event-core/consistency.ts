@@ -25,7 +25,7 @@ export function runWithEventCommitMetadata<T>(action: () => T): T {
   return storage.run({ eventIds: [], sources: new Map() }, action);
 }
 
-export function recordCommittedEvents(events: readonly StoredEvent[]): void {
+export function recordCommittedEvents(events: readonly StoredEvent[], sourceContextNameOverride?: string): void {
   const store = storage.getStore();
   if (!store || events.length === 0) {
     return;
@@ -39,7 +39,7 @@ export function recordCommittedEvents(events: readonly StoredEvent[]): void {
       store.maxGlobalPosition = globalPosition;
     }
 
-    const sourceContextName = sourceContextNameFromStreamId(event.streamId);
+    const sourceContextName = sourceContextNameOverride ?? sourceContextNameFromStreamId(event.streamId);
     const source = store.sources.get(sourceContextName) ?? { eventIds: [] };
     source.eventIds.push(eventId);
     if (!source.maxGlobalPosition || BigInt(globalPosition) > BigInt(source.maxGlobalPosition)) {

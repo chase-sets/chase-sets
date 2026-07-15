@@ -8,6 +8,7 @@
     "browse",
     "categories",
     "google-shopping-operations",
+    "home",
     "item-detail",
     "product-alerts",
     "saved-list-addition",
@@ -982,6 +983,21 @@
         "authoritativeResponse": "Marketplace Report Listing returns id, version, target, report count, threshold, and auto-unlisted directly from the command result.",
         "tests": ["bounded-contexts/marketplace/features/reports/api/runtime.test.ts"]
       }
+    },
+    {
+      "id": "discovery.public-review-report-snapshot",
+      "owner": "discovery",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": ["route-action:bounded-contexts/discovery/routes/public-account.tsx"],
+      "visibleDestination": {
+        "routeId": "public-account",
+        "description": "The public account Review report action returns Marketplace's command-owned submitted or already-submitted status inline. It does not wait on Discovery's public account projection and does not remove or alter the visible Review."
+      },
+      "proof": {
+        "authoritativeResponse": "Marketplace Report Review returns the report id, version, target, and status directly from the report command; duplicate stream state maps to an explicit already-submitted result.",
+        "tests": ["bounded-contexts/discovery/routes/public-account.test.tsx"]
+      }
     }
   ],
   "deployableContributions": [
@@ -1115,6 +1131,11 @@
       "purpose": "Own item-detail feature behavior, read models, and UI contracts for the discovery context.",
       "expectedConsumers": ["Internal discovery module composition"]
     },
+    "home": {
+      "classification": "slice",
+      "purpose": "Own home-page merchandising composition over Discovery category and search read models.",
+      "expectedConsumers": ["Marketplace home route"]
+    },
     "google-shopping-operations": {
       "classification": "slice",
       "purpose": "Own Discovery Google Shopping operator diagnostics for feed readiness without exposing provider secrets.",
@@ -1138,7 +1159,7 @@
     "client-support": {
       "classification": "support",
       "purpose": "Provide reusable client-support assets shared by discovery-owned features and composition seams.",
-      "expectedConsumers": ["browse", "google-shopping-operations", "item-detail", "search"]
+      "expectedConsumers": ["browse", "google-shopping-operations", "home", "item-detail", "search"]
     },
     "item-support": {
       "classification": "support",
@@ -1179,7 +1200,7 @@
     "ui-support": {
       "classification": "support",
       "purpose": "Provide browser-safe Discovery UI contracts and shared formatting for item-detail and search surfaces.",
-      "expectedConsumers": ["item-detail", "search"]
+      "expectedConsumers": ["home", "item-detail", "search"]
     },
     "ucp-support": {
       "classification": "support",

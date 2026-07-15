@@ -88,6 +88,34 @@ export interface OrderingOrderProjectionHold {
   released_at: string | null;
 }
 
+export interface OrderingOrderRefundTimelineItem {
+  refund_id: string;
+  amount: string | null;
+  currency_code: string;
+  status: "requested" | "issued" | "failed";
+  requested_at: string;
+  issued_at: string | null;
+  failed_at: string | null;
+}
+
+export interface OrderingOrderSupportMoneyItem {
+  support_request_id: string;
+  status: string;
+  resolution_type: string | null;
+  refund_amount: string | null;
+  active_hold: boolean;
+  opened_at: string;
+  resolved_at: string | null;
+  released_at: string | null;
+}
+
+export interface OrderingOrderMoneyTimeline {
+  refunds: readonly OrderingOrderRefundTimelineItem[];
+  support_cases: readonly OrderingOrderSupportMoneyItem[];
+  refunded_amount: string;
+  currency_code: string;
+}
+
 export interface OrderingOrderReviewOpportunity {
   order_id: string;
   subject_account_id: string;
@@ -95,11 +123,18 @@ export interface OrderingOrderReviewOpportunity {
   author_role: string;
   eligible_at: string;
   active_review_id: string | null;
+  submission_state?: "allowed" | "held" | "expired";
+  hold_reason?: "feedback-on-hold" | null;
+  window_expired?: boolean;
+  response?: string | null;
+  revealed?: boolean;
+  scoring_disposition?: "included" | "context-only" | null;
 }
 
 export interface OrderingOrderProjectionDetail extends OrderingOrderProjection {
   lines: readonly OrderingOrderProjectionLine[];
   inventory_holds: readonly OrderingOrderProjectionHold[];
+  money_timeline: OrderingOrderMoneyTimeline;
 }
 
 export interface PurchaseListItem extends OrderingOrderProjection {}

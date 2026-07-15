@@ -42,4 +42,74 @@ describe("Support Fulfillment source reactions", () => {
       expect.objectContaining({ tenantId: "tnt_1" }),
     );
   });
+
+  function trackingEvent(type: string, extra: Record<string, unknown>) {
+    return {
+      id: `evt_${type}`,
+      type,
+      streamId: "fulfillment.return-shipment-rsh_1",
+      streamVersion: 3,
+      globalPosition: 5,
+      tenantId: "tnt_1",
+      data: {
+        returnShipmentId: "rsh_1",
+        remedyId: "rmd_1",
+        supportRequestId: "sup_1",
+        detail: null,
+        metadata: {
+          correlationRemedyId: "rmd_1",
+          idempotencyKey: `${type}-idem`,
+          policyVersion: "v1",
+          causationId: null,
+        },
+        ...extra,
+      },
+      metadata: {},
+      audit: { performedByUserId: "usr_system", forAccountId: "acc_platform" },
+      trace: {},
+      timing: { occurredAt: "2026-07-14T12:00:00.000Z", recordedAt: "2026-07-14T12:00:00.000Z" },
+    } as never;
+  }
+
+  it("releases the refund by recording the delivered effect when delivered is the authorized trigger", async () => {
+    const recordRemedyEffect = vi.fn(async () => ({ supportRequestId: "sup_1", remedyId: "rmd_1", version: 4 }));
+    const query = vi.fn(async () => ({ rows: [{ refund_trigger: "delivered" }], rowCount: 1 }));
+    const handlers = buildSupportShipmentSourceProjectionHandlers({ query } as never, { recordRemedyEffect });
+    await handlers["fulfillment.return-shipment.delivered.v1"]!(
+      trackingEvent("fulfillment.return-shipment.delivered.v1", { deliveredAt: "2026-07-14T12:00:00.000Z" }),
+    );
+    expect(recordRemedyEffect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        supportRequestId: "sup_1",
+        remedyId: "rmd_1",
+        effect: "return-delivered",
+        outcome: "satisfied",
+        idempotencyKey: "fulfillment.return-shipment.delivered.v1-idem",
+      }),
+      expect.objectContaining({ tenantId: "tnt_1" }),
+    );
+  });
+
+  it("records the carrier-accepted effect only when carrier-accepted is the authorized trigger", async () => {
+    const recordRemedyEffect = vi.fn(async () => ({ supportRequestId: "sup_1", remedyId: "rmd_1", version: 4 }));
+    const query = vi.fn(async () => ({ rows: [{ refund_trigger: "carrier-accepted" }], rowCount: 1 }));
+    const handlers = buildSupportShipmentSourceProjectionHandlers({ query } as never, { recordRemedyEffect });
+    await handlers["fulfillment.return-shipment.carrier-accepted.v1"]!(
+      trackingEvent("fulfillment.return-shipment.carrier-accepted.v1", { occurredAt: "2026-07-14T12:00:00.000Z" }),
+    );
+    expect(recordRemedyEffect).toHaveBeenCalledWith(
+      expect.objectContaining({ effect: "carrier-accepted", outcome: "satisfied" }),
+      expect.anything(),
+    );
+  });
+
+  it("does not treat a delivered scan as a trigger when the authorized trigger is facility-intake", async () => {
+    const recordRemedyEffect = vi.fn(async () => ({ supportRequestId: "sup_1", remedyId: "rmd_1", version: 4 }));
+    const query = vi.fn(async () => ({ rows: [{ refund_trigger: "facility-intake" }], rowCount: 1 }));
+    const handlers = buildSupportShipmentSourceProjectionHandlers({ query } as never, { recordRemedyEffect });
+    await handlers["fulfillment.return-shipment.delivered.v1"]!(
+      trackingEvent("fulfillment.return-shipment.delivered.v1", { deliveredAt: "2026-07-14T12:00:00.000Z" }),
+    );
+    expect(recordRemedyEffect).not.toHaveBeenCalled();
+  });
 });

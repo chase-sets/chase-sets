@@ -65,6 +65,15 @@ import {
 } from "../integrations/transactional-email/transactional-email-projector";
 import { buildSupportRequestProjectionHandlers } from "../read-model/projection";
 import {
+  readSupportEvidenceAttachment,
+  storeSupportEvidenceAttachments,
+  type StoredSupportEvidenceAttachment,
+  type SupportEvidenceAttachmentSecurityScanner,
+  type SupportEvidenceAttachmentStorage,
+  type SupportEvidenceAttachmentUpload,
+} from "./attachments";
+import { parseSupportEvidenceAttachmentReference } from "../domain/attachment-reference";
+import {
   findOpenSupportRequestForOrder,
   getAccountSupportRequest,
   getSupportOperationsRequest,
@@ -85,6 +94,8 @@ type SupportRequestRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   notificationOutbox?: NotificationOutbox;
+  attachmentStorage?: SupportEvidenceAttachmentStorage;
+  attachmentSecurityScanner?: SupportEvidenceAttachmentSecurityScanner;
   /**
    * The shared platform-policy runtime, used to resolve the support-deadline
    * policy at open time and to source `listFlowDefinitions`' response-window
@@ -93,6 +104,7 @@ type SupportRequestRuntimeDeps = Readonly<{
    * defaults unchanged.
    */
   policies?: Pick<PolicyRuntime, "resolvePolicy">;
+  now?: () => string;
 }>;
 
 type SupportRequestMutationScope = "participant" | "operations";
@@ -103,6 +115,7 @@ export type SupportOrderSource = Readonly<{
   seller_account_id: string;
   status: string;
   total_amount: string;
+  delivered_at: string | null;
   return_context: readonly SupportOrderReturnContextLine[];
   affected_line_amounts: readonly SupportAffectedLineItemAmount[];
 }>;
@@ -181,6 +194,22 @@ export type SupportRequestServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
   getSupportOrderContext: (params: Readonly<{ orderId: string; accountId: string }>) => Promise<SupportOrderContext>;
+  uploadAttachments: (
+    params: Readonly<{
+      supportRequestId: string;
+      accountId: string;
+      roleKey: string;
+      uploads: readonly SupportEvidenceAttachmentUpload[];
+    }>,
+  ) => Promise<readonly StoredSupportEvidenceAttachment[] | null>;
+  getAttachment: (
+    params: Readonly<{
+      supportRequestId: string;
+      attachmentId: string;
+      accountId: string;
+      roleKey: string;
+    }>,
+  ) => Promise<Readonly<{ body: Uint8Array; contentType: string }> | null>;
   submitEvidence: (
     params: Readonly<{
       supportRequestId: string;
@@ -392,6 +421,11 @@ async function getOrderSource(db: PgQueryable, orderId: string): Promise<Support
        seller_account_id,
        status,
        total_amount::text AS total_amount,
+       (
+         SELECT MAX(shipment.delivered_at)::text
+         FROM support_shipment_sources AS shipment
+         WHERE shipment.order_id = source.order_id
+       ) AS delivered_at,
        return_context,
        COALESCE(
          (
@@ -563,6 +597,10 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     initialState: () => initialSupportRequestState,
     evolve: evolveSupportRequest,
     decide: decideSupportRequest,
+    // Support request streams keep their durable `support.` prefix, but the
+    // owning source context for wake routing and read-after-write receipts is
+    // Platform Operations.
+    commitSourceContextName: "platform-operations",
   });
 
   async function resolvePlatformRemedyPolicy(): Promise<{
@@ -574,6 +612,12 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     }
     const resolved = await deps.policies.resolvePolicy(platformRemedyPolicy);
     return { value: resolved.value, version: platformRemedyPolicyVersion(resolved) };
+  }
+
+  async function getAttachmentCase(params: Readonly<{ supportRequestId: string; accountId: string; roleKey: string }>) {
+    return params.roleKey === "platform-admin"
+      ? getSupportOperationsRequest(deps.db, params.supportRequestId)
+      : getAccountSupportRequest(deps.db, params.supportRequestId, params.accountId);
   }
 
   async function evaluatePlatformRemedyProposal(
@@ -757,6 +801,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
         : null;
 
       const supportRequestId = createId("sup") as SupportRequestId;
+      const openedAt = deps.now?.() ?? new Date().toISOString();
       const result = await commandHandler({
         streamId: `support.support-request-${supportRequestId}`,
         command: {
@@ -769,7 +814,8 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           flowType,
           openedByAccountId: params.accountId as AccountId,
           openedByRole,
-          openedAt: new Date().toISOString(),
+          openedAt,
+          deliveredAt: order.delivered_at,
           orderReturnContext: order.return_context,
           ...(affectedLineItems.length > 0 ? { affectedLineItems } : {}),
           ...(deadlineHours
@@ -784,10 +830,38 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
 
       return { supportRequestId, version: result.version };
     },
+    uploadAttachments: async (params) => {
+      const supportRequest = await getAttachmentCase(params);
+      if (!supportRequest) {
+        return null;
+      }
+      return storeSupportEvidenceAttachments({
+        supportRequestId: params.supportRequestId,
+        uploads: params.uploads,
+        storage: deps.attachmentStorage,
+        securityScanner: deps.attachmentSecurityScanner,
+      });
+    },
+    getAttachment: async (params) => {
+      const supportRequest = await getAttachmentCase(params);
+      if (!supportRequest) {
+        return null;
+      }
+      const reference = supportRequest.evidence
+        .flatMap((evidence) => evidence.attachments)
+        .find((candidate) => parseSupportEvidenceAttachmentReference(candidate)?.attachmentId === params.attachmentId);
+      if (!reference) {
+        return null;
+      }
+      return readSupportEvidenceAttachment({
+        supportRequestId: params.supportRequestId,
+        reference,
+        storage: deps.attachmentStorage,
+      });
+    },
     submitEvidence: async (params, context) => {
-      await requireMutableSupportRequest(deps.db, params);
       const supportRequest = await requireMutableSupportRequest(deps.db, params);
-      const resolvedByRole =
+      const submittedByRole =
         params.scope === "operations" ? "support" : accountRoleForSupportRequest(supportRequest, params.accountId);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
@@ -795,7 +869,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           type: "SubmitSupportEvidence",
           evidenceId: createId("sev"),
           submittedByAccountId: params.accountId as AccountId,
-          submittedByRole: normalizeRequesterRole(params.submittedByRole),
+          submittedByRole,
           evidenceType: normalizeEvidenceType(params.evidenceType),
           summary: params.summary,
           occurredAt: params.occurredAt ?? null,
@@ -808,7 +882,9 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       return { supportRequestId: params.supportRequestId, version: result.version };
     },
     recordResponse: async (params, context) => {
-      await requireMutableSupportRequest(deps.db, params);
+      const supportRequest = await requireMutableSupportRequest(deps.db, params);
+      const submittedByRole =
+        params.scope === "operations" ? "support" : accountRoleForSupportRequest(supportRequest, params.accountId);
       const responseType = normalizeResponseType(params.responseType);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
@@ -816,7 +892,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           type: "RecordSupportResponse",
           responseId: createId("srp"),
           submittedByAccountId: params.accountId as AccountId,
-          submittedByRole: normalizeRequesterRole(params.submittedByRole),
+          submittedByRole,
           responseType,
           summary: params.summary,
           submittedAt: new Date().toISOString(),
@@ -1109,7 +1185,10 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       return { supportRequestId: params.supportRequestId, version: result.version };
     },
     cancelSupportRequest: async (params, context) => {
-      await requireMutableSupportRequest(deps.db, params);
+      const supportRequest = await requireMutableSupportRequest(deps.db, params);
+      if (params.scope !== "operations" && supportRequest.opened_by_account_id !== params.accountId) {
+        throw new SupportDomainError("Only the account that opened this support request can cancel it.");
+      }
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {

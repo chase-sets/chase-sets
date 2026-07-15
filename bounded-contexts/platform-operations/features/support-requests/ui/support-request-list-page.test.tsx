@@ -5,7 +5,11 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { supportFlowCatalog } from "../domain/flow-catalog";
 import { SupportRequestListPage } from "./support-request-list-page";
 
-function renderPage(supportOrder: Parameters<typeof SupportRequestListPage>[0]["supportOrder"] = null) {
+function renderPage(
+  supportOrder: Parameters<typeof SupportRequestListPage>[0]["supportOrder"] = null,
+  buyerRequests: Parameters<typeof SupportRequestListPage>[0]["buyerRequests"] = [],
+  sellerRequests: Parameters<typeof SupportRequestListPage>[0]["sellerRequests"] = [],
+) {
   const router = createMemoryRouter(
     [
       {
@@ -13,8 +17,8 @@ function renderPage(supportOrder: Parameters<typeof SupportRequestListPage>[0]["
         element: (
           <SupportRequestListPage
             flows={supportFlowCatalog}
-            buyerRequests={[]}
-            sellerRequests={[]}
+            buyerRequests={buyerRequests}
+            sellerRequests={sellerRequests}
             supportOrder={supportOrder}
           />
         ),
@@ -88,7 +92,13 @@ describe("SupportRequestListPage", () => {
     expect(intake.getByText("Return for refund")).toBeTruthy();
     expect(intake.getByText("48 hours")).toBeTruthy();
     expect(intake.getByText(/If the seller does not respond by the deadline/)).toBeTruthy();
-    expect(intake.getByText(/Photos are required for this issue/)).toBeTruthy();
+    expect(intake.getByLabelText("Add evidence photos")).toBeTruthy();
+    expect(intake.getByLabelText("Add evidence photos").hasAttribute("required")).toBe(true);
+    expect(form?.getAttribute("enctype")).toBe("multipart/form-data");
+    expect(intake.getByText("Report item problems within 30 days of delivery.")).toBeTruthy();
+    expect(intake.getByRole("link", { name: "Read Order Protection terms" }).getAttribute("href")).toBe(
+      "/help/buying/order-protection",
+    );
     expect(
       Array.from(document.querySelectorAll<HTMLInputElement>('input[name="affectedLineIds"]')).map(
         (input) => input.value,
@@ -127,5 +137,55 @@ describe("SupportRequestListPage", () => {
     );
     expect(screen.getByText("SUP-EXISTING")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Open case" })).toBeNull();
+  });
+
+  it("links buyer and seller rows to the participant-scoped case detail page", () => {
+    const request = {
+      support_request_id: "sup_case_detail",
+      display_reference: "SUP-CASEDETA",
+      order_id: "ord_case_detail",
+      buyer_account_id: "acc_buyer",
+      seller_account_id: "acc_seller",
+      flow_type: "product-damaged",
+      status: "waiting-on-seller",
+      priority: "normal",
+      opened_by_account_id: "acc_buyer",
+      opened_by_role: "buyer",
+      opened_at: "2026-07-15T08:00:00.000Z",
+      updated_at: "2026-07-15T08:00:00.000Z",
+      seller_response_due_at: "2026-07-17T08:00:00.000Z",
+      support_review_due_at: "2026-07-16T08:00:00.000Z",
+      seller_condition_attestation_due_at: null,
+      order_return_context: null,
+      affected_line_items: [],
+      return_investigation: null,
+      checklist: [],
+      pending_offer: null,
+      resolution: null,
+      closed_at: null,
+      cancellation_reason: null,
+      escalated_at: null,
+      escalated_by_account_id: null,
+      escalated_by_role: null,
+      escalation_reason: null,
+      return_refund_gate_status: null,
+      return_delivered_at: null,
+      return_refund_release_due_at: null,
+      return_condition_disputed_at: null,
+      remedy: null,
+      remedy_approval: null,
+      contested: false,
+      case_presentation: "decision-pending" as const,
+      closure_eligible: false,
+      closure_blocking_reasons: [],
+      next_remedy_action: null,
+      remedy_repair_guidance: [],
+    };
+
+    renderPage(null, [request], [request]);
+
+    const links = screen.getAllByRole("link", { name: "SUP-CASEDETA" });
+    expect(links).toHaveLength(4);
+    expect(links.every((link) => link.getAttribute("href") === "/account/support/sup_case_detail")).toBe(true);
   });
 });

@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS fulfillment_return_shipment_operator_pages (
   support_request_id text NOT NULL,
   order_id text NOT NULL,
   outbound_shipment_id text NOT NULL,
+  affected_order_line_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   return_directive text NOT NULL,
   status text NOT NULL,
   ship_from_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -162,9 +163,37 @@ CREATE TABLE IF NOT EXISTS fulfillment_unidentified_return_package_pages (
 
 CREATE INDEX IF NOT EXISTS fulfillment_unidentified_return_package_pages_facility_status_idx
   ON fulfillment_unidentified_return_package_pages (facility_id, reconciled_at, received_at DESC);
+
+CREATE TABLE IF NOT EXISTS fulfillment_return_shipment_provider_events (
+  provider_event_id text PRIMARY KEY,
+  provider_name text NOT NULL,
+  provider_mode text NOT NULL,
+  event_kind text NOT NULL,
+  provider_object_reference text NOT NULL,
+  return_shipment_id text NULL,
+  tracking_identifier text NULL,
+  status text NULL,
+  status_detail text NULL,
+  semantic_milestone text NULL,
+  occurred_at timestamptz NOT NULL,
+  received_at timestamptz NOT NULL,
+  processing_result text NOT NULL,
+  payload_json jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS fulfillment_return_shipment_provider_events_shipment_idx
+  ON fulfillment_return_shipment_provider_events (return_shipment_id, occurred_at);
 `;
 
 export const fulfillmentReturnShipmentSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260715_fulfillment_return_shipment_support_linkage",
+    description: "Add affected order-line linkage to replayable ReturnShipment operator pages.",
+    statements: [
+      `ALTER TABLE IF EXISTS fulfillment_return_shipment_operator_pages
+         ADD COLUMN IF NOT EXISTS affected_order_line_ids jsonb NOT NULL DEFAULT '[]'::jsonb`,
+    ],
+  },
   {
     migrationId: "20260714_fulfillment_return_shipment_facility_intake",
     description:
@@ -201,6 +230,31 @@ export const fulfillmentReturnShipmentSchemaMigrations: readonly BcSchemaMigrati
        )`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_unidentified_return_package_pages_facility_status_idx
          ON fulfillment_unidentified_return_package_pages (facility_id, reconciled_at, received_at DESC)`,
+    ],
+  },
+  {
+    migrationId: "20260715_fulfillment_return_shipment_provider_events",
+    description:
+      "Add the reverse-tracking provider-event dedup ledger so carrier webhooks and reconciliation polls emit each custody milestone at most once.",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS fulfillment_return_shipment_provider_events (
+         provider_event_id text PRIMARY KEY,
+         provider_name text NOT NULL,
+         provider_mode text NOT NULL,
+         event_kind text NOT NULL,
+         provider_object_reference text NOT NULL,
+         return_shipment_id text NULL,
+         tracking_identifier text NULL,
+         status text NULL,
+         status_detail text NULL,
+         semantic_milestone text NULL,
+         occurred_at timestamptz NOT NULL,
+         received_at timestamptz NOT NULL,
+         processing_result text NOT NULL,
+         payload_json jsonb NOT NULL DEFAULT '{}'::jsonb
+       )`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_return_shipment_provider_events_shipment_idx
+         ON fulfillment_return_shipment_provider_events (return_shipment_id, occurred_at)`,
     ],
   },
 ];

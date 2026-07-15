@@ -17,10 +17,13 @@ import {
 } from "@chase-sets/design-system";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { t } from "@chase-sets/localization";
-import { normalizeFlowType } from "../domain/common";
+import { normalizeFlowType, type SupportResolutionType } from "../domain/common";
+import { getSupportFlowDefinition } from "../domain/flow-catalog";
 import { getSupportResponsibilityReasonDefinitions } from "../domain/responsibility";
+import { adjudicationRefundCap, adjudicationRefundPrefill, CaseAdjudicationPanel } from "./case-adjudication-panel";
 import type { PlatformRemedyProposalInput, PlatformRemedyProposalPreview, SupportRequestDetail } from "./contracts";
 import { PlatformRemedyWorkflowPanel } from "./platform-remedy-workflow-panel";
+import { SupportEvidenceAttachmentGallery } from "./support-evidence-attachments";
 import {
   formatSupportDateTime,
   nextSupportDeadline,
@@ -211,8 +214,23 @@ function EscalateForm({ actionHref }: Readonly<{ actionHref: string }>) {
   );
 }
 
+/**
+ * The decision panel only offers the flow's `allowedResolutions` so an operator
+ * can never issue an outcome the domain would reject, and it prefills the refund
+ * from the affected lines/offer history capped at the domain ceiling.
+ */
+function resolutionItemsForFlow(request: SupportRequestDetail) {
+  const byValue = new Map(resolutionTypeItems.map((item) => [item.value as SupportResolutionType, item]));
+  return getSupportFlowDefinition(normalizeFlowType(request.flow_type))
+    .allowedResolutions.map((resolution) => byValue.get(resolution))
+    .filter((item): item is (typeof resolutionTypeItems)[number] => Boolean(item));
+}
+
 function ResolveForm({ request, actionHref }: Readonly<{ request: SupportRequestDetail; actionHref: string }>) {
   const reasons = responsibilityReasonItems(request);
+  const resolutionItems = resolutionItemsForFlow(request);
+  const refundPrefill = adjudicationRefundPrefill(request);
+  const refundCap = adjudicationRefundCap(request);
 
   return (
     <RouterForm method="post" action={actionHref} spacing="md" data-support-action="resolve">
@@ -220,8 +238,8 @@ function ResolveForm({ request, actionHref }: Readonly<{ request: SupportRequest
       <NativeSelect
         label={t("support.features.supportRequests.ui.supportOperationsPage.resolve.type")}
         name="resolutionType"
-        items={resolutionTypeItems}
-        defaultValue="support-reviewed"
+        items={resolutionItems}
+        defaultValue={resolutionItems[0]?.value}
         required
       />
       <Textarea
@@ -230,11 +248,22 @@ function ResolveForm({ request, actionHref }: Readonly<{ request: SupportRequest
         required
         rows={3}
       />
+      <Text size="xs" tone="secondary">
+        {t("support.features.supportRequests.ui.supportOperationsPage.adjudication.decision.summaryVerbatim")}
+      </Text>
       <TextInput
         label={t("support.features.supportRequests.ui.supportOperationsPage.resolve.refundAmount")}
         name="refundAmount"
         inputMode="decimal"
+        defaultValue={refundPrefill ?? undefined}
       />
+      {refundCap ? (
+        <Text size="xs" tone="secondary">
+          {t("support.features.supportRequests.ui.supportOperationsPage.adjudication.decision.refundCap", {
+            amount: refundCap,
+          })}
+        </Text>
+      ) : null}
       <NativeSelect
         label={t("support.features.supportRequests.ui.supportOperationsPage.resolve.responsibilityReason")}
         name="responsibilityFinding"
@@ -335,7 +364,14 @@ function Notes({ request }: Readonly<{ request: SupportRequestDetail }>) {
   );
 }
 
-type AuditItem = Readonly<{ id: string; kind: string; summary: string; actor: string; at: string }>;
+type AuditItem = Readonly<{
+  id: string;
+  kind: string;
+  summary: string;
+  actor: string;
+  at: string;
+  attachments: readonly string[];
+}>;
 
 function auditItems(request: SupportRequestDetail): AuditItem[] {
   const items: AuditItem[] = [
@@ -348,6 +384,7 @@ function auditItems(request: SupportRequestDetail): AuditItem[] {
       summary: item.summary,
       actor: item.submittedByRole,
       at: item.submittedAt,
+      attachments: item.attachments,
     })),
     ...request.responses.map((item) => ({
       id: `response:${item.responseId}`,
@@ -355,6 +392,7 @@ function auditItems(request: SupportRequestDetail): AuditItem[] {
       summary: item.summary,
       actor: item.submittedByRole,
       at: item.submittedAt,
+      attachments: [],
     })),
     ...request.offers.map((item) => ({
       id: `offer:${item.offerId}`,
@@ -362,6 +400,7 @@ function auditItems(request: SupportRequestDetail): AuditItem[] {
       summary: item.summary,
       actor: item.offeredByRole,
       at: item.offeredAt,
+      attachments: [],
     })),
   ];
 
@@ -372,6 +411,7 @@ function auditItems(request: SupportRequestDetail): AuditItem[] {
       summary: request.escalation_reason ?? "",
       actor: request.escalated_by_role ?? "support",
       at: request.escalated_at,
+      attachments: [],
     });
   }
 
@@ -382,6 +422,7 @@ function auditItems(request: SupportRequestDetail): AuditItem[] {
       summary: request.resolution.summary,
       actor: request.resolution.resolvedByRole ?? "support",
       at: request.resolution.resolvedAt,
+      attachments: [],
     });
   }
 
@@ -414,6 +455,16 @@ function AuditTrail({ request }: Readonly<{ request: SupportRequestDetail }>) {
             key: "submitted",
             header: t("support.features.supportRequests.ui.supportOperationsPage.submitted"),
             cell: (item) => formatSupportDateTime(item.at),
+          },
+          {
+            key: "attachments",
+            header: t("support.features.supportRequests.ui.supportOperationsPage.attachments"),
+            cell: (item) => (
+              <SupportEvidenceAttachmentGallery
+                supportRequestId={request.support_request_id}
+                attachments={item.attachments}
+              />
+            ),
           },
         ]}
       />
@@ -721,6 +772,12 @@ export function EntityDetailDrawer({
             },
           ]}
         />
+
+        {!isTerminalStatus(request.status) && (request.contested || request.status === "ready-for-support") ? (
+          <Surface>
+            <CaseAdjudicationPanel request={request} />
+          </Surface>
+        ) : null}
 
         {!isTerminalStatus(request.status) ? (
           <Stack gap={2}>

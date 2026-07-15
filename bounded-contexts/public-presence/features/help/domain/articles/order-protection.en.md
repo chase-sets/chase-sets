@@ -4,9 +4,9 @@ title: Order protection
 description: How Chase Sets applies buyer and seller safeguards around payment, fulfillment, disputes, returns, payout release, and negative balances.
 audience: buyer
 category: buying
-reviewedAt: "2026-07-14"
+reviewedAt: "2026-07-15"
 citedPolicies: ["platform-operations.support-deadlines", "platform-operations.platform-remedies"]
-relatedFlows: ["product-not-received", "product-not-as-described", "authenticity-concern"]
+relatedFlows: ["product-not-received", "product-not-as-described", "product-damaged", "wrong-product-received", "missing-products", "return-request", "authenticity-concern"]
 claimCategories: ["protection", "payouts", "shipping"]
 promiseTable:
   - claim: Order problems open structured support cases that stamp response deadlines at open time and apply default remedies on seller silence.
@@ -24,6 +24,9 @@ promiseTable:
   - claim: Platform-covered resolution copy shows the approved remedy and allocation without implying seller fault or exposing internal funding details.
     issues: ["#5222"]
     tests: ["bounded-contexts/platform-operations/features/support-requests/ui/customer-remedy-status.test.tsx"]
+  - claim: Delivered-order problem intake is open for 30 days, authenticity concerns remain open, and each flow publishes its enforced seller-silence outcome.
+    issues: ["#3732"]
+    tests: ["bounded-contexts/platform-operations/features/support-requests/domain/domain.test.ts", "bounded-contexts/platform-operations/features/support-requests/api/runtime.test.ts"]
 ---
 ## Protected payment
 
@@ -42,6 +45,30 @@ Early fraud warnings and processor fraud reviews are recorded against the Paymen
 ## Getting help with an order
 
 If an order never arrives or the item is not as described, damaged, wrong, or missing, you open a structured support case directly from the order. Each case captures the evidence support needs — photos, condition notes, quantities — and stamps the seller's response deadline the moment it opens; for most flows that deadline is {{policy:support-deadlines.product-not-received.seller-response.hours}}. If the seller does not respond in time, the flow's default remedy applies automatically: when delivery cannot be proven on a product-not-received case, that remedy is a full refund. Cases that need review go to support with a stamped deadline of their own, and authenticity concerns route to support immediately as urgent. See [Refunds and returns](/help/buying/refunds-and-returns) for each flow in detail.
+
+## Reporting window
+
+Open a product-not-received, not-as-described, damaged, wrong-product, missing-products, or return request within {{policy:support-deadlines.item-problem.post-delivery-open.days}} after the shipment's recorded delivery time. If an order has not been recorded as delivered, the post-delivery clock has not started. Authenticity concerns have no post-delivery deadline and can be opened at any time.
+
+## Automatic outcomes
+
+Each response clock is stamped when the case opens. The outcome depends on the selected flow and the required evidence already in the case:
+
+- **Product not received:** if the seller does not respond within {{policy:support-deadlines.product-not-received.seller-response.hours}} and delivery cannot be proven, the case automatically resolves to a full refund.
+- **Product not as described:** if the seller does not respond within {{policy:support-deadlines.product-not-as-described.seller-response.hours}}, the case automatically resolves to return for refund.
+- **Product arrived damaged:** if the seller does not respond within {{policy:support-deadlines.product-damaged.seller-response.hours}}, the case automatically resolves to return for refund.
+- **Wrong product received:** if the seller does not respond within {{policy:support-deadlines.wrong-product-received.seller-response.hours}}, the case automatically resolves to a replacement.
+- **Missing products:** if the seller does not respond within {{policy:support-deadlines.missing-products.seller-response.hours}}, the case moves to support review because the remedy amount must be calculated; it does not automatically refund.
+- **Return request:** if the seller does not respond within {{policy:support-deadlines.return-request.seller-response.hours}} and the return-reason, photo, and condition-note checklist is complete, the case automatically resolves to return for refund; otherwise it moves to support review.
+- **Authenticity concern:** the case goes directly to urgent support review. Seller silence does not produce an automatic outcome.
+
+## Return shipping and fees
+
+When a resolution requires a return because the product was not as described, arrived damaged, was the wrong product, or raised an authenticity concern, the seller pays return shipping. For a return request based on the buyer changing their mind, return-label cost is deducted from the buyer's refund. Chase Sets does not charge restocking fees.
+
+## Binding support decisions
+
+When the parties do not agree and Chase Sets adjudicates the case, the support decision is binding for the Chase Sets order-protection process. There is no appeal inside the platform.
 
 ## Platform-covered resolutions
 

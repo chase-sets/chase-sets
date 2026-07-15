@@ -544,6 +544,9 @@ importers:
       '@chase-sets/product-measures':
         specifier: workspace:*
         version: link:../../contracts/product-measures
+      '@chase-sets/seller-attention-queue':
+        specifier: workspace:*
+        version: link:../../contracts/seller-attention-queue
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -590,6 +593,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/public-docs':
+        specifier: workspace:*
+        version: link:../../contracts/public-docs
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -645,6 +651,9 @@ importers:
       '@chase-sets/product-selection':
         specifier: workspace:*
         version: link:../../contracts/product-selection
+      '@chase-sets/seller-attention-queue':
+        specifier: workspace:*
+        version: link:../../contracts/seller-attention-queue
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -721,6 +730,9 @@ importers:
       '@chase-sets/review-eligibility':
         specifier: workspace:*
         version: link:../../contracts/review-eligibility
+      '@chase-sets/seller-attention-queue':
+        specifier: workspace:*
+        version: link:../../contracts/seller-attention-queue
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -968,6 +980,9 @@ importers:
       '@chase-sets/notification-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/notification-outbox
+      '@chase-sets/object-storage':
+        specifier: workspace:*
+        version: link:../../infrastructure/object-storage
       '@chase-sets/outbound-messaging':
         specifier: workspace:*
         version: link:../../contracts/outbound-messaging
@@ -1180,6 +1195,9 @@ importers:
       '@chase-sets/provider-webhook-inbox':
         specifier: workspace:*
         version: link:../../infrastructure/provider-webhook-inbox
+      '@chase-sets/seller-attention-queue':
+        specifier: workspace:*
+        version: link:../../contracts/seller-attention-queue
       '@stripe/connect-js':
         specifier: 3.4.5
         version: 3.4.5
@@ -1336,6 +1354,16 @@ importers:
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
   contracts/review-eligibility:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+
+  contracts/seller-attention-queue:
+    dependencies:
+      '@chase-sets/seller-desk':
+        specifier: workspace:*
+        version: link:../seller-desk
     devDependencies:
       vitest:
         specifier: ^4.1.4

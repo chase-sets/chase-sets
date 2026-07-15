@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_SIGN_IN_METHODS, type SignInMethod } from "../support/route-support/auth-host";
 
 const authRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -38,6 +39,13 @@ function anonymousRoutes() {
 
   return manifest.anonymousRoutes ?? [];
 }
+
+const REQUIRED_ANONYMOUS_SIGN_IN_ROUTES = {
+  password: ["/api/auth/password-sign-in"],
+  "phone-code": ["/api/auth/phone-code/request", "/api/auth/phone-code/consume"],
+  "magic-link": ["/api/auth/magic-link/request", "/api/auth/magic-link/consume"],
+  passkey: ["/api/auth/passkeys/sign-in"],
+} as const satisfies Readonly<Record<SignInMethod, readonly string[]>>;
 
 describe("Auth marketplace route contributions", () => {
   it("declares the Auth-owned guest checkout exit route", () => {
@@ -103,5 +111,19 @@ describe("Auth marketplace route contributions", () => {
         }),
       ]),
     );
+  });
+
+  it("keeps every advertised sign-in method anonymously reachable", () => {
+    const anonymousPostRoutes = new Set(
+      anonymousRoutes().flatMap((route) =>
+        route.methods?.includes("POST") && route.routePath ? [route.routePath] : [],
+      ),
+    );
+
+    for (const method of DEFAULT_SIGN_IN_METHODS) {
+      for (const routePath of REQUIRED_ANONYMOUS_SIGN_IN_ROUTES[method]) {
+        expect(anonymousPostRoutes, `${method} requires anonymous POST ${routePath}`).toContain(routePath);
+      }
+    }
   });
 });

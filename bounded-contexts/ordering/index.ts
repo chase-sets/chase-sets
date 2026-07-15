@@ -27,6 +27,7 @@ import {
 } from "./features/orders/integrations/supply/supply-projection";
 import { buildOrderingFulfillmentCancellationProjectionHandlers } from "./features/orders/integrations/fulfillment/fulfillment-projection";
 import { buildOrderingReputationProjectionHandlers } from "./features/orders/integrations/reputation/reputation-projection";
+import { buildOrderingMoneyTimelineProjectionHandlers } from "./features/orders/integrations/money-timeline/money-timeline-projection";
 import { listAcceptedOfferBatchInputs } from "./features/orders/integrations/supply/supply-queries";
 import { createOrderingServices } from "./support/runtime-support/services";
 import { orderingSchemaMigrations, orderingSchemaSql } from "./support/runtime-support/schema";
@@ -103,6 +104,7 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
         services.orders.reconcileSellerOrderCapacitySignal(sellerAccountId, context),
     });
     const reputationHandlers = buildOrderingReputationProjectionHandlers(services.db);
+    const moneyTimelineHandlers = buildOrderingMoneyTimelineProjectionHandlers(services.db);
 
     return [
       ...buildEventSubscriptionsFromManifest({
@@ -143,6 +145,18 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
           "marketplace.ordering-order-review-opportunity-projection": {
             filterToEventTypes: true,
             buildHandlers: () => reputationHandlers,
+          },
+          "payments.ordering-order-money-timeline-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => moneyTimelineHandlers,
+          },
+          "platform-operations.ordering-order-money-timeline-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => moneyTimelineHandlers,
+          },
+          "settlement.ordering-order-money-timeline-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => moneyTimelineHandlers,
           },
         },
       }),

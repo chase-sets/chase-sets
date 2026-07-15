@@ -135,6 +135,8 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
     data: searchResponse,
     categories,
     onSearchChange: vi.fn(),
+    onSearchSubmit: vi.fn(),
+    onClearSearch: vi.fn(),
     onCategoryChange: vi.fn(),
     onLanguageChange: vi.fn(),
     onMarketActivityChange: vi.fn(),
@@ -167,6 +169,79 @@ describe("SearchPage", () => {
     expect(
       screen.getByRole("link", { name: "View details for Prismatic Evolutions Booster Pack — Pokemon sealed product" }),
     ).toBeTruthy();
+  });
+
+  it("submits the current search from the keyboard", () => {
+    const props = renderSearchPage({ search: "charizard", committedSearch: "pikachu" });
+
+    fireEvent.submit(screen.getByRole("search"));
+
+    expect(props.onSearchSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("announces result-count changes", () => {
+    renderSearchPage({ committedSearch: "abra" });
+
+    const announcedSummary = screen
+      .getAllByText("1 results in All Categories")
+      .find((summary) => summary.closest('[aria-live="polite"]'));
+    expect(announcedSummary?.closest('[aria-live="polite"]')?.getAttribute("aria-atomic")).toBe("true");
+  });
+
+  it("marks stale results busy and shows transition feedback", () => {
+    renderSearchPage({ committedSearch: "abra", loading: true });
+
+    const resultHeading = screen.getByRole("heading", { name: "Prismatic Evolutions Booster Pack" });
+    expect(resultHeading.closest('[aria-busy="true"]')).toBeTruthy();
+    expect(screen.getByText("Updating results...")).toBeTruthy();
+  });
+
+  it("offers actionable category, clear-search, and clear-filter recovery", () => {
+    const props = renderSearchPage({
+      search: "missing",
+      committedSearch: "missing",
+      category: "booster-packs",
+      data: { ...searchResponse, items: [], total: 0, count: 0 },
+    });
+
+    const recovery = screen.getByRole("heading", { name: "No items found" }).closest("section");
+    expect(recovery).toBeTruthy();
+    const recoveryView = within(recovery as HTMLElement);
+    expect(recoveryView.getByRole("link", { name: "Booster Packs" }).getAttribute("href")).toBe(
+      "/categories/booster-packs",
+    );
+    expect(recoveryView.getByRole("link", { name: "Generation I" }).getAttribute("href")).toBe(
+      "/categories/generation-i",
+    );
+    fireEvent.click(recoveryView.getByRole("button", { name: "Clear search" }));
+    expect(props.onClearSearch).toHaveBeenCalledTimes(1);
+    expect(recoveryView.getByRole("link", { name: "Clear filters" }).getAttribute("href")).toBe("/search?q=missing");
+    expect(recoveryView.queryByRole("link", { name: "All Categories" })).toBeNull();
+  });
+
+  it("keeps home merchandising out of focused search states", () => {
+    renderSearchPage({
+      committedSearch: "pikachu",
+      homeMerchandising: {
+        featuredCategories: categories.slice(0, 1),
+        newArrivals: [searchResult],
+      },
+    });
+
+    expect(screen.queryByRole("heading", { name: "Featured categories" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "New arrivals" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Prismatic Evolutions Booster Pack" })).toBeTruthy();
+  });
+
+  it("keeps the existing catalog-empty recovery when home merchandising has no data", () => {
+    renderSearchPage({
+      data: { ...searchResponse, items: [], total: 0, count: 0 },
+      categories: [],
+      homeMerchandising: { featuredCategories: [], newArrivals: [] },
+    });
+
+    expect(screen.getByRole("heading", { name: "No items found" })).toBeTruthy();
+    expect(screen.getByText("No catalog items are available yet.")).toBeTruthy();
   });
 
   it("formats search-card prices with the discovery money formatter", () => {
@@ -241,6 +316,47 @@ describe("SearchPage", () => {
     expect(image.getAttribute("width")).toBe("224");
     expect(image.getAttribute("height")).toBe("314");
     expect(image.className).toContain("max-w-[7.25rem]");
+  });
+
+  it("prioritizes the first result row and keeps later result images lazy", () => {
+    const items = Array.from({ length: 4 }, (_, index) => ({
+      ...standardAbraSearchResult,
+      catalog_item_id: `cat_abra_${index}`,
+      slug: `abra-${index}`,
+      title: `Abra ${index}`,
+      image_urls: [`/abra-${index}.webp`],
+    }));
+
+    renderSearchPage({
+      data: {
+        ...searchResponse,
+        items,
+        total: items.length,
+        count: items.length,
+      },
+    });
+
+    const images = screen.getAllByRole("img");
+    expect(images).toHaveLength(4);
+    for (const image of images.slice(0, 3)) {
+      expect(image.getAttribute("loading")).toBe("eager");
+      expect(image.getAttribute("fetchpriority")).toBe("high");
+    }
+    expect(images[3]?.getAttribute("loading")).toBe("lazy");
+    expect(images[3]?.getAttribute("fetchpriority")).toBe("auto");
+  });
+
+  it("gives compatibility image URLs intrinsic search-card dimensions", () => {
+    renderSearchPage({
+      data: {
+        ...searchResponse,
+        items: [standardAbraSearchResult],
+      },
+    });
+
+    const image = screen.getByRole("img", { name: "Abra — Base Set 43 Standard Set Common" });
+    expect(image.getAttribute("width")).toBe("224");
+    expect(image.getAttribute("height")).toBe("314");
   });
 
   it("does not use card-back fallbacks as sealed-product search images", () => {

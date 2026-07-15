@@ -1063,6 +1063,13 @@
           "sourceContext": "checkout"
         },
         {
+          "routeId": "account-desk-offers",
+          "routePath": "account/desk/offers",
+          "fileExport": "./routes/account-desk-offers",
+          "routeType": "route",
+          "sourceContext": "checkout"
+        },
+        {
           "routeId": "sell-checkout-session",
           "routePath": "checkout/sell/session/:sessionId",
           "fileExport": "./routes/sell-checkout-session",

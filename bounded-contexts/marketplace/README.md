@@ -26,7 +26,7 @@ If an item uses a `condition` dimension, that condition is part of the selected 
 - Marketplace-wide demand visibility for matching seller supply
 - Source liquidity lists that let sellers send selected offers to Checkout Sell List
 - Post-transaction reviews, ratings, written feedback, review eligibility, and canonical review summaries (`features/reviews`)
-- Buyer and visitor content reports plus report-driven Listing visibility policy (`features/reports`)
+- Account and visitor content reports plus report-driven Listing visibility policy (`features/reports`)
 - Versioned Listing Evidence Policy configuration, validation, impact previews, activation, and audit history (`features/listing-evidence-policy`)
 - Resolved Listing Evidence Requirement Snapshots and generic publication/Offer Acceptance readiness gates (`features/listings`)
 
@@ -114,9 +114,13 @@ An open review-affecting Support request places both review directions on hold b
 
 Held feedback is neutral and private: submission, reveal, reminders, replies, public reads, and reputation aggregates are suppressed. Feedback that was already revealed is retracted while held and restored after the final release without changing its stored content. The command path loads the hold aggregate authoritatively, while projections provide the compensating path when Support facts arrive after a racing command or reveal. Support owns request lifecycle and factual resolution; Marketplace owns review clocks and visibility.
 
+The reviewed account may publish one response after an active Review is revealed. The response is displayed inline with the Review on account, order-outcome, and public-profile surfaces; it is never a discussion thread. Authenticated accounts may report any active, revealed, non-held Review with a structured reason and optional explanation. Duplicate reports return an explicit status, and reporting never changes Review visibility or scoring by itself.
+
 A seller-responsible cancellation may establish buyer-to-seller transaction eligibility without delivery once Ordering records the cancellation; other undelivered cancellations do not establish eligibility. A missing legacy responsibility is explicitly Context-only, while an unknown future responsibility value is quarantined as `held`; neither can score by accident. Context-only feedback remains publishable when otherwise allowed, but its rating is excluded from reputation calculations. Double-blind reveal and moderation remain independent visibility concerns.
 
 Durable review events use the `marketplace.review.*` namespace, review-hold events use the `marketplace.review-hold.*` namespace, review and hold streams use Marketplace-owned prefixes, and review read-model tables use Marketplace-owned names.
+
+The cross-context fair order-issue and review journeys, their acceptance matrix, traceability, and the Support-Marketplace-Settlement-Notifications diagnosis runbook are documented in [Reputation and Support Fair Journey Acceptance](./docs/reputation-support-fair-journey-acceptance.md).
 
 Marketplace's seed slot runs before Ordering and Fulfillment, so the reviews seed cannot see a delivered shipment on its first pass; it skips and completes during the host's final seed reconciliation pass. The seed dataset therefore contains two delivered orders: the earliest-ready one receives the support-request seeds (which delete review eligibility), and the latest-ready one never does, so seeded reviews always have a review-eligible delivered order to attach to. Seed orders identify by `ready_for_fulfillment_at` (fixed by the payments seed's capture timestamps) because accepted-offer orders can be auto-created with generated ids before the ordering seed pins `reputationReservedSeedIds.orders.reviewEligibleDelivered`.
 

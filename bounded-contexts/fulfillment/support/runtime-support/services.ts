@@ -45,14 +45,6 @@ export function createFulfillmentServices(
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const notificationOutbox = ports?.notificationOutbox ?? createPostgresNotificationOutbox({ db });
-  const shipments = createFulfillmentShipmentRuntime({
-    eventStore,
-    checkpointStore,
-    db,
-    postageLabelProvider: ports?.postageLabelProvider,
-    postageWebhookGateway: ports?.postageWebhookGateway,
-    notificationOutbox,
-  });
   const returnShipments = createFulfillmentReturnShipmentRuntime({
     eventStore,
     db,
@@ -60,6 +52,18 @@ export function createFulfillmentServices(
     facilityDirectory: ports?.returnFacilityDirectory,
     evidenceStorage: ports?.returnIntakeEvidenceStorage,
     evidenceSecurityScanner: ports?.returnIntakeEvidenceSecurityScanner,
+  });
+  const shipments = createFulfillmentShipmentRuntime({
+    eventStore,
+    checkpointStore,
+    db,
+    postageLabelProvider: ports?.postageLabelProvider,
+    postageWebhookGateway: ports?.postageWebhookGateway,
+    notificationOutbox,
+    returnTrackingFallback: async (event, context) => {
+      const result = await returnShipments.processTrackingEvent(event, context);
+      return { returnShipmentId: result.returnShipmentId, processingResult: result.processingResult };
+    },
   });
 
   return {

@@ -19,7 +19,7 @@ type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][numbe
 function jobRow(overrides: Partial<ImportJobRow> = {}): ImportJobRow {
   return {
     jobId: "job-1",
-    action: "start-provider-import",
+    action: "scope.import",
     state: "running",
     operatorStatus: "running",
     summary: "tcgdex import",
@@ -138,7 +138,7 @@ describe("useLiveImportJobs", () => {
       <Probe
         model={readModel(0, [])}
         pendingJobDiscovery
-        pendingJobDiscoveryKey="start-provider-import:tcgdex:ja:SV8"
+        pendingJobDiscoveryKey="scope.import:tcgdex:ja:SV8"
         pendingJobDiscoveryMs={2_500}
         pollMs={1_000}
       />,
@@ -167,7 +167,7 @@ describe("useLiveImportJobs", () => {
       <Probe
         model={readModel(0, [])}
         pendingJobDiscovery
-        pendingJobDiscoveryKey="start-provider-import:tcgdex:ja:SV8"
+        pendingJobDiscoveryKey="scope.import:tcgdex:ja:SV8"
         pendingJobDiscoveryMs={2_500}
         pollMs={1_000}
       />,
@@ -179,7 +179,7 @@ describe("useLiveImportJobs", () => {
       <Probe
         model={readModel(1, [jobRow()])}
         pendingJobDiscovery
-        pendingJobDiscoveryKey="start-provider-import:tcgdex:ja:SV8"
+        pendingJobDiscoveryKey="scope.import:tcgdex:ja:SV8"
         pendingJobDiscoveryMs={2_500}
         pollMs={1_000}
       />,

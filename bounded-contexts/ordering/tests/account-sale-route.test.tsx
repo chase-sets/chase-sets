@@ -129,8 +129,8 @@ describe("marketplace account sale route", () => {
     } as never);
 
     expect(result.sale.order_id).toBe("ord_1");
-    expect(result.reviewOpportunity?.subject_account_id).toBe("acc_buyer");
-    expect(fetchCalls).not.toEqual(expect.arrayContaining([expect.stringContaining("/reviews/opportunities")]));
+    expect(result.reviewOutcome.opportunity?.subject_account_id).toBe("acc_buyer");
+    expect(fetchCalls).toEqual([expect.stringContaining("/account/sales/ord_1")]);
   });
 
   it("redirects sale cancellation with the Ordering commit receipt", async () => {
@@ -330,13 +330,19 @@ describe("marketplace account sale route", () => {
   it("renders a verified-sale counterparty review CTA", () => {
     mockUseLoaderData.mockReturnValue({
       sale: order,
-      reviewOpportunity: {
-        order_id: "ord_1",
-        subject_account_id: "acc_buyer",
-        subject_display_name: "Buyer",
-        author_role: "seller",
-        eligible_at: "2026-04-02T00:00:00.000Z",
-        active_review_id: null,
+      reviewOutcome: {
+        status: "ready",
+        opportunity: {
+          order_id: "ord_1",
+          subject_account_id: "acc_buyer",
+          subject_display_name: "Buyer",
+          author_role: "seller",
+          eligible_at: "2026-04-02T00:00:00.000Z",
+          active_review_id: null,
+          submission_state: "allowed",
+          hold_reason: null,
+          window_expired: false,
+        },
       },
     });
 
@@ -350,7 +356,10 @@ describe("marketplace account sale route", () => {
   });
 
   it("starts seller-cannot-fulfill intake from the sale detail without a role query", () => {
-    mockUseLoaderData.mockReturnValue({ sale: order, reviewOpportunity: null });
+    mockUseLoaderData.mockReturnValue({
+      sale: order,
+      reviewOutcome: { status: "ready", opportunity: null },
+    });
 
     render(
       <ChaseRoot>

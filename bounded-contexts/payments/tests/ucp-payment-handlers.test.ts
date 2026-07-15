@@ -29,8 +29,9 @@ describe("Payments UCP handoff", () => {
     expect(decision).toMatchObject({
       kind: "respond",
       response: {
-        ucp: { status: "error" },
-        messages: [{ code: "invalid_ap2_mandate" }],
+        ucp: { status: "requires_action" },
+        action: { type: "trusted_checkout_handoff" },
+        messages: [{ code: "mandate_required" }],
       },
     });
   });
@@ -59,6 +60,7 @@ describe("Payments UCP handoff", () => {
     const verifier = {
       verify: async () => ({
         ok: true as const,
+        mode: "human-present" as const,
         evidence: { verifier: "test" },
       }),
     };
@@ -79,7 +81,7 @@ describe("Payments UCP handoff", () => {
           },
         ],
       },
-      { ap2Verifier: verifier },
+      { ap2Verifier: verifier, merchantAuthorizationEnabled: true },
     );
 
     const decision = await enabled.evaluateCompleteRequest(
@@ -102,6 +104,128 @@ describe("Payments UCP handoff", () => {
         sharedPaymentGrantedToken: "spt_123",
       },
       evidence: { verifier: "test" },
+    });
+  });
+
+  it.each(["mandate_invalid_signature", "mandate_expired"] as const)(
+    "falls back to trusted checkout when verification returns %s",
+    async (code) => {
+      const enabled = createPaymentsUcpHandoff(
+        {
+          processorName: "stripe",
+          publishableKey: "pk_test_123",
+          confirmationExperience: "processor-managed-form",
+          dynamicPaymentMethods: true,
+          sensitivePaymentDetailsHandledByProcessor: true,
+          agenticPaymentHandlers: [
+            {
+              id: "stripe-shared-payment-token",
+              provider: "stripe",
+              type: "shared_payment_token",
+              requiresAp2Mandate: true,
+              confirmationExperience: "server-confirmed-payment-intent",
+            },
+          ],
+        },
+        {
+          merchantAuthorizationEnabled: true,
+          ap2Verifier: {
+            verify: async () => ({ ok: false as const, code, message: `Rejected ${code}.` }),
+          },
+        },
+      );
+
+      const decision = await enabled.evaluateCompleteRequest(
+        {
+          ap2: { checkout_mandate: "checkout_mandate" },
+          payment_data: { provider: "stripe", token: "spt_123" },
+        },
+        checkout,
+      );
+
+      expect(decision).toMatchObject({
+        kind: "respond",
+        response: {
+          ucp: { status: "requires_action" },
+          action: { type: "trusted_checkout_handoff" },
+          messages: [{ severity: "error", code }],
+        },
+      });
+    },
+  );
+
+  it("keeps verified human-not-present mandates on trusted checkout", async () => {
+    const enabled = createPaymentsUcpHandoff(
+      {
+        processorName: "stripe",
+        publishableKey: "pk_test_123",
+        confirmationExperience: "processor-managed-form",
+        dynamicPaymentMethods: true,
+        sensitivePaymentDetailsHandledByProcessor: true,
+        agenticPaymentHandlers: [
+          {
+            id: "stripe-shared-payment-token",
+            provider: "stripe",
+            type: "shared_payment_token",
+            requiresAp2Mandate: true,
+            confirmationExperience: "server-confirmed-payment-intent",
+          },
+        ],
+      },
+      {
+        merchantAuthorizationEnabled: true,
+        ap2Verifier: {
+          verify: async () => ({ ok: true as const, mode: "human-not-present" as const }),
+        },
+      },
+    );
+
+    const decision = await enabled.evaluateCompleteRequest(
+      {
+        ap2: { checkout_mandate: "checkout_mandate" },
+        payment_data: { provider: "stripe", token: "spt_123" },
+      },
+      checkout,
+    );
+
+    expect(decision).toMatchObject({
+      kind: "respond",
+      response: {
+        ucp: { status: "requires_action" },
+        action: { type: "trusted_checkout_handoff" },
+        messages: [{ code: "mandate_scope_mismatch" }],
+      },
+    });
+  });
+
+  it("does not advertise headless completion without merchant authorization signing", () => {
+    const verifierOnly = createPaymentsUcpHandoff(
+      {
+        processorName: "stripe",
+        publishableKey: "pk_test_123",
+        confirmationExperience: "processor-managed-form",
+        dynamicPaymentMethods: true,
+        sensitivePaymentDetailsHandledByProcessor: true,
+        agenticPaymentHandlers: [
+          {
+            id: "stripe-shared-payment-token",
+            provider: "stripe",
+            type: "shared_payment_token",
+            requiresAp2Mandate: true,
+            confirmationExperience: "server-confirmed-payment-intent",
+          },
+        ],
+      },
+      {
+        ap2Verifier: { verify: async () => ({ ok: true as const, mode: "human-present" as const }) },
+      },
+    );
+
+    expect(verifierOnly.payment.ap2).toMatchObject({
+      merchant_authorization: "not-enabled",
+      shared_payment_token: "enabled",
+      headless_completion_enabled: false,
+      supported_modes: ["human-present"],
     });
   });
 

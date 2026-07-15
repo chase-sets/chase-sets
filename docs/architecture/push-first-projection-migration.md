@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (133)
+## Projection Groups (139)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -88,6 +88,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `fulfillment:fulfillment-payment-fraud-source-projection` | Fulfillment | **payments** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-shipment-projection` | Fulfillment | fulfillment | push-eligible | 0/1 |
 | `fulfillment:fulfillment-return-shipment-projection` | Fulfillment | fulfillment | push-eligible | 0/1 |
+| `fulfillment:fulfillment-support-return-source-projection` | Fulfillment | **platform-operations** | push-enabled | 1/1 |
 | `identity:identity-account-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-api-key-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-consent-projection` | Identity | **identity** | push-enabled | 1/1 |
@@ -129,7 +130,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `marketplace:marketplace-seller-metrics-support-source-projection` | Marketplace | **platform-operations** | push-enabled | 1/1 |
 | `marketplace:marketplace-settlement-negative-balance-projection` | Marketplace | **settlement** | push-enabled | 1/1 |
 | `marketplace:platform-policy-document-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
-| `notifications:notifications-source-facts-outbox-projection` | Notifications | customer-feedback, fulfillment, **inventory**, **marketplace**, **ordering**, **settlement** | push-eligible | 4/6 |
+| `notifications:notifications-source-facts-outbox-projection` | Notifications | customer-feedback, fulfillment, **inventory**, **marketplace**, **ordering**, **platform-operations**, **settlement** | push-eligible | 5/7 |
 | `ordering:ordering-account-projection` | Ordering | **identity** | push-enabled | 1/1 |
 | `ordering:ordering-fulfillment-cancellation-inputs` | Ordering | fulfillment | push-eligible | 0/1 |
 | `ordering:ordering-inventory-reservation-outcomes` | Ordering | **inventory** | push-enabled | 1/1 |
@@ -137,6 +138,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `ordering:ordering-marketplace-offer-acceptance` | Ordering | **marketplace** | push-enabled | 1/1 |
 | `ordering:ordering-marketplace-supply-input-projection` | Ordering | **catalog**, **marketplace** | push-enabled | 2/2 |
 | `ordering:ordering-order-review-opportunity-projection` | Ordering | fulfillment, **marketplace**, **ordering**, **platform-operations** | push-eligible | 3/4 |
+| `ordering:ordering-order-money-timeline-projection` | Ordering | **payments**, **platform-operations**, **settlement** | push-enabled | 3/3 |
 | `ordering:ordering-order-projection` | Ordering | **ordering** | push-enabled | 1/1 |
 | `ordering:ordering-payment-capture` | Ordering | **payments** | push-enabled | 1/1 |
 | `ordering:ordering-postage-policy-projection` | Ordering | **ordering** | push-enabled | 1/1 |
@@ -153,6 +155,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `platform-operations:public-doc-review-queue-projection` | Platform Operations | **commercial-terms**, **platform-operations** | push-enabled | 2/2 |
 | `platform-operations:reported-content-queue-projection` | Platform Operations | **marketplace**, **platform-operations** | push-enabled | 2/2 |
 | `platform-operations:risk-alert-queue-projection` | Platform Operations | **identity**, **marketplace**, **payments**, **platform-operations** | push-enabled | 4/4 |
+| `platform-operations:support-request-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:support-affected-line-amount-projection` | Platform Operations | **ordering**, **payments** | push-enabled | 2/2 |
 | `platform-operations:support-order-source-projection` | Platform Operations | **ordering** | push-enabled | 1/1 |
 | `platform-operations:support-shipment-source-projection` | Platform Operations | fulfillment | push-eligible | 0/1 |
@@ -174,9 +177,10 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-protection-coverage-projection` | Settlement | **settlement** | push-enabled | 1/1 |
+| `settlement:settlement-support-hold-lifecycle-projection` | Settlement | **platform-operations** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations**, **settlement** | push-enabled | 3/3 |
 
-Totals: 110 `push-enabled`, 27 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 111 `push-enabled`, 29 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (76)
 
@@ -255,6 +259,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `payments.detail-self-refresh` | payments | important | exact wait | push-accelerated |
 | `platform-operations.platform-feedback-detail-fresh-read` | platform-operations | important | exact wait | push-accelerated |
 | `platform-operations.platform-feedback-list-fresh-read` | platform-operations | important | exact wait | push-accelerated |
+| `platform-operations.support-request-detail-fresh-read` | platform-operations | important | exact wait | push-accelerated |
 | `public-presence.waitlist-signup-to-admin-review` | public-presence | critical | exact wait | push wake enabled |
 | `marketplace.review-reply-to-detail` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.review-submit-to-detail` | marketplace | important | exact wait | push-accelerated |

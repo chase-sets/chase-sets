@@ -3,10 +3,14 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiscoveryPublicAccount } from "../support/client-support/contracts";
 
-const { mockUseLoaderData, mockSubscribeRealtimePatches } = vi.hoisted(() => ({
-  mockUseLoaderData: vi.fn(),
-  mockSubscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
-}));
+const { mockUseLoaderData, mockUseActionData, mockUseNavigation, mockUseRevalidator, mockSubscribeRealtimePatches } =
+  vi.hoisted(() => ({
+    mockUseLoaderData: vi.fn(),
+    mockUseActionData: vi.fn(),
+    mockUseNavigation: vi.fn(() => ({ state: "idle", formData: undefined })),
+    mockUseRevalidator: vi.fn(() => ({ revalidate: vi.fn(), state: "idle" })),
+    mockSubscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
+  }));
 
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
@@ -14,6 +18,9 @@ vi.mock("react-router", async () => {
   return {
     ...actual,
     useLoaderData: mockUseLoaderData,
+    useActionData: mockUseActionData,
+    useNavigation: mockUseNavigation,
+    useRevalidator: mockUseRevalidator,
   };
 });
 
@@ -22,7 +29,7 @@ vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
   subscribeRealtimePatches: mockSubscribeRealtimePatches,
 }));
 
-import PublicAccountRoute, { loader } from "./public-account";
+import PublicAccountRoute, { action, loader } from "./public-account";
 
 function accountFixture(overrides: Partial<DiscoveryPublicAccount> = {}): DiscoveryPublicAccount {
   return {
@@ -112,7 +119,7 @@ describe("discovery public account loader", () => {
     vi.clearAllMocks();
   });
 
-  // m108 #4271: the loader also fetches marketplace's public
+  // The loader also fetches Marketplace's public
   // behavioral-metrics chips endpoint (best-effort, alongside the primary
   // discovery account fetch) -- the fake fetch routes on URL so both calls
   // resolve distinctly rather than one mock serving both shapes.
@@ -181,6 +188,74 @@ describe("discovery public account loader", () => {
   });
 });
 
+describe("discovery public account review reports", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  function reportRequest() {
+    return new Request("http://localhost/accounts/north-store", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        intent: "report-review",
+        reviewId: "rev_1",
+        reason: "personal-information",
+        details: "The review includes a phone number.",
+      }),
+    });
+  }
+
+  it("submits a structured review report without exposing reporter details publicly", async () => {
+    const postedBodies: unknown[] = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const postedRequest = input instanceof Request ? input : new Request(input, init);
+      postedBodies.push(await postedRequest.clone().json());
+      return new Response(
+        JSON.stringify({ id: "rpt_1", version: 1, status: "submitted", targetType: "review", targetId: "rev_1" }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await action({ request: reportRequest(), params: { accountSlug: "north-store" } } as never);
+
+    expect(result).toEqual({ reviewId: "rev_1", status: "submitted" });
+    expect(postedBodies).toEqual([
+      {
+        reason: "personal-information",
+        details: "The review includes a phone number.",
+        sourceRoutePath: "/accounts/north-store",
+      },
+    ]);
+  });
+
+  it("sends signed-out reporters through sign-in and back to the same public profile", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { code: "authentication_required", message: "Sign in required." } }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+
+    let thrown: unknown;
+    try {
+      await action({ request: reportRequest(), params: { accountSlug: "north-store" } } as never);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Response);
+    expect((thrown as Response).status).toBe(302);
+    expect((thrown as Response).headers.get("Location")).toBe("/sign-in?returnTo=%2Faccounts%2Fnorth-store%23feedback");
+  });
+});
+
 describe("discovery public account route", () => {
   afterEach(() => {
     cleanup();
@@ -207,6 +282,7 @@ describe("discovery public account route", () => {
     expect(screen.getByText("January 2026")).toBeTruthy();
     // Revealed review content and pagination for the 15-review total.
     expect(screen.getByText("Packed well and shipped quickly.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Report review" })).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Pagination" })).toBeTruthy();
     // The dangling-link fix: the seller's own listing card links back to this
     // same account route with the feedback anchor.

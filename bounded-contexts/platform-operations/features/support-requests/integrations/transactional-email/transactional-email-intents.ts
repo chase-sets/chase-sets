@@ -38,7 +38,7 @@ export function mapSupportRequestOpenedToTransactionalEmail(
 }
 
 export function mapSupportRequestResolvedToTransactionalEmail(
-  input: SupportRequestEmailIntentInput & Readonly<{ resolutionType: string }>,
+  input: SupportRequestEmailIntentInput & Readonly<{ resolutionType: string; resolutionSummary?: string | null }>,
 ): NotificationMessage {
   const supportReference = deriveDisplayReferenceOrRaw(input.supportRequestId as SupportRequestId);
 
@@ -57,6 +57,9 @@ export function mapSupportRequestResolvedToTransactionalEmail(
       orderId: input.orderId,
       flowType: input.flowType,
       resolutionType: input.resolutionType,
+      // The operator's adjudication summary is delivered verbatim so both
+      // parties read the exact rationale the decision was recorded with.
+      resolutionSummary: input.resolutionSummary ?? "",
     },
     idempotencyKey: `support:support_request_resolved:${input.supportRequestId}`,
     correlationId: input.correlationId,

@@ -4,6 +4,7 @@ import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { SupportApiEnv } from "./http";
 import type { SupportRequestServices } from "./runtime";
 import { platformRemedyCapabilities, type PlatformRemedyCapability } from "../domain/platform-remedy-policy";
+import { SupportEvidenceAttachmentError } from "./attachments";
 
 function requireSupportAccess(
   c: {
@@ -53,6 +54,10 @@ function requireSupportAccess(
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("support.features.support_requests.api.route.request.failed");
+}
+
+function isUploadedFile(value: FormDataEntryValue): value is File {
+  return typeof value !== "string" && typeof value.arrayBuffer === "function";
 }
 
 function remedyTerms(body: Record<string, unknown>) {
@@ -173,6 +178,9 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       status: c.req.query("status") || undefined,
       priority: c.req.query("priority") || undefined,
       search: c.req.query("search") || undefined,
+      flowType: c.req.query("flowType") || undefined,
+      contested: c.req.query("contested") === "true" || undefined,
+      overdue: c.req.query("overdue") === "true" || undefined,
     });
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
@@ -757,6 +765,101 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
     }
 
     return c.json(supportRequest);
+  });
+
+  app.post("/:id/attachments", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+    try {
+      const formData = await c.req.formData();
+      const files = formData.getAll("attachments").filter(isUploadedFile);
+      const attachments = await services.uploadAttachments({
+        supportRequestId: c.req.param("id"),
+        accountId: access.actor.accountId,
+        roleKey: access.actor.roleKey,
+        uploads: await Promise.all(
+          files.map(async (file) => ({
+            body: new Uint8Array(await file.arrayBuffer()),
+            contentType: file.type,
+            filename: file.name || null,
+          })),
+        ),
+      });
+      if (!attachments) {
+        return c.json(
+          {
+            error: {
+              code: "not_found",
+              message: t("support.features.support_requests.api.route.support_request.not.found"),
+            },
+          },
+          404,
+        );
+      }
+      return c.json({ attachments }, 201);
+    } catch (error) {
+      const code = error instanceof SupportEvidenceAttachmentError ? error.code : "attachment_upload_failed";
+      return c.json(
+        { error: { code, message: errorMessage(error) } },
+        error instanceof SupportEvidenceAttachmentError && error.code === "storage-unavailable" ? 503 : 400,
+      );
+    }
+  });
+
+  app.get("/:id/attachments/:attachmentId", async (c) => {
+    const access = requireSupportAccess(c, "support.view");
+    if (access.response) {
+      return access.response;
+    }
+    try {
+      const attachment = await services.getAttachment({
+        supportRequestId: c.req.param("id"),
+        attachmentId: c.req.param("attachmentId"),
+        accountId: access.actor.accountId,
+        roleKey: access.actor.roleKey,
+      });
+      if (!attachment) {
+        return c.json(
+          {
+            error: {
+              code: "not_found",
+              message: t("support.features.support_requests.api.route.attachment.not.found"),
+            },
+          },
+          404,
+        );
+      }
+      return new Response(
+        attachment.body.buffer.slice(
+          attachment.body.byteOffset,
+          attachment.body.byteOffset + attachment.body.byteLength,
+        ) as ArrayBuffer,
+        {
+          headers: {
+            "cache-control": "private, no-store",
+            "content-type": attachment.contentType,
+            "content-length": String(attachment.body.byteLength),
+            "content-disposition": "inline",
+            "x-content-type-options": "nosniff",
+          },
+        },
+      );
+    } catch (error) {
+      const unavailable = error instanceof SupportEvidenceAttachmentError && error.code === "storage-unavailable";
+      return c.json(
+        {
+          error: {
+            code: unavailable ? error.code : "not_found",
+            message: unavailable
+              ? error.message
+              : t("support.features.support_requests.api.route.attachment.not.found"),
+          },
+        },
+        unavailable ? 503 : 404,
+      );
+    }
   });
 
   app.post("/", async (c) => {

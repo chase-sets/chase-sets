@@ -31,6 +31,8 @@ export type SupportFlowDeadlineHours = Readonly<{
   sellerResponseHours: number | null;
   /** Hours support has to review the case once it is ready for support. */
   supportReviewHours: number;
+  /** Compiled intake boundary; exposed with the timing policy but never revised independently of the flow catalog. */
+  postDeliveryOpenWindowDays: number | null;
 }>;
 
 export type SupportDeadlinePolicyValue = Readonly<Record<SupportFlowType, SupportFlowDeadlineHours>>;
@@ -47,7 +49,11 @@ export const MAX_SUPPORT_DEADLINE_HOURS = 336;
 export const SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE: SupportDeadlinePolicyValue = Object.fromEntries(
   supportFlowCatalog.map((flow) => [
     flow.flowType,
-    { sellerResponseHours: flow.sellerResponseHours, supportReviewHours: flow.supportReviewHours },
+    {
+      sellerResponseHours: flow.sellerResponseHours,
+      supportReviewHours: flow.supportReviewHours,
+      postDeliveryOpenWindowDays: flow.postDeliveryOpenWindowDays,
+    },
   ]),
 ) as SupportDeadlinePolicyValue;
 
@@ -93,7 +99,18 @@ export function decodeSupportDeadlinePolicyValue(raw: JsonValue): SupportDeadlin
       `'${flow.flowType}' support review hours`,
     );
 
-    result[flow.flowType] = { sellerResponseHours, supportReviewHours };
+    if (
+      entryRecord.postDeliveryOpenWindowDays !== undefined &&
+      entryRecord.postDeliveryOpenWindowDays !== flow.postDeliveryOpenWindowDays
+    ) {
+      throw new SupportDomainError(`'${flow.flowType}' post-delivery open window is compiled flow behavior.`);
+    }
+
+    result[flow.flowType] = {
+      sellerResponseHours,
+      supportReviewHours,
+      postDeliveryOpenWindowDays: flow.postDeliveryOpenWindowDays,
+    };
   }
 
   return result as SupportDeadlinePolicyValue;
@@ -103,7 +120,7 @@ export const supportDeadlinePolicy: PolicyDefinition<SupportDeadlinePolicyValue>
   policyKey: "platform-operations.support-deadlines",
   contextName: "platform-operations",
   schemaSummary:
-    "{ [flowType]: { sellerResponseHours: integer 4-336 or null (structural), supportReviewHours: integer 4-336 } } for every support flow type",
+    "{ [flowType]: { sellerResponseHours: integer 4-336 or null (structural), supportReviewHours: integer 4-336, postDeliveryOpenWindowDays: compiled integer or null } } for every support flow type",
   defaultValue: SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE,
   decodeValue: decodeSupportDeadlinePolicyValue,
 });
@@ -118,5 +135,7 @@ export function resolveSupportFlowDeadlineHours(
   flowType: SupportFlowType,
   value: SupportDeadlinePolicyValue = SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE,
 ): SupportFlowDeadlineHours {
-  return value[flowType] ?? SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE[flowType];
+  const compiled = SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE[flowType];
+  const resolved = value[flowType];
+  return resolved ? { ...resolved, postDeliveryOpenWindowDays: compiled.postDeliveryOpenWindowDays } : compiled;
 }

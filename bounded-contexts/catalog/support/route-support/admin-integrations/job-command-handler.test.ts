@@ -4,11 +4,11 @@ import type { CatalogIntegrationsCommandResult } from "./integrations-command-re
 
 describe("import-job entity command handler", () => {
   it("recognizes only the import-job lifecycle intents", () => {
-    expect(isJobCommandIntent("retry-import-job")).toBe(true);
-    expect(isJobCommandIntent("resume-import-job")).toBe(true);
-    expect(isJobCommandIntent("cancel-import-job")).toBe(true);
-    expect(isJobCommandIntent("start-catalog-sync")).toBe(false);
-    expect(isJobCommandIntent("preview-promotion")).toBe(false);
+    expect(isJobCommandIntent("job.retry")).toBe(true);
+    expect(isJobCommandIntent("job.resume")).toBe(true);
+    expect(isJobCommandIntent("job.cancel")).toBe(true);
+    expect(isJobCommandIntent("scope.sync")).toBe(false);
+    expect(isJobCommandIntent("observation.promote")).toBe(false);
   });
 
   it("retries the durable import job and stays on the daily surface with a queued banner", async () => {
@@ -16,14 +16,14 @@ describe("import-job entity command handler", () => {
 
     const result = await handleJobCommand({
       api: { retrySourceObservationIntegrationJob } as never,
-      intent: "retry-import-job",
+      intent: "job.retry",
       context: commandContext({ jobId: "job_import_1" }),
       selectedObservationIds: ["obs_1"],
     });
 
     expect(retrySourceObservationIntegrationJob).toHaveBeenCalledWith("job_import_1");
     expect(result.section).toBe("import-to-promotion");
-    expect(result.feedback).toMatchObject({ status: "success", intent: "retry-import-job", result: "job-queued" });
+    expect(result.feedback).toMatchObject({ status: "success", intent: "job.retry", result: "job-queued" });
     expect(result.context.jobId).toBe("job_import_9");
     expect(result.context.selectedObservationIds).toEqual(["obs_1"]);
     expect(result.context.promotionPreviewId).toBeNull();
@@ -34,13 +34,13 @@ describe("import-job entity command handler", () => {
 
     const result = await handleJobCommand({
       api: { cancelSourceObservationIntegrationJob } as never,
-      intent: "cancel-import-job",
+      intent: "job.cancel",
       context: commandContext({ jobId: "job_import_1" }),
       selectedObservationIds: [],
     });
 
     expect(cancelSourceObservationIntegrationJob).toHaveBeenCalledWith("job_import_1");
-    expect(result.feedback).toMatchObject({ intent: "cancel-import-job", result: "job-cancelled" });
+    expect(result.feedback).toMatchObject({ intent: "job.cancel", result: "job-cancelled" });
   });
 
   it("fails closed without a durable job id to act on", async () => {
@@ -48,7 +48,7 @@ describe("import-job entity command handler", () => {
 
     const result = await handleJobCommand({
       api: { retrySourceObservationIntegrationJob } as never,
-      intent: "retry-import-job",
+      intent: "job.retry",
       context: commandContext({ jobId: null }),
       selectedObservationIds: [],
     });

@@ -72,7 +72,7 @@ export function profileAuthoringFor(input: {
     sectionGroups,
     sectionWorkspaces,
     cloneDraft: {
-      commandKey: "clone-provider-profile",
+      commandKey: "provider-profile.clone",
       sourceProviderKey: input.selectedProfile?.providerKey ?? null,
       sourceProfileVersion: input.selectedProfile?.profileVersion ?? null,
       targetProfileVersion: input.selectedProfile

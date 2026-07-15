@@ -463,6 +463,13 @@ jobs:
       TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
       TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
       TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
+      TF_VAR_ucp_business_signing_key_id: ${{ secrets.UCP_BUSINESS_SIGNING_KEY_ID || '' }}
+      TF_VAR_ucp_business_signing_alg: ${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}
+      TF_VAR_ucp_business_signing_private_jwk: ${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}
+      TF_VAR_ucp_business_signing_previous_public_jwks: ${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}
+      TF_VAR_ucp_ap2_verifier_url: ${{ secrets.UCP_AP2_VERIFIER_URL || '' }}
+      TF_VAR_ucp_ap2_verifier_auth_token: ${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}
+      TF_VAR_ucp_ap2_verifier_timeout_ms: ${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}
       TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
       TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
       TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
@@ -1140,6 +1147,13 @@ jobs:
           export STRIPE_PUBLISHABLE_KEY="${TF_VAR_stripe_publishable_key:-}"
           export STRIPE_SECRET_KEY="${TF_VAR_stripe_secret_key:-}"
           export STRIPE_WEBHOOK_SECRET="${TF_VAR_stripe_webhook_secret:-}"
+          export UCP_BUSINESS_SIGNING_KEY_ID="${TF_VAR_ucp_business_signing_key_id:-}"
+          export UCP_BUSINESS_SIGNING_ALG="${TF_VAR_ucp_business_signing_alg:-ES256}"
+          export UCP_BUSINESS_SIGNING_PRIVATE_JWK="${TF_VAR_ucp_business_signing_private_jwk:-}"
+          export UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS="${TF_VAR_ucp_business_signing_previous_public_jwks:-[]}"
+          export UCP_AP2_VERIFIER_URL="${TF_VAR_ucp_ap2_verifier_url:-}"
+          export UCP_AP2_VERIFIER_AUTH_TOKEN="${TF_VAR_ucp_ap2_verifier_auth_token:-}"
+          export UCP_AP2_VERIFIER_TIMEOUT_MS="${TF_VAR_ucp_ap2_verifier_timeout_ms:-5000}"
           export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
 
           node ./scripts/platform-kubernetes-secret.mjs \
@@ -2139,6 +2153,13 @@ jobs:
       TF_VAR_stripe_connect_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}
       TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}
       TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}
+      TF_VAR_ucp_business_signing_key_id: ${{ secrets.UCP_BUSINESS_SIGNING_KEY_ID || '' }}
+      TF_VAR_ucp_business_signing_alg: ${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}
+      TF_VAR_ucp_business_signing_private_jwk: ${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}
+      TF_VAR_ucp_business_signing_previous_public_jwks: ${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}
+      TF_VAR_ucp_ap2_verifier_url: ${{ secrets.UCP_AP2_VERIFIER_URL || '' }}
+      TF_VAR_ucp_ap2_verifier_auth_token: ${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}
+      TF_VAR_ucp_ap2_verifier_timeout_ms: ${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}
       TF_VAR_easypost_api_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_API_KEY || '' }}
       TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
       TF_VAR_easypost_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.EASYPOST_API_BASE_URL || '' }}
@@ -2914,6 +2935,13 @@ jobs:
           export STRIPE_PUBLISHABLE_KEY="${TF_VAR_stripe_publishable_key:-}"
           export STRIPE_SECRET_KEY="${TF_VAR_stripe_secret_key:-}"
           export STRIPE_WEBHOOK_SECRET="${TF_VAR_stripe_webhook_secret:-}"
+          export UCP_BUSINESS_SIGNING_KEY_ID="${TF_VAR_ucp_business_signing_key_id:-}"
+          export UCP_BUSINESS_SIGNING_ALG="${TF_VAR_ucp_business_signing_alg:-ES256}"
+          export UCP_BUSINESS_SIGNING_PRIVATE_JWK="${TF_VAR_ucp_business_signing_private_jwk:-}"
+          export UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS="${TF_VAR_ucp_business_signing_previous_public_jwks:-[]}"
+          export UCP_AP2_VERIFIER_URL="${TF_VAR_ucp_ap2_verifier_url:-}"
+          export UCP_AP2_VERIFIER_AUTH_TOKEN="${TF_VAR_ucp_ap2_verifier_auth_token:-}"
+          export UCP_AP2_VERIFIER_TIMEOUT_MS="${TF_VAR_ucp_ap2_verifier_timeout_ms:-5000}"
           export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
 
           node ./scripts/platform-kubernetes-secret.mjs \

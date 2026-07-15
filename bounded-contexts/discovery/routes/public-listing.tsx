@@ -34,6 +34,7 @@ import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/r
 import type { DiscoveryPublicListing } from "../support/client-support/contracts";
 import { applyDiscoveryPublicListingPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
+import { useDiscoveryRealtimeRevalidation } from "../support/realtime-support/revalidation";
 import { isProductionMarketplaceUrl, serializeJsonLd } from "../support/route-support/seo";
 import { formatMoney } from "../support/ui-support/formatting";
 
@@ -324,12 +325,13 @@ export default function PublicListingRoute() {
 }
 
 function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof loader>> }) {
+  const revalidateForRealtimeSync = useDiscoveryRealtimeRevalidation();
   const listing = useRealtimePatchedSnapshot({
     initialSnapshot: data.listing,
     snapshotKey: JSON.stringify(data.listing),
     topics: data.listing ? discoveryRealtimeRouteTopics.publicListing(data.listing.listing_id).topics : [],
     applyPatch: applyDiscoveryPublicListingPatch,
-    onSyncRequired: reloadForRealtimeSync,
+    onSyncRequired: revalidateForRealtimeSync,
   });
 
   if (!listing) {
@@ -507,10 +509,4 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
       </Stack>
     </Container>
   );
-}
-
-function reloadForRealtimeSync() {
-  if (typeof window !== "undefined") {
-    window.location.reload();
-  }
 }

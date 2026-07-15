@@ -9,7 +9,7 @@ export interface MarketplaceEmptyStateProps {
   title: ReactNode;
   description: ReactNode;
   recoveryActions?: ReactNode;
-  recommendations?: string[];
+  recommendationActions?: ReactNode;
   trustCue?: ReactNode;
 }
 
@@ -17,7 +17,7 @@ export function MarketplaceEmptyState({
   title,
   description,
   recoveryActions,
-  recommendations = [],
+  recommendationActions,
   trustCue,
 }: MarketplaceEmptyStateProps) {
   return (
@@ -30,13 +30,9 @@ export function MarketplaceEmptyState({
         <p className="m-0 mx-auto max-w-xl text-sm leading-6 text-secondary">{description}</p>
       </Stack>
       {trustCue ? <div className="mx-auto w-full max-w-2xl text-left">{trustCue}</div> : null}
-      {recommendations.length ? (
+      {recommendationActions ? (
         <Cluster justify="center" gap={2}>
-          {recommendations.map((recommendation) => (
-            <Badge key={recommendation} tone="neutral" variant="soft">
-              {recommendation}
-            </Badge>
-          ))}
+          {recommendationActions}
         </Cluster>
       ) : null}
       {recoveryActions ? (

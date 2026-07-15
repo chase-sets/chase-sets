@@ -71,7 +71,7 @@ describe("Catalog primary workbench read model - import jobs", () => {
     expect(readModel.importJobs.jobs[0]?.auditEvidenceUrl).toContain("/catalog/integrations/health");
     expect(readModel.importJobs.jobs[0]?.auditEvidenceUrl).not.toContain("section=");
     expect(readModel.importJobs.jobs[0]?.auditEvidenceUrl).toContain("returnPath=");
-    expect(readModel.actions.find((action) => action.key === "start-provider-import")).toMatchObject({
+    expect(readModel.actions.find((action) => action.key === "scope.import")).toMatchObject({
       state: "blocked",
       blockers: ["active-job-conflict"],
     });
@@ -336,9 +336,7 @@ describe("Catalog primary workbench read model - import jobs", () => {
       jobId: "job_ja_sv8_active",
       scopeMatchesRoute: true,
     });
-    expect(matched.actions.find((action) => action.key === "start-provider-import")?.blockers).toContain(
-      "active-job-conflict",
-    );
+    expect(matched.actions.find((action) => action.key === "scope.import")?.blockers).toContain("active-job-conflict");
 
     const empty = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:
@@ -477,7 +475,7 @@ describe("Catalog primary workbench read model - import jobs", () => {
     expect(readModel.readiness.providerTransport).toContain("timeout");
     expect(readModel.readiness.blockers).toContain("provider-transport-timeout");
     expect(readModel.promotionPreview.blockers).not.toContain("provider-transport-timeout");
-    expect(readModel.actions.find((action) => action.key === "execute-promotion")?.blockers).not.toContain(
+    expect(readModel.actions.find((action) => action.key === "observation.promote")?.blockers).not.toContain(
       "provider-transport-timeout",
     );
     expect(readModel.importJobs.failedJobCount).toBe(1);
@@ -584,7 +582,7 @@ describe("Catalog primary workbench read model - import jobs", () => {
     });
 
     expect(readModel.importJobs.activeJobCount).toBe(2);
-    expect(readModel.actions.find((action) => action.key === "start-provider-import")?.blockers).toEqual([
+    expect(readModel.actions.find((action) => action.key === "scope.import")?.blockers).toEqual([
       "active-job-conflict",
       "concurrent-job",
     ]);

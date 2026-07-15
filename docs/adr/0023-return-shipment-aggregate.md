@@ -37,8 +37,12 @@ It never mutates an outbound `Shipment`. Its stream is
 `fulfillment.return-shipment-<id>`.
 
 Creation is **idempotent by remedy and return directive**: replaying the request on
-a stream is a no-op, but reusing a stream for a different remedy or a directive
-other than `return-to-platform` is rejected. The read model additionally supports a
+a stream is a no-op only when its support request, remedy, order, outbound shipment,
+affected order lines, and directive all agree. Reusing the identity across any of
+those boundaries, or with a directive other than `return-to-platform`, is rejected.
+Before creation, a Fulfillment-local projection of Support's opened-case,
+affected-line, and authorized-remedy facts is checked against Fulfillment's own
+outbound shipment and line projection. The read model additionally supports a
 one-return-shipment-per-remedy lookup so the creation flow does not presume a second
 aggregate exists.
 
@@ -98,9 +102,11 @@ Two read models are projected independently:
 
 ### Versioned facts
 
-The aggregate publishes versioned `.v1` facts for creation, label readiness,
-carrier milestones, delivery, receipt/intake, cancellation/expiry, and exceptions,
-following the native-event versioning precedent set by ADR 0021. Each fact carries
+The aggregate publishes a `.v2` creation fact carrying immutable affected-line
+linkage and retains replay support for the original `.v1` creation fact. Label
+readiness, carrier milestones, delivery, receipt/intake, cancellation/expiry, and
+exceptions retain their `.v1` facts, following the native-event versioning precedent
+set by ADR 0021. Each fact carries
 correlation (the remedy id), causation, idempotency, and policy-version metadata;
 the acting operator is the event envelope's audit block, not duplicated in the
 payload.
@@ -130,5 +136,5 @@ payload.
 - The existing outbound shipment tests and its `returned` terminal state are
   unchanged; the boundary between the two is documented in the Fulfillment README
   and glossary.
-- The new `returnShipmentId` brand and the `.v1` fact names are the canonical
-  vocabulary the sibling reverse-logistics leaves build on.
+- The `returnShipmentId` brand and versioned fact names are the canonical vocabulary
+  the sibling reverse-logistics leaves build on.

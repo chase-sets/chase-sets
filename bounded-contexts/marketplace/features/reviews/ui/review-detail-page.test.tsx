@@ -42,7 +42,20 @@ describe("review detail page", () => {
     expect(markup).not.toContain("Subject:");
   });
 
-  it("redacts rating and feedback for a not-yet-revealed review viewed by the subject (m108 #4267)", () => {
+  it("links back to the role-aware order outcome without exposing private order facts", () => {
+    const markup = renderToString(
+      <ReviewDetailPage
+        backHref="/account/reviews/written?role=seller"
+        orderHref="/account/sales/ord_1"
+        review={review}
+      />,
+    );
+
+    expect(markup).toContain("View order outcome");
+    expect(markup).toContain('href="/account/sales/ord_1"');
+  });
+
+  it("redacts rating and feedback for a not-yet-revealed review viewed by the subject", () => {
     const markup = renderToString(
       <ReviewDetailPage
         backHref="/account/reviews/received"
@@ -79,7 +92,7 @@ describe("review detail page", () => {
     expect(markup).not.toContain("Respond to this review");
   });
 
-  it("shows the subject reply as a seller response (m108, #4269)", () => {
+  it("shows the subject response with an account-neutral label", () => {
     const markup = renderToString(
       <ReviewDetailPage
         backHref="/account/reviews/received"
@@ -87,8 +100,40 @@ describe("review detail page", () => {
       />,
     );
 
-    expect(markup).toContain("Seller response");
+    expect(markup).toContain("Account response");
     expect(markup).toContain("Thanks for the feedback!");
+  });
+
+  it("offers structured reporting for every active revealed review and shows privacy-safe status", () => {
+    const availableMarkup = renderToString(
+      <ReviewDetailPage backHref="/account/reviews/received" review={review} viewerAccountId="acc_viewer" />,
+    );
+    const submittedMarkup = renderToString(
+      <ReviewDetailPage
+        backHref="/account/reviews/received"
+        review={review}
+        viewerAccountId="acc_viewer"
+        reportStatus="submitted"
+      />,
+    );
+
+    expect(availableMarkup).toContain("Report review");
+    expect(submittedMarkup).toContain("Report submitted");
+    expect(submittedMarkup).toContain("A report does not automatically remove the review.");
+  });
+
+  it("does not offer reporting for pending, held, withdrawn, or moderated content", () => {
+    for (const hiddenReview of [
+      { ...review, revealed_at: null, rating: null, feedback: null },
+      { ...review, held: true, rating: null, feedback: null },
+      { ...review, status: "withdrawn" },
+      { ...review, feedback_redacted_at: "2026-04-06T00:00:00.000Z" },
+    ]) {
+      const markup = renderToString(
+        <ReviewDetailPage backHref="/account/reviews/received" review={hiddenReview} viewerAccountId="acc_viewer" />,
+      );
+      expect(markup).not.toContain("Report review");
+    }
   });
 
   it("hides a withdrawn reply", () => {
@@ -102,7 +147,7 @@ describe("review detail page", () => {
     expect(markup).not.toContain("Redacted reply.");
   });
 
-  it("shows moderation badges for an operator-withdrawn or redacted review (m108, #4269)", () => {
+  it("shows moderation badges for an operator-withdrawn or redacted review", () => {
     const withdrawnMarkup = renderToString(
       <ReviewDetailPage
         backHref="/account/reviews/received"

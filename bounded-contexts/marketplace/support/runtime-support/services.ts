@@ -18,6 +18,10 @@ import { createMarketplaceReportRuntime } from "../../features/reports/api/runti
 import { createReviewRuntime } from "../../features/reviews/api/runtime";
 import { createSellerMetricsRuntime } from "../../features/seller-metrics/api/runtime";
 import { createListingEvidencePolicyRuntime } from "../../features/listing-evidence-policy/api/runtime";
+import type { SellerAttentionSource } from "@chase-sets/seller-attention-queue";
+import { createSellerAttentionQueueRuntime } from "../../features/seller-desk/read-model/runtime";
+import { createListingActionAttentionSourceFromReadModel } from "../../features/listings/read-model/seller-attention-source";
+import { createOfferResponseAttentionSourceFromReadModel } from "../../features/offers/read-model/seller-attention-source";
 
 export type MarketplaceServiceOptions = Readonly<{
   commercialTermsResolver?: CommercialTermsResolver;
@@ -25,6 +29,7 @@ export type MarketplaceServiceOptions = Readonly<{
   rateLimitPolicyResolver?: RateLimitRuleResolver;
   /** Post-delivery review nudges (m108) ride this outbox. */
   notificationOutbox?: NotificationOutbox;
+  sellerAttentionSources?: readonly SellerAttentionSource[];
 }>;
 
 export type MarketplaceServices = Readonly<{
@@ -42,6 +47,7 @@ export type MarketplaceServices = Readonly<{
   notificationOutbox: NotificationOutbox;
   pool: PgTransactionalPool;
   db: PgQueryable;
+  sellerAttentionQueue: ReturnType<typeof createSellerAttentionQueueRuntime>;
 }>;
 
 export function createMarketplaceServices(
@@ -80,6 +86,11 @@ export function createMarketplaceServices(
     notificationOutbox,
   });
   const sellerMetrics = createSellerMetricsRuntime({ db, policies });
+  const sellerAttentionQueue = createSellerAttentionQueueRuntime([
+    ...(options.sellerAttentionSources ?? []),
+    createOfferResponseAttentionSourceFromReadModel(db),
+    createListingActionAttentionSourceFromReadModel(db),
+  ]);
   return {
     listings,
     offers,
@@ -94,5 +105,6 @@ export function createMarketplaceServices(
     notificationOutbox,
     pool,
     db,
+    sellerAttentionQueue,
   };
 }

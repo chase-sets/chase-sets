@@ -35,13 +35,14 @@ const destination: ReturnDestinationSnapshot = {
 };
 
 const requestedEvent = {
-  type: "fulfillment.return-shipment.requested.v1",
+  type: "fulfillment.return-shipment.requested.v2",
   data: {
     returnShipmentId: "rsh_1",
     remedyId: "rmd_1",
     supportRequestId: "sup_1",
     orderId: "ord_1",
     outboundShipmentId: "shp_1",
+    affectedOrderLineIds: ["oli_1"],
     returnDirective: "return-to-platform",
     shipFromSnapshot: {
       name: "Buyer",
@@ -65,13 +66,13 @@ const requestedEvent = {
     },
     requestedAt: "2026-06-01T00:00:00.000Z",
   },
-} as never;
+};
 
 describe("return shipment projection", () => {
   it("seeds both read models on request with idempotent upserts", async () => {
     const { db, captured } = mockDb();
     const handlers = buildFulfillmentReturnShipmentProjectionHandlers(db);
-    await handlers["fulfillment.return-shipment.requested.v1"](requestedEvent);
+    await handlers["fulfillment.return-shipment.requested.v2"](requestedEvent as never);
 
     const operatorInsert = captured.find((entry) =>
       entry.sql.includes("INTO fulfillment_return_shipment_operator_pages"),
@@ -82,13 +83,32 @@ describe("return shipment projection", () => {
     expect(operatorInsert).toBeDefined();
     expect(customerInsert).toBeDefined();
     expect(operatorInsert?.sql).toContain("ON CONFLICT (return_shipment_id) DO UPDATE");
+    expect(operatorInsert?.sql).toContain("affected_order_line_ids");
+    expect(operatorInsert?.params).toContain(JSON.stringify(["oli_1"]));
     expect(customerInsert?.sql).toContain("ON CONFLICT (return_shipment_id) DO UPDATE");
+  });
+
+  it("replays legacy requested facts without inventing affected lines", async () => {
+    const { db, captured } = mockDb();
+    const handlers = buildFulfillmentReturnShipmentProjectionHandlers(db);
+    const { affectedOrderLineIds: _omitted, ...legacyData } = requestedEvent.data;
+
+    await handlers["fulfillment.return-shipment.requested.v1"]({
+      ...requestedEvent,
+      type: "fulfillment.return-shipment.requested.v1",
+      data: legacyData,
+    } as never);
+
+    const operatorInsert = captured.find((entry) =>
+      entry.sql.includes("INTO fulfillment_return_shipment_operator_pages"),
+    );
+    expect(operatorInsert?.params).toContain(JSON.stringify([]));
   });
 
   it("keeps protected facility and party metadata out of the customer read model", async () => {
     const { db, captured } = mockDb();
     const handlers = buildFulfillmentReturnShipmentProjectionHandlers(db);
-    await handlers["fulfillment.return-shipment.requested.v1"](requestedEvent);
+    await handlers["fulfillment.return-shipment.requested.v2"](requestedEvent as never);
 
     const customerInsert = captured.find((entry) =>
       entry.sql.includes("INTO fulfillment_return_shipment_customer_pages"),

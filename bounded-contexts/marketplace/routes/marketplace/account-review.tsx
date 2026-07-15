@@ -1,18 +1,20 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation, useNavigation } from "react-router";
+import type { MetaFunction } from "react-router";
+import { useActionData, useLoaderData, useLocation, useNavigation } from "react-router";
 import {
+  defineFormAction,
   defineResourceRoute,
-  navigateAfterWrite,
+  formActionRedirect,
   type PlatformPostWriteTelemetry,
 } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { ReputationApiError, type ReviewDetail } from "../../support/request-support/reputation-api-client";
 import { createReputationRequestApiClient } from "../../support/request-support/reputation-api-client";
 import { ReviewDetailPage, ReviewDetailRecoveryPage } from "../../features/reviews/ui/review-detail-page";
 import contextManifest from "../../context.json";
 import { marketplaceApiErrorAdapter } from "../../support/request-support/route-api-error";
+import { submitReviewReport } from "../../support/route-support/review-report-action";
+import type { ReviewReportResult } from "../../features/reviews/ui/review-report-action";
 
 const ACCOUNT_REVIEW_POST_WRITE_TELEMETRY = {
   boundedContextName: "marketplace",
@@ -57,66 +59,76 @@ export const loader = defineResourceRoute({
   telemetry: ACCOUNT_REVIEW_POST_WRITE_TELEMETRY,
 });
 
-// Subject reply compose (m108): posts the one threaded subject response for
-// this review. The API's domain decider is authoritative for the subject-only,
-// post-reveal, and one-reply-per-review rules; this action just forwards the
-// form and surfaces validation failures back onto the compose form.
-export async function action({ request, params }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "reputation.manage",
-  });
-  const reviewId = params.reviewId;
-  if (!reviewId) {
-    throw new Response(t("reputation.routes.marketplace.accountReview.review.not.found"), { status: 404 });
-  }
-
-  const formData = await request.formData();
-  const feedbackEntry = formData.get("feedback");
-  const feedback = typeof feedbackEntry === "string" ? feedbackEntry : "";
-  const api = createReputationRequestApiClient(request);
-
-  try {
-    const reply = (await api.submitReviewReply(reviewId, { feedback })) as Readonly<{ id: string }>;
-
-    return redirect(
-      navigateAfterWrite(reply, `/account/reviews/${reviewId}`, {
+export const action = defineFormAction({
+  authorization: { permission: "reputation.manage" },
+  intents: {
+    "report-review": ({ request, formData }) => submitReviewReport(request, formData),
+    reply: async ({ request, params, formData }) => {
+      const reviewId = params.reviewId;
+      if (!reviewId) {
+        throw new Response(t("reputation.routes.marketplace.accountReview.review.not.found"), { status: 404 });
+      }
+      const feedbackEntry = formData.get("feedback");
+      const feedback = typeof feedbackEntry === "string" ? feedbackEntry : "";
+      const reply = (await createReputationRequestApiClient(request).submitReviewReply(reviewId, {
+        feedback,
+      })) as Readonly<{ id: string }>;
+      return formActionRedirect(reply, `/account/reviews/${reviewId}`, {
         telemetry: ACCOUNT_REVIEW_POST_WRITE_TELEMETRY,
-      }),
-    );
-  } catch (error) {
+      });
+    },
+  },
+  onUnknownIntent: () => null,
+  onError: (error, { formData }) => {
     if (error instanceof ReputationApiError && error.status === 404) {
       throw new Response(t("reputation.routes.marketplace.accountReview.review.not.found"), { status: 404 });
     }
-
+    const feedbackEntry = formData.get("feedback");
     return {
       error: replyErrorMessage(error),
-      values: { feedback },
+      values: { feedback: typeof feedbackEntry === "string" ? feedbackEntry : "" },
     } satisfies ReviewReplyActionData;
-  }
-}
+  },
+});
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: t("reputation.routes.marketplace.accountReview.review.marketplace") });
 
+function reviewRoleForViewer(review: ReviewDetail, viewerAccountId: string) {
+  const authorRole = review.author_role === "seller" ? "seller" : "buyer";
+  return review.author_account_id === viewerAccountId ? authorRole : authorRole === "buyer" ? "seller" : "buyer";
+}
+
 export default function MarketplaceAccountReviewRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as ReviewReplyActionData | undefined;
+  const actionData = useActionData<typeof action>() as ReviewReplyActionData | ReviewReportResult | undefined;
   const location = useLocation();
   const navigation = useNavigation();
+  const reportResult = actionData && "reviewId" in actionData ? (actionData as ReviewReportResult) : null;
+  const replyResult = actionData && !("reviewId" in actionData) ? actionData : null;
+  const submittingIntent = navigation.formData?.get("intent");
 
   if (!data.review) {
     return <ReviewDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />;
   }
 
+  const review = data.review as ReviewDetail;
+  const role = reviewRoleForViewer(review, data.viewerAccountId);
+  const ownsReview = review.author_account_id === data.viewerAccountId;
+  const backHref = `/account/reviews/${ownsReview ? "written" : "received"}?role=${role}`;
+  const orderHref = role === "buyer" ? `/account/purchases/${review.order_id}` : `/account/sales/${review.order_id}`;
+
   return (
     <ReviewDetailPage
-      backHref="/account/reviews/received"
-      review={data.review as ReviewDetail}
+      backHref={backHref}
+      orderHref={orderHref}
+      review={review}
       viewerAccountId={data.viewerAccountId}
-      replyErrorMessage={actionData?.error ?? null}
-      isSubmittingReply={navigation.state === "submitting"}
-      defaultReplyFeedback={actionData?.values?.feedback ?? ""}
+      replyErrorMessage={replyResult?.error ?? null}
+      isSubmittingReply={navigation.state === "submitting" && submittingIntent !== "report-review"}
+      defaultReplyFeedback={replyResult?.values?.feedback ?? ""}
+      reportResult={reportResult}
+      isSubmittingReport={navigation.state === "submitting" && submittingIntent === "report-review"}
     />
   );
 }

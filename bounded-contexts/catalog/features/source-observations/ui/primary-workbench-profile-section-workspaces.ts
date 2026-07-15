@@ -104,7 +104,7 @@ export function profileSectionWorkspacesFor(input: {
       staleState: saveOutcome === "conflict" ? "conflict" : "fresh",
       saveOutcome,
       submitHref: input.submitHref,
-      commandKey: "update-provider-profile-section",
+      commandKey: "provider-profile.edit-section",
       fields: profileSectionFields(input.profile, metadata.section, disabled),
       optionQueries: profileSectionOptionQueries(input.profile, metadata.section, input.controlPlaneOverview),
       importScopeControls: profileSectionImportScopeControls({
@@ -228,7 +228,7 @@ function sectionSaveOutcomeFromUrl(
 ): CatalogPrimaryWorkbenchReadModel["profileAuthoring"]["sectionWorkspaces"][number]["saveOutcome"] {
   const url = typeof requestUrl === "string" ? new URL(requestUrl) : requestUrl;
   if (
-    url.searchParams.get("commandIntent") !== "update-provider-profile-section" ||
+    url.searchParams.get("commandIntent") !== "provider-profile.edit-section" ||
     url.searchParams.get("commandSection") !== section
   ) {
     return "not-submitted";

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -38,6 +39,115 @@ const operatorSellerNonShipmentFinding = {
 } as const;
 
 describe("support request runtime", () => {
+  it("limits attachment reads to the buyer, seller, and platform support operator", async () => {
+    const body = new Uint8Array([0xff, 0xd8, 0xff]);
+    const sha256 = createHash("sha256").update(body).digest("hex");
+    const reference = `support-attachment:v1:sea_photo:${sha256}:jpg`;
+    const db = {
+      query: vi.fn(async (sql: string, values: readonly unknown[]) => {
+        const participantScoped = sql.includes("buyer_account_id = $2 OR seller_account_id = $2");
+        const accountId = values[1];
+        if (participantScoped && accountId !== "acc_buyer" && accountId !== "acc_seller") {
+          return { rows: [] };
+        }
+        return {
+          rows: [
+            {
+              support_request_id: "sup_case",
+              buyer_account_id: "acc_buyer",
+              seller_account_id: "acc_seller",
+              evidence: [{ attachments: [reference] }],
+            },
+          ],
+        };
+      }),
+    };
+    const { eventStore } = createInMemoryEventStore();
+    const storage = {
+      putObject: vi.fn(),
+      getObject: vi.fn(async () => ({ body, contentType: "image/jpeg" })),
+      deleteObjects: vi.fn(),
+    };
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      attachmentStorage: storage,
+    });
+
+    await expect(
+      runtime.getAttachment({
+        supportRequestId: "sup_case",
+        attachmentId: "sea_photo",
+        accountId: "acc_buyer",
+        roleKey: "owner",
+      }),
+    ).resolves.toEqual({ body, contentType: "image/jpeg" });
+    await expect(
+      runtime.getAttachment({
+        supportRequestId: "sup_case",
+        attachmentId: "sea_photo",
+        accountId: "acc_unrelated",
+        roleKey: "owner",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      runtime.getAttachment({
+        supportRequestId: "sup_case",
+        attachmentId: "sea_photo",
+        accountId: "acc_operator",
+        roleKey: "platform-admin",
+      }),
+    ).resolves.toEqual({ body, contentType: "image/jpeg" });
+    expect(storage.getObject).toHaveBeenCalledTimes(2);
+  });
+
+  it("stamps the shipment projection's delivered-at fact onto the open decision", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM support_order_sources")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                buyer_account_id: "acc_buyer",
+                seller_account_id: "acc_seller",
+                status: "delivered",
+                total_amount: "24.00",
+                return_context: [],
+                delivered_at: "2026-04-08T12:00:00.000Z",
+              },
+            ],
+          };
+        }
+        if (sql.includes("FROM support_request_pages")) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const { eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      now: () => "2026-05-09T12:00:00.000Z",
+    });
+
+    await expect(
+      runtime.openSupportRequest(
+        {
+          orderId: "ord_1",
+          accountId: "acc_buyer",
+          flowType: "product-damaged",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Order problems must be reported within 30 days of delivery.");
+
+    expect(db.query.mock.calls[0]?.[0]).toContain("support_shipment_sources");
+  });
+
   it("sources listFlowDefinitions' response-window copy from the resolved support-deadline policy", async () => {
     const db = { query: vi.fn(async () => ({ rows: [] })) };
     const { eventStore } = createInMemoryEventStore();
@@ -262,6 +372,116 @@ describe("support request runtime", () => {
       openedByRole: "buyer",
       status: "waiting-on-seller",
     });
+  });
+
+  it("records participant evidence and responses with the account-derived role", async () => {
+    let supportRequestId = "";
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM support_order_sources")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                buyer_account_id: "acc_buyer",
+                seller_account_id: "acc_seller",
+                status: "ready-for-fulfillment",
+                total_amount: "24.00",
+                return_context: [],
+                affected_line_amounts: [],
+              },
+            ],
+          };
+        }
+        if (sql.includes("WHERE order_id")) return { rows: [] };
+        if (sql.includes("FROM support_request_pages") && sql.includes("support_request_id = $1")) {
+          return supportRequestId
+            ? {
+                rows: [
+                  {
+                    support_request_id: supportRequestId,
+                    buyer_account_id: "acc_buyer",
+                    seller_account_id: "acc_seller",
+                  },
+                ],
+              }
+            : { rows: [] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const opened = await runtime.openSupportRequest(
+      { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-damaged" },
+      context,
+    );
+    supportRequestId = opened.supportRequestId;
+
+    await runtime.submitEvidence(
+      {
+        supportRequestId,
+        accountId: "acc_buyer",
+        submittedByRole: "seller",
+        evidenceType: "photo",
+        summary: "Damaged corner",
+      },
+      context,
+    );
+    await runtime.recordResponse(
+      {
+        supportRequestId,
+        accountId: "acc_seller",
+        submittedByRole: "support",
+        responseType: "issue-refund",
+        summary: "Seller agrees to refund.",
+      },
+      context,
+    );
+
+    expect(
+      allEvents.find((event) => event.eventType === "support.support-request.evidence-submitted")?.payload,
+    ).toMatchObject({
+      evidence: { submittedByRole: "buyer" },
+    });
+    expect(
+      allEvents.find((event) => event.eventType === "support.support-request.response-recorded")?.payload,
+    ).toMatchObject({
+      response: { submittedByRole: "seller" },
+    });
+  });
+
+  it("only lets the participant who opened a support request cancel it", async () => {
+    const db = {
+      query: vi.fn(async () => ({
+        rows: [
+          {
+            support_request_id: "sup_1",
+            buyer_account_id: "acc_buyer",
+            seller_account_id: "acc_seller",
+            opened_by_account_id: "acc_buyer",
+          },
+        ],
+      })),
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    await expect(
+      runtime.cancelSupportRequest(
+        { supportRequestId: "sup_1", accountId: "acc_seller", reason: "Seller cannot cancel buyer case." },
+        context,
+      ),
+    ).rejects.toThrow("Only the account that opened this support request can cancel it.");
+    expect(allEvents).toHaveLength(0);
   });
 
   it("stamps deadlines from the support-deadline policy's resolved value at open time when a policies dependency is wired", async () => {
@@ -751,8 +971,17 @@ describe("support request runtime", () => {
             return pendingId ? { rows: [{ support_request_id: pendingId }] } : { rows: [] };
           }
           if (sql.includes("FROM support_request_pages") && sql.includes("buyer_account_id = $2")) {
-            // requireMutableSupportRequest's existence check before recordResponse.
-            return pendingId ? { rows: [{ support_request_id: pendingId }] } : { rows: [] };
+            return pendingId
+              ? {
+                  rows: [
+                    {
+                      support_request_id: pendingId,
+                      buyer_account_id: "acc_buyer",
+                      seller_account_id: "acc_seller",
+                    },
+                  ],
+                }
+              : { rows: [] };
           }
           if (sql.includes("FROM support_request_pages")) {
             return { rows: [] };

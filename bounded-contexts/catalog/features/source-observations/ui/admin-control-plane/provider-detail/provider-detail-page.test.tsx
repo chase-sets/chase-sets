@@ -57,13 +57,13 @@ describe("CatalogProviderDetailPage", () => {
 
     // Clone-draft form posts back to this page (never /catalog/integrations/providers).
     const cloneForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="clone-provider-profile"]',
+      'form[data-catalog-primary-workbench-command="provider-profile.clone"]',
     );
     expect(cloneForm).toBeTruthy();
     expect(new URL(cloneForm!.getAttribute("action") ?? "", "https://admin.example").pathname).toBe(
       "/catalog/providers/tcgdex",
     );
-    expect(cloneForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("clone-provider-profile");
+    expect(cloneForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("provider-profile.clone");
 
     // Version history table with the active profile listed.
     expect(screen.getByRole("heading", { name: "Profile candidates" })).toBeTruthy();
@@ -106,7 +106,7 @@ describe("CatalogProviderDetailPage", () => {
       "/catalog/providers/tcgdex",
     );
     expect(deprecateForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe(
-      "deprecate-provider-profile",
+      "provider-profile.deprecate",
     );
     expect(deprecateForm?.querySelector<HTMLInputElement>('input[name="providerKey"]')?.value).toBe("tcgdex");
     expect(deprecateForm?.querySelector<HTMLInputElement>('input[name="profileVersion"]')?.value).toBe("2026.06.04");
@@ -163,7 +163,7 @@ describe("CatalogProviderDetailPage", () => {
     render(
       <CatalogProviderDetailPage
         readModel={readModel}
-        commandFeedback={{ status: "success", intent: "activate-provider-profile", result: "profile-activated" }}
+        commandFeedback={{ status: "success", intent: "provider-profile.activate", result: "profile-activated" }}
       />,
     );
 

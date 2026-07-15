@@ -230,6 +230,10 @@ describe("run e2e suite", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/marketplace/routes/admin/listing-evidence-policy.tsx")).toEqual([
       "admin_platform",
     ]);
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/marketplace/routes/account-desk.tsx")).toEqual([
+      "marketplace_account",
+      "marketplace_seller",
+    ]);
     expect(
       e2eSuiteIdsForChangedFile(
         "bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx",

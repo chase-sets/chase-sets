@@ -583,6 +583,7 @@ export type ReviewModerationTargetRow = Readonly<{
   subject_account_id: string;
   status: string;
   revealed_at: string | null;
+  held: boolean;
 }>;
 
 /**
@@ -596,7 +597,7 @@ export async function getReviewModerationTarget(
   reviewId: string,
 ): Promise<ReviewModerationTargetRow | null> {
   const result = await db.query<ReviewModerationTargetRow>(
-    `SELECT review_id, subject_account_id, status, revealed_at::text AS revealed_at
+    `SELECT review_id, subject_account_id, status, revealed_at::text AS revealed_at, held
      FROM marketplace_review_pages
      WHERE review_id = $1`,
     [reviewId],

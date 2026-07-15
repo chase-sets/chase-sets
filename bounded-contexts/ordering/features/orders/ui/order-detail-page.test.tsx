@@ -67,6 +67,12 @@ const order = {
       released_at: null,
     },
   ],
+  money_timeline: {
+    refunds: [],
+    support_cases: [],
+    refunded_amount: "0.00",
+    currency_code: "USD",
+  },
 } as const;
 
 describe("ordering order detail page", () => {
@@ -163,6 +169,8 @@ describe("ordering order detail page", () => {
     expect(markup).not.toContain("Seller item net");
     expect(markup).not.toContain("Seller payout");
     expect(markup).toContain("Every order includes Order Protection");
+    expect(markup).toContain('href="/help/buying/order-protection"');
+    expect(markup).toContain("Read Order Protection terms");
     expect(markup).not.toContain("$0.20");
     expect(markup).not.toContain("$2.00");
     expect(markup).not.toContain("$22.99");
@@ -194,5 +202,107 @@ describe("ordering order detail page", () => {
     // Sellers keep visibility into inventory holds tied to their fulfillment.
     expect(markup).toContain("Inventory Holds");
     expect(markup).toContain("Reserved item");
+  });
+
+  it("shows refund progress and customer-safe issued and failed guidance to the buyer", () => {
+    const markup = renderToString(
+      <OrderingOrderDetailPage
+        role="buyer"
+        backHref="/account/purchases"
+        order={
+          {
+            ...order,
+            status: "ready-for-fulfillment",
+            ready_for_fulfillment_at: "2026-07-14T00:00:00.000Z",
+            money_timeline: {
+              refunds: [
+                {
+                  refund_id: "rfd_issued",
+                  amount: "8.00",
+                  currency_code: "USD",
+                  status: "issued",
+                  requested_at: "2026-07-15T00:00:00.000Z",
+                  issued_at: "2026-07-16T00:00:00.000Z",
+                  failed_at: null,
+                },
+                {
+                  refund_id: "rfd_failed",
+                  amount: "2.00",
+                  currency_code: "USD",
+                  status: "failed",
+                  requested_at: "2026-07-17T00:00:00.000Z",
+                  issued_at: null,
+                  failed_at: "2026-07-18T00:00:00.000Z",
+                },
+              ],
+              support_cases: [
+                {
+                  support_request_id: "sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+                  status: "resolved",
+                  resolution_type: "partial-refund",
+                  refund_amount: "8.00",
+                  active_hold: true,
+                  opened_at: "2026-07-15T00:00:00.000Z",
+                  resolved_at: "2026-07-16T00:00:00.000Z",
+                  released_at: null,
+                },
+              ],
+              refunded_amount: "8.00",
+              currency_code: "USD",
+            },
+          } as never
+        }
+      />,
+    );
+
+    expect(markup).toContain("Money timeline");
+    expect(markup).toContain("Paid");
+    expect(markup).toContain("Refund requested");
+    expect(markup).toContain("Refund issued");
+    expect(markup).toContain("typically arrives in 5–10 business days");
+    expect(markup).toContain("Refund needs attention");
+    expect(markup).toContain("Support is on it");
+    expect(markup).not.toContain("processor");
+    expect(markup).toContain("SUP-");
+  });
+
+  it("shows active proceeds holds and refunded versus retained amounts to the seller", () => {
+    const markup = renderToString(
+      <OrderingOrderDetailPage
+        role="seller"
+        backHref="/account/sales"
+        order={
+          {
+            ...order,
+            total_amount: "26.74",
+            money_timeline: {
+              refunds: [],
+              support_cases: [
+                {
+                  support_request_id: "sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+                  status: "resolved",
+                  resolution_type: "partial-refund",
+                  refund_amount: "8.00",
+                  active_hold: true,
+                  opened_at: "2026-07-15T00:00:00.000Z",
+                  resolved_at: "2026-07-16T00:00:00.000Z",
+                  released_at: null,
+                },
+              ],
+              refunded_amount: "8.00",
+              currency_code: "USD",
+            },
+          } as never
+        }
+      />,
+    );
+
+    expect(markup).toContain("Sale proceeds under support review");
+    expect(markup).toContain("$22.99");
+    expect(markup).toContain("released when the case closes");
+    expect(markup).toContain("Refunded");
+    expect(markup).toContain("$8.00");
+    expect(markup).toContain("Retained");
+    expect(markup).toContain("$18.74");
   });
 });

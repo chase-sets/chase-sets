@@ -58,6 +58,22 @@ describe("inventory item pages", () => {
     expect(html).not.toContain(">ja<");
   });
 
+  it("offers a list-from-inventory action when stock is available", () => {
+    const detail: InventoryItemDetail = { ...inventoryItem, holds: [], ledger: [] };
+    const html = renderToString(<InventoryItemDetailPage item={detail} />);
+
+    // The list-from-inventory drawer trigger replaces the navigate-away create link.
+    expect(html).toContain("List it");
+    expect(html).not.toContain("/account/listings/new?inventoryItemId=");
+  });
+
+  it("hides the list-from-inventory action when nothing is available", () => {
+    const detail: InventoryItemDetail = { ...inventoryItem, available_quantity: 0, holds: [], ledger: [] };
+    const html = renderToString(<InventoryItemDetailPage item={detail} />);
+
+    expect(html).not.toContain("List it");
+  });
+
   it("renders order hold provenance without a seller release affordance", () => {
     const detail: InventoryItemDetail = {
       ...inventoryItem,

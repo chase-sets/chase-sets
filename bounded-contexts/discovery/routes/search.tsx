@@ -29,7 +29,13 @@ import {
 } from "@chase-sets/checkout/server";
 import { applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
 import { SearchPage } from "../features/search/ui/search-page";
+import {
+  buildSearchResultSetKey,
+  persistSearchRestoration,
+  restoreSearchRestoration,
+} from "../features/search/ui/search-scroll-restoration";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
+import { useDiscoveryRealtimeRevalidation } from "../support/realtime-support/revalidation";
 import {
   createDiscoveryProductDescriptor,
   summarizeSelections,
@@ -42,6 +48,8 @@ import {
 } from "../support/request-support/saved-list-addition";
 
 const PAGE_SIZE = 24;
+const HOME_FEATURED_CATEGORY_LIMIT = 4;
+const HOME_NEW_ARRIVALS_LIMIT = 3;
 export const SEARCH_DEBOUNCE_MS = 300;
 const MARKETPLACE_DESCRIPTION = t("discovery.routes.search.browse.the.chase.sets.marketplace.with");
 const EMPTY_SEARCH_RESULT = {
@@ -57,6 +65,7 @@ const EMPTY_SEARCH_RESULT = {
   dynamicFilters: [],
   data: null,
   categories: [],
+  homeMerchandising: null,
   savedListClaim: { preparation: null, error: null },
 } as const;
 const EMPTY_CATEGORY_LIST: CategoryListResponse = {
@@ -93,6 +102,7 @@ function buildSearchQuery({
   inStock,
   sort,
   cursor,
+  limit = PAGE_SIZE,
   dynamicFilters,
 }: {
   search: string;
@@ -105,6 +115,7 @@ function buildSearchQuery({
   inStock: boolean;
   sort: string;
   cursor?: string | null;
+  limit?: number;
   dynamicFilters: readonly DynamicSearchFilterSelection[];
 }) {
   const params = new URLSearchParams();
@@ -133,7 +144,7 @@ function buildSearchQuery({
     params.set("inStock", "true");
   }
   params.set("sort", sort);
-  params.set("limit", String(PAGE_SIZE));
+  params.set("limit", String(limit));
   if (cursor) {
     params.set("cursor", cursor);
   }
@@ -167,6 +178,18 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const inStock = url.searchParams.get("inStock") === "true";
   const sort = url.searchParams.get("sort") ?? "relevance";
   const dynamicFilters = readDynamicSearchFilters(url.searchParams);
+  const isHomeLanding =
+    url.pathname === "/" &&
+    !search &&
+    !categoryParam &&
+    !tag &&
+    !language &&
+    !marketActivity &&
+    !priceMin &&
+    !priceMax &&
+    !inStock &&
+    sort === "relevance" &&
+    dynamicFilters.length === 0;
   const api = createDiscoveryRequestApiClient(request);
 
   const [categoryBySlug, categories] = await Promise.all([
@@ -189,23 +212,44 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw redirect(buildCategoryPath(resolvedCategory.slug, url.searchParams), { status: 301 });
   }
 
-  const data = await api
-    .searchItems(
-      buildSearchQuery({
-        search,
-        category,
-        tag,
-        language,
-        marketActivity,
-        priceMin,
-        priceMax,
-        inStock,
-        sort,
-        dynamicFilters,
-      }),
-    )
-    .catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE);
-  const savedListClaim = await loadSavedListClaimPreparation(request, (product) => product.productId);
+  const [data, newArrivals, savedListClaim] = await Promise.all([
+    api
+      .searchItems(
+        buildSearchQuery({
+          search,
+          category,
+          tag,
+          language,
+          marketActivity,
+          priceMin,
+          priceMax,
+          inStock,
+          sort,
+          dynamicFilters,
+        }),
+      )
+      .catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE),
+    isHomeLanding
+      ? api
+          .searchItems(
+            buildSearchQuery({
+              search: "",
+              category: "",
+              tag: "",
+              language: "",
+              marketActivity: "",
+              priceMin: "",
+              priceMax: "",
+              inStock: false,
+              sort: "newest",
+              limit: HOME_NEW_ARRIVALS_LIMIT,
+              dynamicFilters: [],
+            }),
+          )
+          .catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE)
+      : Promise.resolve(EMPTY_DISCOVERY_SEARCH_RESPONSE),
+    loadSavedListClaimPreparation(request, (product) => product.productId),
+  ]);
   const canonicalPath =
     params.categorySlug && resolvedCategory
       ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
@@ -224,6 +268,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     dynamicFilters,
     data,
     categories: categories.items,
+    homeMerchandising: isHomeLanding
+      ? {
+          featuredCategories: [...categories.items]
+            .sort((left, right) => left.display_order - right.display_order)
+            .slice(0, HOME_FEATURED_CATEGORY_LIMIT),
+          newArrivals: newArrivals.items,
+        }
+      : null,
     canonicalUrl: new URL(canonicalPath, url.origin).toString(),
     savedListClaim,
   };
@@ -394,6 +446,7 @@ export default function DiscoverySearchRoute() {
 type DiscoverySearchRouteData = typeof EMPTY_SEARCH_RESULT | Awaited<ReturnType<typeof loader>>;
 
 function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData }) {
+  const revalidateForRealtimeSync = useDiscoveryRealtimeRevalidation();
   const navigate = useNavigate();
   const navigation = useNavigation();
   const location = useLocation();
@@ -413,23 +466,31 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     value: data.search,
   }));
   const dynamicFilters = data.dynamicFilters ?? [];
-  const resultSetKey = JSON.stringify([
-    data.search,
-    data.category,
-    data.tag,
-    data.language,
-    data.marketActivity,
-    data.priceMin,
-    data.priceMax,
-    data.inStock,
-    data.sort,
+  const resultSetKey = buildSearchResultSetKey({
+    search: data.search,
+    category: data.category,
+    tag: data.tag,
+    language: data.language,
+    marketActivity: data.marketActivity,
+    priceMin: data.priceMin,
+    priceMax: data.priceMax,
+    inStock: data.inStock,
+    sort: data.sort,
     dynamicFilters,
-  ]);
+  });
   const resultSetKeyRef = useRef(resultSetKey);
+  const pendingScrollRestorationRef = useRef<{
+    key: string;
+    pageCount: number;
+    scrollY: number;
+  } | null>(null);
+  const lastObservedScrollYRef = useRef(0);
   const [extraPageState, setExtraPageState] = useState<{
     key: string;
     pages: DiscoverySearchResponse[];
   }>({ key: resultSetKey, pages: [] });
+  const extraPageStateRef = useRef(extraPageState);
+  extraPageStateRef.current = extraPageState;
   const [loadMoreState, setLoadMoreState] = useState<{
     loading: boolean;
     error: string | null;
@@ -458,16 +519,64 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     snapshotKey: accumulatedSnapshotKey,
     topics: discoveryRealtimeRouteTopics.search().topics,
     applyPatch: applyDiscoverySearchPatch,
-    onSyncRequired: reloadForRealtimeSync,
+    onSyncRequired: revalidateForRealtimeSync,
   });
 
   useEffect(() => {
     resultSetKeyRef.current = resultSetKey;
     loadMoreInFlightRef.current = false;
-    setExtraPageState({ key: resultSetKey, pages: [] });
+    const restoration = restoreSearchRestoration(getSearchSessionStorage(), resultSetKey);
+    pendingScrollRestorationRef.current =
+      restoration.scrollY === null
+        ? null
+        : { key: resultSetKey, pageCount: restoration.pages.length, scrollY: restoration.scrollY };
+    setExtraPageState({ key: resultSetKey, pages: restoration.pages });
     setLoadMoreState({ loading: false, error: null });
     setBulkAddState({ status: "idle" });
   }, [resultSetKey]);
+
+  useEffect(() => {
+    const pending = pendingScrollRestorationRef.current;
+    if (
+      !pending ||
+      pending.key !== resultSetKey ||
+      extraPageState.key !== pending.key ||
+      extraPageState.pages.length !== pending.pageCount
+    ) {
+      return;
+    }
+
+    pendingScrollRestorationRef.current = null;
+    lastObservedScrollYRef.current = pending.scrollY;
+    window.scrollTo({ top: pending.scrollY, left: 0, behavior: "instant" });
+  }, [extraPageState, resultSetKey]);
+
+  useEffect(() => {
+    lastObservedScrollYRef.current = window.scrollY;
+    const observeScrollPosition = () => {
+      lastObservedScrollYRef.current = window.scrollY;
+    };
+    const persistCurrentRestoration = () => {
+      const current = extraPageStateRef.current;
+      const currentKey = resultSetKeyRef.current;
+      if (current.key !== currentKey) {
+        return;
+      }
+      persistSearchRestoration(getSearchSessionStorage(), currentKey, current.pages, lastObservedScrollYRef.current);
+    };
+    const persistPageHideRestoration = () => {
+      observeScrollPosition();
+      persistCurrentRestoration();
+    };
+
+    window.addEventListener("scroll", observeScrollPosition, { passive: true });
+    window.addEventListener("pagehide", persistPageHideRestoration);
+    return () => {
+      window.removeEventListener("scroll", observeScrollPosition);
+      window.removeEventListener("pagehide", persistPageHideRestoration);
+      persistCurrentRestoration();
+    };
+  }, []);
 
   if (
     draftSearchState.committedSearch !== data.search &&
@@ -674,6 +783,24 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     }, SEARCH_DEBOUNCE_MS);
   }
 
+  function handleSearchSubmit() {
+    if (pendingSearchRef.current === null) {
+      return;
+    }
+
+    clearSearchTimer();
+    commitPendingSearch();
+  }
+
+  function handleClearSearch() {
+    restoreSearchFocusRef.current = true;
+    draftSearchRef.current = "";
+    pendingSearchRef.current = "";
+    setDraftSearchState((current) => ({ ...current, value: "" }));
+    clearSearchTimer();
+    updateSearchParams({ search: "" }, true);
+  }
+
   function handleImmediateSearchParamChange(nextValues: {
     category?: string;
     tag?: string | null;
@@ -727,9 +854,14 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         return;
       }
 
-      setExtraPageState((current) =>
-        current.key === requestKey ? { key: current.key, pages: [...current.pages, nextPage] } : current,
-      );
+      setExtraPageState((current) => {
+        if (current.key !== requestKey) {
+          return current;
+        }
+        const pages = [...current.pages, nextPage];
+        persistSearchRestoration(getSearchSessionStorage(), requestKey, pages, window.scrollY);
+        return { key: current.key, pages };
+      });
       setLoadMoreState({ loading: false, error: null });
     } catch {
       if (resultSetKeyRef.current === requestKey) {
@@ -814,6 +946,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       dynamicFilters={dynamicFilters}
       data={visibleData}
       categories={[...data.categories]}
+      homeMerchandising={data.homeMerchandising}
       loading={navigation.state !== "idle"}
       loadingMore={loadMoreState.loading}
       loadMoreError={loadMoreState.error}
@@ -827,6 +960,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       savedListClaim={data.savedListClaim}
       restoreSearchFocus={restoreSearchFocusRef.current}
       onSearchChange={handleSearchChange}
+      onSearchSubmit={handleSearchSubmit}
+      onClearSearch={handleClearSearch}
       onCategoryChange={(value) => handleImmediateSearchParamChange({ category: value })}
       onTagClear={() => handleImmediateSearchParamChange({ tag: null })}
       onLanguageChange={(value) => handleImmediateSearchParamChange({ language: value })}
@@ -880,9 +1015,15 @@ function mergeDiscoverySearchResponses(
   };
 }
 
-function reloadForRealtimeSync() {
-  if (typeof window !== "undefined") {
-    window.location.reload();
+function getSearchSessionStorage(): Storage | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
   }
 }
 

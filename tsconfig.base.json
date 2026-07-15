@@ -498,6 +498,9 @@
       "@chase-sets/marketplace/server": [
         "./bounded-contexts/marketplace/server.ts"
       ],
+      "@chase-sets/marketplace/web": [
+        "./bounded-contexts/marketplace/web.ts"
+      ],
       "@chase-sets/money-movement": [
         "./contracts/money-movement/index.ts"
       ],
@@ -821,6 +824,9 @@
       ],
       "@chase-sets/review-eligibility": [
         "./contracts/review-eligibility/index.ts"
+      ],
+      "@chase-sets/seller-attention-queue": [
+        "./contracts/seller-attention-queue/index.ts"
       ],
       "@chase-sets/seller-desk": [
         "./contracts/seller-desk/index.ts"

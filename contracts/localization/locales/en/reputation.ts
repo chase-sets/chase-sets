@@ -32,9 +32,11 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.accountReviewSummaryPage.order": "Order ",
   "reputation.features.reviews.ui.accountReviewSummaryPage.recent.reviews": "Recent Reviews",
   "reputation.features.reviews.ui.accountReviewSummaryPage.reviews": "Reviews",
+  "reputation.features.reviews.ui.accountReviewSummaryPage.reply.label": "Account response",
   "reputation.features.reviews.ui.accountReviewSummaryPage.summary": "Summary",
   "reputation.features.reviews.ui.reviewDetailPage.author.role": "Author role: ",
   "reputation.features.reviews.ui.reviewDetailPage.back": "Back",
+  "reputation.features.reviews.ui.reviewDetailPage.view.order.outcome": "View order outcome",
   "reputation.features.reviews.ui.reviewDetailPage.feedback": "Feedback",
   "reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.badge": "Review paused",
   "reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.description":
@@ -53,6 +55,7 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.reviewDetailPage.reply.submit": "Post response",
   "reputation.features.reviews.ui.reviewDetailPage.reply.submitting": "Posting response...",
   "reputation.features.reviews.ui.reviewDetailPage.reply.title": "Respond to this review",
+  "reputation.features.reviews.ui.reviewDetailPage.reply.label": "Account response",
   "reputation.features.reviews.ui.reviewDetailPage.resolved.via.refund": "Resolved via refund",
   "reputation.features.reviews.ui.reviewDetailPage.review": "Review",
   "reputation.features.reviews.ui.reviewDetailPage.review.author": "Review author: ",
@@ -75,6 +78,7 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.reviewListPage.feedback.on.hold.title": "Review paused",
   "reputation.features.reviews.ui.reviewListPage.no.written.feedback": "No written feedback.",
   "reputation.features.reviews.ui.reviewListPage.open.review": "Open review",
+  "reputation.features.reviews.ui.reviewListPage.reply.label": "Account response",
   "reputation.features.reviews.ui.reviewListPage.order": "Order ",
   "reputation.features.reviews.ui.reviewListPage.pending.reveal": "Pending reveal",
   "reputation.features.reviews.ui.reviewListPage.resolved.via.refund": "Resolved via refund",
@@ -85,6 +89,41 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.reviewListPage.reviewed.account": "Reviewed account: ",
   "reputation.features.reviews.ui.reviewListPage.verified.order": "Verified order",
   "reputation.features.reviews.ui.reviewListPage.reviews": "Reviews",
+  "reputation.features.reviews.ui.reviewReportAction.title": "Report review",
+  "reputation.features.reviews.ui.reviewReportAction.description":
+    "Choose the concern that best describes this public review. A report does not automatically remove the review.",
+  "reputation.features.reviews.ui.reviewReportAction.reason": "Reason",
+  "reputation.features.reviews.ui.reviewReportAction.reason.harassment": "Harassment or abuse",
+  "reputation.features.reviews.ui.reviewReportAction.reason.hate": "Hate or discrimination",
+  "reputation.features.reviews.ui.reviewReportAction.reason.personalInformation": "Personal information",
+  "reputation.features.reviews.ui.reviewReportAction.reason.spam": "Spam or rating manipulation",
+  "reputation.features.reviews.ui.reviewReportAction.reason.other": "Other content concern",
+  "reputation.features.reviews.ui.reviewReportAction.details": "Optional explanation",
+  "reputation.features.reviews.ui.reviewReportAction.details.description":
+    "Share only what moderation needs to evaluate the public content. Up to 1000 characters.",
+  "reputation.features.reviews.ui.reviewReportAction.submit": "Submit report",
+  "reputation.features.reviews.ui.reviewReportAction.submitting": "Submitting report...",
+  "reputation.features.reviews.ui.reviewReportAction.submitted": "Report submitted",
+  "reputation.features.reviews.ui.reviewReportAction.alreadySubmitted": "Report already submitted",
+  "reputation.features.reviews.ui.reviewReportAction.alreadySubmitted.description":
+    "This account already reported this review. Its public status is unchanged while the report is reviewed.",
+  "reputation.features.reviews.ui.reviewReportAction.submitted.description":
+    "Moderation received your report. A report does not automatically remove the review.",
+  "reputation.features.reviews.ui.reviewReportAction.failed": "Report not submitted",
+  "reputation.features.reviews.ui.reviewScoringContext.included": "Included in rating",
+  "reputation.features.reviews.ui.reviewScoringContext.included.description":
+    "This review contributes to the aggregate rating.",
+  "reputation.features.reviews.ui.reviewScoringContext.excluded": "Not included in rating",
+  "reputation.features.reviews.ui.reviewScoringContext.excluded.description":
+    "This feedback shares the experience but does not change the aggregate rating.",
+  "reputation.features.reviews.ui.reviewScoringContext.supportResolved": "Support resolved",
+  "reputation.features.reviews.ui.reviewScoringContext.carrier": "Carrier-related issue",
+  "reputation.features.reviews.ui.reviewScoringContext.platform": "Platform-related issue",
+  "reputation.features.reviews.ui.reviewScoringContext.sharedOrUndetermined": "Shared or undetermined outcome",
+  "reputation.features.reviews.ui.reviewScoringContext.remedy.refund": "Refund issued",
+  "reputation.features.reviews.ui.reviewScoringContext.remedy.replacement": "Replacement arranged",
+  "reputation.features.reviews.ui.reviewScoringContext.remedy.return": "Return arranged",
+  "reputation.features.reviews.ui.reviewScoringContext.remedy.cancellation": "Order cancelled",
   "reputation.features.reviews.ui.reviewListPage.track.written.feedback.current.visibility.and":
     "Track written feedback, current visibility, and commercial counterparties.",
   "reputation.features.reviews.ui.reviewSubmissionPage.back": "Back",
@@ -108,6 +147,42 @@ export const reputationEnglishTranslations = {
     "Tell the account what went well or what needs improvement.",
   "reputation.features.reviews.ui.reviewSubmissionPage.verified.order": "Verified order",
   "reputation.features.reviews.ui.reviewSubmissionPage.your.review": "Your review",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.action": "Problem with this order?",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.indicators.label":
+    "Was there a problem with this order?",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.indicators.description":
+    "Select anything that applies so we can open an order issue and review what happened.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.category.notReceived": "Item not received",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.category.damaged": "Arrived damaged",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.category.notAsDescribed": "Not as described",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.category.missingItems": "Missing items",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.category.authenticity":
+    "Authenticity or counterfeit concern",
+  "reputation.features.reviews.ui.reviewSubmissionPage.problem.category.other": "Another problem to resolve",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.title": "Resolve this order first?",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.buyer.description":
+    "It looks like something went wrong with this order. Opening an order issue lets us review what happened and keeps eligible payments protected while it is open.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.general.description":
+    "If something went wrong with this order, our team can help resolve it.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.primary.title": "Resolve this issue",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.primary.description":
+    "Open an order issue so we can review what happened. Eligible payments stay protected while the issue is open.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.general.primary.description":
+    "Open order help so our team can look into what happened.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.primary.action": "Open an order issue",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.secondary.title": "Leave feedback only",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.secondary.description":
+    "Feedback shares your experience but does not request a refund, return, replacement, or payment hold.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.secondary.acknowledge":
+    "I understand that leaving feedback only will not request a refund, return, replacement, or payment hold.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.secondary.action": "Continue with feedback only",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.privacy.note":
+    "Your review text stays private and is not submitted as evidence for the order issue.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.dismiss": "Go back",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.unavailable.title": "An order issue can't be opened",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.unavailable.description":
+    "The support window for this order has closed, so a new order issue can't be opened. You can still leave feedback below.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.resolution.track.action": "Track order issue",
   "reputation.routes.marketplace.accountPurchaseReview.verified.purchase.not.found": "Verified purchase not found.",
   "reputation.routes.marketplace.accountPurchaseReview.write.review.marketplace": "Write Review | Marketplace",
   "reputation.routes.marketplace.accountReceivedReviews.all.roles": "All",

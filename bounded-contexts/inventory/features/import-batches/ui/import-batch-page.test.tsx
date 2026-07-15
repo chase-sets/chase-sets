@@ -122,29 +122,12 @@ describe("InventoryImportBatchPage", () => {
     expect(html).toContain("Cap: 2");
   });
 
-  it("renders picker controls for unresolved native row fixes", () => {
+  it("renders a resolve trigger and attention banner for unresolved native rows", () => {
     const html = renderToString(
       <InventoryImportBatchPage
         batches={[batch()]}
-        storageLocations={[
-          {
-            storage_location_id: "loc_active",
-            account_id: "acc_1",
-            name: "Active shelf",
-            description: null,
-            ship_from_code: "CHI",
-            ship_from_address: {
-              name: "Chase Sets",
-              line1: "100 Market St",
-              city: "Chicago",
-              state: "IL",
-              postalCode: "60601",
-              country: "US",
-            },
-            is_archived: false,
-            updated_at: timestamp,
-          },
-        ]}
+        storageLocations={[]}
+        currentPath="/account/inventory/imports/imb_1"
         detail={detail([
           row({
             status: "rejected",
@@ -158,36 +141,20 @@ describe("InventoryImportBatchPage", () => {
       />,
     );
 
-    expect(html).toContain("Apply row fix");
-    expect(html).toContain("Search catalog");
-    expect(html).toMatch(/<select[^>]*name="catalogItemId"/);
-    expect(html).toMatch(/<select[^>]*name="storageLocationId"/);
-    expect(html).not.toMatch(/<input[^>]*name="catalogItemId"/);
+    // The batch surface shows the resolution work and a deep link into the drawer;
+    // the in-cell picker is gone (resolution now happens in the drawer).
+    expect(html).toContain("1 rows need you");
+    expect(html).toContain("Resolve rows");
+    expect(html).toContain("resolveRowId=imr_1");
+    expect(html).not.toMatch(/<select[^>]*name="catalogItemId"/);
   });
 
-  it("renders canonical row review for Saved List rows that need a location", () => {
+  it("renders a resolve trigger for Saved List rows that need a location", () => {
     const html = renderToString(
       <InventoryImportBatchPage
         batches={[batch({ source_key: "saved-list", default_storage_location_id: null })]}
-        storageLocations={[
-          {
-            storage_location_id: "loc_active",
-            account_id: "acc_1",
-            name: "Active shelf",
-            description: null,
-            ship_from_code: "CHI",
-            ship_from_address: {
-              name: "Chase Sets",
-              line1: "100 Market St",
-              city: "Chicago",
-              state: "IL",
-              postalCode: "60601",
-              country: "US",
-            },
-            is_archived: false,
-            updated_at: timestamp,
-          },
-        ]}
+        storageLocations={[]}
+        currentPath="/account/inventory/imports/imb_1"
         detail={{
           ...detail([
             row({
@@ -203,8 +170,8 @@ describe("InventoryImportBatchPage", () => {
     );
 
     expect(html).toContain("Saved List");
-    expect(html).toContain("Apply row fix");
-    expect(html).toMatch(/<select[^>]*name="storageLocationId"/);
+    expect(html).toContain("resolveRowId=imr_1");
+    expect(html).not.toMatch(/<select[^>]*name="storageLocationId"/);
   });
 
   it("renders the all-rejected and fully committed states without commit controls", () => {

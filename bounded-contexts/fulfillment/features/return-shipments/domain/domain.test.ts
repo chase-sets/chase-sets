@@ -74,6 +74,7 @@ function requestCommand(overrides: Partial<RequestReturnShipmentCommand> = {}): 
     supportRequestId: "sup_1" as never,
     orderId: "ord_1" as never,
     outboundShipmentId: "shp_1" as never,
+    affectedOrderLineIds: ["oli_1"],
     returnDirective: "return-to-platform",
     shipFromSnapshot: {
       name: "Buyer",
@@ -177,9 +178,12 @@ function facilityIntake(overrides: Partial<ReturnShipmentFacilityIntake> = {}): 
 
 describe("ReturnShipment aggregate", () => {
   it("requests a reverse shipment and snapshots the destination", () => {
-    const state = requestedState();
+    const events = decideReturnShipment(initialReturnShipmentState, requestCommand());
+    const state = fold(events);
+    expect(events[0]?.type).toBe("fulfillment.return-shipment.requested.v2");
     expect(state.status).toBe("requested");
     expect(state.returnDirective).toBe("return-to-platform");
+    expect(state.affectedOrderLineIds).toEqual(["oli_1"]);
     expect(state.destinationSnapshot?.facilityId).toBe("fac_east");
     expect(state.labelStatus).toBe("pending");
     expect(state.milestones).toHaveLength(1);
@@ -210,6 +214,25 @@ describe("ReturnShipment aggregate", () => {
         }),
       ),
     ).toThrow();
+  });
+
+  it.each([
+    ["support case", { supportRequestId: "sup_other" as never }],
+    ["order", { orderId: "ord_other" as never }],
+    ["outbound shipment", { outboundShipmentId: "shp_other" as never }],
+    ["affected order lines", { affectedOrderLineIds: ["oli_other"] }],
+  ])("rejects reusing a stream with different %s linkage", (_label, overrides) => {
+    const state = requestedState();
+    expect(() => decideReturnShipment(state, requestCommand(overrides))).toThrow("linkage");
+  });
+
+  it("requires one or more unique affected order lines", () => {
+    expect(() =>
+      decideReturnShipment(initialReturnShipmentState, requestCommand({ affectedOrderLineIds: [] })),
+    ).toThrow("affected order line");
+    expect(() =>
+      decideReturnShipment(initialReturnShipmentState, requestCommand({ affectedOrderLineIds: ["oli_1", "oli_1"] })),
+    ).toThrow("duplicated");
   });
 
   it("rejects a return-by deadline that precedes the ship-by deadline", () => {
@@ -262,6 +285,30 @@ describe("ReturnShipment aggregate", () => {
     expect(state.status).toBe("received");
     expect(state.deliveredAt).toBe("2026-06-05T00:00:00.000Z");
     expect(state.receivedAt).toBe("2026-06-06T00:00:00.000Z");
+  });
+
+  it("stamps the carrier-accepted and delivered facts with the remedy correlation for cross-context refund triggering", () => {
+    const ready = readyState();
+    const [carrierAccepted] = decideReturnShipment(ready, {
+      type: "RecordReturnShipmentCarrierAccepted",
+      metadata: milestoneMeta,
+      occurredAt: "2026-06-03T00:00:00.000Z",
+    });
+    expect(carrierAccepted?.type).toBe("fulfillment.return-shipment.carrier-accepted.v1");
+    expect(carrierAccepted?.data).toMatchObject({ remedyId, supportRequestId: "sup_1" });
+
+    const inTransit = apply(ready, {
+      type: "RecordReturnShipmentInTransit",
+      metadata: milestoneMeta,
+      occurredAt: "2026-06-04T00:00:00.000Z",
+    });
+    const [delivered] = decideReturnShipment(inTransit, {
+      type: "RecordReturnShipmentDelivered",
+      metadata: milestoneMeta,
+      occurredAt: "2026-06-05T00:00:00.000Z",
+    });
+    expect(delivered?.type).toBe("fulfillment.return-shipment.delivered.v1");
+    expect(delivered?.data).toMatchObject({ remedyId, supportRequestId: "sup_1" });
   });
 
   it("converges duplicate and out-of-order carrier scans without regressing custody", () => {

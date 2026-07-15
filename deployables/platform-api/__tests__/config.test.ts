@@ -207,6 +207,9 @@ function resetConfigEnv() {
   delete process.env.UCP_BUSINESS_SIGNING_ALG;
   delete process.env.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS;
   delete process.env.UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS;
+  delete process.env.UCP_AP2_VERIFIER_URL;
+  delete process.env.UCP_AP2_VERIFIER_AUTH_TOKEN;
+  delete process.env.UCP_AP2_VERIFIER_TIMEOUT_MS;
   delete process.env.CHASE_SETS_RATE_LIMITS_DISABLED;
   delete process.env.CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX;
   delete process.env.CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_WINDOW_MS;
@@ -942,6 +945,37 @@ describe("platform api config", () => {
     process.env.UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS = "120000";
 
     expect(loadConfig().ucpSignatureCreatedFreshnessWindowMs).toBe(120_000);
+  });
+
+  it("loads a complete AP2 verifier configuration", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.UCP_AP2_VERIFIER_URL = "https://verifier.example/verify";
+    process.env.UCP_AP2_VERIFIER_AUTH_TOKEN = "verifier-secret";
+    process.env.UCP_AP2_VERIFIER_TIMEOUT_MS = "2400";
+
+    expect(loadConfig().ucpAp2Verifier).toEqual({
+      endpoint: "https://verifier.example/verify",
+      authorizationToken: "verifier-secret",
+      timeoutMs: 2_400,
+    });
+  });
+
+  it("rejects partial AP2 verifier configuration", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.UCP_AP2_VERIFIER_URL = "https://verifier.example/verify";
+
+    expect(() => loadConfig()).toThrow(
+      "UCP_AP2_VERIFIER_URL and UCP_AP2_VERIFIER_AUTH_TOKEN must be configured together.",
+    );
+  });
+
+  it("requires HTTPS for a staging AP2 verifier", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    process.env.UCP_AP2_VERIFIER_URL = "http://verifier.example/verify";
+    process.env.UCP_AP2_VERIFIER_AUTH_TOKEN = "verifier-secret";
+
+    expect(() => loadConfig()).toThrow("UCP_AP2_VERIFIER_URL must use HTTPS in staging and production.");
   });
 
   it("loads social login provider credentials", () => {

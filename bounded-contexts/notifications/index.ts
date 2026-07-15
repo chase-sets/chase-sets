@@ -20,6 +20,7 @@ import {
   NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
 } from "./features/notification-center/integrations/source-events/notification-projector";
 import { buildNotificationsCustomerFeedbackProjectionHandlers } from "./features/notification-center/integrations/source-events/customer-feedback-notifications";
+import { buildNotificationsSupportDisputeProjectionHandlers } from "./features/notification-center/integrations/source-events/support-dispute-notifications";
 
 export const module = defineBoundedContextModule<NotificationsServices, PgTransactionalPool, NotificationsHostPorts>({
   manifest: contextManifest,
@@ -52,6 +53,11 @@ export const module = defineBoundedContextModule<NotificationsServices, PgTransa
           subscriptionName: "notifications.settlement-facts-projection",
           buildHandlers: (subscription) =>
             buildNotificationsSettlementProjectionHandlers(services.notificationOutbox, subscription.projectionName),
+          // NOTE: settlement.support-hold.{placed,released,consumed}.v1 routing is implemented and
+          // unit-tested in support-dispute-notifications.ts, but wiring the subscription is gated on the
+          // settlement support-hold lifecycle facts (and their glossary noun) landing from the settlement
+          // slice. Merge buildNotificationsSettlementSupportHoldProjectionHandlers here and add the three
+          // event types to the settlement subscription in context.json once those facts are on main.
         },
         [`marketplace.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: {
           subscriptionName: "notifications.marketplace-facts-projection",
@@ -63,6 +69,15 @@ export const module = defineBoundedContextModule<NotificationsServices, PgTransa
           buildHandlers: (subscription) =>
             buildNotificationsCustomerFeedbackProjectionHandlers(
               services.notificationOutbox,
+              subscription.projectionName,
+            ),
+        },
+        [`platform-operations.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: {
+          subscriptionName: "notifications.support-dispute-facts-projection",
+          buildHandlers: (subscription) =>
+            buildNotificationsSupportDisputeProjectionHandlers(
+              services.notificationOutbox,
+              services.supportCaseDirectory,
               subscription.projectionName,
             ),
         },

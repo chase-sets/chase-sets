@@ -10,7 +10,7 @@ type RouteContext = ReturnType<typeof parseCatalogPrimaryWorkbenchRouteContext>;
 // the command-feedback banner state and the post-command route context, but it
 // does NOT decide navigation: the surface that consumes the result owns its own
 // post-command UX. The daily surface stays put and renders the banner; the
-// provider-setup and governance surfaces resolve a redirect from the result.
+// provider detail resolves a redirect from the same result.
 export type CatalogIntegrationsCommandResult = Readonly<{
   feedback: CatalogPrimaryWorkbenchCommandFeedback;
   // The route context the surface should reflect after the command. Surfaces that
@@ -33,6 +33,19 @@ export function commandRedirectHref(result: CatalogIntegrationsCommandResult): s
   url.searchParams.set("commandStatus", result.feedback.status);
   url.searchParams.set("commandIntent", result.feedback.intent);
   url.searchParams.set("commandResult", result.feedback.result);
+  if (result.feedback.target) {
+    url.searchParams.set("commandTargetEntity", result.feedback.target.entity);
+    url.searchParams.set("commandTargetCount", String(result.feedback.target.count));
+    if (result.feedback.target.id) {
+      url.searchParams.set("commandTargetId", result.feedback.target.id);
+    }
+  }
+  if (result.feedback.nextStep) {
+    url.searchParams.set("commandNextStep", result.feedback.nextStep);
+  }
+  if (result.feedback.undoAction) {
+    url.searchParams.set("commandUndoAction", result.feedback.undoAction);
+  }
   if (result.commandSection) {
     url.searchParams.set("commandSection", result.commandSection);
   }
@@ -43,11 +56,11 @@ export function commandRedirectHref(result: CatalogIntegrationsCommandResult): s
 export function commandResultNeedsRoutableHandoff(result: CatalogIntegrationsCommandResult): boolean {
   return (
     (result.feedback.status === "success" &&
-      result.feedback.intent === "preview-promotion" &&
+      result.feedback.intent === "observation.promote" &&
       result.feedback.result === "preview-ready" &&
       Boolean(result.context.promotionPreviewId)) ||
     (result.feedback.status === "success" &&
-      result.feedback.intent === "start-catalog-sync" &&
+      result.feedback.intent === "scope.sync" &&
       result.feedback.result === "job-queued" &&
       Boolean(result.context.jobId))
   );

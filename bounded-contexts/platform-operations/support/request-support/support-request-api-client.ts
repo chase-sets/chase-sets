@@ -75,7 +75,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
       ),
     getSupportRequest: async (supportRequestId: string) =>
       parseJsonResponse<SupportRequestDetail>(
-        await clientFetch(`${baseUrl}/support-requests/${supportRequestId}`, {
+        await clientFetch(`${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}`, {
           headers: resolveHeaders(options.headers),
         }),
       ),
@@ -99,6 +99,100 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
             "Content-Type": "application/json",
             ...resolveHeaders(options.headers),
           },
+          body: JSON.stringify(body),
+        }),
+      ),
+    uploadSupportEvidenceAttachments: async (supportRequestId: string, files: readonly File[]) => {
+      const formData = new FormData();
+      files.forEach((file) => formData.append("attachments", file));
+      return parseJsonResponse<{
+        attachments: readonly Readonly<{
+          attachmentId: string;
+          reference: string;
+          contentType: string;
+          byteSize: number;
+        }>[];
+      }>(
+        await clientFetch(`${baseUrl}/support-requests/${supportRequestId}/attachments`, {
+          method: "POST",
+          headers: resolveHeaders(options.headers),
+          body: formData,
+        }),
+      );
+    },
+    submitSupportEvidence: async (
+      supportRequestId: string,
+      body: Readonly<{
+        submittedByRole: string;
+        evidenceType: string;
+        summary: string;
+        occurredAt?: string | null;
+        attachments?: readonly string[];
+      }>,
+    ) =>
+      parseJsonResponse<SupportRequestCommandSnapshot>(
+        await clientFetch(`${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}/evidence`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
+          body: JSON.stringify(body),
+        }),
+      ),
+    recordSupportResponse: async (
+      supportRequestId: string,
+      body: Readonly<{
+        submittedByRole: string;
+        responseType: string;
+        summary: string;
+        offerResolutionType?: string | null;
+        refundAmount?: string | null;
+      }>,
+    ) =>
+      parseJsonResponse<SupportRequestCommandSnapshot>(
+        await clientFetch(`${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}/responses`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
+          body: JSON.stringify(body),
+        }),
+      ),
+    acceptSupportOffer: async (supportRequestId: string, offerId: string) =>
+      parseJsonResponse<SupportRequestCommandSnapshot>(
+        await clientFetch(
+          `${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}/offers/${encodeURIComponent(offerId)}/accept`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
+            body: JSON.stringify({}),
+          },
+        ),
+      ),
+    declineSupportOffer: async (
+      supportRequestId: string,
+      offerId: string,
+      body: Readonly<{ summary?: string | null }> = {},
+    ) =>
+      parseJsonResponse<SupportRequestCommandSnapshot>(
+        await clientFetch(
+          `${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}/offers/${encodeURIComponent(offerId)}/decline`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
+            body: JSON.stringify(body),
+          },
+        ),
+      ),
+    requestSupportReview: async (supportRequestId: string, body: Readonly<{ reason: string }>) =>
+      parseJsonResponse<SupportRequestCommandSnapshot>(
+        await clientFetch(`${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}/escalate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
+          body: JSON.stringify(body),
+        }),
+      ),
+    cancelSupportRequest: async (supportRequestId: string, body: Readonly<{ reason: string }>) =>
+      parseJsonResponse<SupportRequestCommandSnapshot>(
+        await clientFetch(`${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}/cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
           body: JSON.stringify(body),
         }),
       ),

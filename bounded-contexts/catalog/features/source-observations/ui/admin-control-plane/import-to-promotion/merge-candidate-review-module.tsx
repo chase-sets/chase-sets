@@ -26,8 +26,8 @@ import type {
   CatalogPrimaryWorkbenchMergeCandidateReviewRow,
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
-import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
 import { CommandFormButton, CommandHiddenInputs } from "./command-controls";
+import { useCatalogIntegrationCommandHref } from "./command-action-context";
 import { CatalogMergeCandidateEditForm } from "./candidate-edit-form";
 import { CatalogScopeBulkReviewActions, catalogMergeCandidateReviewAnchorId } from "./scope-bulk-review-actions";
 import { BlockerList, stateLabel } from "./workbench-formatting";
@@ -322,6 +322,7 @@ function MergeCandidateConflictResolutionForm({
   readModel,
 }: Readonly<{ row: MergeCandidateRow; readModel: CatalogPrimaryWorkbenchReadModel }>) {
   const blockingConflicts = row.conflicts.blockingConflicts;
+  const actionHref = useCatalogIntegrationCommandHref(readModel.routeContext);
   const otherBlockers = row.promoteReadiness.blockers.filter((blocker) => blocker !== "promotion-conflict");
   const blockingConflictsJson = JSON.stringify(
     blockingConflicts.map((conflict) => ({
@@ -366,10 +367,10 @@ function MergeCandidateConflictResolutionForm({
           <WorkbenchForm
             variant="surface"
             method="post"
-            action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
+            action={actionHref}
             data-catalog-merge-candidate-conflict-resolution-form="true"
           >
-            <CommandHiddenInputs readModel={readModel} intent="promote-merge-candidate" candidateId={row.candidateId} />
+            <CommandHiddenInputs readModel={readModel} intent="candidate.promote" candidateId={row.candidateId} />
             <HiddenInput name="blockingConflictsJson" value={blockingConflictsJson} />
             {blockingConflicts.map((conflict) => (
               <ConflictResolutionField key={conflict.code} conflict={conflict} />
@@ -485,7 +486,7 @@ function commandPayloadSummariesFor(row: MergeCandidateRow): readonly string[] {
       ];
     }
     if (
-      actionEntry.key === "promote-merge-candidate" &&
+      actionEntry.key === "candidate.promote" &&
       (actionEntry.state === "available" || actionEntry.state === "degraded")
     ) {
       return [
@@ -524,7 +525,7 @@ function MergeCandidateActionButton({
         actionEntry.commandPreview ? JSON.stringify(actionEntry.commandPreview.body) : undefined
       }
       size="sm"
-      tone={actionKey === "promote-merge-candidate" ? "primary" : "secondary"}
+      tone={actionKey === "candidate.promote" ? "primary" : "secondary"}
       disabled={disabled}
       aria-label={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.aria", {
         action: candidateActionLabel(actionKey),
@@ -538,15 +539,15 @@ function MergeCandidateActionButton({
 
 function candidateActionLabel(actionKey: CatalogPrimaryWorkbenchMergeCandidateActionKey): string {
   switch (actionKey) {
-    case "promote-merge-candidate":
+    case "candidate.promote":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.promote");
-    case "split-merge-candidate":
+    case "candidate.split":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.split");
-    case "update-merge-candidate":
+    case "candidate.edit":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.update");
-    case "ignore-merge-candidate":
+    case "candidate.ignore":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.ignore");
-    case "defer-merge-candidate":
+    case "candidate.defer":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.defer");
   }
 }

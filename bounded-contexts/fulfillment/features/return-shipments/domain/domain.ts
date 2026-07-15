@@ -79,6 +79,7 @@ export type ReturnShipmentState = Readonly<{
   supportRequestId: SupportRequestId | null;
   orderId: OrderId | null;
   outboundShipmentId: ShipmentId | null;
+  affectedOrderLineIds: readonly string[];
   returnDirective: string | null;
   shipFromSnapshot: AddressSnapshot | null;
   destinationSnapshot: ReturnDestinationSnapshot | null;
@@ -130,6 +131,7 @@ export const initialReturnShipmentState: ReturnShipmentState = {
   supportRequestId: null,
   orderId: null,
   outboundShipmentId: null,
+  affectedOrderLineIds: [],
   returnDirective: null,
   shipFromSnapshot: null,
   destinationSnapshot: null,
@@ -186,6 +188,7 @@ export type RequestReturnShipmentCommand = Readonly<{
   supportRequestId: SupportRequestId;
   orderId: OrderId;
   outboundShipmentId: ShipmentId;
+  affectedOrderLineIds: readonly string[];
   returnDirective: string;
   shipFromSnapshot: AddressSnapshot;
   destinationSnapshot: ReturnDestinationSnapshot;
@@ -307,26 +310,35 @@ export type ReturnShipmentCommand =
 // Events — versioned facts (.v1), following the native-event versioning precedent (ADR 0021).
 // -------------------------------------------------------------------------------------------------
 
-export type ReturnShipmentRequestedEvent = DomainEvent<
+type ReturnShipmentRequestedV1Data = Readonly<{
+  returnShipmentId: ReturnShipmentId;
+  remedyId: RemedyId;
+  supportRequestId: SupportRequestId;
+  orderId: OrderId;
+  outboundShipmentId: ShipmentId;
+  returnDirective: string;
+  shipFromSnapshot: AddressSnapshot;
+  destinationSnapshot: ReturnDestinationSnapshot;
+  packageRequirements: ReturnShipmentPackageRequirements;
+  costPayer: ReturnShipmentCostPayer;
+  costAllocationReference: string | null;
+  shipByDeadlineAt: string;
+  returnByDeadlineAt: string;
+  metadata: ReturnShipmentFactMetadata;
+  requestedAt: string;
+}>;
+
+export type ReturnShipmentRequestedV1Event = DomainEvent<
   "fulfillment.return-shipment.requested.v1",
-  Readonly<{
-    returnShipmentId: ReturnShipmentId;
-    remedyId: RemedyId;
-    supportRequestId: SupportRequestId;
-    orderId: OrderId;
-    outboundShipmentId: ShipmentId;
-    returnDirective: string;
-    shipFromSnapshot: AddressSnapshot;
-    destinationSnapshot: ReturnDestinationSnapshot;
-    packageRequirements: ReturnShipmentPackageRequirements;
-    costPayer: ReturnShipmentCostPayer;
-    costAllocationReference: string | null;
-    shipByDeadlineAt: string;
-    returnByDeadlineAt: string;
-    metadata: ReturnShipmentFactMetadata;
-    requestedAt: string;
-  }>
+  ReturnShipmentRequestedV1Data
 >;
+
+export type ReturnShipmentRequestedV2Event = DomainEvent<
+  "fulfillment.return-shipment.requested.v2",
+  ReturnShipmentRequestedV1Data & Readonly<{ affectedOrderLineIds: readonly string[] }>
+>;
+
+export type ReturnShipmentRequestedEvent = ReturnShipmentRequestedV1Event | ReturnShipmentRequestedV2Event;
 
 export type ReturnShipmentLabelReadyEvent = DomainEvent<
   "fulfillment.return-shipment.label-ready.v1",
@@ -377,6 +389,8 @@ export type ReturnShipmentCarrierAcceptedEvent = DomainEvent<
   "fulfillment.return-shipment.carrier-accepted.v1",
   Readonly<{
     returnShipmentId: ReturnShipmentId;
+    remedyId: RemedyId;
+    supportRequestId: SupportRequestId;
     detail: string | null;
     metadata: ReturnShipmentFactMetadata;
     occurredAt: string;
@@ -397,6 +411,8 @@ export type ReturnShipmentDeliveredEvent = DomainEvent<
   "fulfillment.return-shipment.delivered.v1",
   Readonly<{
     returnShipmentId: ReturnShipmentId;
+    remedyId: RemedyId;
+    supportRequestId: SupportRequestId;
     detail: string | null;
     metadata: ReturnShipmentFactMetadata;
     deliveredAt: string;
@@ -511,6 +527,21 @@ function normalizeMetadata(remedyId: RemedyId, input: ReturnShipmentFactMetadata
   };
 }
 
+function normalizeAffectedOrderLineIds(input: readonly string[]): readonly string[] {
+  assert(input.length > 0, "A return shipment must reference at least one affected order line.");
+  const normalized = input.map((lineId) => lineId.trim());
+  assert(
+    normalized.every((lineId) => lineId.length > 0),
+    "Affected order line ids must not be empty.",
+  );
+  assert(new Set(normalized).size === normalized.length, "An affected order line id is duplicated.");
+  return [...normalized].sort((left, right) => left.localeCompare(right));
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 /**
  * A carrier milestone only advances the recorded status when its target stage is
  * strictly ahead of the furthest stage already reached. This makes duplicate and
@@ -544,12 +575,17 @@ export const decideReturnShipment: AggregateDecider<ReturnShipmentState, ReturnS
         returnDirective === "return-to-platform",
         "A ReturnShipment models a buyer-to-platform reverse movement; its directive must be return-to-platform.",
       );
+      const affectedOrderLineIds = normalizeAffectedOrderLineIds(command.affectedOrderLineIds);
       if (state.returnShipmentId !== null) {
-        // Idempotent by remedy + directive: replaying creation is a no-op, but reusing this
-        // stream for a different remedy or directive is a conflict that must be rejected.
+        // Creation replay is a no-op only when the complete immutable source linkage agrees.
         assert(
-          state.remedyId === command.remedyId && state.returnDirective === returnDirective,
-          "Return shipment already exists for a different remedy or directive; conflicting reuse is rejected.",
+          state.remedyId === command.remedyId &&
+            state.supportRequestId === command.supportRequestId &&
+            state.orderId === command.orderId &&
+            state.outboundShipmentId === command.outboundShipmentId &&
+            sameStrings(state.affectedOrderLineIds, affectedOrderLineIds) &&
+            state.returnDirective === returnDirective,
+          "Return shipment already exists with different support, order, shipment, line, remedy, or directive linkage.",
         );
         return [];
       }
@@ -566,13 +602,14 @@ export const decideReturnShipment: AggregateDecider<ReturnShipmentState, ReturnS
       );
       return [
         {
-          type: "fulfillment.return-shipment.requested.v1",
+          type: "fulfillment.return-shipment.requested.v2",
           data: {
             returnShipmentId: command.returnShipmentId,
             remedyId: command.remedyId,
             supportRequestId: command.supportRequestId,
             orderId: command.orderId,
             outboundShipmentId: command.outboundShipmentId,
+            affectedOrderLineIds,
             returnDirective,
             shipFromSnapshot: normalizeAddressSnapshot(command.shipFromSnapshot, "Return ship-from"),
             destinationSnapshot: normalizeReturnDestinationSnapshot(command.destinationSnapshot),
@@ -709,6 +746,8 @@ export const decideReturnShipment: AggregateDecider<ReturnShipmentState, ReturnS
           type: "fulfillment.return-shipment.carrier-accepted.v1",
           data: {
             returnShipmentId: state.returnShipmentId!,
+            remedyId: state.remedyId!,
+            supportRequestId: state.supportRequestId!,
             detail: normalizeOptionalText(command.detail),
             metadata,
             occurredAt: ensureIsoTimestamp(command.occurredAt, "Carrier acceptance must record a timestamp."),
@@ -745,6 +784,8 @@ export const decideReturnShipment: AggregateDecider<ReturnShipmentState, ReturnS
           type: "fulfillment.return-shipment.delivered.v1",
           data: {
             returnShipmentId: state.returnShipmentId!,
+            remedyId: state.remedyId!,
+            supportRequestId: state.supportRequestId!,
             detail: normalizeOptionalText(command.detail),
             metadata,
             deliveredAt: ensureIsoTimestamp(command.occurredAt, "Delivery must record a timestamp."),
@@ -910,6 +951,7 @@ function withMilestone(
 export const evolveReturnShipment: AggregateEvolver<ReturnShipmentState, ReturnShipmentEvent> = (state, event) => {
   switch (event.type) {
     case "fulfillment.return-shipment.requested.v1":
+    case "fulfillment.return-shipment.requested.v2":
       return {
         ...initialReturnShipmentState,
         returnShipmentId: event.data.returnShipmentId,
@@ -917,6 +959,7 @@ export const evolveReturnShipment: AggregateEvolver<ReturnShipmentState, ReturnS
         supportRequestId: event.data.supportRequestId,
         orderId: event.data.orderId,
         outboundShipmentId: event.data.outboundShipmentId,
+        affectedOrderLineIds: "affectedOrderLineIds" in event.data ? event.data.affectedOrderLineIds : [],
         returnDirective: event.data.returnDirective,
         shipFromSnapshot: event.data.shipFromSnapshot,
         destinationSnapshot: event.data.destinationSnapshot,

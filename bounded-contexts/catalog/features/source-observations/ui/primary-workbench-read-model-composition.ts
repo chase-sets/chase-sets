@@ -1335,8 +1335,6 @@ function buildActions(input: {
         ? []
         : (["no-promotion-eligible-observations"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
   const previewState = actionStateForBlockers(previewBlockers, manageState);
-  const promotionBlockers = input.promotionBlockers;
-  const promotionState = actionStateForBlockers(promotionBlockers, manageState);
   const reviewDecisionBlockers =
     reviewReadModelBlockers.length > 0
       ? reviewReadModelBlockers
@@ -1363,13 +1361,13 @@ function buildActions(input: {
 
   return [
     {
-      key: "select-provider-scope",
-      state: "available",
+      key: "scope.sync",
+      state: manageState,
       blockers: [],
       copyKey: null,
     },
     {
-      key: "start-provider-import",
+      key: "scope.import",
       state: importBlockers.length > 0 ? "blocked" : manageState,
       blockers: importBlockers,
       copyKey:
@@ -1380,13 +1378,7 @@ function buildActions(input: {
           : null,
     },
     {
-      key: "select-source-observations",
-      state: "available",
-      blockers: [],
-      copyKey: null,
-    },
-    {
-      key: "clone-provider-profile",
+      key: "provider-profile.clone",
       state: cloneProfileState,
       blockers: input.cloneProfileBlockers,
       copyKey:
@@ -1399,16 +1391,16 @@ function buildActions(input: {
           : null,
     },
     {
-      key: "activate-provider-profile",
+      key: "provider-profile.activate",
       state: activationState,
       blockers: input.activationBlockers,
       copyKey: input.activationBlockers.length > 0 ? "catalog.primary.import.blocked" : null,
     },
-    lifecycleAction("rollback-provider-profile", lifecycleOperationByCommand, manageState),
-    lifecycleAction("deprecate-provider-profile", lifecycleOperationByCommand, manageState),
-    lifecycleAction("retire-provider-profile", lifecycleOperationByCommand, manageState),
+    lifecycleAction("provider-profile.rollback", lifecycleOperationByCommand, manageState),
+    lifecycleAction("provider-profile.deprecate", lifecycleOperationByCommand, manageState),
+    lifecycleAction("provider-profile.retire", lifecycleOperationByCommand, manageState),
     {
-      key: "preview-promotion",
+      key: "observation.promote",
       state: previewState,
       blockers: previewBlockers,
       copyKey:
@@ -1419,13 +1411,7 @@ function buildActions(input: {
           : null,
     },
     {
-      key: "execute-promotion",
-      state: promotionState,
-      blockers: promotionBlockers,
-      copyKey: promotionBlockers.length > 0 ? "catalog.primary.promotion.previewRequired" : null,
-    },
-    {
-      key: "reject-source-observations",
+      key: "observation.reject",
       state: reviewDecisionState,
       blockers: reviewDecisionBlockers,
       copyKey:
@@ -1436,7 +1422,7 @@ function buildActions(input: {
           : null,
     },
     {
-      key: "defer-source-observations",
+      key: "observation.defer",
       state: reviewDecisionState,
       blockers: reviewDecisionBlockers,
       copyKey:
@@ -1447,43 +1433,43 @@ function buildActions(input: {
           : null,
     },
     {
-      key: "promote-merge-candidate",
+      key: "candidate.promote",
       state: mergeCandidateCommandState,
       blockers: mergeCandidateCommandBlockers,
       copyKey: mergeCandidateCommandBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
     },
     {
-      key: "split-merge-candidate",
+      key: "candidate.split",
       state: mergeCandidateCommandState,
       blockers: mergeCandidateCommandBlockers,
       copyKey: mergeCandidateCommandBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
     },
     {
-      key: "update-merge-candidate",
+      key: "candidate.edit",
       state: mergeCandidateCommandState,
       blockers: mergeCandidateCommandBlockers,
       copyKey: mergeCandidateCommandBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
     },
     {
-      key: "ignore-merge-candidate",
+      key: "candidate.ignore",
       state: mergeCandidateCommandState,
       blockers: mergeCandidateCommandBlockers,
       copyKey: mergeCandidateCommandBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
     },
     {
-      key: "defer-merge-candidate",
+      key: "candidate.defer",
       state: mergeCandidateCommandState,
       blockers: mergeCandidateCommandBlockers,
       copyKey: mergeCandidateCommandBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
     },
     {
-      key: "start-reapply",
+      key: "observation.reapply",
       state: reapplyState,
       blockers: reapplyBlockers,
       copyKey: reapplyBlockers.length > 0 ? "catalog.primary.reapply.originalProfileMissing" : null,
     },
     {
-      key: "start-replay",
+      key: "observation.replay",
       state: replayState,
       blockers: replayBlockers,
       copyKey: null,
@@ -1545,7 +1531,7 @@ function isProviderScopeBlocker(blocker: CatalogPrimaryWorkbenchBlockerCategory)
 function lifecycleAction(
   key: Extract<
     CatalogPrimaryWorkbenchActionReadModel["key"],
-    "rollback-provider-profile" | "deprecate-provider-profile" | "retire-provider-profile"
+    "provider-profile.rollback" | "provider-profile.deprecate" | "provider-profile.retire"
   >,
   operations: ReadonlyMap<LifecycleOperationRow["commandKey"], LifecycleOperationRow>,
   manageState: CatalogPrimaryWorkbenchActionReadModel["state"],

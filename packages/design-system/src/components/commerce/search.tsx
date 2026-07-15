@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
 import { Box, Grid, IconRow, Inline } from "../../primitives/layout";
-import { Button } from "../actions";
+import { Button, LinkButton } from "../actions";
 import { SearchInput } from "../forms";
 import { Card } from "../data-display/card";
 import { MarketplaceEmptyState } from "./panels";
@@ -171,7 +171,11 @@ export function SearchControlBar({
         <div className="grid gap-3 border-t border-border pt-3 md:grid-cols-[1fr_auto] md:items-center">
           <div className="grid gap-2">
             {appliedFilters}
-            {summary ? <div className="text-sm text-secondary">{summary}</div> : null}
+            {summary ? (
+              <div className="text-sm text-secondary" role="status" aria-live="polite" aria-atomic="true">
+                {summary}
+              </div>
+            ) : null}
           </div>
           {savedSearch}
         </div>
@@ -183,7 +187,11 @@ export function SearchControlBar({
 export interface NoResultsRecoveryProps {
   title: ReactNode;
   description: ReactNode;
-  recommendations?: string[];
+  recommendations?: ReadonlyArray<{
+    href: string;
+    id: string;
+    label: ReactNode;
+  }>;
   savedSearchAction?: ReactNode;
   resetAction?: ReactNode;
   trustCue?: ReactNode;
@@ -201,7 +209,15 @@ export function NoResultsRecovery({
     <MarketplaceEmptyState
       title={title}
       description={description}
-      recommendations={recommendations}
+      recommendationActions={
+        recommendations.length
+          ? recommendations.map((recommendation) => (
+              <LinkButton key={recommendation.id} href={recommendation.href} tone="ghost" size="sm">
+                {recommendation.label}
+              </LinkButton>
+            ))
+          : undefined
+      }
       trustCue={trustCue}
       recoveryActions={
         <>

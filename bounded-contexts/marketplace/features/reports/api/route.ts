@@ -8,7 +8,12 @@ import { Hono } from "hono";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { MarketplaceApiEnv } from "../../../api";
-import type { MarketplaceReportReason } from "../domain/domain";
+import {
+  marketplaceListingReportReasons,
+  marketplaceReviewReportReasons,
+  type MarketplaceListingReportReason,
+  type MarketplaceReviewReportReason,
+} from "../domain/domain";
 import type { MarketplaceReportServices } from "./runtime";
 
 const reportListingSubmitRateLimiter = createConfiguredInMemoryRateLimiter("marketplace.report-listing.submit", {
@@ -23,19 +28,26 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("marketplace.features.reports.api.request.failed");
 }
 
-function normalizeReason(value: unknown): MarketplaceReportReason {
+function isDuplicateReportError(error: unknown) {
+  return error instanceof Error && error.message === "This reporter has already reported this content.";
+}
+
+function normalizeListingReason(value: unknown): MarketplaceListingReportReason {
   const reason = String(value ?? "").trim();
-  if (
-    reason === "counterfeit-concern" ||
-    reason === "stolen-photos" ||
-    reason === "prohibited-item" ||
-    reason === "pricing-scam" ||
-    reason === "other"
-  ) {
-    return reason;
+  if ((marketplaceListingReportReasons as readonly string[]).includes(reason)) {
+    return reason as MarketplaceListingReportReason;
   }
 
   throw new Error("Report reason is invalid.");
+}
+
+function normalizeReviewReason(value: unknown): MarketplaceReviewReportReason {
+  const reason = String(value ?? "").trim();
+  if ((marketplaceReviewReportReasons as readonly string[]).includes(reason)) {
+    return reason as MarketplaceReviewReportReason;
+  }
+
+  throw new Error("Review report reason is invalid.");
 }
 
 function visitorReporterKey(c: { req: { header(name: string): string | undefined } }) {
@@ -90,7 +102,7 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
           reporterKey: actor?.accountId ?? visitorKey ?? "",
           reporterAccountId: actor?.accountId ?? null,
           reporterUserId: actor?.userId ?? null,
-          reason: normalizeReason(body.reason),
+          reason: normalizeListingReason(body.reason),
           details: typeof body.details === "string" ? body.details : null,
           sourceRoutePath: typeof body.sourceRoutePath === "string" ? body.sourceRoutePath : "/listings",
         },
@@ -111,6 +123,9 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
         201,
       );
     } catch (error) {
+      if (isDuplicateReportError(error)) {
+        return c.json({ error: { code: "report_already_submitted", message: errorMessage(error) } }, 409);
+      }
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
@@ -157,7 +172,7 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
           reviewId: c.req.param("id"),
           reporterAccountId: actor.accountId,
           reporterUserId: actor.userId,
-          reason: normalizeReason(body.reason),
+          reason: normalizeReviewReason(body.reason),
           details: typeof body.details === "string" ? body.details : null,
           sourceRoutePath: typeof body.sourceRoutePath === "string" ? body.sourceRoutePath : "/reviews",
         },
@@ -175,6 +190,9 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
         201,
       );
     } catch (error) {
+      if (isDuplicateReportError(error)) {
+        return c.json({ error: { code: "report_already_submitted", message: errorMessage(error) } }, 409);
+      }
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });

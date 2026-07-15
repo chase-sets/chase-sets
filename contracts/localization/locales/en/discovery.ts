@@ -1,4 +1,14 @@
 export const discoveryEnglishTranslations = {
+  "discovery.features.home.ui.homeMerchandising.browse.all.new.arrivals": "Browse all new arrivals",
+  "discovery.features.home.ui.homeMerchandising.browse.category": "Browse {category}",
+  "discovery.features.home.ui.homeMerchandising.featured.categories": "Featured categories",
+  "discovery.features.home.ui.homeMerchandising.featured.categories.description":
+    "Explore popular parts of the marketplace.",
+  "discovery.features.home.ui.homeMerchandising.from.price": "From {price}",
+  "discovery.features.home.ui.homeMerchandising.item.count": "{count} items",
+  "discovery.features.home.ui.homeMerchandising.new.arrivals": "New arrivals",
+  "discovery.features.home.ui.homeMerchandising.new.arrivals.description": "See the latest items added to the catalog.",
+  "discovery.features.home.ui.homeMerchandising.view.item": "View item",
   "discovery.features.itemDetail.ui.accountBadges.trusted.seller": "Trusted seller",
   "discovery.features.itemDetail.ui.accountBadges.trusted.seller.explainer":
     "Operations has approved this seller for standard high-dollar listing and payout-release policies.",
@@ -163,6 +173,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.category.filter.label": "Category: {category}",
   "discovery.features.search.ui.searchPage.clear.all": "Clear all",
   "discovery.features.search.ui.searchPage.clear.all.filters": "Clear filters",
+  "discovery.features.search.ui.searchPage.clear.search": "Clear search",
   "discovery.features.search.ui.searchPage.close.filters": "Close filters",
   "discovery.features.search.ui.searchPage.any.facet": "Any {facet}",
   "discovery.features.search.ui.searchPage.advanced.filters": "Advanced filters",
@@ -269,6 +280,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.search.pikachu.spider.man.jordan.vintage":
     "Search Pikachu, Spider-Man, Jordan, vintage packs...",
   "discovery.features.search.ui.searchPage.searching": "Searching...",
+  "discovery.features.search.ui.searchPage.updating.results": "Updating results...",
   "discovery.features.search.ui.searchPage.selected.facet.values": "{count} selected",
   "discovery.features.search.ui.searchPage.save.search": "Save search",
   "discovery.features.search.ui.searchPage.save.this.search": "Save this search",

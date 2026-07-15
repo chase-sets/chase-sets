@@ -2,15 +2,17 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
+import type { RealtimeProjectionPatch, RealtimeSyncRequired } from "@chase-sets/platform-runtime/realtime";
 import type { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
-import type { DiscoveryBulkCartPreview } from "../support/request-support/api-client";
+import type { DiscoveryBulkCartPreview, DiscoverySearchResponse } from "../support/request-support/api-client";
+import { buildSearchResultSetKey, persistSearchRestoration } from "../features/search/ui/search-scroll-restoration";
 
 const {
   mockUseLoaderData,
   mockUseLocation,
   mockUseNavigate,
   mockUseNavigation,
+  mockUseRevalidator,
   mockUseSearchParams,
   mockSubscribeRealtimePatches,
 } = vi.hoisted(() => ({
@@ -18,6 +20,7 @@ const {
   mockUseLocation: vi.fn(),
   mockUseNavigate: vi.fn(),
   mockUseNavigation: vi.fn(),
+  mockUseRevalidator: vi.fn(),
   mockUseSearchParams: vi.fn(),
   mockSubscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
 }));
@@ -31,6 +34,7 @@ vi.mock("react-router", async () => {
     useLocation: mockUseLocation,
     useNavigate: mockUseNavigate,
     useNavigation: mockUseNavigation,
+    useRevalidator: mockUseRevalidator,
     useSearchParams: mockUseSearchParams,
   };
 });
@@ -148,10 +152,13 @@ function searchDataWithMarketOnlyResult(search = "") {
 describe("marketplace search route", () => {
   beforeEach(() => {
     mockUseLocation.mockReturnValue({ pathname: "/search", search: "", hash: "", state: null, key: "test" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn(), state: "idle" });
+    Object.defineProperty(window, "scrollTo", { configurable: true, value: vi.fn() });
   });
 
   afterEach(() => {
     cleanup();
+    window.sessionStorage.clear();
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
@@ -193,6 +200,29 @@ describe("marketplace search route", () => {
     const next = updater(new URLSearchParams("page=2"));
     expect(next.get("q")).toBe("charizard");
     expect(next.has("search")).toBe(false);
+    expect(next.has("page")).toBe(false);
+    expect(options).toMatchObject({ preventScrollReset: true, replace: true });
+  });
+
+  it("flushes the pending search immediately when Enter submits", () => {
+    vi.useFakeTimers();
+    const setSearchParams = vi.fn();
+    mockUseLoaderData.mockReturnValue(searchData());
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("page=2"), setSearchParams]);
+
+    render(<SearchRoute />);
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "charizard" } });
+    fireEvent.submit(screen.getByRole("search"));
+
+    expect(setSearchParams).toHaveBeenCalledTimes(1);
+    act(() => vi.advanceTimersByTime(300));
+    expect(setSearchParams).toHaveBeenCalledTimes(1);
+    const [updater, options] = setSearchParams.mock.calls[0];
+    const next = updater(new URLSearchParams("page=2"));
+    expect(next.get("q")).toBe("charizard");
     expect(next.has("page")).toBe(false);
     expect(options).toMatchObject({ preventScrollReset: true, replace: true });
   });
@@ -255,6 +285,25 @@ describe("marketplace search route", () => {
     expect(next.has("q")).toBe(false);
     expect(next.has("search")).toBe(false);
     expect(next.has("page")).toBe(false);
+  });
+
+  it("clears only search immediately from zero-result recovery", () => {
+    const setSearchParams = vi.fn();
+    mockUseLoaderData.mockReturnValue(searchData("pikachu", "ja"));
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu&language=ja&page=3"), setSearchParams]);
+
+    render(<SearchRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+
+    expect(setSearchParams).toHaveBeenCalledTimes(1);
+    const [updater, options] = setSearchParams.mock.calls[0];
+    const next = updater(new URLSearchParams("q=pikachu&language=ja&page=3"));
+    expect(next.has("q")).toBe(false);
+    expect(next.get("language")).toBe("ja");
+    expect(next.has("page")).toBe(false);
+    expect(options).toMatchObject({ preventScrollReset: true, replace: true });
   });
 
   it("navigates category changes without forcing a document reload", () => {
@@ -344,6 +393,53 @@ describe("marketplace search route", () => {
     expect(apiParams.get("priceMax")).toBe("25.00");
     expect(apiParams.get("inStock")).toBe("true");
     expect(apiParams.get("sort")).toBe("price_desc");
+  });
+
+  it("loads the home result set and newest arrivals in parallel", async () => {
+    const itemRequests: string[] = [];
+    let releaseFirstItemRequest: ((response: Response) => void) | undefined;
+    const firstItemResponse = new Promise<Response>((resolve) => {
+      releaseFirstItemRequest = resolve;
+    });
+    const emptyResponse = {
+      items: [],
+      facets: [],
+      total: 0,
+      count: 0,
+      nextCursor: null,
+      retrievalMode: "lexical",
+      lexicalCount: 0,
+    } as const;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (new URL(url).pathname.endsWith("/categories")) {
+          return Response.json({ items: [], total: 0, count: 0 });
+        }
+        if (new URL(url).pathname.endsWith("/items")) {
+          itemRequests.push(url);
+          return itemRequests.length === 1 ? firstItemResponse : Response.json(emptyResponse);
+        }
+        return Response.json({ items: [], count: 0 });
+      }),
+    );
+
+    const loaderResult = loader({
+      request: new Request("http://localhost/"),
+      params: {},
+      context: {},
+    } as unknown as Parameters<typeof loader>[0]);
+
+    await waitFor(() => expect(itemRequests).toHaveLength(2));
+    releaseFirstItemRequest?.(Response.json(emptyResponse));
+    const result = await loaderResult;
+
+    expect(itemRequests.map((request) => new URL(request).searchParams.get("sort"))).toEqual(["relevance", "newest"]);
+    expect(result).toMatchObject({
+      homeMerchandising: { featuredCategories: [], newArrivals: [] },
+    });
   });
 
   it("removes applied price and in-stock URL state without retaining pagination", () => {
@@ -472,6 +568,43 @@ describe("marketplace search route", () => {
     expect(setSearchParams).not.toHaveBeenCalled();
   });
 
+  it("rehydrates cursor-loaded results before a matching search route remounts", async () => {
+    const secondPage = persistedSearchPage("cat_raichu", "raichu", "Raichu");
+    const loaderData = searchDataWithCursor("pikachu");
+    persistSearchRestoration(window.sessionStorage, resultSetKey(loaderData), [secondPage], 640);
+    mockUseLoaderData.mockReturnValue(loaderData);
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+
+    const firstVisit = render(<SearchRoute />);
+    expect(screen.getByText("Raichu")).toBeTruthy();
+    expect(window.scrollTo).toHaveBeenCalledWith({ top: 640, left: 0, behavior: "instant" });
+    firstVisit.unmount();
+
+    render(<SearchRoute />);
+    expect(screen.getByText("Raichu")).toBeTruthy();
+  });
+
+  it("does not rehydrate cursor pages after the Discovery Query changes", () => {
+    const secondPage = persistedSearchPage("cat_raichu", "raichu", "Raichu");
+    const pikachuData = searchDataWithCursor("pikachu");
+    persistSearchRestoration(window.sessionStorage, resultSetKey(pikachuData), [secondPage], 640);
+    let loaderData: ReturnType<typeof searchDataWithCursor> | ReturnType<typeof searchDataWithResults> = pikachuData;
+    mockUseLoaderData.mockImplementation(() => loaderData);
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+
+    const { rerender } = render(<SearchRoute />);
+    expect(screen.getByText("Raichu")).toBeTruthy();
+
+    loaderData = searchDataWithResults("mewtwo");
+    rerender(<SearchRoute />);
+
+    expect(screen.queryByText("Raichu")).toBeNull();
+  });
+
   it("treats a final cursor page as terminal after merging loaded results", async () => {
     const secondPageItem = {
       ...searchDataWithResults("raichu").data.items[0],
@@ -543,10 +676,14 @@ describe("marketplace search route", () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
 
-    render(<SearchRoute />);
+    const loadedVisit = render(<SearchRoute />);
     fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
 
     await waitFor(() => expect(screen.getByText("Raichu")).toBeTruthy());
+
+    loadedVisit.unmount();
+    render(<SearchRoute />);
+    expect(screen.getByText("Raichu")).toBeTruthy();
 
     const subscriptionOptions = (
       mockSubscribeRealtimePatches.mock.calls.at(-1) as [SubscribeRealtimePatchesOptions] | undefined
@@ -573,6 +710,30 @@ describe("marketplace search route", () => {
     act(() => subscriptionOptions?.onPatch(patch));
 
     await waitFor(() => expect(screen.getByText("From $7.00")).toBeTruthy());
+  });
+
+  it("revalidates the current route when the realtime stream requires a full sync", () => {
+    const revalidate = vi.fn();
+    mockUseRevalidator.mockReturnValue({ revalidate, state: "idle" });
+    mockUseLoaderData.mockReturnValue(searchDataWithResults("pikachu"));
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+
+    render(<SearchRoute />);
+
+    const subscriptionOptions = (
+      mockSubscribeRealtimePatches.mock.calls.at(-1) as [SubscribeRealtimePatchesOptions] | undefined
+    )?.[0];
+    act(() => {
+      subscriptionOptions?.onSyncRequired({
+        kind: "sync.required",
+        reason: "cursor-expired",
+        contexts: ["discovery"],
+      } satisfies RealtimeSyncRequired);
+    });
+
+    expect(revalidate).toHaveBeenCalledOnce();
   });
 
   it("suppresses stale bulk add snapshots after the result set changes", async () => {
@@ -664,5 +825,60 @@ function bulkPreview(): DiscoveryBulkCartPreview {
       },
     ],
     skippedItems: [],
+  };
+}
+
+function resultSetKey(data: {
+  search: string;
+  category: string;
+  tag: string;
+  language: string;
+  marketActivity: string;
+  priceMin: string;
+  priceMax: string;
+  inStock: boolean;
+  sort: string;
+}) {
+  return buildSearchResultSetKey({
+    search: data.search,
+    category: data.category,
+    tag: data.tag,
+    language: data.language,
+    marketActivity: data.marketActivity,
+    priceMin: data.priceMin,
+    priceMax: data.priceMax,
+    inStock: data.inStock,
+    sort: data.sort,
+    dynamicFilters: [],
+  });
+}
+
+function persistedSearchPage(catalogItemId: string, slug: string, title: string): DiscoverySearchResponse {
+  const item = searchDataWithResults(title).data.items[0];
+  if (!item) {
+    throw new Error("Expected a search result fixture.");
+  }
+
+  return {
+    items: [
+      {
+        ...item,
+        catalog_item_id: catalogItemId,
+        slug,
+        title_i18n: null,
+        title,
+        subtitle_i18n: null,
+        display_badges: [],
+        description_i18n: null,
+        product_asset_sets: [],
+        image_fallback: null,
+      },
+    ],
+    facets: [],
+    total: null,
+    count: 1,
+    nextCursor: null,
+    retrievalMode: "lexical",
+    lexicalCount: 1,
   };
 }

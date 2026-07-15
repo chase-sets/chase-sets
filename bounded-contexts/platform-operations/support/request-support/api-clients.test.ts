@@ -92,6 +92,25 @@ describe("platform operations request API clients", () => {
       if (url.endsWith("/ops/escalate-overdue")) {
         return jsonResponse({ escalated: 2, skipped: 1, capped: false, total: 2 });
       }
+      if (url.endsWith("/sup_1/attachments")) {
+        return jsonResponse(
+          {
+            attachments: [
+              {
+                attachmentId: "sea_photo",
+                reference:
+                  "support-attachment:v1:sea_photo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:jpg",
+                contentType: "image/jpeg",
+                byteSize: 3,
+              },
+            ],
+          },
+          201,
+        );
+      }
+      if (url.endsWith("/sup_1/evidence")) {
+        return jsonResponse({ id: "sup_1", version: 2, status: "evidence-submitted" });
+      }
       if (url.includes("/ops/sup_1/")) {
         const status = url.endsWith("/evidence")
           ? "evidence-submitted"
@@ -105,6 +124,20 @@ describe("platform operations request API clients", () => {
                   ? "closed"
                   : "cancelled";
         return jsonResponse({ id: "sup_1", version: 2, status });
+      }
+      if (url.includes("/support-requests/sup_1/")) {
+        const status = url.endsWith("/evidence")
+          ? "evidence-submitted"
+          : url.endsWith("/responses")
+            ? "response-recorded"
+            : url.endsWith("/accept")
+              ? "offer-accepted"
+              : url.endsWith("/decline")
+                ? "offer-declined"
+                : url.endsWith("/escalate")
+                  ? "escalated"
+                  : "cancelled";
+        return jsonResponse({ id: "sup_1", version: 3, status });
       }
       return jsonResponse({ id: "sup_1", version: 1, status: "opened" }, 201);
     });
@@ -124,6 +157,19 @@ describe("platform operations request API clients", () => {
         affectedLineIds: ["line_1"],
       }),
     ).resolves.toEqual({ id: "sup_1", version: 1, status: "opened" });
+    await expect(
+      client.uploadSupportEvidenceAttachments("sup_1", [new File(["photo"], "card.jpg", { type: "image/jpeg" })]),
+    ).resolves.toMatchObject({ attachments: [{ attachmentId: "sea_photo" }] });
+    await expect(
+      client.submitSupportEvidence("sup_1", {
+        submittedByRole: "buyer",
+        evidenceType: "photo",
+        summary: "Damage photos",
+        attachments: [
+          "support-attachment:v1:sea_photo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:jpg",
+        ],
+      }),
+    ).resolves.toEqual({ id: "sup_1", version: 2, status: "evidence-submitted" });
     await expect(client.escalateOverdueSupportRequests({ limit: 25 })).resolves.toEqual({
       escalated: 2,
       skipped: 1,
@@ -165,6 +211,42 @@ describe("platform operations request API clients", () => {
       version: 2,
       status: "cancelled",
     });
+    await expect(
+      client.submitSupportEvidence("sup_1", {
+        submittedByRole: "buyer",
+        evidenceType: "photo",
+        summary: "Damaged corner",
+      }),
+    ).resolves.toEqual({ id: "sup_1", version: 2, status: "evidence-submitted" });
+    await expect(
+      client.recordSupportResponse("sup_1", {
+        submittedByRole: "seller",
+        responseType: "offer-partial-refund",
+        summary: "Offer five dollars",
+        offerResolutionType: "partial-refund",
+        refundAmount: "5.00",
+      }),
+    ).resolves.toEqual({ id: "sup_1", version: 3, status: "response-recorded" });
+    await expect(client.acceptSupportOffer("sup_1", "sof_1")).resolves.toEqual({
+      id: "sup_1",
+      version: 3,
+      status: "offer-accepted",
+    });
+    await expect(client.declineSupportOffer("sup_1", "sof_1", { summary: "Needs review" })).resolves.toEqual({
+      id: "sup_1",
+      version: 3,
+      status: "offer-declined",
+    });
+    await expect(client.requestSupportReview("sup_1", { reason: "Needs review" })).resolves.toEqual({
+      id: "sup_1",
+      version: 3,
+      status: "escalated",
+    });
+    await expect(client.cancelSupportRequest("sup_1", { reason: "Opened by mistake" })).resolves.toEqual({
+      id: "sup_1",
+      version: 3,
+      status: "cancelled",
+    });
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.example.test/support-requests/orders/ord_1",
@@ -186,6 +268,23 @@ describe("platform operations request API clients", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ evidenceType: "support-note", summary: "Operator note" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/support-requests/sup_1/attachments",
+      expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/support-requests/sup_1/responses",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          submittedByRole: "seller",
+          responseType: "offer-partial-refund",
+          summary: "Offer five dollars",
+          offerResolutionType: "partial-refund",
+          refundAmount: "5.00",
+        }),
       }),
     );
     expect(fetchMock).toHaveBeenCalledWith(

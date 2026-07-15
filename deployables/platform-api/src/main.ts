@@ -9,6 +9,7 @@ import {
 } from "@chase-sets/catalog/server";
 import { createFacebookSocialLoginProvider, createGoogleSocialLoginProvider } from "@chase-sets/auth/server";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
+import { createRemoteUcpAp2MandateVerifier } from "@chase-sets/payments/server";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider, createEasyPostPostageWebhookGateway } from "@chase-sets/easypost-postage";
 import {
@@ -107,6 +108,9 @@ const observability = getObservabilityRuntime();
 const logger = observability.logger;
 registerPostWriteConsistencyRecorder(recordPostWriteConsistencyEvent);
 const config = loadConfig();
+const ucpAp2MandateVerifier = config.ucpAp2Verifier
+  ? createRemoteUcpAp2MandateVerifier(config.ucpAp2Verifier)
+  : undefined;
 const pools = createPlatformApiPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const runtimeLifecycle = createRuntimeLifecycleRegistry();
@@ -256,6 +260,7 @@ const waitlistAnalyticsRecorder = {
 };
 const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
 const returnIntakeEvidenceStorage = createReturnIntakeEvidenceStorage(config.listingPhotoStorage);
+const supportEvidenceAttachmentStorage = createSupportEvidenceAttachmentStorage(config.listingPhotoStorage);
 const taxQuoteResolver = shouldBlockProductionTaxQuotes(
   config.deploymentEnvironment,
   Boolean(config.taxProviderBackedQuotesRequired),
@@ -306,6 +311,7 @@ const runtime = createPlatformApiHost({
     waitlistAnalyticsRecorder,
     listingPhotoStorage,
     returnIntakeEvidenceStorage,
+    supportEvidenceAttachmentStorage,
     ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
@@ -628,6 +634,7 @@ const app = buildPlatformApiApp(runtime, {
     mcpToolCallLimiter,
     agentGrantRateLimiter,
   },
+  ucpAp2MandateVerifier,
   agentGrantSpendPolicy,
   agentGrantConsent,
   agentGrantActivity: mcpAuditLog,
@@ -700,6 +707,16 @@ function createReturnIntakeEvidenceStorage(storageConfig: PlatformApiListingPhot
   return createFilesystemObjectStorage({
     rootDir: `${storageConfig.rootDir}/private-return-intake`,
     publicBaseUrl: "private://return-intake-evidence",
+  });
+}
+
+function createSupportEvidenceAttachmentStorage(storageConfig: PlatformApiListingPhotoStorageConfig): ObjectStorage {
+  if (storageConfig.kind === "s3") {
+    return createS3ObjectStorage({ ...storageConfig, publicBaseUrl: "private://support-evidence" });
+  }
+  return createFilesystemObjectStorage({
+    rootDir: `${storageConfig.rootDir}-private-support-evidence`,
+    publicBaseUrl: "private://support-evidence",
   });
 }
 

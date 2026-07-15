@@ -18,6 +18,7 @@ import {
   PageHeader,
   PageSection,
   ProductSelectionFields,
+  SideSheet,
   Stack,
   Text,
   TextInput,
@@ -29,6 +30,7 @@ import type { InventoryCatalogItemSnapshot } from "../../inventory-items/integra
 import type { InventoryStorageLocation } from "../../storage-locations/api/contracts";
 import { listInventoryImportSources } from "../domain/import-source-adapters";
 import { appendInventoryHandoffSearch, inventoryListingHref } from "../../inventory-items/ui/listing-handoff";
+import { activeResolutionRow, rowNeedsResolution, unresolvedResolutionRowIds } from "./resolution-flow";
 import {
   normalizeSelectedOptionsForSchema,
   recordToSelectionEntries,
@@ -62,12 +64,26 @@ function catalogItemOptionLabel(item: InventoryCatalogItemSnapshot) {
   return [item.title, item.subtitle].filter(Boolean).join(" - ");
 }
 
-function rowNeedsPickerFix(row: InventoryImportBatchRow, sourceKey: InventoryImportBatch["source_key"]) {
-  return (
-    row.status === "rejected" &&
-    (sourceKey === "saved-list" || (sourceKey === "native-csv" && row.resolution_status === "unresolved")) &&
-    !row.committed_at
-  );
+const RESOLVE_ROW_SEARCH_KEY = "resolveRowId";
+
+function resolveRowHref(currentPath: string | null | undefined, rowId: string) {
+  const [pathname = "", rawQuery = ""] = (currentPath ?? "").split("?");
+  const params = new URLSearchParams(rawQuery);
+  params.set(RESOLVE_ROW_SEARCH_KEY, rowId);
+  return `${pathname || "."}?${params.toString()}`;
+}
+
+function closeResolveRowHref(currentPath: string | null | undefined) {
+  const [pathname = "", rawQuery = ""] = (currentPath ?? "").split("?");
+  const params = new URLSearchParams(rawQuery);
+  params.delete(RESOLVE_ROW_SEARCH_KEY);
+  const query = params.toString();
+  return `${pathname || "."}${query ? `?${query}` : ""}`;
+}
+
+function selectedResolveRowId(currentPath: string | null | undefined) {
+  const [, rawQuery = ""] = (currentPath ?? "").split("?");
+  return new URLSearchParams(rawQuery).get(RESOLVE_ROW_SEARCH_KEY);
 }
 
 function localizedImportSourceLabel(sourceKey: ReturnType<typeof listInventoryImportSources>[number]["sourceKey"]) {
@@ -347,6 +363,9 @@ export function InventoryImportBatchPage({
   const canCommit = Boolean(detail && detail.accepted_count > detail.committed_count);
   const latestBatchId = detail?.batch_id ?? batches[0]?.batch_id ?? null;
   const activeJob = useInventoryImportBatchJob(activeJobId);
+  const unresolvedRowIds = detail ? unresolvedResolutionRowIds(detail) : [];
+  const resolveRow = activeResolutionRow(detail, selectedResolveRowId(currentPath));
+  const resolveRowPosition = resolveRow ? unresolvedRowIds.indexOf(resolveRow.row_id) + 1 : 0;
 
   return (
     <Page>
@@ -520,6 +539,20 @@ export function InventoryImportBatchPage({
       {detail ? (
         <PageSection title={t("inventory.features.importBatches.ui.importBatchPage.review.batch")}>
           <Stack gap={3}>
+            {unresolvedRowIds.length > 0 ? (
+              <MarketplaceNotice
+                tone="warning"
+                title={t("inventory.features.importBatches.ui.importBatchPage.rows.need.you", {
+                  count: unresolvedRowIds.length,
+                })}
+                description={t("inventory.features.importBatches.ui.importBatchPage.resolve.rows.in.place")}
+                action={
+                  <LinkButton href={resolveRowHref(currentPath, unresolvedRowIds[0]!)} size="sm">
+                    {t("inventory.features.importBatches.ui.importBatchPage.resolve.rows")}
+                  </LinkButton>
+                }
+              />
+            ) : null}
             {canCommit ? (
               <Card>
                 <Form spacing="none" method="post">
@@ -633,12 +666,10 @@ export function InventoryImportBatchPage({
                   header: t("inventory.features.importBatches.ui.importBatchPage.errors.and.outcomes"),
                   cell: (row) => (
                     <Stack gap={1}>
-                      {rowNeedsPickerFix(row, detail.source_key) ? (
-                        <ImportRowResolutionForm
-                          row={row}
-                          storageLocations={storageLocations}
-                          catalogItemApiBaseUrl={catalogItemApiBaseUrl}
-                        />
+                      {rowNeedsResolution(row, detail.source_key) ? (
+                        <LinkButton href={resolveRowHref(currentPath, row.row_id)} size="sm">
+                          {t("inventory.features.importBatches.ui.importBatchPage.resolve.row")}
+                        </LinkButton>
                       ) : null}
                       {row.validation_errors.length > 0
                         ? row.validation_errors.map((message) => (
@@ -706,6 +737,48 @@ export function InventoryImportBatchPage({
           />
         </PageSection>
       )}
+
+      {resolveRow ? (
+        <SideSheet
+          open
+          onOpenChange={(next) => {
+            if (!next && typeof window !== "undefined") {
+              window.location.assign(closeResolveRowHref(currentPath));
+            }
+          }}
+          width="lg"
+          title={t("inventory.features.importBatches.ui.importBatchPage.resolve.import.row", {
+            row: resolveRow.row_number,
+          })}
+          description={t("inventory.features.importBatches.ui.importBatchPage.resolve.progress", {
+            position: resolveRowPosition,
+            total: unresolvedRowIds.length,
+          })}
+          closeLabel={t("inventory.features.importBatches.ui.importBatchPage.close")}
+          footer={
+            <LinkButton href={closeResolveRowHref(currentPath)} tone="secondary" size="sm">
+              {t("inventory.features.importBatches.ui.importBatchPage.close")}
+            </LinkButton>
+          }
+        >
+          <Stack gap={3}>
+            {resolveRow.validation_errors.length > 0 ? (
+              <Stack gap={1}>
+                {resolveRow.validation_errors.map((message) => (
+                  <Text key={message} size="sm" tone="secondary">
+                    {message}
+                  </Text>
+                ))}
+              </Stack>
+            ) : null}
+            <ImportRowResolutionForm
+              row={resolveRow}
+              storageLocations={storageLocations}
+              catalogItemApiBaseUrl={catalogItemApiBaseUrl}
+            />
+          </Stack>
+        </SideSheet>
+      ) : null}
     </Page>
   );
 }

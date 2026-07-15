@@ -12,7 +12,9 @@ function resolvedArticle(slug: string) {
     values: Object.fromEntries(
       article.policyValueKeys.map((key) => [
         key,
-        { type: "hours", value: 48, effectiveFrom: "2026-07-03T00:00:00.000Z", upcoming: [] } as const,
+        key.endsWith(".days")
+          ? ({ type: "days", value: 30, effectiveFrom: "2026-07-03T00:00:00.000Z", upcoming: [] } as const)
+          : ({ type: "hours", value: 48, effectiveFrom: "2026-07-03T00:00:00.000Z", upcoming: [] } as const),
       ]),
     ),
     resolvedAt: "2026-07-12T00:00:00.000Z",
@@ -53,7 +55,7 @@ describe("public help pages", () => {
     render(<HelpArticlePage article={article} related={related} />, { wrapper: MemoryRouter });
     expect(screen.getByRole("heading", { name: "Order protection", level: 1 })).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "On this page" })).toBeTruthy();
-    expect(screen.getByText("Last reviewed July 14, 2026")).toBeTruthy();
+    expect(screen.getByText("Last reviewed July 15, 2026")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Related articles" })).toBeTruthy();
   });
 
