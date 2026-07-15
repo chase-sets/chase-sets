@@ -61,7 +61,9 @@ test.describe("commerce admin postage policies", () => {
       expect(policyId, "create redirect should include the postage policy id").toMatch(/^opp_/);
       await waitForOrderingPostagePolicyProjection(page, createUrl, `create postage policy ${policyId}`);
       await page.goto(`/commerce/postage-policies?policy=${policyId}`, { waitUntil: "domcontentloaded" });
-      await expectAdminPageReady(page, { heading: "Postage Policies" });
+      // The selected policy opens in a modal SideSheet, which makes the underlying page
+      // heading inert; assert readiness against the drawer's own title heading (the label).
+      await expectAdminPageReady(page, { heading: label });
       const policyDrawer = page.getByRole("dialog", { name: label });
       await expect(policyDrawer).toBeVisible();
       await expect(policyDrawer.getByRole("textbox", { name: "Policy version" }).first()).toHaveValue(policyVersion);
@@ -173,7 +175,7 @@ async function waitForPostagePolicyActivationReadModel(
 
 async function expectActivatedPolicy(page: Page, label: string, activationReason: string) {
   await expect(async () => {
-    await expectAdminPageReady(page, { heading: "Postage Policies" }, { timeoutMs: 15_000 });
+    await expectAdminPageReady(page, { heading: label }, { timeoutMs: 15_000 });
     const drawer = page.getByRole("dialog", { name: label });
     const activeVisible = await drawer
       .getByText("active")
