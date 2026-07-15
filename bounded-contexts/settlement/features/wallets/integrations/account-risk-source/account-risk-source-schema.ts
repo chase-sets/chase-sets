@@ -69,7 +69,14 @@ CREATE TABLE IF NOT EXISTS settlement_account_review_sources (
   author_role text NOT NULL DEFAULT '',
   rating integer NOT NULL,
   status text NOT NULL,
-  updated_at timestamptz NOT NULL
+  updated_at timestamptz NOT NULL,
+  held boolean NOT NULL DEFAULT false,
+  scoring_disposition text NOT NULL DEFAULT 'included',
+  scoring_reason_code text NOT NULL DEFAULT 'normal-completion',
+  scoring_policy_version text NOT NULL DEFAULT 'resolution-aware-v1',
+  scoring_source_fact_versions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  scoring_operational_signal text NULL,
+  last_scoring_stream_version bigint NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS settlement_account_review_sources_subject_idx
@@ -77,7 +84,14 @@ CREATE INDEX IF NOT EXISTS settlement_account_review_sources_subject_idx
 
 ALTER TABLE settlement_account_review_sources
   ADD COLUMN IF NOT EXISTS order_id text NOT NULL DEFAULT '',
-  ADD COLUMN IF NOT EXISTS author_role text NOT NULL DEFAULT '';
+  ADD COLUMN IF NOT EXISTS author_role text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS held boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS scoring_disposition text NOT NULL DEFAULT 'included',
+  ADD COLUMN IF NOT EXISTS scoring_reason_code text NOT NULL DEFAULT 'normal-completion',
+  ADD COLUMN IF NOT EXISTS scoring_policy_version text NOT NULL DEFAULT 'resolution-aware-v1',
+  ADD COLUMN IF NOT EXISTS scoring_source_fact_versions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS scoring_operational_signal text NULL,
+  ADD COLUMN IF NOT EXISTS last_scoring_stream_version bigint NOT NULL DEFAULT 0;
 
 -- Double-blind reveal (m108): a review contributes to the payout-risk
 -- review_count/average_rating inputs only once revealed_at is set. A hidden
@@ -134,6 +148,21 @@ CREATE INDEX IF NOT EXISTS settlement_account_velocity_sources_reviewer_idx
 `;
 
 export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260715_settlement_review_scoring_disposition",
+    description: "Persist canonical scoring disposition for seller reputation risk inputs.",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `ALTER TABLE settlement_account_review_sources
+  ADD COLUMN IF NOT EXISTS held boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS scoring_disposition text NOT NULL DEFAULT 'included',
+  ADD COLUMN IF NOT EXISTS scoring_reason_code text NOT NULL DEFAULT 'normal-completion',
+  ADD COLUMN IF NOT EXISTS scoring_policy_version text NOT NULL DEFAULT 'resolution-aware-v1',
+  ADD COLUMN IF NOT EXISTS scoring_source_fact_versions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS scoring_operational_signal text NULL,
+  ADD COLUMN IF NOT EXISTS last_scoring_stream_version bigint NOT NULL DEFAULT 0`,
+    ],
+  },
   {
     migrationId: "20260706_settlement_payments_fraud_risk_sources",
     description: "Track processor fraud signals as Settlement account risk sources.",

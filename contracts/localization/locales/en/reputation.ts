@@ -29,6 +29,8 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.accountReviewSummaryPage.no.reviews.yet": "No reviews yet",
   "reputation.features.reviews.ui.accountReviewSummaryPage.no.written.feedback": "No written feedback.",
   "reputation.features.reviews.ui.accountReviewSummaryPage.not.yet.rated": "Not yet rated",
+  "reputation.features.reviews.ui.accountReviewSummaryPage.rating.and.review.count":
+    "{ratingCount} ratings included · {reviewCount} reviews",
   "reputation.features.reviews.ui.accountReviewSummaryPage.order": "Order ",
   "reputation.features.reviews.ui.accountReviewSummaryPage.recent.reviews": "Recent Reviews",
   "reputation.features.reviews.ui.accountReviewSummaryPage.reviews": "Reviews",
@@ -200,4 +202,5 @@ export const reputationEnglishTranslations = {
     "A review on order {orderReference} is now visible",
   "reputation.features.reviews.integrations.notifications.notificationIntents.reviewRevealed.body":
     "{authorLabel} left you a review. You can now view it and respond.",
+  "reputation.features.reviews.ui.context.only.rating.explanation": "Shared for context · rating not included",
 } as const;

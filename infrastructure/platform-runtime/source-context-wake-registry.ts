@@ -627,6 +627,7 @@ export const sourceContextWakeRegistry = [
       "payments:payments-support-refund-effect",
       "marketplace:marketplace-review-hold-reaction",
       "marketplace:marketplace-review-moderation-reaction",
+      "marketplace:marketplace-review-scoring-reaction",
       "marketplace:marketplace-review-support-source-projection",
       "marketplace:marketplace-seller-metrics-support-source-projection",
       "ordering:ordering-order-money-timeline-projection",

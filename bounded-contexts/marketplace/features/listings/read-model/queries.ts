@@ -825,7 +825,7 @@ export async function getMarketplaceAccountRisk(
     `SELECT
        account_id,
        badges,
-       review_count_as_seller AS review_count,
+       rating_count_as_seller AS review_count,
        average_rating_as_seller::text AS average_rating
      FROM marketplace_account_pages
      WHERE account_id = $1`,

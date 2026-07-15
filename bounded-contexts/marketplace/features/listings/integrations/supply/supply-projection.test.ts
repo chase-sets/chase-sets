@@ -209,7 +209,52 @@ describe("marketplace account projection", () => {
     const reviewInsert = vi
       .mocked(db.query)
       .mock.calls.find(([sql]) => sql.includes("INSERT INTO marketplace_account_reviews"));
-    expect(reviewInsert?.[1]).toEqual(["rev_1", "ord_1", "acc_seller", "buyer", 5, "2026-05-09T00:00:00.000Z"]);
+    expect(reviewInsert?.[1]).toEqual([
+      "rev_1",
+      "ord_1",
+      "acc_seller",
+      "buyer",
+      5,
+      "2026-05-09T00:00:00.000Z",
+      "included",
+      "normal-completion",
+      "resolution-aware-v1",
+      "[]",
+      null,
+    ]);
+  });
+
+  it("keeps context-only reviews in account history while excluding their rating", async () => {
+    const db = {
+      query: vi.fn(async (sql: string, values?: readonly unknown[]) => ({
+        rows: sql.includes("UPDATE marketplace_account_reviews") ? [{ subject_account_id: "acc_seller" }] : [],
+        rowCount: 1,
+        params: values,
+      })),
+    };
+    const handlers = buildMarketplaceAccountProjectionHandlers(db as never);
+
+    await handlers["marketplace.review-scoring.disposition-projected.v1"]?.(
+      event("marketplace.review-scoring.disposition-projected.v1", {
+        factSchemaVersion: 1,
+        orderId: "ord_1",
+        policyVersion: "resolution-aware-v1",
+        sourceFactVersions: [{ supportRequestId: "sup_1", sourceStreamVersion: 2, status: "resolved" }],
+        buyerToSeller: { scoringDisposition: "context-only", reasonCode: "external-responsibility" },
+        sellerToBuyer: { scoringDisposition: "context-only", reasonCode: "external-responsibility" },
+        operationalSignal: null,
+        projectedAt: "2026-05-10T00:00:00.000Z",
+      }),
+    );
+
+    const update = vi.mocked(db.query).mock.calls.find(([sql]) => sql.includes("scoring_disposition = CASE"));
+    expect(update?.[0]).toContain("last_scoring_stream_version");
+    const refresh = vi
+      .mocked(db.query)
+      .mock.calls.find(([sql]) => sql.includes("INSERT INTO marketplace_account_pages"));
+    expect(refresh?.[0]).toContain("scoring_disposition = 'included'");
+    expect(refresh?.[0]).toContain("review_count_as_seller");
+    expect(refresh?.[0]).toContain("rating_count_as_seller");
   });
 
   it("removes held reviews from account reputation and restores them from the released direction set", async () => {

@@ -293,7 +293,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "discovery-market-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -314,6 +314,7 @@
         "marketplace.review.feedback-redacted",
         "marketplace.review.reply-submitted",
         "marketplace.review.reply-withdrawn",
+        "marketplace.review-scoring.disposition-projected.v1",
         "marketplace.review-hold.placed",
         "marketplace.review-hold.extended",
         "marketplace.review-hold.reduced",
@@ -395,6 +396,7 @@
     },
     {
       "projectionName": "discovery-market-projection",
+      "projectionRevision": 2,
       "sourceContextNames": ["catalog", "checkout", "identity", "inventory", "marketplace", "ordering"],
       "ownedTables": [
         "discovery_item_detail_sell_list_lines",

@@ -351,6 +351,7 @@ export interface DiscoveryPublicAccount {
   founder_number?: number | null;
   average_rating_as_seller: string | null;
   review_count_as_seller: number;
+  rating_count_as_seller: number;
   rating_1_count_as_seller: number;
   rating_2_count_as_seller: number;
   rating_3_count_as_seller: number;
@@ -358,6 +359,7 @@ export interface DiscoveryPublicAccount {
   rating_5_count_as_seller: number;
   average_rating_as_buyer: string | null;
   review_count_as_buyer: number;
+  rating_count_as_buyer: number;
   rating_1_count_as_buyer: number;
   rating_2_count_as_buyer: number;
   rating_3_count_as_buyer: number;
@@ -376,6 +378,7 @@ export interface DiscoveryPublicAccountReview {
   author_role: string;
   rating: number;
   feedback: string | null;
+  scoring_disposition: "included" | "context-only";
   submitted_at: string | null;
   updated_at: string;
   // Subject reply mirror (m108): a single threaded response.

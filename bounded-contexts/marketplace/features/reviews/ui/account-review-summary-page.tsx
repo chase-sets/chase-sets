@@ -16,6 +16,7 @@ import { ReviewScoringContext } from "./review-scoring-context";
 type ReviewRoleDimension = Readonly<{
   averageRating: string | null;
   reviewCount: number;
+  ratingCount: number;
   rating1Count: number;
   rating2Count: number;
   rating3Count: number;
@@ -27,6 +28,7 @@ function sellerDimension(summary: ReviewSummary): ReviewRoleDimension {
   return {
     averageRating: summary.average_rating_as_seller,
     reviewCount: summary.review_count_as_seller,
+    ratingCount: summary.rating_count_as_seller,
     rating1Count: summary.rating_1_count_as_seller,
     rating2Count: summary.rating_2_count_as_seller,
     rating3Count: summary.rating_3_count_as_seller,
@@ -39,6 +41,7 @@ function buyerDimension(summary: ReviewSummary): ReviewRoleDimension {
   return {
     averageRating: summary.average_rating_as_buyer,
     reviewCount: summary.review_count_as_buyer,
+    ratingCount: summary.rating_count_as_buyer,
     rating1Count: summary.rating_1_count_as_buyer,
     rating2Count: summary.rating_2_count_as_buyer,
     rating3Count: summary.rating_3_count_as_buyer,
@@ -61,17 +64,24 @@ function ratingPercent(count: number, total: number) {
 }
 
 function RoleReputationDistribution({ title, dimension }: { title: string; dimension: ReviewRoleDimension }) {
+  const count =
+    dimension.reviewCount === dimension.ratingCount
+      ? dimension.reviewCount || formatAverage(dimension)
+      : t("reputation.features.reviews.ui.accountReviewSummaryPage.rating.and.review.count", {
+          ratingCount: dimension.ratingCount,
+          reviewCount: dimension.reviewCount,
+        });
   return (
     <RatingDistribution
       title={title}
       average={numericAverage(dimension)}
-      count={dimension.reviewCount || formatAverage(dimension)}
+      count={count}
       rows={[
-        { stars: 5, value: ratingPercent(dimension.rating5Count, dimension.reviewCount) },
-        { stars: 4, value: ratingPercent(dimension.rating4Count, dimension.reviewCount) },
-        { stars: 3, value: ratingPercent(dimension.rating3Count, dimension.reviewCount) },
-        { stars: 2, value: ratingPercent(dimension.rating2Count, dimension.reviewCount) },
-        { stars: 1, value: ratingPercent(dimension.rating1Count, dimension.reviewCount) },
+        { stars: 5, value: ratingPercent(dimension.rating5Count, dimension.ratingCount) },
+        { stars: 4, value: ratingPercent(dimension.rating4Count, dimension.ratingCount) },
+        { stars: 3, value: ratingPercent(dimension.rating3Count, dimension.ratingCount) },
+        { stars: 2, value: ratingPercent(dimension.rating2Count, dimension.ratingCount) },
+        { stars: 1, value: ratingPercent(dimension.rating1Count, dimension.ratingCount) },
       ]}
     />
   );
@@ -140,7 +150,11 @@ export function ReviewSummaryPage({
                   body={
                     review.feedback ?? t("reputation.features.reviews.ui.accountReviewSummaryPage.no.written.feedback")
                   }
-                  meta="Verified order"
+                  meta={
+                    review.scoring_disposition === "context-only"
+                      ? t("reputation.features.reviews.ui.context.only.rating.explanation")
+                      : "Verified order"
+                  }
                   verified
                   response={
                     review.reply_status === "active" && review.reply_feedback ? review.reply_feedback : undefined

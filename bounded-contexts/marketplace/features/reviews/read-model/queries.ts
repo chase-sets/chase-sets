@@ -22,6 +22,13 @@ export type ReviewListRow = Readonly<{
   revealed_at: string | null;
   reveal_reason: string | null;
   held: boolean;
+  scoring_disposition: "included" | "context-only";
+  scoring_reason_code: string;
+  scoring_policy_version: string;
+  scoring_source_fact_versions: unknown;
+  scoring_operational_signal: string | null;
+  rating_contribution_status: boolean;
+  rating_contribution_version: string;
   // Moderation (m108). withdrawn_by_actor_type distinguishes an
   // author withdrawal from an operator one; the reason columns hold the
   // latest operator withdraw-or-redact reason for display.
@@ -44,6 +51,7 @@ export type ReviewSummaryRow = Readonly<{
   account_display_name: string | null;
   average_rating_as_seller: string | null;
   review_count_as_seller: number;
+  rating_count_as_seller: number;
   rating_1_count_as_seller: number;
   rating_2_count_as_seller: number;
   rating_3_count_as_seller: number;
@@ -51,6 +59,7 @@ export type ReviewSummaryRow = Readonly<{
   rating_5_count_as_seller: number;
   average_rating_as_buyer: string | null;
   review_count_as_buyer: number;
+  rating_count_as_buyer: number;
   rating_1_count_as_buyer: number;
   rating_2_count_as_buyer: number;
   rating_3_count_as_buyer: number;
@@ -115,6 +124,13 @@ const baseReviewSelect = `
     page.revealed_at,
     page.reveal_reason,
     page.held,
+    page.scoring_disposition,
+    page.scoring_reason_code,
+    page.scoring_policy_version,
+    page.scoring_source_fact_versions,
+    page.scoring_operational_signal,
+    page.rating_contribution_status,
+    page.rating_contribution_version::text AS rating_contribution_version,
     page.withdrawn_by_actor_type,
     page.moderation_operator_user_id,
     page.moderation_reason,
@@ -152,6 +168,13 @@ const subjectRedactedReviewSelect = `
     page.revealed_at,
     page.reveal_reason,
     page.held,
+    page.scoring_disposition,
+    page.scoring_reason_code,
+    page.scoring_policy_version,
+    page.scoring_source_fact_versions,
+    page.scoring_operational_signal,
+    page.rating_contribution_status,
+    page.rating_contribution_version::text AS rating_contribution_version,
     page.withdrawn_by_actor_type,
     page.moderation_operator_user_id,
     page.moderation_reason,
@@ -315,6 +338,13 @@ const detailReviewSelect = `
     page.revealed_at,
     page.reveal_reason,
     page.held,
+    page.scoring_disposition,
+    page.scoring_reason_code,
+    page.scoring_policy_version,
+    page.scoring_source_fact_versions,
+    page.scoring_operational_signal,
+    page.rating_contribution_status,
+    page.rating_contribution_version::text AS rating_contribution_version,
     page.withdrawn_by_actor_type,
     page.moderation_operator_user_id,
     page.moderation_reason,
@@ -356,6 +386,7 @@ export async function getPublicAccountSummary(db: PgQueryable, accountId: string
        account.display_name AS account_display_name,
        summary.average_rating_as_seller::text AS average_rating_as_seller,
        summary.review_count_as_seller,
+       summary.rating_count_as_seller,
        summary.rating_1_count_as_seller,
        summary.rating_2_count_as_seller,
        summary.rating_3_count_as_seller,
@@ -363,6 +394,7 @@ export async function getPublicAccountSummary(db: PgQueryable, accountId: string
        summary.rating_5_count_as_seller,
        summary.average_rating_as_buyer::text AS average_rating_as_buyer,
        summary.review_count_as_buyer,
+       summary.rating_count_as_buyer,
        summary.rating_1_count_as_buyer,
        summary.rating_2_count_as_buyer,
        summary.rating_3_count_as_buyer,
@@ -382,6 +414,7 @@ export async function getPublicAccountSummary(db: PgQueryable, accountId: string
       account_display_name: null,
       average_rating_as_seller: null,
       review_count_as_seller: 0,
+      rating_count_as_seller: 0,
       rating_1_count_as_seller: 0,
       rating_2_count_as_seller: 0,
       rating_3_count_as_seller: 0,
@@ -389,6 +422,7 @@ export async function getPublicAccountSummary(db: PgQueryable, accountId: string
       rating_5_count_as_seller: 0,
       average_rating_as_buyer: null,
       review_count_as_buyer: 0,
+      rating_count_as_buyer: 0,
       rating_1_count_as_buyer: 0,
       rating_2_count_as_buyer: 0,
       rating_3_count_as_buyer: 0,

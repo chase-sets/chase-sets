@@ -140,6 +140,9 @@ export function ReviewDetailPage({
                     {t("reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.badge")}
                   </Badge>
                 ) : null}
+                {review.scoring_disposition === "context-only" ? (
+                  <Badge tone="neutral">{t("reputation.features.reviews.ui.context.only.rating.explanation")}</Badge>
+                ) : null}
                 {review.withdrawn_by_actor_type === "operator" ? (
                   <Badge tone="danger">
                     {t("reputation.features.reviews.ui.reviewDetailPage.moderated.withdrawn")}

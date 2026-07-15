@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (139)
+## Projection Groups (140)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -120,6 +120,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `marketplace:marketplace-review-hold-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-hold-reaction` | Marketplace | **platform-operations** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-moderation-reaction` | Marketplace | **platform-operations** | push-enabled | 1/1 |
+| `marketplace:marketplace-review-scoring-reaction` | Marketplace | **platform-operations** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-order-source-projection` | Marketplace | **ordering** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-notification-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |

@@ -55,6 +55,7 @@ type AccountReviewRoleFilter = "seller" | "buyer" | null;
 type AccountRatingDimension = Readonly<{
   averageRating: string | null;
   reviewCount: number;
+  ratingCount: number;
   rating1Count: number;
   rating2Count: number;
   rating3Count: number;
@@ -138,6 +139,7 @@ function sellerDimension(account: DiscoveryPublicAccount): AccountRatingDimensio
   return {
     averageRating: account.average_rating_as_seller,
     reviewCount: account.review_count_as_seller,
+    ratingCount: account.rating_count_as_seller,
     rating1Count: account.rating_1_count_as_seller,
     rating2Count: account.rating_2_count_as_seller,
     rating3Count: account.rating_3_count_as_seller,
@@ -150,6 +152,7 @@ function buyerDimension(account: DiscoveryPublicAccount): AccountRatingDimension
   return {
     averageRating: account.average_rating_as_buyer,
     reviewCount: account.review_count_as_buyer,
+    ratingCount: account.rating_count_as_buyer,
     rating1Count: account.rating_1_count_as_buyer,
     rating2Count: account.rating_2_count_as_buyer,
     rating3Count: account.rating_3_count_as_buyer,
@@ -169,13 +172,22 @@ function RoleRatingDistribution({ title, dimension }: { title: string; dimension
     <RatingDistribution
       title={title}
       average={Number.isFinite(average) ? average : 0}
-      count={dimension.reviewCount || t("discovery.routes.publicAccount.no.feedback.yet")}
+      count={
+        dimension.ratingCount === 0
+          ? t("discovery.routes.publicAccount.no.feedback.yet")
+          : dimension.ratingCount === dimension.reviewCount
+            ? dimension.ratingCount
+            : t("discovery.routes.publicAccount.ratings.included", {
+                ratingCount: dimension.ratingCount,
+                reviewCount: dimension.reviewCount,
+              })
+      }
       rows={[
-        { stars: 5, value: ratingPercent(dimension.rating5Count, dimension.reviewCount) },
-        { stars: 4, value: ratingPercent(dimension.rating4Count, dimension.reviewCount) },
-        { stars: 3, value: ratingPercent(dimension.rating3Count, dimension.reviewCount) },
-        { stars: 2, value: ratingPercent(dimension.rating2Count, dimension.reviewCount) },
-        { stars: 1, value: ratingPercent(dimension.rating1Count, dimension.reviewCount) },
+        { stars: 5, value: ratingPercent(dimension.rating5Count, dimension.ratingCount) },
+        { stars: 4, value: ratingPercent(dimension.rating4Count, dimension.ratingCount) },
+        { stars: 3, value: ratingPercent(dimension.rating3Count, dimension.ratingCount) },
+        { stars: 2, value: ratingPercent(dimension.rating2Count, dimension.ratingCount) },
+        { stars: 1, value: ratingPercent(dimension.rating1Count, dimension.ratingCount) },
       ]}
     />
   );
@@ -461,7 +473,7 @@ function PublicAccountRealtimeView({
   }
 
   const sellerRating = parseRating(account.average_rating_as_seller);
-  const sellerReviewCount = account.review_count_as_seller;
+  const sellerReviewCount = account.rating_count_as_seller;
   const reputationValue =
     sellerRating !== null && sellerReviewCount > 0 ? (
       <RatingSummary value={sellerRating} count={sellerReviewCount} compact />

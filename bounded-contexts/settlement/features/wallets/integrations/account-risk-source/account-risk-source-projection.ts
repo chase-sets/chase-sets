@@ -1,5 +1,9 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
+import {
+  normalizeMarketplaceReviewScoringFact,
+  normalizeMarketplaceReviewSubmittedScoring,
+} from "@chase-sets/event-core/review-scoring-facts";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import {
@@ -444,6 +448,8 @@ async function refreshAccountReviews(db: PgQueryable, accountId: string, updated
        AND status = 'active'
        AND author_role = 'buyer'
        AND revealed_at IS NOT NULL
+       AND held = false
+       AND scoring_disposition = 'included'
      ON CONFLICT (account_id) DO UPDATE SET
        review_count = EXCLUDED.review_count,
        average_rating = EXCLUDED.average_rating,
@@ -647,6 +653,7 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(
         rating: number;
         submittedAt: string;
       };
+      const scoring = normalizeMarketplaceReviewSubmittedScoring(event.data);
       await db.query(
         `INSERT INTO settlement_account_review_sources (
            review_id,
@@ -655,16 +662,38 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(
            author_role,
            rating,
            status,
-           updated_at
-         ) VALUES ($1, $2, $3, $4, $5, 'active', $6)
+           updated_at,
+           scoring_disposition,
+           scoring_reason_code,
+           scoring_policy_version,
+           scoring_source_fact_versions,
+           scoring_operational_signal
+         ) VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8, $9, $10::jsonb, $11)
          ON CONFLICT (review_id) DO UPDATE SET
            order_id = EXCLUDED.order_id,
            subject_account_id = EXCLUDED.subject_account_id,
            author_role = EXCLUDED.author_role,
            rating = EXCLUDED.rating,
            status = EXCLUDED.status,
+           scoring_disposition = EXCLUDED.scoring_disposition,
+           scoring_reason_code = EXCLUDED.scoring_reason_code,
+           scoring_policy_version = EXCLUDED.scoring_policy_version,
+           scoring_source_fact_versions = EXCLUDED.scoring_source_fact_versions,
+           scoring_operational_signal = EXCLUDED.scoring_operational_signal,
            updated_at = EXCLUDED.updated_at`,
-        [data.reviewId, data.orderId, data.subjectAccountId, data.authorRole, data.rating, data.submittedAt],
+        [
+          data.reviewId,
+          data.orderId,
+          data.subjectAccountId,
+          data.authorRole,
+          data.rating,
+          data.submittedAt,
+          scoring.scoringDisposition,
+          scoring.reasonCode,
+          scoring.policyVersion,
+          JSON.stringify(scoring.sourceFactVersions),
+          scoring.operationalSignal,
+        ],
       );
       await refreshAccountReviews(db, data.subjectAccountId, data.submittedAt);
       await upsertVelocitySource(
@@ -725,6 +754,65 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(
         await refreshAccountReviews(db, accountId, data.revealedAt);
       }
     },
+    "marketplace.review-scoring.disposition-projected.v1": async (event) => {
+      const fact = normalizeMarketplaceReviewScoringFact(event.data);
+      const affected = await db.query<{ subject_account_id: string }>(
+        `UPDATE settlement_account_review_sources
+         SET scoring_disposition = CASE WHEN author_role = 'buyer' THEN $2 ELSE $4 END,
+             scoring_reason_code = CASE WHEN author_role = 'buyer' THEN $3 ELSE $5 END,
+             scoring_policy_version = $6,
+             scoring_source_fact_versions = $7::jsonb,
+             scoring_operational_signal = $8,
+             last_scoring_stream_version = $9,
+             updated_at = GREATEST(updated_at, $10::timestamptz)
+         WHERE order_id = $1
+           AND last_scoring_stream_version <= $9
+         RETURNING subject_account_id`,
+        [
+          fact.orderId,
+          fact.buyerToSeller.scoringDisposition,
+          fact.buyerToSeller.reasonCode,
+          fact.sellerToBuyer.scoringDisposition,
+          fact.sellerToBuyer.reasonCode,
+          fact.buyerToSeller.policyVersion,
+          JSON.stringify(fact.buyerToSeller.sourceFactVersions),
+          fact.buyerToSeller.operationalSignal ?? fact.sellerToBuyer.operationalSignal,
+          event.streamVersion,
+          fact.projectedAt,
+        ],
+      );
+      for (const accountId of new Set(affected.rows.map((row) => row.subject_account_id))) {
+        await refreshAccountReviews(db, accountId, fact.projectedAt);
+      }
+    },
+    ...Object.fromEntries(
+      [
+        "marketplace.review-hold.placed",
+        "marketplace.review-hold.extended",
+        "marketplace.review-hold.reduced",
+        "marketplace.review-hold.released",
+        "marketplace.review-hold.terminal-recorded",
+      ].map((eventType) => [
+        eventType,
+        async (event: Parameters<ProjectorHandlerMap[string]>[0]) => {
+          const data = event.data as { orderId: string; heldDirections: readonly string[]; lifecycleAt: string };
+          const affected = await db.query<{ subject_account_id: string }>(
+            `UPDATE settlement_account_review_sources
+             SET held = CASE WHEN author_role = 'buyer'
+               THEN 'buyer-to-seller' = ANY($2::text[])
+               ELSE 'seller-to-buyer' = ANY($2::text[])
+             END,
+                 updated_at = GREATEST(updated_at, $3::timestamptz)
+             WHERE order_id = $1
+             RETURNING subject_account_id`,
+            [data.orderId, data.heldDirections, data.lifecycleAt],
+          );
+          for (const accountId of new Set(affected.rows.map((row) => row.subject_account_id))) {
+            await refreshAccountReviews(db, accountId, data.lifecycleAt);
+          }
+        },
+      ]),
+    ),
   };
 }
 
