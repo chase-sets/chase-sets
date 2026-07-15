@@ -414,6 +414,9 @@ jobs:
     name: Deploy Staging
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    permissions:
+      actions: write
+      contents: read
     needs:
       - resolve-release
       - build-image
@@ -448,6 +451,7 @@ jobs:
       account_cart_canary_configured: ${{ steps.account_cart_canary.outputs.configured || 'false' }}
       account_cart_canary_started_at: ${{ steps.account_cart_canary.outputs.started_at }}
       account_cart_canary_completed_at: ${{ steps.account_cart_canary.outputs.completed_at }}
+      advisory_dispatch_result: ${{ steps.dispatch_advisory_evidence.outcome || 'skipped' }}
     concurrency:
       group: platform-deploy-staging
       cancel-in-progress: false
@@ -1252,40 +1256,6 @@ jobs:
             --rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
 
-      - name: Seed staging Kubernetes scenario data
-        if: env.SHOULD_DEPLOY != 'false'
-        continue-on-error: true
-        env:
-          PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          catalog_asset_public_base_url="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_public_base_url)"
-          catalog_asset_s3_bucket="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_bucket)"
-          catalog_asset_s3_endpoint="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_endpoint)"
-          catalog_asset_s3_region="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_region)"
-          if [ -z "$catalog_asset_public_base_url" ] || [ -z "$catalog_asset_s3_bucket" ] || [ -z "$catalog_asset_s3_endpoint" ] || [ -z "$catalog_asset_s3_region" ]; then
-            echo "Staging catalog asset runtime env outputs are required before scenario seeding." >&2
-            exit 1
-          fi
-
-          # This Job is deliberately outside Helm's pre-upgrade hook. Its 55m
-          # in-cluster deadline fits inside the 60m caller budget without
-          # extending either staging's 15m rollout timeout or any production path.
-          pnpm run platform:kubernetes-deployment -- scenario-seed \
-            --image "$PLATFORM_IMAGE_REF" \
-            --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
-            --runtime-env "DEPLOYMENT_ENVIRONMENT=staging" \
-            --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
-            --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}" \
-            --runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}" \
-            --runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}" \
-            --runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}" \
-            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --release "$CHASE_SETS_HELM_RELEASE" \
-            --timeout 60m
-
       - name: Capture staging Kubernetes deploy diagnostics
         if: failure() && env.SHOULD_DEPLOY != 'false'
         run: |
@@ -1395,6 +1365,25 @@ jobs:
             "${shadow_args[@]}"
           echo "DOKS ingress shadow hosts served valid TLS and readiness ahead of the #4053 cutover."
 
+      - name: Dispatch advisory staging evidence
+        id: dispatch_advisory_evidence
+        if: env.SHOULD_DEPLOY != 'false'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          PLATFORM_IMAGE: ${{ steps.image.outputs.image }}
+          PLATFORM_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          gh workflow run platform-staging-advisory-evidence.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            --field release_commit="$RELEASE_COMMIT" \
+            --field platform_image="$PLATFORM_IMAGE" \
+            --field platform_image_digest="$PLATFORM_IMAGE_DIGEST"
+          echo "Dispatched advisory staging evidence for ${RELEASE_COMMIT}@${PLATFORM_IMAGE_DIGEST}."
+
       - name: Smoke check
         timeout-minutes: 12
         if: env.SHOULD_DEPLOY != 'false'
@@ -1495,32 +1484,6 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Staging marketplace critical flows
-        if: env.SHOULD_DEPLOY != 'false'
-        continue-on-error: true
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          CI: "true"
-          PLAYWRIGHT_SKIP_WEB_SERVER: "true"
-          MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || '' }}
-          MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || '' }}
-          MARKETPLACE_E2E_SEARCH_QUERY: ${{ vars.MARKETPLACE_E2E_SEARCH_QUERY || 'charizard' }}
-          CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || '' }}
-          CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || '' }}
-          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
-        run: |
-          set -euo pipefail
-          admin_domain="$(terraform output -raw admin_domain)"
-          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          if [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
-            echo "Required staging admin or marketplace domain was not present in Terraform outputs." >&2
-            exit 1
-          fi
-          cd ../../..
-          ADMIN_WEB_URL="https://${admin_domain}" MARKETPLACE_WEB_URL="https://${marketplace_domain}" pnpm run test:e2e:deployed
-
       - name: Await staging projection convergence
         id: projection_convergence_gate
         if: env.SHOULD_DEPLOY != 'false'
@@ -1592,8 +1555,6 @@ jobs:
           GUEST_BUY_NOW_PROBE_ATTEMPTS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ATTEMPTS || '3' }}
           GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_BUDGET_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_BUDGET_MS || '120000' }}
           GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_POLL_INTERVAL_MS || '5000' }}
-          MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || '' }}
-          MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || '' }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
@@ -1703,11 +1664,11 @@ jobs:
             exit 1
           fi
 
-      - name: Upload staging Playwright artifacts
+      - name: Upload staging blocking probe Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: staging-playwright-critical-flow-artifacts
+          name: staging-blocking-probe-playwright-artifacts
           path: |
             artifacts/playwright/report
             artifacts/playwright/test-results
@@ -1880,6 +1841,53 @@ jobs:
         id: staging_completed
         if: env.SHOULD_DEPLOY != 'false'
         run: echo "completed_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+  notify-staging-advisory-dispatch-failure:
+    name: Notify Staging Advisory Dispatch Failure
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: deploy-staging
+    if: always() && needs.deploy-staging.outputs.advisory_dispatch_result == 'failure'
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Create or update advisory evidence incident
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.deploy-staging.outputs.active_release_commit || github.sha }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          title="Incident: Staging advisory evidence failing"
+          body="$(cat <<EOF
+          The production workflow could not dispatch advisory staging evidence.
+
+          - Release commit: ${RELEASE_COMMIT}
+          - Production workflow run: ${RUN_URL}
+          - Advisory workflow: Platform Staging Advisory Evidence
+
+          Production promotion remains governed only by blocking staging gates. Inspect the dispatch step, then rerun the advisory workflow for this release commit and image digest.
+          EOF
+          )"
+          existing_issue="$(
+            gh issue list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --state open \
+              --search "\"${title}\" in:title" \
+              --json number \
+              --jq '.[0].number // empty'
+          )"
+          if [ -n "$existing_issue" ]; then
+            gh issue comment "$existing_issue" --repo "${GITHUB_REPOSITORY}" --body "$body"
+          else
+            gh issue create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "$title" \
+              --body "$body" \
+              --label "kind:ops" \
+              --label "area:infrastructure"
+          fi
 
   record-staging-release-health:
     name: Record Staging Release Health

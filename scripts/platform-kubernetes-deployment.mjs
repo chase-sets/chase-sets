@@ -599,6 +599,7 @@ export function buildScenarioSeedJobManifest(options = {}) {
   );
   const accessName = scenarioSeedAccessName(release);
   const workerDeployment = kubernetesComponentName(release, "platform-worker");
+  const quiesceWorkers = options.quiesceWorkers !== false;
   const env = component.env.map((entry) => {
     if (entry.secret) {
       return {
@@ -620,15 +621,17 @@ export function buildScenarioSeedJobManifest(options = {}) {
           : String(envOverrides[entry.name] ?? entry.value ?? ""),
     };
   });
-  env.push(
-    { name: "CHASE_SETS_KUBERNETES_NAMESPACE", value: namespace },
-    { name: "CHASE_SETS_QUIESCE_DEPLOYMENTS", value: workerDeployment },
-    { name: "CHASE_SETS_QUIESCE_TIMEOUT_SECONDS", value: String(scenarioSeedQuiesceTimeoutSeconds) },
-    { name: "CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS", value: String(scenarioSeedCommandTimeoutSeconds) },
-    { name: "CHASE_SETS_QUIESCE_POLL_INTERVAL_MS", value: "2000" },
-    { name: "CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE", value: "true" },
-    { name: "CHASE_SETS_QUIESCE_IGNORE_MISSING_DEPLOYMENTS", value: "false" },
-  );
+  if (quiesceWorkers) {
+    env.push(
+      { name: "CHASE_SETS_KUBERNETES_NAMESPACE", value: namespace },
+      { name: "CHASE_SETS_QUIESCE_DEPLOYMENTS", value: workerDeployment },
+      { name: "CHASE_SETS_QUIESCE_TIMEOUT_SECONDS", value: String(scenarioSeedQuiesceTimeoutSeconds) },
+      { name: "CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS", value: String(scenarioSeedCommandTimeoutSeconds) },
+      { name: "CHASE_SETS_QUIESCE_POLL_INTERVAL_MS", value: "2000" },
+      { name: "CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE", value: "true" },
+      { name: "CHASE_SETS_QUIESCE_IGNORE_MISSING_DEPLOYMENTS", value: "false" },
+    );
+  }
 
   return {
     apiVersion: "batch/v1",
@@ -660,7 +663,7 @@ export function buildScenarioSeedJobManifest(options = {}) {
         },
         spec: {
           restartPolicy: "Never",
-          serviceAccountName: accessName,
+          ...(quiesceWorkers ? { serviceAccountName: accessName } : {}),
           ...(options.imagePullSecret ? { imagePullSecrets: [{ name: options.imagePullSecret }] } : {}),
           containers: [
             {
@@ -668,7 +671,11 @@ export function buildScenarioSeedJobManifest(options = {}) {
               image,
               imagePullPolicy: values.global?.image?.pullPolicy ?? "IfNotPresent",
               command: ["sh", "-lc"],
-              args: [`node ./infrastructure/helm/platform/scripts/bootstrap-quiesce.mjs -- ${component.command}`],
+              args: [
+                quiesceWorkers
+                  ? `node ./infrastructure/helm/platform/scripts/bootstrap-quiesce.mjs -- ${component.command}`
+                  : component.command,
+              ],
               env,
               ...(component.resources && Object.keys(component.resources).length > 0
                 ? { resources: component.resources }
@@ -739,17 +746,20 @@ export function buildScenarioSeedAccessManifest(options = {}) {
 export async function runScenarioSeedOnKubernetes(options = {}) {
   const kubectlPath = options.kubectlPath ?? "kubectl";
   const manifest = buildScenarioSeedJobManifest(options);
-  const accessManifest = buildScenarioSeedAccessManifest(options);
+  const quiesceWorkers = options.quiesceWorkers !== false;
+  const accessManifest = quiesceWorkers ? buildScenarioSeedAccessManifest(options) : undefined;
   const namespace = manifest.metadata.namespace;
   const jobName = manifest.metadata.name;
-  const accessName = accessManifest.items[0].metadata.name;
+  const accessName = accessManifest?.items[0].metadata.name;
 
-  await runProcess({
-    command: kubectlPath,
-    args: ["apply", "--namespace", namespace, "-f", "-"],
-    input: `${JSON.stringify(accessManifest)}\n`,
-    spawn: options.spawn,
-  });
+  if (accessManifest) {
+    await runProcess({
+      command: kubectlPath,
+      args: ["apply", "--namespace", namespace, "-f", "-"],
+      input: `${JSON.stringify(accessManifest)}\n`,
+      spawn: options.spawn,
+    });
+  }
 
   try {
     await runProcess({
@@ -804,20 +814,22 @@ export async function runScenarioSeedOnKubernetes(options = {}) {
       await sleep(options.pollIntervalMs ?? 2_000);
     }
   } finally {
-    await runProcess({
-      command: kubectlPath,
-      args: [
-        "delete",
-        `rolebinding/${accessName}`,
-        `role/${accessName}`,
-        `serviceaccount/${accessName}`,
-        "--namespace",
-        namespace,
-        "--ignore-not-found=true",
-      ],
-      spawn: options.spawn,
-      allowFailure: true,
-    });
+    if (accessName) {
+      await runProcess({
+        command: kubectlPath,
+        args: [
+          "delete",
+          `rolebinding/${accessName}`,
+          `role/${accessName}`,
+          `serviceaccount/${accessName}`,
+          "--namespace",
+          namespace,
+          "--ignore-not-found=true",
+        ],
+        spawn: options.spawn,
+        allowFailure: true,
+      });
+    }
   }
 }
 
@@ -1290,7 +1302,7 @@ export function parseArgs(argv, env = process.env) {
     ].includes(command)
   ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollouts-enabled true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -1304,6 +1316,7 @@ export function parseArgs(argv, env = process.env) {
     release: readOption(rest, "--release", env.CHASE_SETS_HELM_RELEASE ?? defaultRelease),
     timeout: readOption(rest, "--timeout", env.CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT ?? defaultTimeout),
     rolloutsEnabled: readBooleanOption(rest, "--rollouts-enabled", env.ARGO_ROLLOUTS_ENABLED),
+    quiesceWorkers: readBooleanOption(rest, "--quiesce-workers", env.CHASE_SETS_SCENARIO_SEED_QUIESCE_WORKERS),
     betaWaveSize: readOption(rest, "--beta-wave-size", env.BETA_WAVE_SIZE),
     betaWaveRolloutExposure: readOption(rest, "--beta-wave-rollout-exposure", env.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT),
     revision: readOption(rest, "--revision", env.CHASE_SETS_HELM_ROLLBACK_REVISION),
@@ -1398,7 +1411,12 @@ async function main(argv, env = process.env) {
   }
 
   if (options.command === "scenario-seed") {
-    console.log(JSON.stringify(await runScenarioSeedOnKubernetes(options), null, 2));
+    const evidence = await runScenarioSeedOnKubernetes(options);
+    if (options.outPath) {
+      const { writeJsonRecord } = await import("./lib/output-file.mjs");
+      await writeJsonRecord(options.outPath, evidence);
+    }
+    console.log(JSON.stringify(evidence, null, 2));
     return 0;
   }
 

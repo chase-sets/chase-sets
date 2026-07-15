@@ -52,6 +52,10 @@ const environmentDnsVariables = readFileSync(
 );
 const environmentDnsProjects = readFileSync(resolve("infrastructure/digitalocean/environment-dns/projects.tf"), "utf8");
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+const platformStagingAdvisoryEvidenceWorkflow = readFileSync(
+  resolve(".github/workflows/platform-staging-advisory-evidence.yml"),
+  "utf8",
+);
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
 const platformCoverageWorkflow = readFileSync(resolve(".github/workflows/platform-coverage.yml"), "utf8");
 const platformDoksFoundationWorkflow = readFileSync(resolve(".github/workflows/platform-doks-foundation.yml"), "utf8");
@@ -1148,7 +1152,10 @@ describe("DigitalOcean platform configuration", () => {
       "Apply staging Kubernetes registry pull secret",
     );
     const stagingDeployStep = workflowStep(deployStagingJob, "Deploy staging Kubernetes release");
-    const stagingScenarioSeedStep = workflowStep(deployStagingJob, "Seed staging Kubernetes scenario data");
+    const stagingScenarioSeedStep = workflowStep(
+      platformStagingAdvisoryEvidenceWorkflow,
+      "Seed staging Kubernetes scenario data",
+    );
     const stagingDiagnosticsStep = workflowStep(deployStagingJob, "Capture staging Kubernetes deploy diagnostics");
     const stagingIngressWaitStep = workflowStep(deployStagingJob, "Wait for staging ingress URLs");
     const kubeconfigStep = workflowStep(deployProductionJob, "Configure production Kubernetes context");
@@ -1351,6 +1358,8 @@ describe("DigitalOcean platform configuration", () => {
       '--runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap"',
     );
     expect(stagingDeployStep).not.toContain("scenario-seed");
+    expect(deployStagingJob).not.toContain("Seed staging Kubernetes scenario data");
+    expect(deployStagingJob).not.toContain("Staging marketplace critical flows");
     expect(stagingScenarioSeedStep).toContain("pnpm run platform:kubernetes-deployment -- scenario-seed");
     expect(stagingScenarioSeedStep).toContain("continue-on-error: true");
     expect(stagingScenarioSeedStep).toContain("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}");
@@ -1358,6 +1367,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingScenarioSeedStep).toContain('--runtime-env "DEPLOYMENT_ENVIRONMENT=staging"');
     expect(stagingScenarioSeedStep).toContain('--runtime-env "CHASE_SETS_RUNTIME_PROFILE=public"');
     expect(stagingScenarioSeedStep).toContain('--image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME"');
+    expect(stagingScenarioSeedStep).toContain("--quiesce-workers false");
     expect(stagingScenarioSeedStep).toContain("--timeout 60m");
     expect(deployProductionJob).not.toContain("platform:kubernetes-deployment -- scenario-seed");
     // Regression guard for the admin.doks.staging shadow host 404ing before
@@ -3668,20 +3678,39 @@ describe("DigitalOcean platform configuration", () => {
     expect(doksPlatformOperationsRunbook).not.toContain("--namespace staging");
   });
 
-  it("keeps staging health and money smoke blocking while critical flows are advisory", () => {
-    const stagingPlaywrightVersionStep = workflowStep(
+  it("runs advisory staging seed and marketplace E2E outside the production promotion gate", () => {
+    const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const deployProductionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const advisoryEvidenceJob = workflowJob(platformStagingAdvisoryEvidenceWorkflow, "staging-advisory-evidence");
+    const advisoryNotificationJob = workflowJob(
+      platformStagingAdvisoryEvidenceWorkflow,
+      "notify-staging-advisory-evidence",
+    );
+    const advisoryDispatchFailureJob = workflowJob(
       platformProductionWorkflow,
+      "notify-staging-advisory-dispatch-failure",
+    );
+    const advisoryDispatchStep = workflowStep(platformProductionWorkflow, "Dispatch advisory staging evidence");
+    const stagingPlaywrightVersionStep = workflowStep(
+      platformStagingAdvisoryEvidenceWorkflow,
       "Resolve Playwright Chromium version",
     );
     const stagingPlaywrightCacheStep = workflowStep(
-      platformProductionWorkflow,
+      platformStagingAdvisoryEvidenceWorkflow,
       "Cache Playwright Chromium for staging critical flows",
     );
     const stagingPlaywrightInstallStep = workflowStep(
-      platformProductionWorkflow,
+      platformStagingAdvisoryEvidenceWorkflow,
       "Install Playwright Chromium for staging critical flows",
     );
-    const stagingCriticalFlowStep = workflowStep(platformProductionWorkflow, "Staging marketplace critical flows");
+    const stagingCriticalFlowStep = workflowStep(
+      platformStagingAdvisoryEvidenceWorkflow,
+      "Staging marketplace critical flows",
+    );
+    const stagingScenarioSeedStep = workflowStep(
+      platformStagingAdvisoryEvidenceWorkflow,
+      "Seed staging Kubernetes scenario data",
+    );
     const stagingBuyNowProbesStep = workflowStep(platformProductionWorkflow, "Staging Buy Now freshness probes");
     const stagingBuyNowEvidenceStep = workflowStep(platformProductionWorkflow, "Upload staging Buy Now probe evidence");
     const stagingAccountCartCanaryStep = workflowStep(
@@ -3696,6 +3725,44 @@ describe("DigitalOcean platform configuration", () => {
     const previewMoneySmokeStep = workflowStep(platformPrWorkflow, "Stripe money smoke");
     const markStagingDeployedIndex = platformProductionWorkflow.indexOf("- name: Mark staging applied");
 
+    expect(deployStagingJob).not.toContain("pnpm run platform:kubernetes-deployment -- scenario-seed");
+    expect(deployStagingJob).not.toContain("pnpm run test:e2e:deployed");
+    expect(deployProductionJob).not.toContain("staging-advisory-evidence");
+    expect(deployProductionJob).toContain("- deploy-staging");
+    expect(advisoryDispatchStep).toContain("continue-on-error: true");
+    expect(advisoryDispatchStep).toContain("gh workflow run platform-staging-advisory-evidence.yml");
+    expect(advisoryDispatchStep).toContain('--field release_commit="$RELEASE_COMMIT"');
+    expect(advisoryDispatchStep).toContain('--field platform_image="$PLATFORM_IMAGE"');
+    expect(advisoryDispatchStep).toContain('--field platform_image_digest="$PLATFORM_IMAGE_DIGEST"');
+    expect(deployStagingJob.indexOf("- name: Wait for staging ingress URLs")).toBeLessThan(
+      deployStagingJob.indexOf("- name: Dispatch advisory staging evidence"),
+    );
+    expect(deployStagingJob.indexOf("- name: Dispatch advisory staging evidence")).toBeLessThan(
+      deployStagingJob.indexOf("- name: Smoke check"),
+    );
+    expect(advisoryEvidenceJob).toContain("timeout-minutes: 90");
+    expect(advisoryEvidenceJob).toContain("environment: staging");
+    expect(platformStagingAdvisoryEvidenceWorkflow).toContain("group: platform-staging-advisory-evidence");
+    expect(platformStagingAdvisoryEvidenceWorkflow).toContain("cancel-in-progress: false");
+    expect(stagingScenarioSeedStep).toContain("continue-on-error: true");
+    expect(stagingScenarioSeedStep).toContain("artifacts/staging-advisory-evidence/scenario-seed.json");
+    expect(stagingCriticalFlowStep).toContain("continue-on-error: true");
+    expect(advisoryEvidenceJob).toContain("Upload staging advisory evidence");
+    expect(advisoryEvidenceJob).toContain("staging-advisory-evidence-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(advisoryEvidenceJob).toContain("Fail advisory evidence signal");
+    expect(advisoryEvidenceJob.indexOf("- name: Upload staging advisory evidence")).toBeLessThan(
+      advisoryEvidenceJob.indexOf("- name: Fail advisory evidence signal"),
+    );
+    expect(advisoryNotificationJob).toContain("needs: staging-advisory-evidence");
+    expect(advisoryNotificationJob).toContain("issues: write");
+    expect(advisoryNotificationJob).toContain("Incident: Staging advisory evidence failing");
+    expect(advisoryNotificationJob).toContain("gh issue comment");
+    expect(advisoryNotificationJob).toContain("gh issue close");
+    expect(advisoryDispatchFailureJob).toContain("needs: deploy-staging");
+    expect(advisoryDispatchFailureJob).toContain("issues: write");
+    expect(advisoryDispatchFailureJob).toContain("advisory_dispatch_result == 'failure'");
+    expect(advisoryDispatchFailureJob).not.toContain("deploy-production");
+
     expect(stagingPlaywrightVersionStep).toContain("id: staging-playwright-chromium");
     expect(stagingPlaywrightVersionStep).toContain("pnpm exec playwright --version");
     expect(stagingPlaywrightVersionStep).toContain('echo "version=${version}" >> "$GITHUB_OUTPUT"');
@@ -3708,21 +3775,20 @@ describe("DigitalOcean platform configuration", () => {
       "key: playwright-chromium-${{ runner.os }}-${{ steps.staging-playwright-chromium.outputs.version }}",
     );
     expect(stagingPlaywrightCacheStep).toContain("playwright-chromium-${{ runner.os }}-");
-    expect(stagingPlaywrightInstallStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
     expect(stagingPlaywrightInstallStep).not.toContain("cache-hit != 'true'");
     expect(stagingPlaywrightInstallStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
     expect(stagingPlaywrightInstallStep).toContain("pnpm exec playwright install --with-deps chromium");
-    expect(platformProductionWorkflow.indexOf("- name: Resolve Playwright Chromium version")).toBeLessThan(
-      platformProductionWorkflow.indexOf("- name: Cache Playwright Chromium for staging critical flows"),
+    expect(platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Resolve Playwright Chromium version")).toBeLessThan(
+      platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Cache Playwright Chromium for staging critical flows"),
     );
     expect(
-      platformProductionWorkflow.indexOf("- name: Cache Playwright Chromium for staging critical flows"),
+      platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Cache Playwright Chromium for staging critical flows"),
     ).toBeLessThan(
-      platformProductionWorkflow.indexOf("- name: Install Playwright Chromium for staging critical flows"),
+      platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Install Playwright Chromium for staging critical flows"),
     );
     expect(
-      platformProductionWorkflow.indexOf("- name: Install Playwright Chromium for staging critical flows"),
-    ).toBeLessThan(platformProductionWorkflow.indexOf("- name: Staging marketplace critical flows"));
+      platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Install Playwright Chromium for staging critical flows"),
+    ).toBeLessThan(platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Staging marketplace critical flows"));
     expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_SKIP_WEB_SERVER");
     expect(stagingCriticalFlowStep).toContain("continue-on-error: true");
     expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
@@ -3741,7 +3807,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingCriticalFlowStep).toContain("AWS_ACCESS_KEY_ID");
     expect(stagingCriticalFlowStep).toContain("AWS_SECRET_ACCESS_KEY");
     expect(stagingMoneySmokeStep).not.toContain("continue-on-error");
-    expect(platformProductionWorkflow).toContain("staging-playwright-critical-flow-artifacts");
+    expect(platformStagingAdvisoryEvidenceWorkflow).toContain("staging-advisory-evidence");
     expect(stagingBuyNowProbesStep).toContain("GUEST_BUY_NOW_PROBE_SEARCH_QUERY");
     expect(stagingBuyNowProbesStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
     expect(stagingBuyNowProbesStep).toContain("vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY");
@@ -3780,10 +3846,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingBuyNowProbesStep).toContain(
       'echo "| Flow | Final state | Promotion decision | Failure reason | Ready latency (ms) | Correlation id |"',
     );
-    expect(stagingBuyNowProbesStep).toContain("MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || '' }}");
-    expect(stagingBuyNowProbesStep).toContain(
-      "MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || '' }}",
-    );
+    expect(stagingBuyNowProbesStep).not.toContain("MARKETPLACE_E2E_EMAIL");
+    expect(stagingBuyNowProbesStep).not.toContain("MARKETPLACE_E2E_PASSWORD");
+    expect(stagingBuyNowProbesStep).toContain("--flow account");
+    expect(stagingBuyNowProbesStep).toContain("PLATFORM_ADMIN_EMAIL");
     expect(stagingBuyNowEvidenceStep).toContain(
       "if: always() && env.SHOULD_DEPLOY != 'false' && steps.buy_now_probes.conclusion != 'skipped'",
     );
@@ -3887,9 +3953,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(previewMoneySmokeStep).toContain('STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "false"');
     expect(previewMoneySmokeStep).toContain("pnpm run stripe:money-smoke -- --edge-check --seller-flow");
 
-    expect(platformProductionWorkflow.indexOf("- name: Staging marketplace critical flows")).toBeLessThan(
-      markStagingDeployedIndex,
-    );
+    expect(platformProductionWorkflow).not.toContain("- name: Staging marketplace critical flows");
+    expect(platformProductionWorkflow).not.toContain("- name: Seed staging Kubernetes scenario data");
+    expect(platformStagingAdvisoryEvidenceWorkflow).toContain("- name: Staging marketplace critical flows");
+    expect(platformStagingAdvisoryEvidenceWorkflow).toContain("- name: Seed staging Kubernetes scenario data");
     expect(platformProductionWorkflow.indexOf("- name: Staging Buy Now freshness probes")).toBeLessThan(
       markStagingDeployedIndex,
     );

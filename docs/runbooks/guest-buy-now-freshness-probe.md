@@ -33,7 +33,7 @@ The workflow discovers active buyable item candidates from `/api/marketplace/ite
 | Flow | Identity | Handoff checks |
 | --- | --- | --- |
 | `guest` | Guest contact form on `/checkout/buy/readiness`; probe-namespaced email | `afterWrite` receipt plus `chase_sets_guest_checkout` cookie |
-| `account` | `POST /api/auth/password-sign-in` with `GUEST_BUY_NOW_PROBE_ACCOUNT_EMAIL`/`PASSWORD` (falls back to `MARKETPLACE_E2E_EMAIL`/`PASSWORD`); on staging without configured credentials it registers a synthetic `buy-now-probe+account-*@chasesets.test` account | `afterWrite` receipt plus `chase_sets_session` cookie; signed-in Buy Now redirects straight to `/checkout/buy/session/:sessionId` |
+| `account` | On staging, a run-unique synthetic `buy-now-probe+account-*@chasesets.test` account provisioned through the platform-admin invitation path. Direct callers may explicitly provide `GUEST_BUY_NOW_PROBE_ACCOUNT_EMAIL`/`PASSWORD`; production proof requires those dedicated credentials. | `afterWrite` receipt plus `chase_sets_session` cookie; signed-in Buy Now redirects straight to `/checkout/buy/session/:sessionId` |
 
 The browser probe follows the current fresh-state routes: signed-out Buy Now opens `/checkout/buy/readiness`, guest contact submission redirects to `/checkout/buy/session/:sessionId`, and signed-in Buy Now redirects directly to `/checkout/buy/session/:sessionId`. Item-page and route-transition waits stop at browser commit; checkout document readiness is then measured separately, so a slow document load is recorded in the document/readiness segment instead of being collapsed into route navigation.
 
@@ -97,7 +97,7 @@ The probe measures the browser-visible segments directly and links the server-si
 
 ## Guest Data And Side Effects
 
-- The workflow uses `guest-buy-now-probe+<run>-<attempt>@chasesets.test` for the guest flow and `MARKETPLACE_E2E_EMAIL` (or a synthetic `buy-now-probe+account-*@chasesets.test` registration) for the staging account flow.
+- The workflow uses `guest-buy-now-probe+<run>-<attempt>@chasesets.test` for the guest flow and a synthetic `buy-now-probe+account-*@chasesets.test` registration for the staging account flow. It deliberately omits the broad deployed E2E actor credentials so advisory and blocking jobs never mutate the same actor concurrently.
 - Guest checkout token/session cleanup is TTL-based unless an environment cleanup hook exists; probe-created checkout sessions for the account flow rely on the same TTL/abandonment semantics.
 - The probe stops at checkout review or temporary preparing-checkout recovery, in every environment and flow.
 - The probe must never click checkout confirmation, create payment intents, create orders, reserve inventory beyond normal checkout preview semantics, or trigger customer-visible fulfillment work. The negative probe only loads an unknown session id and creates nothing.
