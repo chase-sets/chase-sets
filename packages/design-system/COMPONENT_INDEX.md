@@ -323,7 +323,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `TextInput` | `packages/design-system/src/components/forms/text-input.tsx` | Purpose not documented; symbol name suggests: Text Input. | `bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx` |
 | `ThemePreferenceControl` | `packages/design-system/src/theme/theme-toggle.tsx` | Purpose not documented; symbol name suggests: Theme Preference Control. | `No production consumer yet.` |
 | `ThemeScope` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: Theme Scope. | `No production consumer yet.` |
-| `Thumbnail` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Thumbnail. | `No production consumer yet.` |
+| `Thumbnail` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Thumbnail. | `bounded-contexts/platform-operations/features/support-requests/ui/support-evidence-attachments.tsx` |
 | `Timeline` | `packages/design-system/src/components/data-display/timeline.tsx` | Purpose not documented; symbol name suggests: Timeline. | `bounded-contexts/identity/features/access-hub/ui/account-access-hub-page.tsx` |
 | `TimeSeriesChart` | `packages/design-system/src/components/data-display/chart.tsx` | Purpose not documented; symbol name suggests: Time Series Chart. | `bounded-contexts/discovery/features/item-detail/ui/item-detail-market-panel.tsx` |
 | `toastManager` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: toast Manager. | `No production consumer yet.` |

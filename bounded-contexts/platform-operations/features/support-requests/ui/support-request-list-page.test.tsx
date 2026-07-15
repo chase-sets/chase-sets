@@ -88,7 +88,9 @@ describe("SupportRequestListPage", () => {
     expect(intake.getByText("Return for refund")).toBeTruthy();
     expect(intake.getByText("48 hours")).toBeTruthy();
     expect(intake.getByText(/If the seller does not respond by the deadline/)).toBeTruthy();
-    expect(intake.getByText(/Photos are required for this issue/)).toBeTruthy();
+    expect(intake.getByLabelText("Add evidence photos")).toBeTruthy();
+    expect(intake.getByLabelText("Add evidence photos").hasAttribute("required")).toBe(true);
+    expect(form?.getAttribute("enctype")).toBe("multipart/form-data");
     expect(
       Array.from(document.querySelectorAll<HTMLInputElement>('input[name="affectedLineIds"]')).map(
         (input) => input.value,

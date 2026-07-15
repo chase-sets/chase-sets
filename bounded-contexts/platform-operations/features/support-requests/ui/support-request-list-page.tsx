@@ -26,6 +26,7 @@ import {
 } from "@chase-sets/design-system";
 import type { SupportFlowSummary, SupportOrderLookup, SupportRequestListItem } from "./contracts";
 import { CustomerRemedyStatus, type CustomerRemedyRole } from "./customer-remedy-status";
+import { SupportEvidenceAttachmentInput } from "./support-evidence-attachments";
 
 type SupportRequestListPageProps = Readonly<{
   buyerRequests: readonly SupportRequestListItem[];
@@ -36,6 +37,8 @@ type SupportRequestListPageProps = Readonly<{
   openedSupportRequestId?: string | null;
   supportOrder?: SupportOrderLookup | null;
   initialFlowType?: string | null;
+  recoverySupportRequestId?: string | null;
+  uploadedAttachmentReferences?: readonly string[];
 }>;
 
 function statusTone(status: string) {
@@ -200,10 +203,14 @@ function SupportRequestOpenPanel({
   flows,
   supportOrder,
   initialFlowType,
+  recoverySupportRequestId,
+  uploadedAttachmentReferences = [],
 }: Readonly<{
   flows: readonly SupportFlowSummary[];
   supportOrder: SupportOrderLookup;
   initialFlowType?: string | null;
+  recoverySupportRequestId?: string | null;
+  uploadedAttachmentReferences?: readonly string[];
 }>) {
   const visibleFlows = useMemo(
     () => flows.filter((flow) => flow.openedBy.includes(supportOrder.openedByRole)),
@@ -224,7 +231,10 @@ function SupportRequestOpenPanel({
     ),
   );
 
-  if (supportOrder.existingOpenRequest) {
+  if (
+    supportOrder.existingOpenRequest &&
+    supportOrder.existingOpenRequest.supportRequestId !== recoverySupportRequestId
+  ) {
     const existing = supportOrder.existingOpenRequest;
     const existingFlow = flows.find((flow) => flow.flowType === existing.flowType);
     return (
@@ -269,9 +279,16 @@ function SupportRequestOpenPanel({
 
   return (
     <Surface>
-      <RouterForm method="post" spacing="md">
+      <RouterForm method="post" encType="multipart/form-data" spacing="md">
         <HiddenInput type="hidden" name="orderId" value={supportOrder.orderId} readOnly />
         <HiddenInput type="hidden" name="flowType" value={selectedFlowType} readOnly />
+        <HiddenInput type="hidden" name="photoRequired" value={String(photoRequired)} readOnly />
+        {recoverySupportRequestId ? (
+          <HiddenInput type="hidden" name="supportRequestId" value={recoverySupportRequestId} readOnly />
+        ) : null}
+        {uploadedAttachmentReferences.map((reference) => (
+          <HiddenInput key={reference} type="hidden" name="uploadedAttachmentReferences" value={reference} readOnly />
+        ))}
         {selectedLineIds.map((lineId) => (
           <HiddenInput key={lineId} type="hidden" name="affectedLineIds" value={lineId} readOnly />
         ))}
@@ -375,11 +392,7 @@ function SupportRequestOpenPanel({
               </Stack>
             </Inset>
             {photoRequired ? (
-              <Banner
-                tone="info"
-                title={t("support.features.supportRequests.ui.supportRequestListPage.intake.photosRequired")}
-                description={t("support.features.supportRequests.ui.supportRequestListPage.intake.photosBlocked")}
-              />
+              <SupportEvidenceAttachmentInput required={uploadedAttachmentReferences.length === 0} />
             ) : null}
           </Stack>
         ) : null}
@@ -418,6 +431,8 @@ export function SupportRequestListPage({
   openedSupportRequestId,
   supportOrder,
   initialFlowType,
+  recoverySupportRequestId,
+  uploadedAttachmentReferences,
 }: SupportRequestListPageProps) {
   return (
     <Page>
@@ -443,7 +458,13 @@ export function SupportRequestListPage({
         description={t("support.features.supportRequests.ui.supportRequestListPage.open.description")}
       >
         {supportOrder ? (
-          <SupportRequestOpenPanel flows={flows} supportOrder={supportOrder} initialFlowType={initialFlowType} />
+          <SupportRequestOpenPanel
+            flows={flows}
+            supportOrder={supportOrder}
+            initialFlowType={initialFlowType}
+            recoverySupportRequestId={recoverySupportRequestId}
+            uploadedAttachmentReferences={uploadedAttachmentReferences}
+          />
         ) : (
           <SupportIntakeStart />
         )}

@@ -253,6 +253,7 @@ const waitlistAnalyticsRecorder = {
 };
 const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
 const returnIntakeEvidenceStorage = createReturnIntakeEvidenceStorage(config.listingPhotoStorage);
+const supportEvidenceAttachmentStorage = createSupportEvidenceAttachmentStorage(config.listingPhotoStorage);
 const taxQuoteResolver = shouldBlockProductionTaxQuotes(
   config.deploymentEnvironment,
   Boolean(config.taxProviderBackedQuotesRequired),
@@ -303,6 +304,7 @@ const runtime = createPlatformApiHost({
     waitlistAnalyticsRecorder,
     listingPhotoStorage,
     returnIntakeEvidenceStorage,
+    supportEvidenceAttachmentStorage,
     ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
@@ -697,6 +699,16 @@ function createReturnIntakeEvidenceStorage(storageConfig: PlatformApiListingPhot
   return createFilesystemObjectStorage({
     rootDir: `${storageConfig.rootDir}/private-return-intake`,
     publicBaseUrl: "private://return-intake-evidence",
+  });
+}
+
+function createSupportEvidenceAttachmentStorage(storageConfig: PlatformApiListingPhotoStorageConfig): ObjectStorage {
+  if (storageConfig.kind === "s3") {
+    return createS3ObjectStorage({ ...storageConfig, publicBaseUrl: "private://support-evidence" });
+  }
+  return createFilesystemObjectStorage({
+    rootDir: `${storageConfig.rootDir}-private-support-evidence`,
+    publicBaseUrl: "private://support-evidence",
   });
 }
 

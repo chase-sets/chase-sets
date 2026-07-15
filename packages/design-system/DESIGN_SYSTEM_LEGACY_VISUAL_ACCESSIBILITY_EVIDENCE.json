@@ -1,7 +1,7 @@
 {
   "schemaVersion": "design-system-legacy-visual-accessibility-evidence/v2",
   "milestone": 12,
-  "checkedAt": "2026-07-15T02:17:41.263Z",
+  "checkedAt": "2026-07-15T08:23:16.399Z",
   "generatedBy": "pnpm run ops design-system:legacy-evidence --write",
   "retainedArtifact": "packages/design-system/DESIGN_SYSTEM_LEGACY_VISUAL_ACCESSIBILITY_EVIDENCE.json",
   "summary": {
@@ -108,6 +108,7 @@
       "scope": "bounded-contexts/platform-operations/features/support-requests/ui",
       "discoveredFiles": [
         "bounded-contexts/platform-operations/features/support-requests/ui/platform-remedy-workflow-panel.tsx",
+        "bounded-contexts/platform-operations/features/support-requests/ui/support-evidence-attachments.tsx",
         "bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx",
         "bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-drawer.tsx",
         "bounded-contexts/platform-operations/features/support-requests/ui/support-request-list-page.tsx"
@@ -132,6 +133,7 @@
         ],
         "columns": [
           "bounded-contexts/platform-operations/features/support-requests/ui/platform-remedy-workflow-panel.tsx",
+          "bounded-contexts/platform-operations/features/support-requests/ui/support-evidence-attachments.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-drawer.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-request-list-page.tsx"
@@ -152,6 +154,7 @@
         ],
         "columns": [
           "bounded-contexts/platform-operations/features/support-requests/ui/platform-remedy-workflow-panel.tsx",
+          "bounded-contexts/platform-operations/features/support-requests/ui/support-evidence-attachments.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-drawer.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-request-list-page.tsx"

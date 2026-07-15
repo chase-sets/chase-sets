@@ -288,6 +288,11 @@
       "purpose": "Durable outbound notification outbox consumed only by support request event projectors."
     },
     {
+      "portName": "supportEvidenceAttachmentStorage",
+      "providedBy": "platform-api",
+      "purpose": "Store and privately read case-scoped Support Evidence images through the shared object-storage infrastructure without exposing public asset URLs or provider metadata."
+    },
+    {
       "portName": "policyConsoleCrossContext",
       "providedBy": "platform-api",
       "purpose": "Settlement's and Commercial Terms' declared policy-console entries (definitions, read pool, write port), assembled once in the platform-api composition root so the #4291 policy console can aggregate across contexts without this context importing their domain code."
@@ -481,7 +486,9 @@
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H537734e8ce72#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H5da34e842cb8#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H6538afa47d55#1",
-        "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST Hed4d2513471c#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST Hf61121d741a8#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H955abd591b11#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST Hd01240dac608#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H89ff8773b197#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H94cf592c73e1#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST Ha7ff9b51d176#1",
@@ -492,6 +499,7 @@
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST Hfbac100c8589#1",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/cancel",
+        "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/attachments",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/close",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/escalate",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/evidence",
@@ -535,11 +543,12 @@
         "route-action:bounded-contexts/platform-operations/routes/marketplace/account-support.tsx"
       ],
       "visibleDestination": {
-        "description": "Support request writes return lifecycle id/version/status snapshots and overdue escalation counts; account routes refetch their list while operator actions keep the selected request drawer open and refetch both the deadline-ordered queue and authoritative request detail."
+        "description": "Support request writes return lifecycle id/version/status snapshots, private attachment references, and overdue escalation counts; account routes refetch their list while operator actions keep the selected request drawer open and refetch both the deadline-ordered queue and authoritative request detail."
       },
       "proof": {
-        "authoritativeResponse": "Support request lifecycle commands return the committed request id and aggregate version, while overdue escalation returns command-owned escalated/skipped counts; operator route actions preserve queue filters and selected request identity before the queue and drawer refetch. Remedy preview remains a command response rendered directly in the open drawer.",
+        "authoritativeResponse": "Support request lifecycle commands return the committed request id and aggregate version, evidence attachment upload returns the successfully persisted private references, and overdue escalation returns command-owned escalated/skipped counts; operator route actions preserve queue filters and selected request identity before the queue and drawer refetch. Remedy preview remains a command response rendered directly in the open drawer.",
         "tests": [
+          "bounded-contexts/platform-operations/features/support-requests/api/attachments.test.ts",
           "bounded-contexts/platform-operations/features/support-requests/api/route.test.ts",
           "bounded-contexts/platform-operations/support/request-support/api-clients.test.ts",
           "bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"

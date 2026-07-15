@@ -21,6 +21,7 @@ import { normalizeFlowType } from "../domain/common";
 import { getSupportResponsibilityReasonDefinitions } from "../domain/responsibility";
 import type { PlatformRemedyProposalInput, PlatformRemedyProposalPreview, SupportRequestDetail } from "./contracts";
 import { PlatformRemedyWorkflowPanel } from "./platform-remedy-workflow-panel";
+import { SupportEvidenceAttachmentGallery } from "./support-evidence-attachments";
 import {
   formatSupportDateTime,
   nextSupportDeadline,
@@ -335,7 +336,14 @@ function Notes({ request }: Readonly<{ request: SupportRequestDetail }>) {
   );
 }
 
-type AuditItem = Readonly<{ id: string; kind: string; summary: string; actor: string; at: string }>;
+type AuditItem = Readonly<{
+  id: string;
+  kind: string;
+  summary: string;
+  actor: string;
+  at: string;
+  attachments: readonly string[];
+}>;
 
 function auditItems(request: SupportRequestDetail): AuditItem[] {
   const items: AuditItem[] = [
@@ -348,6 +356,7 @@ function auditItems(request: SupportRequestDetail): AuditItem[] {
       summary: item.summary,
       actor: item.submittedByRole,
       at: item.submittedAt,
+      attachments: item.attachments,
     })),
     ...request.responses.map((item) => ({
       id: `response:${item.responseId}`,
@@ -355,6 +364,7 @@ function auditItems(request: SupportRequestDetail): AuditItem[] {
       summary: item.summary,
       actor: item.submittedByRole,
       at: item.submittedAt,
+      attachments: [],
     })),
     ...request.offers.map((item) => ({
       id: `offer:${item.offerId}`,
@@ -362,6 +372,7 @@ function auditItems(request: SupportRequestDetail): AuditItem[] {
       summary: item.summary,
       actor: item.offeredByRole,
       at: item.offeredAt,
+      attachments: [],
     })),
   ];
 
@@ -372,6 +383,7 @@ function auditItems(request: SupportRequestDetail): AuditItem[] {
       summary: request.escalation_reason ?? "",
       actor: request.escalated_by_role ?? "support",
       at: request.escalated_at,
+      attachments: [],
     });
   }
 
@@ -382,6 +394,7 @@ function auditItems(request: SupportRequestDetail): AuditItem[] {
       summary: request.resolution.summary,
       actor: request.resolution.resolvedByRole ?? "support",
       at: request.resolution.resolvedAt,
+      attachments: [],
     });
   }
 
@@ -414,6 +427,16 @@ function AuditTrail({ request }: Readonly<{ request: SupportRequestDetail }>) {
             key: "submitted",
             header: t("support.features.supportRequests.ui.supportOperationsPage.submitted"),
             cell: (item) => formatSupportDateTime(item.at),
+          },
+          {
+            key: "attachments",
+            header: t("support.features.supportRequests.ui.supportOperationsPage.attachments"),
+            cell: (item) => (
+              <SupportEvidenceAttachmentGallery
+                supportRequestId={request.support_request_id}
+                attachments={item.attachments}
+              />
+            ),
           },
         ]}
       />

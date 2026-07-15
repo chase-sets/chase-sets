@@ -65,6 +65,15 @@ import {
 } from "../integrations/transactional-email/transactional-email-projector";
 import { buildSupportRequestProjectionHandlers } from "../read-model/projection";
 import {
+  readSupportEvidenceAttachment,
+  storeSupportEvidenceAttachments,
+  type StoredSupportEvidenceAttachment,
+  type SupportEvidenceAttachmentSecurityScanner,
+  type SupportEvidenceAttachmentStorage,
+  type SupportEvidenceAttachmentUpload,
+} from "./attachments";
+import { parseSupportEvidenceAttachmentReference } from "../domain/attachment-reference";
+import {
   findOpenSupportRequestForOrder,
   getAccountSupportRequest,
   getSupportOperationsRequest,
@@ -85,6 +94,8 @@ type SupportRequestRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   notificationOutbox?: NotificationOutbox;
+  attachmentStorage?: SupportEvidenceAttachmentStorage;
+  attachmentSecurityScanner?: SupportEvidenceAttachmentSecurityScanner;
   /**
    * The shared platform-policy runtime, used to resolve the support-deadline
    * policy at open time and to source `listFlowDefinitions`' response-window
@@ -181,6 +192,22 @@ export type SupportRequestServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
   getSupportOrderContext: (params: Readonly<{ orderId: string; accountId: string }>) => Promise<SupportOrderContext>;
+  uploadAttachments: (
+    params: Readonly<{
+      supportRequestId: string;
+      accountId: string;
+      roleKey: string;
+      uploads: readonly SupportEvidenceAttachmentUpload[];
+    }>,
+  ) => Promise<readonly StoredSupportEvidenceAttachment[] | null>;
+  getAttachment: (
+    params: Readonly<{
+      supportRequestId: string;
+      attachmentId: string;
+      accountId: string;
+      roleKey: string;
+    }>,
+  ) => Promise<Readonly<{ body: Uint8Array; contentType: string }> | null>;
   submitEvidence: (
     params: Readonly<{
       supportRequestId: string;
@@ -576,6 +603,12 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     return { value: resolved.value, version: platformRemedyPolicyVersion(resolved) };
   }
 
+  async function getAttachmentCase(params: Readonly<{ supportRequestId: string; accountId: string; roleKey: string }>) {
+    return params.roleKey === "platform-admin"
+      ? getSupportOperationsRequest(deps.db, params.supportRequestId)
+      : getAccountSupportRequest(deps.db, params.supportRequestId, params.accountId);
+  }
+
   async function evaluatePlatformRemedyProposal(
     params: Readonly<{
       supportRequestId: string;
@@ -784,8 +817,36 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
 
       return { supportRequestId, version: result.version };
     },
+    uploadAttachments: async (params) => {
+      const supportRequest = await getAttachmentCase(params);
+      if (!supportRequest) {
+        return null;
+      }
+      return storeSupportEvidenceAttachments({
+        supportRequestId: params.supportRequestId,
+        uploads: params.uploads,
+        storage: deps.attachmentStorage,
+        securityScanner: deps.attachmentSecurityScanner,
+      });
+    },
+    getAttachment: async (params) => {
+      const supportRequest = await getAttachmentCase(params);
+      if (!supportRequest) {
+        return null;
+      }
+      const reference = supportRequest.evidence
+        .flatMap((evidence) => evidence.attachments)
+        .find((candidate) => parseSupportEvidenceAttachmentReference(candidate)?.attachmentId === params.attachmentId);
+      if (!reference) {
+        return null;
+      }
+      return readSupportEvidenceAttachment({
+        supportRequestId: params.supportRequestId,
+        reference,
+        storage: deps.attachmentStorage,
+      });
+    },
     submitEvidence: async (params, context) => {
-      await requireMutableSupportRequest(deps.db, params);
       const supportRequest = await requireMutableSupportRequest(deps.db, params);
       const resolvedByRole =
         params.scope === "operations" ? "support" : accountRoleForSupportRequest(supportRequest, params.accountId);
@@ -795,7 +856,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           type: "SubmitSupportEvidence",
           evidenceId: createId("sev"),
           submittedByAccountId: params.accountId as AccountId,
-          submittedByRole: normalizeRequesterRole(params.submittedByRole),
+          submittedByRole: resolvedByRole,
           evidenceType: normalizeEvidenceType(params.evidenceType),
           summary: params.summary,
           occurredAt: params.occurredAt ?? null,

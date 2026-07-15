@@ -24,6 +24,7 @@ import { createRiskAlertRuntime } from "../../features/risk-alerts/api/runtime";
 import { supportDeadlinePolicy } from "../../features/support-requests/domain/support-deadline-policy";
 import { platformRemedyPolicy } from "../../features/support-requests/domain/platform-remedy-policy";
 import { createSupportRequestRuntime } from "../../features/support-requests/api/runtime";
+import type { SupportEvidenceAttachmentStorage } from "../../features/support-requests/api/attachments";
 import type { PolicyConsoleCrossContextPort, PolicyConsoleEntry } from "../../features/policy-console/api/contracts";
 import { createSupportReferenceLookupRuntime } from "../../features/support-reference-lookup/api/runtime";
 import type {
@@ -37,6 +38,7 @@ import {
 
 export type PlatformOperationsHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
+  supportEvidenceAttachmentStorage?: SupportEvidenceAttachmentStorage;
   /**
    * Cross-context policy sources for the platform policy console: Settlement
    * and Commercial Terms' declared policies, assembled once in the
@@ -117,6 +119,7 @@ export function createPlatformOperationsServices(
     db,
     notificationOutbox,
     policies,
+    attachmentStorage: ports.supportEvidenceAttachmentStorage,
   });
 
   const ownPolicyDefinitions = [

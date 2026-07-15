@@ -102,6 +102,43 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
           body: JSON.stringify(body),
         }),
       ),
+    uploadSupportEvidenceAttachments: async (supportRequestId: string, files: readonly File[]) => {
+      const formData = new FormData();
+      files.forEach((file) => formData.append("attachments", file));
+      return parseJsonResponse<{
+        attachments: readonly Readonly<{
+          attachmentId: string;
+          reference: string;
+          contentType: string;
+          byteSize: number;
+        }>[];
+      }>(
+        await clientFetch(`${baseUrl}/support-requests/${supportRequestId}/attachments`, {
+          method: "POST",
+          headers: resolveHeaders(options.headers),
+          body: formData,
+        }),
+      );
+    },
+    submitSupportEvidence: async (
+      supportRequestId: string,
+      body: Readonly<{
+        submittedByRole: string;
+        evidenceType: string;
+        summary: string;
+        attachments: readonly string[];
+      }>,
+    ) =>
+      parseJsonResponse<SupportRequestCommandSnapshot>(
+        await clientFetch(`${baseUrl}/support-requests/${supportRequestId}/evidence`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...resolveHeaders(options.headers),
+          },
+          body: JSON.stringify(body),
+        }),
+      ),
     escalateOverdueSupportRequests: async (body: Readonly<{ limit?: number }> = {}) =>
       parseJsonResponse<SupportRequestEscalationSnapshot>(
         await clientFetch(`${baseUrl}/support-requests/ops/escalate-overdue`, {

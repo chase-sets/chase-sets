@@ -262,6 +262,18 @@ describe("SupportOperationsPage", () => {
             submittedAt: "2026-06-01T01:00:00.000Z",
             attachments: [],
           },
+          {
+            evidenceId: "ev_photo",
+            submittedByAccountId: "acc_buyer" as never,
+            submittedByRole: "buyer",
+            evidenceType: "photo",
+            summary: "Damaged corner.",
+            occurredAt: null,
+            submittedAt: "2026-06-01T01:30:00.000Z",
+            attachments: [
+              "support-attachment:v1:sea_photo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:jpg",
+            ],
+          },
         ],
         offers: [
           {
@@ -290,6 +302,14 @@ describe("SupportOperationsPage", () => {
     expect(screen.getByText("Structured offers")).toBeTruthy();
     expect(screen.getAllByText("Refund five dollars.").length).toBeGreaterThan(0);
     expect(screen.getByText("Audit trail")).toBeTruthy();
+    expect(
+      screen
+        .getAllByRole("img", { name: "Evidence photo 1" })
+        .every(
+          (image) => image.getAttribute("src") === "/api/marketplace/support-requests/sup_1/attachments/sea_photo",
+        ),
+    ).toBe(true);
+    expect(screen.getAllByRole("link", { name: "View full-size photo 1" }).length).toBeGreaterThan(0);
   });
 
   it("posts drawer actions through the existing detail command route and returns to the filtered queue", () => {

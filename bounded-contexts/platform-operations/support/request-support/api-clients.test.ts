@@ -92,6 +92,25 @@ describe("platform operations request API clients", () => {
       if (url.endsWith("/ops/escalate-overdue")) {
         return jsonResponse({ escalated: 2, skipped: 1, capped: false, total: 2 });
       }
+      if (url.endsWith("/sup_1/attachments")) {
+        return jsonResponse(
+          {
+            attachments: [
+              {
+                attachmentId: "sea_photo",
+                reference:
+                  "support-attachment:v1:sea_photo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:jpg",
+                contentType: "image/jpeg",
+                byteSize: 3,
+              },
+            ],
+          },
+          201,
+        );
+      }
+      if (url.endsWith("/sup_1/evidence")) {
+        return jsonResponse({ id: "sup_1", version: 2, status: "evidence-submitted" });
+      }
       if (url.includes("/ops/sup_1/")) {
         const status = url.endsWith("/evidence")
           ? "evidence-submitted"
@@ -124,6 +143,19 @@ describe("platform operations request API clients", () => {
         affectedLineIds: ["line_1"],
       }),
     ).resolves.toEqual({ id: "sup_1", version: 1, status: "opened" });
+    await expect(
+      client.uploadSupportEvidenceAttachments("sup_1", [new File(["photo"], "card.jpg", { type: "image/jpeg" })]),
+    ).resolves.toMatchObject({ attachments: [{ attachmentId: "sea_photo" }] });
+    await expect(
+      client.submitSupportEvidence("sup_1", {
+        submittedByRole: "buyer",
+        evidenceType: "photo",
+        summary: "Damage photos",
+        attachments: [
+          "support-attachment:v1:sea_photo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:jpg",
+        ],
+      }),
+    ).resolves.toEqual({ id: "sup_1", version: 2, status: "evidence-submitted" });
     await expect(client.escalateOverdueSupportRequests({ limit: 25 })).resolves.toEqual({
       escalated: 2,
       skipped: 1,
@@ -187,6 +219,10 @@ describe("platform operations request API clients", () => {
         method: "POST",
         body: JSON.stringify({ evidenceType: "support-note", summary: "Operator note" }),
       }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/support-requests/sup_1/attachments",
+      expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.example.test/support-requests/ops/sup_1/responses",
