@@ -13,6 +13,7 @@ import { createWalletRuntime } from "../../features/wallets/api/runtime";
 import type { NegativeBalancePolicy } from "../../features/wallets/api/runtime";
 import { createWalletAdjustmentRuntime } from "../../features/wallets/api/wallet-adjustment-runtime";
 import { createProtectionCoverageRuntime } from "../../features/protection-coverage/api/protection-coverage-runtime";
+import { createSupportHoldLifecycleRuntime } from "../../features/wallets/integrations/support-hold-lifecycle/support-hold-lifecycle-runtime";
 import { createPayoutRuntime } from "../../features/payouts/api/runtime";
 import { createPayoutReadinessRuntime } from "../../features/payout-readiness/api/runtime";
 import type { MoneyMovementGateway } from "@chase-sets/money-movement";
@@ -34,6 +35,7 @@ export type SettlementServices = Readonly<{
   wallets: ReturnType<typeof createWalletRuntime>;
   walletAdjustments: ReturnType<typeof createWalletAdjustmentRuntime>;
   protectionCoverage: ReturnType<typeof createProtectionCoverageRuntime>;
+  supportHoldLifecycle: ReturnType<typeof createSupportHoldLifecycleRuntime>;
   payouts: ReturnType<typeof createPayoutRuntime>;
   payoutReadiness: ReturnType<typeof createPayoutReadinessRuntime>;
   /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (clearance window, payout bounds). */
@@ -90,6 +92,7 @@ export function createSettlementServices(
   });
   const walletAdjustments = createWalletAdjustmentRuntime({ eventStore, db, wallets, policies, operationsRecorder });
   const protectionCoverage = createProtectionCoverageRuntime({ eventStore, db, operationsRecorder });
+  const supportHoldLifecycle = createSupportHoldLifecycleRuntime({ eventStore });
   const payoutReadiness = createPayoutReadinessRuntime({
     eventStore,
     checkpointStore,
@@ -119,6 +122,7 @@ export function createSettlementServices(
     wallets,
     walletAdjustments,
     protectionCoverage,
+    supportHoldLifecycle,
     payouts,
     payoutReadiness,
     policies,

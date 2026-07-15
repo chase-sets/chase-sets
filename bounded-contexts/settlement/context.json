@@ -38,6 +38,19 @@
       "projectionHandlerSetNames": ["settlement-liability-allocation-reserve-projection"]
     },
     {
+      "sourceContextName": "platform-operations",
+      "projectionName": "settlement-support-hold-lifecycle-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.resolved",
+        "support.support-request.closed",
+        "support.support-request.cancelled"
+      ],
+      "order": 81,
+      "projectionHandlerSetNames": ["settlement-support-hold-lifecycle-projection"]
+    },
+    {
       "sourceContextName": "settlement",
       "projectionName": "settlement-support-hold-projection",
       "subscriptionVersion": 1,
@@ -176,6 +189,14 @@
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only",
       "sideEffectOnly": true
+    },
+    {
+      "projectionName": "settlement-support-hold-lifecycle-projection",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": [],
+      "sideEffectOnly": true,
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "settlement-fulfillment-source-projection",
