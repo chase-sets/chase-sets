@@ -1,10 +1,10 @@
 {
   "contextName": "fulfillment",
   "packageName": "@chase-sets/fulfillment",
-  "ownedNouns": ["shipment"],
+  "ownedNouns": ["shipment", "return-shipment"],
   "streamPrefix": "fulfillment.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["shipments"],
+  "slices": ["shipments", "return-shipments"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity"],
@@ -83,6 +83,13 @@
         "fulfillment_postage_label_operations",
         "fulfillment_postage_provider_events"
       ],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "fulfillment-return-shipment-projection",
+      "sourceContextNames": ["fulfillment"],
+      "ownedTables": ["fulfillment_return_shipment_customer_pages", "fulfillment_return_shipment_operator_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     }
@@ -416,6 +423,11 @@
     "shipments": {
       "classification": "slice",
       "purpose": "Own shipments feature behavior, read models, and UI contracts for the fulfillment context.",
+      "expectedConsumers": ["Internal fulfillment module composition"]
+    },
+    "return-shipments": {
+      "classification": "slice",
+      "purpose": "Own the buyer-to-platform return-shipment aggregate, platform-facility destination directory, and its customer-safe and operator read models.",
       "expectedConsumers": ["Internal fulfillment module composition"]
     },
     "request-support": {

@@ -10,9 +10,11 @@ import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import type { PostageLabelProvider, PostageProviderWebhookGateway } from "@chase-sets/postage-labels";
 import { createFulfillmentShipmentRuntime } from "../../features/shipments/api/runtime";
+import { createFulfillmentReturnShipmentRuntime } from "../../features/return-shipments/api/runtime";
 
 export type FulfillmentServices = Readonly<{
   shipments: ReturnType<typeof createFulfillmentShipmentRuntime>;
+  returnShipments: ReturnType<typeof createFulfillmentReturnShipmentRuntime>;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -43,10 +45,12 @@ export function createFulfillmentServices(
     postageWebhookGateway: ports?.postageWebhookGateway,
     notificationOutbox,
   });
+  const returnShipments = createFulfillmentReturnShipmentRuntime({ eventStore, db });
 
   return {
     shipments,
-    projectors: [...shipments.projectors],
+    returnShipments,
+    projectors: [...shipments.projectors, ...returnShipments.projectors],
     pool,
     db,
   };

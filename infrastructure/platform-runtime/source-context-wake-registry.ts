@@ -327,6 +327,7 @@ export const sourceContextWakeRegistry = [
     affectedProjectionNames: [
       "auth:auth-agent-order-webhook-projection",
       "fulfillment:fulfillment-shipment-projection",
+      "fulfillment:fulfillment-return-shipment-projection",
       "inventory:inventory-fulfillment-restock-workflow",
       "payments:payments-fulfillment-dispute-evidence-source-projection",
       "notifications:notifications-source-facts-outbox-projection",
