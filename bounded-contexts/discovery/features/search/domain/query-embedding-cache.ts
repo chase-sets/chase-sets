@@ -63,7 +63,7 @@ export function createQueryEmbeddingCache(
 }
 
 export function normalizeQueryForEmbedding(query: string): string {
-  return normalizeSimpleSearchText(query).toLocaleLowerCase("en-US");
+  return normalizeSimpleSearchText(query).toLowerCase();
 }
 
 export function queryEmbeddingCacheKey(model: string, normalizedQuery: string): string {

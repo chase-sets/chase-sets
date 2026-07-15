@@ -1,6 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { composeRelevanceCandidates, type RelevanceCandidate } from "../domain/relevance-evaluation";
 import type { QueryEmbeddingCache } from "../domain/query-embedding-cache";
+import { foldSearchDiacritics } from "../domain/normalization";
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
 import { parseStructuredNaturalKeyQuery } from "../domain/structured-natural-key-query";
 import {
@@ -205,7 +206,8 @@ function relevanceCandidate(
   return {
     catalogItemId: item.catalog_item_id,
     title: item.title,
-    exactTitleMatch: item.title.trim().toLocaleLowerCase("en-US") === query.toLocaleLowerCase("en-US"),
+    exactTitleMatch:
+      foldSearchDiacritics(item.title.trim()).toLowerCase() === foldSearchDiacritics(query).toLowerCase(),
     lexicalRank,
     semanticRank,
     semanticSimilarity,

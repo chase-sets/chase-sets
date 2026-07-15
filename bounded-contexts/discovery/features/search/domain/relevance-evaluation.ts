@@ -1,3 +1,5 @@
+import { foldSearchDiacritics } from "./normalization";
+
 export const RELEVANCE_RESULT_LIMIT = 10;
 export const RELEVANCE_CATEGORIES = ["exact", "lexical", "semantic", "negative"] as const;
 export const RELEVANCE_MODES = ["lexical-only", "semantic-fallback", "hybrid"] as const;
@@ -367,15 +369,15 @@ function inMemoryLexicalMatch(query: string, item: InMemoryRelevanceCatalogItem)
 }
 
 function normalizeLexicalText(value: string): string {
-  return value
-    .toLocaleLowerCase("en-US")
+  return foldSearchDiacritics(value)
+    .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/g, " ");
 }
 
 function exactTitle(title: string, query: string): boolean {
-  return title.trim().toLocaleLowerCase("en-US") === query.trim().toLocaleLowerCase("en-US");
+  return foldSearchDiacritics(title.trim()).toLowerCase() === foldSearchDiacritics(query.trim()).toLowerCase();
 }
 
 function sparseDotProduct(
