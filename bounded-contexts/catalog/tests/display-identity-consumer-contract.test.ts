@@ -40,7 +40,9 @@ describe("display identity consumer subscription contract", () => {
   });
 
   it("replays structured display identity facts into Discovery search and item detail projections", () => {
-    expect(catalogEventTypes("../../discovery/context.json", "discovery-search-item-projection", 6)).toEqual(
+    // Version 7 replays Catalog facts to refresh existing Search Index rows
+    // with Latin-diacritic-folded text; still display-identity-resolved.
+    expect(catalogEventTypes("../../discovery/context.json", "discovery-search-item-projection", 7)).toEqual(
       expect.arrayContaining(["catalog.catalog-item.display-identity-resolved"]),
     );
     expect(catalogEventTypes("../../discovery/context.json", "discovery-item-detail-projection", 3)).toEqual(

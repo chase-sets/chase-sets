@@ -828,6 +828,14 @@ describe("previewBulkAddSearchResults", () => {
 });
 
 describe("searchDiscoveryItems input hardening", () => {
+  it("folds diacritics in both full-text query inputs", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, { search: "Pokémon", limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
+
+    expect(calls[0]?.values).toEqual(["active", "Pokemon", "Pokemon", 25]);
+  });
+
   it.each([
     ["maximum Latin query", "a".repeat(256)],
     ["maximum CJK query", "検索".repeat(128)],

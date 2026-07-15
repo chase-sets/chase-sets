@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { buildSimpleSearchQuery } from "../domain/normalization";
+import { buildSimpleSearchQuery, foldSearchDiacritics } from "../domain/normalization";
 import {
   buildRelevanceReport,
   composeRelevanceCandidates,
@@ -112,8 +112,8 @@ export async function seedDiscoveryRelevanceCatalog(
          search_text, search_text_simple, search_embedding, embedding_model, embedded_text_hash, embedding_updated_at
        ) VALUES (
          $1, $2, $3, $4::jsonb, $5, $6::jsonb, $7, $8::jsonb, $9, 'active', $10::jsonb, $11::jsonb, $12,
-         setweight(to_tsvector('english', $5), 'A') ||
-           setweight(to_tsvector('english', $7), 'B') ||
+         setweight(to_tsvector('english', $18), 'A') ||
+           setweight(to_tsvector('english', $19), 'B') ||
            setweight(to_tsvector('english', $13), 'C'),
          to_tsvector('simple', $14), $15::halfvec(1024), $16, $17, now()
        )`,
@@ -130,11 +130,15 @@ export async function seedDiscoveryRelevanceCatalog(
         JSON.stringify(item.categories),
         JSON.stringify(item.tags),
         item.tags.join(" "),
-        [item.subtitle, ...item.aliases, ...item.categories, ...item.tags, item.description].join(" "),
+        foldSearchDiacritics(
+          [item.subtitle, ...item.aliases, ...item.categories, ...item.tags, item.description].join(" "),
+        ),
         buildSimpleSearchQuery(searchableText),
         halfVectorLiteral(embedding),
         embeddingModel,
         item.catalogItemId,
+        foldSearchDiacritics(item.title),
+        foldSearchDiacritics(item.subtitle),
       ],
     );
   }
@@ -145,6 +149,7 @@ export async function retrieveDiscoveryRelevanceCandidates(
   input: Readonly<{ query: string; queryEmbedding: readonly number[] }>,
 ): Promise<Readonly<{ lexical: RelevanceCandidate[]; semantic: RelevanceCandidate[] }>> {
   if (input.queryEmbedding.length !== 1_024) throw new Error("Relevance query embedding must contain 1024 values.");
+  const englishQuery = foldSearchDiacritics(input.query);
   const simpleQuery = buildSimpleSearchQuery(input.query);
   const lexicalResult = await db.query<{
     catalog_item_id: string;
@@ -154,7 +159,7 @@ export async function retrieveDiscoveryRelevanceCandidates(
   }>(
     `SELECT catalog_item_id,
             title,
-            lower(title) = lower($1) AS exact_title_match,
+            lower(title) = lower($4) AS exact_title_match,
             ts_rank(search_text, plainto_tsquery('english', $1)) +
               ts_rank(search_text_simple, plainto_tsquery('simple', $2)) AS lexical_rank
      FROM discovery_search_items
@@ -163,7 +168,7 @@ export async function retrieveDiscoveryRelevanceCandidates(
          OR search_text_simple @@ plainto_tsquery('simple', $2))
      ORDER BY exact_title_match DESC, lexical_rank DESC, title ASC, catalog_item_id ASC
      LIMIT $3`,
-    [input.query, simpleQuery, CANDIDATE_LIMIT],
+    [englishQuery, simpleQuery, CANDIDATE_LIMIT, input.query],
   );
   const semanticResult = await db.query<{
     catalog_item_id: string;

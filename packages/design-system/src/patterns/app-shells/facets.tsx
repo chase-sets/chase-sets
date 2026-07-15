@@ -41,8 +41,8 @@ function getProgressiveMarketplaceFacetItems({
 }) {
   const matchesSearch = (item: MarketplaceFacetItem) =>
     !normalizedSearch ||
-    item.label.toLocaleLowerCase("en-US").includes(normalizedSearch) ||
-    item.id.toLocaleLowerCase("en-US").includes(normalizedSearch);
+    item.label.toLowerCase().includes(normalizedSearch) ||
+    item.id.toLowerCase().includes(normalizedSearch);
   const matchedItems = items.filter(matchesSearch);
 
   if (normalizedSearch) {
@@ -122,7 +122,7 @@ export function MarketplaceFacetRail({
   const [expanded, setExpanded] = useState(false);
   const selectedValues = selectedIds ? new Set(selectedIds) : null;
   const multiple = selectionMode === "multiple";
-  const normalizedSearch = search.trim().toLocaleLowerCase("en-US");
+  const normalizedSearch = search.trim().toLowerCase();
   const { matchedItems, visibleItems, canToggle } = getProgressiveMarketplaceFacetItems({
     items,
     normalizedSearch,
@@ -307,7 +307,7 @@ export function MarketplaceFacetChoiceGroup({
   const selectedValues = selectedIds ? new Set(selectedIds) : null;
   const anySelected = selectedValues ? selectedValues.size > 0 : Boolean(selectedId);
   const multiple = selectionMode === "multiple";
-  const normalizedSearch = search.trim().toLocaleLowerCase("en-US");
+  const normalizedSearch = search.trim().toLowerCase();
   const { matchedItems, visibleItems, canToggle } = getProgressiveMarketplaceFacetItems({
     items,
     normalizedSearch,
