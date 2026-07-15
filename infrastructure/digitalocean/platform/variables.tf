@@ -577,6 +577,48 @@ variable "stripe_api_base_url" {
   default = ""
 }
 
+variable "ucp_business_signing_key_id" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "ucp_business_signing_alg" {
+  type      = string
+  sensitive = true
+  default   = "ES256"
+}
+
+variable "ucp_business_signing_private_jwk" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "ucp_business_signing_previous_public_jwks" {
+  type      = string
+  sensitive = true
+  default   = "[]"
+}
+
+variable "ucp_ap2_verifier_url" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "ucp_ap2_verifier_auth_token" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "ucp_ap2_verifier_timeout_ms" {
+  type      = string
+  sensitive = true
+  default   = "5000"
+}
+
 variable "easypost_api_key" {
   type      = string
   sensitive = true

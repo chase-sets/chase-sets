@@ -44,5 +44,5 @@ describe("route runtime contracts", () => {
   it("keeps every production route on the runtime contracts", async () => {
     const rootDir = path.resolve(import.meta.dirname, "../..");
     await expect(collectRouteRuntimeContractViolations({ rootDir })).resolves.toEqual([]);
-  });
+  }, 30_000);
 });

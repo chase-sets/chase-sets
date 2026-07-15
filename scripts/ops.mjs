@@ -36,6 +36,10 @@ export const SUBCOMMANDS = {
     script: "account-cart-consistency-probe.mjs",
     description: "Redacted account-cart post-write consistency probe evidence.",
   },
+  "ucp:ap2-certification-evidence": {
+    script: "ucp-ap2-certification-evidence.mjs",
+    description: "Validate redacted staging UCP AP2 direct-mode certification evidence.",
+  },
   "campaign:start-gate": {
     script: "campaign-start-gate.mjs",
     description: "Campaign-start checklist gate for the beta-signup surface.",

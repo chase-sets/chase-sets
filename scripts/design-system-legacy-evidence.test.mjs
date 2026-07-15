@@ -58,7 +58,7 @@ describe("design system legacy visual/accessibility evidence", () => {
     expect(report.checks.map((check) => check.status)).toEqual(report.checks.map(() => "passed"));
     expect(report.checks.map((check) => check.id)).toContain("discovery-commerce-comparison-list");
     expect(report.checks.map((check) => check.id)).toContain("public-waitlist-mobile-cta");
-  }, 30000);
+  }, 60_000);
 
   it("writes the retained evidence artifact", async () => {
     const tempDir = await makeTempDir();

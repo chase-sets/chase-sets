@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { describe, expect, it, vi } from "vitest";
@@ -495,6 +495,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         unavailable_reason_details: [],
       })),
     };
+    const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
     const app = buildPlatformApiApp(
       createRuntime(
         {
@@ -529,7 +530,21 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         mcp: { agentGrantRateLimiter: rateLimiter },
         agentGrantSpendPolicy: spendPolicy,
         ucpAp2MandateVerifier: {
-          verify: vi.fn(async () => ({ ok: true as const, evidence: { verifier: "uat" } })),
+          verify: vi.fn(async () => ({
+            ok: true as const,
+            mode: "human-present" as const,
+            evidence: { verifier: "uat" },
+          })),
+        },
+        ucp: {
+          businessSigningKeys: {
+            current: {
+              kid: "merchant-uat",
+              alg: "ES256",
+              privateJwk: privateKey.export({ format: "jwk" }),
+            },
+          },
+          allowInMemoryIdempotencyStoreForTests: true,
         },
       },
     );

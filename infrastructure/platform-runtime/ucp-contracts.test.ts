@@ -49,6 +49,28 @@ describe("UCP contract profile", () => {
       completion_requires_trusted_ui_without_ap2_mandate: true,
     });
   });
+
+  it("advertises only verified human-present AP2 completion when every control is ready", () => {
+    const profile = buildUcpBusinessProfile("https://marketplace.example", {
+      signingKeys: [{ kty: "EC", kid: "merchant-current" }],
+      ap2Readiness: {
+        mandateVerification: "enabled",
+        sharedPaymentToken: "enabled",
+        headlessCompletionEnabled: true,
+      },
+    });
+
+    expect(profile.ucp.capabilities[UCP_CAPABILITIES.ap2Mandate]?.[0]?.config).toMatchObject({
+      status: "human_present_enabled",
+      mandate_verification: "enabled",
+      business_response_signing: "enabled",
+      shared_payment_token: "enabled",
+      supported_modes: ["human-present"],
+      headless_completion_enabled: true,
+      human_present_completion_enabled: true,
+      human_not_present_completion_enabled: false,
+    });
+  });
 });
 
 describe("UCP MCP tools", () => {

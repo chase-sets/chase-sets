@@ -969,6 +969,55 @@ resource "digitalocean_app" "platform" {
       }
 
       env {
+        key   = "UCP_BUSINESS_SIGNING_KEY_ID"
+        value = var.ucp_business_signing_key_id
+        type  = "SECRET"
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "UCP_BUSINESS_SIGNING_ALG"
+        value = var.ucp_business_signing_alg
+        type  = "SECRET"
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "UCP_BUSINESS_SIGNING_PRIVATE_JWK"
+        value = var.ucp_business_signing_private_jwk
+        type  = "SECRET"
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS"
+        value = var.ucp_business_signing_previous_public_jwks
+        type  = "SECRET"
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "UCP_AP2_VERIFIER_URL"
+        value = var.ucp_ap2_verifier_url
+        type  = "SECRET"
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "UCP_AP2_VERIFIER_AUTH_TOKEN"
+        value = var.ucp_ap2_verifier_auth_token
+        type  = "SECRET"
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "UCP_AP2_VERIFIER_TIMEOUT_MS"
+        value = var.ucp_ap2_verifier_timeout_ms
+        type  = "SECRET"
+        scope = "RUN_TIME"
+      }
+
+      env {
         key   = "EASYPOST_API_KEY"
         value = var.easypost_api_key
         type  = "SECRET"

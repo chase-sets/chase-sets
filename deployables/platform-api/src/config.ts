@@ -320,6 +320,11 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     discoverySearchEmbeddings: PlatformApiDiscoverySearchEmbeddingConfig;
     stripeGoLive: StripeGoLiveCheckReport;
     ucpBusinessSigningKeys?: UcpBusinessSigningKeySet;
+    ucpAp2Verifier?: Readonly<{
+      endpoint: string;
+      authorizationToken: string;
+      timeoutMs: number;
+    }>;
     ucpSignatureCreatedFreshnessWindowMs: number;
   }>;
 
@@ -543,7 +548,9 @@ function loadUcpBusinessSigningKeys(productionLike: boolean): UcpBusinessSigning
   const kid = getOptionalEnv("UCP_BUSINESS_SIGNING_KEY_ID");
   const alg = getOptionalEnv("UCP_BUSINESS_SIGNING_ALG") ?? "ES256";
   const previousPublicJwks =
-    getOptionalJsonEnv<readonly JsonWebKey[]>("UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS") ?? [];
+    getOptionalJsonEnv<NonNullable<UcpBusinessSigningKeySet["previousPublicJwks"]>>(
+      "UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS",
+    ) ?? [];
 
   if (!privateJwk && !kid) {
     return undefined;
@@ -565,6 +572,36 @@ function loadUcpBusinessSigningKeys(productionLike: boolean): UcpBusinessSigning
       privateJwk,
     },
     previousPublicJwks,
+  };
+}
+
+function loadUcpAp2VerifierConfig(longLived: boolean) {
+  const endpoint = getOptionalEnv("UCP_AP2_VERIFIER_URL");
+  const authorizationToken = getOptionalEnv("UCP_AP2_VERIFIER_AUTH_TOKEN");
+  if (!endpoint && !authorizationToken) {
+    return undefined;
+  }
+  if (!endpoint || !authorizationToken) {
+    throw new Error("UCP_AP2_VERIFIER_URL and UCP_AP2_VERIFIER_AUTH_TOKEN must be configured together.");
+  }
+
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new Error("UCP_AP2_VERIFIER_URL must be a valid absolute URL.");
+  }
+  if ((longLived && url.protocol !== "https:") || (url.protocol !== "https:" && url.protocol !== "http:")) {
+    throw new Error("UCP_AP2_VERIFIER_URL must use HTTPS in staging and production.");
+  }
+  if (url.username || url.password || url.hash) {
+    throw new Error("UCP_AP2_VERIFIER_URL must not contain credentials or a URL fragment.");
+  }
+
+  return {
+    endpoint: url.toString(),
+    authorizationToken,
+    timeoutMs: getRequiredPositiveNumberEnv("UCP_AP2_VERIFIER_TIMEOUT_MS", 5_000),
   };
 }
 
@@ -708,6 +745,10 @@ export function loadConfig(): PlatformApiConfig {
   const twilioAuthToken = getOptionalEnv("TWILIO_AUTH_TOKEN");
   const twilioRequireWebhookSignature = getBooleanEnv("TWILIO_WEBHOOK_SIGNATURE_REQUIRED", true);
   const ucpBusinessSigningKeys = loadUcpBusinessSigningKeys(productionLike);
+  const ucpAp2Verifier = loadUcpAp2VerifierConfig(isLongLivedEnvironment(baseConfig.deploymentEnvironment ?? ""));
+  if (ucpAp2Verifier && !ucpBusinessSigningKeys && isLongLivedEnvironment(baseConfig.deploymentEnvironment ?? "")) {
+    throw new Error("UCP AP2 verifier configuration requires UCP business signing keys in staging and production.");
+  }
   const ucpSignatureCreatedFreshnessWindowMs = getRequiredPositiveNumberEnv(
     "UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS",
     DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS,
@@ -831,6 +872,7 @@ export function loadConfig(): PlatformApiConfig {
     socialLogin,
     adminGoogleWorkspaceSso,
     ucpBusinessSigningKeys,
+    ucpAp2Verifier,
     ucpSignatureCreatedFreshnessWindowMs,
     paymentProcessor: stripeProvider.paymentProcessor,
   };
