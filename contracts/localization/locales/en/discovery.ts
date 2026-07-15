@@ -1,4 +1,14 @@
 export const discoveryEnglishTranslations = {
+  "discovery.features.home.ui.homeMerchandising.browse.all.new.arrivals": "Browse all new arrivals",
+  "discovery.features.home.ui.homeMerchandising.browse.category": "Browse {category}",
+  "discovery.features.home.ui.homeMerchandising.featured.categories": "Featured categories",
+  "discovery.features.home.ui.homeMerchandising.featured.categories.description":
+    "Explore popular parts of the marketplace.",
+  "discovery.features.home.ui.homeMerchandising.from.price": "From {price}",
+  "discovery.features.home.ui.homeMerchandising.item.count": "{count} items",
+  "discovery.features.home.ui.homeMerchandising.new.arrivals": "New arrivals",
+  "discovery.features.home.ui.homeMerchandising.new.arrivals.description": "See the latest items added to the catalog.",
+  "discovery.features.home.ui.homeMerchandising.view.item": "View item",
   "discovery.features.itemDetail.ui.accountBadges.trusted.seller": "Trusted seller",
   "discovery.features.itemDetail.ui.accountBadges.trusted.seller.explainer":
     "Operations has approved this seller for standard high-dollar listing and payout-release policies.",

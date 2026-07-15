@@ -42,6 +42,8 @@ import {
 } from "../support/request-support/saved-list-addition";
 
 const PAGE_SIZE = 24;
+const HOME_FEATURED_CATEGORY_LIMIT = 4;
+const HOME_NEW_ARRIVALS_LIMIT = 3;
 export const SEARCH_DEBOUNCE_MS = 300;
 const MARKETPLACE_DESCRIPTION = t("discovery.routes.search.browse.the.chase.sets.marketplace.with");
 const EMPTY_SEARCH_RESULT = {
@@ -57,6 +59,7 @@ const EMPTY_SEARCH_RESULT = {
   dynamicFilters: [],
   data: null,
   categories: [],
+  homeMerchandising: null,
   savedListClaim: { preparation: null, error: null },
 } as const;
 const EMPTY_CATEGORY_LIST: CategoryListResponse = {
@@ -93,6 +96,7 @@ function buildSearchQuery({
   inStock,
   sort,
   cursor,
+  limit = PAGE_SIZE,
   dynamicFilters,
 }: {
   search: string;
@@ -105,6 +109,7 @@ function buildSearchQuery({
   inStock: boolean;
   sort: string;
   cursor?: string | null;
+  limit?: number;
   dynamicFilters: readonly DynamicSearchFilterSelection[];
 }) {
   const params = new URLSearchParams();
@@ -133,7 +138,7 @@ function buildSearchQuery({
     params.set("inStock", "true");
   }
   params.set("sort", sort);
-  params.set("limit", String(PAGE_SIZE));
+  params.set("limit", String(limit));
   if (cursor) {
     params.set("cursor", cursor);
   }
@@ -167,6 +172,18 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const inStock = url.searchParams.get("inStock") === "true";
   const sort = url.searchParams.get("sort") ?? "relevance";
   const dynamicFilters = readDynamicSearchFilters(url.searchParams);
+  const isHomeLanding =
+    url.pathname === "/" &&
+    !search &&
+    !categoryParam &&
+    !tag &&
+    !language &&
+    !marketActivity &&
+    !priceMin &&
+    !priceMax &&
+    !inStock &&
+    sort === "relevance" &&
+    dynamicFilters.length === 0;
   const api = createDiscoveryRequestApiClient(request);
 
   const [categoryBySlug, categories] = await Promise.all([
@@ -189,23 +206,44 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw redirect(buildCategoryPath(resolvedCategory.slug, url.searchParams), { status: 301 });
   }
 
-  const data = await api
-    .searchItems(
-      buildSearchQuery({
-        search,
-        category,
-        tag,
-        language,
-        marketActivity,
-        priceMin,
-        priceMax,
-        inStock,
-        sort,
-        dynamicFilters,
-      }),
-    )
-    .catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE);
-  const savedListClaim = await loadSavedListClaimPreparation(request, (product) => product.productId);
+  const [data, newArrivals, savedListClaim] = await Promise.all([
+    api
+      .searchItems(
+        buildSearchQuery({
+          search,
+          category,
+          tag,
+          language,
+          marketActivity,
+          priceMin,
+          priceMax,
+          inStock,
+          sort,
+          dynamicFilters,
+        }),
+      )
+      .catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE),
+    isHomeLanding
+      ? api
+          .searchItems(
+            buildSearchQuery({
+              search: "",
+              category: "",
+              tag: "",
+              language: "",
+              marketActivity: "",
+              priceMin: "",
+              priceMax: "",
+              inStock: false,
+              sort: "newest",
+              limit: HOME_NEW_ARRIVALS_LIMIT,
+              dynamicFilters: [],
+            }),
+          )
+          .catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE)
+      : Promise.resolve(EMPTY_DISCOVERY_SEARCH_RESPONSE),
+    loadSavedListClaimPreparation(request, (product) => product.productId),
+  ]);
   const canonicalPath =
     params.categorySlug && resolvedCategory
       ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
@@ -224,6 +262,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     dynamicFilters,
     data,
     categories: categories.items,
+    homeMerchandising: isHomeLanding
+      ? {
+          featuredCategories: [...categories.items]
+            .sort((left, right) => left.display_order - right.display_order)
+            .slice(0, HOME_FEATURED_CATEGORY_LIMIT),
+          newArrivals: newArrivals.items,
+        }
+      : null,
     canonicalUrl: new URL(canonicalPath, url.origin).toString(),
     savedListClaim,
   };
@@ -814,6 +860,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       dynamicFilters={dynamicFilters}
       data={visibleData}
       categories={[...data.categories]}
+      homeMerchandising={data.homeMerchandising}
       loading={navigation.state !== "idle"}
       loadingMore={loadMoreState.loading}
       loadMoreError={loadMoreState.error}

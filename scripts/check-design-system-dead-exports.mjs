@@ -55,7 +55,6 @@ const canonicalReserveZeroConsumerExports = [
   "defaultToastManager",
   "DenseAdminWorkbenchProof",
   "EmptyStateIllustration",
-  "FeatureCard",
   "Field",
   "FilterBottomSheet",
   "firstFieldError",

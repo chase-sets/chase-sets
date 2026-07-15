@@ -346,6 +346,53 @@ describe("marketplace search route", () => {
     expect(apiParams.get("sort")).toBe("price_desc");
   });
 
+  it("loads the home result set and newest arrivals in parallel", async () => {
+    const itemRequests: string[] = [];
+    let releaseFirstItemRequest: ((response: Response) => void) | undefined;
+    const firstItemResponse = new Promise<Response>((resolve) => {
+      releaseFirstItemRequest = resolve;
+    });
+    const emptyResponse = {
+      items: [],
+      facets: [],
+      total: 0,
+      count: 0,
+      nextCursor: null,
+      retrievalMode: "lexical",
+      lexicalCount: 0,
+    } as const;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (new URL(url).pathname.endsWith("/categories")) {
+          return Response.json({ items: [], total: 0, count: 0 });
+        }
+        if (new URL(url).pathname.endsWith("/items")) {
+          itemRequests.push(url);
+          return itemRequests.length === 1 ? firstItemResponse : Response.json(emptyResponse);
+        }
+        return Response.json({ items: [], count: 0 });
+      }),
+    );
+
+    const loaderResult = loader({
+      request: new Request("http://localhost/"),
+      params: {},
+      context: {},
+    } as unknown as Parameters<typeof loader>[0]);
+
+    await waitFor(() => expect(itemRequests).toHaveLength(2));
+    releaseFirstItemRequest?.(Response.json(emptyResponse));
+    const result = await loaderResult;
+
+    expect(itemRequests.map((request) => new URL(request).searchParams.get("sort"))).toEqual(["relevance", "newest"]);
+    expect(result).toMatchObject({
+      homeMerchandising: { featuredCategories: [], newArrivals: [] },
+    });
+  });
+
   it("removes applied price and in-stock URL state without retaining pagination", () => {
     const setSearchParams = vi.fn();
     mockUseLoaderData.mockReturnValue({
