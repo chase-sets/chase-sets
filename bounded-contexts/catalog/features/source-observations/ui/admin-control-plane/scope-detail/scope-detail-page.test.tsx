@@ -105,6 +105,10 @@ function aliasReview(candidates: readonly CatalogAliasReviewCandidateSummary[]):
   };
 }
 
+// Fixed clock 11 days after the scope's updatedAt so sync-freshness is "fresh"
+// (inside the two-week stale threshold) regardless of the real wall clock.
+const NOW = "2026-07-14T12:00:00.000Z";
+
 describe("CatalogScopeDetailPage", () => {
   it("shows the scope header and the language-editions section for a scope imported in en+ja", () => {
     render(
@@ -112,11 +116,56 @@ describe("CatalogScopeDetailPage", () => {
         scope={paldeanFatesScope()}
         languageEditionAliasReview={aliasReview([candidate()])}
         actionHref={ACTION_HREF}
+        now={NOW}
       />,
     );
 
     expect(screen.getByRole("heading", { name: "Paldean Fates" })).toBeTruthy();
     expect(screen.getByText("シャイニートレジャーex")).toBeTruthy();
+  });
+
+  it("renders the journey overview and flags a pending candidate as needing review", () => {
+    render(
+      <CatalogScopeDetailPage
+        scope={paldeanFatesScope()}
+        languageEditionAliasReview={aliasReview([candidate()])}
+        actionHref={ACTION_HREF}
+        now={NOW}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Scope journey" })).toBeTruthy();
+    // One pending set-equivalent candidate → the journey is in the conflict state.
+    expect(screen.getByText("Needs review")).toBeTruthy();
+    expect(screen.getByText("Candidates need review")).toBeTruthy();
+  });
+
+  it("reports a partial-failure state when the alias review degraded", () => {
+    render(
+      <CatalogScopeDetailPage
+        scope={paldeanFatesScope()}
+        languageEditionAliasReview={aliasReview([])}
+        languageEditionAliasReviewFailed
+        actionHref={ACTION_HREF}
+        now={NOW}
+      />,
+    );
+
+    expect(screen.getByText("Partial data")).toBeTruthy();
+  });
+
+  it("shows the loading state while the route revalidates", () => {
+    render(
+      <CatalogScopeDetailPage
+        scope={paldeanFatesScope()}
+        languageEditionAliasReview={aliasReview([])}
+        actionHref={ACTION_HREF}
+        now={NOW}
+        loading
+      />,
+    );
+
+    expect(screen.getByText("Loading the scope journey…")).toBeTruthy();
   });
 
   it("omits the language-editions section for a single-edition scope", () => {
@@ -125,6 +174,7 @@ describe("CatalogScopeDetailPage", () => {
         scope={paldeanFatesScope({ languageEditions: ["en"] })}
         languageEditionAliasReview={aliasReview([])}
         actionHref={ACTION_HREF}
+        now={NOW}
       />,
     );
 

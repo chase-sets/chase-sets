@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useNavigation } from "react-router";
 import { CatalogScopeDetailPage } from "../../features/source-observations/ui/admin-control-plane/scope-detail/scope-detail-page";
 import { loader } from "../../support/route-support/admin-scope-detail/scope-detail-loader";
 
@@ -16,14 +16,18 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 // page. The language-editions section's accept/reject/defer/revoke forms
 // POST here and stay on this page, so the operator sees the result in place.
 export default function ScopeDetailRoute() {
-  const { scope, languageEditionAliasReview, canManageAliases } = useLoaderData<typeof loader>();
+  const { scope, languageEditionAliasReview, languageEditionAliasReviewFailed, canManageAliases } =
+    useLoaderData<typeof loader>();
+  const navigation = useNavigation();
 
   return (
     <CatalogScopeDetailPage
       scope={scope}
       languageEditionAliasReview={languageEditionAliasReview}
+      languageEditionAliasReviewFailed={languageEditionAliasReviewFailed}
       actionHref={`/catalog/scopes/${scope.scopeRecordId}`}
       canManageAliases={canManageAliases}
+      loading={navigation.state !== "idle"}
     />
   );
 }
