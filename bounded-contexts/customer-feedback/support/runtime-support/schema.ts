@@ -1,5 +1,6 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import {
+  csatAdminExportSchemaMigrations,
   csatAdminExportSchemaSql,
   csatAnalyticsProjectionSchemaSql,
   csatInvitationProjectionSchemaSql,
@@ -23,3 +24,5 @@ export const customerFeedbackSchemaSql = [
   feedbackAttentionProjectionSchemaSql,
   platformPolicySchemaSql,
 ].join("\n\n");
+
+export const customerFeedbackSchemaMigrations = [...csatAdminExportSchemaMigrations];

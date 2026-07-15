@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const csatInvitationProjectionSchemaSql = `
 CREATE TABLE IF NOT EXISTS customer_feedback_csat_invitations (
   invitation_id text PRIMARY KEY,
@@ -158,9 +160,9 @@ ALTER TABLE customer_feedback_csat_export_audits
 CREATE INDEX IF NOT EXISTS customer_feedback_csat_export_audits_started_idx
   ON customer_feedback_csat_export_audits (started_at DESC);
 
-CREATE INDEX IF NOT EXISTS customer_feedback_csat_export_audits_expiry_idx
-  ON customer_feedback_csat_export_audits (artifact_expires_at)
-  WHERE result = 'completed';
+-- customer_feedback_csat_export_audits_expiry_idx moved to the schemaMigrations
+-- ledger because artifact_expires_at is added to existing tables through
+-- compatibility SQL.
 
 CREATE TABLE IF NOT EXISTS customer_feedback_csat_export_artifacts (
   export_id text PRIMARY KEY REFERENCES customer_feedback_csat_export_audits(export_id) ON DELETE CASCADE,
@@ -223,3 +225,16 @@ CREATE TABLE IF NOT EXISTS customer_feedback_retention_runs (
   completed_at timestamptz NULL
 );
 `;
+
+export const csatAdminExportSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260714_customer_feedback_csat_export_audits_expiry_idx",
+    description: "Add the completed export artifact-expiry index without blocking schema boot.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS customer_feedback_csat_export_audits_expiry_idx
+  ON customer_feedback_csat_export_audits (artifact_expires_at)
+  WHERE result = 'completed'`,
+    ],
+  },
+];
