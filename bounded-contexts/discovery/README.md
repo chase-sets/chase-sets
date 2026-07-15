@@ -98,6 +98,14 @@ availability, and market-activity Filters or Sort Orders while lexical and seman
 
 The simplified item-detail rail analytics contract is documented in [Item Detail Rail Analytics](./docs/item-detail-rail-analytics.md). Discovery owns the browser event vocabulary; the marketplace deployable owns capture and observability.
 
+## Item Detail Discovery
+
+Detail Pages use the first assigned category from Catalog's stable `category_ids` order as the primary category for
+the visible breadcrumb and structured data. When no category is assigned, the visible breadcrumb links to Search and
+the structured breadcrumb omits the category. Similar Items uses stored Search Embeddings when available and falls
+back to active category peers; an empty Result Set is omitted. Product Contents and Included In relationships reuse
+the same visual item-card treatment and preserve selected dimension options in their Detail Page links.
+
 ## Outgoing Integration Events
 
 - None in the current extraction

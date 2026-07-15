@@ -9,8 +9,10 @@ import type {
   DiscoveryAccountOfferMatchWithTerms,
   DiscoveryDisplayBadge,
   DiscoveryGradedCardDetails,
+  DiscoveryImageFallback,
   DiscoveryItemDetailSellerOverlay,
   DiscoveryMarketListing,
+  DiscoveryProductAssetSet,
   DiscoveryProductContentLine,
   DiscoveryProductContentItemRef,
   DiscoverySellerInventoryItem,
@@ -119,6 +121,9 @@ type ProductContentLineDbRow = Readonly<{
   container_title: string | null;
   container_subtitle: string | null;
   container_status: string | null;
+  container_image_urls: unknown;
+  container_product_asset_sets: unknown;
+  container_image_fallback: unknown;
   contained_catalog_item_id: string | null;
   contained_selected_options: unknown;
   contained_product_id: string | null;
@@ -126,6 +131,9 @@ type ProductContentLineDbRow = Readonly<{
   contained_title: string | null;
   contained_subtitle: string | null;
   contained_status: string | null;
+  contained_image_urls: unknown;
+  contained_product_asset_sets: unknown;
+  contained_image_fallback: unknown;
   quantity: number | null;
   content_type_id: string;
   content_type_display_name: unknown;
@@ -192,6 +200,9 @@ function productContentItemRef(
   const title = prefix === "container" ? row.container_title : row.contained_title;
   const subtitle = prefix === "container" ? row.container_subtitle : row.contained_subtitle;
   const status = prefix === "container" ? row.container_status : row.contained_status;
+  const imageUrls = prefix === "container" ? row.container_image_urls : row.contained_image_urls;
+  const productAssetSets = prefix === "container" ? row.container_product_asset_sets : row.contained_product_asset_sets;
+  const imageFallback = prefix === "container" ? row.container_image_fallback : row.contained_image_fallback;
 
   if (!catalogItemId || !slug || !title || !status) {
     return null;
@@ -203,6 +214,10 @@ function productContentItemRef(
     title,
     subtitle,
     status,
+    image_urls: normalizeStringArray(imageUrls),
+    product_asset_sets: asArray<DiscoveryProductAssetSet>(productAssetSets),
+    image_fallback:
+      imageFallback && typeof imageFallback === "object" ? (imageFallback as DiscoveryImageFallback) : null,
   };
 }
 
@@ -247,6 +262,9 @@ async function listProductContentsForItem(
        container.title AS container_title,
        container.subtitle AS container_subtitle,
        container.status AS container_status,
+       container.image_urls AS container_image_urls,
+       container.product_asset_sets AS container_product_asset_sets,
+       container.image_fallback AS container_image_fallback,
        line.contained_catalog_item_id,
        line.contained_selected_options,
        line.contained_product_id,
@@ -254,6 +272,9 @@ async function listProductContentsForItem(
        contained.title AS contained_title,
        contained.subtitle AS contained_subtitle,
        contained.status AS contained_status,
+       contained.image_urls AS contained_image_urls,
+       contained.product_asset_sets AS contained_product_asset_sets,
+       contained.image_fallback AS contained_image_fallback,
        line.quantity,
        line.content_type_id,
        line.content_type_display_name,

@@ -106,7 +106,12 @@ describe("item detail Product Contents", () => {
     const db = new ProductContentsQueryDb({
       pages: [
         pageRow({ catalog_item_id: "cat_box", slug: "sealed-box-cat-box", title: "Sealed Box" }),
-        pageRow({ catalog_item_id: "cat_card", slug: "foil-card-cat-card", title: "Foil Card" }),
+        pageRow({
+          catalog_item_id: "cat_card",
+          slug: "foil-card-cat-card",
+          title: "Foil Card",
+          image_urls: ["/images/foil-card.webp"],
+        }),
       ],
       contents: [
         contentRow({
@@ -126,7 +131,11 @@ describe("item detail Product Contents", () => {
     expect(container?.contents[0]).toMatchObject({
       content_type_label: "Included item",
       inclusion_policy_label: "Guaranteed",
-      contained_item: { title: "Foil Card", slug: "foil-card-cat-card" },
+      contained_item: {
+        title: "Foil Card",
+        slug: "foil-card-cat-card",
+        image_urls: ["/images/foil-card.webp"],
+      },
     });
     expect(contained?.included_in[0]).toMatchObject({
       container_item: { title: "Sealed Box", slug: "sealed-box-cat-box" },
@@ -146,6 +155,9 @@ describe("item detail Product Contents", () => {
                 title: "Bonus Pack",
                 subtitle: "First wave",
                 status: "active",
+                image_urls: ["/images/bonus-pack.webp"],
+                product_asset_sets: [],
+                image_fallback: null,
               },
               contained_selected_options: [{ dimensionId: "language", optionId: "en" }],
               quantity: 2,
@@ -159,6 +171,9 @@ describe("item detail Product Contents", () => {
                 title: "Retired Insert",
                 subtitle: null,
                 status: "archived",
+                image_urls: [],
+                product_asset_sets: [],
+                image_fallback: null,
               },
               quantity: null,
               target_lifecycle_status: "archived",
@@ -174,6 +189,9 @@ describe("item detail Product Contents", () => {
                 title: "Starter Box",
                 subtitle: null,
                 status: "active",
+                image_urls: [],
+                product_asset_sets: [],
+                image_fallback: null,
               },
             }),
           ],
@@ -183,13 +201,19 @@ describe("item detail Product Contents", () => {
 
     expect(screen.getByText("Contents")).toBeTruthy();
     expect(screen.getByText("Included in")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Bonus Pack" }).getAttribute("href")).toBe(
+    expect(screen.getByRole("img", { name: "Bonus Pack — First wave" }).getAttribute("src")).toBe(
+      "/images/bonus-pack.webp",
+    );
+    expect(screen.getByRole("link", { name: "View details for Bonus Pack — First wave" }).getAttribute("href")).toBe(
       "/items/bonus-pack-cat-pack?dimension.language=en",
     );
+    expect(document.querySelectorAll('[data-card-layout="search-result"]')).toHaveLength(3);
     expect(screen.getByText("Qty 2 / Guaranteed")).toBeTruthy();
     expect(screen.getByText("Retired Insert")).toBeTruthy();
     expect(screen.getByText("Quantity varies / Guaranteed")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Starter Box" }).getAttribute("href")).toBe("/items/starter-box-cat-box");
+    expect(screen.getByRole("link", { name: "View details for Starter Box" }).getAttribute("href")).toBe(
+      "/items/starter-box-cat-box",
+    );
   });
 
   it("leaves item pages without Product Contents unchanged", () => {
@@ -286,6 +310,14 @@ class ProductContentsQueryDb implements PgQueryable {
             ?.subtitle,
           container_status: this.data.pages.find((page) => page.catalog_item_id === row.container_catalog_item_id)
             ?.status,
+          container_image_urls: this.data.pages.find((page) => page.catalog_item_id === row.container_catalog_item_id)
+            ?.image_urls,
+          container_product_asset_sets: this.data.pages.find(
+            (page) => page.catalog_item_id === row.container_catalog_item_id,
+          )?.product_asset_sets,
+          container_image_fallback: this.data.pages.find(
+            (page) => page.catalog_item_id === row.container_catalog_item_id,
+          )?.image_fallback,
           contained_slug: this.data.pages.find((page) => page.catalog_item_id === row.contained_catalog_item_id)?.slug,
           contained_title: this.data.pages.find((page) => page.catalog_item_id === row.contained_catalog_item_id)
             ?.title,
@@ -293,6 +325,14 @@ class ProductContentsQueryDb implements PgQueryable {
             ?.subtitle,
           contained_status: this.data.pages.find((page) => page.catalog_item_id === row.contained_catalog_item_id)
             ?.status,
+          contained_image_urls: this.data.pages.find((page) => page.catalog_item_id === row.contained_catalog_item_id)
+            ?.image_urls,
+          contained_product_asset_sets: this.data.pages.find(
+            (page) => page.catalog_item_id === row.contained_catalog_item_id,
+          )?.product_asset_sets,
+          contained_image_fallback: this.data.pages.find(
+            (page) => page.catalog_item_id === row.contained_catalog_item_id,
+          )?.image_fallback,
         }));
       return { rows: rows as Row[], rowCount: rows.length };
     }

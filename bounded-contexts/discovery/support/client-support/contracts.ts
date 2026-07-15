@@ -192,6 +192,9 @@ export interface DiscoveryProductContentItemRef {
   title: string;
   subtitle: string | null;
   status: string;
+  image_urls: string[];
+  product_asset_sets: DiscoveryProductAssetSet[];
+  image_fallback: DiscoveryImageFallback | null;
 }
 
 export interface DiscoveryProductContentLine {
