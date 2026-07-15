@@ -9,6 +9,7 @@ import {
   type ColorMode,
 } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
+import { MarketplaceHeaderSearch } from "../../features/search/ui/header-search";
 
 export function DiscoveryShellLayout({
   activeKey = "search",
@@ -37,6 +38,7 @@ export function DiscoveryShellLayout({
         bottomNavItems={[...bottomNavItems]}
         activeKey={activeKey}
         onNavSelect={onNavSelect}
+        search={<MarketplaceHeaderSearch />}
         actions={actions}
       >
         {children}

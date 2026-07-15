@@ -86,6 +86,18 @@ export interface DiscoverySearchResponse {
   lexicalCount: number | null;
 }
 
+export interface DiscoverySearchSuggestion {
+  catalogItemId: string;
+  title: string;
+  slug: string;
+  category: string | null;
+}
+
+export interface DiscoverySearchSuggestionResponse {
+  items: DiscoverySearchSuggestion[];
+  count: number;
+}
+
 export interface DiscoverySimilarItem {
   catalog_item_id: string;
   slug: string;

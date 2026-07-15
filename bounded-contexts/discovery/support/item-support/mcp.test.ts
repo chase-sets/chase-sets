@@ -87,6 +87,7 @@ function services(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryIte
   return {
     market: {} as DiscoveryItemsServices["market"],
     search: {
+      suggestItems: vi.fn(async () => []),
       searchItems: vi.fn(async () => ({
         items: [searchRow()],
         facets: [],
@@ -188,6 +189,7 @@ describe("Discovery item MCP handlers", () => {
         projectors: [],
       },
       search: {
+        suggestItems: vi.fn(async () => []),
         searchItems: vi.fn(async () => ({
           items: [searchRow(), searchRow({ catalog_item_id: "cat_draft", slug: "draft-card" })],
           facets: [],

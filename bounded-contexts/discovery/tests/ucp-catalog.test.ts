@@ -6,6 +6,7 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
   return {
     market: {} as DiscoveryItemsServices["market"],
     search: {
+      suggestItems: vi.fn(async () => []),
       searchItems: vi.fn(async () => ({
         items: [
           {

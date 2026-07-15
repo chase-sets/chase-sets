@@ -4,9 +4,9 @@ import { SkipLink, layoutWidthClasses, type LayoutWidth } from "../../primitives
 import { cx } from "../../utils/cx";
 import { Page } from "./page-layouts";
 
-function shellGeometryClasses(hasBottomNavigation: boolean): string {
+function shellGeometryClasses(hasBottomNavigation: boolean, hasSearch = false): string {
   return cx(
-    "[--shell-header-height:4rem]",
+    hasSearch ? "[--shell-header-height:7.75rem] md:[--shell-header-height:4rem]" : "[--shell-header-height:4rem]",
     hasBottomNavigation
       ? "[--shell-bottom-nav-height:5.25rem] md:[--shell-bottom-nav-height:0px]"
       : "[--shell-bottom-nav-height:0px]",
@@ -20,6 +20,7 @@ export interface MarketplaceShellProps {
   activeKey?: string;
   onNavSelect?: (key: string) => void;
   actions?: ReactNode;
+  search?: ReactNode;
   hero?: ReactNode;
   sidebar?: ReactNode;
   children?: ReactNode;
@@ -33,6 +34,7 @@ export function MarketplaceShell({
   activeKey,
   onNavSelect,
   actions,
+  search,
   hero,
   sidebar,
   children,
@@ -42,13 +44,14 @@ export function MarketplaceShell({
   const hasBottomNavigation = bottomNavItems.length > 0;
 
   return (
-    <div className={cx("min-h-screen bg-background", shellGeometryClasses(hasBottomNavigation))}>
+    <div className={cx("min-h-screen bg-background", shellGeometryClasses(hasBottomNavigation, Boolean(search)))}>
       <SkipLink />
       <TopNav
         brand={brand}
         items={topNavItems}
         activeKey={activeKey}
         onSelect={onNavSelect}
+        search={search}
         actions={actions}
         width={width}
       />

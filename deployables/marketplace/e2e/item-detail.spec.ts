@@ -18,12 +18,34 @@ async function expectPageOk(page: Page, path: string) {
 }
 
 test.describe("marketplace item detail", () => {
+  test("searches from the persistent item-detail header @marketplace-browse", async ({ page }) => {
+    await expectPageOk(page, "/search");
+
+    const pageSearch = page.getByRole("searchbox", { name: "Marketplace search" });
+    await pageSearch.fill(searchQuery);
+    const detailLink = page.getByRole("link", { name: /View details for/i }).first();
+    await expect(detailLink).toBeVisible();
+    await detailLink.click();
+    await expect(page).toHaveURL(/\/items\//);
+
+    const headerSearch = page.getByRole("combobox", { name: "Search marketplace" });
+    await expect(headerSearch).toBeVisible();
+    // The server-rendered header is visible before React hydrates. Retry the
+    // interaction until navigation proves the search handler is attached.
+    await expect(async () => {
+      await headerSearch.fill("pikachu");
+      await headerSearch.press("Enter");
+      await expect(page).toHaveURL(/\/search\?q=pikachu$/, { timeout: 1_000 });
+    }).toPass({ timeout: 20_000 });
+    await expect(page.getByRole("searchbox", { name: "Marketplace search" })).toHaveValue("pikachu");
+  });
+
   test("browse search results into the decomposed item-detail route and its commerce panel @marketplace-browse", async ({
     page,
   }) => {
     await expectPageOk(page, "/search");
 
-    const searchBox = page.getByRole("searchbox").first();
+    const searchBox = page.getByRole("searchbox", { name: "Marketplace search" });
     await expect(searchBox).toBeVisible();
     await searchBox.fill(searchQuery);
     await expect(searchBox).toHaveValue(searchQuery);

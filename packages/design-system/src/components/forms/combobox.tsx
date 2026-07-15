@@ -15,8 +15,13 @@ export interface ComboboxProps extends BaseInputProps {
   value?: string;
   defaultValue?: string;
   onValueChange?: (value: string) => void;
+  inputValue?: string;
+  defaultInputValue?: string;
+  onInputValueChange?: (value: string) => void;
   placeholder?: string;
   noMatchesLabel?: string;
+  filterItems?: boolean;
+  openOnInputClick?: boolean;
   disabled?: boolean;
 }
 
@@ -36,15 +41,22 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
     value,
     defaultValue,
     onValueChange,
+    inputValue,
+    defaultInputValue,
+    onInputValueChange,
     placeholder = "Search options",
     noMatchesLabel = "No matches",
+    filterItems = true,
+    openOnInputClick = false,
     disabled = false,
   },
   ref,
 ) {
   const [open, setOpen] = useState(false);
   const [selectedValue, setSelectedValue] = useControllableValue(value, defaultValue ?? "", onValueChange);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useControllableValue(inputValue, defaultInputValue ?? "", onInputValueChange);
+  const callerOwnsInput =
+    inputValue !== undefined || defaultInputValue !== undefined || onInputValueChange !== undefined;
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
   const listboxId = useId();
@@ -52,16 +64,16 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
   const selectedLabel = selected?.label ?? "";
   const itemValues = useMemo(() => items.map((item) => item.value), [items]);
   const filteredItems = useMemo(
-    () => items.filter((item) => item.label.toLowerCase().includes(query.toLowerCase())),
-    [items, query],
+    () => (filterItems ? items.filter((item) => item.label.toLowerCase().includes(query.toLowerCase())) : [...items]),
+    [filterItems, items, query],
   );
   const { overlayNode } = usePortalRoots();
 
   useEffect(() => {
-    if (!open) {
+    if (!open && !callerOwnsInput) {
       setQuery(selectedLabel);
     }
-  }, [open, selectedLabel]);
+  }, [callerOwnsInput, open, selectedLabel]);
 
   return (
     <FieldChrome
@@ -80,23 +92,31 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
         value={selectedValue || null}
         inputValue={query}
         open={open}
+        openOnInputClick={openOnInputClick}
         disabled={disabled}
         onOpenChange={(nextOpen) => {
           setOpen(nextOpen);
-          setQuery(nextOpen ? "" : selectedLabel);
+          if (!callerOwnsInput) {
+            setQuery(nextOpen ? "" : selectedLabel);
+          }
         }}
         onInputValueChange={setQuery}
         onValueChange={(nextValue) => {
           if (nextValue !== null) {
             setSelectedValue(nextValue);
-            setQuery(items.find((item) => item.value === nextValue)?.label ?? "");
+            if (!callerOwnsInput) {
+              setQuery(items.find((item) => item.value === nextValue)?.label ?? "");
+            }
           }
         }}
         itemToStringLabel={(itemValue) => items.find((item) => item.value === itemValue)?.label ?? String(itemValue)}
-        filter={(itemValue, inputValue) =>
-          (items.find((item) => item.value === itemValue)?.label ?? String(itemValue))
-            .toLowerCase()
-            .includes(inputValue.toLowerCase())
+        filter={
+          filterItems
+            ? (itemValue, nextInputValue) =>
+                (items.find((item) => item.value === itemValue)?.label ?? String(itemValue))
+                  .toLowerCase()
+                  .includes(nextInputValue.toLowerCase())
+            : null
         }
       >
         <ComboboxPrimitive.InputGroup
@@ -113,6 +133,7 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
             aria-controls={listboxId}
             aria-describedby={fieldDescribedBy({ inputId, description, error, status, counter })}
             aria-invalid={!!error || undefined}
+            autoComplete="off"
             disabled={disabled}
             className="min-w-0 flex-1 self-stretch bg-transparent px-[var(--control-md-px)] py-0 outline-none"
           />

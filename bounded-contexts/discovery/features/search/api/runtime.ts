@@ -11,8 +11,11 @@ import {
 } from "../read-model/queries";
 import { buildDiscoverySearchItemProjectionHandlers, rebuildDiscoverySearchIndex } from "../read-model/projection";
 import { publishDiscoveryCsatOutcomeFact } from "../../../support/request-support/csat-outcome-facts";
+import type { DiscoverySearchSuggestion } from "../../../support/client-support/contracts";
+import { suggestDiscoveryItems } from "../read-model/suggestions";
 
 export type DiscoveryItemSearchServices = Readonly<{
+  suggestItems: (query: string, limit?: number) => Promise<DiscoverySearchSuggestion[]>;
   searchItems: (params?: DiscoverySearchParams) => Promise<DiscoverySearchResult>;
   previewBulkAdd: (params?: DiscoverySearchParams) => Promise<DiscoveryBulkCartPreview>;
   rebuildSearchIndex: () => Promise<void>;
@@ -33,6 +36,7 @@ export function createDiscoveryItemSearchRuntime(
   }> = {},
 ): DiscoveryItemSearchServices {
   return {
+    suggestItems: (query, limit) => suggestDiscoveryItems(deps.db, query, limit),
     searchItems: async (params = {}) => {
       const result = await retrieveDiscoveryItems(
         {

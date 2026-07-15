@@ -351,6 +351,7 @@ export interface TopNavProps extends Omit<HTMLAttributes<HTMLElement>, "classNam
   activeKey?: string;
   onSelect?: (key: string) => void;
   brand?: ReactNode;
+  search?: ReactNode;
   actions?: ReactNode;
   mobileActionsLabel?: string;
   width?: LayoutWidth;
@@ -452,6 +453,7 @@ export function TopNav({
   activeKey,
   onSelect,
   brand,
+  search,
   actions,
   mobileActionsLabel,
   width = "full",
@@ -507,6 +509,9 @@ export function TopNav({
               </Show>,
             )}
           </Inline>
+          {search ? (
+            <div className="order-3 w-full md:order-none md:min-w-64 md:max-w-xl md:flex-1">{search}</div>
+          ) : null}
           <Inline gap={2} wrap={false}>
             {actions && mobileActionsLabel ? (
               <>
