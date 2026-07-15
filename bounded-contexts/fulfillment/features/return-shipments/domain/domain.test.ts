@@ -111,6 +111,29 @@ function requestedState(): ReturnShipmentState {
 
 const milestoneMeta = metadata({ idempotencyKey: "idem-milestone" });
 
+const labelReadyProviderFields = {
+  labelDocumentUrl: "https://labels.test/rsh_1.pdf",
+  postageProviderName: "sandbox-usps",
+  postageProviderMode: "test",
+  postageProviderShipmentId: "ps_1",
+  postageProviderLabelId: "pl_1",
+  postageAmountCents: 499,
+  estimatedPostageAmountCents: 450,
+  postageCurrency: "USD",
+} as const;
+
+function readyState(): ReturnShipmentState {
+  return apply(requestedState(), {
+    type: "MarkReturnShipmentLabelReady",
+    carrierName: "USPS",
+    trackingIdentifier: "9400-1",
+    labelProviderReference: "lbl_1",
+    ...labelReadyProviderFields,
+    metadata: milestoneMeta,
+    readyAt: "2026-06-02T00:00:00.000Z",
+  });
+}
+
 describe("ReturnShipment aggregate", () => {
   it("requests a reverse shipment and snapshots the destination", () => {
     const state = requestedState();
@@ -164,6 +187,7 @@ describe("ReturnShipment aggregate", () => {
       carrierName: "USPS",
       trackingIdentifier: "9400-1",
       labelProviderReference: "lbl_1",
+      ...labelReadyProviderFields,
       metadata: milestoneMeta,
       readyAt: "2026-06-02T00:00:00.000Z",
     });
@@ -206,6 +230,7 @@ describe("ReturnShipment aggregate", () => {
       carrierName: "USPS",
       trackingIdentifier: "t",
       labelProviderReference: "l",
+      ...labelReadyProviderFields,
       metadata: milestoneMeta,
       readyAt: "2026-06-02T00:00:00.000Z",
     });
@@ -240,6 +265,7 @@ describe("ReturnShipment aggregate", () => {
       carrierName: "USPS",
       trackingIdentifier: "t",
       labelProviderReference: "l",
+      ...labelReadyProviderFields,
       metadata: milestoneMeta,
       readyAt: "2026-06-02T00:00:00.000Z",
     });
@@ -297,6 +323,7 @@ describe("ReturnShipment aggregate", () => {
       carrierName: "USPS",
       trackingIdentifier: "t",
       labelProviderReference: "l",
+      ...labelReadyProviderFields,
       metadata: milestoneMeta,
       readyAt: "2026-06-02T00:00:00.000Z",
     });
@@ -362,6 +389,145 @@ describe("ReturnShipment aggregate", () => {
     ).toThrow();
   });
 
+  it("records customer-safe label document, provider handles, and postage cost on label-ready", () => {
+    const state = readyState();
+    expect(state.labelDocumentUrl).toBe("https://labels.test/rsh_1.pdf");
+    expect(state.postageProviderShipmentId).toBe("ps_1");
+    expect(state.postageProviderLabelId).toBe("pl_1");
+    expect(state.postageAmountCents).toBe(499);
+    expect(state.estimatedPostageAmountCents).toBe(450);
+    expect(state.postageCurrency).toBe("USD");
+  });
+
+  it("requires a customer-safe label document url on label-ready", () => {
+    expect(() =>
+      decideReturnShipment(requestedState(), {
+        type: "MarkReturnShipmentLabelReady",
+        carrierName: "USPS",
+        trackingIdentifier: "9400-1",
+        labelProviderReference: "lbl_1",
+        ...labelReadyProviderFields,
+        labelDocumentUrl: "   ",
+        metadata: milestoneMeta,
+        readyAt: "2026-06-02T00:00:00.000Z",
+      }),
+    ).toThrow();
+  });
+
+  it("records a machine-readable label-purchase failure while still awaiting a label", () => {
+    const state = apply(requestedState(), {
+      type: "RecordReturnShipmentLabelPurchaseFailed",
+      failureReason: "provider-timeout",
+      failureDetail: "USPS rating timed out.",
+      postageProviderName: "sandbox-usps",
+      postageProviderMode: "test",
+      metadata: milestoneMeta,
+      failedAt: "2026-06-02T00:00:00.000Z",
+    });
+    expect(state.status).toBe("requested");
+    expect(state.labelStatus).toBe("failed");
+    expect(state.labelFailureReason).toBe("provider-timeout");
+    expect(state.labelFailureDetail).toBe("USPS rating timed out.");
+  });
+
+  it("rejects an unknown label failure reason", () => {
+    expect(() =>
+      decideReturnShipment(requestedState(), {
+        type: "RecordReturnShipmentLabelPurchaseFailed",
+        failureReason: "gremlins",
+        failureDetail: null,
+        metadata: milestoneMeta,
+        failedAt: "2026-06-02T00:00:00.000Z",
+      }),
+    ).toThrow();
+  });
+
+  it("cannot record a purchase failure once the label is ready", () => {
+    expect(() =>
+      decideReturnShipment(readyState(), {
+        type: "RecordReturnShipmentLabelPurchaseFailed",
+        failureReason: "provider-error",
+        failureDetail: null,
+        metadata: milestoneMeta,
+        failedAt: "2026-06-03T00:00:00.000Z",
+      }),
+    ).toThrow();
+  });
+
+  it("retries a label after a failure and reaches ready", () => {
+    let state = apply(requestedState(), {
+      type: "RecordReturnShipmentLabelPurchaseFailed",
+      failureReason: "provider-timeout",
+      failureDetail: null,
+      metadata: milestoneMeta,
+      failedAt: "2026-06-02T00:00:00.000Z",
+    });
+    expect(state.labelStatus).toBe("failed");
+    state = apply(state, {
+      type: "MarkReturnShipmentLabelReady",
+      carrierName: "USPS",
+      trackingIdentifier: "9400-1",
+      labelProviderReference: "lbl_retry",
+      ...labelReadyProviderFields,
+      metadata: milestoneMeta,
+      readyAt: "2026-06-02T06:00:00.000Z",
+    });
+    expect(state.status).toBe("ready-to-ship");
+    expect(state.labelStatus).toBe("ready");
+    expect(state.labelFailureReason).toBeNull();
+  });
+
+  it("voids an unused ready label idempotently and records the refund", () => {
+    const state = apply(readyState(), {
+      type: "VoidReturnShipmentLabel",
+      refundStatus: "submitted",
+      refundReference: "ref_1",
+      reason: "case cancelled",
+      metadata: milestoneMeta,
+      voidedAt: "2026-06-02T12:00:00.000Z",
+    });
+    expect(state.labelStatus).toBe("voided");
+    expect(state.labelRefundStatus).toBe("submitted");
+    expect(state.labelRefundReference).toBe("ref_1");
+    // Re-voiding is a no-op so a provider retry cannot emit a second refund fact.
+    expect(
+      decideReturnShipment(state, {
+        type: "VoidReturnShipmentLabel",
+        refundStatus: "submitted",
+        refundReference: "ref_1",
+        metadata: milestoneMeta,
+        voidedAt: "2026-06-02T13:00:00.000Z",
+      }),
+    ).toEqual([]);
+  });
+
+  it("cannot void a label already in carrier custody", () => {
+    const inCustody = apply(readyState(), {
+      type: "RecordReturnShipmentCarrierAccepted",
+      metadata: milestoneMeta,
+      occurredAt: "2026-06-03T00:00:00.000Z",
+    });
+    expect(() =>
+      decideReturnShipment(inCustody, {
+        type: "VoidReturnShipmentLabel",
+        refundStatus: "submitted",
+        metadata: milestoneMeta,
+        voidedAt: "2026-06-04T00:00:00.000Z",
+      }),
+    ).toThrow();
+  });
+
+  it("cannot void when no label has been purchased", () => {
+    expect(() =>
+      decideReturnShipment(requestedState(), {
+        type: "VoidReturnShipmentLabel",
+        refundStatus: "submitted",
+        metadata: milestoneMeta,
+        voidedAt: "2026-06-02T00:00:00.000Z",
+      }),
+    ).toThrow();
+  });
+
   it("is replay-stable: folding the full event log reproduces the same state", () => {
     const commands: ReturnShipmentCommand[] = [
       requestCommand(),
@@ -370,6 +536,7 @@ describe("ReturnShipment aggregate", () => {
         carrierName: "USPS",
         trackingIdentifier: "t",
         labelProviderReference: "l",
+        ...labelReadyProviderFields,
         metadata: milestoneMeta,
         readyAt: "2026-06-02T00:00:00.000Z",
       },

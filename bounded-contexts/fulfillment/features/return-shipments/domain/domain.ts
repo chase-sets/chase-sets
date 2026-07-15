@@ -14,13 +14,16 @@ import {
   assertNever,
   ensureIsoTimestamp,
   isTerminalReturnShipmentStatus,
+  normalizeOptionalCents,
   normalizeOptionalText,
   normalizeRequiredText,
   normalizeReturnShipmentCostPayer,
   normalizeReturnShipmentExceptionType,
+  normalizeReturnShipmentLabelFailureReason,
   returnShipmentDeliveryStageRank,
   type ReturnShipmentCostPayer,
   type ReturnShipmentExceptionType,
+  type ReturnShipmentLabelFailureReason,
   type ReturnShipmentLabelStatus,
   type ReturnShipmentStatus,
 } from "./common";
@@ -66,8 +69,20 @@ export type ReturnShipmentState = Readonly<{
   packageRequirements: ReturnShipmentPackageRequirements | null;
   labelStatus: ReturnShipmentLabelStatus | null;
   labelProviderReference: string | null;
+  labelDocumentUrl: string | null;
   trackingIdentifier: string | null;
   carrierName: string | null;
+  postageProviderName: string | null;
+  postageProviderMode: string | null;
+  postageProviderShipmentId: string | null;
+  postageProviderLabelId: string | null;
+  postageAmountCents: number | null;
+  estimatedPostageAmountCents: number | null;
+  postageCurrency: string | null;
+  labelFailureReason: ReturnShipmentLabelFailureReason | null;
+  labelFailureDetail: string | null;
+  labelRefundStatus: string | null;
+  labelRefundReference: string | null;
   costPayer: ReturnShipmentCostPayer | null;
   costAllocationReference: string | null;
   shipByDeadlineAt: string | null;
@@ -81,6 +96,8 @@ export type ReturnShipmentState = Readonly<{
   currentExceptionNotes: string | null;
   requestedAt: string | null;
   labelReadyAt: string | null;
+  labelFailedAt: string | null;
+  labelVoidedAt: string | null;
   carrierAcceptedAt: string | null;
   deliveredAt: string | null;
   receivedAt: string | null;
@@ -100,8 +117,20 @@ export const initialReturnShipmentState: ReturnShipmentState = {
   packageRequirements: null,
   labelStatus: null,
   labelProviderReference: null,
+  labelDocumentUrl: null,
   trackingIdentifier: null,
   carrierName: null,
+  postageProviderName: null,
+  postageProviderMode: null,
+  postageProviderShipmentId: null,
+  postageProviderLabelId: null,
+  postageAmountCents: null,
+  estimatedPostageAmountCents: null,
+  postageCurrency: null,
+  labelFailureReason: null,
+  labelFailureDetail: null,
+  labelRefundStatus: null,
+  labelRefundReference: null,
   costPayer: null,
   costAllocationReference: null,
   shipByDeadlineAt: null,
@@ -115,6 +144,8 @@ export const initialReturnShipmentState: ReturnShipmentState = {
   currentExceptionNotes: null,
   requestedAt: null,
   labelReadyAt: null,
+  labelFailedAt: null,
+  labelVoidedAt: null,
   carrierAcceptedAt: null,
   deliveredAt: null,
   receivedAt: null,
@@ -150,8 +181,35 @@ export type MarkReturnShipmentLabelReadyCommand = Readonly<{
   carrierName: string;
   trackingIdentifier: string;
   labelProviderReference: string;
+  labelDocumentUrl: string;
+  postageProviderName: string;
+  postageProviderMode: string;
+  postageProviderShipmentId: string;
+  postageProviderLabelId: string;
+  postageAmountCents?: number | null;
+  estimatedPostageAmountCents?: number | null;
+  postageCurrency?: string | null;
   metadata: ReturnShipmentFactMetadata;
   readyAt: string;
+}>;
+
+export type RecordReturnShipmentLabelPurchaseFailedCommand = Readonly<{
+  type: "RecordReturnShipmentLabelPurchaseFailed";
+  failureReason: string;
+  failureDetail: string | null;
+  postageProviderName?: string | null;
+  postageProviderMode?: string | null;
+  metadata: ReturnShipmentFactMetadata;
+  failedAt: string;
+}>;
+
+export type VoidReturnShipmentLabelCommand = Readonly<{
+  type: "VoidReturnShipmentLabel";
+  refundStatus: string;
+  refundReference?: string | null;
+  reason?: string | null;
+  metadata: ReturnShipmentFactMetadata;
+  voidedAt: string;
 }>;
 
 export type RecordReturnShipmentCarrierAcceptedCommand = Readonly<{
@@ -207,6 +265,8 @@ export type RaiseReturnShipmentExceptionCommand = Readonly<{
 export type ReturnShipmentCommand =
   | RequestReturnShipmentCommand
   | MarkReturnShipmentLabelReadyCommand
+  | RecordReturnShipmentLabelPurchaseFailedCommand
+  | VoidReturnShipmentLabelCommand
   | RecordReturnShipmentCarrierAcceptedCommand
   | RecordReturnShipmentInTransitCommand
   | RecordReturnShipmentDeliveredCommand
@@ -247,8 +307,41 @@ export type ReturnShipmentLabelReadyEvent = DomainEvent<
     carrierName: string;
     trackingIdentifier: string;
     labelProviderReference: string;
+    labelDocumentUrl: string;
+    postageProviderName: string;
+    postageProviderMode: string;
+    postageProviderShipmentId: string;
+    postageProviderLabelId: string;
+    postageAmountCents: number | null;
+    estimatedPostageAmountCents: number | null;
+    postageCurrency: string | null;
     metadata: ReturnShipmentFactMetadata;
     readyAt: string;
+  }>
+>;
+
+export type ReturnShipmentLabelPurchaseFailedEvent = DomainEvent<
+  "fulfillment.return-shipment.label-purchase-failed.v1",
+  Readonly<{
+    returnShipmentId: ReturnShipmentId;
+    failureReason: ReturnShipmentLabelFailureReason;
+    failureDetail: string | null;
+    postageProviderName: string | null;
+    postageProviderMode: string | null;
+    metadata: ReturnShipmentFactMetadata;
+    failedAt: string;
+  }>
+>;
+
+export type ReturnShipmentLabelVoidedEvent = DomainEvent<
+  "fulfillment.return-shipment.label-voided.v1",
+  Readonly<{
+    returnShipmentId: ReturnShipmentId;
+    refundStatus: string;
+    refundReference: string | null;
+    reason: string | null;
+    metadata: ReturnShipmentFactMetadata;
+    voidedAt: string;
   }>
 >;
 
@@ -326,6 +419,8 @@ export type ReturnShipmentExceptionRaisedEvent = DomainEvent<
 export type ReturnShipmentEvent =
   | ReturnShipmentRequestedEvent
   | ReturnShipmentLabelReadyEvent
+  | ReturnShipmentLabelPurchaseFailedEvent
+  | ReturnShipmentLabelVoidedEvent
   | ReturnShipmentCarrierAcceptedEvent
   | ReturnShipmentInTransitRecordedEvent
   | ReturnShipmentDeliveredEvent
@@ -459,8 +554,95 @@ export const decideReturnShipment: AggregateDecider<ReturnShipmentState, ReturnS
               command.labelProviderReference,
               "Label provider reference is required.",
             ),
+            labelDocumentUrl: normalizeRequiredText(
+              command.labelDocumentUrl,
+              "Customer-safe label document URL is required.",
+            ),
+            postageProviderName: normalizeRequiredText(
+              command.postageProviderName,
+              "Postage provider name is required.",
+            ),
+            postageProviderMode: normalizeRequiredText(
+              command.postageProviderMode,
+              "Postage provider mode is required.",
+            ),
+            postageProviderShipmentId: normalizeRequiredText(
+              command.postageProviderShipmentId,
+              "Postage provider shipment id is required.",
+            ),
+            postageProviderLabelId: normalizeRequiredText(
+              command.postageProviderLabelId,
+              "Postage provider label id is required.",
+            ),
+            postageAmountCents: normalizeOptionalCents(
+              command.postageAmountCents,
+              "Actual postage cost must be a non-negative integer number of cents.",
+            ),
+            estimatedPostageAmountCents: normalizeOptionalCents(
+              command.estimatedPostageAmountCents,
+              "Estimated postage cost must be a non-negative integer number of cents.",
+            ),
+            postageCurrency: normalizeOptionalText(command.postageCurrency),
             metadata,
             readyAt: ensureIsoTimestamp(command.readyAt, "Label readiness must record a timestamp."),
+          },
+        },
+      ];
+    }
+    case "RecordReturnShipmentLabelPurchaseFailed": {
+      assert(state.returnShipmentId !== null, "Return shipment must be requested first.");
+      assert(state.remedyId !== null, "Return shipment must reference a remedy.");
+      // A failure fact is only meaningful while a label is still being sought: once
+      // a label is ready or voided, or the shipment has left the requested stage, a
+      // purchase failure cannot apply. Retried purchases record a fresh failure each
+      // time, so Support sees every actionable attempt.
+      assert(
+        state.status === "requested" && state.labelStatus !== "ready" && state.labelStatus !== "voided",
+        "A return label purchase failure can only be recorded while the shipment is awaiting a label.",
+      );
+      const metadata = normalizeMetadata(state.remedyId, command.metadata);
+      return [
+        {
+          type: "fulfillment.return-shipment.label-purchase-failed.v1",
+          data: {
+            returnShipmentId: state.returnShipmentId,
+            failureReason: normalizeReturnShipmentLabelFailureReason(command.failureReason),
+            failureDetail: normalizeOptionalText(command.failureDetail),
+            postageProviderName: normalizeOptionalText(command.postageProviderName),
+            postageProviderMode: normalizeOptionalText(command.postageProviderMode),
+            metadata,
+            failedAt: ensureIsoTimestamp(command.failedAt, "Label purchase failure must record a timestamp."),
+          },
+        },
+      ];
+    }
+    case "VoidReturnShipmentLabel": {
+      assert(state.returnShipmentId !== null, "Return shipment must be requested first.");
+      assert(state.remedyId !== null, "Return shipment must reference a remedy.");
+      if (state.labelStatus === "voided") {
+        // Voiding an already-voided label is a no-op so provider retries and
+        // reconciliation sweeps cannot emit a second refund fact.
+        return [];
+      }
+      assert(state.labelStatus === "ready", "Only a purchased return label can be voided.");
+      assert(
+        returnShipmentDeliveryStageRank(state.status) < returnShipmentDeliveryStageRank("carrier-accepted"),
+        "A return label already in carrier custody cannot be voided.",
+      );
+      const metadata = normalizeMetadata(state.remedyId, command.metadata);
+      return [
+        {
+          type: "fulfillment.return-shipment.label-voided.v1",
+          data: {
+            returnShipmentId: state.returnShipmentId,
+            refundStatus: normalizeRequiredText(
+              command.refundStatus,
+              "Label void must record a provider refund status.",
+            ),
+            refundReference: normalizeOptionalText(command.refundReference),
+            reason: normalizeOptionalText(command.reason),
+            metadata,
+            voidedAt: ensureIsoTimestamp(command.voidedAt, "Label void must record a timestamp."),
           },
         },
       ];
@@ -652,8 +834,34 @@ export const evolveReturnShipment: AggregateEvolver<ReturnShipmentState, ReturnS
         carrierName: event.data.carrierName,
         trackingIdentifier: event.data.trackingIdentifier,
         labelProviderReference: event.data.labelProviderReference,
+        labelDocumentUrl: event.data.labelDocumentUrl,
+        postageProviderName: event.data.postageProviderName,
+        postageProviderMode: event.data.postageProviderMode,
+        postageProviderShipmentId: event.data.postageProviderShipmentId,
+        postageProviderLabelId: event.data.postageProviderLabelId,
+        postageAmountCents: event.data.postageAmountCents,
+        estimatedPostageAmountCents: event.data.estimatedPostageAmountCents,
+        postageCurrency: event.data.postageCurrency,
+        labelFailureReason: null,
+        labelFailureDetail: null,
         labelReadyAt: event.data.readyAt,
         milestones: withMilestone(state, "ready-to-ship", event.data.readyAt, null),
+      };
+    case "fulfillment.return-shipment.label-purchase-failed.v1":
+      return {
+        ...state,
+        labelStatus: "failed",
+        labelFailureReason: event.data.failureReason,
+        labelFailureDetail: event.data.failureDetail,
+        labelFailedAt: event.data.failedAt,
+      };
+    case "fulfillment.return-shipment.label-voided.v1":
+      return {
+        ...state,
+        labelStatus: "voided",
+        labelRefundStatus: event.data.refundStatus,
+        labelRefundReference: event.data.refundReference,
+        labelVoidedAt: event.data.voidedAt,
       };
     case "fulfillment.return-shipment.carrier-accepted.v1":
       return {

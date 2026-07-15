@@ -11,6 +11,7 @@ import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbo
 import type { PostageLabelProvider, PostageProviderWebhookGateway } from "@chase-sets/postage-labels";
 import { createFulfillmentShipmentRuntime } from "../../features/shipments/api/runtime";
 import { createFulfillmentReturnShipmentRuntime } from "../../features/return-shipments/api/runtime";
+import type { ReturnFacilityDirectory } from "../../features/return-shipments/domain/facility-directory";
 
 export type FulfillmentServices = Readonly<{
   shipments: ReturnType<typeof createFulfillmentShipmentRuntime>;
@@ -24,6 +25,7 @@ export type FulfillmentHostPorts = Readonly<{
   postageLabelProvider?: PostageLabelProvider;
   postageWebhookGateway?: PostageProviderWebhookGateway;
   notificationOutbox?: NotificationOutbox;
+  returnFacilityDirectory?: ReturnFacilityDirectory;
 }>;
 
 export function createFulfillmentServices(
@@ -45,7 +47,12 @@ export function createFulfillmentServices(
     postageWebhookGateway: ports?.postageWebhookGateway,
     notificationOutbox,
   });
-  const returnShipments = createFulfillmentReturnShipmentRuntime({ eventStore, db });
+  const returnShipments = createFulfillmentReturnShipmentRuntime({
+    eventStore,
+    db,
+    postageLabelProvider: ports?.postageLabelProvider,
+    facilityDirectory: ports?.returnFacilityDirectory,
+  });
 
   return {
     shipments,
