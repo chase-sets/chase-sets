@@ -234,6 +234,7 @@ describe("cross-context request-path read inventory guard", () => {
           const marketplaceApi = createMarketplaceRequestApiClient(request);
           await checkoutApi.getCheckoutSession("chk_1");
           await marketplaceApi.createListing({});
+          await marketplaceApi.reportReview("rev_1", {});
           return createInternalAuthRequestApiClient(request).getSession("ses_1");
         }
       `,

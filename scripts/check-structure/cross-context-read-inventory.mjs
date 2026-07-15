@@ -33,6 +33,7 @@ const commandMethodPrefixes = [
   "publish",
   "recover",
   "refresh",
+  "report",
   "reject",
   "remove",
   "request",
