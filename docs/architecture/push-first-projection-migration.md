@@ -137,6 +137,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `ordering:ordering-marketplace-offer-acceptance` | Ordering | **marketplace** | push-enabled | 1/1 |
 | `ordering:ordering-marketplace-supply-input-projection` | Ordering | **catalog**, **marketplace** | push-enabled | 2/2 |
 | `ordering:ordering-order-review-opportunity-projection` | Ordering | fulfillment, **marketplace**, **ordering**, **platform-operations** | push-eligible | 3/4 |
+| `ordering:ordering-order-money-timeline-projection` | Ordering | **payments**, **platform-operations**, **settlement** | push-enabled | 3/3 |
 | `ordering:ordering-order-projection` | Ordering | **ordering** | push-enabled | 1/1 |
 | `ordering:ordering-payment-capture` | Ordering | **payments** | push-enabled | 1/1 |
 | `ordering:ordering-postage-policy-projection` | Ordering | **ordering** | push-enabled | 1/1 |
@@ -177,7 +178,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-support-hold-lifecycle-projection` | Settlement | **platform-operations** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations**, **settlement** | push-enabled | 3/3 |
 
-Totals: 110 `push-enabled`, 29 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 111 `push-enabled`, 29 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (76)
 

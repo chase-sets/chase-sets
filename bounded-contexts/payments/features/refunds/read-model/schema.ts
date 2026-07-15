@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS payments_refund_pages (
 CREATE INDEX IF NOT EXISTS payments_refund_pages_pending_idx
   ON payments_refund_pages (status, updated_at)
   WHERE status NOT IN ('issued', 'failed');
+
+CREATE INDEX IF NOT EXISTS payments_refund_pages_order_ids_idx
+  ON payments_refund_pages USING GIN (order_ids jsonb_ops);
 `;
 
 export const paymentsRefundSchemaMigrations = [
@@ -50,6 +53,14 @@ export const paymentsRefundSchemaMigrations = [
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_refund_pages_remedy_idx
   ON payments_refund_pages (remedy_id)
   WHERE remedy_id IS NOT NULL`,
+    ],
+  },
+  {
+    migrationId: "20260715_payments_refund_pages_order_lookup",
+    description: "Index the order-keyed customer refund timeline lookup.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_refund_pages_order_ids_idx
+  ON payments_refund_pages USING GIN (order_ids jsonb_ops)`,
     ],
   },
 ] as const;

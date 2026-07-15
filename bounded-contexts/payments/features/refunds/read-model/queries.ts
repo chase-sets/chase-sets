@@ -80,6 +80,18 @@ export async function getRefund(db: PgQueryable, refundId: string): Promise<Refu
   return row ? mapRefundRow(row) : null;
 }
 
+export async function listRefundsForOrder(db: PgQueryable, orderId: string): Promise<readonly RefundDetailRow[]> {
+  const result = await db.query<RefundPageRow>(
+    `SELECT${refundColumns}
+     FROM payments_refund_pages
+     WHERE order_ids ? $1
+     ORDER BY requested_at ASC, refund_id ASC`,
+    [orderId],
+  );
+
+  return result.rows.map(mapRefundRow);
+}
+
 /**
  * Operational query: refunds stuck between authorization and confirmation. A refund
  * that is still `requested` (provider submitted, no issued/failed confirmation) past

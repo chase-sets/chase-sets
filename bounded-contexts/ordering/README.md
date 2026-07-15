@@ -24,6 +24,7 @@ If an item uses a `condition` dimension, that condition is represented inside th
 - Provider-agnostic tax quote contracts and local deterministic tax quote behavior (`features/tax-quotes`)
 - State-by-state tax nexus threshold tracking and collection-provider dependency posture (`features/tax-nexus`)
 - Tax readiness language for production marketplace promotion
+- Customer-facing purchase and sale money timelines projected from Payments refund, Support case, and Settlement reconciliation facts
 
 ## Does Not Own
 
@@ -53,6 +54,9 @@ Buyer self-service purchase cancellation is documented in [Self-Service Purchase
 - Identity for transaction-party account references
 - Marketplace for active product supply and accepted offer decisions
 - Inventory reservation outcome events for post-commitment hold execution and release
+- Payments for refund progress and actual per-order refunded amounts
+- Platform Operations for support case resolution context
+- Settlement for reconciled proceeds-hold release facts
 
 ## Outgoing Integration Events
 
