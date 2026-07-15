@@ -200,6 +200,32 @@ describe("escalation and resolution", () => {
     expect(enqueued[0]!.body.toLowerCase()).not.toContain("binding");
     expect(enqueued[0]!.body.toLowerCase()).toContain("agreed");
   });
+
+  it("tells both parties when the deadline applied an automatic outcome", async () => {
+    const { enqueued } = await projectSupport("support.support-request.resolved", {
+      supportRequestId: "sup_1",
+      orderId: "ord_1",
+      buyerAccountId: "acc_buyer",
+      sellerAccountId: "acc_seller",
+      flowType: "item-not-received",
+      resolution: {
+        resolutionType: "full-refund",
+        resolvedAt: "2026-07-16T00:00:00.000Z",
+        refundAmount: "20.00",
+        evidenceBasis: {
+          type: "deterministic-policy",
+          reference: "support-policy.seller-response-deadline.v1",
+        },
+      },
+    });
+
+    expect(enqueued.map((message) => message.recipientAccountId).sort()).toEqual(["acc_buyer", "acc_seller"]);
+    for (const message of enqueued) {
+      expect(message.body.toLowerCase()).toContain("resolved automatically");
+      expect(message.body.toLowerCase()).toContain("full refund");
+      expect(message.actionHref).toBe("/account/support/sup_1");
+    }
+  });
 });
 
 describe("return flow and reminders", () => {
@@ -214,15 +240,42 @@ describe("return flow and reminders", () => {
     expect(enqueued[0]!.body).toContain("2026-07-18T00:00:00.000Z");
   });
 
-  it("reminds only the party whose response is due", async () => {
+  it("reminds only the party whose response is due and states the automatic consequence", async () => {
     const { enqueued } = await projectSupport("support.support-request.response-reminder-emitted", {
       supportRequestId: "sup_1",
       remindedAt: "2026-07-15T00:00:00.000Z",
       actingRole: "seller",
       dueAt: "2026-07-16T00:00:00.000Z",
+      deadlineOutcome: { type: "automatic-resolution", resolutionType: "full-refund" },
     });
     expect(enqueued).toHaveLength(1);
     expect(enqueued[0]!.recipientAccountId).toBe("acc_seller");
+    expect(enqueued[0]!.body).toContain("2026-07-16T00:00:00.000Z");
+    expect(enqueued[0]!.body.toLowerCase()).toContain("full refund");
+    expect(enqueued[0]!.body.toLowerCase()).toContain("automatically");
+  });
+
+  it("states support review as the silence consequence when automatic resolution is unsafe", async () => {
+    const { enqueued } = await projectSupport("support.support-request.response-reminder-emitted", {
+      supportRequestId: "sup_1",
+      remindedAt: "2026-07-15T00:00:00.000Z",
+      actingRole: "seller",
+      dueAt: "2026-07-16T00:00:00.000Z",
+      deadlineOutcome: { type: "support-review" },
+    });
+
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0]!.body.toLowerCase()).toContain("support review");
+  });
+
+  it("keeps support-review reminders out of buyer and seller feeds", async () => {
+    const { enqueued } = await projectSupport("support.support-request.review-reminder-emitted", {
+      supportRequestId: "sup_1",
+      remindedAt: "2026-07-15T00:00:00.000Z",
+      dueAt: "2026-07-16T00:00:00.000Z",
+    });
+
+    expect(enqueued).toHaveLength(0);
   });
 
   it("skips notification when the case routing is unknown", async () => {
@@ -298,5 +351,43 @@ describe("idempotent delivery", () => {
     expect(first.enqueued.map((m) => m.idempotencyKey).sort()).toEqual(
       second.enqueued.map((m) => m.idempotencyKey).sort(),
     );
+  });
+
+  it("keys response reminders by case and deadline window rather than sweep attempt time", async () => {
+    const reminder = {
+      supportRequestId: "sup_1",
+      actingRole: "seller",
+      dueAt: "2026-07-16T00:00:00.000Z",
+      deadlineOutcome: { type: "automatic-resolution", resolutionType: "full-refund" },
+    };
+    const first = await projectSupport("support.support-request.response-reminder-emitted", {
+      ...reminder,
+      remindedAt: "2026-07-15T00:00:00.000Z",
+    });
+    const retry = await projectSupport("support.support-request.response-reminder-emitted", {
+      ...reminder,
+      remindedAt: "2026-07-15T00:01:00.000Z",
+    });
+
+    expect(first.enqueued).toHaveLength(1);
+    expect(retry.enqueued).toHaveLength(1);
+    expect(first.enqueued[0]!.idempotencyKey).toBe(retry.enqueued[0]!.idempotencyKey);
+    expect(first.enqueued[0]!.idempotencyKey).toContain("2026-07-16T00:00:00.000Z");
+  });
+
+  it("preserves the pre-outcome reminder key during historical event replay", async () => {
+    const legacy = {
+      supportRequestId: "sup_1",
+      remindedAt: "2026-07-15T00:00:00.000Z",
+      actingRole: "seller",
+      dueAt: "2026-07-16T00:00:00.000Z",
+    };
+    const first = await projectSupport("support.support-request.response-reminder-emitted", legacy);
+    const replay = await projectSupport("support.support-request.response-reminder-emitted", legacy);
+
+    expect(first.enqueued[0]!.idempotencyKey).toBe(
+      "notifications:support:response-reminder:sup_1:2026-07-15T00:00:00.000Z:acc_seller",
+    );
+    expect(replay.enqueued[0]!.idempotencyKey).toBe(first.enqueued[0]!.idempotencyKey);
   });
 });

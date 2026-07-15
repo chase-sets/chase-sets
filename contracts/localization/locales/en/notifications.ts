@@ -95,7 +95,23 @@ export const notificationsEnglishTranslations = {
     "This support case was cancelled and closed. Nothing more is needed from you.",
   "notifications.intents.supportDispute.responseReminder.title": "Reminder: respond on order {orderReference}",
   "notifications.intents.supportDispute.responseReminder.body":
+    "Your response is still needed. Respond by {deadline}, or {outcome}.",
+  "notifications.intents.supportDispute.responseReminder.legacyBody":
     "Your response is still needed. Reply by {deadline} to keep the case out of review.",
+  "notifications.intents.supportDispute.responseReminder.outcome.full-refund": "a full refund is applied automatically",
+  "notifications.intents.supportDispute.responseReminder.outcome.partial-refund":
+    "a partial refund is applied automatically",
+  "notifications.intents.supportDispute.responseReminder.outcome.return-for-refund":
+    "a return for refund is approved automatically",
+  "notifications.intents.supportDispute.responseReminder.outcome.replacement":
+    "a replacement is approved automatically",
+  "notifications.intents.supportDispute.responseReminder.outcome.cancel-order": "the order is cancelled automatically",
+  "notifications.intents.supportDispute.responseReminder.outcome.no-action":
+    "the case closes without a change automatically",
+  "notifications.intents.supportDispute.responseReminder.outcome.support-reviewed":
+    "the case moves to a support decision automatically",
+  "notifications.intents.supportDispute.responseReminder.outcome.supportReview":
+    "the case moves to Chase Sets support review automatically",
   "notifications.intents.supportDispute.returnDelivered.title": "A return arrived for order {orderReference}",
   "notifications.intents.supportDispute.returnDelivered.body":
     "Inspect the returned item by {deadline}, or the refund releases automatically.",

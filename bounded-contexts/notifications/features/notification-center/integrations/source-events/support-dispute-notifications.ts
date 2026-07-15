@@ -311,6 +311,9 @@ type SupportResponseReminderData = Readonly<{
   remindedAt: string;
   actingRole: SupportRole;
   dueAt: string;
+  deadlineOutcome?:
+    | Readonly<{ type: "automatic-resolution"; resolutionType: string }>
+    | Readonly<{ type: "support-review" }>;
 }>;
 
 type SupportReturnDeliveredData = Readonly<{
@@ -364,6 +367,13 @@ function caseRef(supportRequestId: string): string {
 
 function deadlineLabel(deadline: string | null): string {
   return deadline ?? t("notifications.intents.supportDispute.noDeadline");
+}
+
+function deadlineOutcomeLabel(outcome: NonNullable<SupportResponseReminderData["deadlineOutcome"]>): string {
+  if (outcome.type === "support-review") {
+    return t("notifications.intents.supportDispute.responseReminder.outcome.supportReview");
+  }
+  return t(`notifications.intents.supportDispute.responseReminder.outcome.${outcome.resolutionType}`);
 }
 
 function counterpartyOf(role: SupportRole): SupportRole {
@@ -691,6 +701,14 @@ export function mapSupportResponseReminderToNotification(
     return null;
   }
   const recipientAccountId = accountForRole(routing, data.actingRole);
+  const body = data.deadlineOutcome
+    ? t("notifications.intents.supportDispute.responseReminder.body", {
+        deadline: deadlineLabel(data.dueAt),
+        outcome: deadlineOutcomeLabel(data.deadlineOutcome),
+      })
+    : t("notifications.intents.supportDispute.responseReminder.legacyBody", {
+        deadline: deadlineLabel(data.dueAt),
+      });
   return caseWebNotification({
     recipientAccountId,
     messageType: "support.support-request.response-reminder-emitted",
@@ -699,16 +717,19 @@ export function mapSupportResponseReminderToNotification(
     title: t("notifications.intents.supportDispute.responseReminder.title", {
       orderReference: orderRef(routing.orderId),
     }),
-    body: t("notifications.intents.supportDispute.responseReminder.body", { deadline: deadlineLabel(data.dueAt) }),
+    body,
     actionHref: CASE_LINK(routing.supportRequestId),
     templateId: "support_dispute_response_reminder",
     templateData: {
       supportReference: caseRef(routing.supportRequestId),
       orderReference: orderRef(routing.orderId),
       deadline: data.dueAt,
+      deadlineOutcomeType: data.deadlineOutcome?.type ?? null,
+      resolutionType:
+        data.deadlineOutcome?.type === "automatic-resolution" ? data.deadlineOutcome.resolutionType : null,
       actionHref: CASE_LINK(routing.supportRequestId),
     },
-    idempotencyKey: `notifications:support:response-reminder:${routing.supportRequestId}:${data.remindedAt}:${recipientAccountId}`,
+    idempotencyKey: `notifications:support:response-reminder:${routing.supportRequestId}:${data.deadlineOutcome ? data.dueAt : data.remindedAt}:${recipientAccountId}`,
     correlationId: input.correlationId,
   });
 }

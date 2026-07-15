@@ -1208,6 +1208,10 @@ describe("support request domain", () => {
           remindedAt: "2026-05-10T00:00:00.000Z",
           actingRole: "seller",
           dueAt: "2026-05-11T12:00:00.000Z",
+          deadlineOutcome: {
+            type: "automatic-resolution",
+            resolutionType: "full-refund",
+          },
         },
       });
       const afterReminder = fold([...opened, ...reminded]);
@@ -1242,6 +1246,30 @@ describe("support request domain", () => {
           remindedAt: "2026-05-11T13:00:00.000Z",
         }),
       ).toThrow("Support response reminders only apply while waiting on the seller.");
+    });
+
+    it("states support review as the reminder outcome when silence cannot safely auto-resolve", () => {
+      const opened = decideSupportRequest(initialSupportRequestState, {
+        type: "OpenSupportRequest",
+        supportRequestId: "sup_missing_products" as never,
+        orderId: "ord_01" as never,
+        orderTotalAmount: "25.00",
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        flowType: "missing-products",
+        openedByAccountId: "acc_buyer" as never,
+        openedByRole: "buyer",
+        openedAt,
+      });
+
+      const reminded = decideSupportRequest(fold(opened), {
+        type: "EmitSupportResponseReminder",
+        remindedAt: "2026-05-10T00:00:00.000Z",
+      });
+
+      expect(reminded[0]).toMatchObject({
+        data: { deadlineOutcome: { type: "support-review" } },
+      });
     });
 
     it("emits a support-review reminder once while ready for support, then rejects a duplicate", () => {
