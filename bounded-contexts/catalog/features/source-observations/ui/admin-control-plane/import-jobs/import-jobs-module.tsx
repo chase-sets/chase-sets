@@ -9,6 +9,7 @@ import {
   EmptyState,
   KeyValueList,
   LinkText,
+  Show,
   WorkbenchDetailPanel,
   WorkbenchActionRow,
   WorkbenchDataCell,
@@ -133,18 +134,22 @@ export function CatalogIntegrationImportJobsModule({
                   percent: progress?.progressPercent ?? job.progressPercent,
                 })}
               </WorkbenchText>
-              <WorkbenchText size="xs">
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.created", {
-                  value: job.createdAt,
-                })}
-              </WorkbenchText>
-              <WorkbenchText size="xs">
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.started", {
-                  value:
-                    job.startedAt ??
-                    t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.not.started"),
-                })}
-              </WorkbenchText>
+              <Show above="sm">
+                <WorkbenchText size="xs">
+                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.created", {
+                    value: job.createdAt,
+                  })}
+                </WorkbenchText>
+              </Show>
+              <Show above="sm">
+                <WorkbenchText size="xs">
+                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.started", {
+                    value:
+                      job.startedAt ??
+                      t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.not.started"),
+                  })}
+                </WorkbenchText>
+              </Show>
             </WorkbenchStack>
           );
         },
