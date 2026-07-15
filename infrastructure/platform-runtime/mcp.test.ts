@@ -307,9 +307,12 @@ describe("MCP runtime routes", () => {
       "discovery.get-chatgpt-product-feed",
       "discovery.get-item-detail",
       "discovery.search-market",
+      "fulfillment.advance-shipment",
+      "fulfillment.dispatch-shipment",
       "fulfillment.get-tracking",
       "fulfillment.list-shipments",
       "fulfillment.purchase-label",
+      "fulfillment.raise-shipment-exception",
       "fulfillment.void-label",
       "identity.get-account",
       "inventory.adjust-item",
@@ -323,6 +326,7 @@ describe("MCP runtime routes", () => {
       "marketplace.create-listing",
       "marketplace.decline-offer",
       "marketplace.get-reputation-summary",
+      "marketplace.get-seller-attention-queue",
       "marketplace.get-seller-insights",
       "marketplace.list-listings",
       "marketplace.list-offers",
@@ -398,6 +402,33 @@ describe("MCP runtime routes", () => {
         }),
       ]),
     );
+  });
+
+  it("lists the Seller Desk queue only when an OAuth grant carries every required seller read scope", async () => {
+    const partialApp = createActorApp({
+      ...actor,
+      permissions: ["listings.view"],
+      agentGrant: {
+        grantId: "grant_partial_seller",
+        scopes: ["listings:read"],
+        rolePermissions: ["inventory.view", "listings.view", "offers.view", "fulfillment.view", "payouts.view"],
+      },
+    });
+    const fullApp = createActorApp({
+      ...actor,
+      permissions: ["inventory.view", "listings.view", "offers.view", "fulfillment.view", "payouts.view"],
+      agentGrant: {
+        grantId: "grant_full_seller",
+        scopes: ["inventory:read", "listings:read", "offers:read", "fulfillment:read", "payouts:read"],
+        rolePermissions: ["inventory.view", "listings.view", "offers.view", "fulfillment.view", "payouts.view"],
+      },
+    });
+
+    const partial = (await (await partialApp.request("/tools")).json()) as { tools: Array<{ name: string }> };
+    const full = (await (await fullApp.request("/tools")).json()) as { tools: Array<{ name: string }> };
+
+    expect(partial.tools.map((tool) => tool.name)).not.toContain("marketplace.get-seller-attention-queue");
+    expect(full.tools.map((tool) => tool.name)).toContain("marketplace.get-seller-attention-queue");
   });
 
   it("maps every cataloged tool risk model onto MCP standard annotations", async () => {

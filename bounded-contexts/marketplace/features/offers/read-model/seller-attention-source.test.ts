@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isSellerAttentionItem, type SellerAttentionContext } from "@chase-sets/seller-attention-queue";
 import {
   createOfferResponseAttentionSource,
+  createOfferResponseAttentionSourceFromReadModel,
   toOfferResponseAttentionItems,
   type OfferResponseAttentionRow,
 } from "./seller-attention-source";
@@ -30,6 +31,25 @@ describe("toOfferResponseAttentionItems", () => {
   it("leaves dueAt null when the offer has no expiry", () => {
     const [item] = toOfferResponseAttentionItems([row({ expiresAt: null })]);
     expect(item.dueAt).toBeNull();
+  });
+});
+
+describe("createOfferResponseAttentionSourceFromReadModel", () => {
+  it("loads submitted, non-declined offers matched to the seller's active listings", async () => {
+    const query = vi.fn(async () => ({
+      rows: [
+        {
+          offer_id: "offer-1",
+          item_title: "Charizard",
+          created_at: "2026-07-13T00:00:00.000Z",
+        },
+      ],
+    }));
+
+    const items = await createOfferResponseAttentionSourceFromReadModel({ query } as never).load(CONTEXT);
+
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("listing.account_id = $1"), ["acct-1"]);
+    expect(items[0]?.summary.params).toEqual({ reference: "Charizard" });
   });
 });
 

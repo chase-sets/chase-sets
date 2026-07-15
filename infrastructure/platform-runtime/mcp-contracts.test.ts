@@ -153,9 +153,12 @@ describe("MCP service catalog", () => {
       "discovery.get-chatgpt-product-feed",
       "discovery.get-item-detail",
       "discovery.search-market",
+      "fulfillment.advance-shipment",
+      "fulfillment.dispatch-shipment",
       "fulfillment.get-tracking",
       "fulfillment.list-shipments",
       "fulfillment.purchase-label",
+      "fulfillment.raise-shipment-exception",
       "fulfillment.void-label",
       "identity.get-account",
       "inventory.adjust-item",
@@ -169,6 +172,7 @@ describe("MCP service catalog", () => {
       "marketplace.create-listing",
       "marketplace.decline-offer",
       "marketplace.get-reputation-summary",
+      "marketplace.get-seller-attention-queue",
       "marketplace.get-seller-insights",
       "marketplace.list-listings",
       "marketplace.list-offers",
@@ -452,6 +456,25 @@ describe("MCP service catalog", () => {
         ],
         total: 1,
         count: 1,
+      }),
+    ).toEqual([]);
+    expect(
+      validateOutputSchema(findMcpTool("marketplace.get-seller-attention-queue")?.outputSchema, {
+        items: [
+          {
+            id: "listing-action:lst_1",
+            source: "listing-action",
+            entity: "listing",
+            severity: "info",
+            summary: { code: "listing-needs-action", params: { action: "paused" } },
+            deepLink: { surface: "listing", href: "/account/desk/listings/lst_1" },
+            dueAt: null,
+            observedAt: "2026-07-15T00:00:00.000Z",
+          },
+        ],
+        rollup: { total: 1, bySeverity: { critical: 0, warning: 0, info: 1 }, bySource: {} },
+        sources: [{ id: "listing-action", status: "available", itemCount: 1 }],
+        degraded: false,
       }),
     ).toEqual([]);
     expect(

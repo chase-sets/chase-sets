@@ -48,6 +48,7 @@ export {
   lookupWalletAdjustmentBySupportReference,
 } from "./features/wallets/read-model/wallet-adjustment-support-lookup";
 export type { SettlementWalletAdjustmentSupportLookupRow } from "./features/wallets/read-model/wallet-adjustment-support-lookup";
+export { createBlockedPayoutAttentionSourceFromReadModel } from "./features/payouts/read-model/seller-attention-source";
 export {
   getProtectionReserveSummary,
   type ProtectionReserveSummary,

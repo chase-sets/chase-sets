@@ -1299,6 +1299,349 @@ export const mcpToolCatalog = [
     ],
   },
   {
+    name: "fulfillment.advance-shipment",
+    title: "Advance Shipment",
+    description:
+      "Apply the shipment state machine's next seller action: start packing, prepare the package, purchase a label, or dispatch.",
+    availability: "available",
+    serviceId: "fulfillment",
+    risk: "sensitive",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "shipmentId", "reason", "idempotencyKey", "confirmationText"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated seller account scope.",
+        },
+        shipmentId: {
+          type: "string",
+          description: "Shipment to advance.",
+        },
+        packageCount: {
+          type: "integer",
+          description: "Package count used when packing is complete.",
+        },
+        serviceLevel: {
+          type: "string",
+          description: "USPS service level used when label purchase is next.",
+        },
+        sender: {
+          type: "object",
+          description: "Optional sender address override.",
+          additionalProperties: false,
+          properties: {
+            name: {
+              type: "string",
+              description: "Recipient or sender name.",
+            },
+            company: {
+              type: "string",
+              description: "Optional company name.",
+            },
+            street1: {
+              type: "string",
+              description: "Street line 1.",
+            },
+            street2: {
+              type: "string",
+              description: "Optional street line 2.",
+            },
+            line1: {
+              type: "string",
+              description: "Deprecated alias for street1.",
+            },
+            line2: {
+              type: "string",
+              description: "Deprecated alias for street2.",
+            },
+            city: {
+              type: "string",
+              description: "City.",
+            },
+            state: {
+              type: "string",
+              description: "State or province.",
+            },
+            postalCode: {
+              type: "string",
+              description: "Postal code.",
+            },
+            country: {
+              type: "string",
+              description: "Country code.",
+            },
+            phone: {
+              type: "string",
+              description: "Optional phone number.",
+            },
+            email: {
+              type: "string",
+              description: "Optional email address.",
+            },
+          },
+          required: ["name", "city", "state", "postalCode", "country"],
+        },
+        recipient: {
+          type: "object",
+          description: "Optional recipient address override.",
+          additionalProperties: false,
+          properties: {
+            name: {
+              type: "string",
+              description: "Recipient or sender name.",
+            },
+            company: {
+              type: "string",
+              description: "Optional company name.",
+            },
+            street1: {
+              type: "string",
+              description: "Street line 1.",
+            },
+            street2: {
+              type: "string",
+              description: "Optional street line 2.",
+            },
+            line1: {
+              type: "string",
+              description: "Deprecated alias for street1.",
+            },
+            line2: {
+              type: "string",
+              description: "Deprecated alias for street2.",
+            },
+            city: {
+              type: "string",
+              description: "City.",
+            },
+            state: {
+              type: "string",
+              description: "State or province.",
+            },
+            postalCode: {
+              type: "string",
+              description: "Postal code.",
+            },
+            country: {
+              type: "string",
+              description: "Country code.",
+            },
+            phone: {
+              type: "string",
+              description: "Optional phone number.",
+            },
+            email: {
+              type: "string",
+              description: "Optional email address.",
+            },
+          },
+          required: ["name", "city", "state", "postalCode", "country"],
+        },
+        overrideReason: {
+          type: "string",
+          description: "Reason for changing address snapshots.",
+        },
+        package: {
+          type: "object",
+          description: "Optional package override for postage purchase.",
+          additionalProperties: false,
+          properties: {
+            lengthInches: {
+              type: "number",
+              description: "Package length in inches.",
+            },
+            widthInches: {
+              type: "number",
+              description: "Package width in inches.",
+            },
+            heightInches: {
+              type: "number",
+              description: "Package height in inches.",
+            },
+            weightOunces: {
+              type: "number",
+              description: "Package weight in ounces.",
+            },
+          },
+          required: ["lengthInches", "widthInches", "heightInches", "weightOunces"],
+        },
+        reason: {
+          type: "string",
+          description: "Business reason for the action.",
+        },
+        idempotencyKey: {
+          type: "string",
+          description:
+            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+        },
+        confirmationText: {
+          type: "string",
+          description: "Exact user or policy confirmation text.",
+        },
+        dryRun: {
+          type: "boolean",
+          description: "Validate the action without committing it.",
+        },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "id", "shipmentId", "version", "status", "action", "resourceUri"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated seller account.",
+        },
+        id: {
+          type: "string",
+          description: "Shipment identifier.",
+        },
+        shipmentId: {
+          type: "string",
+          description: "Shipment identifier.",
+        },
+        version: {
+          type: "integer",
+          description: "Committed shipment stream version.",
+        },
+        status: {
+          type: "string",
+          description: "Resulting shipment status.",
+        },
+        action: {
+          type: "string",
+          description: "Concrete state-machine action applied.",
+        },
+        resourceUri: {
+          type: "string",
+          description: "MCP resource URI for the shipment.",
+        },
+        trackingIdentifier: {
+          type: "string",
+          description: "Tracking identifier when label purchase was the next action.",
+        },
+      },
+    },
+    permissionBoundary: {
+      scope: "account",
+      requiredPermissions: ["fulfillment.manage"],
+      requiredScopes: ["fulfillment:write"],
+      accountScoped: true,
+      auditPrincipal: "actor",
+    },
+    guardrails: {
+      confirmation: {
+        required: true,
+        prompt: "Confirm the exact business action before invoking this tool.",
+        matchInputField: "confirmationText",
+      },
+      idempotencyKey: "required",
+      dryRunSupported: true,
+      notes: ["Write through the owning bounded context and emit normal domain events."],
+    },
+    expectedUsage: ["Use after reading the Seller Desk attention queue when the seller wants the canonical next step."],
+  },
+  {
+    name: "fulfillment.dispatch-shipment",
+    title: "Dispatch Shipment",
+    description: "Dispatch a labeled shipment through the same state-checked command used by the seller web surface.",
+    availability: "available",
+    serviceId: "fulfillment",
+    risk: "sensitive",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "shipmentId", "reason", "idempotencyKey", "confirmationText"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated account scope.",
+        },
+        shipmentId: {
+          type: "string",
+          description: "Shipment ready for dispatch.",
+        },
+        reason: {
+          type: "string",
+          description: "Business reason for the action.",
+        },
+        idempotencyKey: {
+          type: "string",
+          description:
+            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+        },
+        confirmationText: {
+          type: "string",
+          description: "Exact user or policy confirmation text.",
+        },
+        dryRun: {
+          type: "boolean",
+          description: "Validate the action without committing it.",
+        },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "id", "shipmentId", "version", "status", "action", "resourceUri"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated seller account.",
+        },
+        id: {
+          type: "string",
+          description: "Shipment identifier.",
+        },
+        shipmentId: {
+          type: "string",
+          description: "Shipment identifier.",
+        },
+        version: {
+          type: "integer",
+          description: "Committed shipment stream version.",
+        },
+        status: {
+          type: "string",
+          description: "Resulting shipment status.",
+        },
+        action: {
+          type: "string",
+          description: "Concrete state-machine action applied.",
+        },
+        resourceUri: {
+          type: "string",
+          description: "MCP resource URI for the shipment.",
+        },
+        trackingIdentifier: {
+          type: "string",
+          description: "Tracking identifier when label purchase was the next action.",
+        },
+      },
+    },
+    permissionBoundary: {
+      scope: "account",
+      requiredPermissions: ["fulfillment.manage"],
+      requiredScopes: ["fulfillment:write"],
+      accountScoped: true,
+      auditPrincipal: "actor",
+    },
+    guardrails: {
+      confirmation: {
+        required: true,
+        prompt: "Confirm the exact business action before invoking this tool.",
+        matchInputField: "confirmationText",
+      },
+      idempotencyKey: "required",
+      dryRunSupported: true,
+      notes: ["Write through the owning bounded context and emit normal domain events."],
+    },
+    expectedUsage: ["Use only after the shipment state confirms its label is attached."],
+  },
+  {
     name: "fulfillment.get-tracking",
     title: "Get Tracking",
     description: "Read tracking and delivery status for a purchase or sale shipment.",
@@ -1680,6 +2023,111 @@ export const mcpToolCatalog = [
       notes: ["Write through the owning bounded context and emit normal domain events."],
     },
     expectedUsage: ["Use after confirming package, sender, recipient, and service level."],
+  },
+  {
+    name: "fulfillment.raise-shipment-exception",
+    title: "Raise Shipment Exception",
+    description: "Raise a seller shipment exception through the shared fulfillment command surface.",
+    availability: "available",
+    serviceId: "fulfillment",
+    risk: "sensitive",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "shipmentId", "exceptionType", "reason", "idempotencyKey", "confirmationText"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated seller account scope.",
+        },
+        shipmentId: {
+          type: "string",
+          description: "Shipment needing an exception.",
+        },
+        exceptionType: {
+          type: "string",
+          description: "Fulfillment exception type.",
+        },
+        notes: {
+          type: "string",
+          description: "Optional seller notes.",
+        },
+        reason: {
+          type: "string",
+          description: "Business reason for the action.",
+        },
+        idempotencyKey: {
+          type: "string",
+          description:
+            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+        },
+        confirmationText: {
+          type: "string",
+          description: "Exact user or policy confirmation text.",
+        },
+        dryRun: {
+          type: "boolean",
+          description: "Validate the action without committing it.",
+        },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "id", "shipmentId", "version", "status", "action", "resourceUri"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated seller account.",
+        },
+        id: {
+          type: "string",
+          description: "Shipment identifier.",
+        },
+        shipmentId: {
+          type: "string",
+          description: "Shipment identifier.",
+        },
+        version: {
+          type: "integer",
+          description: "Committed shipment stream version.",
+        },
+        status: {
+          type: "string",
+          description: "Resulting shipment status.",
+        },
+        action: {
+          type: "string",
+          description: "Concrete state-machine action applied.",
+        },
+        resourceUri: {
+          type: "string",
+          description: "MCP resource URI for the shipment.",
+        },
+        trackingIdentifier: {
+          type: "string",
+          description: "Tracking identifier when label purchase was the next action.",
+        },
+      },
+    },
+    permissionBoundary: {
+      scope: "account",
+      requiredPermissions: ["fulfillment.manage"],
+      requiredScopes: ["fulfillment:write"],
+      accountScoped: true,
+      auditPrincipal: "actor",
+    },
+    guardrails: {
+      confirmation: {
+        required: true,
+        prompt: "Confirm the exact business action before invoking this tool.",
+        matchInputField: "confirmationText",
+      },
+      idempotencyKey: "required",
+      dryRunSupported: true,
+      notes: ["Write through the owning bounded context and emit normal domain events."],
+    },
+    expectedUsage: ["Use when the seller cannot complete the normal next action and needs to surface a blocker."],
   },
   {
     name: "fulfillment.void-label",
@@ -3288,6 +3736,165 @@ export const mcpToolCatalog = [
       notes: ["Return only account-scoped data that the actor can already view."],
     },
     expectedUsage: ["Use before explaining seller or buyer review history."],
+  },
+  {
+    name: "marketplace.get-seller-attention-queue",
+    title: "Get Seller Attention Queue",
+    description: "Read the same aggregated, work-ordered attention queue used by the Seller Desk home.",
+    availability: "available",
+    serviceId: "marketplace",
+    risk: "read",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated seller account scope.",
+        },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["items", "rollup", "sources", "degraded"],
+      properties: {
+        items: {
+          type: "array",
+          description: "Seller Desk work ordered by the canonical attention policy.",
+          items: {
+            type: "object",
+            description: "One account-owned item that needs seller attention.",
+            additionalProperties: true,
+            required: ["id", "source", "entity", "severity", "summary", "deepLink", "observedAt"],
+            properties: {
+              id: {
+                type: "string",
+                description: "Stable attention item identifier used for follow-up actions.",
+              },
+              source: {
+                type: "string",
+                description: "Owning attention source.",
+              },
+              entity: {
+                type: "string",
+                description: "Seller entity type.",
+              },
+              severity: {
+                type: "string",
+                description: "Canonical attention severity.",
+                enum: ["critical", "warning", "info"],
+              },
+              summary: {
+                type: "object",
+                description: "Transport-neutral summary code and interpolation data.",
+                additionalProperties: false,
+                required: ["code", "params"],
+                properties: {
+                  code: {
+                    type: "string",
+                    description: "Stable summary code.",
+                  },
+                  params: {
+                    type: "object",
+                    description: "Summary interpolation and follow-up data.",
+                    additionalProperties: true,
+                  },
+                },
+              },
+              deepLink: {
+                type: "object",
+                description: "Canonical Seller Desk destination for the item.",
+                additionalProperties: false,
+                required: ["surface", "href"],
+                properties: {
+                  surface: {
+                    type: "string",
+                    description: "Seller Desk surface identifier.",
+                  },
+                  href: {
+                    type: "string",
+                    description: "Account surface deep link.",
+                  },
+                },
+              },
+              observedAt: {
+                type: "string",
+                description: "Time the work first needed attention.",
+              },
+            },
+          },
+        },
+        rollup: {
+          type: "object",
+          description: "Counts derived from the returned items.",
+          additionalProperties: true,
+          required: ["total", "bySeverity", "bySource"],
+          properties: {
+            total: {
+              type: "integer",
+              description: "Total attention item count.",
+            },
+            bySeverity: {
+              type: "object",
+              description: "Counts by severity.",
+              additionalProperties: true,
+            },
+            bySource: {
+              type: "object",
+              description: "Counts by attention source.",
+              additionalProperties: true,
+            },
+          },
+        },
+        sources: {
+          type: "array",
+          description: "Per-source availability and item counts.",
+          items: {
+            type: "object",
+            description: "Health of one attention source.",
+            additionalProperties: true,
+            required: ["id", "status", "itemCount"],
+            properties: {
+              id: {
+                type: "string",
+                description: "Attention source identifier.",
+              },
+              status: {
+                type: "string",
+                description: "Source availability.",
+                enum: ["available", "unavailable"],
+              },
+              itemCount: {
+                type: "integer",
+                description: "Items contributed by the source.",
+              },
+            },
+          },
+        },
+        degraded: {
+          type: "boolean",
+          description: "Whether any attention source was unavailable.",
+        },
+      },
+    },
+    permissionBoundary: {
+      scope: "account",
+      requiredPermissions: ["inventory.view", "listings.view", "offers.view", "fulfillment.view", "payouts.view"],
+      requiredScopes: ["fulfillment:read", "inventory:read", "listings:read", "offers:read", "payouts:read"],
+      accountScoped: true,
+      auditPrincipal: "actor",
+    },
+    guardrails: {
+      confirmation: {
+        required: false,
+      },
+      idempotencyKey: "not-applicable",
+      dryRunSupported: false,
+      notes: ["Return only account-scoped data that the actor can already view."],
+    },
+    expectedUsage: ["Use before seller actions to find the highest-priority work and its follow-up entity data."],
   },
   {
     name: "marketplace.get-seller-insights",

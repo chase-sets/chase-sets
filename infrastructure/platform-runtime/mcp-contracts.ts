@@ -941,6 +941,86 @@ const fulfillmentTrackingOutputSchema = objectSchema(
   ["accountId", "shipmentId", "status", "providerEvents", "resourceUri"],
 );
 
+const sellerAttentionQueueOutputSchema = objectSchema(
+  {
+    items: arrayProperty("Seller Desk work ordered by the canonical attention policy.", {
+      type: "object",
+      description: "One account-owned item that needs seller attention.",
+      additionalProperties: true,
+      required: ["id", "source", "entity", "severity", "summary", "deepLink", "observedAt"],
+      properties: {
+        id: stringProperty("Stable attention item identifier used for follow-up actions."),
+        source: stringProperty("Owning attention source."),
+        entity: stringProperty("Seller entity type."),
+        severity: stringProperty("Canonical attention severity.", ["critical", "warning", "info"]),
+        summary: {
+          type: "object",
+          description: "Transport-neutral summary code and interpolation data.",
+          additionalProperties: false,
+          required: ["code", "params"],
+          properties: {
+            code: stringProperty("Stable summary code."),
+            params: {
+              type: "object",
+              description: "Summary interpolation and follow-up data.",
+              additionalProperties: true,
+            },
+          },
+        },
+        deepLink: {
+          type: "object",
+          description: "Canonical Seller Desk destination for the item.",
+          additionalProperties: false,
+          required: ["surface", "href"],
+          properties: {
+            surface: stringProperty("Seller Desk surface identifier."),
+            href: stringProperty("Account surface deep link."),
+          },
+        },
+        observedAt: stringProperty("Time the work first needed attention."),
+      },
+    }),
+    rollup: {
+      type: "object",
+      description: "Counts derived from the returned items.",
+      additionalProperties: true,
+      required: ["total", "bySeverity", "bySource"],
+      properties: {
+        total: integerProperty("Total attention item count."),
+        bySeverity: { type: "object", description: "Counts by severity.", additionalProperties: true },
+        bySource: { type: "object", description: "Counts by attention source.", additionalProperties: true },
+      },
+    },
+    sources: arrayProperty("Per-source availability and item counts.", {
+      type: "object",
+      description: "Health of one attention source.",
+      additionalProperties: true,
+      required: ["id", "status", "itemCount"],
+      properties: {
+        id: stringProperty("Attention source identifier."),
+        status: stringProperty("Source availability.", ["available", "unavailable"]),
+        itemCount: integerProperty("Items contributed by the source."),
+      },
+    }),
+    degraded: booleanProperty("Whether any attention source was unavailable."),
+  },
+  ["items", "rollup", "sources", "degraded"],
+);
+
+const fulfillmentShipmentActionOutputSchema = objectSchema(
+  {
+    accountId: stringProperty("Authenticated seller account."),
+    id: stringProperty("Shipment identifier."),
+    shipmentId: stringProperty("Shipment identifier."),
+    version: integerProperty("Committed shipment stream version."),
+    status: stringProperty("Resulting shipment status."),
+    action: stringProperty("Concrete state-machine action applied."),
+    resourceUri: stringProperty("MCP resource URI for the shipment."),
+    trackingIdentifier: stringProperty("Tracking identifier when label purchase was the next action."),
+  },
+  ["accountId", "id", "shipmentId", "version", "status", "action", "resourceUri"],
+);
+
 const settlementWalletOutputSchema = objectSchema(
   {
     accountId: stringProperty("Authenticated account scope."),
@@ -1772,6 +1852,31 @@ export const mcpServiceCatalog = [
       },
     ),
     tools: [
+      {
+        ...readTool(
+          "marketplace",
+          "get-seller-attention-queue",
+          "Get Seller Attention Queue",
+          "Read the same aggregated, work-ordered attention queue used by the Seller Desk home.",
+          "listings.view",
+          objectSchema({ accountId: stringProperty("Authenticated seller account scope.") }, ["accountId"]),
+          "seller-attention-queue",
+          ["Use before seller actions to find the highest-priority work and its follow-up entity data."],
+        ),
+        availability: "available",
+        permissionBoundary: {
+          ...readBoundary("listings.view"),
+          requiredPermissions: ["inventory.view", "listings.view", "offers.view", "fulfillment.view", "payouts.view"],
+          requiredScopes: agentOAuthScopesForPermissions([
+            "inventory.view",
+            "listings.view",
+            "offers.view",
+            "fulfillment.view",
+            "payouts.view",
+          ]),
+        },
+        outputSchema: sellerAttentionQueueOutputSchema,
+      },
       {
         ...readTool(
           "marketplace",
@@ -2795,6 +2900,79 @@ export const mcpServiceCatalog = [
           "sensitive",
         ),
         availability: "available",
+      },
+      {
+        ...writeTool(
+          "fulfillment",
+          "advance-shipment",
+          "Advance Shipment",
+          "Apply the shipment state machine's next seller action: start packing, prepare the package, purchase a label, or dispatch.",
+          "fulfillment.manage",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated seller account scope."),
+              shipmentId: stringProperty("Shipment to advance."),
+              packageCount: integerProperty("Package count used when packing is complete."),
+              serviceLevel: stringProperty("USPS service level used when label purchase is next."),
+              sender: postageAddressProperty("Optional sender address override."),
+              recipient: postageAddressProperty("Optional recipient address override."),
+              overrideReason: stringProperty("Reason for changing address snapshots."),
+              package: postagePackageProperty(),
+              reason: stringProperty("Business reason for the action."),
+              idempotencyKey: idempotencyKeyProperty(),
+              confirmationText: stringProperty("Exact user or policy confirmation text."),
+              dryRun: booleanProperty("Validate the action without committing it."),
+            },
+            ["accountId", "shipmentId", "reason", "idempotencyKey", "confirmationText"],
+          ),
+          "shipment",
+          ["Use after reading the Seller Desk attention queue when the seller wants the canonical next step."],
+          "sensitive",
+        ),
+        availability: "available",
+        outputSchema: fulfillmentShipmentActionOutputSchema,
+      },
+      {
+        ...writeTool(
+          "fulfillment",
+          "dispatch-shipment",
+          "Dispatch Shipment",
+          "Dispatch a labeled shipment through the same state-checked command used by the seller web surface.",
+          "fulfillment.manage",
+          mutationInput("shipmentId", "Shipment ready for dispatch."),
+          "shipment",
+          ["Use only after the shipment state confirms its label is attached."],
+          "sensitive",
+        ),
+        availability: "available",
+        outputSchema: fulfillmentShipmentActionOutputSchema,
+      },
+      {
+        ...writeTool(
+          "fulfillment",
+          "raise-shipment-exception",
+          "Raise Shipment Exception",
+          "Raise a seller shipment exception through the shared fulfillment command surface.",
+          "fulfillment.manage",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated seller account scope."),
+              shipmentId: stringProperty("Shipment needing an exception."),
+              exceptionType: stringProperty("Fulfillment exception type."),
+              notes: stringProperty("Optional seller notes."),
+              reason: stringProperty("Business reason for the action."),
+              idempotencyKey: idempotencyKeyProperty(),
+              confirmationText: stringProperty("Exact user or policy confirmation text."),
+              dryRun: booleanProperty("Validate the action without committing it."),
+            },
+            ["accountId", "shipmentId", "exceptionType", "reason", "idempotencyKey", "confirmationText"],
+          ),
+          "shipment",
+          ["Use when the seller cannot complete the normal next action and needs to surface a blocker."],
+          "sensitive",
+        ),
+        availability: "available",
+        outputSchema: fulfillmentShipmentActionOutputSchema,
       },
       {
         ...writeTool(

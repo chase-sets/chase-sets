@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isSellerAttentionItem, type SellerAttentionContext } from "@chase-sets/seller-attention-queue";
 import {
   createBlockedPayoutAttentionSource,
+  createBlockedPayoutAttentionSourceFromReadModel,
   toBlockedPayoutAttentionItems,
   type BlockedPayoutAttentionRow,
 } from "./seller-attention-source";
@@ -29,6 +30,27 @@ describe("toBlockedPayoutAttentionItems", () => {
     });
     expect(item.deepLink).toEqual({ surface: "payout", href: "/account/desk/payouts/pay-1" });
     expect(isSellerAttentionItem(item, "settlement-blocked-payout")).toBe(true);
+  });
+});
+
+describe("createBlockedPayoutAttentionSourceFromReadModel", () => {
+  it("loads only failed payouts and carries the projected failure reason", async () => {
+    const query = vi.fn(async () => ({
+      rows: [
+        {
+          payout_id: "pay-1",
+          display_reference: "PO-1",
+          failure_reason: "identity-verification-required",
+          provider_failure_message: null,
+          updated_at: "2026-07-12T00:00:00.000Z",
+        },
+      ],
+    }));
+
+    const items = await createBlockedPayoutAttentionSourceFromReadModel({ query } as never).load(CONTEXT);
+
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'failed'"), ["acct-1"]);
+    expect(items[0]?.summary.params).toEqual({ reference: "PO-1", reason: "identity-verification-required" });
   });
 });
 

@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isSellerAttentionItem, type SellerAttentionContext } from "@chase-sets/seller-attention-queue";
 import {
   createShipByAttentionSource,
+  createShipByAttentionSourceFromReadModel,
   toShipByAttentionItems,
   type ShipByAttentionRow,
 } from "./seller-attention-source";
@@ -48,5 +49,41 @@ describe("createShipByAttentionSource", () => {
     const items = await source.load(CONTEXT);
     expect(source.id).toBe("fulfillment-ship-by");
     expect(items).toHaveLength(1);
+  });
+});
+
+describe("createShipByAttentionSourceFromReadModel", () => {
+  it("uses the same command-center queue projection as the seller web surface", async () => {
+    const query = vi.fn(async () => ({
+      rows: [
+        {
+          shipment_id: "shp_1",
+          order_id: "ord_1",
+          display_reference: "SHP-1",
+          status: "label-attached",
+          label_status: "purchased",
+          tracking_identifier: "tracking_1",
+          carrier_name: "USPS",
+          buyer_display_name: "Buyer",
+          current_exception_type: null,
+          current_exception_notes: null,
+          line_count: 1,
+          total_quantity: 2,
+          created_at: "2026-07-13T00:00:00.000Z",
+          updated_at: "2026-07-14T00:00:00.000Z",
+        },
+      ],
+    }));
+
+    const items = await createShipByAttentionSourceFromReadModel({ query } as never).load(CONTEXT);
+
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("page.seller_account_id = $1"), ["acct-1"]);
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: "fulfillment-ship-by:shp_1",
+        source: "fulfillment-ship-by",
+        summary: expect.objectContaining({ code: "fulfillment.command-center.ready-to-dispatch" }),
+      }),
+    ]);
   });
 });

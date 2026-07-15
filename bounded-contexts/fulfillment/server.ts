@@ -10,3 +10,4 @@ export {
   lookupShipmentBySupportReference,
 } from "./features/shipments/read-model/support-lookup";
 export type { FulfillmentSupportLookupRow } from "./features/shipments/read-model/support-lookup";
+export { createShipByAttentionSourceFromReadModel } from "./features/shipments/read-model/seller-attention-source";
