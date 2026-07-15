@@ -128,6 +128,17 @@ describe("support operations queue read-model query", () => {
     expect(calls[1]?.sql).toContain("LIMIT $6 OFFSET $7");
   });
 
+  it("orders the attention queue by the earliest deadline before using urgency as a tie-breaker", async () => {
+    const calls: QueryCall[] = [];
+    const db = buildDb(calls);
+
+    await listSupportOperationsQueue(db, { now: "2026-06-01T00:00:00.000Z" });
+
+    const itemQuery = calls[1]?.sql ?? "";
+    expect(itemQuery.indexOf("LEAST(")).toBeGreaterThan(-1);
+    expect(itemQuery.indexOf("CASE WHEN priority = 'urgent'")).toBeGreaterThan(itemQuery.indexOf("LEAST("));
+  });
+
   it("exposes an explicit legacy responsibility interpretation from pre-change read-model JSON", async () => {
     const calls: QueryCall[] = [];
     const db = buildDb(calls, "0", [

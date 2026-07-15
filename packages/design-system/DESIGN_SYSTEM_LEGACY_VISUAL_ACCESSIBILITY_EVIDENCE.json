@@ -1,7 +1,7 @@
 {
   "schemaVersion": "design-system-legacy-visual-accessibility-evidence/v2",
   "milestone": 12,
-  "checkedAt": "2026-07-13T20:03:42.589Z",
+  "checkedAt": "2026-07-15T02:17:41.263Z",
   "generatedBy": "pnpm run ops design-system:legacy-evidence --write",
   "retainedArtifact": "packages/design-system/DESIGN_SYSTEM_LEGACY_VISUAL_ACCESSIBILITY_EVIDENCE.json",
   "summary": {
@@ -107,7 +107,9 @@
       "owner": "Support",
       "scope": "bounded-contexts/platform-operations/features/support-requests/ui",
       "discoveredFiles": [
+        "bounded-contexts/platform-operations/features/support-requests/ui/platform-remedy-workflow-panel.tsx",
         "bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx",
+        "bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-drawer.tsx",
         "bounded-contexts/platform-operations/features/support-requests/ui/support-request-list-page.tsx"
       ],
       "visualEvidence": ["Support request lists render through DataTable instead of legacy responsive table markup."],
@@ -117,29 +119,41 @@
       "discoverySignals": ["DataTable", "getRowId", "columns"],
       "discoverySignalFiles": {
         "DataTable": [
+          "bounded-contexts/platform-operations/features/support-requests/ui/platform-remedy-workflow-panel.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx",
+          "bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-drawer.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-request-list-page.tsx"
         ],
         "getRowId": [
+          "bounded-contexts/platform-operations/features/support-requests/ui/platform-remedy-workflow-panel.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx",
+          "bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-drawer.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-request-list-page.tsx"
         ],
         "columns": [
+          "bounded-contexts/platform-operations/features/support-requests/ui/platform-remedy-workflow-panel.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx",
+          "bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-drawer.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-request-list-page.tsx"
         ]
       },
       "requiredSignalFiles": {
         "DataTable": [
+          "bounded-contexts/platform-operations/features/support-requests/ui/platform-remedy-workflow-panel.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx",
+          "bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-drawer.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-request-list-page.tsx"
         ],
         "getRowId": [
+          "bounded-contexts/platform-operations/features/support-requests/ui/platform-remedy-workflow-panel.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx",
+          "bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-drawer.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-request-list-page.tsx"
         ],
         "columns": [
+          "bounded-contexts/platform-operations/features/support-requests/ui/platform-remedy-workflow-panel.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx",
+          "bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-drawer.tsx",
           "bounded-contexts/platform-operations/features/support-requests/ui/support-request-list-page.tsx"
         ]
       },

@@ -343,6 +343,28 @@ describe("platform operations mutation consistency route actions", () => {
     expect(response.headers.get("Location")).toBe(`/support/requests/sup_1?action=${intent}`);
   });
 
+  it("returns support drawer actions to the filtered queue with the request still selected", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ id: "sup_1", version: 2, status: "response-recorded" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const form = new URLSearchParams({
+      intent: "response",
+      responseType: "request-support-review",
+      summary: "Reviewed by support",
+    });
+    const returnTo = "/support/requests?status=ready-for-support&priority=urgent&search=ord_1&requestId=sup_1";
+
+    const response = await captureRedirect(
+      supportOperationsDetailAction({
+        request: formRequest(`http://localhost/support/requests/sup_1?returnTo=${encodeURIComponent(returnTo)}`, form),
+        params: { id: "sup_1" },
+        context: undefined,
+      } as never),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(`${returnTo}&action=response`);
+  });
+
   it("redirects account support with the opened request snapshot id for list refetch", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ id: "sup_1", version: 1, status: "opened" }, 201));
     vi.stubGlobal("fetch", fetchMock);

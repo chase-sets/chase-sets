@@ -331,12 +331,12 @@ export async function listSupportOperationsQueue(
        WHERE ${activeStatusPredicate}
          ${extraFilterSql}
        ORDER BY
-         CASE WHEN priority = 'urgent' THEN 0 ELSE 1 END,
          LEAST(
            COALESCE(seller_response_due_at, 'infinity'::timestamptz),
            COALESCE(support_review_due_at, 'infinity'::timestamptz),
            COALESCE(seller_condition_attestation_due_at, 'infinity'::timestamptz)
          ) ASC,
+         CASE WHEN priority = 'urgent' THEN 0 ELSE 1 END,
          updated_at ASC,
          support_request_id ASC
        LIMIT $${limitParam} OFFSET $${offsetParam}`,
