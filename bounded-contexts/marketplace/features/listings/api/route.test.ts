@@ -645,6 +645,30 @@ describe("marketplace listing routes", () => {
     );
   });
 
+  it("returns not found without a fee fingerprint when a deterministic listing is not owned", async () => {
+    const services = createServices();
+    vi.mocked(services.createListing).mockRejectedValueOnce(new Error("Listing not found."));
+    const app = buildApp({ actor: sellerActor, services });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inventoryItemId: "inv_1",
+          priceAmount: "12.00",
+          quantityCap: 1,
+          listingIdOverride: "lst_existing",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "listing_not_found", message: "Listing not found." },
+    });
+  });
+
   it("forwards status and search filters to the seller listings query and drops the all-status sentinel", async () => {
     const services = createServices();
     const app = buildApp({

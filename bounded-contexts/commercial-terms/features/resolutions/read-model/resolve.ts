@@ -4,9 +4,9 @@ import { centsToMoneyAmount, moneyToCents } from "@chase-sets/primitives/money";
 import {
   applyFeeFormula,
   assert,
+  calculateSellerNetUnitAmount,
   DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
   normalizeMoneyAmount,
-  subtractMoneyAmounts,
   type CommercialAccountType,
 } from "../../../support/runtime-support/common";
 import { commercialTermsAgreementPolicyKey } from "../../../support/runtime-support/terms-policy";
@@ -52,7 +52,7 @@ export function quoteLockedMarketplaceFeeTerms(terms: LockedMarketplaceFeeTerms,
   return {
     basisAmount: amount,
     marketplaceSalesFeeUnitAmount,
-    sellerNetUnitAmount: subtractMoneyAmounts(amount, marketplaceSalesFeeUnitAmount),
+    sellerNetUnitAmount: calculateSellerNetUnitAmount(amount, marketplaceSalesFeeUnitAmount),
   };
 }
 
@@ -352,7 +352,7 @@ function quoteFromListingTermsBasis(basis: ListingTermsBasis, rawAmount: string)
     accountType: basis.accountType,
     basisAmount: amount,
     marketplaceSalesFeeUnitAmount,
-    sellerNetUnitAmount: subtractMoneyAmounts(amount, marketplaceSalesFeeUnitAmount),
+    sellerNetUnitAmount: calculateSellerNetUnitAmount(amount, marketplaceSalesFeeUnitAmount),
     marketplaceSalesFeePercentageBps: basis.percentageBps,
     marketplaceSalesFeeFixedAmount: basis.fixedAmount,
     marketplaceSalesFeeCapAmount: basis.capAmount,
@@ -423,7 +423,7 @@ async function resolvePublicStandardTerms(
     accountType,
     basisAmount: amount,
     marketplaceSalesFeeUnitAmount,
-    sellerNetUnitAmount: subtractMoneyAmounts(amount, marketplaceSalesFeeUnitAmount),
+    sellerNetUnitAmount: calculateSellerNetUnitAmount(amount, marketplaceSalesFeeUnitAmount),
     shippingAllowancePercentageBps: schedule.shipping_allowance_percentage_bps,
     scheduleId: schedule.schedule_id,
     scheduleLabel: schedule.label,

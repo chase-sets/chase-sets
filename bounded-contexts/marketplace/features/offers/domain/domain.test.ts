@@ -55,6 +55,44 @@ describe("marketplace offer domain", () => {
     expect(state.selectedOptions).toEqual([{ dimensionId: "form", optionId: "raw" }]);
   });
 
+  it("canonicalizes offer prices before recording events", () => {
+    const [event] = decideMarketplaceOffer(initialMarketplaceOfferState, {
+      type: "SubmitOffer",
+      offerId: "off_test" as never,
+      buyerAccountId: "acc_buyer" as never,
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::" as never,
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      priceAmount: "007.50",
+      quantityRequested: 1,
+      shippingDestinationSnapshot,
+    });
+
+    expect(event?.data.priceAmount).toBe("7.50");
+  });
+
+  it("rejects offer prices above the shared money ceiling", () => {
+    expect(() =>
+      decideMarketplaceOffer(initialMarketplaceOfferState, {
+        type: "SubmitOffer",
+        offerId: "off_test" as never,
+        buyerAccountId: "acc_buyer" as never,
+        catalogItemId: "cat_charizard",
+        productId: "cat_charizard::" as never,
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        priceAmount: "10000000000.00",
+        quantityRequested: 1,
+        shippingDestinationSnapshot,
+      }),
+    ).toThrow();
+  });
+
   it("rejects invalid monetary and quantity inputs", () => {
     expect(() =>
       decideMarketplaceOffer(initialMarketplaceOfferState, {

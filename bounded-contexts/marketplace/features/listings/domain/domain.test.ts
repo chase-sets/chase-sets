@@ -144,6 +144,28 @@ const listingPhoto = {
 } as const;
 
 describe("marketplace listing no-op suppression", () => {
+  it("canonicalizes listing prices before recording events", () => {
+    const [event] = decideMarketplaceListing(initialMarketplaceListingState, {
+      ...createListingCommand,
+      priceAmount: "007.50",
+    });
+
+    expect(event?.type).toBe("marketplace.listing.created");
+    if (event?.type !== "marketplace.listing.created") {
+      throw new Error("Expected a listing-created event.");
+    }
+    expect(event.data.priceAmount).toBe("7.50");
+  });
+
+  it("rejects listing prices above the shared money ceiling", () => {
+    expect(() =>
+      decideMarketplaceListing(initialMarketplaceListingState, {
+        ...createListingCommand,
+        priceAmount: "10000000000.00",
+      }),
+    ).toThrow();
+  });
+
   function createdListing(overrides: Partial<CreateListingCommand> = {}) {
     return decideMarketplaceListing(initialMarketplaceListingState, {
       ...createListingCommand,

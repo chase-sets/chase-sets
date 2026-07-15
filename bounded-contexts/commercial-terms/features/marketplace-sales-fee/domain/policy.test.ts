@@ -34,4 +34,13 @@ describe("marketplace sales fee schedule policy", () => {
       }),
     ).toMatchObject({ marketplaceSalesFeeFixedAmount: "0.00", marketplaceSalesFeeCapAmount: "25.00" });
   });
+
+  it("rejects policy money values above the shared money ceiling", () => {
+    expect(() =>
+      decodeMarketplaceSalesFeeSchedulePolicyValue({
+        ...MARKETPLACE_SALES_FEE_SCHEDULE_LAUNCH_POLICY_VALUE,
+        marketplaceSalesFeeFixedAmount: "10000000000.00",
+      }),
+    ).toThrow();
+  });
 });

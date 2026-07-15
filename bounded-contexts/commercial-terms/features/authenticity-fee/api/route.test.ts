@@ -157,6 +157,24 @@ describe("commercial terms authenticity fee routes", () => {
     );
   });
 
+  it("rejects policy revisions that omit a required money value", async () => {
+    const revisePolicyDocument = vi.fn();
+    const app = createApp({ revisePolicyDocument }, ["commercial-terms.manage"]);
+
+    const response = await app.request("/pol_1", {
+      method: "PUT",
+      body: JSON.stringify({
+        bands: samplePolicyValue.bands,
+        status: "active",
+        effectiveFrom: "2026-08-01T00:00:00.000Z",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(revisePolicyDocument).not.toHaveBeenCalled();
+  });
+
   it("returns 404 for a document id that does not belong to this policy", async () => {
     const getPolicyDocument = vi.fn(async () => ({
       document_id: "sch_other",

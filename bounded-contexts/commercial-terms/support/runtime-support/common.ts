@@ -5,7 +5,7 @@ import {
   moneyToCents,
   normalizeMoneyAmount as normalizePrimitiveMoneyAmount,
   roundRational,
-  subtractMoneyAmounts as subtractPrimitiveMoneyAmounts,
+  subtractNonNegativeMoneyAmounts,
   tryMoneyToCents,
 } from "@chase-sets/primitives/money";
 
@@ -139,8 +139,12 @@ export function applyFeeFormula(baseAmount: string, formula: FeeFormula) {
   );
 }
 
-export function subtractMoneyAmounts(left: string, right: string) {
-  return subtractPrimitiveMoneyAmounts(left, right);
+export function calculateSellerNetUnitAmount(basisAmount: string, feeAmount: string) {
+  try {
+    return subtractNonNegativeMoneyAmounts(basisAmount, feeAmount);
+  } catch {
+    throw new CommercialTermsDomainError("Marketplace sales fee cannot exceed the basis amount.");
+  }
 }
 
 function numberToCents(value: number, roundingMode: "ceil" | "floor" | "nearest") {

@@ -1,7 +1,7 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
-import { moneyToCents } from "@chase-sets/primitives/money";
+import { centsToMoneyAmount, moneyToCents, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { AccountId, CatalogItemId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { JsonObject } from "@chase-sets/primitives/json";
@@ -39,12 +39,13 @@ function normalizeMoneyAmount(
 ): string {
   const normalized = value.trim();
   const fieldName = options.fieldName ?? "Price amount";
-  assert(/^\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid decimal.`);
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, `${fieldName} must be a valid decimal within the supported money range.`);
   assert(
-    options.allowZero ? Number.parseFloat(normalized) >= 0 : Number.parseFloat(normalized) > 0,
+    options.allowZero ? cents >= 0n : cents > 0n,
     `${fieldName} must be ${options.allowZero ? "zero or greater" : "greater than zero"}.`,
   );
-  return normalized;
+  return centsToMoneyAmount(cents);
 }
 
 function normalizePercentageBps(value: number, fieldName: string): number {

@@ -8,6 +8,7 @@ import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import { createId, type AccountId, type ListingId, type TenantId, type UserId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogItemId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 import {
   chunkItems,
   createBulkAppendLane,
@@ -608,10 +609,10 @@ function normalizeOptionalPositiveInteger(value: unknown, message: string) {
 
 function normalizePriceAmount(value: unknown) {
   const normalized = String(value ?? "").trim();
-  assert(/^\d+(\.\d{1,2})?$/.test(normalized), "Listing price must use dollars and cents.");
-  const numeric = Number(normalized);
-  assert(Number.isFinite(numeric) && numeric > 0, "Listing price must be greater than zero.");
-  return numeric.toFixed(2);
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, "Listing price must use dollars and cents within the supported money range.");
+  assert(cents > 0n, "Listing price must be greater than zero.");
+  return centsToMoneyAmount(cents);
 }
 
 function normalizeAnonymousOwnerId(value: string) {
@@ -1184,14 +1185,13 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     }>,
     context: EventStoreContext,
   ) {
-    const supply = await getInventoryItemSupply(deps.db, params.inventoryItemId, params.accountId);
-    assert(supply, "Inventory item not found.");
-    const quote = await quoteListingTerms(params.accountId, params.priceAmount);
-
     const listingId = params.listingIdOverride ?? (createId("lst") as ListingId);
     const streamId = `marketplace.listing-${listingId}`;
     const existing = await repository.load(streamId);
     if (existing.state.listingId !== null) {
+      assert(existing.state.accountId === params.accountId, "Listing not found.");
+      const feeQuoteFingerprint = existing.state.feeQuoteFingerprint;
+      assert(feeQuoteFingerprint, "Listing fee quote fingerprint is missing.");
       if (params.listingPhotoUploads?.length) {
         const photoResult = await addListingPhotos(
           {
@@ -1204,15 +1204,18 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         return {
           listingId,
           version: photoResult.version,
-          feeQuoteFingerprint: existing.state.feeQuoteFingerprint ?? quote.fee_quote_fingerprint,
+          feeQuoteFingerprint,
         };
       }
       return {
         listingId,
         version: existing.version,
-        feeQuoteFingerprint: existing.state.feeQuoteFingerprint ?? quote.fee_quote_fingerprint,
+        feeQuoteFingerprint,
       };
     }
+    const supply = await getInventoryItemSupply(deps.db, params.inventoryItemId, params.accountId);
+    assert(supply, "Inventory item not found.");
+    const quote = await quoteListingTerms(params.accountId, params.priceAmount);
     const evidence = await normalizePhotoUploads({
       accountId: params.accountId,
       listingId,

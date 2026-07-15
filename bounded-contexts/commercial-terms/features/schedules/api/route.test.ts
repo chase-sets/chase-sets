@@ -109,4 +109,27 @@ describe("commercial terms schedule routes", () => {
       context,
     );
   });
+
+  it.each(["status", "effectiveFrom"])("rejects schedule revisions that omit %s", async (missingField) => {
+    const reviseSchedule = vi.fn();
+    const app = createApp({ reviseSchedule }, ["commercial-terms.manage"]);
+    const body: Record<string, unknown> = {
+      label: "Business revised",
+      marketplaceSalesFeePercentageBps: 650,
+      marketplaceSalesFeeFixedAmount: "0.00",
+      shippingAllowancePercentageBps: 750,
+      status: "active",
+      effectiveFrom: "2026-05-01T00:00:00.000Z",
+    };
+    delete body[missingField];
+
+    const response = await app.request("/cts_business", {
+      method: "PUT",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(reviseSchedule).not.toHaveBeenCalled();
+  });
 });
