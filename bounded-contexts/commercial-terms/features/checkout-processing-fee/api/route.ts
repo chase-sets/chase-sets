@@ -2,8 +2,8 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CommercialTermsPolicyRuntime } from "../../../support/runtime-support/policy-runtime";
 import type { CommercialTermsApiEnv } from "../../../api";
-import { normalizeCommercialTermsStatus } from "../../../support/runtime-support/common";
-import { checkoutProcessingFeePolicy, type CheckoutProcessingFeePolicyValue } from "../domain/policy";
+import { normalizeCommercialTermsStatus, normalizeEffectiveWindow } from "../../../support/runtime-support/common";
+import { checkoutProcessingFeePolicy, decodeCheckoutProcessingFeePolicyValue } from "../domain/policy";
 
 function requireAccess(
   c: { get(key: "actor"): CommercialTermsApiEnv["Variables"]["actor"] },
@@ -49,30 +49,34 @@ function errorMessage(error: unknown) {
     : t("commercialTerms.features.checkoutProcessingFee.api.route.request.failed");
 }
 
-function policyValueFromBody(body: Record<string, unknown>): CheckoutProcessingFeePolicyValue {
-  return {
-    enabledJurisdictions: Array.isArray(body.enabledJurisdictions) ? (body.enabledJurisdictions as string[]) : [],
+function policyValueFromBody(body: Record<string, unknown>) {
+  const base = body.base as Record<string, unknown> | undefined;
+  return decodeCheckoutProcessingFeePolicyValue({
+    enabledJurisdictions: Array.isArray(body.enabledJurisdictions) ? body.enabledJurisdictions : null,
     base: {
-      percentageBps: Number((body.base as Record<string, unknown> | undefined)?.percentageBps ?? 0),
-      fixedAmount: String((body.base as Record<string, unknown> | undefined)?.fixedAmount ?? "0.00"),
+      percentageBps: Number(base?.percentageBps),
+      fixedAmount: String(base?.fixedAmount ?? ""),
     },
     methodAdjustments: Array.isArray(body.methodAdjustments)
       ? (body.methodAdjustments as Record<string, unknown>[]).map((adjustment) => ({
-          paymentMethodCategory: String(adjustment.paymentMethodCategory ?? "card") as never,
-          percentageBpsDelta: Number(adjustment.percentageBpsDelta ?? 0),
-          fixedAmountDelta: String(adjustment.fixedAmountDelta ?? "0.00"),
+          paymentMethodCategory: String(adjustment.paymentMethodCategory ?? ""),
+          percentageBpsDelta: Number(adjustment.percentageBpsDelta),
+          fixedAmountDelta: String(adjustment.fixedAmountDelta ?? ""),
         }))
-      : [],
-  };
+      : null,
+  });
 }
 
 function documentCommandBody(body: Record<string, unknown>) {
+  const effectiveWindow = normalizeEffectiveWindow(
+    typeof body.effectiveFrom === "string" ? body.effectiveFrom : "",
+    typeof body.effectiveUntil === "string" && body.effectiveUntil.trim().length > 0 ? body.effectiveUntil : null,
+    { from: "Effective from", until: "Effective until" },
+  );
   return {
     value: policyValueFromBody(body),
-    status: normalizeCommercialTermsStatus(String(body.status ?? "active")),
-    effectiveFrom: typeof body.effectiveFrom === "string" ? body.effectiveFrom : new Date().toISOString(),
-    effectiveUntil:
-      typeof body.effectiveUntil === "string" && body.effectiveUntil.trim().length > 0 ? body.effectiveUntil : null,
+    status: normalizeCommercialTermsStatus(String(body.status ?? "")),
+    ...effectiveWindow,
   };
 }
 

@@ -2,8 +2,8 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CommercialTermsPolicyRuntime } from "../../../support/runtime-support/policy-runtime";
 import type { CommercialTermsApiEnv } from "../../../api";
-import { normalizeCommercialTermsStatus } from "../../../support/runtime-support/common";
-import { authenticityFeePolicy, type AuthenticityFeePolicyValue } from "../domain/policy";
+import { normalizeCommercialTermsStatus, normalizeEffectiveWindow } from "../../../support/runtime-support/common";
+import { authenticityFeePolicy, decodeAuthenticityFeePolicyValue } from "../domain/policy";
 
 function requireAccess(
   c: { get(key: "actor"): CommercialTermsApiEnv["Variables"]["actor"] },
@@ -49,28 +49,31 @@ function errorMessage(error: unknown) {
     : t("commercialTerms.features.authenticityFee.api.route.request.failed");
 }
 
-function policyValueFromBody(body: Record<string, unknown>): AuthenticityFeePolicyValue {
-  return {
-    optInThresholdAmount: String(body.optInThresholdAmount ?? "0.00"),
+function policyValueFromBody(body: Record<string, unknown>) {
+  return decodeAuthenticityFeePolicyValue({
+    optInThresholdAmount: String(body.optInThresholdAmount ?? ""),
     bands: Array.isArray(body.bands)
       ? (body.bands as Record<string, unknown>[]).map((band) => ({
-          minOrderValueAmount: String(band.minOrderValueAmount ?? "0.00"),
-          category: String(band.category ?? "any") as never,
-          flatAmount: String(band.flatAmount ?? "0.00"),
-          percentageBps: Number(band.percentageBps ?? 0),
-          capAmount: String(band.capAmount ?? "0.00"),
+          minOrderValueAmount: String(band.minOrderValueAmount ?? ""),
+          category: String(band.category ?? ""),
+          flatAmount: String(band.flatAmount ?? ""),
+          percentageBps: Number(band.percentageBps),
+          capAmount: String(band.capAmount ?? ""),
         }))
-      : [],
-  };
+      : null,
+  });
 }
 
 function documentCommandBody(body: Record<string, unknown>) {
+  const effectiveWindow = normalizeEffectiveWindow(
+    typeof body.effectiveFrom === "string" ? body.effectiveFrom : "",
+    typeof body.effectiveUntil === "string" && body.effectiveUntil.trim().length > 0 ? body.effectiveUntil : null,
+    { from: "Effective from", until: "Effective until" },
+  );
   return {
     value: policyValueFromBody(body),
-    status: normalizeCommercialTermsStatus(String(body.status ?? "active")),
-    effectiveFrom: typeof body.effectiveFrom === "string" ? body.effectiveFrom : new Date().toISOString(),
-    effectiveUntil:
-      typeof body.effectiveUntil === "string" && body.effectiveUntil.trim().length > 0 ? body.effectiveUntil : null,
+    status: normalizeCommercialTermsStatus(String(body.status ?? "")),
+    ...effectiveWindow,
   };
 }
 

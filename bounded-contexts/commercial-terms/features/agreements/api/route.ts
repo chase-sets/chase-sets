@@ -2,7 +2,10 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CommercialTermsApiEnv } from "../../../api";
 import {
-  DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
+  normalizeEffectiveWindow,
+  normalizeLabel,
+  normalizeMoneyAmount,
+  normalizePercentageBps,
   normalizeCommercialTermsStatus,
 } from "../../../support/runtime-support/common";
 import type { AgreementServices } from "./runtime";
@@ -56,17 +59,27 @@ function errorMessage(error: unknown) {
 }
 
 function agreementCommandBody(body: Record<string, unknown>) {
+  const effectiveWindow = normalizeEffectiveWindow(
+    typeof body.effectiveFrom === "string" ? body.effectiveFrom : "",
+    typeof body.effectiveUntil === "string" && body.effectiveUntil.trim().length > 0 ? body.effectiveUntil : null,
+    { from: "Effective from", until: "Effective until" },
+  );
   return {
-    label: String(body.label ?? ""),
-    marketplaceSalesFeePercentageBps: Number(body.marketplaceSalesFeePercentageBps ?? 0),
-    marketplaceSalesFeeFixedAmount: String(body.marketplaceSalesFeeFixedAmount ?? ""),
-    shippingAllowancePercentageBps: Number(
-      body.shippingAllowancePercentageBps ?? DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
+    label: normalizeLabel(String(body.label ?? ""), "Label"),
+    marketplaceSalesFeePercentageBps: normalizePercentageBps(
+      Number(body.marketplaceSalesFeePercentageBps),
+      "Marketplace sales fee percentage",
     ),
-    status: normalizeCommercialTermsStatus(String(body.status ?? "active")),
-    effectiveFrom: typeof body.effectiveFrom === "string" ? body.effectiveFrom : new Date().toISOString(),
-    effectiveUntil:
-      typeof body.effectiveUntil === "string" && body.effectiveUntil.trim().length > 0 ? body.effectiveUntil : null,
+    marketplaceSalesFeeFixedAmount: normalizeMoneyAmount(String(body.marketplaceSalesFeeFixedAmount ?? ""), {
+      fieldName: "Marketplace sales fee fixed amount",
+      allowZero: true,
+    }),
+    shippingAllowancePercentageBps: normalizePercentageBps(
+      Number(body.shippingAllowancePercentageBps),
+      "Shipping allowance percentage",
+    ),
+    status: normalizeCommercialTermsStatus(String(body.status ?? "")),
+    ...effectiveWindow,
   };
 }
 

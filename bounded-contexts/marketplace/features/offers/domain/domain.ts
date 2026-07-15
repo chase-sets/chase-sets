@@ -3,6 +3,7 @@ import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/prim
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId, OfferId } from "@chase-sets/primitives/typed-ids";
 import type { JsonObject } from "@chase-sets/primitives/json";
+import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { ListingEvidenceSnapshot } from "../../listings/domain/evidence-snapshot";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -29,15 +30,17 @@ function normalizeOptionalText(value: string | null | undefined): string | null 
 
 function normalizeMoneyAmount(value: string): string {
   const normalized = value.trim();
-  assert(/^\d+(\.\d{1,2})?$/.test(normalized), "Offer price amount must be a valid decimal.");
-  assert(Number.parseFloat(normalized) > 0, "Offer price amount must be greater than zero.");
-  return normalized;
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, "Offer price amount must be a valid decimal within the supported money range.");
+  assert(cents > 0n, "Offer price amount must be greater than zero.");
+  return centsToMoneyAmount(cents);
 }
 
 function normalizeNonNegativeMoneyAmount(value: string, fieldName: string): string {
   const normalized = value.trim();
-  assert(/^\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid decimal.`);
-  return normalized;
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, `${fieldName} must be a valid non-negative decimal within the supported money range.`);
+  return centsToMoneyAmount(cents);
 }
 
 function normalizePercentageBps(value: number, fieldName: string): number {

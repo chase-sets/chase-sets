@@ -1,4 +1,4 @@
-import { moneyToCents } from "@chase-sets/primitives/money";
+import { centsToMoneyAmount, moneyToCents, tryMoneyToCents } from "@chase-sets/primitives/money";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -8,9 +8,9 @@ function assert(condition: unknown, message: string): asserts condition {
 
 function normalizeMoneyAmount(value: string, fieldName: string): string {
   const normalized = value.trim();
-  assert(/^\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid decimal.`);
-  assert(Number.parseFloat(normalized) >= 0, `${fieldName} must be zero or greater.`);
-  return normalized;
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, `${fieldName} must be a valid non-negative decimal within the supported money range.`);
+  return centsToMoneyAmount(cents);
 }
 
 function normalizeOptionalText(value: string | null | undefined): string | null {

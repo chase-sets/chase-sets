@@ -1,5 +1,6 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
+import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 import {
   DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY,
   parseMoneyCents,
@@ -20,8 +21,9 @@ function normalizeRequiredText(value: string, message: string) {
 
 function normalizeMoneyAmount(value: string): string {
   const normalized = value.trim();
-  assert(/^\d+(\.\d{1,2})?$/.test(normalized), "Offer price amount must be a valid decimal.");
-  return normalized;
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, "Offer price amount must be a valid decimal within the supported money range.");
+  return centsToMoneyAmount(cents);
 }
 
 function cooldownUntil(declinedAt: string, policy: MarketplaceOfferAbusePolicy) {

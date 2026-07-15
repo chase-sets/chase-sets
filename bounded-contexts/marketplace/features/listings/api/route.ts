@@ -115,6 +115,12 @@ function validationError(error: unknown) {
   }
 
   const message = errorMessage(error);
+  if (message === "Listing not found.") {
+    return new Response(JSON.stringify({ error: { code: "listing_not_found", message } }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   if (message === "Inventory item not found.") {
     return new Response(JSON.stringify({ error: { code: "inventory_item_not_found", message } }), {
       status: 400,

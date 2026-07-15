@@ -1352,6 +1352,42 @@ describe("marketplace listing runtime", () => {
       };
     }
 
+    it("does not disclose an existing deterministic listing to another account", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const termsResolver = bulkTermsResolver();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: termsResolver as never,
+      });
+
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_1",
+          priceAmount: "20.00",
+          quantityCap: 1,
+          listingIdOverride: "lst_owned" as never,
+        },
+        context,
+      );
+
+      await expect(
+        services.createListing(
+          {
+            accountId: "acc_intruder" as never,
+            inventoryItemId: "inv_1",
+            priceAmount: "20.00",
+            quantityCap: 1,
+            listingIdOverride: "lst_owned" as never,
+          },
+          context,
+        ),
+      ).rejects.toThrow("Listing not found.");
+      expect(termsResolver.resolveListingTerms).toHaveBeenCalledTimes(1);
+    });
+
     it("applies changed prices, suppresses no-ops, and isolates a domain error per listing", async () => {
       const { eventStore } = createInMemoryEventStore();
       const services = createMarketplaceListingRuntime({

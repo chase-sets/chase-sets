@@ -108,4 +108,24 @@ describe("commercial terms agreement routes", () => {
       context,
     );
   });
+
+  it("rejects partial agreement revisions that omit the fee percentage", async () => {
+    const reviseAgreement = vi.fn();
+    const app = createApp({ reviseAgreement }, ["commercial-terms.manage"]);
+
+    const response = await app.request("/cag_1", {
+      method: "PUT",
+      body: JSON.stringify({
+        label: "Preferred renewal",
+        marketplaceSalesFeeFixedAmount: "0.00",
+        shippingAllowancePercentageBps: 800,
+        status: "active",
+        effectiveFrom: "2026-05-01T00:00:00.000Z",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(reviseAgreement).not.toHaveBeenCalled();
+  });
 });

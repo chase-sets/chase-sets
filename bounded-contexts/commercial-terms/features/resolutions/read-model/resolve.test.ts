@@ -18,6 +18,19 @@ const accountSourceTelemetryRecorder = vi.fn();
 let unregisterAccountSourceTelemetryRecorder: (() => void) | null = null;
 
 describe("locked marketplace fee terms", () => {
+  it("rejects terms whose fee would make the seller net negative", () => {
+    expect(() =>
+      quoteLockedMarketplaceFeeTerms(
+        {
+          marketplaceSalesFeePercentageBps: 0,
+          marketplaceSalesFeeFixedAmount: "2.00",
+          marketplaceSalesFeeCapAmount: null,
+        },
+        "1.00",
+      ),
+    ).toThrow("Marketplace sales fee cannot exceed the basis amount.");
+  });
+
   it("requotes a changed price from the recorded formula and cap", () => {
     expect(
       quoteLockedMarketplaceFeeTerms(
@@ -770,14 +783,16 @@ describe("commercial terms listing-terms session (m113 #4327 per-account terms s
     const amounts = ["0.01", "0.02", "0.10", "0.99", "1.00", "9.99", "10.00", "20.00", "199.99", "1000.00"];
 
     for (const amount of amounts) {
-      const individual = await resolver.resolveListingTerms({
-        accountId: "acc_test",
-        amount,
-        effectiveAt: "2026-04-16T10:00:00.000Z",
-      });
-      const sessionQuote = session.quote(amount);
-
-      expect(sessionQuote).toEqual(individual);
+      try {
+        const individual = await resolver.resolveListingTerms({
+          accountId: "acc_test",
+          amount,
+          effectiveAt: "2026-04-16T10:00:00.000Z",
+        });
+        expect(session.quote(amount)).toEqual(individual);
+      } catch (error) {
+        expect(() => session.quote(amount)).toThrow(error instanceof Error ? error.message : undefined);
+      }
     }
   });
 
