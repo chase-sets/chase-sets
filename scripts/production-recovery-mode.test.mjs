@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   PRODUCTION_RECOVERY_MODE_VERSION,
   classifyProductionRecoveryMode,
@@ -103,6 +106,89 @@ describe("production-recovery-mode", () => {
       "CHANGED_FILES_JSON must be a JSON array of file paths.",
       "RECOVERY_REASON is required when FORCE_RESTORE_POINT is true.",
     ]);
+  });
+
+  const tempDirs = [];
+
+  function writeTempFile(name, contents) {
+    const dir = mkdtempSync(path.join(tmpdir(), "recovery-mode-"));
+    tempDirs.push(dir);
+    const filePath = path.join(dir, name);
+    writeFileSync(filePath, contents, "utf8");
+    return filePath;
+  }
+
+  afterEach(() => {
+    while (tempDirs.length > 0) {
+      rmSync(tempDirs.pop(), { recursive: true, force: true });
+    }
+  });
+
+  it("reads the changed-files list from a file so a huge release diff never rides the CLI argument limit", () => {
+    // A cold-start production deploy diffs against a stale production branch and
+    // can list thousands of files. Inlining that JSON as one CLI argument
+    // exceeds the operating-system per-argument length limit; the file transport
+    // handles it without truncation.
+    const changedFiles = Array.from(
+      { length: 6000 },
+      (_, index) => `bounded-contexts/catalog/features/slice-${index}/read-model/queries-${index}.ts`,
+    );
+    changedFiles.push("bounded-contexts/payments/features/payment-intents/domain.ts");
+    const changedFilesJson = JSON.stringify(changedFiles);
+    expect(changedFilesJson.length).toBeGreaterThan(256 * 1024);
+
+    const filePath = writeTempFile("release-changed-files.json", `${changedFilesJson}\n`);
+    const options = parseProductionRecoveryModeArgs([
+      "--release-commit",
+      RELEASE_COMMIT,
+      "--changed-files-file",
+      filePath,
+      "--checked-at",
+      "2026-07-01T12:00:00.000Z",
+    ]);
+
+    expect(options.changedFilesJson).toBe(changedFilesJson);
+
+    const result = classifyProductionRecoveryMode(options);
+    expect(result.passesRecoveryModeGate).toBe(true);
+    expect(result.record.changedFiles).toHaveLength(changedFiles.length);
+    expect(result.record.mode).toBe("precreated-fork");
+    expect(result.record.matchedRules[0]).toMatchObject({ ruleId: "live-money-provider" });
+  });
+
+  it("treats an empty changed-files file as no changed files", () => {
+    const filePath = writeTempFile("release-changed-files.json", "\n");
+    const options = parseProductionRecoveryModeArgs([
+      "--release-commit",
+      RELEASE_COMMIT,
+      "--changed-files-file",
+      filePath,
+      "--checked-at",
+      "2026-07-01T12:00:00.000Z",
+    ]);
+
+    expect(options.changedFilesJson).toBe("[]");
+    const result = classifyProductionRecoveryMode(options);
+    expect(result.passesRecoveryModeGate).toBe(true);
+    expect(result.record.mode).toBe("pitr");
+  });
+
+  it("prefers an explicit inline changed-files argument over the file", () => {
+    const filePath = writeTempFile("release-changed-files.json", '["docs/ignored.md"]\n');
+    const options = parseProductionRecoveryModeArgs([
+      "--changed-files-json",
+      '["docs/runbook.md"]',
+      "--changed-files-file",
+      filePath,
+    ]);
+
+    expect(options.changedFilesJson).toBe('["docs/runbook.md"]');
+  });
+
+  it("fails loudly when the changed-files file cannot be read", () => {
+    expect(() =>
+      parseProductionRecoveryModeArgs(["--changed-files-file", path.join(tmpdir(), "does-not-exist-recovery.json")]),
+    ).toThrow(/Unable to read --changed-files-file/);
   });
 
   it("parses workflow inputs and environment fallbacks", () => {

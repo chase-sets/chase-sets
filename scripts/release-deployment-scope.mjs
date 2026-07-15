@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -22,6 +22,7 @@ export function parseReleaseDeploymentScopeArgs(argv, env = process.env) {
     releaseCommit: readOption(argv, "--release-commit") ?? readEnv("RELEASE_COMMIT", env),
     forceDeploy: parseBoolean(readOption(argv, "--force-deploy") ?? readEnv("FORCE_DEPLOY", env) ?? "false"),
     githubOutputPath: readOption(argv, "--github-output") ?? readEnv("GITHUB_OUTPUT", env),
+    changedFilesOutPath: readOption(argv, "--changed-files-out") ?? readEnv("CHANGED_FILES_OUT", env),
     gitPath: readOption(argv, "--git") ?? readEnv("GIT_PATH", env) ?? "git",
   };
 }
@@ -29,6 +30,7 @@ export function parseReleaseDeploymentScopeArgs(argv, env = process.env) {
 export function resolveReleaseDeploymentScope(options, dependencies = {}) {
   const exec = dependencies.execFileSync ?? execFileSync;
   const append = dependencies.appendFileSync ?? appendFileSync;
+  const writeFile = dependencies.writeFileSync ?? writeFileSync;
   const log = dependencies.log ?? console.log;
   const cwd = dependencies.cwd ?? repoRoot;
   const gitPath = options.gitPath ?? "git";
@@ -39,6 +41,7 @@ export function resolveReleaseDeploymentScope(options, dependencies = {}) {
 
   if (eventName === "workflow_dispatch" && options.forceDeploy === true) {
     writeOutputs(append, options.githubOutputPath, forceDeployOutput);
+    writeChangedFilesFile(writeFile, options.changedFilesOutPath, forceDeployOutput.changed_files_json);
     log(`Manual force deployment requested for ${releaseCommit}.`);
     return { deploy: true, reason: "manual-force", baseCommit: null, latestMain: null, output: forceDeployOutput };
   }
@@ -46,6 +49,7 @@ export function resolveReleaseDeploymentScope(options, dependencies = {}) {
   const baseCommit = resolveReleaseDiffBase({ exec, gitPath, cwd, releaseCommit });
   if (!baseCommit) {
     writeOutputs(append, options.githubOutputPath, forceDeployOutput);
+    writeChangedFilesFile(writeFile, options.changedFilesOutPath, forceDeployOutput.changed_files_json);
     log(`No base commit was available for ${releaseCommit}; deployment is required.`);
     return { deploy: true, reason: "missing-base", baseCommit: null, latestMain: null, output: forceDeployOutput };
   }
@@ -61,6 +65,7 @@ export function resolveReleaseDeploymentScope(options, dependencies = {}) {
   });
   const output = toOutputMap(scope);
   writeOutputs(append, options.githubOutputPath, output);
+  writeChangedFilesFile(writeFile, options.changedFilesOutPath, output.changed_files_json);
   log(JSON.stringify(output, null, 2));
   return { deploy: scope.deployRequired, reason: "scoped", baseCommit, latestMain: null, output, scope };
 }
@@ -104,6 +109,15 @@ function writeOutputs(append, outputPath, output) {
     .join("\n");
   if (outputPath) {
     append(outputPath, `${content}\n`, "utf8");
+  }
+}
+
+// The changed-files list can grow past the operating-system per-argument length
+// limit, so it is handed to downstream steps through a file rather than an
+// inline CLI argument or environment variable (both share that limit).
+function writeChangedFilesFile(writeFile, outPath, changedFilesJson) {
+  if (outPath) {
+    writeFile(outPath, `${changedFilesJson}\n`, "utf8");
   }
 }
 
