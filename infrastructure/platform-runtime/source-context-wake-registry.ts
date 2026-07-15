@@ -388,6 +388,7 @@ export const sourceContextWakeRegistry = [
       "ordering:ordering-account-projection",
       "payments:payments-account-risk-source-projection",
       "platform-operations:risk-alert-queue-projection",
+      "platform-operations:support-request-projection",
       "pricing:pricing-market-trades-projection",
       "public-presence:public-presence-waitlist-transactional-email-projection",
       "settlement:settlement-account-risk-source-projection",
@@ -638,6 +639,7 @@ export const sourceContextWakeRegistry = [
     routeDependencyIds: [
       "platform-operations.platform-feedback-detail-fresh-read",
       "platform-operations.platform-feedback-list-fresh-read",
+      "platform-operations.support-request-detail-fresh-read",
     ],
   }),
   registryEntry({

@@ -125,6 +125,20 @@ describe("platform operations request API clients", () => {
                   : "cancelled";
         return jsonResponse({ id: "sup_1", version: 2, status });
       }
+      if (url.includes("/support-requests/sup_1/")) {
+        const status = url.endsWith("/evidence")
+          ? "evidence-submitted"
+          : url.endsWith("/responses")
+            ? "response-recorded"
+            : url.endsWith("/accept")
+              ? "offer-accepted"
+              : url.endsWith("/decline")
+                ? "offer-declined"
+                : url.endsWith("/escalate")
+                  ? "escalated"
+                  : "cancelled";
+        return jsonResponse({ id: "sup_1", version: 3, status });
+      }
       return jsonResponse({ id: "sup_1", version: 1, status: "opened" }, 201);
     });
     const client = createSupportRequestApiClient({ baseUrl: "https://api.example.test", fetch: fetchMock as never });
@@ -197,6 +211,42 @@ describe("platform operations request API clients", () => {
       version: 2,
       status: "cancelled",
     });
+    await expect(
+      client.submitSupportEvidence("sup_1", {
+        submittedByRole: "buyer",
+        evidenceType: "photo",
+        summary: "Damaged corner",
+      }),
+    ).resolves.toEqual({ id: "sup_1", version: 3, status: "evidence-submitted" });
+    await expect(
+      client.recordSupportResponse("sup_1", {
+        submittedByRole: "seller",
+        responseType: "offer-partial-refund",
+        summary: "Offer five dollars",
+        offerResolutionType: "partial-refund",
+        refundAmount: "5.00",
+      }),
+    ).resolves.toEqual({ id: "sup_1", version: 3, status: "response-recorded" });
+    await expect(client.acceptSupportOffer("sup_1", "sof_1")).resolves.toEqual({
+      id: "sup_1",
+      version: 3,
+      status: "offer-accepted",
+    });
+    await expect(client.declineSupportOffer("sup_1", "sof_1", { summary: "Needs review" })).resolves.toEqual({
+      id: "sup_1",
+      version: 3,
+      status: "offer-declined",
+    });
+    await expect(client.requestSupportReview("sup_1", { reason: "Needs review" })).resolves.toEqual({
+      id: "sup_1",
+      version: 3,
+      status: "escalated",
+    });
+    await expect(client.cancelSupportRequest("sup_1", { reason: "Opened by mistake" })).resolves.toEqual({
+      id: "sup_1",
+      version: 3,
+      status: "cancelled",
+    });
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.example.test/support-requests/orders/ord_1",
@@ -223,6 +273,19 @@ describe("platform operations request API clients", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.example.test/support-requests/sup_1/attachments",
       expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/support-requests/sup_1/responses",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          submittedByRole: "seller",
+          responseType: "offer-partial-refund",
+          summary: "Offer five dollars",
+          offerResolutionType: "partial-refund",
+          refundAmount: "5.00",
+        }),
+      }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.example.test/support-requests/ops/sup_1/responses",
