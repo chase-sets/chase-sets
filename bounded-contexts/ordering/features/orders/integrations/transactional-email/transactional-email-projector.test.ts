@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { projectOrderingEventToTransactionalEmail } from "./transactional-email-projector";
+import { buildOrderingTransactionalEmailProjectionHandlers } from "./transactional-email-projector";
+
+async function projectOrderingEventToTransactionalEmail(
+  outbox: Parameters<typeof buildOrderingTransactionalEmailProjectionHandlers>[0],
+  event: never,
+) {
+  const handlers = buildOrderingTransactionalEmailProjectionHandlers(outbox);
+  await handlers[(event as { type: string }).type]?.(event);
+}
 
 describe("ordering transactional email projector", () => {
   it("enqueues only when order.created events include a buyer email snapshot", async () => {

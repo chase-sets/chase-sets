@@ -1,8 +1,6 @@
 import { extractIdFromStreamId } from "@chase-sets/event-core";
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
+import { defineTransactionalEmail, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { stableWaitlistSignupId } from "../../domain/common";
 import {
@@ -16,39 +14,24 @@ export const PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION =
 
 const IDENTITY_ACCOUNT_STREAM_PREFIX = "identity.account-";
 
-type WaitlistSignupRecordedEmailEvent = Readonly<
-  TransportEvent & {
-    type: "public-presence.waitlist-signup.recorded";
-    data: Readonly<{
-      signupId: string;
-      email: string;
-      recordedAt?: string;
-    }>;
-  }
->;
+type WaitlistSignupRecordedEmailData = Readonly<{
+  signupId: string;
+  email: string;
+  recordedAt?: string;
+}>;
 
-type FoundersWindowOpenedEmailEvent = Readonly<
-  TransportEvent & {
-    type: "identity.account.founders-window-opened";
-    data: Readonly<{
-      betaAccessStartedAt: string;
-      foundersWindowEndsAt: string;
-      recipientEmail?: string;
-    }>;
-  }
->;
+type FoundersWindowOpenedEmailData = Readonly<{
+  betaAccessStartedAt: string;
+  foundersWindowEndsAt: string;
+  recipientEmail?: string;
+}>;
 
-type WaitlistSignupAdmittedEmailEvent = Readonly<
-  TransportEvent & {
-    type: "public-presence.waitlist-signup.admitted";
-    data: Readonly<{
-      signupId: string;
-      email: string;
-      waveNumber: number;
-      invitationId: string;
-    }>;
-  }
->;
+type WaitlistSignupAdmittedEmailData = Readonly<{
+  signupId: string;
+  email: string;
+  waveNumber: number;
+  invitationId: string;
+}>;
 
 type WaitlistAdmissionProfileRow = Readonly<{
   role: string;
@@ -57,108 +40,85 @@ type WaitlistAdmissionProfileRow = Readonly<{
   inventory_size: string | null;
 }>;
 
-function correlationIdFromEvent(event: TransportEvent) {
-  return event.trace.traceId ?? event.id;
-}
-
-export async function projectWaitlistEventToTransactionalEmail(
-  db: PgQueryable,
-  outbox: NotificationOutbox,
-  event: TransportEvent,
-  projectionName = PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
-) {
-  if (event.type === "public-presence.waitlist-signup.recorded") {
-    const data = event.data as WaitlistSignupRecordedEmailEvent["data"];
-    const source = sourceFromEvent(event, projectionName);
-    const sequence = mapWaitlistSignupRecordedToNurtureEmails({
-      email: data.email,
-      signupId: data.signupId,
-      recordedAt: data.recordedAt ?? event.timing.occurredAt,
-      correlationId: correlationIdFromEvent(event),
-    });
-
-    for (const delivery of sequence) {
-      await outbox.enqueueNotification({ message: delivery.message, source, availableAt: delivery.availableAt });
-    }
-    return;
-  }
-
-  if (event.type === "public-presence.waitlist-signup.admitted") {
-    const data = event.data as WaitlistSignupAdmittedEmailEvent["data"];
-    await outbox.enqueueNotification({
-      message: mapWaitlistAdmissionToTransactionalEmail({
-        email: data.email,
-        signupId: data.signupId,
-        waveNumber: Number(data.waveNumber),
-        correlationId: correlationIdFromEvent(event),
-      }),
-      source: sourceFromEvent(event, projectionName),
-      availableAt: event.timing.occurredAt,
-    });
-    return;
-  }
-
-  if (event.type !== "identity.account.founders-window-opened") {
-    return;
-  }
-
-  const data = event.data as FoundersWindowOpenedEmailEvent["data"];
-  if (!data.recipientEmail) {
-    // Additive payload: historical founders-window events predate the nurture
-    // contract and cannot be safely guessed at during replay.
-    return;
-  }
-
-  const signupId = stableWaitlistSignupId(data.recipientEmail);
-  const result = await db.query<WaitlistAdmissionProfileRow>(
-    `SELECT role, games, has_store_link, inventory_size
-     FROM public_presence_waitlist_signups
-     WHERE signup_id = $1`,
-    [signupId],
-  );
-  const profile = result.rows[0];
-  if (!profile) {
-    // Founders access can also be granted outside the public waitlist. Public
-    // Presence only owns nurture for a Waitlist Signup it can identify.
-    return;
-  }
-
-  const accountId = extractIdFromStreamId(event.streamId, IDENTITY_ACCOUNT_STREAM_PREFIX) as AccountId;
-  await outbox.enqueueNotification({
-    message: mapFoundersWindowOpenedToAdmissionEmail({
-      email: data.recipientEmail,
-      signupId,
-      accountId,
-      betaAccessStartedAt: data.betaAccessStartedAt,
-      foundersWindowEndsAt: data.foundersWindowEndsAt,
-      missingCohortFields: missingCohortFields(profile),
-      correlationId: correlationIdFromEvent(event),
-    }),
-    source: sourceFromEvent(event, projectionName),
-    availableAt: data.betaAccessStartedAt,
-  });
-}
-
 export function buildWaitlistTransactionalEmailProjectionHandlers(
   db: PgQueryable,
   outbox: NotificationOutbox,
   projectionName = PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
-): ProjectorHandlerMap {
-  const project = (event: TransportEvent) =>
-    projectWaitlistEventToTransactionalEmail(db, outbox, event, projectionName);
+) {
   return {
-    "public-presence.waitlist-signup.recorded": project,
-    "public-presence.waitlist-signup.admitted": project,
-    "identity.account.founders-window-opened": project,
-  };
-}
+    ...defineTransactionalEmail<WaitlistSignupRecordedEmailData, string, "public-presence.waitlist-signup.recorded">({
+      outbox,
+      projectionName,
+      on: "public-presence.waitlist-signup.recorded",
+      recipient: (data) => data.email || null,
+      template: (data, { recipient, event, correlationId }) =>
+        mapWaitlistSignupRecordedToNurtureEmails({
+          email: recipient,
+          signupId: data.signupId,
+          recordedAt: data.recordedAt ?? event.timing.occurredAt,
+          correlationId,
+        }),
+    }),
+    ...defineTransactionalEmail<WaitlistSignupAdmittedEmailData, string, "public-presence.waitlist-signup.admitted">({
+      outbox,
+      projectionName,
+      on: "public-presence.waitlist-signup.admitted",
+      recipient: (data) => data.email || null,
+      template: (data, { recipient, event, correlationId }) => ({
+        message: mapWaitlistAdmissionToTransactionalEmail({
+          email: recipient,
+          signupId: data.signupId,
+          waveNumber: Number(data.waveNumber),
+          correlationId,
+        }),
+        availableAt: event.timing.occurredAt,
+      }),
+    }),
+    ...defineTransactionalEmail<
+      FoundersWindowOpenedEmailData,
+      { email: string; signupId: string; accountId: AccountId; profile: WaitlistAdmissionProfileRow },
+      "identity.account.founders-window-opened"
+    >({
+      outbox,
+      projectionName,
+      on: "identity.account.founders-window-opened",
+      recipient: async (data, { event }) => {
+        if (!data.recipientEmail) {
+          return null;
+        }
 
-function sourceFromEvent(event: TransportEvent, projectionName: string) {
-  return {
-    sourceEventId: event.id,
-    sourceGlobalPosition: event.globalPosition,
-    projectionName,
-    occurredAt: event.timing.occurredAt,
+        const signupId = stableWaitlistSignupId(data.recipientEmail);
+        const result = await db.query<WaitlistAdmissionProfileRow>(
+          `SELECT role, games, has_store_link, inventory_size
+           FROM public_presence_waitlist_signups
+           WHERE signup_id = $1`,
+          [signupId],
+        );
+        const profile = result.rows[0];
+        if (!profile) {
+          return null;
+        }
+
+        return {
+          email: data.recipientEmail,
+          signupId,
+          accountId: extractIdFromStreamId(event.streamId, IDENTITY_ACCOUNT_STREAM_PREFIX) as AccountId,
+          profile,
+        };
+      },
+      template: (data, { recipient, correlationId }) => ({
+        message: mapFoundersWindowOpenedToAdmissionEmail({
+          email: recipient.email,
+          signupId: recipient.signupId,
+          accountId: recipient.accountId,
+          betaAccessStartedAt: data.betaAccessStartedAt,
+          foundersWindowEndsAt: data.foundersWindowEndsAt,
+          missingCohortFields: missingCohortFields(recipient.profile),
+          correlationId,
+        }),
+        availableAt: data.betaAccessStartedAt,
+      }),
+    }),
   };
 }
 

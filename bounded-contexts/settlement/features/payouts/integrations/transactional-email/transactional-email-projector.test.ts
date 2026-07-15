@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { projectSettlementPayoutEventToTransactionalEmail } from "./transactional-email-projector";
+import { buildSettlementPayoutTransactionalEmailProjectionHandlers } from "./transactional-email-projector";
+
+async function projectSettlementPayoutEventToTransactionalEmail(
+  outbox: Parameters<typeof buildSettlementPayoutTransactionalEmailProjectionHandlers>[0],
+  event: never,
+) {
+  const handlers = buildSettlementPayoutTransactionalEmailProjectionHandlers(outbox);
+  await handlers[(event as { type: string }).type]?.(event);
+}
 
 describe("settlement transactional email projector", () => {
   it("enqueues when payout.completed events include a notification email", async () => {

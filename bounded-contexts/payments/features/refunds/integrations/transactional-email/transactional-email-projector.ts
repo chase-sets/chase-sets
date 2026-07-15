@@ -1,6 +1,4 @@
-import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { defineTransactionalEmail, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -18,9 +16,7 @@ type RefundEmailEventData = Readonly<{
   currencyCode: string;
 }>;
 
-function correlationIdFromEvent(event: TransportEvent) {
-  return event.trace.traceId ?? event.id;
-}
+type RefundEmailRecipient = Readonly<{ email: string; accountId: string | null }>;
 
 async function findBuyerEmailForOrders(db: PgQueryable, orderIds: readonly string[]) {
   if (orderIds.length === 0) return null;
@@ -39,47 +35,39 @@ async function findBuyerEmailForOrders(db: PgQueryable, orderIds: readonly strin
   return row?.buyer_email?.trim() ? { email: row.buyer_email.trim(), accountId: row.buyer_account_id } : null;
 }
 
-export async function projectRefundEventToTransactionalEmail(
-  db: PgQueryable,
-  outbox: NotificationOutbox,
-  event: TransportEvent,
-  projectionName = PAYMENTS_REFUND_TRANSACTIONAL_EMAIL_PROJECTION,
-) {
-  if (event.type !== "payments.refund-issued" && event.type !== "payments.refund-failed") return;
-  const data = event.data as RefundEmailEventData;
-  const buyer = await findBuyerEmailForOrders(db, data.orderIds);
-  if (!buyer) return;
-
-  const mapper =
-    event.type === "payments.refund-issued" ? mapRefundIssuedToTransactionalEmail : mapRefundFailedToTransactionalEmail;
-
-  await outbox.enqueueNotification({
-    message: mapper({
-      buyerEmail: buyer.email,
-      recipientAccountId: buyer.accountId as AccountId | null,
-      refundId: data.refundId,
-      paymentId: data.paymentId,
-      orderIds: data.orderIds,
-      amount: data.amount,
-      currencyCode: data.currencyCode,
-      correlationId: correlationIdFromEvent(event),
-    }),
-    source: {
-      sourceEventId: event.id,
-      sourceGlobalPosition: event.globalPosition,
-      projectionName,
-      occurredAt: event.timing.occurredAt,
-    },
-  });
-}
-
 export function buildRefundTransactionalEmailProjectionHandlers(
   db: PgQueryable,
   outbox: NotificationOutbox,
   projectionName = PAYMENTS_REFUND_TRANSACTIONAL_EMAIL_PROJECTION,
-): ProjectorHandlerMap {
+) {
+  const recipient = (data: RefundEmailEventData) => findBuyerEmailForOrders(db, data.orderIds);
+  const intentInput = (data: RefundEmailEventData, resolved: RefundEmailRecipient, correlationId: string) => ({
+    buyerEmail: resolved.email,
+    recipientAccountId: resolved.accountId as AccountId | null,
+    refundId: data.refundId,
+    paymentId: data.paymentId,
+    orderIds: data.orderIds,
+    amount: data.amount,
+    currencyCode: data.currencyCode,
+    correlationId,
+  });
+
   return {
-    "payments.refund-issued": (event) => projectRefundEventToTransactionalEmail(db, outbox, event, projectionName),
-    "payments.refund-failed": (event) => projectRefundEventToTransactionalEmail(db, outbox, event, projectionName),
+    ...defineTransactionalEmail<RefundEmailEventData, RefundEmailRecipient, "payments.refund-issued">({
+      outbox,
+      projectionName,
+      on: "payments.refund-issued",
+      recipient,
+      template: (data, { recipient: resolved, correlationId }) =>
+        mapRefundIssuedToTransactionalEmail(intentInput(data, resolved, correlationId)),
+    }),
+    ...defineTransactionalEmail<RefundEmailEventData, RefundEmailRecipient, "payments.refund-failed">({
+      outbox,
+      projectionName,
+      on: "payments.refund-failed",
+      recipient,
+      template: (data, { recipient: resolved, correlationId }) =>
+        mapRefundFailedToTransactionalEmail(intentInput(data, resolved, correlationId)),
+    }),
   };
 }

@@ -1,6 +1,15 @@
 import type { EnqueueNotificationInput } from "@chase-sets/outbound-messaging";
 import { describe, expect, it, vi } from "vitest";
-import { projectWaitlistEventToTransactionalEmail } from "./transactional-email-projector";
+import { buildWaitlistTransactionalEmailProjectionHandlers } from "./transactional-email-projector";
+
+async function projectWaitlistEventToTransactionalEmail(
+  db: Parameters<typeof buildWaitlistTransactionalEmailProjectionHandlers>[0],
+  outbox: Parameters<typeof buildWaitlistTransactionalEmailProjectionHandlers>[1],
+  event: never,
+) {
+  const handlers = buildWaitlistTransactionalEmailProjectionHandlers(db, outbox);
+  await handlers[(event as { type: string }).type]?.(event);
+}
 
 describe("waitlist transactional email projector", () => {
   it("enqueues four replay-stable scheduled deliveries for a recorded signup", async () => {

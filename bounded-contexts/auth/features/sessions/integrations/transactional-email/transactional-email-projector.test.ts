@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { projectAuthSessionEventToTransactionalEmail } from "./transactional-email-projector";
+import { buildAuthSessionTransactionalEmailProjectionHandlers } from "./transactional-email-projector";
+
+async function projectAuthSessionEventToTransactionalEmail(
+  outbox: Parameters<typeof buildAuthSessionTransactionalEmailProjectionHandlers>[0],
+  deliveryTokens: Parameters<typeof buildAuthSessionTransactionalEmailProjectionHandlers>[1],
+  event: never,
+) {
+  const handlers = buildAuthSessionTransactionalEmailProjectionHandlers(outbox, deliveryTokens);
+  await handlers[(event as { type: string }).type]?.(event);
+}
 
 describe("auth transactional email projector", () => {
   it("enqueues email from auth.magic-link.requested transport events without storing the secret on the event", async () => {

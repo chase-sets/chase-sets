@@ -1,6 +1,4 @@
-import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { defineTransactionalEmail, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { mapPaymentCapturedToTransactionalEmail } from "./transactional-email-intents";
@@ -13,10 +11,6 @@ type PaymentEmailEventData = Readonly<{
   amount: string;
   currencyCode: string;
 }>;
-
-function correlationIdFromEvent(event: TransportEvent) {
-  return event.trace.traceId ?? event.id;
-}
 
 async function findBuyerEmailForOrders(db: PgQueryable, orderIds: readonly string[]) {
   if (orderIds.length === 0) return null;
@@ -35,42 +29,29 @@ async function findBuyerEmailForOrders(db: PgQueryable, orderIds: readonly strin
   return row?.buyer_email?.trim() ? { email: row.buyer_email.trim(), accountId: row.buyer_account_id } : null;
 }
 
-export async function projectPaymentEventToTransactionalEmail(
-  db: PgQueryable,
-  outbox: NotificationOutbox,
-  event: TransportEvent,
-  projectionName = PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION,
-) {
-  if (event.type !== "payments.payment-captured") return;
-  const data = event.data as PaymentEmailEventData;
-  const buyer = await findBuyerEmailForOrders(db, data.orderIds);
-  if (!buyer) return;
-
-  await outbox.enqueueNotification({
-    message: mapPaymentCapturedToTransactionalEmail({
-      buyerEmail: buyer.email,
-      recipientAccountId: buyer.accountId as AccountId | null,
-      paymentId: data.paymentId,
-      orderIds: data.orderIds,
-      amount: data.amount,
-      currencyCode: data.currencyCode,
-      correlationId: correlationIdFromEvent(event),
-    }),
-    source: {
-      sourceEventId: event.id,
-      sourceGlobalPosition: event.globalPosition,
-      projectionName,
-      occurredAt: event.timing.occurredAt,
-    },
-  });
-}
-
 export function buildPaymentTransactionalEmailProjectionHandlers(
   db: PgQueryable,
   outbox: NotificationOutbox,
   projectionName = PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION,
-): ProjectorHandlerMap {
-  return {
-    "payments.payment-captured": (event) => projectPaymentEventToTransactionalEmail(db, outbox, event, projectionName),
-  };
+) {
+  return defineTransactionalEmail<
+    PaymentEmailEventData,
+    { email: string; accountId: string | null },
+    "payments.payment-captured"
+  >({
+    outbox,
+    projectionName,
+    on: "payments.payment-captured",
+    recipient: (data) => findBuyerEmailForOrders(db, data.orderIds),
+    template: (data, { recipient, correlationId }) =>
+      mapPaymentCapturedToTransactionalEmail({
+        buyerEmail: recipient.email,
+        recipientAccountId: recipient.accountId as AccountId | null,
+        paymentId: data.paymentId,
+        orderIds: data.orderIds,
+        amount: data.amount,
+        currencyCode: data.currencyCode,
+        correlationId,
+      }),
+  });
 }

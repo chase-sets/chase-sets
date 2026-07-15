@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { projectRefundEventToTransactionalEmail } from "./transactional-email-projector";
+import { buildRefundTransactionalEmailProjectionHandlers } from "./transactional-email-projector";
+
+async function projectRefundEventToTransactionalEmail(
+  db: Parameters<typeof buildRefundTransactionalEmailProjectionHandlers>[0],
+  outbox: Parameters<typeof buildRefundTransactionalEmailProjectionHandlers>[1],
+  event: never,
+) {
+  const handlers = buildRefundTransactionalEmailProjectionHandlers(db, outbox);
+  await handlers[(event as { type: string }).type]?.(event);
+}
 
 describe("refund transactional email projector", () => {
   it("uses order input buyer email to enqueue refund issued email", async () => {
