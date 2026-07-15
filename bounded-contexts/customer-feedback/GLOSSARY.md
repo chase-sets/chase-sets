@@ -98,6 +98,11 @@ Customer Feedback context and never means a generic support ticket.
 or reopened Feedback Case. Its rule version is recorded with the signal so later
 policy changes do not rewrite historical classification.
 
+## Attention
+
+**Attention** is the event-contract noun for Feedback Attention requests,
+digests, and their delivery outcomes. It never contains the customer comment.
+
 ## Triage SLA
 
 A **Triage SLA** is the bounded time from case opening to triage. Its due time is

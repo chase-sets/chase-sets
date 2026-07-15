@@ -12,5 +12,10 @@ describe("feedback attention server access", () => {
     expect(canAccessFeedbackAttention(manager, "manage")).toBe(true);
     expect(canAccessFeedbackAttention(manager, "notify")).toBe(true);
     expect(feedbackAttentionExportAllowed(manager)).toBe(true);
+    const notifier = { permissions: ["support.notify"] };
+    expect(canAccessFeedbackAttention(notifier, "view")).toBe(true);
+    expect(canAccessFeedbackAttention(notifier, "notify")).toBe(true);
+    expect(canAccessFeedbackAttention(notifier, "manage")).toBe(false);
+    expect(canAccessFeedbackAttention(notifier, "export")).toBe(false);
   });
 });

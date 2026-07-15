@@ -447,6 +447,7 @@ function submitSurvey(
       data: {
         eventSchemaVersion: customerFeedbackEventSchemaVersion,
         invitationId: invitation.invitationId,
+        subjectAccountId: invitation.subjectAccountId,
         surveyVersion: invitation.surveyVersion,
         ...normalized,
         submittedAt: requireTimestamp(command.submittedAt, "submission timestamp"),

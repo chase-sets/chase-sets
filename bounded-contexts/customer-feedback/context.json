@@ -38,6 +38,17 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "notifications",
+      "reactionName": "customer-feedback-notification-delivery-recording",
+      "subscriptionVersion": 1,
+      "eventTypes": ["notifications.customer-feedback.delivery-reported"],
+      "order": 20,
+      "reactionHandlerSetNames": ["customer-feedback-notification-delivery-recording"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
     }
   ],
   "projectionGroups": [
@@ -73,9 +84,18 @@
     {
       "projectionName": "customer-feedback-case-attention-projection",
       "sourceContextNames": ["customer-feedback"],
-      "ownedTables": ["customer_feedback_case_attention"],
+      "ownedTables": ["customer_feedback_case_attention", "customer_feedback_attention_digest_runs"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "customer-feedback-notification-delivery-recording",
+      "handlerKind": "reaction",
+      "sideEffectOnly": true,
+      "sourceContextNames": ["notifications"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [],
@@ -86,6 +106,27 @@
       "mountPath": "/api/customer-feedback",
       "kind": "primary",
       "requiresAuth": true
+    }
+  ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "customer-feedback.case-attention-command-snapshots",
+      "owner": "customer-feedback",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/customer-feedback/features/attention/api/route.ts:POST /cases/:caseId/follow-up",
+        "api-route:bounded-contexts/customer-feedback/features/attention/api/route.ts:POST /cases/:caseId/reopen"
+      ],
+      "visibleDestination": {
+        "description": "Customer Feedback case actions return the committed case snapshot used to reconcile operator follow-up and attention state."
+      },
+      "proof": {
+        "authoritativeResponse": "The event-sourced command handler returns state after the append commits, and the route exposes only the bounded operational snapshot.",
+        "tests": [
+          "bounded-contexts/customer-feedback/features/attention/api/route.test.ts proves notify/manage authorization and committed snapshot responses."
+        ]
+      }
     }
   ],
   "deployableContributions": [

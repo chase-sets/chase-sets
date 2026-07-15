@@ -1,7 +1,10 @@
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { webNotificationsSchemaSql } from "@chase-sets/web-notifications";
+import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 
 export const notificationsSchemaSql = `
+${eventCorePostgresSchemaSql}
+
 ${notificationOutboxSchemaSql}
 
 ${webNotificationsSchemaSql}

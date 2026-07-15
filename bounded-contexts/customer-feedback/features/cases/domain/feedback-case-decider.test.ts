@@ -15,6 +15,7 @@ const viewOnly = { actorId: "usr_viewer", authority: "view-feedback-cases" } as 
 const submission = {
   eventSchemaVersion: 1,
   invitationId: "csatinv_01" as never,
+  subjectAccountId: "acc_customer",
   surveyVersion: transactionalCsatV1.id,
   rating: 2,
   comment: "Never copied into the case stream",

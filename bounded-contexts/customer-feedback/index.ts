@@ -15,6 +15,7 @@ import {
   type CustomerFeedbackServices,
 } from "./support/runtime-support/services";
 import { buildFeedbackCaseOpeningReactionHandlers } from "./features/cases/integrations/csat/submission-reaction";
+import { buildNotificationDeliveryReactionHandlers } from "./features/cases/integrations/notifications/delivery-reaction";
 import { buildCustomerFeedbackApi } from "./api";
 
 const customerFeedbackContextManifest = contextManifest as BcContextManifest;
@@ -46,6 +47,11 @@ export const module = defineBoundedContextModule<
         "customer-feedback.customer-feedback-feedback-case-opening": {
           filterToEventTypes: true,
           buildHandlers: () => buildFeedbackCaseOpeningReactionHandlers(services.cases.openFromSubmission),
+        },
+        "notifications.customer-feedback-notification-delivery-recording": {
+          filterToEventTypes: true,
+          buildHandlers: () =>
+            buildNotificationDeliveryReactionHandlers(services.cases.executeByCaseId, services.eventStore),
         },
       },
     }),

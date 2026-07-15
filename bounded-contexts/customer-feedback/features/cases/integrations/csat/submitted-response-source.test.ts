@@ -8,6 +8,7 @@ describe("submitted CSAT response case source", () => {
         rows: [
           {
             invitation_id: "csatinv_01",
+            subject_account_id: "acc_customer",
             survey_kind: "transactional-csat",
             survey_version: "csat.v1",
             question_version: "csat.q.v1",
@@ -27,6 +28,7 @@ describe("submitted CSAT response case source", () => {
 
     expect(response).toMatchObject({
       invitationId: "csatinv_01",
+      subjectAccountId: "acc_customer",
       rating: 5,
       followUpConsentVersion: "feedback-follow-up-v1",
     });

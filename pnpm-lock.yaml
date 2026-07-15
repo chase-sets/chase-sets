@@ -390,9 +390,15 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/http':
+        specifier: workspace:*
+        version: link:../../contracts/http
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
+      '@chase-sets/outbound-messaging':
+        specifier: workspace:*
+        version: link:../../contracts/outbound-messaging
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
@@ -752,6 +758,9 @@ importers:
       '@chase-sets/outbound-messaging':
         specifier: workspace:*
         version: link:../../contracts/outbound-messaging
+      '@chase-sets/platform-runtime':
+        specifier: workspace:*
+        version: link:../../infrastructure/platform-runtime
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives

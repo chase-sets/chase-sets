@@ -86,6 +86,10 @@ Customer Feedback terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - `customer-feedback.case.follow-up-consent-withdrawn`
 - `customer-feedback.case.closed`
 - `customer-feedback.case.reopened`
+- `customer-feedback.case.attention-requested`
+- `customer-feedback.case.attention-delivery-outcome-recorded`
+- `customer-feedback.attention.digest-requested`
+- `customer-feedback.attention.digest-delivery-outcome-recorded`
 
 Every native lifecycle event carries `eventSchemaVersion: 1`. Issuance includes an
 opaque public reference and the complete persisted sampling decision plus policy
@@ -161,6 +165,23 @@ the timeline preserves safe attributed event data. Customer comments remain only
 in the authoritative invitation response projection and are joined for authorized
 detail reads rather than copied into case events, timelines, notifications, URLs,
 logs, or analytics labels.
+
+## Feedback Attention And Delivery
+
+The launch attention policy is `low-score-v1`: ratings 1–2 request attention,
+with priority-based triage deadlines recorded when the request is classified.
+The rule version and rating are part of the event, so later policy revisions do
+not rewrite historical classification. Close resolves active attention; reopen
+creates a new deduplicated request and returns the case to the queue.
+
+The scheduled attention digest uses aligned UTC windows and deterministic
+per-recipient streams. It groups assigned work by operator, unassigned work by
+the support team, applies a per-group cap, and links only to the authorized admin
+queue. Notifications consumes the minimal request facts and publishes delivery
+reports; Customer Feedback records attention, digest, and follow-up outcomes.
+Follow-up delivery is checked against the authoritative current case immediately
+before dispatch, so withdrawn consent, an inapplicable disposition, a changed
+recipient, or a completed request suppresses the send.
 
 ## Invitation Projection
 

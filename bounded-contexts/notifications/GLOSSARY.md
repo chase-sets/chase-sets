@@ -59,3 +59,17 @@ happens at the shared outbox dispatcher immediately before adapter delivery.
 A **Recipient Account** is the account whose Notification Preferences govern a notification. The
 recipient account is carried on the outbound message when known; anonymous messages have no
 recipient account and therefore have no account-level opt-out to apply.
+
+## Notification Delivery Report
+
+A **Notification Delivery Report** is the durable, minimal fact Notifications
+publishes after an attempted channel delivery. It identifies the source workflow
+by stable reference and records sent, failed, suppressed, or retry-exhausted
+outcomes without copying message bodies or contact details.
+
+## Customer Feedback
+
+**Customer Feedback** is the source-context event noun used when Notifications
+reports delivery outcomes for feedback attention, digests, and consented
+follow-up. Notifications owns delivery only; Customer Feedback retains case and
+consent authority.

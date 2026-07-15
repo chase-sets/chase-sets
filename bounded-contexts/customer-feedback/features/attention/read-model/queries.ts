@@ -38,24 +38,30 @@ export async function listFeedbackAttention(
            WHERE existing.case_id = cases.case_id AND existing.state = 'active'
          )
      ), attention_queue AS (
-       SELECT attention_id AS "attentionId", case_id AS "caseId", state, reason,
+      SELECT attention_id AS "attentionId", case_id AS "caseId", state, reason,
               rule_version AS "ruleVersion", rating, priority, owner_id AS "ownerId",
               opened_at AS "openedAt", triaged_at AS "triagedAt", due_at AS "dueAt",
-              triage_due_at AS "triageDueAt", closed_at AS "closedAt"
+              triage_due_at AS "triageDueAt", closed_at AS "closedAt",
+              delivery_status AS "deliveryStatus", delivery_reference AS "deliveryReference",
+              delivery_reported_at AS "deliveryReportedAt"
        FROM customer_feedback_case_attention
        WHERE state = 'active'
        UNION ALL
        SELECT 'sla:' || "caseId", "caseId", 'active', 'sla-breach', 'triage-sla-v1', rating, priority, "ownerId",
-              "openedAt", "triagedAt", "dueAt", "triageDueAt", "closedAt"
+              "openedAt", "triagedAt", "dueAt", "triageDueAt", "closedAt", 'pending', NULL, NULL
        FROM derived_sla_attention
        WHERE ("triagedAt" IS NULL AND "triageDueAt" < $1) OR ("dueAt" IS NOT NULL AND "dueAt" < $1)
      )
-     SELECT *
+     SELECT attention_queue.*,
+            cases.follow_up_delivery_status AS "followUpDeliveryStatus",
+            cases.follow_up_channel AS "followUpChannel"
      FROM attention_queue
-     WHERE state = 'active'
+     JOIN customer_feedback_feedback_cases AS cases ON cases.case_id = attention_queue."caseId"
+     WHERE attention_queue.state = 'active'
        ${overdueClause}
        ${ownerClause}
-     ORDER BY priority DESC, COALESCE("dueAt", "triageDueAt"), "attentionId"
+     ORDER BY CASE priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END DESC,
+              COALESCE("dueAt", "triageDueAt"), "attentionId"
      LIMIT $${values.length}`,
     values,
   );

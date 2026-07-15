@@ -1277,6 +1277,8 @@ function createScheduledJobRunners(
     | "paymentReconciliationIntervalMs"
     | "paymentDeadlineSweepIntervalMs"
     | "supportRequestDeadlineSweepIntervalMs"
+    | "customerFeedbackAttentionDigestIntervalMs"
+    | "customerFeedbackAttentionTeamRecipientUserIds"
     | "reviewWindowSweepIntervalMs"
     | "reviewOpportunityReminderSweepIntervalMs"
     | "sellerAvailabilityRestoreSweepIntervalMs"
@@ -1297,6 +1299,23 @@ function createScheduledJobRunners(
   controlPlane: PlatformControlPlane,
 ): readonly WorkerRunner[] {
   const payments = services.payments as PaymentsServices | undefined;
+  const customerFeedback = services["customer-feedback"] as
+    | {
+        runAttentionDigest?: (
+          input: {
+            windowMinutes?: number;
+            maxItemsPerGroup?: number;
+            teamRecipientUserIds?: readonly string[];
+          },
+          context: typeof SYSTEM_CONTEXT,
+        ) => Promise<{
+          groupsRequested: number;
+          groupsAlreadyRequested: number;
+          noRecipientGroups: number;
+          itemCount: number;
+        }>;
+      }
+    | undefined;
   const ordering = services.ordering as
     | {
         orders?: {
@@ -1479,6 +1498,31 @@ function createScheduledJobRunners(
             result.reviewRemindersEmitted +
             result.returnRefundsReleased
           );
+        },
+      ),
+    );
+  }
+
+  if (customerFeedback?.runAttentionDigest && input.customerFeedbackAttentionDigestIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        "customer-feedback.attention-digest",
+        input.customerFeedbackAttentionDigestIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await customerFeedback.runAttentionDigest!(
+            {
+              windowMinutes: Math.max(1, Math.floor(input.customerFeedbackAttentionDigestIntervalMs! / 60_000)),
+              maxItemsPerGroup: 25,
+              teamRecipientUserIds: input.customerFeedbackAttentionTeamRecipientUserIds,
+            },
+            SYSTEM_CONTEXT,
+          );
+          logger.info("Customer Feedback attention digest completed.", {
+            type: "customer-feedback.attention-digest.completed",
+            result,
+          });
+          return result.groupsRequested;
         },
       ),
     );
@@ -2553,6 +2597,23 @@ function createNotificationDispatchRunners(
   if (!preferenceResolver) {
     throw new Error("Notifications preference resolver is unavailable for notification dispatch.");
   }
+  const deliveryOutcomeReporter = (
+    notificationCenterContext?.services as
+      | {
+          notificationDeliveryOutcomeReporter?: Parameters<
+            typeof createNotificationOutboxDispatcher
+          >[0]["deliveryOutcomeReporter"];
+        }
+      | undefined
+  )?.notificationDeliveryOutcomeReporter;
+  const customerFeedbackContext = runtime.mountedContexts.find(
+    (context) => context.contextName === "customer-feedback",
+  );
+  const deliveryGuard = (
+    customerFeedbackContext?.services as
+      | { notificationDeliveryGuard?: Parameters<typeof createNotificationOutboxDispatcher>[0]["deliveryGuard"] }
+      | undefined
+  )?.notificationDeliveryGuard;
   const mobileMessageAdapters: readonly NotificationChannelAdapter[] =
     config.mobileMessaging.kind === "twilio"
       ? [
@@ -2589,6 +2650,8 @@ function createNotificationDispatchRunners(
       const dispatcher = createNotificationOutboxDispatcher({
         outbox: createPostgresNotificationOutbox({ db: context.pool }),
         preferenceResolver,
+        ...(deliveryGuard ? { deliveryGuard } : {}),
+        ...(deliveryOutcomeReporter ? { deliveryOutcomeReporter } : {}),
         adapters: [
           emailAdapter,
           ...mobileMessageAdapters,

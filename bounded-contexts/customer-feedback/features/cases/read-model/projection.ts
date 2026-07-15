@@ -143,7 +143,11 @@ async function applyCurrentState(db: PgQueryable, event: ProjectedEvent): Promis
         `follow_up_delivery_status = $4, follow_up_delivery_reference = COALESCE($5, follow_up_delivery_reference),
          follow_up_channel = COALESCE($6, follow_up_channel), follow_up_template_version = COALESCE($7, follow_up_template_version),
          follow_up_sent_at = CASE WHEN $4 = 'sent' THEN $8 ELSE follow_up_sent_at END,
-         follow_up_status = CASE WHEN $4 = 'sent' THEN 'sent' ELSE follow_up_status END`,
+         follow_up_status = CASE
+           WHEN $4 = 'sent' THEN 'sent'
+           WHEN $4 IN ('suppressed', 'retry-exhausted', 'no-recipient') THEN 'cancelled'
+           ELSE follow_up_status
+         END`,
         [
           outcome.outcome,
           outcome.deliveryReference,
@@ -156,6 +160,13 @@ async function applyCurrentState(db: PgQueryable, event: ProjectedEvent): Promis
     case "customer-feedback.case.follow-up-outcome-recorded": {
       const outcome = data as Extract<FeedbackCaseEvent, { type: typeof event.type }>["data"];
       return update(db, event, `follow_up_status = 'completed', follow_up_outcome = $4`, [outcome.outcome]);
+    }
+    case "customer-feedback.case.attention-delivery-outcome-recorded": {
+      const outcome = data as Extract<FeedbackCaseEvent, { type: typeof event.type }>["data"];
+      return update(db, event, `attention_delivery_status = $4, attention_delivery_reference = $5`, [
+        outcome.outcome,
+        outcome.deliveryReference,
+      ]);
     }
     case "customer-feedback.case.follow-up-consent-withdrawn":
       return update(
@@ -179,8 +190,12 @@ async function applyCurrentState(db: PgQueryable, event: ProjectedEvent): Promis
          follow_up_status = CASE WHEN follow_up_status = 'cancelled' THEN 'not-requested' ELSE follow_up_status END`,
         [data.actedAt],
       );
-    case "customer-feedback.case.attention-requested":
-      return update(db, event, "updated_at = $2", []);
+    case "customer-feedback.case.attention-requested": {
+      const attention = data as Extract<FeedbackCaseEvent, { type: typeof event.type }>["data"];
+      return update(db, event, `attention_delivery_status = $4, attention_delivery_reference = NULL`, [
+        attention.ownerId ? "pending" : "no-recipient",
+      ]);
+    }
     default:
       return assertNever(event.type);
   }

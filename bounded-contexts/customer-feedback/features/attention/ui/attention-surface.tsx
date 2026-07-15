@@ -17,7 +17,13 @@ export type FeedbackAttentionMetrics = Readonly<{
   activeCount: number;
   overdueCount: number;
   medianTimeToTriageMs: number | null;
+  medianTimeToCloseMs: number | null;
+  oldestOverdueMs: number | null;
+  deliverySuccesses: number;
   deliveryFailures: number;
+  digestPending: number;
+  digestFailures: number;
+  latestDigestAt: string | null;
 }>;
 
 function priorityTone(priority: FeedbackAttentionItem["priority"]) {
@@ -58,7 +64,11 @@ export function FeedbackAttentionSurface({
               key: "case",
               header: t("customer-feedback.attention.case"),
               cell: (item) => (
-                <LinkButton href="/support/customer-feedback/attention" tone="ghost" size="sm">
+                <LinkButton
+                  href={`/support/customer-feedback/attention?caseId=${encodeURIComponent(item.caseId)}`}
+                  tone="ghost"
+                  size="sm"
+                >
                   {item.caseId}
                 </LinkButton>
               ),
@@ -96,6 +106,15 @@ export function FeedbackAttentionSurface({
                   </Badge>
                 );
               },
+            },
+            {
+              key: "delivery",
+              header: t("customer-feedback.attention.delivery"),
+              cell: (item) => (
+                <Text>
+                  {item.deliveryStatus} / {item.followUpDeliveryStatus}
+                </Text>
+              ),
             },
             {
               key: "owner",

@@ -29,4 +29,10 @@ export const customerFeedbackRetentionExemptions: readonly BcRetentionExemption[
     reason:
       "Attention rows are replayable SLA and operator-queue projections rebuilt from the retained case event stream.",
   },
+  {
+    tableName: "customer_feedback_attention_digest_runs",
+    owner: "customer-feedback",
+    reason:
+      "Digest run rows are replayable operational health projections rebuilt from versioned request and delivery facts.",
+  },
 ];

@@ -36,7 +36,12 @@ Notifications terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Outgoing Integration Events
 
-- None in the first extraction.
+- `notifications.customer-feedback.delivery-reported`
+
+The delivery report contains only the source workflow reference, channel,
+template version, bounded attempt counts, and outcome. Customer comments,
+message bodies, contact addresses, and other unnecessary customer data are not
+copied into the event.
 
 ## Invariants
 

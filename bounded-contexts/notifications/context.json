@@ -1,7 +1,12 @@
 {
   "contextName": "notifications",
   "packageName": "@chase-sets/notifications",
-  "ownedNouns": ["notification-center", "notification-feed-item", "notification-preference"],
+  "ownedNouns": [
+    "notification-center",
+    "notification-feed-item",
+    "notification-preference",
+    "notification-delivery-report"
+  ],
   "streamPrefix": "notifications.",
   "apiBasePath": "/api/notifications",
   "slices": ["notification-center", "preferences"],
@@ -55,7 +60,11 @@
       "sourceContextName": "customer-feedback",
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 1,
-      "eventTypes": ["customer-feedback.case.attention-requested", "customer-feedback.case.follow-up-requested"],
+      "eventTypes": [
+        "customer-feedback.case.attention-requested",
+        "customer-feedback.case.follow-up-requested",
+        "customer-feedback.attention.digest-requested"
+      ],
       "order": 70,
       "projectionHandlerSetNames": ["notifications-customer-feedback-facts-projection"]
     }
