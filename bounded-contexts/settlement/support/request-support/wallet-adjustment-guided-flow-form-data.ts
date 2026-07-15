@@ -19,6 +19,17 @@ export type WalletAdjustmentGuidedFlowValues = Readonly<{
   evidenceReferences: readonly string[];
 }>;
 
+export const WALLET_ADJUSTMENT_FORM_INTENTS = {
+  preview: "preview-adjustment",
+  request: "request-adjustment",
+  approve: "approve-adjustment",
+  reject: "reject-adjustment",
+  reverse: "reverse-adjustment",
+} as const;
+
+export type WalletAdjustmentFormIntent =
+  (typeof WALLET_ADJUSTMENT_FORM_INTENTS)[keyof typeof WALLET_ADJUSTMENT_FORM_INTENTS];
+
 export const WALLET_ADJUSTMENT_GUIDED_FLOW_DEFAULT_VALUES: WalletAdjustmentGuidedFlowValues = {
   direction: "credit",
   amount: "",

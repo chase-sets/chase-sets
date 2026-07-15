@@ -284,6 +284,36 @@ describe("SettlementWalletWorkbenchPage", () => {
     expect(screen.getByRole("button", { name: "Confirm & submit" })).toBeTruthy();
   });
 
+  it("preserves safe input after a stale preview and requires a new preview", () => {
+    renderWorkbench({
+      wallet: wallet({ available_balance_amount: "100.00" }),
+      actorPermissions: ["wallet-adjustments.view", "wallet-adjustments.create"],
+      lastAction: {
+        intent: "request-adjustment",
+        values: {
+          direction: "debit",
+          amount: "15.00",
+          reasonCode: "other-with-required-detail",
+          explanation: "Correct duplicate settlement credit",
+          evidenceReferences: ["SUP-B2C3D4E5"],
+        },
+        error: {
+          kind: "stale-preview",
+          message: "Wallet balance changed since preview; request a new preview.",
+          fieldErrors: [],
+        },
+      },
+    });
+
+    expect((screen.getByRole("spinbutton", { name: "Amount" }) as HTMLInputElement).value).toBe("15.00");
+    expect((screen.getByLabelText("Explanation (required)") as HTMLTextAreaElement).value).toBe(
+      "Correct duplicate settlement credit",
+    );
+    expect(screen.getByText("Balance changed since preview")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Request preview" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Confirm & submit" })).toBeNull();
+  });
+
   it("reveals the elevated-approver field when approval requires a second, elevated approval", () => {
     const pending = adjustment({ adjustment_id: "wad_elevated", requested_by: "usr_someone_else" });
 

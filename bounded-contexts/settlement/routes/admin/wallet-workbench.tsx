@@ -11,7 +11,10 @@ import {
   type SettlementWalletRow,
 } from "../../support/request-support/api-client";
 import { describeWalletAdjustmentFlowError } from "../../support/request-support/wallet-adjustment-flow-error";
-import { readWalletAdjustmentGuidedFlowValues } from "../../support/request-support/wallet-adjustment-guided-flow-form-data";
+import {
+  readWalletAdjustmentGuidedFlowValues,
+  WALLET_ADJUSTMENT_FORM_INTENTS,
+} from "../../support/request-support/wallet-adjustment-guided-flow-form-data";
 import {
   SettlementWalletWorkbenchPage,
   type WalletWorkbenchLastAction,
@@ -158,7 +161,7 @@ function optionalText(value: FormDataEntryValue | null): string | null {
 
 export const action = defineFormAction({
   intents: {
-    "preview-adjustment": async ({ request, params, formData, intent }) => {
+    [WALLET_ADJUSTMENT_FORM_INTENTS.preview]: async ({ request, params, formData, intent }) => {
       const values = readWalletAdjustmentGuidedFlowValues(formData);
       try {
         const preview: SettlementWalletAdjustmentPreview = await createSettlementRequestApiClient(
@@ -181,7 +184,7 @@ export const action = defineFormAction({
         };
       }
     },
-    "request-adjustment": async ({ request, params, formData, intent }) => {
+    [WALLET_ADJUSTMENT_FORM_INTENTS.request]: async ({ request, params, formData, intent }) => {
       const values = readWalletAdjustmentGuidedFlowValues(formData);
       const expectedBalanceRevision = optionalText(formData.get("expectedBalanceRevision"));
       try {
@@ -206,7 +209,7 @@ export const action = defineFormAction({
         };
       }
     },
-    "approve-adjustment": async ({ request, formData, intent }) => {
+    [WALLET_ADJUSTMENT_FORM_INTENTS.approve]: async ({ request, formData, intent }) => {
       const adjustmentId = String(formData.get("adjustmentId") ?? "");
       const elevationApprovedByUserId = optionalText(formData.get("elevationApprovedByUserId"));
       try {
@@ -226,7 +229,7 @@ export const action = defineFormAction({
         };
       }
     },
-    "reject-adjustment": async ({ request, formData, intent }) => {
+    [WALLET_ADJUSTMENT_FORM_INTENTS.reject]: async ({ request, formData, intent }) => {
       const adjustmentId = String(formData.get("adjustmentId") ?? "");
       try {
         const snapshot = await createSettlementRequestApiClient(request).rejectWalletAdjustment(adjustmentId, {
@@ -244,7 +247,7 @@ export const action = defineFormAction({
         };
       }
     },
-    "reverse-adjustment": async ({ request, formData, intent }) => {
+    [WALLET_ADJUSTMENT_FORM_INTENTS.reverse]: async ({ request, formData, intent }) => {
       const adjustmentId = String(formData.get("adjustmentId") ?? "");
       try {
         const result = await createSettlementRequestApiClient(request).reverseWalletAdjustment(adjustmentId, {

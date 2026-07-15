@@ -16,15 +16,24 @@ import {
   type DataColumn,
   type Tone,
 } from "@chase-sets/design-system";
-import type { WalletAdjustmentReasonCode } from "../domain/wallet-adjustment";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../read-model/queries";
 import type { SettlementWalletAdjustmentRow } from "../read-model/wallet-adjustment-queries";
 import type { SettlementWalletAdjustmentPreview } from "../../../client";
 import type { WalletAdjustmentFlowError } from "../../../support/request-support/wallet-adjustment-flow-error";
-import type { WalletAdjustmentGuidedFlowValues } from "../../../support/request-support/wallet-adjustment-guided-flow-form-data";
+import type {
+  WalletAdjustmentFormIntent,
+  WalletAdjustmentGuidedFlowValues,
+} from "../../../support/request-support/wallet-adjustment-guided-flow-form-data";
 import { WalletAdjustmentGuidedFlowForm } from "./wallet-adjustment-guided-flow";
 import { WalletAdjustmentApprovalActions } from "./wallet-adjustment-approval-actions";
 import { WalletAdjustmentReversalActions } from "./wallet-adjustment-reversal-actions";
+import {
+  walletAdjustmentDirectionLabel,
+  walletAdjustmentDirectionTone,
+  walletAdjustmentReasonCodeLabel,
+  walletAdjustmentStatusLabel,
+  walletAdjustmentStatusTone,
+} from "./wallet-adjustment-copy";
 
 export const WALLET_ADJUSTMENT_PERMISSIONS = {
   view: "wallet-adjustments.view",
@@ -47,7 +56,7 @@ export type WalletWorkbenchLedgerFilters = Readonly<{
 }>;
 
 export type WalletWorkbenchLastAction = Readonly<{
-  intent: string;
+  intent: WalletAdjustmentFormIntent;
   adjustmentId?: string | null;
   snapshot?: SettlementWalletAdjustmentRow | null;
   reversal?: SettlementWalletAdjustmentRow | null;
@@ -93,66 +102,6 @@ function negativeBalanceLabel(status: SettlementWalletRow["negative_balance_stat
     return t("settlement.features.wallets.ui.walletWorkbenchPage.standing.negative");
   }
   return t("settlement.features.wallets.ui.walletWorkbenchPage.standing.good");
-}
-
-function adjustmentStatusTone(status: SettlementWalletAdjustmentRow["status"]): Tone {
-  switch (status) {
-    case "posted":
-      return "success";
-    case "reversed":
-      return "neutral";
-    case "rejected":
-      return "danger";
-    case "approved":
-      return "accent";
-    case "requested":
-    default:
-      return "warning";
-  }
-}
-
-function adjustmentStatusLabel(status: SettlementWalletAdjustmentRow["status"]) {
-  switch (status) {
-    case "requested":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.status.requested");
-    case "approved":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.status.approved");
-    case "rejected":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.status.rejected");
-    case "posted":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.status.posted");
-    case "reversed":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.status.reversed");
-    default:
-      return status;
-  }
-}
-
-function reasonCodeLabel(code: WalletAdjustmentReasonCode | string) {
-  switch (code) {
-    case "transaction-correction":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.reason.transaction.correction");
-    case "refund-correction":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.reason.refund.correction");
-    case "fee-correction":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.reason.fee.correction");
-    case "dispute-resolution":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.reason.dispute.resolution");
-    case "fraud-recovery":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.reason.fraud.recovery");
-    case "support-resolution":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.reason.support.resolution");
-    case "legal-obligation":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.reason.legal.obligation");
-    case "goodwill-cash-credit":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.reason.goodwill.cash.credit");
-    case "operational-error":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.reason.operational.error");
-    case "other-with-required-detail":
-      return t("settlement.features.wallets.ui.walletWorkbenchPage.reason.other.with.required.detail");
-    default:
-      return code;
-  }
 }
 
 function payoutDetailHref(payoutId: string, marketplaceOrigin?: string | null) {
@@ -287,6 +236,7 @@ function AdjustmentActionsCell({
       <WalletAdjustmentApprovalActions
         adjustment={adjustment}
         targetAccountLabel={accountLabel}
+        returnTo={`/commerce/wallet-workbench/${encodeURIComponent(adjustment.target_account_id)}`}
         currentActorUserId={currentActorUserId}
         flowError={scopedError}
       />
@@ -297,6 +247,7 @@ function AdjustmentActionsCell({
       <WalletAdjustmentReversalActions
         adjustment={adjustment}
         targetAccountLabel={accountLabel}
+        returnTo={`/commerce/wallet-workbench/${encodeURIComponent(adjustment.target_account_id)}`}
         flowError={scopedError}
       />
     );
@@ -310,7 +261,7 @@ function adjustmentStatusFilterLabel(value: (typeof adjustmentStatusFilterValues
   if (value === "all") {
     return t("settlement.features.wallets.ui.walletWorkbenchPage.filter.all");
   }
-  return adjustmentStatusLabel(value);
+  return walletAdjustmentStatusLabel(value);
 }
 
 function AdjustmentHistorySection({
@@ -344,7 +295,7 @@ function AdjustmentHistorySection({
       header: t("settlement.features.wallets.ui.walletWorkbenchPage.status"),
       cell: (row) => (
         <Stack gap={1}>
-          <Badge tone={adjustmentStatusTone(row.status)}>{adjustmentStatusLabel(row.status)}</Badge>
+          <Badge tone={walletAdjustmentStatusTone(row.status)}>{walletAdjustmentStatusLabel(row.status)}</Badge>
           <Text size="sm" tone="secondary">
             {row.adjustment_id}
           </Text>
@@ -356,7 +307,9 @@ function AdjustmentHistorySection({
       header: t("settlement.features.wallets.ui.walletWorkbenchPage.direction"),
       cell: (row) => (
         <Stack gap={1}>
-          <Badge tone={row.direction === "credit" ? "success" : "danger"}>{row.direction}</Badge>
+          <Badge tone={walletAdjustmentDirectionTone(row.direction)}>
+            {walletAdjustmentDirectionLabel(row.direction)}
+          </Badge>
           <Text weight="semibold">{formatMoney(row.amount, row.currency_code)}</Text>
         </Stack>
       ),
@@ -366,7 +319,7 @@ function AdjustmentHistorySection({
       header: t("settlement.features.wallets.ui.walletWorkbenchPage.reason"),
       cell: (row) => (
         <Stack gap={1}>
-          <Text>{reasonCodeLabel(row.reason_code)}</Text>
+          <Text>{walletAdjustmentReasonCodeLabel(row.reason_code)}</Text>
           {row.explanation ? (
             <Text size="sm" tone="secondary">
               {row.explanation}
@@ -557,7 +510,11 @@ function LedgerSection({
           {
             key: "direction",
             header: t("settlement.features.wallets.ui.walletWorkbenchPage.direction"),
-            cell: (row) => <Badge tone={row.direction === "credit" ? "success" : "danger"}>{row.direction}</Badge>,
+            cell: (row) => (
+              <Badge tone={walletAdjustmentDirectionTone(row.direction)}>
+                {walletAdjustmentDirectionLabel(row.direction)}
+              </Badge>
+            ),
           },
           {
             key: "amount",

@@ -5,7 +5,9 @@ import { RouterForm } from "@chase-sets/design-system/react-router";
 import { AlertDialog, Banner, Button, HiddenInput, Stack, Text, TextInput, Textarea } from "@chase-sets/design-system";
 import type { SettlementWalletAdjustment } from "../../../client";
 import type { WalletAdjustmentFlowError } from "../../../support/request-support/wallet-adjustment-flow-error";
+import { WALLET_ADJUSTMENT_FORM_INTENTS } from "../../../support/request-support/wallet-adjustment-guided-flow-form-data";
 import { walletAdjustmentFlowErrorTitle, walletAdjustmentFlowErrorTone } from "./wallet-adjustment-copy";
+import { WalletAdjustmentReauthenticationLink } from "./wallet-adjustment-reauthentication-link";
 
 /**
  * Approve/reject guided actions for a single "requested" Wallet Adjustment.
@@ -19,11 +21,13 @@ import { walletAdjustmentFlowErrorTitle, walletAdjustmentFlowErrorTone } from ".
 export function WalletAdjustmentApprovalActions({
   adjustment,
   targetAccountLabel,
+  returnTo,
   currentActorUserId,
   flowError,
 }: {
   adjustment: SettlementWalletAdjustment;
   targetAccountLabel: string;
+  returnTo: string;
   currentActorUserId: string;
   flowError: WalletAdjustmentFlowError | null;
 }) {
@@ -56,11 +60,14 @@ export function WalletAdjustmentApprovalActions({
       ) : null}
 
       {flowError ? (
-        <Banner
-          tone={walletAdjustmentFlowErrorTone(flowError.kind)}
-          title={walletAdjustmentFlowErrorTitle(flowError.kind)}
-          description={flowError.message}
-        />
+        <Stack gap={2}>
+          <Banner
+            tone={walletAdjustmentFlowErrorTone(flowError.kind)}
+            title={walletAdjustmentFlowErrorTitle(flowError.kind)}
+            description={flowError.message}
+          />
+          <WalletAdjustmentReauthenticationLink errorKind={flowError.kind} returnTo={returnTo} />
+        </Stack>
       ) : null}
 
       {requiresElevatedApproval ? (
@@ -137,7 +144,7 @@ export function WalletAdjustmentApprovalActions({
         spacing="none"
         aria-hidden="true"
       >
-        <HiddenInput type="hidden" name="intent" value="approve" />
+        <HiddenInput type="hidden" name="intent" value={WALLET_ADJUSTMENT_FORM_INTENTS.approve} />
         <HiddenInput type="hidden" name="adjustmentId" value={adjustment.adjustment_id} />
         {requiresElevatedApproval && elevationApprovedByUserId.trim() ? (
           <HiddenInput type="hidden" name="elevationApprovedByUserId" value={elevationApprovedByUserId.trim()} />
@@ -151,7 +158,7 @@ export function WalletAdjustmentApprovalActions({
         spacing="none"
         aria-hidden="true"
       >
-        <HiddenInput type="hidden" name="intent" value="reject" />
+        <HiddenInput type="hidden" name="intent" value={WALLET_ADJUSTMENT_FORM_INTENTS.reject} />
         <HiddenInput type="hidden" name="adjustmentId" value={adjustment.adjustment_id} />
         <HiddenInput type="hidden" name="rejectionReason" value={rejectionReason} />
       </RouterForm>

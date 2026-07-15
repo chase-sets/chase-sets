@@ -24,6 +24,7 @@ import type { WalletAdjustmentReasonCode } from "../domain/wallet-adjustment";
 import type { SettlementWalletAdjustmentPreview } from "../../../client";
 import type { WalletAdjustmentFlowError } from "../../../support/request-support/wallet-adjustment-flow-error";
 import {
+  WALLET_ADJUSTMENT_FORM_INTENTS,
   WALLET_ADJUSTMENT_GUIDED_FLOW_DEFAULT_VALUES,
   type WalletAdjustmentGuidedFlowValues,
 } from "../../../support/request-support/wallet-adjustment-guided-flow-form-data";
@@ -37,6 +38,7 @@ import {
   walletAdjustmentReasonCodeLabel,
   walletAdjustmentReasonCodeRequiresExplanation,
 } from "./wallet-adjustment-copy";
+import { WalletAdjustmentReauthenticationLink } from "./wallet-adjustment-reauthentication-link";
 
 export { WALLET_ADJUSTMENT_GUIDED_FLOW_DEFAULT_VALUES, type WalletAdjustmentGuidedFlowValues };
 
@@ -119,11 +121,17 @@ export function WalletAdjustmentGuidedFlowForm({
       <PageStepper items={guidedFlowSteps(previewMatchesForm, false)} />
 
       {flowError ? (
-        <Banner
-          tone={walletAdjustmentFlowErrorTone(flowError.kind)}
-          title={walletAdjustmentFlowErrorTitle(flowError.kind)}
-          description={flowError.message}
-        />
+        <Stack gap={2}>
+          <Banner
+            tone={walletAdjustmentFlowErrorTone(flowError.kind)}
+            title={walletAdjustmentFlowErrorTitle(flowError.kind)}
+            description={flowError.message}
+          />
+          <WalletAdjustmentReauthenticationLink
+            errorKind={flowError.kind}
+            returnTo={`/commerce/wallet-workbench/${encodeURIComponent(targetAccountId)}`}
+          />
+        </Stack>
       ) : null}
 
       {validationErrors.length > 0 ? (
@@ -141,7 +149,7 @@ export function WalletAdjustmentGuidedFlowForm({
           submitting={submitting}
           validationSummaryId={validationErrors.length > 0 ? "wallet-adjustment-validation-summary" : undefined}
         >
-          <HiddenInput type="hidden" name="intent" value="preview" />
+          <HiddenInput type="hidden" name="intent" value={WALLET_ADJUSTMENT_FORM_INTENTS.preview} />
           <HiddenInput type="hidden" name="targetAccountId" value={targetAccountId} />
           <HiddenInput type="hidden" name="direction" value={direction} />
 
@@ -302,7 +310,7 @@ export function WalletAdjustmentGuidedFlowForm({
         spacing="none"
         aria-hidden="true"
       >
-        <HiddenInput type="hidden" name="intent" value="request" />
+        <HiddenInput type="hidden" name="intent" value={WALLET_ADJUSTMENT_FORM_INTENTS.request} />
         <HiddenInput type="hidden" name="targetAccountId" value={targetAccountId} />
         <HiddenInput type="hidden" name="direction" value={direction} />
         <HiddenInput type="hidden" name="amount" value={amount ?? ""} />
