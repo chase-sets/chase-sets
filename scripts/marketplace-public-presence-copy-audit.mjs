@@ -71,6 +71,8 @@ export async function auditPublicPresenceCopy(input, dependencies = {}) {
   }
 
   const errors = validateAudit({ checkedAt: options.checkedAt, mode: options.mode, pages: pageResults });
+  const termsPage = pageResults.find((page) => page.name === "terms");
+  const termsPublicationReady = isTermsPublicationReady(termsPage?.termsPublicationMetadata);
 
   return {
     schemaVersion: MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION,
@@ -83,6 +85,7 @@ export async function auditPublicPresenceCopy(input, dependencies = {}) {
     futureOnlyLaunchCopyRemoved:
       options.mode === "launch" && pageResults.every((page) => page.futureOnlyLaunchCopyMatches.length === 0),
     policyPagesReviewed: pageResults.every((page) => page.status === 200),
+    termsPublicationReady,
     uncertifiedClaimsAbsent: pageResults.every((page) => page.uncertifiedAgentCommerceClaimMatches.length === 0),
     passesPublicPresenceCopyAudit: errors.length === 0,
     ...(errors.length > 0 ? { errors } : {}),
@@ -121,6 +124,7 @@ async function auditPage({ baseUrl, page, fetchImpl }) {
     title: html.match(/<title>(.*?)<\/title>/i)?.[1] ?? null,
     futureOnlyLaunchCopyMatches: matchPatterns(text, FUTURE_ONLY_LAUNCH_COPY),
     uncertifiedAgentCommerceClaimMatches: matchPatterns(text, UNCERTIFIED_AGENT_COMMERCE_CLAIMS),
+    termsPublicationMetadata: page.name === "terms" ? readTermsPublicationMetadata(html) : null,
   };
 }
 
@@ -164,7 +168,44 @@ function validateAudit({ checkedAt, mode, pages }) {
       );
     }
   }
+  if (mode === "launch") {
+    const metadata = pages.find((page) => page.name === "terms")?.termsPublicationMetadata;
+    if (metadata?.policyKey !== "terms-of-service") {
+      errors.push("Public Presence /terms must expose the canonical terms-of-service policy key before launch.");
+    }
+    if (!/^v[1-9][0-9]*$/.test(metadata?.version ?? "")) {
+      errors.push("Public Presence /terms must expose a canonical vN policy version before launch.");
+    }
+    if (metadata?.publicationStatus !== "published") {
+      errors.push("Public Presence /terms policy artifact must be published before launch.");
+    }
+    if (!isIsoTimestamp(metadata?.effectiveAt)) {
+      errors.push("Public Presence /terms policy artifact must expose an effective ISO timestamp before launch.");
+    }
+  }
   return errors;
+}
+
+function readTermsPublicationMetadata(html) {
+  return {
+    policyKey: readDataAttribute(html, "policy-key"),
+    version: readDataAttribute(html, "policy-version"),
+    publicationStatus: readDataAttribute(html, "policy-publication-status"),
+    effectiveAt: readDataAttribute(html, "policy-effective-at"),
+  };
+}
+
+function readDataAttribute(html, name) {
+  return html.match(new RegExp(`data-${name}=["']([^"']*)["']`, "i"))?.[1] ?? null;
+}
+
+function isTermsPublicationReady(metadata) {
+  return (
+    metadata?.policyKey === "terms-of-service" &&
+    /^v[1-9][0-9]*$/.test(metadata.version ?? "") &&
+    metadata.publicationStatus === "published" &&
+    isIsoTimestamp(metadata.effectiveAt)
+  );
 }
 
 function stripHtml(html) {

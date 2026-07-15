@@ -42,6 +42,16 @@ Notes:
 - The m86 certification readiness flag defaults off.
 - Enabled routes still emit `noindex,nofollow` and remain absent from sitemaps until a separate public-indexing change.
 
+## Public Policy Artifact
+
+A **Public Policy Artifact** is a locale-specific, versioned policy document published by Public Presence at a stable public route with machine-readable policy key, version, publication status, and effective-date metadata.
+
+Notes:
+
+- Public Presence owns publication and the policy text; the bounded context whose behavior the policy describes remains the semantic source.
+- A Public Policy Artifact awaiting required counsel review is linkable for review but is explicitly marked non-effective and cannot satisfy the production launch-copy gate.
+- Identity consumes generated publication metadata through `@chase-sets/public-docs` while remaining the sole owner of acceptance facts and active required consent versions.
+
 ## Waitlist Signup
 
 A **Waitlist Signup** is a request for Chase Sets early access, qualified by account intent and product interests. Joining implies consent to early-access emails; consent to additional product updates beyond early-access notifications is a separate, optional opt-in.
