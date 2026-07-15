@@ -95,41 +95,23 @@ test.describe("platform admin projection operations", () => {
     await expect(page).toHaveURL(/\/platform\/projections$/);
     await expectAdminPageReady(page, { heading: "Projection Operations" });
 
-    await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: /Overview/ })).toBeVisible();
-    await expect(page.getByRole("tab", { name: /Attention/ })).toBeVisible();
-    await expect(page.getByRole("tab", { name: /Operations/ })).toBeVisible();
-    await expect(page.getByRole("tab", { name: /Projection groups/ })).toBeVisible();
-    await expect(page.getByRole("tab", { name: /Subscriptions/ })).toBeVisible();
-    await expect(page.getByRole("tab", { name: /Blocked streams/ })).toBeVisible();
-    await expect(page.getByRole("tab", { name: /Workers/ })).toBeVisible();
-    await expect(page.getByRole("tab", { name: /Push wakes/ })).toBeVisible();
-    await expect(page.getByRole("tab", { name: /Diagnostics/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Refresh status" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Projection repair queue" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Recent operation runs" })).toBeVisible();
 
-    for (const tabName of [
-      /Overview/,
-      /Attention/,
-      /Operations/,
-      /Projection groups/,
-      /Subscriptions/,
-      /Blocked streams/,
-      /Workers/,
-      /Push wakes/,
-      /Diagnostics/,
-    ]) {
-      await page.getByRole("tab", { name: tabName }).click();
-      await expectAdminPageReady(page, { heading: "Projection Operations" });
-    }
-
-    await page.getByRole("tab", { name: /Push wakes/ }).click();
+    await page.getByRole("link", { name: "Settings and reference" }).click();
+    await expect(page).toHaveURL(/\/platform\/projections\/reference$/);
+    await expectAdminPageReady(page, { heading: "Projection settings and reference" });
+    await expect(page.getByRole("heading", { name: "Projection groups" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Subscription matrix" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Push-wake reference" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open Grafana wake dashboard" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open push-wake runbook" })).toBeVisible();
 
-    await page.getByRole("tab", { name: /Projection groups/ }).click();
     await page.getByLabel("Search").fill("identity");
     await page.getByRole("button", { name: "Apply filters" }).click();
-    await expect(page).toHaveURL(/\/platform\/projections\?.*search=identity/);
-    await expectAdminPageReady(page, { heading: "Projection Operations" });
+    await expect(page).toHaveURL(/\/platform\/projections\/reference\?.*search=identity/);
+    await expectAdminPageReady(page, { heading: "Projection settings and reference" });
     await expect(page.getByText("Search: identity")).toBeVisible();
 
     // The projection console's group list and per-context/per-group rebuild controls are
@@ -140,23 +122,11 @@ test.describe("platform admin projection operations", () => {
     // rebuild-context / group-details / rebuild-group affordances only when the console
     // actually rendered them, logging the gap loudly rather than assuming a populated
     // projection-operations read model the seed does not create.
-    const rebuildContext = page.getByRole("button", { name: "Rebuild context" });
-    if (await rebuildContext.count()) {
-      await rebuildContext.first().click();
-      await expect(page.getByRole("heading", { name: "Rebuild context projections?" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Queue context rebuild" })).toBeVisible();
-      await page.keyboard.press("Escape");
-    } else {
-      logSeedContractGap(
-        "No 'Rebuild context' control for the identity search: the browser-e2e projection-operations read " +
-          "model surfaces no projection groups (event_projection_group_generations is unpopulated).",
-      );
-    }
-
     const groupDetails = page.getByRole("link", { name: "Details" });
     if (await groupDetails.count()) {
       await groupDetails.first().click();
-      await expect(page).toHaveURL(/\/platform\/projections\?.*selected=/);
+      await expect(page).toHaveURL(/\/platform\/projections\/reference\?.*selected=/);
+      await expect(page.getByRole("dialog")).toBeVisible();
       const rebuildGroup = page.getByRole("button", { name: "Rebuild" });
       if (await rebuildGroup.count()) {
         await rebuildGroup.first().click();
@@ -166,9 +136,11 @@ test.describe("platform admin projection operations", () => {
       } else {
         logSeedContractGap("Projection group details rendered no 'Rebuild' control for the selected group.");
       }
-      await page.goto("/platform/projections?tab=groups&search=identity");
-      await expectPageOk(page, "/platform/projections");
-      await expectAdminPageReady(page, { heading: "Projection Operations" });
+      const rebuildContext = page.getByRole("button", { name: "Rebuild context" });
+      await expect(rebuildContext).toBeVisible();
+      await page.goto("/platform/projections/reference?search=identity");
+      await expectPageOk(page, "/platform/projections/reference");
+      await expectAdminPageReady(page, { heading: "Projection settings and reference" });
     } else {
       logSeedContractGap(
         "No projection-group 'Details' link for the identity search: the browser-e2e projection-operations " +
@@ -176,7 +148,9 @@ test.describe("platform admin projection operations", () => {
       );
     }
 
-    await page.getByRole("button", { name: "Refresh" }).click();
+    await page.getByRole("link", { name: "Back to projection operations" }).click();
+    await expectAdminPageReady(page, { heading: "Projection Operations" });
+    await page.getByRole("button", { name: "Refresh status" }).click();
     await expect(page).toHaveURL(/\/platform\/projections\?.*search=identity/);
     await expectAdminPageReady(page, { heading: "Projection Operations" });
   });

@@ -394,11 +394,12 @@
       "surfaces": [
         "api-client:bounded-contexts/platform-operations/features/projection-operations/api/client.ts:POST H1e2a330b475d#1",
         "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#4",
-        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#5",
-        "route-action:bounded-contexts/platform-operations/routes/admin/projection-operations.tsx"
+        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-detail-drawer.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-detail-drawer.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-detail-drawer.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-detail-drawer.tsx:H2df726441e2a#4",
+        "route-action:bounded-contexts/platform-operations/routes/admin/projection-operations.tsx",
+        "route-action:bounded-contexts/platform-operations/routes/admin/projection-operations-reference.tsx"
       ],
       "visibleDestination": {
         "description": "Projection operation commands return live-refresh, queued-operation, or cancellation snapshots; the route action redirects to the same projection console URL so the loader refetches projection, wake, stale, lagging, partial, and unavailable states."
@@ -750,6 +751,14 @@
           "routeId": "projection-operations",
           "routePath": "projections",
           "fileExport": "./routes/admin/projection-operations",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "platform"
+        },
+        {
+          "routeId": "projection-operations-reference",
+          "routePath": "projections/reference",
+          "fileExport": "./routes/admin/projection-operations-reference",
           "routeType": "route",
           "sourceContext": "platform-operations",
           "section": "platform"
