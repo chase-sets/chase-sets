@@ -2593,6 +2593,7 @@ describe("DigitalOcean platform configuration", () => {
   it("requires preview deploy and smoke for deploy-scoped same-repository PRs without blocking forks", () => {
     const previewJob = workflowJob(platformPrWorkflow, "preview-deploy-smoke");
     const requiredJob = workflowJob(platformPrWorkflow, "pr-required");
+    const runtimeSecretsStep = workflowStep(previewJob, "Apply preview Kubernetes runtime secrets");
 
     expect(previewJob).toContain("github.event.pull_request.head.repo.full_name == github.repository");
     expect(previewJob).toContain("needs['change-scope'].result == 'success'");
@@ -2629,6 +2630,20 @@ describe("DigitalOcean platform configuration", () => {
     expect(previewJob).not.toContain('--runtime-env "STRIPE_API_BASE_URL=');
     expect(previewJob).not.toContain('--runtime-env "EASYPOST_API_BASE_URL=');
     expect(previewJob).not.toContain('--runtime-env "SES_');
+
+    const ucpSecretEnvironmentNames = [
+      ["UCP_BUSINESS_SIGNING_KEY_ID", "ucp_business_signing_key_id"],
+      ["UCP_BUSINESS_SIGNING_ALG", "ucp_business_signing_alg"],
+      ["UCP_BUSINESS_SIGNING_PRIVATE_JWK", "ucp_business_signing_private_jwk"],
+      ["UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS", "ucp_business_signing_previous_public_jwks"],
+      ["UCP_AP2_VERIFIER_URL", "ucp_ap2_verifier_url"],
+      ["UCP_AP2_VERIFIER_AUTH_TOKEN", "ucp_ap2_verifier_auth_token"],
+      ["UCP_AP2_VERIFIER_TIMEOUT_MS", "ucp_ap2_verifier_timeout_ms"],
+    ];
+    for (const [environmentName, terraformName] of ucpSecretEnvironmentNames) {
+      expect(runtimeSecretsStep).toContain(`TF_VAR_${terraformName}:`);
+      expect(runtimeSecretsStep).toContain(`export ${environmentName}="\${TF_VAR_${terraformName}`);
+    }
 
     expect(requiredJob).toContain("github.event.pull_request.head.repo.full_name == github.repository");
     expect(requiredJob).toContain("needs['change-scope'].outputs.cluster_preview == 'true'");

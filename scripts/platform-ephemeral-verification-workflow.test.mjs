@@ -26,6 +26,21 @@ describe("platform ephemeral verification workflow", () => {
     );
   });
 
+  it("provides every optional UCP secret expected by the Helm runtime contract", () => {
+    const runtimeSecrets = step(verification, "Apply verification Kubernetes runtime secrets");
+    for (const environmentName of [
+      "UCP_BUSINESS_SIGNING_KEY_ID",
+      "UCP_BUSINESS_SIGNING_ALG",
+      "UCP_BUSINESS_SIGNING_PRIVATE_JWK",
+      "UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS",
+      "UCP_AP2_VERIFIER_URL",
+      "UCP_AP2_VERIFIER_AUTH_TOKEN",
+      "UCP_AP2_VERIFIER_TIMEOUT_MS",
+    ]) {
+      expect(runtimeSecrets).toContain(`${environmentName}:`);
+    }
+  });
+
   it("always removes provider registrations and fails on a surviving namespace", () => {
     const providers = step(verification, "Delete verification provider webhooks");
     const namespace = step(verification, "Delete verification Kubernetes namespace");
