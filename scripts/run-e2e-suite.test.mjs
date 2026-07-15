@@ -162,7 +162,7 @@ describe("run e2e suite", () => {
     ]);
     expect(
       e2eSuiteIdsForChangedFile(
-        "bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx",
+        "bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-drawer.tsx",
       ),
     ).toEqual(["admin_commerce"]);
   });

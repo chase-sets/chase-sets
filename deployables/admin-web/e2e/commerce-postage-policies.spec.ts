@@ -48,40 +48,52 @@ test.describe("commerce admin postage policies", () => {
       await expect(createForm.getByLabel("Policy version", { exact: true })).toHaveValue(policyVersion);
       await createForm.getByRole("button", { name: "Create draft" }).click();
       await page.waitForURL(
-        (url) => url.pathname.startsWith("/commerce/postage-policies/") && url.search.includes("afterWrite"),
+        (url) =>
+          url.pathname === "/commerce/postage-policies" &&
+          url.searchParams.has("policy") &&
+          url.search.includes("afterWrite"),
         {
           timeout: 30_000,
         },
       );
       const createUrl = new URL(page.url());
-      policyId = createUrl.pathname.split("/").filter(Boolean).at(-1) ?? null;
+      policyId = createUrl.searchParams.get("policy");
       expect(policyId, "create redirect should include the postage policy id").toMatch(/^opp_/);
       await waitForOrderingPostagePolicyProjection(page, createUrl, `create postage policy ${policyId}`);
-      await page.goto(createUrl.pathname, { waitUntil: "domcontentloaded" });
-      await expectAdminPageReady(page, { heading: label });
-      await expect(page.getByRole("textbox", { name: "Policy version" }).first()).toHaveValue(policyVersion);
+      await page.goto(`/commerce/postage-policies?policy=${policyId}`, { waitUntil: "domcontentloaded" });
+      await expectAdminPageReady(page, { heading: "Postage Policies" });
+      const policyDrawer = page.getByRole("dialog", { name: label });
+      await expect(policyDrawer).toBeVisible();
+      await expect(policyDrawer.getByRole("textbox", { name: "Policy version" }).first()).toHaveValue(policyVersion);
 
-      await page.getByRole("button", { name: "Preview result" }).click();
-      await expect(page.getByText("Preview Result").last()).toBeVisible();
-      await expect(page.getByText(/Packages:/)).toBeVisible();
-      await expect(page.getByText(/Mailpiece:/)).toBeVisible();
-      await expect(page.getByText(/Parcel required:/)).toBeVisible();
+      await policyDrawer.getByRole("button", { name: "Preview result" }).click();
+      await expect(policyDrawer.getByText("Preview Result").last()).toBeVisible();
+      await expect(policyDrawer.getByText(/Packages:/)).toBeVisible();
+      await expect(policyDrawer.getByText(/Mailpiece:/)).toBeVisible();
+      await expect(policyDrawer.getByText(/Parcel required:/)).toBeVisible();
 
-      const activationForm = page
+      const activationForm = policyDrawer
         .locator("form")
         .filter({ has: page.getByLabel("Activation reason", { exact: true }) });
       const activationReason = `E2E activation ${uniqueSuffix}`;
       await activationForm.getByLabel("Activation reason", { exact: true }).fill(activationReason);
       await expect(activationForm.getByLabel("Activation reason", { exact: true })).toHaveValue(activationReason);
       await activationForm.getByRole("button", { name: "Activate" }).click();
+      await page
+        .getByRole("alertdialog", { name: `Activate ${label}?` })
+        .getByRole("button", { name: "Activate" })
+        .click();
       await page.waitForURL(
-        (url) => url.pathname.startsWith("/commerce/postage-policies/") && url.search.includes("afterWrite"),
+        (url) =>
+          url.pathname === "/commerce/postage-policies" &&
+          url.searchParams.get("policy") === policyId &&
+          url.search.includes("afterWrite"),
         {
           timeout: 30_000,
         },
       );
       const activationUrl = new URL(page.url());
-      const activatedPolicyId = activationUrl.pathname.split("/").filter(Boolean).at(-1);
+      const activatedPolicyId = activationUrl.searchParams.get("policy");
       expect(activatedPolicyId, "activation redirect should include the postage policy id").toBe(policyId);
       const activationReadAfterWriteHeaders = createReadAfterWriteHeaderFactoryFromUrl(activationUrl, {
         targetContextName: "ordering",
@@ -94,9 +106,11 @@ test.describe("commerce admin postage policies", () => {
         activationReason,
         activationReadAfterWriteHeaders,
       );
-      await page.goto(activationUrl.pathname, { waitUntil: "domcontentloaded" });
+      await page.goto(`/commerce/postage-policies?policy=${activatedPolicyId}`, { waitUntil: "domcontentloaded" });
       await expectActivatedPolicy(page, label, activationReason);
-      await expect(page.getByRole("row").filter({ hasText: "activated" })).toBeVisible();
+      await expect(
+        page.getByRole("dialog", { name: label }).getByRole("row").filter({ hasText: "activated" }),
+      ).toBeVisible();
     } finally {
       if (policyId) {
         const retireResponse = await page.request.post(
@@ -159,13 +173,14 @@ async function waitForPostagePolicyActivationReadModel(
 
 async function expectActivatedPolicy(page: Page, label: string, activationReason: string) {
   await expect(async () => {
-    await expectAdminPageReady(page, { heading: label }, { timeoutMs: 15_000 });
-    const activeVisible = await page
+    await expectAdminPageReady(page, { heading: "Postage Policies" }, { timeoutMs: 15_000 });
+    const drawer = page.getByRole("dialog", { name: label });
+    const activeVisible = await drawer
       .getByText("active")
       .first()
       .isVisible({ timeout: 1_000 })
       .catch(() => false);
-    const reasonVisible = await page
+    const reasonVisible = await drawer
       .getByText(`Activation reason: ${activationReason}`)
       .isVisible({ timeout: 1_000 })
       .catch(() => false);
