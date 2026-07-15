@@ -1,9 +1,8 @@
 import { formatDate, formatDisplayIdentity, t } from "@chase-sets/localization";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import {
   OrderProtectionModule,
-  Card,
   Container,
   Grid,
   ListingCard,
@@ -18,6 +17,7 @@ import {
   ProductOptions,
   RatingDistribution,
   RatingSummary,
+  ReviewCard,
   Stack,
   Text,
   formatProductImageAltText,
@@ -36,7 +36,14 @@ import {
   hasTrustedSellerBadge,
   TrustedSellerBadge,
 } from "../features/item-detail/ui/account-badges";
-import { createSellerMetricsRequestApiClient, type SellerBehavioralMetricsChips } from "@chase-sets/marketplace/server";
+import {
+  createMarketplaceRequestApiClient,
+  createSellerMetricsRequestApiClient,
+  MarketplaceApiError,
+  type ReportReviewRequest,
+  type SellerBehavioralMetricsChips,
+} from "@chase-sets/marketplace/server";
+import { ReviewReportAction, ReviewScoringContext, type ReviewReportResult } from "@chase-sets/marketplace/web";
 import { formatMoney } from "../support/ui-support/formatting";
 
 const ACCOUNT_REVIEW_PAGE_SIZE = 10;
@@ -290,6 +297,60 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 }
 
+function reviewReportErrorMessage(error: unknown) {
+  if (error instanceof MarketplaceApiError) {
+    const body = error.body as Readonly<{ error?: Readonly<{ message?: unknown }> }> | null;
+    const message = body?.error?.message;
+    if (typeof message === "string" && message.trim()) {
+      return message;
+    }
+  }
+  return error instanceof Error ? error.message : "Report submission failed. Try again.";
+}
+
+function marketplaceErrorCode(error: MarketplaceApiError) {
+  const body = error.body as Readonly<{ error?: Readonly<{ code?: unknown }> }> | null;
+  return typeof body?.error?.code === "string" ? body.error.code : null;
+}
+
+export async function action({ request, params }: ActionFunctionArgs) {
+  const formData = await request.formData();
+  if (formData.get("intent") !== "report-review") {
+    return null;
+  }
+
+  const reviewId = String(formData.get("reviewId") ?? "");
+  const reason = String(formData.get("reason") ?? "");
+  const details = String(formData.get("details") ?? "");
+  try {
+    await createMarketplaceRequestApiClient(request).reportReview(reviewId, {
+      reason: reason as ReportReviewRequest["reason"],
+      details: details || null,
+      sourceRoutePath: new URL(request.url).pathname,
+    });
+    return { reviewId, status: "submitted" } satisfies ReviewReportResult;
+  } catch (error) {
+    if (error instanceof MarketplaceApiError && error.status === 401) {
+      const url = new URL(request.url);
+      const returnTo = `${url.pathname}${url.search}#feedback`;
+      throw redirect(`/sign-in?returnTo=${encodeURIComponent(returnTo)}`);
+    }
+    if (
+      error instanceof MarketplaceApiError &&
+      error.status === 409 &&
+      marketplaceErrorCode(error) === "report_already_submitted"
+    ) {
+      return { reviewId, status: "already-submitted" } satisfies ReviewReportResult;
+    }
+    return {
+      reviewId,
+      status: "error",
+      message: reviewReportErrorMessage(error),
+      values: { reason, details },
+    } satisfies ReviewReportResult;
+  }
+}
+
 // Composition-root call to marketplace's public server API
 // client (already the established cross-context pattern for discovery's
 // item-detail route, support/route-support/item-detail/loader.ts) rather
@@ -330,6 +391,12 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 
 export default function PublicAccountRoute() {
   const data = useLoaderData<typeof loader>();
+  const reportResult = useActionData<typeof action>() as ReviewReportResult | undefined;
+  const navigation = useNavigation();
+  const submittingReportId =
+    navigation.state === "submitting" && navigation.formData?.get("intent") === "report-review"
+      ? String(navigation.formData.get("reviewId") ?? "")
+      : null;
 
   return (
     <PublicAccountRealtimeView
@@ -339,11 +406,21 @@ export default function PublicAccountRoute() {
         data.account?.listings.map((listing) => listing.listing_id).join("|") ?? "",
       ].join("\n")}
       data={data}
+      reportResult={reportResult}
+      submittingReportId={submittingReportId}
     />
   );
 }
 
-function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof loader>> }) {
+function PublicAccountRealtimeView({
+  data,
+  reportResult,
+  submittingReportId,
+}: {
+  data: Awaited<ReturnType<typeof loader>>;
+  reportResult?: ReviewReportResult;
+  submittingReportId: string | null;
+}) {
   const account = useRealtimePatchedSnapshot({
     initialSnapshot: data.account,
     snapshotKey: JSON.stringify(data.account),
@@ -500,38 +577,36 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                   {account.reviews.items.map((review) => {
                     const reviewDate = formatReviewDate(review.submitted_at ?? review.updated_at);
                     return (
-                      <Card key={review.review_id}>
-                        <Stack gap={2}>
-                          <Stack direction="row" gap={2} align="center">
-                            <RatingSummary value={review.rating} compact />
-                            <Badge tone="neutral">
-                              {review.author_role === "buyer"
-                                ? t("discovery.routes.publicAccount.as.seller")
-                                : t("discovery.routes.publicAccount.as.buyer")}
-                            </Badge>
-                          </Stack>
-                          <Text size="sm" weight="semibold">
-                            {reviewDate
-                              ? t("discovery.routes.publicAccount.review.byline", {
-                                  author:
-                                    review.author_display_name ?? t("discovery.routes.publicAccount.marketplace.buyer"),
-                                  date: reviewDate,
-                                })
-                              : (review.author_display_name ?? t("discovery.routes.publicAccount.marketplace.buyer"))}
-                          </Text>
-                          <Text size="sm" tone="secondary">
-                            {review.feedback ?? t("discovery.routes.publicAccount.no.written.feedback")}
-                          </Text>
-                        </Stack>
-                        {review.reply_feedback ? (
-                          <Text size="sm" tone="secondary">
-                            <Text as="span" size="sm" weight="semibold">
-                              {t("discovery.routes.publicAccount.review.reply.label")}
-                            </Text>{" "}
-                            {review.reply_feedback}
-                          </Text>
-                        ) : null}
-                      </Card>
+                      <ReviewCard
+                        key={review.review_id}
+                        author={
+                          reviewDate
+                            ? t("discovery.routes.publicAccount.review.byline", {
+                                author:
+                                  review.author_display_name ?? t("discovery.routes.publicAccount.marketplace.buyer"),
+                                date: reviewDate,
+                              })
+                            : (review.author_display_name ?? t("discovery.routes.publicAccount.marketplace.buyer"))
+                        }
+                        rating={review.rating}
+                        body={review.feedback ?? t("discovery.routes.publicAccount.no.written.feedback")}
+                        meta={
+                          review.author_role === "buyer"
+                            ? t("discovery.routes.publicAccount.as.seller")
+                            : t("discovery.routes.publicAccount.as.buyer")
+                        }
+                        verified
+                        response={review.reply_status === "active" ? review.reply_feedback : null}
+                        responseLabel={t("discovery.routes.publicAccount.review.reply.label")}
+                        context={<ReviewScoringContext review={review} />}
+                        actions={
+                          <ReviewReportAction
+                            reviewId={review.review_id}
+                            result={reportResult}
+                            isSubmitting={submittingReportId === review.review_id}
+                          />
+                        }
+                      />
                     );
                   })}
                 </Stack>

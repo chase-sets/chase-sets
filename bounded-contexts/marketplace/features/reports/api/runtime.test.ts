@@ -18,7 +18,7 @@ import {
 
 function createReviewModerationTargetDbStub(
   reviews: Readonly<
-    Record<string, Readonly<{ subject_account_id: string; status: string; revealed_at: string | null }>>
+    Record<string, Readonly<{ subject_account_id: string; status: string; revealed_at: string | null; held: boolean }>>
   >,
 ): PgQueryable {
   return {
@@ -198,11 +198,16 @@ describe("Marketplace report runtime", () => {
   });
 });
 
-describe("Marketplace review report (m108, #4269)", () => {
+describe("Marketplace review report", () => {
   it("reports a revealed review into the same queue as listing reports", async () => {
     const { eventStore, allEvents } = createInMemoryEventStore();
     const db = createReviewModerationTargetDbStub({
-      rev_1: { subject_account_id: "acc_seller", status: "active", revealed_at: "2026-07-01T00:00:00.000Z" },
+      rev_1: {
+        subject_account_id: "acc_seller",
+        status: "active",
+        revealed_at: "2026-07-01T00:00:00.000Z",
+        held: false,
+      },
     });
     const reports = createMarketplaceReportRuntime({ eventStore, db });
 
@@ -211,7 +216,7 @@ describe("Marketplace review report (m108, #4269)", () => {
         reviewId: "rev_1",
         reporterAccountId: "acc_reporter",
         reporterUserId: "usr_reporter",
-        reason: "other",
+        reason: "harassment-or-abuse",
         details: "Abusive language.",
         sourceRoutePath: "/accounts/acc_seller/reviews",
       },
@@ -226,6 +231,7 @@ describe("Marketplace review report (m108, #4269)", () => {
       targetOwnerAccountId: "acc_seller",
       reporterKind: "account",
       reporterAccountId: "acc_reporter",
+      reason: "harassment-or-abuse",
     });
   });
 
@@ -251,7 +257,7 @@ describe("Marketplace review report (m108, #4269)", () => {
   it("rejects reporting a review that has not been revealed yet", async () => {
     const { eventStore } = createInMemoryEventStore();
     const db = createReviewModerationTargetDbStub({
-      rev_hidden: { subject_account_id: "acc_seller", status: "active", revealed_at: null },
+      rev_hidden: { subject_account_id: "acc_seller", status: "active", revealed_at: null, held: false },
     });
     const reports = createMarketplaceReportRuntime({ eventStore, db });
 
@@ -268,5 +274,32 @@ describe("Marketplace review report (m108, #4269)", () => {
         context,
       ),
     ).rejects.toThrow("has not been revealed yet");
+  });
+
+  it("rejects reporting a held review even when its stored content was previously revealed", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = createReviewModerationTargetDbStub({
+      rev_held: {
+        subject_account_id: "acc_seller",
+        status: "active",
+        revealed_at: "2026-07-01T00:00:00.000Z",
+        held: true,
+      },
+    });
+    const reports = createMarketplaceReportRuntime({ eventStore, db });
+
+    await expect(
+      reports.reportReview(
+        {
+          reviewId: "rev_held",
+          reporterAccountId: "acc_reporter",
+          reporterUserId: "usr_reporter",
+          reason: "personal-information",
+          details: null,
+          sourceRoutePath: "/accounts/acc_seller/reviews",
+        },
+        context,
+      ),
+    ).rejects.toThrow("not publicly available");
   });
 });

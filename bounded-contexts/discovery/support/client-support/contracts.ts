@@ -382,6 +382,10 @@ export interface DiscoveryPublicAccountReview {
   reply_feedback: string | null;
   reply_status: string | null;
   reply_submitted_at: string | null;
+  scoring_disposition?: "included" | "context-only" | null;
+  disposition_reason_code?: string | null;
+  resolution_context?: "seller" | "buyer" | "carrier" | "platform" | "shared" | "undetermined" | null;
+  remedy_kind?: "refund" | "replacement" | "return" | "cancellation" | null;
 }
 
 export interface DiscoverySitemapUrl {

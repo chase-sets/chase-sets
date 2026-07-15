@@ -982,6 +982,21 @@
         "authoritativeResponse": "Marketplace Report Listing returns id, version, target, report count, threshold, and auto-unlisted directly from the command result.",
         "tests": ["bounded-contexts/marketplace/features/reports/api/runtime.test.ts"]
       }
+    },
+    {
+      "id": "discovery.public-review-report-snapshot",
+      "owner": "discovery",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": ["route-action:bounded-contexts/discovery/routes/public-account.tsx"],
+      "visibleDestination": {
+        "routeId": "public-account",
+        "description": "The public account Review report action returns Marketplace's command-owned submitted or already-submitted status inline. It does not wait on Discovery's public account projection and does not remove or alter the visible Review."
+      },
+      "proof": {
+        "authoritativeResponse": "Marketplace Report Review returns the report id, version, target, and status directly from the report command; duplicate stream state maps to an explicit already-submitted result.",
+        "tests": ["bounded-contexts/discovery/routes/public-account.test.tsx"]
+      }
     }
   ],
   "deployableContributions": [

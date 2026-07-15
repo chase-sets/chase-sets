@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Icon } from "../../icons";
 import { Cluster, Grid, IconRow, Inline, Inset, Stack } from "../../primitives/layout";
+import { Text } from "../../primitives/typography";
 import { Badge } from "../feedback";
 import { RatingSummary, TrustBadge } from "./trust";
 
@@ -121,10 +122,23 @@ export interface ReviewCardProps {
   body: ReactNode;
   meta?: ReactNode;
   verified?: boolean;
-  sellerResponse?: ReactNode;
+  response?: ReactNode;
+  responseLabel?: ReactNode;
+  context?: ReactNode;
+  actions?: ReactNode;
 }
 
-export function ReviewCard({ author, rating, body, meta, verified = false, sellerResponse }: ReviewCardProps) {
+export function ReviewCard({
+  author,
+  rating,
+  body,
+  meta,
+  verified = false,
+  response,
+  responseLabel = "Account response",
+  context,
+  actions,
+}: ReviewCardProps) {
   return (
     <article className="grid gap-3 rounded-tokenMd border border-border bg-surface p-4">
       <Cluster gap={2}>
@@ -141,13 +155,44 @@ export function ReviewCard({ author, rating, body, meta, verified = false, selle
           ) : null}
         </Inline>
       </Cluster>
+      {context}
       <p className="m-0 text-sm leading-6 text-secondary">{body}</p>
-      {sellerResponse ? (
+      {response ? (
         <div className="rounded-tokenMd bg-surface-2 p-3 text-sm leading-5 text-secondary">
-          <span className="font-semibold text-foreground">Seller response: </span>
-          {sellerResponse}
+          <span className="font-semibold text-foreground">{responseLabel}: </span>
+          {response}
         </div>
       ) : null}
+      {actions ? <div aria-label="Review actions">{actions}</div> : null}
     </article>
+  );
+}
+
+export interface ReviewContextProps {
+  scoringStatus: "included" | "excluded";
+  scoringLabel: ReactNode;
+  explanation: ReactNode;
+  outcomeLabel?: ReactNode;
+  remedyLabel?: ReactNode;
+}
+
+export function ReviewContext({
+  scoringStatus,
+  scoringLabel,
+  explanation,
+  outcomeLabel,
+  remedyLabel,
+}: ReviewContextProps) {
+  return (
+    <Stack gap={2} role="status" aria-live="polite">
+      <Inline gap={2}>
+        <Badge tone={scoringStatus === "included" ? "success" : "neutral"}>{scoringLabel}</Badge>
+        {outcomeLabel ? <Badge tone="neutral">{outcomeLabel}</Badge> : null}
+        {remedyLabel ? <Badge tone="accent">{remedyLabel}</Badge> : null}
+      </Inline>
+      <Text size="sm" tone="secondary">
+        {explanation}
+      </Text>
+    </Stack>
   );
 }

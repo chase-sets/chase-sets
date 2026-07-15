@@ -123,6 +123,12 @@ export interface OrderingOrderReviewOpportunity {
   author_role: string;
   eligible_at: string;
   active_review_id: string | null;
+  submission_state?: "allowed" | "held" | "expired";
+  hold_reason?: "feedback-on-hold" | null;
+  window_expired?: boolean;
+  response?: string | null;
+  revealed?: boolean;
+  scoring_disposition?: "included" | "context-only" | null;
 }
 
 export interface OrderingOrderProjectionDetail extends OrderingOrderProjection {

@@ -498,6 +498,9 @@
       "@chase-sets/marketplace/server": [
         "./bounded-contexts/marketplace/server.ts"
       ],
+      "@chase-sets/marketplace/web": [
+        "./bounded-contexts/marketplace/web.ts"
+      ],
       "@chase-sets/money-movement": [
         "./contracts/money-movement/index.ts"
       ],

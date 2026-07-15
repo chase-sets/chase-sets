@@ -10,6 +10,8 @@ import {
   Stack,
 } from "@chase-sets/design-system";
 import type { ReviewSummary, ReviewListItem } from "./contracts";
+import { ReviewReportAction, type ReviewReportResult } from "./review-report-action";
+import { ReviewScoringContext } from "./review-scoring-context";
 
 type ReviewRoleDimension = Readonly<{
   averageRating: string | null;
@@ -80,11 +82,15 @@ export function ReviewSummaryPage({
   summary,
   reviews,
   actions,
+  reportResult,
+  submittingReportId,
 }: {
   accountLabel: string;
   summary: ReviewSummary;
   reviews: readonly ReviewListItem[];
   actions?: ReactNode;
+  reportResult?: ReviewReportResult | null;
+  submittingReportId?: string | null;
 }) {
   return (
     <Page>
@@ -136,6 +142,20 @@ export function ReviewSummaryPage({
                   }
                   meta="Verified order"
                   verified
+                  response={
+                    review.reply_status === "active" && review.reply_feedback ? review.reply_feedback : undefined
+                  }
+                  responseLabel={t("reputation.features.reviews.ui.accountReviewSummaryPage.reply.label")}
+                  context={<ReviewScoringContext review={review} />}
+                  actions={
+                    review.status === "active" && review.revealed_at !== null && !review.held ? (
+                      <ReviewReportAction
+                        reviewId={review.review_id}
+                        result={reportResult}
+                        isSubmitting={submittingReportId === review.review_id}
+                      />
+                    ) : undefined
+                  }
                 />
               ))
           )}

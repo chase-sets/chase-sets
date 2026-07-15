@@ -52,7 +52,7 @@ describe("review list page", () => {
     expect(markup).toContain("Reviewed Account");
   });
 
-  it("shows a pending placeholder without content for a redacted (not-yet-revealed) review (m108 #4267)", () => {
+  it("shows a pending placeholder without content for a redacted not-yet-revealed review", () => {
     const markup = renderToString(
       <ReviewListPage
         title="Reviews"
@@ -82,5 +82,55 @@ describe("review list page", () => {
 
     expect(markup).toContain("Review paused");
     expect(markup).not.toContain("Packed carefully.");
+  });
+
+  it("shows the same response and report action on active revealed list items", () => {
+    const markup = renderToString(
+      <ReviewListPage
+        title="Reviews"
+        eyebrow="Reviews"
+        emptyTitle="No reviews"
+        emptyDescription="Nothing yet."
+        reviewDetailBasePath="/account/reviews"
+        reviews={[
+          {
+            ...reviews[0]!,
+            reply_id: "rvr_1",
+            reply_feedback: "Thanks for sharing this.",
+            reply_status: "active",
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Account response");
+    expect(markup).toContain("Thanks for sharing this.");
+    expect(markup).toContain("Report review");
+  });
+
+  it("always explains context-only scoring separately from cause and remedy", () => {
+    const markup = renderToString(
+      <ReviewListPage
+        title="Reviews"
+        eyebrow="Reviews"
+        emptyTitle="No reviews"
+        emptyDescription="Nothing yet."
+        reviewDetailBasePath="/account/reviews"
+        reviews={[
+          {
+            ...reviews[0]!,
+            scoring_disposition: "context-only",
+            disposition_reason_code: "external-responsibility",
+            resolution_context: "carrier",
+            remedy_kind: "refund",
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Not included in rating");
+    expect(markup).toContain("does not change the aggregate rating");
+    expect(markup).toContain("Carrier-related issue");
+    expect(markup).toContain("Refund issued");
   });
 });

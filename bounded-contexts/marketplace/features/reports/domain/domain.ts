@@ -1,6 +1,6 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 
-export const marketplaceReportReasons = [
+export const marketplaceListingReportReasons = [
   "counterfeit-concern",
   "stolen-photos",
   "prohibited-item",
@@ -8,7 +8,21 @@ export const marketplaceReportReasons = [
   "other",
 ] as const;
 
-export type MarketplaceReportReason = (typeof marketplaceReportReasons)[number];
+export const marketplaceReviewReportReasons = [
+  "harassment-or-abuse",
+  "hate-or-discrimination",
+  "personal-information",
+  "spam-or-manipulation",
+  "other",
+] as const;
+
+export const marketplaceReportReasons = [
+  ...new Set([...marketplaceListingReportReasons, ...marketplaceReviewReportReasons]),
+];
+
+export type MarketplaceListingReportReason = (typeof marketplaceListingReportReasons)[number];
+export type MarketplaceReviewReportReason = (typeof marketplaceReviewReportReasons)[number];
+export type MarketplaceReportReason = MarketplaceListingReportReason | MarketplaceReviewReportReason;
 export type MarketplaceReportedEntityType = "listing" | "review";
 export type MarketplaceReporterKind = "account" | "visitor";
 
@@ -86,7 +100,7 @@ export const decideMarketplaceReport: AggregateDecider<
             reporterKey: normalizeRequiredText(command.reporterKey, "Reporter is required."),
             reporterAccountId: normalizeOptionalText(command.reporterAccountId),
             reporterUserId: normalizeOptionalText(command.reporterUserId),
-            reason: normalizeReportReason(command.reason),
+            reason: normalizeReportReason(command.targetType, command.reason),
             details: normalizeDetails(command.details),
             sourceRoutePath: normalizeRequiredText(command.sourceRoutePath, "Source route path is required."),
             submittedAt: normalizeRequiredText(command.submittedAt, "Submission timestamp is required."),
@@ -140,8 +154,12 @@ function normalizeReporterKind(value: MarketplaceReporterKind): MarketplaceRepor
   return value;
 }
 
-function normalizeReportReason(value: MarketplaceReportReason): MarketplaceReportReason {
-  assert(marketplaceReportReasons.includes(value), "Report reason is invalid.");
+function normalizeReportReason(
+  targetType: MarketplaceReportedEntityType,
+  value: MarketplaceReportReason,
+): MarketplaceReportReason {
+  const allowedReasons = targetType === "review" ? marketplaceReviewReportReasons : marketplaceListingReportReasons;
+  assert((allowedReasons as readonly string[]).includes(value), "Report reason is invalid for this content.");
   return value;
 }
 

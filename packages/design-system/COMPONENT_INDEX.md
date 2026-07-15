@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 360
+- Runtime exports indexed: 361
 - Source modules covered: 126
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -266,7 +266,8 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ResponsiveEditSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Responsive Edit Sheet. | `bounded-contexts/identity/features/shipping-addresses/ui/shipping-address-page.tsx` |
 | `ResponsiveSupportSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Responsive Support Sheet. | `No production consumer yet.` |
 | `Reveal` | `packages/design-system/src/motion/primitives.tsx` | Purpose not documented; symbol name suggests: Reveal. | `No production consumer yet.` |
-| `ReviewCard` | `packages/design-system/src/components/commerce/account.tsx` | Purpose not documented; symbol name suggests: Review Card. | `bounded-contexts/marketplace/features/reviews/ui/account-review-summary-page.tsx` |
+| `ReviewCard` | `packages/design-system/src/components/commerce/account.tsx` | Purpose not documented; symbol name suggests: Review Card. | `bounded-contexts/discovery/routes/public-account.tsx` |
+| `ReviewContext` | `packages/design-system/src/components/commerce/account.tsx` | Purpose not documented; symbol name suggests: Review Context. | `bounded-contexts/marketplace/features/reviews/ui/review-scoring-context.tsx` |
 | `SavedSearchPrompt` | `packages/design-system/src/components/commerce/search.tsx` | Purpose not documented; symbol name suggests: Saved Search Prompt. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `ScrollArea` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Scroll Area. | `No production consumer yet.` |
 | `SearchControlBar` | `packages/design-system/src/components/commerce/search.tsx` | Purpose not documented; symbol name suggests: Search Control Bar. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |

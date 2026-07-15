@@ -7,6 +7,7 @@ export type {
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
   MarketplaceListingEvidenceCoverage,
+  ReportReviewRequest,
   OfferMatchListItem,
   OfferBuyerMute,
   PublicOfferDetail,
@@ -52,7 +53,7 @@ export {
   marketplaceRealtimeTopicPolicyManifest,
   marketplaceRealtimeTopics,
 } from "./support/realtime-support/topics";
-export { createReputationRequestApiClient } from "./support/request-support/reputation-api-client";
+export { createReputationRequestApiClient, ReputationApiError } from "./support/request-support/reputation-api-client";
 export type { ReviewOpportunity } from "./support/request-support/reputation-api-client";
 export { createSellerMetricsRequestApiClient } from "./support/request-support/seller-metrics-api-client";
 export type {

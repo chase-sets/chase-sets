@@ -14,8 +14,11 @@ import {
   Stack,
   Text,
   Textarea,
+  HiddenInput,
 } from "@chase-sets/design-system";
 import type { ReviewDetail } from "./contracts";
+import { ReviewReportAction, type ReviewReportResult } from "./review-report-action";
+import { ReviewScoringContext } from "./review-scoring-context";
 
 function statusTone(status: string) {
   return status === "withdrawn" ? "danger" : "success";
@@ -42,23 +45,45 @@ function canComposeReply(review: ReviewDetail, viewerAccountId: string | null | 
   );
 }
 
+function canReportReview(review: ReviewDetail, viewerAccountId: string | null | undefined) {
+  return (
+    viewerAccountId != null &&
+    review.status === "active" &&
+    review.revealed_at !== null &&
+    !review.held &&
+    review.feedback_redacted_at === null
+  );
+}
+
 export function ReviewDetailPage({
   backHref,
+  orderHref,
   review,
   viewerAccountId,
   replyErrorMessage,
   isSubmittingReply = false,
   defaultReplyFeedback = "",
+  reportResult,
+  reportStatus,
+  isSubmittingReport = false,
 }: {
   backHref: string;
+  orderHref?: string;
   review: ReviewDetail;
   viewerAccountId?: string | null;
   replyErrorMessage?: string | null;
   isSubmittingReply?: boolean;
   defaultReplyFeedback?: string;
+  reportResult?: ReviewReportResult | null;
+  reportStatus?: "submitted" | null;
+  isSubmittingReport?: boolean;
 }) {
   const pending = isPending(review);
   const showReplyForm = canComposeReply(review, viewerAccountId);
+  const showReportAction = canReportReview(review, viewerAccountId);
+  const resolvedReportResult =
+    reportResult ??
+    (reportStatus === "submitted" ? { reviewId: review.review_id, status: "submitted" as const } : null);
 
   return (
     <Page>
@@ -67,9 +92,16 @@ export function ReviewDetailPage({
         title={t("reputation.features.reviews.ui.reviewDetailPage.review.details")}
         description={t("reputation.features.reviews.ui.reviewDetailPage.verified.order.feedback")}
         actions={
-          <LinkButton href={backHref} tone="secondary">
-            {t("reputation.features.reviews.ui.reviewDetailPage.back")}
-          </LinkButton>
+          <Stack direction="row" gap={2}>
+            {orderHref ? (
+              <LinkButton href={orderHref}>
+                {t("reputation.features.reviews.ui.reviewDetailPage.view.order.outcome")}
+              </LinkButton>
+            ) : null}
+            <LinkButton href={backHref} tone="secondary">
+              {t("reputation.features.reviews.ui.reviewDetailPage.back")}
+            </LinkButton>
+          </Stack>
         }
       />
 
@@ -119,8 +151,17 @@ export function ReviewDetailPage({
               </Stack>
             }
             verified
-            sellerResponse={
-              review.reply_status === "active" && review.reply_feedback ? review.reply_feedback : undefined
+            response={review.reply_status === "active" && review.reply_feedback ? review.reply_feedback : undefined}
+            responseLabel={t("reputation.features.reviews.ui.reviewDetailPage.reply.label")}
+            context={<ReviewScoringContext review={review} />}
+            actions={
+              showReportAction ? (
+                <ReviewReportAction
+                  reviewId={review.review_id}
+                  result={resolvedReportResult}
+                  isSubmitting={isSubmittingReport}
+                />
+              ) : undefined
             }
           />
         )}
@@ -142,6 +183,7 @@ export function ReviewDetailPage({
               ) : null}
               <Form spacing="none" method="post">
                 <Stack gap={3}>
+                  <HiddenInput type="hidden" name="intent" value="reply" readOnly />
                   <Textarea
                     name="feedback"
                     label={t("reputation.features.reviews.ui.reviewDetailPage.reply.feedback")}

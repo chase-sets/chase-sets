@@ -1,13 +1,15 @@
 import { t } from "@chase-sets/localization";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { LinkButton, Stack } from "@chase-sets/design-system";
-import { useLoaderData } from "react-router";
+import { useActionData, useLoaderData, useNavigation } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { type ReviewListItem } from "../../support/request-support/reputation-api-client";
 import { createReputationRequestApiClient } from "../../support/request-support/reputation-api-client";
 import { ReviewListPage } from "../../features/reviews/ui/review-list-page";
+import { submitReviewReport } from "../../support/route-support/review-report-action";
+import type { ReviewReportResult } from "../../features/reviews/ui/review-report-action";
 
 const DEFAULT_REVIEW_QUERY = "limit=100&offset=0";
 const REVIEW_ROLES = new Set(["seller", "buyer"]);
@@ -32,11 +34,22 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
+export async function action({ request }: ActionFunctionArgs) {
+  await requireActorFromAuthApi({ request, permission: "reputation.manage" });
+  return submitReviewReport(request);
+}
+
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: t("reputation.routes.marketplace.accountReceivedReviews.received.reviews.marketplace") });
 
 export default function MarketplaceAccountReceivedReviewsRoute() {
   const data = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>() as ReviewReportResult | undefined;
+  const navigation = useNavigation();
+  const submittingReportId =
+    navigation.state === "submitting" && navigation.formData?.get("intent") === "report-review"
+      ? String(navigation.formData.get("reviewId") ?? "")
+      : null;
 
   return (
     <ReviewListPage
@@ -48,6 +61,8 @@ export default function MarketplaceAccountReceivedReviewsRoute() {
       )}
       reviewDetailBasePath="/account/reviews"
       reviews={(data.reviews as ListResponse<ReviewListItem>).items}
+      reportResult={actionData}
+      submittingReportId={submittingReportId}
       actions={
         <Stack direction="row" gap={2}>
           <LinkButton href="/account/reviews" tone="secondary">

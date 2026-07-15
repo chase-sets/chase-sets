@@ -18,10 +18,13 @@ import {
   decideMarketplaceReport,
   evolveMarketplaceReport,
   initialMarketplaceReportState,
-  marketplaceReportReasons,
+  marketplaceListingReportReasons,
+  marketplaceReviewReportReasons,
   type MarketplaceReportCommand,
   type MarketplaceReportEvent,
   type MarketplaceReportReason,
+  type MarketplaceListingReportReason,
+  type MarketplaceReviewReportReason,
   type MarketplaceReportState,
   type MarketplaceReporterKind,
 } from "../domain/domain";
@@ -43,7 +46,7 @@ export type MarketplaceReportServices = Readonly<{
       reporterKey: string;
       reporterAccountId: string | null;
       reporterUserId: string | null;
-      reason: MarketplaceReportReason;
+      reason: MarketplaceListingReportReason;
       details?: string | null;
       sourceRoutePath: string;
     }>,
@@ -69,7 +72,7 @@ export type MarketplaceReportServices = Readonly<{
       reviewId: string;
       reporterAccountId: string;
       reporterUserId: string | null;
-      reason: MarketplaceReportReason;
+      reason: MarketplaceReviewReportReason;
       details?: string | null;
       sourceRoutePath: string;
     }>,
@@ -91,8 +94,9 @@ function stableReportStreamId(targetType: "listing" | "review", targetId: string
   return `marketplace.report-${targetType}-${targetId}-${reporterKey}`.replace(/[^A-Za-z0-9_.:-]/g, "-");
 }
 
-function normalizeReason(value: MarketplaceReportReason) {
-  assert(marketplaceReportReasons.includes(value), "Report reason is invalid.");
+function normalizeReason(targetType: "listing" | "review", value: MarketplaceReportReason) {
+  const allowedReasons = targetType === "review" ? marketplaceReviewReportReasons : marketplaceListingReportReasons;
+  assert((allowedReasons as readonly string[]).includes(value), "Report reason is invalid for this content.");
   return value;
 }
 
@@ -172,7 +176,7 @@ export function createMarketplaceReportRuntime(deps: MarketplaceReportRuntimeDep
           reporterKey,
           reporterAccountId: params.reporterAccountId,
           reporterUserId: params.reporterUserId,
-          reason: normalizeReason(params.reason),
+          reason: normalizeReason("listing", params.reason),
           details: params.details ?? null,
           sourceRoutePath: params.sourceRoutePath,
           submittedAt,
@@ -209,6 +213,7 @@ export function createMarketplaceReportRuntime(deps: MarketplaceReportRuntimeDep
       assert(review !== null, "Review not found.");
       assert(review.status === "active", "This review is no longer active.");
       assert(review.revealed_at !== null, "This review has not been revealed yet.");
+      assert(!review.held, "This review is not publicly available.");
 
       const reportId = createId("rpt");
       const reporterKey = stableReporterKey("account", params.reporterAccountId);
@@ -225,7 +230,7 @@ export function createMarketplaceReportRuntime(deps: MarketplaceReportRuntimeDep
           reporterKey,
           reporterAccountId: params.reporterAccountId,
           reporterUserId: params.reporterUserId,
-          reason: normalizeReason(params.reason),
+          reason: normalizeReason("review", params.reason),
           details: params.details ?? null,
           sourceRoutePath: params.sourceRoutePath,
           submittedAt,
