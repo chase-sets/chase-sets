@@ -25,9 +25,6 @@ type RouteContext = CatalogIntegrationsCommandResult["context"];
 export type DailyCommandIntent =
   | "start-catalog-sync"
   | "start-provider-import"
-  | "retry-import-job"
-  | "resume-import-job"
-  | "cancel-import-job"
   | "preview-promotion"
   | "execute-promotion"
   | "reject-source-observations"
@@ -45,9 +42,6 @@ export type DailyCommandIntent =
 const DAILY_COMMAND_INTENTS = new Set<string>([
   "start-catalog-sync",
   "start-provider-import",
-  "retry-import-job",
-  "resume-import-job",
-  "cancel-import-job",
   "preview-promotion",
   "execute-promotion",
   "reject-source-observations",
@@ -67,8 +61,9 @@ export function isDailyCommandIntent(intent: string): intent is DailyCommandInte
   return DAILY_COMMAND_INTENTS.has(intent);
 }
 
-// Run a daily command. Splits the import-job lifecycle, promotion preview/execution,
-// and observation-review intents into cohesive blocks. The result always names the
+// Run a daily command. Splits sync/import kickoff, promotion preview/execution, and
+// observation- and candidate-review intents into cohesive blocks (the import-job
+// lifecycle is its own `job` entity handler). The result always names the
 // import-to-promotion section so the daily surface stays put with a status banner.
 export async function handleDailyCommand(input: {
   api: Api;
@@ -106,27 +101,6 @@ export async function handleDailyCommand(input: {
 
       return dailyResult(intent, "success", "job-queued", {
         ...context,
-        jobId: stringValue(job.jobId) ?? context.jobId,
-        promotionPreviewId: null,
-      });
-    }
-    case "retry-import-job":
-    case "resume-import-job":
-    case "cancel-import-job": {
-      if (!context.jobId) {
-        return dailyResult(intent, "error", "job-required", { ...context, selectedObservationIds });
-      }
-
-      const job =
-        intent === "retry-import-job"
-          ? await api.retrySourceObservationIntegrationJob<CatalogCommandJobResponse>(context.jobId)
-          : intent === "resume-import-job"
-            ? await api.resumeSourceObservationIntegrationJob<CatalogCommandJobResponse>(context.jobId)
-            : await api.cancelSourceObservationIntegrationJob<CatalogCommandJobResponse>(context.jobId);
-
-      return dailyResult(intent, "success", intent === "cancel-import-job" ? "job-cancelled" : "job-queued", {
-        ...context,
-        selectedObservationIds,
         jobId: stringValue(job.jobId) ?? context.jobId,
         promotionPreviewId: null,
       });
