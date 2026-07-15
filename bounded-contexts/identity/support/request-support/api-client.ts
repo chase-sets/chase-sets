@@ -2,6 +2,8 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 export { createIdentityApiClient, identityApi, IdentityApiError } from "../../client";
 export type {
   Account,
+  AccessHome,
+  AccountAccessHub,
   ApiKey,
   Consent,
   CurrentActorDisplay,
@@ -10,6 +12,7 @@ export type {
   Membership,
   ShippingAddress,
   User,
+  UserAccountLink,
 } from "../../client";
 import { createIdentityApiClient } from "../../client";
 

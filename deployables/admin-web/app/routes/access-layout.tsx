@@ -5,7 +5,7 @@ const config = {
   section: "access",
   brand: "Access",
   fallbackPermission: "accounts.view",
-  defaultActiveKey: "accounts",
+  defaultActiveKey: "access-home",
 } as const;
 
 export const loader = createAdminSectionLoader(config);

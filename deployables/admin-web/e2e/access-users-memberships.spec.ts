@@ -39,9 +39,13 @@ test.describe("access admin users and memberships", () => {
     await expectAdminPageReady(page, { heading: "Users" });
 
     const actor = await getCurrentActorDisplay(page);
+    const accountHeading = actor.account.display_name ?? actor.account.name ?? actor.account.account_id;
     const user = await getUserSnapshot(page, actor.user.user_id);
     await page.goto(`/access/users/${user.user_id}`, { waitUntil: "domcontentloaded" });
-    await expectAdminPageReady(page, { heading: user.display_name });
+    await expect(page).toHaveURL(
+      new RegExp(`/access/accounts/${actor.account.account_id}\\?tab=team&user=${user.user_id}$`),
+    );
+    await expectAdminPageReady(page, { heading: accountHeading });
     await expect(page.getByText(user.user_id)).toBeVisible();
     await expect(page.getByText(user.status).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Update Profile" })).toBeVisible();
@@ -52,14 +56,17 @@ test.describe("access admin users and memberships", () => {
 
     const membership = await getMembershipSnapshot(page, actor.membership.membership_id);
     await page.goto(`/access/memberships/${membership.membership_id}`, { waitUntil: "domcontentloaded" });
-    await expectAdminPageReady(page, { heading: new RegExp(escapeRegex(membershipUserLabel(membership))) });
-    await expect(page.getByText(membership.membership_id)).toBeVisible();
-    await expect(page.getByText(membership.role_key).first()).toBeVisible();
-    await expect(page.getByText(membership.status).first()).toBeVisible();
-    await expect(page.getByLabel("Role")).toHaveValue(membership.role_key);
-    await expect(page.getByRole("button", { name: "Change Role" })).toBeVisible();
+    await expect(page).toHaveURL(
+      new RegExp(`/access/accounts/${membership.account_id}\\?tab=team&membership=${membership.membership_id}$`),
+    );
+    await expectAdminPageReady(page, { heading: accountHeading });
+    const membershipRow = page.getByRole("row").filter({ hasText: membershipUserLabel(membership) });
+    await expect(membershipRow.getByText(membership.role_key, { exact: true })).toBeVisible();
+    await expect(membershipRow.getByText(membership.status, { exact: true })).toBeVisible();
+    await expect(membershipRow.getByLabel("Role")).toHaveValue(membership.role_key);
+    await expect(membershipRow.getByRole("button", { name: "Change Role" })).toBeVisible();
     await expect(
-      page.getByRole("button", { name: membership.status === "active" ? "Revoke" : "Reinstate" }),
+      membershipRow.getByRole("button", { name: membership.status === "active" ? "Revoke" : "Reinstate" }),
     ).toBeVisible();
   });
 });
@@ -87,8 +94,4 @@ async function getMembershipSnapshot(page: Page, membershipId: string) {
 
 function membershipUserLabel(membership: MembershipSnapshot) {
   return membership.user_display_name ?? membership.user_primary_email ?? membership.user_id;
-}
-
-function escapeRegex(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

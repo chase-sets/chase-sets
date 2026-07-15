@@ -1,9 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { redirect } from "react-router";
 import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import type { Invitation } from "../../support/request-support/api-client";
-import { InvitationDetailPage } from "../../features/invitations/ui/invitation-detail-page";
 import { createIdentityRequestApiClient, requestWithoutFreshWrite } from "../../support/route-support/identity-request";
 import { IdentityApiError } from "../../support/request-support/api-client";
 
@@ -36,10 +35,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   if (response.kind === "pending") {
     const recoveryApi = createIdentityRequestApiClient(requestWithoutFreshWrite(request));
-    return {
-      id: invitationId,
-      data: await recoveryApi.getInvitation<Invitation>(invitationId),
-    };
+    const invitation = await recoveryApi.getInvitation<Invitation>(invitationId);
+    return redirect(
+      `/access/accounts/${invitation.account_id}?tab=team&invitation=${encodeURIComponent(invitationId)}`,
+    );
   }
 
   if (response.kind === "permanent-failure") {
@@ -49,10 +48,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw new Response("Invitation is unavailable.", { status: 404 });
   }
 
-  return {
-    id: invitationId,
-    data: response.data,
-  };
+  return redirect(
+    `/access/accounts/${response.data.account_id}?tab=team&invitation=${encodeURIComponent(invitationId)}`,
+  );
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -82,6 +80,5 @@ export const meta: MetaFunction = () => [
 ];
 
 export default function InvitationDetailRoute() {
-  const data = useLoaderData<typeof loader>();
-  return <InvitationDetailPage data={data.data} />;
+  return null;
 }

@@ -95,7 +95,9 @@ export function MembershipListPage({
       items={initialData.items}
       columns={columns}
       emptyMessage={t("identity.features.memberships.ui.membershipListPage.no.memberships.yet")}
-      getHref={(row) => `/access/memberships/${row.membership_id}`}
+      getHref={(row) =>
+        `/access/accounts/${row.account_id}?tab=team&membership=${encodeURIComponent(row.membership_id)}`
+      }
       filters={
         <>
           <Form method="get" spacing="none">

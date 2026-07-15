@@ -1,10 +1,9 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import { redirect } from "react-router";
 import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type { User } from "../../support/request-support/api-client";
-import { UserDetailPage } from "../../features/users/ui/user-detail-page";
+import type { UserAccountLink } from "../../support/request-support/api-client";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
 import {
   oneTimeSecretFromMutation,
@@ -16,10 +15,13 @@ type UserDetailActionData = Readonly<{ oneTimeSecret: OneTimeApiKeySecret }>;
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
-  return {
-    id: params.id!,
-    data: await api.getUser<User>(params.id!),
-  };
+  const userId = params.id!;
+  const link = await api.getUserAccountLink<UserAccountLink>(userId);
+  return redirect(
+    link.account_id
+      ? `/access/accounts/${link.account_id}?tab=team&user=${encodeURIComponent(userId)}`
+      : `/access/users?search=${encodeURIComponent(userId)}`,
+  );
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -84,7 +86,5 @@ export async function action({ request, params }: ActionFunctionArgs) {
 export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.usersDetail.user.detail.identity.admin") }];
 
 export default function UserDetailRoute() {
-  const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as UserDetailActionData | undefined;
-  return <UserDetailPage data={data.data} oneTimeSecret={actionData?.oneTimeSecret} />;
+  return null;
 }

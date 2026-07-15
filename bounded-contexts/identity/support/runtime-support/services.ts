@@ -7,6 +7,7 @@ import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createIdentitySecretAdapters } from "../../features/api-keys/api/secret-adapters";
 import { createAccountRuntime } from "../../features/accounts/api/runtime";
+import { createAccessHubRuntime } from "../../features/access-hub/api/runtime";
 import { createApiKeyRuntime } from "../../features/api-keys/api/runtime";
 import { createConsentRuntime } from "../../features/consents/api/runtime";
 import { createInvitationRuntime } from "../../features/invitations/api/runtime";
@@ -19,6 +20,7 @@ import { createLinkedPlatformAuthorizationStore } from "../ucp-support/linked-pl
 
 export type IdentityServices = Readonly<{
   eventStore?: EventStore;
+  accessHub: ReturnType<typeof createAccessHubRuntime>;
   accounts: ReturnType<typeof createAccountRuntime>;
   users: ReturnType<typeof createUserRuntime>;
   memberships: ReturnType<typeof createMembershipRuntime>;
@@ -58,6 +60,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   } as const;
 
   const accounts = createAccountRuntime(deps);
+  const accessHub = createAccessHubRuntime(deps);
   const users = createUserRuntime(deps);
   const memberships = createMembershipRuntime(deps);
   const invitations = createInvitationRuntime(deps);
@@ -70,6 +73,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
 
   return {
     eventStore,
+    accessHub,
     accounts,
     users,
     memberships,

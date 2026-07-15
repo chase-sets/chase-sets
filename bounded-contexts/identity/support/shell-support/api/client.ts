@@ -59,6 +59,24 @@ export function createIdentityApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
+    async getAccessHome<T>(query = ""): Promise<T> {
+      return parseJsonResponse<T>(
+        await client["access-hub"].$get({
+          query: Object.fromEntries(new URLSearchParams(query)),
+          header: headers,
+        }),
+      );
+    },
+    async getAccountAccessHub<T>(accountId: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client["access-hub"].accounts[":accountId"].$get({ param: { accountId }, header: headers }),
+      );
+    },
+    async getUserAccountLink<T>(userId: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client["access-hub"].users[":userId"].account.$get({ param: { userId }, header: headers }),
+      );
+    },
     async listAccounts<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(
         await client.accounts.$get({
