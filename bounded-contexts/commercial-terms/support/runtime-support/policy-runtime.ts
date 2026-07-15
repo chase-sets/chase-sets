@@ -1,5 +1,6 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { AggregateEvolver } from "@chase-sets/event-core/domain";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
@@ -391,7 +392,7 @@ export function createCommercialTermsPolicyRuntime(
       });
 
       try {
-        await appendToStreams([
+        const results = await appendToStreams([
           {
             streamId: windowStreamId,
             expectedVersion: window.version,
@@ -405,6 +406,7 @@ export function createCommercialTermsPolicyRuntime(
             events: documentEvents.map(policyCodec.encode),
           },
         ]);
+        recordCommittedEvents(results.flatMap((result) => result.storedEvents));
         return document.version + documentEvents.length;
       } catch (error) {
         if (!isConcurrencyConflict(error) || attempt === 4) {

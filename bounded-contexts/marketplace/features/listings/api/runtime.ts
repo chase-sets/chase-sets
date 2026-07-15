@@ -1,5 +1,6 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { applyEvents } from "@chase-sets/event-core/domain";
 import type { EventStoreError } from "@chase-sets/event-core/event-store";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
@@ -748,7 +749,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         listingIds: [...discoveredListingIds, command.listingId],
       });
       try {
-        await appendToStreams([
+        const results = await appendToStreams([
           {
             streamId: capacityStreamId,
             expectedVersion: capacity.version,
@@ -762,6 +763,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             events: listingEvents.map(listingCodec.encode),
           },
         ]);
+        recordCommittedEvents(results.flatMap((result) => result.storedEvents));
         return listing.version + listingEvents.length;
       } catch (error) {
         if (!isConcurrencyConflict(error) || attempt === 4) {
@@ -832,7 +834,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       ];
 
       try {
-        await appendToStreams([
+        const results = await appendToStreams([
           {
             streamId: capacityStreamId,
             expectedVersion: capacity.version,
@@ -846,6 +848,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             events: listingEvents.map(listingCodec.encode),
           },
         ]);
+        recordCommittedEvents(results.flatMap((result) => result.storedEvents));
         repository.scheduleSnapshot?.({
           streamId: listingStreamId,
           priorVersion: listing.version,

@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { initialPolicyDocumentState } from "@chase-sets/platform-policy/domain";
-import { buildCommercialTermsPolicyProjectionHandlers, evolveCommercialTermsPolicyDocument } from "./policy-runtime";
+import {
+  buildCommercialTermsPolicyProjectionHandlers,
+  createCommercialTermsPolicyRuntime,
+  evolveCommercialTermsPolicyDocument,
+} from "./policy-runtime";
 import type {
   LegacyAgreementCreatedEvent,
   LegacyAgreementRevisedEvent,
   LegacyScheduleCreatedEvent,
   LegacyScheduleRevisedEvent,
 } from "./legacy-policy-events";
+import { commercialTermsSchedulePolicy } from "./terms-policy";
 
 /**
  * Direct coverage of the upcast/dual-handler path: replays pre-convergence
@@ -77,6 +84,54 @@ const legacyAgreementRevised: LegacyAgreementRevisedEvent = {
     revisedByUserId: "usr_admin",
   },
 };
+
+describe("commercial terms policy command consistency", () => {
+  it("records atomic policy-window and document commits for post-write freshness", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const runtime = createCommercialTermsPolicyRuntime({
+      eventStore,
+      db: { query: async () => ({ rows: [] }) } as never,
+    });
+
+    const metadata = await runWithEventCommitMetadata(async () => {
+      await runtime.createScheduleDocument(
+        commercialTermsSchedulePolicy("business"),
+        {
+          value: legacyScheduleCreated.data,
+          status: "inactive",
+          effectiveFrom: "2027-01-01T00:00:00.000Z",
+          effectiveUntil: "2027-12-31T00:00:00.000Z",
+          actorUserId: "usr_admin",
+        },
+        {
+          tenantId: "tnt_test" as never,
+          audit: {
+            performedByUserId: "usr_admin" as never,
+            forAccountId: "acc_admin" as never,
+          },
+        },
+      );
+
+      return getEventCommitMetadata();
+    });
+
+    expect(allEvents.map((event) => event.eventType)).toEqual([
+      "commercial-terms.policy-window.recorded",
+      "platform-policy.document.created",
+    ]);
+    expect(metadata).toEqual({
+      eventIds: allEvents.map((event) => event.eventId),
+      maxGlobalPosition: allEvents.at(-1)?.globalPosition,
+      sources: [
+        {
+          sourceContextName: "commercial-terms",
+          eventIds: allEvents.map((event) => event.eventId),
+          maxGlobalPosition: allEvents.at(-1)?.globalPosition,
+        },
+      ],
+    });
+  });
+});
 
 describe("evolveCommercialTermsPolicyDocument (aggregate replay of legacy events)", () => {
   it("upcasts a legacy schedule created event into the shared policy-document state", () => {

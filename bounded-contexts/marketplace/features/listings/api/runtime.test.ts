@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { AppendToStreamsIndependentResult, EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -304,7 +305,7 @@ describe("marketplace listing runtime", () => {
   });
 
   it("publishes a newly created listing before projections catch up", async () => {
-    const { eventStore } = createInMemoryEventStore();
+    const { allEvents, eventStore } = createInMemoryEventStore();
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("FROM marketplace_supply_items AS item")) {
@@ -357,34 +358,49 @@ describe("marketplace listing runtime", () => {
       } as never,
     });
 
-    await services.createListing(
-      {
-        accountId: "acc_seller" as never,
-        inventoryItemId: "inv_1",
+    const { result, metadata } = await runWithEventCommitMetadata(async () => {
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_1",
+          priceAmount: "20.00",
+          quantityCap: 1,
+          listingIdOverride: "lst_seed_1" as never,
+        },
+        context,
+      );
+
+      const preview = await services.previewListingTerms({
+        accountId: "acc_seller",
         priceAmount: "20.00",
-        quantityCap: 1,
-        listingIdOverride: "lst_seed_1" as never,
-      },
-      context,
-    );
+      });
 
-    const preview = await services.previewListingTerms({
-      accountId: "acc_seller",
-      priceAmount: "20.00",
-    });
-
-    await expect(
-      services.publishListing(
+      const result = await services.publishListing(
         {
           accountId: "acc_seller",
           listingId: "lst_seed_1",
           feeQuoteFingerprint: preview.fee_quote_fingerprint,
         },
         context,
-      ),
-    ).resolves.toEqual({
+      );
+
+      return { result, metadata: getEventCommitMetadata() };
+    });
+
+    expect(result).toEqual({
       listingId: "lst_seed_1",
       version: 3,
+    });
+    expect(metadata).toEqual({
+      eventIds: allEvents.map((event) => event.eventId),
+      maxGlobalPosition: allEvents.at(-1)?.globalPosition,
+      sources: [
+        {
+          sourceContextName: "marketplace",
+          eventIds: allEvents.map((event) => event.eventId),
+          maxGlobalPosition: allEvents.at(-1)?.globalPosition,
+        },
+      ],
     });
   });
 
