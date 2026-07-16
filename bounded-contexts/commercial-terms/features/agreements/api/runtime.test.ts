@@ -21,6 +21,49 @@ const context = {
 };
 
 describe("commercial terms agreement runtime", () => {
+  it("allows exactly one of two concurrent overlapping agreement creates for the same account", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM commercial_terms_account_pages")) {
+          return { rows: [{ account_id: "acc_seller" }] };
+        }
+        if (sql.includes("tstzrange")) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const policies = createCommercialTermsPolicyRuntime({ eventStore, db: db as never });
+    const runtime = createAgreementRuntime({ policies, db: db as never });
+    const create = (agreementId: string) =>
+      runtime.createAgreement(
+        {
+          agreementId,
+          label: "Preferred",
+          accountId: "acc_seller",
+          marketplaceSalesFeePercentageBps: 550,
+          marketplaceSalesFeeFixedAmount: "0.00",
+          shippingAllowancePercentageBps: 700,
+          status: "active",
+          effectiveFrom: "2026-05-01T00:00:00.000Z",
+          effectiveUntil: "2027-05-01T00:00:00.000Z",
+          createdByUserId: "usr_admin",
+        },
+        context,
+      );
+
+    const results = await Promise.allSettled([create("cag_concurrent_1"), create("cag_concurrent_2")]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    expect(rejected?.reason).toBeInstanceOf(Error);
+    expect((rejected?.reason as Error).message).toMatch(
+      /Active agreement cag_concurrent_[12] already covers that account and effective window\./,
+    );
+    expect(allEvents.filter((event) => event.eventType === "platform-policy.document.created")).toHaveLength(1);
+  });
+
   it("rejects malformed account ids before account existence resolution or writes", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
     const db = {

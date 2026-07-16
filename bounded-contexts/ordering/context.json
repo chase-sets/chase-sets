@@ -514,7 +514,7 @@
       }
     },
     {
-      "id": "ordering.postage-policy-command-to-detail",
+      "id": "ordering.postage-policy-command-to-home",
       "owner": "ordering",
       "risk": "important",
       "freshnessSlo": {
@@ -523,7 +523,7 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeId": "ordering-postage-policies-detail",
+        "routeId": "ordering-postage-policies",
         "actions": [
           "Revise postage policy",
           "Activate postage policy",
@@ -534,14 +534,14 @@
         "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
-        "routeId": "ordering-postage-policies-detail",
+        "routeId": "ordering-postage-policies",
         "apiContextName": "ordering",
         "apiRoutePath": "/admin/postage-policies/:id",
         "readModelTables": ["ordering_postage_policy_pages", "ordering_postage_policy_history"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Postage policy detail forwards lifecycle afterWrite receipts to Ordering and retries fresh-write not-found while page and history projections catch up."
+          "behavior": "The postage policy home keeps the selected policy drawer open, forwards lifecycle afterWrite receipts to Ordering, and retries fresh-write not-found while page and history projections catch up."
         }
       }
     }
@@ -645,7 +645,7 @@
         "api-route:bounded-contexts/ordering/features/postage-policies/api/route.ts:POST /:id/retire",
         "api-route:bounded-contexts/ordering/features/postage-policies/api/route.ts:POST /preview",
         "api-route:bounded-contexts/ordering/features/postage-policies/api/route.ts:PUT /:id",
-        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx:H2df726441e2a#2"
+        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-drawer.tsx:H2df726441e2a#3"
       ],
       "visibleDestination": {
         "description": "Postage policy writes return command-owned id/version receipts, and preview returns a package-plan snapshot without relying on the policy projection."
@@ -659,48 +659,25 @@
       }
     },
     {
-      "id": "ordering.postage-policy-create-fresh-read",
+      "id": "ordering.postage-policy-home-fresh-read",
       "owner": "ordering",
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
         "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-list-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-drawer.tsx:H367d201fba25#1",
+        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-drawer.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-drawer.tsx:H2df726441e2a#2",
         "route-action:bounded-contexts/ordering/routes/admin/postage-policies.tsx"
       ],
       "visibleDestination": {
         "routeId": "ordering-postage-policies",
         "apiContextName": "ordering",
-        "apiRoutePath": "/admin/postage-policies",
-        "readModelTables": ["ordering_postage_policy_pages"],
-        "transientRecovery": {
-          "kinds": "refreshable-catching-up",
-          "behavior": "Create redirects back to the postage policy list with afterWrite, and the loader forwards that receipt so the list waits for the policy page projection."
-        }
-      },
-      "proof": {
-        "tests": ["bounded-contexts/ordering/tests/postage-policy-routes.test.ts"]
-      }
-    },
-    {
-      "id": "ordering.postage-policy-detail-fresh-read",
-      "owner": "ordering",
-      "risk": "important",
-      "strategy": "fresh-read",
-      "surfaces": [
-        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx:H2df726441e2a#4",
-        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx:H2df726441e2a#5",
-        "route-action:bounded-contexts/ordering/routes/admin/postage-policies-detail.tsx"
-      ],
-      "visibleDestination": {
-        "routeId": "ordering-postage-policies-detail",
-        "apiContextName": "ordering",
         "apiRoutePath": "/admin/postage-policies/:id",
         "readModelTables": ["ordering_postage_policy_pages", "ordering_postage_policy_history"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Revise, activate, retire, and clone redirects include afterWrite; the detail loader forwards the receipt and retries fresh-write not-found while policy page and history projections catch up."
+          "behavior": "Create, revise, activate, retire, and clone redirects keep the selected drawer on the postage policy home and include afterWrite; the home loader forwards the receipt and retries fresh-write not-found while policy page and history projections catch up."
         }
       },
       "proof": {

@@ -114,6 +114,9 @@ describe("observability stack contracts", () => {
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
       "Platform API elevated 5xx rate",
     );
+    expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
+      "Commercial Terms active policy overlap observed",
+    );
     expect(readStackFile("grafana/provisioning/alerting/kubernetes-observability-alerts.yml")).toContain(
       "Staging Kubernetes telemetry missing",
     );

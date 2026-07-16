@@ -109,6 +109,15 @@ export function createAuthApiClient({
     async consumeMagicLink<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(configuredFetch, buildUrl("magic-link/consume"), body, headers);
     },
+    async inspectInvitation<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(configuredFetch, buildUrl("invitations/inspect"), body, headers);
+    },
+    async requestInvitationAcceptanceLink<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(configuredFetch, buildUrl("invitations/acceptance-link/request"), body, headers);
+    },
+    async acceptInvitation<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(configuredFetch, buildUrl("invitations/accept"), body, headers);
+    },
     async requestPhoneCode<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(configuredFetch, buildUrl("phone-code/request"), body, headers);
     },
