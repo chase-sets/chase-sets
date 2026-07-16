@@ -1430,9 +1430,22 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingIngressWaitStep).toContain('"https://${landing_domain}/health/ready"');
     expect(stagingIngressWaitStep).toContain('"https://${admin_domain}/health/ready"');
     expect(stagingIngressWaitStep).toContain('"https://${hostname}/health/ready"');
-    expect(stagingIngressWaitStep).toContain('"https://${hostname}/"');
     expect(stagingIngressWaitStep).toContain("--attempts 60");
     expect(stagingIngressWaitStep).toContain("--delay-ms 30000");
+
+    // #5564: the deploy-blocking ingress-wait gate probes only the 4 hosts
+    // DOKS actually serves (landing, admin, marketplace, staging-root — the
+    // same set buildDoksIngressHosts() renders for the Helm ingress; see
+    // "renders DOKS live ingress hosts after the staging serving flag flips"
+    // in render-platform-helm-values.test.mjs). It must never probe the
+    // legacy landing-/marketplace-/admin-staging redirect hostnames, whose
+    // App Platform routes go empty once DOKS owns serving (a ready ingress
+    // with no matching route is a stable, deterministic 404 that previously
+    // blocked every staging deploy). Legacy redirect behavior is still
+    // exercised separately by the staging admin-smoke/rollback-drill/
+    // bootstrap-hook-drill workflows via SMOKE_REQUIRE_LEGACY_REDIRECT.
+    expect(stagingIngressWaitStep).not.toContain("legacy_public_redirect_domains");
+    expect(stagingIngressWaitStep).not.toContain('"https://${hostname}/"');
 
     expect(runtimeSecretsStep).toContain("node ./scripts/platform-kubernetes-secret.mjs");
     expect(runtimeSecretsStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
