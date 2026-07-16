@@ -90,6 +90,7 @@ export type PlatformWorkerConfig = Readonly<{
   sellerFundsReleaseIntervalMs: number | null;
   spendHoldSweepIntervalMs: number | null;
   payoutReconciliationIntervalMs: number | null;
+  liabilityReconciliationIntervalMs: number | null;
   marketRollupsCloserIntervalMs: number | null;
   gmvReconciliationIntervalMs: number | null;
   catalogProviderScopeRefreshIntervalMs: number | null;
@@ -493,6 +494,12 @@ export function loadConfig(): PlatformWorkerConfig {
     sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),
     spendHoldSweepIntervalMs: getOptionalPositiveNumberEnv("SPEND_HOLD_SWEEP_INTERVAL_MS", 300_000),
     payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYOUT_RECONCILIATION_INTERVAL_MS", 300_000),
+    // Ledger-vs-provider liability drift alarm: compares Σ wallet liabilities +
+    // in-flight payout demand against the provider platform balance. A coarse
+    // solvency sanity check, not a hot path -- hourly catches a slow leak
+    // (double transfer, missed reversal) long before cash-out without
+    // accumulating excessive audit rows.
+    liabilityReconciliationIntervalMs: getOptionalPositiveNumberEnv("LIABILITY_RECONCILIATION_INTERVAL_MS", 3_600_000),
     // Daily rollup closer (pricing market rollups): frequent enough that
     // recently-closed days pick up a late refund/cancel exclusion within minutes, cheap
     // enough (bounded per-pass tuple limit) to run that often.

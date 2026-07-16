@@ -391,6 +391,7 @@ export function createPayoutRoutes(services: PayoutServices) {
     }
 
     const body = await c.req.json();
+    const idempotencyKey = c.req.header("Idempotency-Key") ?? null;
 
     try {
       const request = {
@@ -401,6 +402,7 @@ export function createPayoutRoutes(services: PayoutServices) {
         actorUserId: access.actor.userId,
         sensitiveActionToken: typeof body.sensitiveActionToken === "string" ? body.sensitiveActionToken : null,
         ...(typeof body.notificationEmail === "string" ? { notificationEmail: body.notificationEmail } : {}),
+        ...(idempotencyKey ? { idempotencyKey } : {}),
       };
       const result = await services.requestPayout(request, context);
 

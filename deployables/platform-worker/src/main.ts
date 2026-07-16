@@ -1294,6 +1294,7 @@ function createScheduledJobRunners(
     | "sellerFundsReleaseIntervalMs"
     | "spendHoldSweepIntervalMs"
     | "payoutReconciliationIntervalMs"
+    | "liabilityReconciliationIntervalMs"
     | "marketRollupsCloserIntervalMs"
     | "gmvReconciliationIntervalMs"
     | "catalogProviderScopeRefreshIntervalMs"
@@ -1811,6 +1812,36 @@ function createScheduledJobRunners(
           return typeof result === "object" && result && "checked" in result
             ? Number((result as { checked: unknown }).checked)
             : 0;
+        },
+      ),
+    );
+  }
+
+  if (settlement && input.liabilityReconciliationIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        "settlement.liability-reconciliation",
+        input.liabilityReconciliationIntervalMs,
+        controlPlane,
+        async () => {
+          // Solvency invariant: the provider platform balance must cover what the
+          // platform owes sellers (Σ wallet liabilities + in-flight payout
+          // demand). A shortfall beyond tolerance is a leak signal (double
+          // transfer, missed reversal) that is otherwise invisible until
+          // cash-out. Detective control only -- it never moves money.
+          const result = await settlement.liabilityReconciliation.reconcileLedgerAgainstProvider({
+            currencyCode: "usd",
+          });
+          const log = result.status === "shortfall-alarm" ? logger.warn : logger.info;
+          log("Settlement liability reconciliation completed.", {
+            type: "settlement.liability-reconciliation",
+            status: result.status,
+            currencyCode: result.currencyCode,
+            expectedObligationAmount: result.expectedObligationAmount,
+            providerAvailableAmount: result.providerAvailableAmount,
+            driftAmount: result.driftAmount,
+          });
+          return result.status === "shortfall-alarm" ? 1 : 0;
         },
       ),
     );
