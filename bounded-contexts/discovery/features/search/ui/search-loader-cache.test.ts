@@ -22,7 +22,9 @@ describe("search loader cache", () => {
     cacheSearchLoaderData(window.sessionStorage, key, payload, 1_000);
 
     expect(readCachedSearchLoaderData(window.sessionStorage, key, 1_500)).toEqual(payload);
-    expect(readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=pikachu"), 1_500)).toBeNull();
+    expect(
+      readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=pikachu"), 1_500),
+    ).toBeNull();
   });
 
   it("expires entries once past the freshness window so a stale Result Set forces a fresh load", () => {
@@ -35,7 +37,12 @@ describe("search loader cache", () => {
 
   it("keeps the newest entry and bounds the cache so a long session cannot grow without limit", () => {
     for (let index = 0; index < 12; index += 1) {
-      cacheSearchLoaderData(window.sessionStorage, `/search?q=term-${index}`, { data: index, canonicalUrl: "x" }, index);
+      cacheSearchLoaderData(
+        window.sessionStorage,
+        `/search?q=term-${index}`,
+        { data: index, canonicalUrl: "x" },
+        index,
+      );
     }
 
     // The most recent writes survive; the oldest were evicted by the entry cap.

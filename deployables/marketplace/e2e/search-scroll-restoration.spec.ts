@@ -94,9 +94,7 @@ test.describe("marketplace search scroll restoration", () => {
     // Performance target, reported separately from the hard correctness budget above. A soft
     // assertion surfaces a restoration regression without masking it as a correctness failure.
     test.info().annotations.push({ type: "restoration-ms", description: String(restorationMs) });
-    expect
-      .soft(restorationMs, "Result Set restoration performance budget")
-      .toBeLessThan(RESTORATION_PERF_BUDGET_MS);
+    expect.soft(restorationMs, "Result Set restoration performance budget").toBeLessThan(RESTORATION_PERF_BUDGET_MS);
   });
 });
 

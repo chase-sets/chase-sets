@@ -79,9 +79,7 @@ export function cacheSearchLoaderData(
     return;
   }
 
-  const existing = readStoredEntries(storage).filter(
-    (entry) => entry.key !== key && now - entry.savedAt <= ttlMs,
-  );
+  const existing = readStoredEntries(storage).filter((entry) => entry.key !== key && now - entry.savedAt <= ttlMs);
   const entries: CacheEntry[] = [{ key, data, savedAt: now }, ...existing].slice(0, MAX_CACHED_ENTRIES);
 
   try {
