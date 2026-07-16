@@ -639,9 +639,6 @@ importers:
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
-      '@chase-sets/platform-operations':
-        specifier: workspace:*
-        version: link:../platform-operations
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
@@ -709,9 +706,6 @@ importers:
       '@chase-sets/outbound-messaging':
         specifier: workspace:*
         version: link:../../contracts/outbound-messaging
-      '@chase-sets/platform-operations':
-        specifier: workspace:*
-        version: link:../platform-operations
       '@chase-sets/platform-policy':
         specifier: workspace:*
         version: link:../../infrastructure/platform-policy
@@ -919,9 +913,6 @@ importers:
       '@chase-sets/payment-processing':
         specifier: workspace:*
         version: link:../../contracts/payment-processing
-      '@chase-sets/platform-operations':
-        specifier: workspace:*
-        version: link:../platform-operations
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime

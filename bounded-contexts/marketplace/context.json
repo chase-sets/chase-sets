@@ -28,8 +28,7 @@
     "@chase-sets/commercial-terms",
     "@chase-sets/customer-feedback",
     "@chase-sets/identity",
-    "@chase-sets/inventory",
-    "@chase-sets/platform-operations"
+    "@chase-sets/inventory"
   ],
   "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory"],
   "eventSubscriptions": [
