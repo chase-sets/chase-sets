@@ -36,6 +36,12 @@ Auth resolves the actor for hosts. Identity remains upstream for the user, accou
 
 The safe in-app path that Auth sends the user back to after sign-in, registration, or account selection completes.
 
+## Invitation Acceptance
+
+The Auth-owned recipient journey that inspects an Identity-owned Invitation, proves control of its emailed acceptance token, creates a password or passkey when needed, and starts a session in the invited account with the invited role.
+
+Identity remains the source of truth for Invitation status, expiry, token consumption, and the resulting Membership. Auth owns the tokenized email intent, recipient page, credential ceremony, and authenticated landing.
+
 ## Sign-In Identifier
 
 A **Sign-In Identifier** is the contact value Auth accepts to start an authentication journey.

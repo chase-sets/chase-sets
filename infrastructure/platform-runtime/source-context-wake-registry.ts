@@ -406,6 +406,7 @@ export const sourceContextWakeRegistry = [
       "identity.admin-invitation-list-fresh-read",
       "identity.admin-membership-detail-fresh-read",
       "identity.admin-user-detail-fresh-read",
+      "identity.invitation-email-auth-projection-fresh-read",
       "identity.marketplace-account-profile-fresh-read",
       "identity.registration-current-actor-display-fresh-read",
       "identity.shipping-addresses-fresh-read",
@@ -558,7 +559,7 @@ export const sourceContextWakeRegistry = [
     ],
     routeDependencyIds: [
       "ordering.accepted-offer-to-sales-list",
-      "ordering.postage-policy-command-to-detail",
+      "ordering.postage-policy-command-to-home",
       "ordering.postage-policy-create-to-list",
       "ordering.purchase-cancel-to-detail",
       "ordering.sale-cancel-to-detail",

@@ -321,6 +321,7 @@ describeDb("auth projection row identity", () => {
           status: "accepted",
           expires_at: "2026-06-21T00:00:00.000Z",
           accepted_by_user_id: "usr_1",
+          invited_by_user_id: "usr_actor",
           updated_at: "2026-06-12T12:21:00.000Z",
         },
       ],

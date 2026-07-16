@@ -47,6 +47,7 @@ Commercial terms terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 1. Commercial Terms resolution is deterministic for an account and timestamp.
 2. Account-specific agreements override the published schedule when both are active.
 3. Marketplace consumes resolved snapshots for seller confirmation and emits locked snapshots for downstream ordering.
+4. Active policies for the same policy key never overlap; resolution fails closed and alerts operators if overlapping projections are observed.
 
 ## Tests
 

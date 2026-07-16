@@ -55,6 +55,7 @@ import {
 } from "@chase-sets/platform-runtime/control-plane";
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
+import { registerPostWriteConsistencyRecorder } from "@chase-sets/platform-runtime/post-write-consistency";
 import {
   createRuntimeLifecycleRegistry,
   runWithRuntimeLifecycleTimeout,
@@ -69,6 +70,7 @@ import {
   recordMcpAuditRecord,
   recordPublicPresenceWaitlistAnalytics,
   recordProjectionFreshnessWakeEnqueue,
+  recordPostWriteConsistencyEvent,
   recordProviderWebhookIngestion,
   recordRealtimeAuthorizationRejected,
   recordRealtimeBatchRead,
@@ -104,6 +106,7 @@ import {
 
 const observability = getObservabilityRuntime();
 const logger = observability.logger;
+registerPostWriteConsistencyRecorder(recordPostWriteConsistencyEvent);
 const config = loadConfig();
 const ucpAp2MandateVerifier = config.ucpAp2Verifier
   ? createRemoteUcpAp2MandateVerifier(config.ucpAp2Verifier)
