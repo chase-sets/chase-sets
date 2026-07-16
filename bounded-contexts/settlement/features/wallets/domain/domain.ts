@@ -12,6 +12,7 @@ import {
   normalizeLedgerEntryKind,
   normalizeMoneyAmount,
   normalizeOptionalText,
+  subtractMoney,
   type CurrencyCode,
   type LedgerEntryDirection,
   type LedgerEntryFundsStatus,
@@ -35,17 +36,52 @@ export type WalletLedgerEntry = Readonly<{
 
 export type WalletNegativeBalanceStatus = "in-good-standing" | "negative" | "collections";
 
+/**
+ * Why a buyer-spend hold was released. `payment-captured` converts the hold to
+ * the final balance-credit debit (the debit ledger entry is what actually moves
+ * the money); the other reasons simply return the reserved amount to spendable
+ * availability without moving money.
+ */
+export type WalletSpendHoldReleaseReason = "payment-captured" | "payment-failed" | "payment-cancelled" | "expired";
+
+export type WalletSpendHoldStatus = "active" | "released";
+
+/**
+ * A reservation ("spend hold") placed on wallet credit at checkout / payment
+ * creation, before the balance-credit debit posts at capture. Holds reduce the
+ * balance available to spend (and to pay out) without changing
+ * `availableBalanceAmount` -- only ledger entries move real money. The hold
+ * exists so two concurrent checkouts cannot both apply the same credit: the
+ * decider reserves against `availableBalanceAmount - heldBalanceAmount`, and the
+ * runtime commits under optimistic concurrency so a losing concurrent hold
+ * re-reads the winner's reservation.
+ */
+export type WalletSpendHold = Readonly<{
+  holdId: string;
+  paymentId: PaymentId | null;
+  amount: string;
+  currencyCode: CurrencyCode;
+  status: WalletSpendHoldStatus;
+  placedAt: string;
+  expiresAt: string | null;
+  releasedAt: string | null;
+  releaseReason: WalletSpendHoldReleaseReason | null;
+}>;
+
 export type WalletState = Readonly<{
   accountId: AccountId | null;
   currencyCode: CurrencyCode | null;
   pendingBalanceAmount: string;
   availableBalanceAmount: string;
+  /** Sum of active buyer-spend holds; reduces spendable/payable availability without moving money. */
+  heldBalanceAmount: string;
   totalCreditedAmount: string;
   totalDebitedAmount: string;
   negativeBalanceStatus: WalletNegativeBalanceStatus;
   negativeBalanceStartedAt: string | null;
   collectionsEscalatedAt: string | null;
   entries: readonly WalletLedgerEntry[];
+  spendHolds: readonly WalletSpendHold[];
   openedAt: string | null;
   updatedAt: string | null;
 }>;
@@ -55,15 +91,27 @@ export const initialWalletState: WalletState = {
   currencyCode: null,
   pendingBalanceAmount: "0.00",
   availableBalanceAmount: "0.00",
+  heldBalanceAmount: "0.00",
   totalCreditedAmount: "0.00",
   totalDebitedAmount: "0.00",
   negativeBalanceStatus: "in-good-standing",
   negativeBalanceStartedAt: null,
   collectionsEscalatedAt: null,
   entries: [],
+  spendHolds: [],
   openedAt: null,
   updatedAt: null,
 };
+
+/** Spendable balance for new buyer-spend holds: available less everything already held, floored at zero. */
+export function walletSpendableBalanceAmount(state: WalletState): string {
+  const spendable = subtractMoney(state.availableBalanceAmount, state.heldBalanceAmount);
+  return compareMoney(spendable, "0.00") > 0 ? spendable : "0.00";
+}
+
+function minMoney(left: string, right: string) {
+  return compareMoney(left, right) <= 0 ? left : right;
+}
 
 export type OpenWalletCommand = Readonly<{
   type: "OpenWallet";
@@ -101,11 +149,30 @@ export type EvaluateNegativeBalanceCollectionsCommand = Readonly<{
   evaluatedAt: string;
 }>;
 
+export type PlaceSpendHoldCommand = Readonly<{
+  type: "PlaceSpendHold";
+  holdId: string;
+  paymentId?: PaymentId | null;
+  amount: string;
+  currencyCode: CurrencyCode;
+  placedAt: string;
+  expiresAt?: string | null;
+}>;
+
+export type ReleaseSpendHoldCommand = Readonly<{
+  type: "ReleaseSpendHold";
+  holdId: string;
+  reason: WalletSpendHoldReleaseReason;
+  releasedAt: string;
+}>;
+
 export type WalletCommand =
   | OpenWalletCommand
   | PostLedgerEntryCommand
   | MarkLedgerEntryAvailableCommand
-  | EvaluateNegativeBalanceCollectionsCommand;
+  | EvaluateNegativeBalanceCollectionsCommand
+  | PlaceSpendHoldCommand
+  | ReleaseSpendHoldCommand;
 
 export type WalletOpenedEvent = DomainEvent<
   "settlement.wallet.opened",
@@ -174,13 +241,40 @@ export type WalletNegativeBalanceRecoveredEvent = DomainEvent<
   }>
 >;
 
+export type WalletSpendHoldPlacedEvent = DomainEvent<
+  "settlement.wallet.spend-hold-placed",
+  Readonly<{
+    accountId: AccountId;
+    holdId: string;
+    paymentId: PaymentId | null;
+    amount: string;
+    currencyCode: CurrencyCode;
+    placedAt: string;
+    expiresAt: string | null;
+  }>
+>;
+
+export type WalletSpendHoldReleasedEvent = DomainEvent<
+  "settlement.wallet.spend-hold-released",
+  Readonly<{
+    accountId: AccountId;
+    holdId: string;
+    paymentId: PaymentId | null;
+    amount: string;
+    reason: WalletSpendHoldReleaseReason;
+    releasedAt: string;
+  }>
+>;
+
 export type WalletEvent =
   | WalletOpenedEvent
   | WalletLedgerEntryPostedEvent
   | WalletLedgerEntryAvailableEvent
   | WalletNegativeBalanceEnteredEvent
   | WalletNegativeBalanceCollectionsOpenedEvent
-  | WalletNegativeBalanceRecoveredEvent;
+  | WalletNegativeBalanceRecoveredEvent
+  | WalletSpendHoldPlacedEvent
+  | WalletSpendHoldReleasedEvent;
 
 function hasLedgerEntry(entries: readonly WalletLedgerEntry[], ledgerEntryId: LedgerEntryId) {
   return entries.some((entry) => entry.ledgerEntryId === ledgerEntryId);
@@ -353,6 +447,71 @@ export const decideWallet: AggregateDecider<WalletState, WalletCommand, WalletEv
         },
       ];
     }
+    case "PlaceSpendHold": {
+      assert(state.accountId !== null, "Wallet must be opened first.");
+      assert(
+        state.currencyCode === normalizeCurrencyCode(command.currencyCode),
+        "Spend holds must use the wallet currency.",
+      );
+      // Idempotent: a hold with this id has already been decided (whether it is
+      // still active or has since been released/captured). Never re-reserve.
+      if (state.spendHolds.some((hold) => hold.holdId === command.holdId)) {
+        return [];
+      }
+      const requestedAmount = normalizeMoneyAmount(command.amount, {
+        fieldName: "Spend hold amount",
+        allowZero: true,
+      });
+      // Authoritative reservation against in-aggregate state. `heldBalanceAmount`
+      // already reflects every prior committed hold on this wallet stream, so
+      // under optimistic concurrency a second concurrent checkout that loses the
+      // append race re-loads, sees the winner's hold here, and is capped to the
+      // balance still unheld. This -- not the read model -- is what closes the
+      // double-spend race.
+      const heldAmount = minMoney(requestedAmount, walletSpendableBalanceAmount(state));
+      if (compareMoney(heldAmount, "0.00") <= 0) {
+        return [];
+      }
+      return [
+        {
+          type: "settlement.wallet.spend-hold-placed",
+          data: {
+            accountId: state.accountId,
+            holdId: command.holdId,
+            paymentId: command.paymentId ?? null,
+            amount: heldAmount,
+            currencyCode: normalizeCurrencyCode(command.currencyCode),
+            placedAt: ensureIsoTimestamp(command.placedAt, "Spend hold placement must record a timestamp."),
+            expiresAt:
+              command.expiresAt == null
+                ? null
+                : ensureIsoTimestamp(command.expiresAt, "Spend hold expiry must be a timestamp."),
+          },
+        },
+      ];
+    }
+    case "ReleaseSpendHold": {
+      assert(state.accountId !== null, "Wallet must be opened first.");
+      const hold = state.spendHolds.find((candidate) => candidate.holdId === command.holdId);
+      // Idempotent: releasing an unknown or already-released hold is a no-op, so
+      // redelivered capture/failure/cancellation events never double-count.
+      if (!hold || hold.status !== "active") {
+        return [];
+      }
+      return [
+        {
+          type: "settlement.wallet.spend-hold-released",
+          data: {
+            accountId: state.accountId,
+            holdId: hold.holdId,
+            paymentId: hold.paymentId,
+            amount: hold.amount,
+            reason: command.reason,
+            releasedAt: ensureIsoTimestamp(command.releasedAt, "Spend hold release must record a timestamp."),
+          },
+        },
+      ];
+    }
     default:
       return assertNever(command);
   }
@@ -366,12 +525,14 @@ export const evolveWallet: AggregateEvolver<WalletState, WalletEvent> = (state, 
         currencyCode: event.data.currencyCode,
         pendingBalanceAmount: "0.00",
         availableBalanceAmount: "0.00",
+        heldBalanceAmount: "0.00",
         totalCreditedAmount: "0.00",
         totalDebitedAmount: "0.00",
         negativeBalanceStatus: "in-good-standing",
         negativeBalanceStartedAt: null,
         collectionsEscalatedAt: null,
         entries: [],
+        spendHolds: [],
         openedAt: event.data.openedAt,
         updatedAt: event.data.openedAt,
       };
@@ -457,6 +618,42 @@ export const evolveWallet: AggregateEvolver<WalletState, WalletEvent> = (state, 
         negativeBalanceStartedAt: null,
         collectionsEscalatedAt: null,
         updatedAt: event.data.recoveredAt,
+      };
+    case "settlement.wallet.spend-hold-placed":
+      return {
+        ...state,
+        heldBalanceAmount: addMoney(state.heldBalanceAmount, event.data.amount),
+        spendHolds: [
+          ...state.spendHolds,
+          {
+            holdId: event.data.holdId,
+            paymentId: event.data.paymentId,
+            amount: event.data.amount,
+            currencyCode: event.data.currencyCode,
+            status: "active",
+            placedAt: event.data.placedAt,
+            expiresAt: event.data.expiresAt,
+            releasedAt: null,
+            releaseReason: null,
+          },
+        ],
+        updatedAt: event.data.placedAt,
+      };
+    case "settlement.wallet.spend-hold-released":
+      return {
+        ...state,
+        heldBalanceAmount: subtractMoney(state.heldBalanceAmount, event.data.amount),
+        spendHolds: state.spendHolds.map((hold) =>
+          hold.holdId === event.data.holdId
+            ? {
+                ...hold,
+                status: "released",
+                releasedAt: event.data.releasedAt,
+                releaseReason: event.data.reason,
+              }
+            : hold,
+        ),
+        updatedAt: event.data.releasedAt,
       };
     default:
       return assertNever(event);

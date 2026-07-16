@@ -27,7 +27,10 @@ import {
   createCommercialTermsResolver,
   type CommercialTermsAccountSource,
 } from "@chase-sets/commercial-terms/server";
-import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
+import {
+  createSettlementBalanceCreditResolver,
+  createSettlementWalletSpendHoldPort,
+} from "@chase-sets/settlement/server";
 import {
   collectProjectionOperationRunners,
   collectWorkerRunners,
@@ -206,7 +209,12 @@ const commercialTermsResolver = pools["commercial-terms"]
   : undefined;
 const termsAcceptanceResolver = pools.identity ? createIdentityTermsAcceptanceResolver(pools.identity) : undefined;
 const balanceCreditResolver = pools.settlement
-  ? createSettlementBalanceCreditResolver(pools.settlement, { termsAcceptanceResolver })
+  ? createSettlementBalanceCreditResolver(pools.settlement, {
+      termsAcceptanceResolver,
+      // Wallet write port so checkout reserves applied balance authoritatively
+      // and concurrent checkouts cannot double-spend wallet credit (issue #3568).
+      walletSpendHolds: createSettlementWalletSpendHoldPort(pools.settlement),
+    })
   : undefined;
 const checkoutProcessingFeePolicyResolver = pools["commercial-terms"]
   ? createCheckoutProcessingFeePolicyResolver(pools["commercial-terms"])
@@ -1284,6 +1292,7 @@ function createScheduledJobRunners(
     | "sellerAvailabilityRestoreSweepIntervalMs"
     | "sellerAwayWindowStartSweepIntervalMs"
     | "sellerFundsReleaseIntervalMs"
+    | "spendHoldSweepIntervalMs"
     | "payoutReconciliationIntervalMs"
     | "marketRollupsCloserIntervalMs"
     | "gmvReconciliationIntervalMs"
@@ -1747,6 +1756,29 @@ function createScheduledJobRunners(
           );
           logger.info("Seller funds release completed.", {
             type: "settlement.funds-release",
+            result,
+          });
+          return typeof result === "object" && result && "released" in result
+            ? Number((result as { released: unknown }).released)
+            : 0;
+        },
+      ),
+    );
+  }
+
+  if (settlement && input.spendHoldSweepIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        "settlement.spend-hold-sweep",
+        input.spendHoldSweepIntervalMs,
+        controlPlane,
+        async () => {
+          // Backstop against buyer-spend holds leaking on payments that never
+          // conclude: release any hold whose expiry has elapsed, returning the
+          // reserved credit to the buyer's spendable balance (issue #3568).
+          const result = await settlement.wallets.sweepExpiredSpendHolds({ limit: 500 }, SYSTEM_CONTEXT);
+          logger.info("Spend-hold sweep completed.", {
+            type: "settlement.spend-hold-sweep",
             result,
           });
           return typeof result === "object" && result && "released" in result

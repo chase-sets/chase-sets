@@ -39,7 +39,53 @@ CREATE INDEX IF NOT EXISTS settlement_ledger_entry_pages_account_idx
 CREATE INDEX IF NOT EXISTS settlement_ledger_entry_pages_payout_idx
   ON settlement_ledger_entry_pages (payout_id)
   WHERE payout_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS settlement_wallet_spend_holds (
+  hold_id text PRIMARY KEY,
+  account_id text NOT NULL,
+  payment_id text NULL,
+  amount numeric(12, 2) NOT NULL,
+  currency_code text NOT NULL,
+  status text NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'released')),
+  placed_at timestamptz NOT NULL,
+  expires_at timestamptz NULL,
+  released_at timestamptz NULL,
+  release_reason text NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS settlement_wallet_spend_holds_active_account_idx
+  ON settlement_wallet_spend_holds (account_id)
+  WHERE status = 'active';
+
+CREATE INDEX IF NOT EXISTS settlement_wallet_spend_holds_active_expiry_idx
+  ON settlement_wallet_spend_holds (expires_at)
+  WHERE status = 'active' AND expires_at IS NOT NULL;
 `;
+
+const settlementWalletSpendHoldsTableSql = `CREATE TABLE IF NOT EXISTS settlement_wallet_spend_holds (
+  hold_id text PRIMARY KEY,
+  account_id text NOT NULL,
+  payment_id text NULL,
+  amount numeric(12, 2) NOT NULL,
+  currency_code text NOT NULL,
+  status text NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'released')),
+  placed_at timestamptz NOT NULL,
+  expires_at timestamptz NULL,
+  released_at timestamptz NULL,
+  release_reason text NULL,
+  updated_at timestamptz NOT NULL
+);`;
+
+const settlementWalletSpendHoldsActiveAccountIndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_wallet_spend_holds_active_account_idx
+  ON settlement_wallet_spend_holds (account_id)
+  WHERE status = 'active';`;
+
+const settlementWalletSpendHoldsActiveExpiryIndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_wallet_spend_holds_active_expiry_idx
+  ON settlement_wallet_spend_holds (expires_at)
+  WHERE status = 'active' AND expires_at IS NOT NULL;`;
 
 const settlementWalletNegativeBalanceColumnsSql = `ALTER TABLE settlement_wallet_pages
   ADD COLUMN IF NOT EXISTS negative_balance_status text NOT NULL DEFAULT 'in-good-standing'
@@ -59,6 +105,16 @@ export const settlementWalletSchemaMigrations: readonly BcSchemaMigration[] = [
       "SET lock_timeout = '5s';",
       settlementWalletNegativeBalanceColumnsSql,
       settlementWalletNegativeBalanceIndexSql,
+    ],
+  },
+  {
+    migrationId: "20260715_settlement_wallet_spend_holds",
+    description: "Create the buyer-spend hold read model backing the balance-credit reservation (issue #3568).",
+    statements: [
+      "SET lock_timeout = '5s';",
+      settlementWalletSpendHoldsTableSql,
+      settlementWalletSpendHoldsActiveAccountIndexSql,
+      settlementWalletSpendHoldsActiveExpiryIndexSql,
     ],
   },
 ];

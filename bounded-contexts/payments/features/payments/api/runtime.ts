@@ -1789,6 +1789,38 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           "active_payment_exists_for_order_set",
         );
       }
+      // Reserve the applied wallet balance authoritatively before any processor
+      // work. The settlement wallet aggregate closes the concurrent-checkout race
+      // under optimistic concurrency: if a rival checkout already reserved some
+      // or all of this balance, we are held to less than we quoted. Rather than
+      // silently apply a different amount than the fee quote was fingerprinted
+      // for, we release whatever we just held, roll back the reservation, and ask
+      // the client to re-quote against the now-lower balance.
+      if (compareMoney(balanceCreditAmount, "0.00") > 0 && deps.balanceCreditResolver?.placeSpendHold) {
+        const hold = await deps.balanceCreditResolver.placeSpendHold(
+          { paymentId, buyerAccountId: accountId, currencyCode, requestedAmount: balanceCreditAmount },
+          context,
+        );
+        const heldAmount = normalizeMoneyAmount(hold.heldAmount, {
+          fieldName: "Balance credit amount",
+          allowZero: true,
+        });
+        if (compareMoney(heldAmount, balanceCreditAmount) < 0) {
+          try {
+            await deps.balanceCreditResolver.releaseSpendHold?.(
+              { paymentId, buyerAccountId: accountId, reason: "payment-cancelled" },
+              context,
+            );
+          } catch {
+            // Best-effort release; the settlement stale-hold sweep is the backstop.
+          }
+          await markPaymentCreationReservationInactive(deps.db, { paymentId, status: "failed" });
+          throw new PaymentsDomainError(
+            "Wallet balance is no longer fully available; refresh checkout to continue.",
+            "balance_credit_reserved_concurrently",
+          );
+        }
+      }
       let paymentProviderCustomer: ProviderCustomerRow | null = null;
       let savePaymentProviderCustomer: ProviderCustomerRow | null = null;
       if (!params.isGuestCheckout && compareMoney(processorAmount, "0.00") > 0) {

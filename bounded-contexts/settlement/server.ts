@@ -11,7 +11,9 @@ export { createSettlementBalanceCreditResolver } from "./features/wallets/api/ba
 export type {
   SettlementBalanceCreditResolution,
   SettlementBalanceCreditResolver,
+  WalletSpendHoldPort,
 } from "./features/wallets/api/balance-credit-resolver";
+export { createSettlementWalletSpendHoldPort } from "./features/wallets/api/balance-credit-hold-port";
 export type {
   MoneyMovementGateway,
   MoneyMovementWebhookEvent,

@@ -88,7 +88,11 @@ import {
   type SettlementPayoutRow,
 } from "../read-model/queries";
 import type { WalletServices } from "../../wallets/api/runtime";
-import { getAccountActiveSupportHoldAmount, type SettlementWalletRow } from "../../wallets/read-model/queries";
+import {
+  getAccountActiveSpendHoldAmount,
+  getAccountActiveSupportHoldAmount,
+  type SettlementWalletRow,
+} from "../../wallets/read-model/queries";
 import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime";
 import {
   decidePayout,
@@ -1413,14 +1417,22 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       const amount = normalizeMoneyAmount(params.amount, {
         fieldName: "Payout amount",
       });
-      const [riskSummary, platformBalance, activeSupportHoldAmount, payoutBoundsPolicy] = await Promise.all([
-        getAccountPayoutRiskSummary(deps.db, params.accountId),
-        deps.moneyMovementGateway.retrievePlatformBalance({ currencyCode }),
-        getAccountActiveSupportHoldAmount(deps.db, params.accountId),
-        resolvePayoutBoundsPolicy(deps),
-      ]);
+      const [riskSummary, platformBalance, activeSupportHoldAmount, activeSpendHoldAmount, payoutBoundsPolicy] =
+        await Promise.all([
+          getAccountPayoutRiskSummary(deps.db, params.accountId),
+          deps.moneyMovementGateway.retrievePlatformBalance({ currencyCode }),
+          getAccountActiveSupportHoldAmount(deps.db, params.accountId),
+          getAccountActiveSpendHoldAmount(deps.db, params.accountId),
+          resolvePayoutBoundsPolicy(deps),
+        ]);
       const unavailableReasons: string[] = [];
-      const payoutAvailableBalanceAmount = subtractMoney(wallet.available_balance_amount, activeSupportHoldAmount);
+      // Buyer-spend holds reserve balance the account applied at checkout but
+      // that has not yet debited at capture; it must not be payable meanwhile,
+      // or the same funds could be both withdrawn and spent (issue #3568).
+      const payoutAvailableBalanceAmount = subtractMoney(
+        subtractMoney(wallet.available_balance_amount, activeSupportHoldAmount),
+        activeSpendHoldAmount,
+      );
 
       if (payoutReadinessStalenessIsOnlySetupBlocker(readiness)) {
         try {
@@ -1610,8 +1622,16 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         );
       }
 
-      const activeSupportHoldAmount = await getAccountActiveSupportHoldAmount(deps.db, params.accountId);
-      const payoutAvailableBalanceAmount = subtractMoney(wallet.available_balance_amount, activeSupportHoldAmount);
+      const [activeSupportHoldAmount, activeSpendHoldAmount] = await Promise.all([
+        getAccountActiveSupportHoldAmount(deps.db, params.accountId),
+        getAccountActiveSpendHoldAmount(deps.db, params.accountId),
+      ]);
+      // Reserved buyer-spend credit (applied at checkout, not yet captured) is
+      // not payable -- gate it out so the same funds can't be paid out and spent.
+      const payoutAvailableBalanceAmount = subtractMoney(
+        subtractMoney(wallet.available_balance_amount, activeSupportHoldAmount),
+        activeSpendHoldAmount,
+      );
       if (
         wallet.negative_balance_status !== "in-good-standing" ||
         compareMoney(wallet.available_balance_amount, "0.00") < 0
@@ -1620,6 +1640,9 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       }
       if (compareMoney(activeSupportHoldAmount, "0.00") > 0) {
         throw new SettlementDomainError("Open support requests must be resolved before requesting this payout.");
+      }
+      if (compareMoney(activeSpendHoldAmount, "0.00") > 0 && compareMoney(payoutAvailableBalanceAmount, amount) < 0) {
+        throw new SettlementDomainError("Wallet balance is reserved for an in-flight checkout and is not yet payable.");
       }
       if (compareMoney(payoutAvailableBalanceAmount, amount) < 0) {
         throw new SettlementDomainError("Available balance is too low for this payout.");

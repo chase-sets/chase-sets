@@ -88,6 +88,7 @@ export type PlatformWorkerConfig = Readonly<{
   sellerAvailabilityRestoreSweepIntervalMs: number | null;
   sellerAwayWindowStartSweepIntervalMs: number | null;
   sellerFundsReleaseIntervalMs: number | null;
+  spendHoldSweepIntervalMs: number | null;
   payoutReconciliationIntervalMs: number | null;
   marketRollupsCloserIntervalMs: number | null;
   gmvReconciliationIntervalMs: number | null;
@@ -490,6 +491,7 @@ export function loadConfig(): PlatformWorkerConfig {
       60_000,
     ),
     sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),
+    spendHoldSweepIntervalMs: getOptionalPositiveNumberEnv("SPEND_HOLD_SWEEP_INTERVAL_MS", 300_000),
     payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYOUT_RECONCILIATION_INTERVAL_MS", 300_000),
     // Daily rollup closer (pricing market rollups): frequent enough that
     // recently-closed days pick up a late refund/cancel exclusion within minutes, cheap
