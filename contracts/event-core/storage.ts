@@ -101,6 +101,7 @@ export type StoredEvent<
 
 export type AppendToStreamInput = Readonly<{
   streamId: StreamId;
+  wakeSourceContextName?: string;
   expectedVersion: ExpectedStreamVersion;
   events: readonly EventRecordToStore[];
   context: EventStoreContext;

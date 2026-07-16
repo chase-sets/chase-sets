@@ -13,17 +13,17 @@ export function discoverySearchEmbeddingEnrichmentEnabled(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): boolean {
   const raw = env[DISCOVERY_SEARCH_EMBEDDINGS_ENV_VAR];
-  return raw === undefined || !DISABLED_VALUES.has(raw.trim().toLocaleLowerCase("en-US"));
+  return raw === undefined || !DISABLED_VALUES.has(raw.trim().toLowerCase());
 }
 
 /** Stage 1 ships open, but remains independently kill-switchable. */
 export function discoverySearchRescueEnabled(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
   const raw = env[DISCOVERY_SEARCH_RESCUE_ENV_VAR];
-  return raw === undefined || !DISABLED_VALUES.has(raw.trim().toLocaleLowerCase("en-US"));
+  return raw === undefined || !DISABLED_VALUES.has(raw.trim().toLowerCase());
 }
 
 /** Stage 2 is an explicit rollout and stays off when not configured. */
 export function discoverySearchHybridEnabled(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
   const raw = env[DISCOVERY_SEARCH_HYBRID_ENV_VAR];
-  return raw !== undefined && ENABLED_VALUES.has(raw.trim().toLocaleLowerCase("en-US"));
+  return raw !== undefined && ENABLED_VALUES.has(raw.trim().toLowerCase());
 }

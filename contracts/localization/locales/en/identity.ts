@@ -286,6 +286,8 @@ export const identityEnglishTranslations = {
   "identity.features.invitations.ui.invitationListPage.status.filter.expired": "Expired",
   "identity.features.invitations.ui.invitationListPage.status.filter.pending": "Pending",
   "identity.features.memberships.api.route.forbidden": "Forbidden.",
+  "identity.features.memberships.api.route.last.owner":
+    "Add another account owner before changing or revoking this membership.",
   "identity.features.memberships.api.route.membership.not.found": "Membership not found.",
   "identity.features.memberships.api.route.role.key.invalid": "Role key is invalid. Valid role keys: {validRoleKeys}.",
   "identity.features.memberships.readModel.schema.create.table.if.not.exists.identity":

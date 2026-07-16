@@ -111,10 +111,6 @@ export type CatalogControlPlaneAction = Readonly<{
   requiresConfirmation: boolean;
   feedbackShape: CatalogControlPlaneFeedbackShape;
   disclosure: CatalogControlPlaneDisclosure;
-  // The current `information-architecture.ts`-era form intents this entity action
-  // replaces. Every legacy intent maps to exactly one v2 action; several legacy
-  // intents collapse into one (retry/resume/cancel → job lifecycle transitions).
-  replacesIntents: readonly string[];
 }>;
 
 // A crosswalk row: where each of the eight deprecated workspaces lands in v2.
@@ -212,8 +208,8 @@ export const CATALOG_CONTROL_PLANE_ENTITIES = [
   { key: "provider-profile", accessibleName: "Provider profile", homePage: "provider-detail" },
 ] as const satisfies readonly CatalogControlPlaneEntity[];
 
-// The per-entity action vocabulary. Every current form intent (16 daily, 5
-// alias-review, 3 provider-setup, 3 governance) maps to exactly one action here.
+// The complete per-entity wire vocabulary. Forms submit these ids directly;
+// retired page-scoped intents have no compatibility aliases.
 export const CATALOG_CONTROL_PLANE_ACTIONS = [
   // scope
   {
@@ -226,7 +222,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "job-progress",
     disclosure: "inline",
-    replacesIntents: ["start-catalog-sync"],
   },
   {
     id: "scope.import",
@@ -238,7 +233,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "job-progress",
     disclosure: "inline",
-    replacesIntents: ["start-provider-import"],
   },
   // job (import job lifecycle — retry/resume/cancel collapse to transitions)
   {
@@ -251,7 +245,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "job-progress",
     disclosure: "inline",
-    replacesIntents: ["retry-import-job"],
   },
   {
     id: "job.resume",
@@ -263,7 +256,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "job-progress",
     disclosure: "inline",
-    replacesIntents: ["resume-import-job"],
   },
   {
     id: "job.cancel",
@@ -275,7 +267,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: true,
     feedbackShape: "confirmation-gate",
     disclosure: "inline",
-    replacesIntents: ["cancel-import-job"],
   },
   // observation
   {
@@ -287,11 +278,10 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresReason: false,
     requiresConfirmation: true,
     // The typed preview renders inline and must stay fresh; execute is the
-    // confirmation of that preview. preview-promotion + execute-promotion are one
-    // guarded flow, not two detached intents.
+    // confirmation of that preview. Preview and execute are phases of one guarded
+    // action, not detached intents.
     feedbackShape: "preview-panel",
     disclosure: "inline",
-    replacesIntents: ["preview-promotion", "execute-promotion"],
   },
   {
     id: "observation.reject",
@@ -303,7 +293,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "row-transition",
     disclosure: "inline",
-    replacesIntents: ["reject-source-observations"],
   },
   {
     id: "observation.defer",
@@ -315,7 +304,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "row-transition",
     disclosure: "inline",
-    replacesIntents: ["defer-source-observations"],
   },
   {
     id: "observation.reapply",
@@ -327,7 +315,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "job-progress",
     disclosure: "inline",
-    replacesIntents: ["start-reapply"],
   },
   {
     id: "observation.replay",
@@ -339,7 +326,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "job-progress",
     disclosure: "inline",
-    replacesIntents: ["start-replay"],
   },
   // candidate (merge candidate)
   {
@@ -355,7 +341,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     // Single-candidate promote and the scope-level promote-all-ready bulk action
     // are the same entity verb applied to one candidate or to the ready set; the
     // bulk form only ever carries `ready` candidate IDs.
-    replacesIntents: ["promote-merge-candidate", "bulk-promote-merge-candidates"],
   },
   {
     id: "candidate.edit",
@@ -369,7 +354,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     // textarea; the operator confirms the diff before saving.
     feedbackShape: "preview-panel",
     disclosure: "drawer",
-    replacesIntents: ["update-merge-candidate"],
   },
   {
     id: "candidate.split",
@@ -381,7 +365,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: true,
     feedbackShape: "preview-panel",
     disclosure: "drawer",
-    replacesIntents: ["split-merge-candidate"],
   },
   {
     id: "candidate.ignore",
@@ -393,7 +376,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "row-transition",
     disclosure: "inline",
-    replacesIntents: ["ignore-merge-candidate"],
   },
   {
     id: "candidate.defer",
@@ -407,7 +389,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     disclosure: "inline",
     // Single-candidate defer and the scope-level defer-remainder bulk action are
     // the same entity verb over one candidate or the remainder set.
-    replacesIntents: ["defer-merge-candidate", "bulk-defer-merge-candidates"],
   },
   // alias (accept + auto-accept collapse to one accept action)
   {
@@ -420,7 +401,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "row-transition",
     disclosure: "inline",
-    replacesIntents: ["accept", "auto-accept"],
   },
   {
     id: "alias.reject",
@@ -432,7 +412,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "row-transition",
     disclosure: "inline",
-    replacesIntents: ["reject"],
   },
   {
     id: "alias.revoke",
@@ -444,7 +423,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "row-transition",
     disclosure: "inline",
-    replacesIntents: ["revoke"],
   },
   {
     id: "alias.defer",
@@ -456,7 +434,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "row-transition",
     disclosure: "inline",
-    replacesIntents: ["defer"],
   },
   // provider-profile
   {
@@ -469,7 +446,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "status-banner",
     disclosure: "inline",
-    replacesIntents: ["clone-provider-profile"],
   },
   {
     id: "provider-profile.edit-section",
@@ -481,7 +457,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: false,
     feedbackShape: "status-banner",
     disclosure: "inline",
-    replacesIntents: ["update-provider-profile-section"],
   },
   {
     id: "provider-profile.activate",
@@ -493,7 +468,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: true,
     feedbackShape: "confirmation-gate",
     disclosure: "inline",
-    replacesIntents: ["activate-provider-profile"],
   },
   {
     id: "provider-profile.rollback",
@@ -505,7 +479,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: true,
     feedbackShape: "confirmation-gate",
     disclosure: "inline",
-    replacesIntents: ["rollback-provider-profile"],
   },
   {
     id: "provider-profile.deprecate",
@@ -517,7 +490,6 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: true,
     feedbackShape: "confirmation-gate",
     disclosure: "inline",
-    replacesIntents: ["deprecate-provider-profile"],
   },
   {
     id: "provider-profile.retire",
@@ -529,9 +501,10 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     requiresConfirmation: true,
     feedbackShape: "confirmation-gate",
     disclosure: "inline",
-    replacesIntents: ["retire-provider-profile"],
   },
 ] as const satisfies readonly CatalogControlPlaneAction[];
+
+export type CatalogControlPlaneActionId = (typeof CATALOG_CONTROL_PLANE_ACTIONS)[number]["id"];
 
 // The eight deprecated workspaces, each mapped to its v2 home. Nothing is dropped:
 // standalone triage/audit pages fold into inline readiness and the evidence drawer.
@@ -637,8 +610,4 @@ export function catalogControlPlaneActionsForEntity(
   entity: CatalogControlPlaneEntityKey,
 ): readonly CatalogControlPlaneAction[] {
   return CATALOG_CONTROL_PLANE_ACTIONS.filter((action) => action.entity === entity);
-}
-
-export function catalogControlPlaneActionByLegacyIntent(intent: string): CatalogControlPlaneAction | undefined {
-  return CATALOG_CONTROL_PLANE_ACTIONS.find((action) => (action.replacesIntents as readonly string[]).includes(intent));
 }

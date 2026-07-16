@@ -125,7 +125,13 @@ export function CatalogIntegrationCreateItemsStage({
               ? t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.fresh")
               : t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.refresh")}
           </WorkbenchText>
-          <CommandFormButton readModel={readModel} intent="preview-promotion" size="sm" tone="secondary">
+          <CommandFormButton
+            readModel={readModel}
+            intent="observation.promote"
+            promotionPhase="preview"
+            size="sm"
+            tone="secondary"
+          >
             {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
           </CommandFormButton>
         </WorkbenchActionRow>
@@ -144,7 +150,8 @@ export function CatalogIntegrationCreateItemsStage({
         <WorkbenchActionRow>
           <CommandFormButton
             readModel={readModel}
-            intent="execute-promotion"
+            intent="observation.promote"
+            promotionPhase="execute"
             leadingIcon="check"
             disabled={!previewFresh || !confirmed}
           >

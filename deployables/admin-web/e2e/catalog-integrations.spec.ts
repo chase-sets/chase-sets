@@ -252,7 +252,7 @@ test.describe.serial("catalog admin integrations", () => {
     // owning stage and confirm its single canonical action; the run-sync stage is
     // the default landing when there is nothing to review yet.
     await page.getByRole("button", { name: "Run sync" }).first().click();
-    const catalogSyncCommand = page.locator('form[data-catalog-primary-workbench-command="start-catalog-sync"]');
+    const catalogSyncCommand = page.locator('form[data-catalog-primary-workbench-command="scope.sync"]');
     await expect(catalogSyncCommand.getByRole("button", { name: "Start Catalog sync" })).toBeVisible();
 
     // #1969: an import-context change is now a fetcher-scoped CLIENT navigation,
@@ -363,7 +363,7 @@ test.describe.serial("catalog admin integrations", () => {
         // The candidate edit form renders inline in the review drawer. When
         // the candidate is editable it exposes typed inputs (promotion intent,
         // field-value overrides, references) submitted through
-        // update-merge-candidate; when it is not, it explains why in place. Either
+        // candidate.edit; when it is not, it explains why in place. Either
         // way the operator never edits raw JSON.
         const candidateEditForm = page.locator('form[data-catalog-merge-candidate-edit-form="true"]');
         if (await candidateEditForm.count()) {
@@ -463,7 +463,7 @@ test.describe.serial("catalog admin integrations", () => {
 
     await test.step("Sync scope", async () => {
       await page.getByRole("button", { name: "Run sync" }).first().click();
-      const catalogSyncCommand = page.locator('form[data-catalog-primary-workbench-command="start-catalog-sync"]');
+      const catalogSyncCommand = page.locator('form[data-catalog-primary-workbench-command="scope.sync"]');
       await expect(catalogSyncCommand.getByRole("button", { name: "Start Catalog sync" })).toBeVisible();
     });
 
@@ -492,7 +492,7 @@ test.describe.serial("catalog admin integrations", () => {
       }
       await reviewRowCheckbox.first().check();
       // The bulk bar's "Preview promotion" is the promote command for the
-      // selection (`CommandFormButton intent="preview-promotion"`, a real form
+      // selection (`CommandFormButton intent="observation.promote"`, a real form
       // submit, not a client-side dialog). Assert the selection landed in the
       // durable, sessionStorage-backed working set (#5116 -- checking a row never
       // writes the URL) via the bar's own selected-count label, and that the
@@ -707,7 +707,7 @@ test.describe.serial("catalog admin integrations", () => {
     await expect(page).toHaveURL(/\/catalog\/providers\/tcgdex/);
     await expect(providerDetailPage.getByRole("button", { name: "Create draft" })).toBeVisible();
     const cloneForm = providerDetailPage.locator(
-      'form[data-catalog-primary-workbench-command="clone-provider-profile"]',
+      'form[data-catalog-primary-workbench-command="provider-profile.clone"]',
     );
     await expect(cloneForm).toHaveCount(1);
     await expect(new URL((await cloneForm.getAttribute("action")) ?? "", new URL(page.url()).origin)).toEqual(
@@ -716,7 +716,7 @@ test.describe.serial("catalog admin integrations", () => {
     await expect
       .poll(() =>
         providerDetailPage
-          .locator('form[data-catalog-primary-workbench-command="update-provider-profile-section"]')
+          .locator('form[data-catalog-primary-workbench-command="provider-profile.edit-section"]')
           .count(),
       )
       .toBeGreaterThan(0);
@@ -759,9 +759,9 @@ test.describe.serial("catalog admin integrations", () => {
       const row = importJobRows.nth(index);
       const jobId = await row.getAttribute("data-catalog-import-job-id");
       for (const [buttonName, intent] of [
-        ["Retry", "retry-import-job"],
-        ["Resume", "resume-import-job"],
-        ["Cancel", "cancel-import-job"],
+        ["Retry", "job.retry"],
+        ["Resume", "job.resume"],
+        ["Cancel", "job.cancel"],
       ] as const) {
         const actionButton = row.getByRole("button", { name: buttonName });
         if (!(await actionButton.count())) {
@@ -780,13 +780,13 @@ test.describe.serial("catalog admin integrations", () => {
     // Open "Review changes" and guard on either command form actually rendering before
     // inspecting its command metadata. The test never submits these commands.
     //
-    // The `start-reapply` intent is also used by the unit-level Source-scope workset
+    // The `observation.reapply` intent is also used by the unit-level Source-scope workset
     // (`data-catalog-source-scope-unit`), whose reapply form deliberately carries an
     // EMPTY selectedObservationIds — it reapplies the whole unit's promoted set, not a
     // per-observation selection. Exclude that workset form so we assert on the
     // review-row command, which carries the row's own observationId as the selection.
     await page.getByRole("button", { name: "Review changes" }).first().click();
-    for (const intent of ["start-reapply", "start-replay"] as const) {
+    for (const intent of ["observation.reapply", "observation.replay"] as const) {
       const commandForm = page
         .locator(`form[data-catalog-primary-workbench-command="${intent}"]:not([data-catalog-source-scope-unit])`)
         .first();

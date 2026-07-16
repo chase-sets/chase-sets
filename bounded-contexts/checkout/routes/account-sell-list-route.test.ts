@@ -16,6 +16,7 @@ import {
   mockCreateIdentityRequestApiClient,
   mockCreateListing,
   mockCreateMarketplaceRequestApiClient,
+  mockDeclineOfferMatch,
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
   mockCreateSellListReadiness,
@@ -888,6 +889,52 @@ describe("checkout web routes: account sell list", () => {
     const location = response.headers.get("Location") ?? "";
     expect(location).toContain("/account/sell-list?postWriteToken=");
     expect(location).not.toContain("afterWrite=");
+  });
+
+  it("declines selected offers through Marketplace and removes selected-offer Sell List lines", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const removeSellListLine = vi.fn(async () => ({ status: "removed" }));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({
+        items: [
+          {
+            line_id: "sll_1",
+            line_type: "selected-offer",
+            offer_id: "off_1",
+          },
+          {
+            line_id: "sll_2",
+            line_type: "product",
+            offer_id: null,
+          },
+        ],
+      })),
+      removeSellListLine,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      declineOfferMatch: mockDeclineOfferMatch.mockResolvedValue({ status: "declined" }),
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "decline-sell-list-offers");
+    form.append("bulkOfferId", "off_1");
+    form.append("bulkOfferId", "off_2");
+
+    const response = (await accountSellListAction({
+      request: new Request("http://localhost/account/desk/offers", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(1, "off_1");
+    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(2, "off_2");
+    expect(removeSellListLine).toHaveBeenCalledWith("sll_1");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/desk/offers");
   });
 
   it("adds a posted selected offer snapshot to the anonymous Sell List when signed out", async () => {

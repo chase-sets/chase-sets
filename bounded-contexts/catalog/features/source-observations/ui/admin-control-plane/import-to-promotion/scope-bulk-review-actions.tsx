@@ -92,7 +92,7 @@ export function CatalogScopeBulkReviewActions({
               action={action}
               data-catalog-merge-candidate-bulk-promote="true"
             >
-              <HiddenInput name="_intent" value="bulk-promote-merge-candidates" />
+              <HiddenInput name="_intent" value="bulk-candidate.promotes" />
               <HiddenInput name="bulkCandidateIds" value={partition.promotableIds.join(",")} />
               <Button
                 type="submit"
@@ -124,7 +124,7 @@ export function CatalogScopeBulkReviewActions({
             })}
           </WorkbenchText>
           <WorkbenchForm variant="surface" method="post" action={action} data-catalog-merge-candidate-bulk-defer="true">
-            <HiddenInput name="_intent" value="bulk-defer-merge-candidates" />
+            <HiddenInput name="_intent" value="bulk-candidate.defers" />
             <HiddenInput name="bulkCandidateIds" value={partition.remainderIds.join(",")} />
             <Textarea
               name="reason"

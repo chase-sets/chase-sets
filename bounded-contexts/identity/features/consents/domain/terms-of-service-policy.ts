@@ -1,5 +1,6 @@
 import { definePolicy, type PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
 import type { JsonValue } from "@chase-sets/primitives/json";
+import { publicTermsOfServicePublicationMetadata } from "@chase-sets/public-docs";
 import { IdentityDomainError } from "../../../support/runtime-support/common";
 import { TERMS_OF_SERVICE_CONSENT_VERSION_PATTERN } from "./terms-of-service";
 
@@ -30,7 +31,7 @@ export type TermsOfServicePolicyValue = Readonly<{
 }>;
 
 export const IDENTITY_TERMS_OF_SERVICE_PLACEHOLDER_POLICY_VALUE: TermsOfServicePolicyValue = {
-  version: "v1",
+  version: publicTermsOfServicePublicationMetadata.version,
 };
 
 export function decodeTermsOfServicePolicyValue(raw: JsonValue): TermsOfServicePolicyValue {

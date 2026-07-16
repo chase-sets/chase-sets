@@ -42,6 +42,8 @@ describe("registration page", () => {
 
     render(<RegisterPage />);
 
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1, name: "Create an account with a passkey" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: /Passkey/ }).getAttribute("aria-checked")).toBe("true");
     expect(screen.getByText("Recommended")).toBeTruthy();
     expect(screen.getByText(/Face ID, Touch ID, Windows Hello/)).toBeTruthy();
@@ -127,6 +129,26 @@ describe("registration page", () => {
     expect(inputNamed("password")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Create account with password" })).toBeTruthy();
     expect(document.querySelector('input[name="intent"][value="password"]')).not.toBeNull();
+  });
+
+  it("identifies registration fields for browser and password-manager autofill", () => {
+    render(<RegisterPage />);
+
+    expect(inputNamed("displayName").getAttribute("autocomplete")).toBe("name");
+    expect(inputNamed("email").getAttribute("autocomplete")).toBe("email");
+
+    fireEvent.click(screen.getByRole("radio", { name: /Phone Code/ }));
+
+    expect(inputNamed("displayName").getAttribute("autocomplete")).toBe("name");
+    expect(Array.from(document.querySelectorAll('input[name="phone"]'))).toHaveLength(2);
+    for (const phoneInput of document.querySelectorAll('input[name="phone"]')) {
+      expect(phoneInput.getAttribute("autocomplete")).toBe("tel");
+    }
+    expect(inputNamed("code").getAttribute("autocomplete")).toBe("one-time-code");
+
+    fireEvent.click(screen.getByRole("radio", { name: /Password/ }));
+
+    expect(inputNamed("password").getAttribute("autocomplete")).toBe("new-password");
   });
 
   it("posts registration forms to the supplied auth action so return targets survive", () => {

@@ -171,18 +171,18 @@ function auditJobRowsFor(input: {
 }): readonly AuditTimelineRow[] {
   return input.jobs.slice(0, 12).map((job) => {
     const eventName =
-      job.action === "start-provider-import" && job.state === "failed"
+      job.action === "scope.import" && job.state === "failed"
         ? "import-job-failed"
-        : job.action === "start-provider-import" && job.state === "completed"
+        : job.action === "scope.import" && job.state === "completed"
           ? "import-job-completed"
-          : job.action === "start-provider-import"
+          : job.action === "scope.import"
             ? "import-job-started"
             : "reapply-run-executed";
     return {
       eventId: `job:${job.jobId}:${job.state}`,
       occurredAt: job.startedAt ?? job.createdAt,
       eventName,
-      category: job.action === "start-provider-import" ? "import-job" : "reapply",
+      category: job.action === "scope.import" ? "import-job" : "reapply",
       actorLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.jobWorker"),
       targetType: "import-job",
       targetId: job.jobId,

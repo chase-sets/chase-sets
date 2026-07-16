@@ -224,6 +224,8 @@
     { "routePath": "/api/auth/session", "methods": ["GET", "HEAD"] },
     { "routePath": "/api/auth/register", "methods": ["POST"] },
     { "routePath": "/api/auth/password-sign-in", "methods": ["POST"] },
+    { "routePath": "/api/auth/phone-code/request", "methods": ["POST"] },
+    { "routePath": "/api/auth/phone-code/consume", "methods": ["POST"] },
     { "routePath": "/api/auth/magic-link/request", "methods": ["POST"] },
     { "routePath": "/api/auth/magic-link/consume", "methods": ["POST"] },
     { "routePath": "/api/auth/passkeys/challenge", "methods": ["POST"] },

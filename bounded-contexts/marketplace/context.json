@@ -1567,6 +1567,13 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "account-desk",
+          "routePath": "account/desk",
+          "fileExport": "./routes/account-desk",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
           "routeId": "account-listing",
           "routePath": "account/listings/:listingId",
           "fileExport": "./routes/account-listing",
@@ -1661,6 +1668,18 @@
     }
   ],
   "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "placements": ["top-nav", "bottom-nav"],
+      "key": "seller-desk",
+      "label": "Seller Desk",
+      "icon": "dashboard",
+      "href": "/account/desk",
+      "order": 110,
+      "visibility": "signed-in",
+      "requiredPermissions": ["listings.view"]
+    },
     {
       "deployable": "admin-web",
       "slot": "primary-nav",
@@ -1760,8 +1779,13 @@
     },
     "seller-desk": {
       "classification": "slice",
-      "purpose": "Own the Marketplace seller-desk attention queue composition and its transport adapters while source contexts retain their read queries.",
-      "expectedConsumers": ["Seller Desk web surfaces", "Native MCP clients"]
+      "purpose": "Own the Seller Desk home surface and shared attention-queue composition, including marketplace-owned offer and listing sources, server-computed KPIs, and transport adapters while source contexts retain their read queries.",
+      "expectedConsumers": [
+        "Marketplace account-desk route",
+        "Seller Desk web surfaces",
+        "Native MCP clients",
+        "Seller Desk MCP parity tools"
+      ]
     },
     "seller-metrics": {
       "classification": "slice",

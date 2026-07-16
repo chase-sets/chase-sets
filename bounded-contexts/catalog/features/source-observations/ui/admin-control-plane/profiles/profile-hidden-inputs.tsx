@@ -14,7 +14,7 @@ export function ProfileAuthoringHiddenInputs({
 
   return (
     <>
-      <HiddenInput name="_intent" value="clone-provider-profile" />
+      <HiddenInput name="_intent" value="provider-profile.clone" />
       <HiddenInput name="providerKey" value={cloneDraft.sourceProviderKey ?? context.providerKey ?? ""} />
       <HiddenInput name="unitKey" value={context.unitKey ?? ""} />
       <HiddenInput name="importScope" value={context.importScope ?? ""} />
@@ -41,7 +41,7 @@ export function ProfileSectionHiddenInputs({
 
   return (
     <>
-      <HiddenInput name="_intent" value="update-provider-profile-section" />
+      <HiddenInput name="_intent" value="provider-profile.edit-section" />
       <HiddenInput name="sectionKey" value={workspace.sectionKey} />
       <HiddenInput name="providerKey" value={selectedProfile?.providerKey ?? context.providerKey ?? ""} />
       <HiddenInput name="unitKey" value={context.unitKey ?? ""} />

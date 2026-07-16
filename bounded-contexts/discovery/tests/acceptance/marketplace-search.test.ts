@@ -1033,6 +1033,35 @@ describe("marketplace search", () => {
     ]);
   });
 
+  it("matches Latin diacritics symmetrically for titles and aliases", async () => {
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_catalog_items (
+         catalog_item_id, title, status, resolved_aliases, updated_at
+       ) VALUES
+         ('cat_plain_pokemon', 'Pokemon Anniversary', 'active', '{}'::jsonb, now()),
+         ('cat_accented_pokemon', 'Pokémon Celebration', 'active', '{}'::jsonb, now()),
+         (
+           'cat_alias_pokemon',
+           'Pocket Monsters',
+           'active',
+           '{"en":[{"aliasHash":"alias-pokemon","aliasText":"Pokémon Legacy","normalizedAliasText":"pokémon legacy","aliasType":"official-equivalent","confidence":"high","broad":false}]}'::jsonb,
+           now()
+         )`,
+    );
+    await rebuildDiscoverySearchIndex(pools.discovery);
+
+    const searchItemIds = async (query: string) => {
+      const response = await app.request(`/api/marketplace/items?search=${encodeURIComponent(query)}`);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      return body.items.map((item: { catalog_item_id: string }) => item.catalog_item_id);
+    };
+
+    expect(await searchItemIds("Pokémon Anniversary")).toContain("cat_plain_pokemon");
+    expect(await searchItemIds("Pokemon Celebration")).toContain("cat_accented_pokemon");
+    expect(await searchItemIds("Pokemon Legacy")).toContain("cat_alias_pokemon");
+  });
+
   it("keeps Search Index price and availability signals correct through the full listing lifecycle", async () => {
     const handlers = buildDiscoveryMarketProjectionHandlers(pools.discovery);
     let eventPosition = 1;

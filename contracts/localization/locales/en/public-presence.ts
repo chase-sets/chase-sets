@@ -652,22 +652,19 @@ export const publicPresenceEnglishTranslations = {
     "Contact support@chasesets.com before listing if beta fee-lock rules, listing changes, payout readiness, or marketplace costs are unclear.",
   "publicPresence.info.sellerFees.questions.title": "Questions before listing",
   "publicPresence.info.sellerFees.title": "Marketplace sales fees",
-  "publicPresence.info.terms.accounts.body":
-    "One account supports buying and selling activity, subject to permissions, payout readiness, and marketplace policies.",
-  "publicPresence.info.terms.accounts.title": "Accounts",
-  "publicPresence.info.terms.contact.body":
-    "Contact support@chasesets.com with questions about these public terms or early access.",
-  "publicPresence.info.terms.contact.title": "Contact",
-  "publicPresence.info.terms.description":
-    "These plain-language terms explain the public site, early access, and marketplace operating model.",
+  "publicPresence.info.terms.counselPending.description":
+    "The policy structure and version metadata are published for review, but the operative language, effective date, launch jurisdictions, and approval reference remain intentionally unset until qualified counsel signs off.",
+  "publicPresence.info.terms.counselPending.title": "Counsel review required before these terms take effect",
   "publicPresence.info.terms.eyebrow": "Terms",
-  "publicPresence.info.terms.marketplace.body":
-    "Marketplace terms cover beta fee-lock rules, listing changes, offers, checkout, checkout fees, fulfillment, reviews, fees, and payouts. Marketplace checkout opens at launch.",
-  "publicPresence.info.terms.marketplace.title": "Marketplace terms",
-  "publicPresence.info.terms.prelaunch.body":
-    "The public site explains Chase Sets and collects early access interest. Marketplace checkout, listing, payment, fulfillment, review, and payout workflows require account access and remain gated until launch.",
-  "publicPresence.info.terms.prelaunch.title": "Current availability",
-  "publicPresence.info.terms.title": "Terms of service",
+  "publicPresence.info.terms.metadata.effectivePending": "Effective date pending counsel approval",
+  "publicPresence.info.terms.metadata.label": "Policy metadata",
+  "publicPresence.info.terms.metadata.locale": "Locale {locale}",
+  "publicPresence.info.terms.metadata.title": "Policy version",
+  "publicPresence.info.terms.metadata.version": "Version {version}",
+  "publicPresence.info.terms.print": "Print terms",
+  "publicPresence.info.terms.section.counselRequired": "Counsel-approved language required",
+  "publicPresence.info.terms.toc.label": "Terms sections",
+  "publicPresence.info.terms.toc.title": "On this page",
   "publicPresence.nav.browse": "Browse",
   "publicPresence.nav.buyerProtection": "Order Protection",
   "publicPresence.nav.contact": "Contact",

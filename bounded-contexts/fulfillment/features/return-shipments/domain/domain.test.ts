@@ -287,6 +287,30 @@ describe("ReturnShipment aggregate", () => {
     expect(state.receivedAt).toBe("2026-06-06T00:00:00.000Z");
   });
 
+  it("stamps the carrier-accepted and delivered facts with the remedy correlation for cross-context refund triggering", () => {
+    const ready = readyState();
+    const [carrierAccepted] = decideReturnShipment(ready, {
+      type: "RecordReturnShipmentCarrierAccepted",
+      metadata: milestoneMeta,
+      occurredAt: "2026-06-03T00:00:00.000Z",
+    });
+    expect(carrierAccepted?.type).toBe("fulfillment.return-shipment.carrier-accepted.v1");
+    expect(carrierAccepted?.data).toMatchObject({ remedyId, supportRequestId: "sup_1" });
+
+    const inTransit = apply(ready, {
+      type: "RecordReturnShipmentInTransit",
+      metadata: milestoneMeta,
+      occurredAt: "2026-06-04T00:00:00.000Z",
+    });
+    const [delivered] = decideReturnShipment(inTransit, {
+      type: "RecordReturnShipmentDelivered",
+      metadata: milestoneMeta,
+      occurredAt: "2026-06-05T00:00:00.000Z",
+    });
+    expect(delivered?.type).toBe("fulfillment.return-shipment.delivered.v1");
+    expect(delivered?.data).toMatchObject({ remedyId, supportRequestId: "sup_1" });
+  });
+
   it("converges duplicate and out-of-order carrier scans without regressing custody", () => {
     let state = requestedState();
     state = apply(state, {

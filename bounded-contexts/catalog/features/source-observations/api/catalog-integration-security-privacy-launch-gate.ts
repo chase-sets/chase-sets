@@ -442,14 +442,10 @@ function assertRbac(packet: CatalogSecurityPrivacyLaunchGatePacket): void {
     }
   }
   for (const action of packet.rbac.primaryWorkbenchActions) {
-    if (action.method === "POST" && action.requiredPermission !== "catalog.manage") {
+    if (action.method !== "GET" && action.requiredPermission !== "catalog.manage") {
       throw new Error(`Primary workbench write action '${action.key}' must require catalog.manage.`);
     }
-    if (
-      action.method === "POST" &&
-      !action.routePattern.startsWith("/api/catalog/source-observations/admin/") &&
-      action.routePattern !== "/api/catalog/source-observations/catalog-sync-scope/runs"
-    ) {
+    if (action.method !== "GET" && !isRebuiltCatalogAdminCommandRoute(action.routePattern)) {
       throw new Error(`Primary workbench write action '${action.key}' must stay on the rebuilt Admin API contract.`);
     }
   }
@@ -461,6 +457,14 @@ function assertRbac(packet: CatalogSecurityPrivacyLaunchGatePacket): void {
   ) {
     throw new Error("Catalog security/privacy launch gate RBAC evidence must fail closed for auth, role, and rollout.");
   }
+}
+
+function isRebuiltCatalogAdminCommandRoute(routePattern: string): boolean {
+  return (
+    routePattern.startsWith("/api/catalog/source-observations/admin/") ||
+    routePattern === "/api/catalog/source-observations/catalog-sync-scope/runs" ||
+    routePattern === "/api/catalog/alias-equivalence/admin/review"
+  );
 }
 
 function assertWriteSafeguards(packet: CatalogSecurityPrivacyLaunchGatePacket): void {

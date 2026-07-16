@@ -333,6 +333,31 @@ describe("postgres event store", () => {
     });
   });
 
+  it("routes wake notifications through an explicit owning source context", async () => {
+    const { pool, calls } = createAppendPool({ globalPositions: ["103"] });
+    const store = createPostgresEventStore({
+      pool,
+      now: () => NOW as never,
+      createEventId: createSequentialEventId(),
+      wakeNotifications: { enabled: true },
+    });
+
+    await store.appendToStream(
+      appendInput({
+        streamId: "support.support-request-sup_1" as never,
+        wakeSourceContextName: "platform-operations",
+      }),
+    );
+
+    const notifyCall = calls.find((call) => call.sql === "SELECT pg_notify($1, $2)");
+    expect(parseEventStoreWakeNotificationEnvelope(String(notifyCall?.params?.[1]))).toMatchObject({
+      payload: {
+        sourceContextName: "platform-operations",
+        streamCategory: "support.support-request",
+      },
+    });
+  });
+
   it("does not emit event-store wake notifications by default or when explicitly disabled", async () => {
     const defaultPool = createAppendPool();
     const defaultStore = createPostgresEventStore({

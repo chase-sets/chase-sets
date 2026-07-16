@@ -75,6 +75,15 @@ export const checkoutFreshStateRoutes = [
     requiresCheckoutReadySession: false,
   },
   {
+    routeId: "account-desk-offers",
+    routePath: "account/desk/offers",
+    mode: "sell",
+    surface: "sell-list",
+    customerFacing: true,
+    acceptsUnresolvedFulfillment: true,
+    requiresCheckoutReadySession: false,
+  },
+  {
     routeId: "sell-checkout-readiness",
     routePath: "checkout/sell/readiness",
     mode: "sell",

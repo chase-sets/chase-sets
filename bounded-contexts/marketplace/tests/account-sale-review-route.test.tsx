@@ -20,6 +20,7 @@ vi.mock("react-router", async () => {
     useLoaderData: mockUseLoaderData,
     useActionData: mockUseActionData,
     useNavigation: mockUseNavigation,
+    useSearchParams: () => [new URLSearchParams(), () => undefined],
   };
 });
 

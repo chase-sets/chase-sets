@@ -46,11 +46,11 @@ import { useLiveImportJobs } from "./use-live-import-jobs";
 
 type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number];
 const importJobDiscoveryIntents = new Set([
-  "start-provider-import",
-  "start-reapply",
-  "start-replay",
-  "retry-import-job",
-  "resume-import-job",
+  "scope.import",
+  "observation.reapply",
+  "observation.replay",
+  "job.retry",
+  "job.resume",
 ]);
 
 export function CatalogIntegrationImportJobsModule({
@@ -205,17 +205,17 @@ export function CatalogIntegrationImportJobsModule({
         cell: (job) => (
           <WorkbenchActionRow>
             {job.retryAvailable ? (
-              <ImportJobLifecycleAction readModel={readModel} job={job} intent="retry-import-job">
+              <ImportJobLifecycleAction readModel={readModel} job={job} intent="job.retry">
                 {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.retry")}
               </ImportJobLifecycleAction>
             ) : null}
             {job.resumeAvailable ? (
-              <ImportJobLifecycleAction readModel={readModel} job={job} intent="resume-import-job">
+              <ImportJobLifecycleAction readModel={readModel} job={job} intent="job.resume">
                 {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.resume")}
               </ImportJobLifecycleAction>
             ) : null}
             {job.cancelAvailable ? (
-              <ImportJobLifecycleAction readModel={readModel} job={job} intent="cancel-import-job" tone="danger">
+              <ImportJobLifecycleAction readModel={readModel} job={job} intent="job.cancel" tone="danger">
                 {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.cancel")}
               </ImportJobLifecycleAction>
             ) : null}
@@ -587,7 +587,7 @@ function ImportJobLifecycleAction({
 }: {
   readModel: CatalogPrimaryWorkbenchReadModel;
   job: ImportJobRow;
-  intent: Extract<CatalogPrimaryWorkbenchSubmitIntent, "retry-import-job" | "resume-import-job" | "cancel-import-job">;
+  intent: Extract<CatalogPrimaryWorkbenchSubmitIntent, "job.retry" | "job.resume" | "job.cancel">;
   tone?: ButtonProps["tone"];
   children: ReactNode;
 }) {

@@ -174,7 +174,7 @@ function statusLabel(status: SettlementPayoutReadinessRow["status"]) {
 }
 
 function modeHref(mode: PayoutSetupMode) {
-  return mode === "management" ? "/account/payouts/setup?mode=manage" : "/account/payouts/setup";
+  return mode === "management" ? "/account/desk/settings?mode=manage" : "/account/desk/settings";
 }
 
 function requirementGroupLabel(group: MissingRequirementGroup) {
@@ -375,7 +375,7 @@ export function PayoutSetupPage({
         description={t("settlement.features.payoutReadiness.ui.payoutSetupPage.keep.your.payout.destination")}
         actions={
           <Stack direction="row" gap={2}>
-            <LinkButton href="/account/payouts" tone="secondary">
+            <LinkButton href="/account/desk/money" tone="secondary">
               {t("settlement.features.payoutReadiness.ui.payoutSetupPage.back.to.payouts")}
             </LinkButton>
             {hasProviderAccount ? (
@@ -488,7 +488,7 @@ export function PayoutSetupPage({
                 title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.payouts.are.ready")}
                 description={t("settlement.features.payoutReadiness.ui.payoutSetupPage.you.can.request.payouts")}
                 actions={
-                  <LinkButton href="/account/payouts">
+                  <LinkButton href="/account/desk/money">
                     {t("settlement.features.payoutReadiness.ui.payoutSetupPage.request.payout")}
                   </LinkButton>
                 }
