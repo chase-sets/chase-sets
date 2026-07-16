@@ -11,11 +11,12 @@ import {
   type ConsentEvent,
   type ConsentState,
 } from "../domain/domain";
-import { listConsents, type ConsentListParams } from "../read-model/queries";
-import { buildConsentProjectionHandlers } from "../read-model/projection";
+import { getConsent, listConsents, type ConsentListParams } from "../read-model/queries";
+import { buildConsentCurrentStateProjectionHandlers, buildConsentProjectionHandlers } from "../read-model/projection";
 
 export type ConsentServices = Readonly<{
   commandHandler: CommandHandler<ConsentCommand, ConsentState, ConsentEvent>;
+  getConsent: (consentId: string) => ReturnType<typeof getConsent>;
   listConsents: (params?: ConsentListParams) => ReturnType<typeof listConsents>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
@@ -31,11 +32,16 @@ export function createConsentRuntime(deps: IdentityRuntimeDeps): ConsentServices
 
   return {
     commandHandler,
+    getConsent: (consentId) => getConsent(deps.db, consentId),
     listConsents: (params) => listConsents(deps.db, params),
     projectors: [
       createProjectionHandlerSet({
         projectionName: "identity-consent-projection",
         handlers: buildConsentProjectionHandlers(deps.db),
+      }),
+      createProjectionHandlerSet({
+        projectionName: "identity-consent-current-state-projection",
+        handlers: buildConsentCurrentStateProjectionHandlers(deps.db),
       }),
     ],
   };

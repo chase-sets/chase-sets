@@ -69,6 +69,21 @@ function renderPlatformEmailBodyLines(message: TransactionalEmailMessage): reado
     ];
   }
 
+  if (message.templateId === "auth_invitation_acceptance_link") {
+    const invitationLink = String(message.templateData.invitationLink ?? "");
+    const accountName = String(message.templateData.accountName ?? "a Chase Sets account");
+    const roleLabel = String(message.templateData.roleLabel ?? "member");
+    return [
+      `You've been invited to ${accountName} as ${roleLabel}.`,
+      "Accept your invitation:",
+      invitationLink,
+      "",
+      "This secure link expires soon.",
+      "",
+      "Chase Sets",
+    ];
+  }
+
   if (message.templateId === "auth_guest_checkout_claim_link") {
     return [
       "Use this secure link to save your guest checkout order to your Chase Sets account:",

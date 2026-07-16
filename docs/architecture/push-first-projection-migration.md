@@ -91,6 +91,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `fulfillment:fulfillment-support-return-source-projection` | Fulfillment | **platform-operations** | push-enabled | 1/1 |
 | `identity:identity-account-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-api-key-projection` | Identity | **identity** | push-enabled | 1/1 |
+| `identity:identity-consent-current-state-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-consent-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-founder-claim-reaction` | Identity | **marketplace** | push-enabled | 1/1 |
 | `identity:identity-founders-cohort-projection` | Identity | **identity** | push-enabled | 1/1 |
@@ -183,7 +184,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 
 Totals: 111 `push-enabled`, 29 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (76)
+## Read-After-Write Route Inventory (77)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -221,6 +222,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `identity.account-security-user-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.account-team-invitation-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.account-team-membership-fresh-read` | identity | important | exact wait | push-accelerated |
+| `identity.consent-withdrawal-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-account-detail-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-api-key-create-detail-fresh-read` | identity | critical | exact wait | push-accelerated |
 | `identity.admin-api-key-detail-fresh-read` | identity | critical | exact wait | push-accelerated |
@@ -230,6 +232,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `identity.admin-invitation-list-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-membership-detail-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-user-detail-fresh-read` | identity | important | exact wait | push-accelerated |
+| `identity.invitation-email-auth-projection-fresh-read` | identity | important | not-post-write-read exception (identity, review 2026-10-15) | push-accelerated |
 | `identity.marketplace-account-profile-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.registration-current-actor-display-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.shipping-addresses-fresh-read` | identity | important | exact wait | push-accelerated |
@@ -251,7 +254,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `marketplace.order-capacity-self-refresh` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.submitted-offer-detail` | marketplace | important | exact wait | push-accelerated |
 | `ordering.accepted-offer-to-sales-list` | ordering | critical | exact wait | push-accelerated |
-| `ordering.postage-policy-command-to-detail` | ordering | important | exact wait | push-accelerated |
+| `ordering.postage-policy-command-to-home` | ordering | important | exact wait | push-accelerated |
 | `ordering.postage-policy-create-to-list` | ordering | important | exact wait | push-accelerated |
 | `ordering.purchase-cancel-to-detail` | ordering | important | exact wait | push-accelerated |
 | `ordering.sale-cancel-to-detail` | ordering | important | exact wait | push-accelerated |

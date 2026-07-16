@@ -115,6 +115,13 @@
       "resetStrategy": "truncate-owned-tables"
     },
     {
+      "projectionName": "identity-consent-current-state-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["identity_consent_current_states"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "identity-user-preferences-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["identity_user_preferences"],
@@ -260,6 +267,18 @@
           ]
         },
         {
+          "routePath": "/consents",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "identity_consents"
+            },
+            {
+              "readModelTable": "identity_consent_current_states"
+            }
+          ]
+        },
+        {
           "routePath": "/accounts/:accountId/shipping-addresses",
           "methods": ["GET", "HEAD"],
           "dependencies": [
@@ -297,6 +316,27 @@
     ]
   },
   "readAfterWriteRouteInventory": [
+    {
+      "id": "identity.invitation-email-auth-projection-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "source": {
+        "routeIds": ["invitations", "invitations-detail", "account-team"],
+        "actions": ["Create invitation", "Resend invitation"],
+        "command": "Identity invitation commands"
+      },
+      "destination": {
+        "routeId": "invite"
+      },
+      "exception": {
+        "status": "not-post-write-read",
+        "owner": "identity",
+        "reviewBy": "2026-10-15",
+        "reason": "The shared invitation-email integration is not itself a route contribution. Its callers pass the authoritative Identity command receipt, and the helper forwards that receipt with Auth as the read target before the Auth API reads its invitation projection and issues the email token.",
+        "files": ["bounded-contexts/identity/features/invitations/integrations/request-invitation-acceptance-link.ts"],
+        "helperUses": ["appendFreshWriteTokenFromSources"]
+      }
+    },
     {
       "id": "identity.admin-account-detail-fresh-read",
       "owner": "identity",
@@ -817,6 +857,39 @@
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
       }
+    },
+    {
+      "id": "identity.consent-withdrawal-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "account-consents",
+        "actions": ["Withdraw consent"],
+        "command": "WithdrawConsent",
+        "helperUses": ["navigateAfterWrite"]
+      },
+      "destination": {
+        "routeId": "account-consents",
+        "apiContextName": "identity",
+        "apiRoutePath": "/consents",
+        "readModelTables": ["identity_consents", "identity_consent_current_states"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Consent-withdrawal redirects carry the Identity command receipt so both the retained consent history and current policy state catch up before the history page reloads."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/identity/features/consents/ui/consent-history-page.test.tsx",
+          "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"
+        ]
+      }
     }
   ],
   "mutationConsistencyInventory": [
@@ -1216,6 +1289,32 @@
       }
     },
     {
+      "id": "identity.consent-withdrawal-browser-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/consents/ui/consent-history-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/identity/routes/marketplace/account-consents.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-consents",
+        "apiContextName": "identity",
+        "apiRoutePath": "/consents",
+        "readModelTables": ["identity_consents", "identity_consent_current_states"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Consent withdrawal returns to the consent history with a commit receipt and waits for the history and current-state projections before rendering the updated status."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/identity/features/consents/ui/consent-history-page.test.tsx",
+          "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"
+        ]
+      }
+    },
+    {
       "id": "identity.terms-of-service-api-command-snapshot",
       "owner": "identity",
       "risk": "critical",
@@ -1228,6 +1327,22 @@
         "authoritativeResponse": "termsOfServiceConsentRoutes POST /accept records RecordConsent then returns resolveTermsAcceptanceStatus recomputed against the same read model.",
         "tests": [
           "bounded-contexts/identity/features/consents/api/terms-route.test.ts proves accept returns the server-resolved active version, ignores a client-supplied version, and is idempotent when already current."
+        ]
+      }
+    },
+    {
+      "id": "identity.consent-withdrawal-api-command-snapshot",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": ["api-route:bounded-contexts/identity/features/consents/api/route.ts:POST /:id/withdraw"],
+      "visibleDestination": {
+        "description": "Consent withdrawal returns the consent id, aggregate version, withdrawal status, and withdrawal timestamp from the command result before either consent projection catches up."
+      },
+      "proof": {
+        "authoritativeResponse": "consentRoutes POST /:id/withdraw returns the WithdrawConsent command result state and treats an already-withdrawn current record as an idempotent snapshot response.",
+        "tests": [
+          "bounded-contexts/identity/features/consents/api/route.test.ts proves an actor can withdraw their current user consent and cannot withdraw another user's consent."
         ]
       }
     },

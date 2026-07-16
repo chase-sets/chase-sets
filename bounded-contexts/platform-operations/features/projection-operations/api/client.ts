@@ -49,7 +49,6 @@ export function readProjectionOperationsFilters(request: Request): ProjectionOpe
   const url = new URL(request.url);
 
   return {
-    tab: url.searchParams.get("tab") ?? "",
     state: url.searchParams.get("state") ?? "",
     contextName: url.searchParams.get("contextName") ?? "",
     projectionName: url.searchParams.get("projectionName") ?? "",

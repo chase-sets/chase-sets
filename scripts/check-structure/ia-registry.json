@@ -376,6 +376,12 @@
     },
     {
       "deployable": "marketplace-web",
+      "family": "invite",
+      "owningContext": "auth",
+      "purpose": "Invitation recipient acceptance journey (auth)."
+    },
+    {
+      "deployable": "marketplace-web",
       "family": "listings",
       "owningContext": "discovery",
       "purpose": "Listings surface (discovery)."
