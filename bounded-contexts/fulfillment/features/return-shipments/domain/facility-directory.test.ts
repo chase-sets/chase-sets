@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createSellerReturnDestination,
   createReturnFacilityDirectory,
   customerSafeDestination,
   selectReturnFacility,
@@ -137,5 +138,31 @@ describe("return facility directory", () => {
     const safe = customerSafeDestination(result.snapshot);
     expect(Object.keys(safe).sort()).toEqual(["city", "displayInstructions", "displayName", "region", "state"]);
     expect(safe.displayName).toBe("Chase Sets Returns (East)");
+  });
+
+  it("captures a seller destination from the immutable outbound origin without exposing the postal address", () => {
+    const snapshot = createSellerReturnDestination({
+      sellerAccountId: "acc_seller",
+      postalAddress: {
+        name: "Seller Returns",
+        line1: "42 Seller Lane",
+        city: "Austin",
+        state: "TX",
+        postalCode: "78701",
+        country: "US",
+      },
+      selectedAt: options.asOf,
+      snapshotVersion: "outbound-shipment-origin-v1",
+    });
+
+    expect(snapshot.destinationType).toBe("seller");
+    expect(snapshot.sellerAccountId).toBe("acc_seller");
+    expect(customerSafeDestination(snapshot)).toEqual({
+      displayName: "Seller return",
+      displayInstructions: "Use the provided label and keep the carrier receipt until the return is complete.",
+      region: "us",
+      city: "Austin",
+      state: "TX",
+    });
   });
 });

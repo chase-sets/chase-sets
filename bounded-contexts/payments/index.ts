@@ -75,8 +75,14 @@ export const module = defineBoundedContextModule<PaymentsServices, PgTransaction
         "ordering.payments-order-input-projection": () => buildPaymentsOrderInputProjectionHandlers(services.db),
         "fulfillment.payments-fulfillment-dispute-evidence-source-projection": () =>
           buildPaymentsFulfillmentDisputeEvidenceProjectionHandlers(services.db),
-        "platform-operations.payments-support-refund-effect": () =>
-          buildPaymentsSupportRefundEffectHandlers(services.db, services.refunds),
+        "platform-operations.payments-support-refund-effect": {
+          buildHandlers: () => buildPaymentsSupportRefundEffectHandlers(services.db, services.refunds),
+          filterToEventTypes: true,
+        },
+        "fulfillment.payments-support-refund-effect": {
+          buildHandlers: () => buildPaymentsSupportRefundEffectHandlers(services.db, services.refunds),
+          filterToEventTypes: true,
+        },
         "ordering.payments-order-cancellation-refund-effect": {
           buildHandlers: () => buildPaymentsOrderCancellationRefundEffectHandlers(services.db, services.refunds),
           filterToEventTypes: true,
