@@ -23,10 +23,18 @@ concurrency:
 jobs:
   verify-release:
     name: Verify Release in Ephemeral Namespace
+    # Automatic workflow_run execution stays disabled until the repaired image
+    # handoff passes a manual proof and success soak (issue #5497 rollout). A
+    # push-triggered "Platform Deploy" run only dispatches the release
+    # candidate and never builds an image, so triggering off every successful
+    # run reconstructed a commit tag that did not exist yet. Manual
+    # workflow_dispatch remains available for the proof; automatic runs require
+    # the explicit PLATFORM_EPHEMERAL_VERIFICATION_ENABLED repo variable.
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
+       github.event.workflow_run.head_branch == 'main' &&
+       vars.PLATFORM_EPHEMERAL_VERIFICATION_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 75
     environment: preview
@@ -88,9 +96,25 @@ jobs:
           fi
           doctl registry login --expiry-seconds 3600
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${RELEASE_COMMIT}"
+          # The release pipeline pins every deploy to the immutable image digest,
+          # never the mutable commit tag. Confirm the promoted image exists and
+          # resolve its digest here, before any namespace or cluster mutation, so
+          # a run whose triggering release never built/activated this commit
+          # (for example a push-triggered Platform Deploy that only dispatched
+          # the release candidate) fails fast with a concise message instead of
+          # leaking a verification namespace.
+          if ! docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
+            echo "Promoted release image ${image} does not exist; the triggering run did not build or activate this commit. Verify a run that promoted an immutable image." >&2
+            exit 1
+          fi
           digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          if ! printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "Promoted release image ${image} did not resolve to an immutable sha256 digest (got '${digest}')." >&2
+            exit 1
+          fi
           echo "image=${image}" >> "$GITHUB_OUTPUT"
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "Resolved immutable release image ${image}@${digest}."
 
       - name: Configure verification Kubernetes context
         working-directory: infrastructure/digitalocean/doks

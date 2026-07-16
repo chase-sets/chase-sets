@@ -10,6 +10,7 @@ import {
   previewWildcardTlsSecretNamespace,
 } from "./render-platform-helm-values.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { VERIFICATION_NAMESPACE_PATTERN } from "./ephemeral-verification-namespace.mjs";
 
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
 export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v1";
@@ -41,12 +42,24 @@ const stagingValuesPath = `${chartPath}/values.staging.yaml`;
 const defaultRelease = "chase-sets-platform";
 const defaultNamespace = "chase-sets-platform";
 const defaultTimeout = "10m";
-// teardown only ever deletes preview namespaces/releases. The bare
-// "chase-sets-platform" default above is the staging/production namespace,
-// so teardown must never fall through to it: require an explicit
-// chase-sets-pr-<number> namespace, matching how the preview deploy names
-// its namespace and Helm release in platform-pr.yml.
+// teardown only ever deletes disposable namespaces created outside Terraform
+// by a Helm deploy (`--create-namespace`), so nothing else destroys them when
+// their owning workflow ends. Two kinds exist, each with its own strict
+// parser owned by the workflow that creates it:
+//   - PR preview:            chase-sets-pr-<number>          (platform-pr.yml)
+//   - ephemeral verification: chase-sets-verify-<run>-<attempt>
+//                             (platform-ephemeral-verification.yml; the
+//                              canonical parser lives in
+//                              ephemeral-verification-namespace.mjs)
+// The bare "chase-sets-platform" default above is the staging/production
+// namespace, so teardown must never fall through to it: require an explicit
+// disposable namespace matching exactly one of these kinds and reject
+// everything else (production, staging, system, empty, malformed).
 const previewNamespacePattern = /^chase-sets-pr-\d+$/;
+
+function isDisposableNamespace(namespace) {
+  return previewNamespacePattern.test(namespace) || VERIFICATION_NAMESPACE_PATTERN.test(namespace);
+}
 
 export function platformKubernetesWorkloads(options = {}) {
   const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot });
@@ -910,8 +923,11 @@ export async function teardownPlatformKubernetesNamespace(options = {}) {
   const kubectlPath = options.kubectlPath ?? "kubectl";
   const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
   const release = options.release ?? defaultRelease;
-  if (!previewNamespacePattern.test(namespace)) {
-    throw new Error(`Refusing to tear down non-preview namespace "${namespace}"; expected chase-sets-pr-<number>.`);
+  if (!isDisposableNamespace(namespace)) {
+    throw new Error(
+      `Refusing to tear down non-disposable namespace "${namespace}"; expected a preview ` +
+        `(chase-sets-pr-<number>) or ephemeral verification (chase-sets-verify-<run>-<attempt>) namespace.`,
+    );
   }
   const releaseExists = options.releaseExists ?? (await helmReleaseExists({ ...options, helmPath }));
 
@@ -934,7 +950,7 @@ export async function teardownPlatformKubernetesNamespace(options = {}) {
   const namespaceStillExists = await namespaceExists({ ...options, kubectlPath });
   if (namespaceStillExists) {
     throw new Error(
-      `Preview namespace ${namespace} still exists after kubectl delete namespace completed; refusing to report cleanup success.`,
+      `Namespace ${namespace} still exists after kubectl delete namespace completed; refusing to report cleanup success.`,
     );
   }
 
