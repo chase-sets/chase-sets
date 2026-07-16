@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EnqueueNotificationInput, NotificationOutbox } from "@chase-sets/outbound-messaging";
 import {
   closeMultiContextTestPools,
@@ -392,3 +392,98 @@ describeDb("settlement wallet adjustment projection persistence boundary", () =>
     expect(call.message.templateData.resultingBalance).toContain("50");
   });
 });
+
+describeDb(
+  "settlement wallet adjustment projection atomicity (status advance commits with the projection transaction)",
+  () => {
+    let pool: PgTransactionalPool;
+    let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>> | undefined;
+
+    beforeAll(async () => {
+      const databaseUrls = createMultiContextTestDatabaseUrls(
+        requireDatabaseBaseUrl(),
+        contextNames,
+        "wallet_adjustment_atomicity",
+      );
+      await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
+      pools = createMultiContextTestPools(databaseUrls);
+      pool = pools.settlement;
+    });
+
+    beforeEach(async () => {
+      await resetMultiContextTestSchemas({ settlement: pool });
+      await pool.query(settlementModule.schemaSql);
+    });
+
+    afterAll(async () => {
+      if (pools) {
+        await closeMultiContextTestPools(pools);
+      }
+    });
+
+    // Mirror the projector runner (subscriptions.ts): run the handler inside one
+    // BEGIN/…/COMMIT on a single connection, handing that transaction-scoped
+    // connection to the handler as context.db. `outcome: "crash"` rolls back
+    // instead of committing — standing in for a process crash after the handler
+    // ran but before the projection transaction (and its checkpoint) committed.
+    async function apply(event: (typeof lifecycle)[number], outcome: "commit" | "crash"): Promise<void> {
+      const handler = buildWalletAdjustmentProjectionHandlers(pool)[event.type];
+      if (!handler) {
+        throw new Error(`Missing ${event.type} projection handler.`);
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await handler(event as never, { db: client as PgQueryable });
+        await client.query(outcome === "commit" ? "COMMIT" : "ROLLBACK");
+      } finally {
+        client.release();
+      }
+    }
+
+    async function seedThroughApproved(): Promise<void> {
+      await apply(lifecycle[0], "commit");
+      await apply(lifecycle[1], "commit");
+    }
+
+    it("rolls the posted status advance and its recorded balance back when the projection transaction does not commit", async () => {
+      await seedThroughApproved();
+
+      // The pre-fix handler wrote the status advance on the pool (auto-commit), so a
+      // crash before the checkpoint committed left the page reading 'posted' with a
+      // recorded balance-after while the wallet balance move (its sibling
+      // ledger-entry-posted handler) had rolled back — a permanent audit-vs-balance
+      // drift. With the transaction-scoped context.db the advance shares the
+      // projection transaction, so a rollback strands nothing.
+      await apply(lifecycle[2], "crash");
+
+      const row = await getWalletAdjustment(pool, adjustmentId);
+      expect(row?.status).toBe("approved");
+      expect(row?.posted_ledger_entry_id ?? null).toBeNull();
+      expect(row?.available_balance_after ?? null).toBeNull();
+    });
+
+    it("applies the posted transition on retry after a crash, and never double-applies on redelivery", async () => {
+      await seedThroughApproved();
+
+      // Attempt 1 crashes after the handler ran: atomic rollback, the page stays approved.
+      await apply(lifecycle[2], "crash");
+      expect((await getWalletAdjustment(pool, adjustmentId))?.status).toBe("approved");
+
+      // Retry (redelivery of the same event) applies the transition — it is NOT skipped forever.
+      await apply(lifecycle[2], "commit");
+      const afterRetry = await getWalletAdjustment(pool, adjustmentId);
+      expect(afterRetry?.status).toBe("posted");
+      expect(afterRetry?.posted_ledger_entry_id).toBe("led_replay_1");
+      expect(afterRetry?.available_balance_after).toBe("50.00");
+
+      // A further full redelivery must not double-apply: the WHERE status = 'approved'
+      // guard makes the UPDATE a no-op once the page is already posted.
+      await apply(lifecycle[2], "commit");
+      const afterRedelivery = await getWalletAdjustment(pool, adjustmentId);
+      expect(afterRedelivery?.status).toBe("posted");
+      expect(afterRedelivery?.posted_ledger_entry_id).toBe("led_replay_1");
+      expect(afterRedelivery?.available_balance_after).toBe("50.00");
+    });
+  },
+);
