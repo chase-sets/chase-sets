@@ -602,7 +602,20 @@ export async function searchDiscoveryItems(
         rankExpression = `(${baseRankExpression} + (${contentRankExpression} * 0.20))`;
         orderBy = `${baseMatchExpression} DESC, ${rankExpression} DESC, title ASC, catalog_item_id ASC`;
         if (cursor) {
-          cursorCondition = `(${baseMatchExpression}::integer, ${rankExpression}, title, catalog_item_id) < ($${paramIndex}::integer, $${paramIndex + 1}::real, $${paramIndex + 2}, $${paramIndex + 3})`;
+          // ORDER BY mixes directions (baseMatch DESC, rank DESC, title ASC, id ASC),
+          // so the "after cursor" predicate must expand lexicographically with each
+          // column's own inequality. A single row-value comparison would (incorrectly)
+          // apply one direction to every column and duplicate/drop rows on rank ties.
+          const baseMatchColumn = `${baseMatchExpression}::integer`;
+          const baseMatchParam = `$${paramIndex}::integer`;
+          const rankParam = `$${paramIndex + 1}::real`;
+          const titleParam = `$${paramIndex + 2}`;
+          const idParam = `$${paramIndex + 3}`;
+          cursorCondition =
+            `(${baseMatchColumn} < ${baseMatchParam}` +
+            ` OR (${baseMatchColumn} = ${baseMatchParam} AND ${rankExpression} < ${rankParam})` +
+            ` OR (${baseMatchColumn} = ${baseMatchParam} AND ${rankExpression} = ${rankParam} AND title > ${titleParam})` +
+            ` OR (${baseMatchColumn} = ${baseMatchParam} AND ${rankExpression} = ${rankParam} AND title = ${titleParam} AND catalog_item_id > ${idParam}))`;
           values.push(cursor.baseMatch ? 1 : 0, cursor.rank, cursor.title, cursor.id);
           paramIndex += 4;
         }

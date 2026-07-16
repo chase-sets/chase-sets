@@ -368,7 +368,13 @@ describe("searchDiscoveryItems cursor paging", () => {
     expect(listCall?.sql).toContain("discovery_search_product_contents AS content");
     expect(listCall?.sql).toContain("* 0.20");
     expect(listCall?.sql).toContain("search_base_match");
-    expect(listCall?.sql).toContain(", title, catalog_item_id) <");
+    // Mixed-direction ORDER BY (baseMatch DESC, rank DESC, title ASC, id ASC) requires an
+    // expanded lexicographic keyset predicate rather than a single row-value comparison.
+    expect(listCall?.sql).toContain(")::integer < $4::integer");
+    expect(listCall?.sql).toContain(") < $5::real)");
+    expect(listCall?.sql).toContain("AND title > $6)");
+    expect(listCall?.sql).toContain("AND title = $6 AND catalog_item_id > $7))");
+    expect(listCall?.sql).not.toContain(", title, catalog_item_id) <");
     expect(listCall?.sql).toContain("ORDER BY (search_text @@");
     expect(listCall?.sql).toContain("DESC, title ASC, catalog_item_id ASC");
     expect(listCall?.sql).not.toContain("OFFSET");
