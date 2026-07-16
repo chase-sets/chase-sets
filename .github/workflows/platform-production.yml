@@ -1357,6 +1357,10 @@ jobs:
           set -euo pipefail
           serving="$(terraform output -raw staging_app_serving)"
           echo "Staging live hosts serve from: ${serving}."
+          if [ "$serving" = "doks" ]; then
+            echo "Staging live hosts already serve from DOKS; skipping obsolete pre-cutover shadow verification."
+            exit 0
+          fi
           mapfile -t shadow_domains < <(terraform output -json doks_ingress_shadow_domains | jq -r '.[]')
           if [ "${#shadow_domains[@]}" -eq 0 ]; then
             echo "No DOKS ingress shadow hosts are published (DOKS_INGRESS_TARGET unset); skipping pre-cutover shadow verification."

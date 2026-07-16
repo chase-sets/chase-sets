@@ -3161,6 +3161,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(smokeStep).toContain("serving platform: ${STAGING_APP_SERVING}");
   });
 
+  it("skips obsolete staging DOKS shadow-host verification after the serving cutover (#5572)", () => {
+    const shadowStep = workflowStep(platformProductionWorkflow, "Verify staging DOKS shadow hosts");
+
+    expect(shadowStep).toMatch(
+      /if \[ "\$serving" = "doks" \]; then\n            echo "Staging live hosts already serve from DOKS; skipping obsolete pre-cutover shadow verification\."\n            exit 0\n          fi\n          mapfile -t shadow_domains/,
+    );
+    expect(shadowStep).toContain("node ./scripts/platform-ingress-wait.mjs");
+  });
+
   it("wires staging and production app telemetry to the secured observability stack", () => {
     expect(platformVariables).toContain('variable "observability_enabled"');
     expect(platformVariables).toContain('variable "observability_otlp_headers"');
