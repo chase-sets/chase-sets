@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAttentionItems,
+  buildProjectionRepairQueue,
   buildProjectionSubscriptionRows,
   normalizeProjectionOperationsSnapshot,
   resolveProjectionOperatorState,
@@ -119,6 +120,64 @@ describe("projection operation view models", () => {
       "poison-events",
       "stale-workers",
       "stale-revisions",
+    ]);
+  });
+
+  it("builds entity-level repair queue items for operation, stream, poison event, and group drawers", () => {
+    const snapshot = normalizeProjectionOperationsSnapshot({
+      summary: { status: "degraded" },
+      projectionStatusSource: "worker-snapshot",
+      operations: [
+        {
+          operationId: "op_failed",
+          operationKind: "rebuild-projection-group",
+          state: "failed",
+          contextName: "catalog",
+          projectionName: "catalog-item-projection",
+        },
+      ],
+      projectionGroups: [
+        {
+          projectionName: "catalog-item-projection",
+          targetContextName: "catalog",
+          state: "degraded",
+        },
+      ],
+      blockedProjections: [
+        {
+          projectionKey: "catalog.catalog-item-projection",
+          blockedStreams: [{ streamId: "catalog.item-1", state: "blocked" }],
+          poisonEvents: [
+            {
+              eventId: "evt_poison",
+              eventType: "catalog.item.updated",
+              streamId: "catalog.item-1",
+              state: "poison",
+              errorMessage: "handler failed",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(buildProjectionRepairQueue(snapshot)).toMatchObject([
+      { kind: "operation", targetId: "op_failed", state: "failed" },
+      { kind: "projection-group", targetId: "catalog:catalog-item-projection", state: "degraded" },
+      {
+        kind: "poison-event",
+        targetId: "poison-event:evt_poison",
+        state: "poison",
+        contextName: "catalog",
+        projectionName: "catalog-item-projection",
+        streamId: "catalog.item-1",
+      },
+      {
+        kind: "blocked-stream",
+        targetId: "catalog.catalog-item-projection:catalog.item-1",
+        state: "blocked",
+        contextName: "catalog",
+        projectionName: "catalog-item-projection",
+      },
     ]);
   });
 

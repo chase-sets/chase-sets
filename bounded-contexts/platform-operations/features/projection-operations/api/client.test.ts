@@ -24,7 +24,6 @@ describe("projection operations API client", () => {
     );
 
     expect(filters).toEqual({
-      tab: "blocked",
       state: "failed",
       contextName: "catalog",
       projectionName: "catalog-item",

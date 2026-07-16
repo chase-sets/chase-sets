@@ -1,5 +1,5 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData, useMatches, useRevalidator } from "react-router";
+import { useLoaderData, useMatches, useNavigate, useRevalidator } from "react-router";
 import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { t } from "@chase-sets/localization";
 import {
@@ -13,6 +13,7 @@ import {
   retryBlockedStream,
 } from "../../features/projection-operations/api/client";
 import { ProjectionOperationsPage } from "../../features/projection-operations/ui/projection-operations-page";
+import { projectionSelectionHref } from "../../features/projection-operations/ui/projection-operations-filters";
 
 const routeKey = "platformOperations.projectionOperations";
 
@@ -73,6 +74,7 @@ export const action = defineFormAction({
 export default function ProjectionOperationsRoute() {
   const { data, filters, wakeStatus } = useLoaderData<typeof loader>();
   const revalidator = useRevalidator();
+  const navigate = useNavigate();
   return (
     <ProjectionOperationsPage
       data={data}
@@ -80,11 +82,12 @@ export default function ProjectionOperationsRoute() {
       wakeStatus={wakeStatus}
       actorPermissions={useAdminActorPermissions()}
       onOperationTerminal={revalidator.revalidate}
+      onSelectedDetailClose={() => navigate(projectionSelectionHref("/platform/projections", filters))}
     />
   );
 }
 
-function useAdminActorPermissions() {
+export function useAdminActorPermissions() {
   for (const match of useMatches()) {
     if (match.data && typeof match.data === "object" && "actor" in match.data) {
       const actor = (match.data as { actor?: { permissions?: readonly string[] } }).actor;
