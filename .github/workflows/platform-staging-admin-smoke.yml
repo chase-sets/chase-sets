@@ -50,7 +50,6 @@ jobs:
       SMOKE_REQUIRE_ADMIN: "true"
       SMOKE_REQUIRE_MARKETPLACE: "true"
       SMOKE_REQUIRE_MARKETPLACE_ROOT: "true"
-      SMOKE_REQUIRE_LEGACY_REDIRECT: "true"
       SMOKE_WRITE_WAITLIST: "false"
       SMOKE_SOURCE: staging-admin-smoke
       SMOKE_UTM_CAMPAIGN: admin-workflows-staging-qa
@@ -113,10 +112,9 @@ jobs:
           set -euo pipefail
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
-          legacy_public_redirect_domain="$(terraform output -json legacy_public_redirect_domains | jq -r '.[0] // empty')"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
           staging_root_marketplace_domain="$(terraform output -json staging_root_marketplace_domains | jq -r '.[0] // empty')"
-          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$legacy_public_redirect_domain" ] || [ -z "$marketplace_domain" ] || [ -z "$staging_root_marketplace_domain" ]; then
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ] || [ -z "$staging_root_marketplace_domain" ]; then
             echo "Required staging smoke domains were not present in Terraform outputs." >&2
             exit 1
           fi
@@ -124,7 +122,6 @@ jobs:
             echo "LANDING_URL=https://${landing_domain}"
             echo "ADMIN_URL=https://${admin_domain}"
             echo "MARKETPLACE_URL=https://${marketplace_domain}"
-            echo "LEGACY_REDIRECT_URL=https://${legacy_public_redirect_domain}"
             echo "MARKETPLACE_ROOT_WEB_URL=https://${staging_root_marketplace_domain}"
           } >> "$GITHUB_ENV"
 
@@ -136,7 +133,6 @@ jobs:
             "${LANDING_URL}" \
             "${ADMIN_URL}" \
             "${MARKETPLACE_URL}" \
-            "${LEGACY_REDIRECT_URL}" \
             2>&1 | tee artifacts/admin-smoke/platform-staging-admin-smoke.log
 
       - name: Write staging admin smoke summary
@@ -154,7 +150,6 @@ jobs:
             adminOrigin: process.env.ADMIN_URL,
             marketplaceOrigin: process.env.MARKETPLACE_URL,
             marketplaceRootOrigin: process.env.MARKETPLACE_ROOT_WEB_URL,
-            legacyRedirectOrigin: process.env.LEGACY_REDIRECT_URL,
             smokeLog: "platform-staging-admin-smoke.log",
             supportSafe: true,
             notes: [

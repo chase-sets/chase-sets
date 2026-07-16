@@ -29,7 +29,6 @@ export function parseDigitalOceanStagingRollbackDrillArgs(argv, env = process.en
     landingUrl: readOption(argv, "--landing-url") ?? readEnv("LANDING_URL", env),
     adminUrl: readOption(argv, "--admin-url") ?? readEnv("ADMIN_URL", env),
     marketplaceUrl: readOption(argv, "--marketplace-url") ?? readEnv("MARKETPLACE_URL", env),
-    legacyRedirectUrl: readOption(argv, "--legacy-redirect-url") ?? readEnv("LEGACY_REDIRECT_URL", env),
     marketplaceRootUrl: readOption(argv, "--marketplace-root-url") ?? readEnv("MARKETPLACE_ROOT_WEB_URL", env),
     workflowRunId: readEnv("GITHUB_RUN_ID", env),
     workflowRunAttempt: readEnv("GITHUB_RUN_ATTEMPT", env),
@@ -206,15 +205,7 @@ async function runSmoke(options, label) {
   };
   await execFile(
     "pnpm",
-    [
-      "run",
-      "smoke:platform",
-      "--",
-      options.landingUrl,
-      options.adminUrl,
-      options.marketplaceUrl,
-      options.legacyRedirectUrl,
-    ],
+    ["run", "smoke:platform", "--", options.landingUrl, options.adminUrl, options.marketplaceUrl],
     { env, maxBuffer: 50 * 1024 * 1024, windowsHide: true },
   );
 }
@@ -357,7 +348,6 @@ function validateOptions(options) {
     ["LANDING_URL", options.landingUrl],
     ["ADMIN_URL", options.adminUrl],
     ["MARKETPLACE_URL", options.marketplaceUrl],
-    ["LEGACY_REDIRECT_URL", options.legacyRedirectUrl],
     ["MARKETPLACE_ROOT_WEB_URL", options.marketplaceRootUrl],
   ]) {
     if (!isHttpsUrl(value)) {

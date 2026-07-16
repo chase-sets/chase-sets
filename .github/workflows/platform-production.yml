@@ -1309,16 +1309,10 @@ jobs:
 
           # #5564: probe exactly the 4 hosts DOKS serves (landing, admin,
           # marketplace, staging-root — matching buildDoksIngressHosts() in
-          # scripts/render-platform-helm-values.mjs), not the legacy
-          # landing-/marketplace-/admin-staging redirect hostnames. App
-          # Platform's legacy redirects are intentionally empty once DOKS owns
-          # serving (locals.tf app_platform_legacy_domain_redirects), so those
-          # legacy hosts have no route on either platform and probing them was
-          # a stable, deterministic 404 that blocked every deploy. Legacy
-          # redirect behavior itself is still exercised by the dedicated
-          # staging admin-smoke/rollback-drill/bootstrap-hook-drill workflows
-          # (SMOKE_REQUIRE_LEGACY_REDIRECT); retiring vs rewiring those hosts
-          # is tracked separately (see the decision issue linked from #5564).
+          # scripts/render-platform-helm-values.mjs). The legacy
+          # landing-/marketplace-/admin-staging redirect hostnames were
+          # retired outright (#5568): their DNS ALIAS records and App
+          # Platform redirect plumbing are deleted, not rewired to DOKS.
           ingress_urls=(
             "https://${landing_domain}/health/ready"
             "https://${admin_domain}/health/ready"
@@ -1417,7 +1411,6 @@ jobs:
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_MARKETPLACE: "true"
           SMOKE_REQUIRE_MARKETPLACE_ROOT: "true"
-          SMOKE_REQUIRE_LEGACY_REDIRECT: "true"
           SMOKE_WRITE_WAITLIST: "false"
           SMOKE_SOURCE: staging-smoke
           SMOKE_UTM_CAMPAIGN: staging-main
@@ -1432,10 +1425,9 @@ jobs:
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
-          legacy_public_redirect_domain="$(terraform output -json legacy_public_redirect_domains | jq -r '.[0] // empty')"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
           staging_root_marketplace_domain="$(terraform output -json staging_root_marketplace_domains | jq -r '.[0] // empty')"
-          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$catalog_asset_public_base_url" ] || [ -z "$legacy_public_redirect_domain" ] || [ -z "$marketplace_domain" ] || [ -z "$staging_root_marketplace_domain" ]; then
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$catalog_asset_public_base_url" ] || [ -z "$marketplace_domain" ] || [ -z "$staging_root_marketplace_domain" ]; then
             echo "Required staging smoke domains were not present in Terraform outputs." >&2
             exit 1
           fi
@@ -1454,8 +1446,7 @@ jobs:
           pnpm run smoke:platform -- \
             "https://${landing_domain}" \
             "https://${admin_domain}" \
-            "https://${marketplace_domain}" \
-            "https://${legacy_public_redirect_domain}"
+            "https://${marketplace_domain}"
           catalog_asset_root_status=""
           for attempt in $(seq 1 12); do
             catalog_asset_root_status="$(curl --silent --show-error --location --head --output /dev/null --write-out '%{http_code}' \

@@ -21,7 +21,6 @@ function validOptions(overrides = {}) {
     landingUrl: "https://www.staging.chasesets.com",
     adminUrl: "https://admin.staging.chasesets.com",
     marketplaceUrl: "https://marketplace.staging.chasesets.com",
-    legacyRedirectUrl: "https://landing-staging.chasesets.com",
     marketplaceRootUrl: "https://staging.chasesets.com",
     checkedAt: "2026-07-02T20:00:00.000Z",
     timeoutSeconds: 30,
@@ -89,7 +88,6 @@ describe("digitalocean staging rollback drill", () => {
       LANDING_URL: "https://www.staging.chasesets.com",
       ADMIN_URL: "https://admin.staging.chasesets.com",
       MARKETPLACE_URL: "https://marketplace.staging.chasesets.com",
-      LEGACY_REDIRECT_URL: "https://landing-staging.chasesets.com",
       MARKETPLACE_ROOT_WEB_URL: "https://staging.chasesets.com",
     });
 

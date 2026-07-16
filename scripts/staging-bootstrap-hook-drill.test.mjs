@@ -376,7 +376,6 @@ describe("staging bootstrap hook drill", () => {
           landingUrl: "https://landing.example",
           adminUrl: "https://admin.example",
           marketplaceUrl: "https://marketplace.example",
-          legacyRedirectUrl: "https://legacy.example",
         },
         {
           runner: async (command, args) => {
@@ -410,7 +409,6 @@ describe("staging bootstrap hook drill", () => {
           landingUrl: "https://landing.example",
           adminUrl: "https://admin.example",
           marketplaceUrl: "https://marketplace.example",
-          legacyRedirectUrl: "https://legacy.example",
           rolloutSettleAttempts: 1,
           rolloutSettlePollIntervalMs: 0,
         },
@@ -463,7 +461,6 @@ describe("staging bootstrap hook drill", () => {
       landingUrl: "https://landing.example",
       adminUrl: "https://admin.example",
       marketplaceUrl: "https://marketplace.example",
-      legacyRedirectUrl: "https://legacy.example",
       marketplaceRootUrl: "https://root.example",
       checkedAt: "2026-07-06T00:00:00.000Z",
       rolloutSettleAttempts: 3,
@@ -588,7 +585,6 @@ describe("staging bootstrap hook drill", () => {
       landingUrl: "https://landing.example",
       adminUrl: "https://admin.example",
       marketplaceUrl: "https://marketplace.example",
-      legacyRedirectUrl: "https://legacy.example",
       checkedAt: "2026-07-06T00:00:00.000Z",
       rolloutSettleAttempts: 1,
       rolloutSettlePollIntervalMs: 0,
@@ -681,7 +677,6 @@ describe("staging bootstrap hook drill", () => {
           landingUrl: "https://landing.example",
           adminUrl: "https://admin.example",
           marketplaceUrl: "https://marketplace.example",
-          legacyRedirectUrl: "https://legacy.example",
         },
         {
           runner: async (command, args) => {
