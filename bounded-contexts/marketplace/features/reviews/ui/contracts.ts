@@ -17,7 +17,6 @@ export interface ReviewListItem {
   revealed_at: string | null;
   reveal_reason: string | null;
   held: boolean;
-  scoring_disposition: "included" | "context-only";
   scoring_reason_code: string;
   scoring_policy_version: string;
   scoring_source_fact_versions: unknown;

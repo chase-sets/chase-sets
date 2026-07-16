@@ -612,7 +612,16 @@ function PublicAccountRealtimeView({
                         verified
                         response={review.reply_status === "active" ? review.reply_feedback : null}
                         responseLabel={t("discovery.routes.publicAccount.review.reply.label")}
-                        context={<ReviewScoringContext review={review} />}
+                        context={
+                          <Stack gap={2}>
+                            {review.scoring_disposition === "context-only" ? (
+                              <Badge tone="neutral">
+                                {t("discovery.routes.publicAccount.context.only.rating")}
+                              </Badge>
+                            ) : null}
+                            <ReviewScoringContext review={review} />
+                          </Stack>
+                        }
                         actions={
                           <ReviewReportAction
                             reviewId={review.review_id}

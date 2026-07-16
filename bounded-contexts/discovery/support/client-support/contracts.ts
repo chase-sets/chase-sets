@@ -378,7 +378,6 @@ export interface DiscoveryPublicAccountReview {
   author_role: string;
   rating: number;
   feedback: string | null;
-  scoring_disposition: "included" | "context-only";
   submitted_at: string | null;
   updated_at: string;
   // Subject reply mirror (m108): a single threaded response.
