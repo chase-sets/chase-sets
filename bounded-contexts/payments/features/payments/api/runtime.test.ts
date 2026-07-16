@@ -1334,6 +1334,63 @@ describe("payment runtime", () => {
     expect(readAllEvents().map((event) => event.eventType)).toEqual(["payments.payment-created"]);
   });
 
+  it("rejects a checkout that loses the concurrent race for its applied balance and releases the partial hold", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const releaseSpendHold = vi.fn(async () => undefined);
+    const balanceCreditResolver = {
+      resolveBalanceCredit: vi.fn(async () => ({
+        requestedAmount: "10.00",
+        appliedAmount: "10.00",
+        remainingExternalAmount: "14.99",
+      })),
+      // A rival checkout already reserved the balance: only 4.00 of the quoted
+      // 10.00 could be held. The payment must not proceed applying 10.00.
+      placeSpendHold: vi.fn(async () => ({ heldAmount: "4.00" })),
+      releaseSpendHold,
+    };
+    const db = createOrderInputDb();
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+      balanceCreditResolver,
+    });
+
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      requestedBalanceCreditAmount: "10.00",
+      paymentMethodCategory: "card",
+    });
+
+    await expect(
+      services.createAccountPayment(
+        {
+          accountId: "acc_buyer" as never,
+          orderIds: ["ord_1" as never],
+          requestedBalanceCreditAmount: "10.00",
+          paymentMethodCategory: "card",
+          marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+          sourceContext: "checkout",
+          sourceReferenceId: "chk_1",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "balance_credit_reserved_concurrently" });
+
+    // No payment is created and the processor is never touched: the same $10
+    // cannot be spent by this checkout.
+    expect(processorGateway.createPaymentSession).not.toHaveBeenCalled();
+    expect(readAllEvents().filter((event) => event.eventType === "payments.payment-created")).toHaveLength(0);
+    // The partial hold we placed is released so it does not leak.
+    expect(releaseSpendHold).toHaveBeenCalledWith(
+      expect.objectContaining({ buyerAccountId: "acc_buyer", reason: "payment-cancelled" }),
+      context,
+    );
+  });
+
   it("surfaces a wallet-terms-not-accepted reason on preview without blocking the overall checkout", async () => {
     const { eventStore } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();

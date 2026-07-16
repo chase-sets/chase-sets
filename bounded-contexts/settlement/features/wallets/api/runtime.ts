@@ -13,6 +13,7 @@ import { settlementClearancePolicy, type SettlementClearancePolicyValue } from "
 import {
   getLedgerSaleCreditTotalForMonth,
   getWallet,
+  listExpiredActiveSpendHolds,
   listNegativeBalanceAccounts,
   listNegativeBalanceCollectionsCandidates,
   listPendingCreditEntriesMaturedBy,
@@ -33,6 +34,8 @@ import {
   type WalletLedgerEntryPostedEvent,
   type WalletCommand,
   type WalletEvent,
+  type WalletSpendHoldPlacedEvent,
+  type WalletSpendHoldReleaseReason,
   type WalletState,
 } from "../domain/domain";
 import {
@@ -135,6 +138,40 @@ export type WalletServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: AccountId; version: number }>;
+  /**
+   * Authoritatively reserves buyer-spend credit at checkout / payment creation.
+   * Commits under optimistic concurrency with a bounded retry, so two concurrent
+   * checkouts against the same wallet serialize: the second re-reads the first's
+   * hold and is capped to the balance still unheld. Returns the amount actually
+   * held, which may be less than requested (or "0.00") under contention.
+   */
+  placeSpendHold: (
+    params: Readonly<{
+      accountId: AccountId;
+      holdId: string;
+      paymentId?: PaymentId | null;
+      amount: string;
+      currencyCode?: CurrencyCode;
+      placedAt?: string;
+      expiresAt?: string | null;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ accountId: AccountId; holdId: string; heldAmount: string }>;
+  /** Releases a buyer-spend hold, returning the reserved amount to spendable availability. Idempotent; no-op for an unknown or already-released hold. */
+  releaseSpendHold: (
+    params: Readonly<{
+      accountId: AccountId;
+      holdId: string;
+      reason: WalletSpendHoldReleaseReason;
+      releasedAt?: string;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ accountId: AccountId; holdId: string; released: boolean }>;
+  /** Releases active spend holds whose expiry has elapsed -- the backstop against holds leaking on payments that never conclude. */
+  sweepExpiredSpendHolds: (
+    params: Readonly<{ now?: string; limit?: number }>,
+    context: EventStoreContext,
+  ) => Promise<{ released: number; skipped: number }>;
   releaseMaturePendingSaleCredits: (
     params: Readonly<{
       now?: string;
@@ -157,6 +194,13 @@ export type WalletServices = Readonly<{
   getLedgerSaleCreditTotalForMonth: (params: Readonly<{ yearMonth: string }>) => Promise<string>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
+
+/** Bounded compare-and-set attempts for spend-hold commits (matches the commercial-terms policy-window commit). */
+const SPEND_HOLD_MAX_COMMIT_ATTEMPTS = 5;
+
+function isConcurrencyConflict(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "concurrency_conflict");
+}
 
 function postedEntrySnapshot(event: WalletLedgerEntryPostedEvent): PostedLedgerEntrySnapshot {
   return {
@@ -219,6 +263,41 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
       },
       context,
     });
+  }
+
+  async function releaseSpendHoldImpl(
+    params: Readonly<{
+      accountId: AccountId;
+      holdId: string;
+      reason: WalletSpendHoldReleaseReason;
+      releasedAt?: string;
+    }>,
+    context: EventStoreContext,
+  ): Promise<{ accountId: AccountId; holdId: string; released: boolean }> {
+    const releasedAt = params.releasedAt ?? new Date().toISOString();
+    const streamId = `settlement.wallet-${params.accountId}`;
+
+    for (let attempt = 0; attempt < SPEND_HOLD_MAX_COMMIT_ATTEMPTS; attempt += 1) {
+      try {
+        const result = await commandHandler({
+          streamId,
+          command: {
+            type: "ReleaseSpendHold",
+            holdId: params.holdId,
+            reason: params.reason,
+            releasedAt,
+          },
+          context,
+        });
+        const released = result.newEvents.some((event) => event.type === "settlement.wallet.spend-hold-released");
+        return { accountId: params.accountId, holdId: params.holdId, released };
+      } catch (error) {
+        if (!isConcurrencyConflict(error) || attempt === SPEND_HOLD_MAX_COMMIT_ATTEMPTS - 1) {
+          throw error;
+        }
+      }
+    }
+    throw new SettlementDomainError("Spend hold release did not converge.");
   }
 
   return {
@@ -294,6 +373,80 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
         accountId: params.accountId,
         version: result.version,
       };
+    },
+    async placeSpendHold(params, context) {
+      const placedAt = params.placedAt ?? new Date().toISOString();
+      const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
+      const amount = normalizeMoneyAmount(params.amount, { fieldName: "Spend hold amount", allowZero: true });
+      await ensureWallet({ accountId: params.accountId, currencyCode, openedAt: placedAt }, context);
+      const streamId = `settlement.wallet-${params.accountId}`;
+
+      // Bounded compare-and-set retry mirroring the commercial-terms policy-window
+      // commit: each attempt re-loads the wallet stream, re-decides against fresh
+      // in-aggregate state, and appends with the loaded version. A concurrent hold
+      // that committed first makes this append conflict; the retry then observes
+      // that hold and the decider caps this reservation to the balance still
+      // unheld. That is the exact mechanism that closes the double-spend race.
+      for (let attempt = 0; attempt < SPEND_HOLD_MAX_COMMIT_ATTEMPTS; attempt += 1) {
+        try {
+          const result = await commandHandler({
+            streamId,
+            command: {
+              type: "PlaceSpendHold",
+              holdId: params.holdId,
+              paymentId: params.paymentId ?? null,
+              amount,
+              currencyCode,
+              placedAt,
+              expiresAt: params.expiresAt ?? null,
+            },
+            context,
+          });
+          const placed = result.newEvents.find(
+            (event): event is WalletSpendHoldPlacedEvent => event.type === "settlement.wallet.spend-hold-placed",
+          );
+          if (placed) {
+            return { accountId: params.accountId, holdId: params.holdId, heldAmount: placed.data.amount };
+          }
+          // No event: either an idempotent replay of an existing hold, or nothing
+          // was spendable. Report the effective active reservation for this id.
+          const existing = result.state.spendHolds.find(
+            (hold) => hold.holdId === params.holdId && hold.status === "active",
+          );
+          return { accountId: params.accountId, holdId: params.holdId, heldAmount: existing?.amount ?? "0.00" };
+        } catch (error) {
+          if (!isConcurrencyConflict(error) || attempt === SPEND_HOLD_MAX_COMMIT_ATTEMPTS - 1) {
+            throw error;
+          }
+        }
+      }
+      throw new SettlementDomainError("Spend hold placement did not converge.");
+    },
+    releaseSpendHold: (params, context) => releaseSpendHoldImpl(params, context),
+    async sweepExpiredSpendHolds(params, context) {
+      const now = params.now ?? new Date().toISOString();
+      const expired = await listExpiredActiveSpendHolds(deps.db, { now, limit: params.limit });
+      let released = 0;
+      let skipped = 0;
+
+      for (const hold of expired) {
+        const result = await releaseSpendHoldImpl(
+          {
+            accountId: hold.account_id as AccountId,
+            holdId: hold.hold_id,
+            reason: "expired",
+            releasedAt: now,
+          },
+          context,
+        );
+        if (result.released) {
+          released += 1;
+        } else {
+          skipped += 1;
+        }
+      }
+
+      return { released, skipped };
     },
     async releaseMaturePendingSaleCredits(params, context) {
       const now = params.now ?? new Date().toISOString();

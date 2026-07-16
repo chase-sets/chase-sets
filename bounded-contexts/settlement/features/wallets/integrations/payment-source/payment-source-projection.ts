@@ -20,6 +20,8 @@ import {
   trySignedMoneyToCents,
 } from "@chase-sets/primitives/money";
 import type { WalletServices } from "../../api/runtime";
+import { balanceCreditHoldId } from "../../api/balance-credit-resolver";
+import type { WalletSpendHoldReleaseReason } from "../../domain/domain";
 import { compareMoney, normalizeCurrencyCode, SettlementDomainError } from "../../../../support/runtime-support/common";
 import {
   decideRefundLiability,
@@ -75,6 +77,44 @@ async function debitAppliedBalanceCredit(
     }
     throw error;
   }
+}
+
+/**
+ * Releases the buyer-spend hold that reserved this payment's applied wallet
+ * credit. At capture the balance-credit debit above is what actually moves the
+ * money; releasing the hold here simply retires the reservation so it stops
+ * withholding spendable/payable balance. At failure/cancellation/expiry it
+ * returns the reserved funds to the buyer with no money movement. Idempotent in
+ * the wallet aggregate, so redelivered lifecycle events never over-release.
+ */
+async function releaseBalanceCreditHold(
+  wallets: WalletServices | undefined,
+  data: Readonly<{
+    buyerAccountId: string;
+    paymentId: string;
+    balanceCreditAmount: string;
+    reason: WalletSpendHoldReleaseReason;
+    releasedAt: string;
+  }>,
+  event: TransportEvent,
+) {
+  if (!wallets || compareMoney(data.balanceCreditAmount, "0.00") <= 0) {
+    return;
+  }
+
+  await wallets.releaseSpendHold(
+    {
+      accountId: data.buyerAccountId as AccountId,
+      holdId: balanceCreditHoldId(data.paymentId),
+      reason: data.reason,
+      releasedAt: data.releasedAt,
+    },
+    {
+      tenantId: event.tenantId,
+      audit: event.audit,
+      trace: event.trace,
+    },
+  );
 }
 
 /**
@@ -1125,6 +1165,21 @@ export function buildSettlementPaymentInputProjectionHandlers(
         },
         event,
       );
+      // Convert the reservation to the settled debit: post the debit above, then
+      // retire the hold so it no longer withholds balance. Debit-before-release
+      // keeps a mid-handler crash conservative (funds stay reserved until the
+      // idempotent redelivery completes both) rather than briefly re-spendable.
+      await releaseBalanceCreditHold(
+        wallets,
+        {
+          buyerAccountId: data.buyerAccountId,
+          paymentId: data.paymentId,
+          balanceCreditAmount: data.balanceCreditAmount ?? "0.00",
+          reason: "payment-captured",
+          releasedAt: data.capturedAt,
+        },
+        event,
+      );
       const sellerPayouts = normalizeSellerPayoutComponents(data.sellerPayouts);
       await creditSellerPayouts(
         wallets,
@@ -1175,9 +1230,31 @@ export function buildSettlementPaymentInputProjectionHandlers(
           event.streamVersion,
         ],
       );
+
+      await releaseBalanceCreditHold(
+        wallets,
+        {
+          buyerAccountId: data.buyerAccountId,
+          paymentId: data.paymentId,
+          balanceCreditAmount: data.balanceCreditAmount ?? "0.00",
+          reason: "payment-failed",
+          releasedAt: data.failedAt,
+        },
+        event,
+      );
     },
     "payments.payment-cancelled": async (event) => {
       const data = event.data as PaymentCancelledPayload;
+
+      // The cancellation event carries only the payment id, so recover the buyer
+      // and the reserved credit from the settlement-owned payment source row to
+      // release the hold.
+      const cancelledSource = await db.query<{ buyer_account_id: string; balance_credit_amount: string }>(
+        `SELECT buyer_account_id, balance_credit_amount::text AS balance_credit_amount
+         FROM settlement_payment_sources
+         WHERE payment_id = $1`,
+        [data.paymentId],
+      );
 
       await db.query(
         `UPDATE settlement_payment_sources
@@ -1189,6 +1266,21 @@ export function buildSettlementPaymentInputProjectionHandlers(
            AND last_stream_version < $3`,
         [data.paymentId, data.cancelledAt, event.streamVersion],
       );
+
+      const cancelledRow = cancelledSource.rows[0];
+      if (cancelledRow) {
+        await releaseBalanceCreditHold(
+          wallets,
+          {
+            buyerAccountId: cancelledRow.buyer_account_id,
+            paymentId: data.paymentId,
+            balanceCreditAmount: cancelledRow.balance_credit_amount ?? "0.00",
+            reason: "payment-cancelled",
+            releasedAt: data.cancelledAt,
+          },
+          event,
+        );
+      }
     },
     "payments.payment-refunded": async (event) => {
       const data = event.data as {

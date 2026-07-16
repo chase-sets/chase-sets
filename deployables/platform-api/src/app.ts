@@ -89,6 +89,7 @@ import {
 import {
   createBlockedPayoutAttentionSourceFromReadModel,
   createSettlementBalanceCreditResolver,
+  createSettlementWalletSpendHoldPort,
   getProtectionReserveSummary,
   lookupPayoutBySupportId,
   lookupPayoutBySupportReference,
@@ -263,7 +264,12 @@ export function createPlatformApiHost(
       : undefined;
   const termsAcceptanceResolver = identityPool ? createIdentityTermsAcceptanceResolver(identityPool) : undefined;
   const balanceCreditResolver = settlementPool
-    ? createSettlementBalanceCreditResolver(settlementPool, { termsAcceptanceResolver })
+    ? createSettlementBalanceCreditResolver(settlementPool, {
+        termsAcceptanceResolver,
+        // Wallet write port so checkout reserves applied balance authoritatively
+        // and concurrent checkouts cannot double-spend wallet credit.
+        walletSpendHolds: createSettlementWalletSpendHoldPort(settlementPool),
+      })
     : undefined;
   const checkoutProcessingFeePolicyResolver = commercialTermsPool
     ? createCheckoutProcessingFeePolicyResolver(commercialTermsPool)

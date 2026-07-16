@@ -945,4 +945,112 @@ describe("settlement payment source projection", () => {
       expect.objectContaining({ tenantId: "tnt_test" }),
     );
   });
+
+  describe("buyer-spend hold lifecycle", () => {
+    function walletsWithSpies() {
+      return {
+        postEntry: vi.fn(async () => ({ accountId: "acc_buyer", version: 1 })),
+        releaseSpendHold: vi.fn(async () => ({ accountId: "acc_buyer", holdId: "x", released: true })),
+      };
+    }
+
+    it("posts the balance-credit debit and converts the hold at capture", async () => {
+      const { db } = createDb();
+      const wallets = walletsWithSpies();
+      const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+
+      await handlers["payments.payment-captured"]!(
+        transportEvent("payments.payment-captured", {
+          paymentId: "pay_1",
+          buyerAccountId: "acc_buyer",
+          balanceCreditAmount: "50.00",
+          currencyCode: "usd",
+          processorStatus: "succeeded",
+          capturedAt: "2026-05-01T00:00:00.000Z",
+          sellerPayouts: [],
+        }),
+      );
+
+      expect(wallets.postEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ledgerEntryId: "led_balance_credit_pay_1",
+          direction: "debit",
+          amount: "50.00",
+        }),
+        expect.objectContaining({ tenantId: "tnt_test" }),
+      );
+      expect(wallets.releaseSpendHold).toHaveBeenCalledWith(
+        expect.objectContaining({ holdId: "hold_balance_credit_pay_1", reason: "payment-captured" }),
+        expect.objectContaining({ tenantId: "tnt_test" }),
+      );
+    });
+
+    it("releases the hold when a payment fails", async () => {
+      const { db } = createDb();
+      const wallets = walletsWithSpies();
+      const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+
+      await handlers["payments.payment-failed"]!(
+        transportEvent("payments.payment-failed", {
+          paymentId: "pay_1",
+          buyerAccountId: "acc_buyer",
+          balanceCreditAmount: "50.00",
+          currencyCode: "usd",
+          processorStatus: "failed",
+          failureCode: "card_declined",
+          failureMessage: "declined",
+          failedAt: "2026-05-01T00:00:00.000Z",
+        }),
+      );
+
+      expect(wallets.releaseSpendHold).toHaveBeenCalledWith(
+        expect.objectContaining({ holdId: "hold_balance_credit_pay_1", reason: "payment-failed" }),
+        expect.objectContaining({ tenantId: "tnt_test" }),
+      );
+    });
+
+    it("recovers the buyer and reserved credit from the source row to release the hold on cancellation", async () => {
+      const { db, queryMock } = createDb();
+      queryMock.mockImplementation(async (sql: string) => {
+        if (String(sql).includes("SELECT buyer_account_id, balance_credit_amount")) {
+          return { rows: [{ buyer_account_id: "acc_buyer", balance_credit_amount: "50.00" }] } as never;
+        }
+        return { rows: [] } as never;
+      });
+      const wallets = walletsWithSpies();
+      const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+
+      await handlers["payments.payment-cancelled"]!(
+        transportEvent("payments.payment-cancelled", {
+          paymentId: "pay_1",
+          cancelledAt: "2026-05-01T00:00:00.000Z",
+        }),
+      );
+
+      expect(wallets.releaseSpendHold).toHaveBeenCalledWith(
+        expect.objectContaining({ holdId: "hold_balance_credit_pay_1", reason: "payment-cancelled" }),
+        expect.objectContaining({ tenantId: "tnt_test" }),
+      );
+    });
+
+    it("does not touch holds for a payment that applied no wallet credit", async () => {
+      const { db } = createDb();
+      const wallets = walletsWithSpies();
+      const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+
+      await handlers["payments.payment-captured"]!(
+        transportEvent("payments.payment-captured", {
+          paymentId: "pay_1",
+          buyerAccountId: "acc_buyer",
+          balanceCreditAmount: "0.00",
+          currencyCode: "usd",
+          processorStatus: "succeeded",
+          capturedAt: "2026-05-01T00:00:00.000Z",
+          sellerPayouts: [],
+        }),
+      );
+
+      expect(wallets.releaseSpendHold).not.toHaveBeenCalled();
+    });
+  });
 });

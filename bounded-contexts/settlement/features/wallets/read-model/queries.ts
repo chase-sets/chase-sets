@@ -446,6 +446,65 @@ export async function listPendingCreditEntriesMaturedBy(
   return result.rows;
 }
 
+/**
+ * Sum of the account's active buyer-spend holds (balance-credit reservations
+ * placed at checkout, not yet captured/released). Subtracted from available
+ * balance wherever spendable/payable funds are computed, so a hold cannot be
+ * spent or paid out twice.
+ */
+export async function getAccountActiveSpendHoldAmount(db: PgQueryable, accountId: string): Promise<string> {
+  const result = await db.query<{ amount: string }>(
+    `SELECT COALESCE(SUM(amount), 0)::text AS amount
+     FROM settlement_wallet_spend_holds
+     WHERE account_id = $1
+       AND status = 'active'`,
+    [accountId],
+  );
+
+  return Number.parseFloat(result.rows[0]?.amount ?? "0").toFixed(2);
+}
+
+export type SettlementSpendHoldRow = Readonly<{
+  hold_id: string;
+  account_id: string;
+  payment_id: string | null;
+  amount: string;
+  currency_code: string;
+  placed_at: string;
+  expires_at: string | null;
+}>;
+
+/**
+ * Active spend holds whose expiry has elapsed by `now` -- the stale-hold sweep's
+ * work list for payments that never concluded (never captured, failed, or
+ * cancelled), so a reservation cannot leak and permanently withhold balance.
+ */
+export async function listExpiredActiveSpendHolds(
+  db: PgQueryable,
+  params: Readonly<{ now: string; limit?: number }>,
+): Promise<SettlementSpendHoldRow[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 250, 1000));
+  const result = await db.query<SettlementSpendHoldRow>(
+    `SELECT
+       hold_id,
+       account_id,
+       payment_id,
+       amount::text AS amount,
+       currency_code,
+       placed_at,
+       expires_at
+     FROM settlement_wallet_spend_holds
+     WHERE status = 'active'
+       AND expires_at IS NOT NULL
+       AND expires_at <= $1::timestamptz
+     ORDER BY expires_at ASC, hold_id ASC
+     LIMIT $2`,
+    [params.now, limit],
+  );
+
+  return result.rows;
+}
+
 export async function getAccountActiveSupportHoldAmount(db: PgQueryable, accountId: string): Promise<string> {
   const result = await db.query<{ amount: string }>(
     `SELECT COALESCE(SUM(entry.amount), 0)::text AS amount
