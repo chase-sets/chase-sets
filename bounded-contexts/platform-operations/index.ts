@@ -15,6 +15,7 @@ import {
   buildCommercialTermsPublicDocReviewProjectionHandlers,
   buildPlatformOperationsPublicDocReviewProjectionHandlers,
 } from "./features/public-doc-reviews/read-model/projection";
+import { buildCommercialTermsEffectiveDateAttentionProjectionHandlers } from "./features/commercial-terms-attention/read-model/projection";
 import {
   buildMarketplaceReportedContentProjectionHandlers,
   buildPlatformOperationsReportedContentProjectionHandlers,
@@ -109,6 +110,10 @@ export const module = defineBoundedContextModule<
         "commercial-terms.public-doc-review-queue-projection": {
           subscriptionName: "platform-operations.public-doc-review-queue-projection",
           buildHandlers: () => buildCommercialTermsPublicDocReviewProjectionHandlers(services.db),
+        },
+        "commercial-terms.commercial-terms-effective-date-attention-projection": {
+          subscriptionName: "platform-operations.commercial-terms-effective-date-attention-projection",
+          buildHandlers: () => buildCommercialTermsEffectiveDateAttentionProjectionHandlers(services.db),
         },
         "platform-operations.public-doc-review-queue-projection": {
           subscriptionName: "platform-operations.public-doc-review-queue-projection",

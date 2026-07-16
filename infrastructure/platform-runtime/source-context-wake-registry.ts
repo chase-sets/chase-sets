@@ -268,14 +268,15 @@ export const sourceContextWakeRegistry = [
     wakeStoreLoadEstimate: "low",
     affectedProjectionNames: [
       "commercial-terms:platform-policy-document-projection",
+      "platform-operations:commercial-terms-effective-date-attention-projection",
       "platform-operations:public-doc-review-queue-projection",
     ],
     routeDependencyIds: [
-      "commercial-terms.account-agreement-create-to-list",
-      "commercial-terms.agreement-create-to-list",
-      "commercial-terms.agreement-update-to-detail",
-      "commercial-terms.schedule-create-to-list",
-      "commercial-terms.schedule-update-to-detail",
+      "commercial-terms.account-agreement-create-to-home",
+      "commercial-terms.agreement-create-to-home",
+      "commercial-terms.agreement-update-to-home",
+      "commercial-terms.schedule-create-to-home",
+      "commercial-terms.schedule-update-to-home",
     ],
   }),
   registryEntry({

@@ -4,6 +4,10 @@
 
 A **Public Doc Article Review** is the operator attention item opened when a revised policy is cited by a public Help Article. It remains visibly aged in Policy Console until an operator confirms that the surrounding prose still matches the revised policy or updates the article before confirmation.
 
+## Commercial Terms Effective-Date Attention
+
+**Commercial Terms Effective-Date Attention** is the Platform Operations projection of upcoming Commercial Terms schedules and active account overrides with a future expiry. Commercial Terms publishes policy-document facts; Platform Operations owns ordering and presentation in the Policy Console attention queue.
+
 ## Support Request
 
 A **Support Request** is the Platform Operations-owned case through which an account and operators record evidence, responses, escalations, resolutions, returns, and closure for a marketplace support concern.

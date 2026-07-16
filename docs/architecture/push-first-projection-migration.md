@@ -152,6 +152,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `payments:payments-payment-projection` | Payments | **payments** | push-enabled | 1/1 |
 | `payments:payments-support-refund-effect` | Payments | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:experience-platform-feedback-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
+| `platform-operations:commercial-terms-effective-date-attention-projection` | Platform Operations | **commercial-terms** | push-enabled | 1/1 |
 | `platform-operations:platform-policy-document-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:public-doc-review-queue-projection` | Platform Operations | **commercial-terms**, **platform-operations** | push-enabled | 2/2 |
 | `platform-operations:reported-content-queue-projection` | Platform Operations | **marketplace**, **platform-operations** | push-enabled | 2/2 |
@@ -206,11 +207,11 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `collections.saved-list-create-to-detail` | collections | important | exact wait | deferred until wave 4 |
 | `collections.saved-list-detail-self-refresh` | collections | important | exact wait | deferred until wave 4 |
 | `collections.saved-list-list-self-refresh` | collections | important | exact wait | deferred until wave 4 |
-| `commercial-terms.account-agreement-create-to-list` | commercial-terms | important | exact wait | push-accelerated |
-| `commercial-terms.agreement-create-to-list` | commercial-terms | important | exact wait | push-accelerated |
-| `commercial-terms.agreement-update-to-detail` | commercial-terms | important | exact wait | push-accelerated |
-| `commercial-terms.schedule-create-to-list` | commercial-terms | important | exact wait | push-accelerated |
-| `commercial-terms.schedule-update-to-detail` | commercial-terms | important | exact wait | push-accelerated |
+| `commercial-terms.account-agreement-create-to-home` | commercial-terms | important | exact wait | push-accelerated |
+| `commercial-terms.agreement-create-to-home` | commercial-terms | important | exact wait | push-accelerated |
+| `commercial-terms.agreement-update-to-home` | commercial-terms | important | exact wait | push-accelerated |
+| `commercial-terms.schedule-create-to-home` | commercial-terms | important | exact wait | push-accelerated |
+| `commercial-terms.schedule-update-to-home` | commercial-terms | important | exact wait | push-accelerated |
 | `discovery.item-detail-add-to-cart-semantic-handoff` | discovery | critical | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
 | `discovery.item-detail-add-to-sell-list-semantic-handoff` | discovery | critical | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
 | `discovery.item-detail-checkout-handoff` | discovery | important | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |

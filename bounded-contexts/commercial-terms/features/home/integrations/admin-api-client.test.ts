@@ -6,7 +6,7 @@ import {
 } from "@chase-sets/http/responses";
 import { CHASE_SETS_INTERNAL_API_ORIGIN_ENV } from "@chase-sets/platform-runtime/http";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createCommercialTermsRequestApiClient } from "./api-client";
+import { createCommercialTermsRequestApiClient } from "./admin-api-client";
 
 afterEach(() => {
   vi.restoreAllMocks();

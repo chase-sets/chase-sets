@@ -126,6 +126,12 @@ export type CommercialAgreement = Readonly<{
   history?: readonly CommercialTermsHistoryItem[];
 }>;
 
+export type CommercialTermsAccountOption = Readonly<{
+  accountId: string;
+  displayName: string;
+  accountType: string;
+}>;
+
 export function createCommercialTermsRequestApiClient(request: Request) {
   const baseUrl = resolveRequestApiBaseUrl(request, "/api/commercial-terms");
   const fetch = createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "commercial-terms" });
@@ -161,6 +167,16 @@ export function createCommercialTermsRequestApiClient(request: Request) {
       return requestJson<{ items: CommercialAgreement[]; total: number; count: number }>(
         `${baseUrl}/agreements${queryFromString(query)}`,
       );
+    },
+    async listAccountOptions() {
+      const response = await requestJson<{
+        items: Array<{ account_id: string; display_name: string; account_type: string }>;
+      }>(`${baseUrl}/agreements/account-options`);
+      return response.items.map((item) => ({
+        accountId: item.account_id,
+        displayName: item.display_name,
+        accountType: item.account_type,
+      }));
     },
     async getAgreement(id: string) {
       return requestJson<CommercialAgreement>(`${baseUrl}/agreements/${id}`);

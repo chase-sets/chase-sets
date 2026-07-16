@@ -9,6 +9,7 @@ Commercial Terms owns the marketplace sales fee policy that determines seller-si
 - The single published Marketplace Sales Fee Schedule
 - Dormant account-type schedule machinery retained for future differentiation
 - Account-specific commercial agreements
+- The Commercial Terms admin home, including effective-date ordering and inline revision and override workflows
 - Commercial Terms resolution for seller-confirmed listing and offer fee previews
 - Seller-side marketplace sales fee amounts
 - Seller net calculations

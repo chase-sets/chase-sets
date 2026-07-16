@@ -3,6 +3,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { redirect, useLoaderData } from "react-router";
 import {
   confirmPublicDocReview,
+  loadCommercialTermsAttention,
   loadPolicyConsoleRegistry,
   loadPublicDocReviewQueue,
 } from "../../support/request-support/policy-console-client";
@@ -11,11 +12,16 @@ import { PolicyConsolePage } from "../../features/policy-console/ui/policy-conso
 export const meta: MetaFunction = () => [{ title: t("platformOperations.policyConsole.metaTitle") }];
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  const [registry, reviewQueue] = await Promise.all([
+  const [registry, reviewQueue, commercialTermsAttention] = await Promise.all([
     loadPolicyConsoleRegistry(request),
     loadPublicDocReviewQueue(request),
+    loadCommercialTermsAttention(request),
   ]);
-  return { ...registry, reviewItems: reviewQueue.items };
+  return {
+    ...registry,
+    reviewItems: reviewQueue.items,
+    commercialTermsAttentionItems: commercialTermsAttention.items,
+  };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -29,11 +35,13 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export default function PolicyConsoleRoute() {
-  const { items, commercialTermsSchedulesHref, reviewItems } = useLoaderData<typeof loader>();
+  const { items, commercialTermsSchedulesHref, reviewItems, commercialTermsAttentionItems } =
+    useLoaderData<typeof loader>();
   return (
     <PolicyConsolePage
       items={items}
       reviewItems={reviewItems}
+      commercialTermsAttentionItems={commercialTermsAttentionItems}
       commercialTermsSchedulesHref={commercialTermsSchedulesHref}
     />
   );

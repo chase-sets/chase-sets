@@ -407,6 +407,15 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.policyConsole.commercialTermsLinkDescription":
     "Commercial Terms schedules and agreements have their own richer, account-targeted admin surface and are not listed below.",
   "platformOperations.policyConsole.commercialTermsLinkTitle": "Commercial Terms schedules & agreements",
+  "platformOperations.policyConsole.commercialTermsAttention.action": "Action",
+  "platformOperations.policyConsole.commercialTermsAttention.description":
+    "Upcoming schedules and expiring account overrides ordered by effective date.",
+  "platformOperations.policyConsole.commercialTermsAttention.empty":
+    "No Commercial Terms effective dates currently need attention.",
+  "platformOperations.policyConsole.commercialTermsAttention.review": "Review terms",
+  "platformOperations.policyConsole.commercialTermsAttention.terms": "Terms",
+  "platformOperations.policyConsole.commercialTermsAttention.timing": "Timing",
+  "platformOperations.policyConsole.commercialTermsAttention.title": "Commercial terms attention",
   "platformOperations.policyConsole.description":
     "Every runtime-configurable business policy, grouped by owning context, with history and scheduled revisions.",
   "platformOperations.policyConsole.effectiveFrom": "Effective from",

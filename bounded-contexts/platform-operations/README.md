@@ -46,6 +46,7 @@ Platform Operations terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - Ordering for order lifecycle facts that feed insights dashboards and guide support-request flows.
 - Fulfillment for shipment lifecycle facts that feed insights dashboards and guide support-request flows.
 - Commercial Terms for shared `platform-policy.document.revised` facts that reopen reviews for articles citing those policies. The source is optional and consumed only when Commercial Terms is mounted.
+- Commercial Terms for shared policy-document created and revised facts that surface upcoming schedules and expiring account overrides in the operations attention queue. The source is optional and consumed only when Commercial Terms is mounted.
 - The generated `@chase-sets/public-docs` citation contract published from Public Presence frontmatter; Platform Operations never imports Public Presence behavior.
 
 ## Outgoing Integration Events
