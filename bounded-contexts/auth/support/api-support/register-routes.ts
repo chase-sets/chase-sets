@@ -76,7 +76,7 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
       await upsertPasswordCredential(services.db, {
         credentialId: passwordCredentialId,
         userId: identity.userId,
-        secretHash: services.auth.hashSecret(String(body.password)),
+        secretHash: await services.auth.hashPassword(String(body.password)),
       });
     }
 
