@@ -63,6 +63,13 @@ export type SupportRequestListRow = Readonly<{
     ship_by_deadline_at: string;
     return_by_deadline_at: string;
   }> | null;
+  /**
+   * A case genuinely needs human adjudication: a party challenged with
+   * evidence, a party declined an offer, or a party (not support) escalated.
+   * Distinguishes the adjudication workbench's contested caseload from cases
+   * that merely reached support review on a deadline.
+   */
+  contested: boolean;
 }>;
 
 export type SupportRequestDetailRow = SupportRequestListRow &
@@ -71,6 +78,19 @@ export type SupportRequestDetailRow = SupportRequestListRow &
     responses: readonly SupportResponse[];
     offers: readonly SupportOffer[];
   }>;
+
+/**
+ * A case is contested — genuinely needing operator adjudication rather than a
+ * clerical review — when a party challenged with evidence, a party declined an
+ * offer, or a party (buyer or seller, never support) escalated it. Kept as a
+ * single SQL expression so the queue filter, the contested-first ordering, and
+ * the row's `contested` flag all agree.
+ */
+const contestedCaseSql = `(
+    escalated_by_role IN ('buyer', 'seller')
+    OR responses @> '[{"responseType":"challenge-with-evidence"}]'::jsonb
+    OR offers @> '[{"status":"declined"}]'::jsonb
+  )`;
 
 const listSelect = `
   SELECT
@@ -130,6 +150,7 @@ const listSelect = `
         'return_by_deadline_at', source.return_by_deadline_at::text
       ) FROM support_return_label_sources source
       WHERE source.support_request_id = support_request_pages.support_request_id) AS return_shipping
+    ,${contestedCaseSql} AS contested
   FROM support_request_pages
 `;
 
@@ -194,6 +215,7 @@ const detailSelect = `
         'return_by_deadline_at', source.return_by_deadline_at::text
       ) FROM support_return_label_sources source
       WHERE source.support_request_id = support_request_pages.support_request_id) AS return_shipping
+    ,${contestedCaseSql} AS contested
   FROM support_request_pages
 `;
 
@@ -301,6 +323,20 @@ const SUPPORT_OPERATIONS_QUEUE_STATUSES = new Set([
   "cancelled",
 ]);
 const SUPPORT_OPERATIONS_QUEUE_PRIORITIES = new Set(["normal", "urgent"]);
+const SUPPORT_OPERATIONS_QUEUE_FLOW_TYPES = new Set([
+  "product-not-received",
+  "product-not-as-described",
+  "product-damaged",
+  "wrong-product-received",
+  "missing-products",
+  "authenticity-concern",
+  "return-request",
+  "buyer-cancel-request",
+  "seller-cannot-fulfill",
+  "refund-status",
+  "shipping-label-or-tracking",
+  "payment-problem",
+]);
 
 export async function listSupportOperationsQueue(
   db: PgQueryable,
@@ -312,6 +348,9 @@ export async function listSupportOperationsQueue(
     status?: string;
     priority?: string;
     search?: string;
+    flowType?: string;
+    contested?: boolean;
+    overdue?: boolean;
   }>,
 ): Promise<{ items: SupportRequestListRow[]; total: number }> {
   const { limit, offset } = normalizePageParams(params);
@@ -348,6 +387,26 @@ export async function listSupportOperationsQueue(
       )`);
   }
 
+  const flowType = params.flowType && SUPPORT_OPERATIONS_QUEUE_FLOW_TYPES.has(params.flowType) ? params.flowType : null;
+  if (flowType) {
+    values.push(flowType);
+    conditions.push(`flow_type = $${values.length}`);
+  }
+
+  // Filters that constrain the caseload without adding parameters: contested
+  // narrows to cases genuinely needing adjudication; overdue narrows to cases
+  // already past a stamped deadline (relative to the `$1` now timestamp).
+  if (params.contested) {
+    conditions.push(contestedCaseSql);
+  }
+  if (params.overdue) {
+    conditions.push(`(
+      seller_response_due_at <= $1::timestamptz
+        OR support_review_due_at <= $1::timestamptz
+        OR seller_condition_attestation_due_at <= $1::timestamptz
+      )`);
+  }
+
   const extraFilterSql = conditions.map((condition) => `AND ${condition}`).join("\n       ");
   const limitParam = values.length + 1;
   const offsetParam = values.length + 2;
@@ -380,6 +439,7 @@ export async function listSupportOperationsQueue(
        WHERE ${activeStatusPredicate}
          ${extraFilterSql}
        ORDER BY
+         CASE WHEN ${contestedCaseSql} THEN 0 ELSE 1 END,
          LEAST(
            COALESCE(seller_response_due_at, 'infinity'::timestamptz),
            COALESCE(support_review_due_at, 'infinity'::timestamptz),

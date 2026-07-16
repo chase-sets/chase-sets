@@ -202,9 +202,9 @@ export function CatalogSyncScopeModule({
           variant="button"
           method="post"
           action={actionHref}
-          data-catalog-primary-workbench-command="start-catalog-sync"
+          data-catalog-primary-workbench-command="scope.sync"
         >
-          <HiddenInput name="_intent" value="start-catalog-sync" />
+          <HiddenInput name="_intent" value="scope.sync" />
           <HiddenInput name="productDomain" value={catalogSync.scope.productDomain ?? ""} />
           <HiddenInput name="productForm" value={catalogSync.scope.productForm ?? ""} />
           <HiddenInput name="languageCode" value={catalogSync.scope.languageCode ?? ""} />
@@ -513,11 +513,11 @@ function ScopeSyncUnitRetryAction({
       variant="button"
       method="post"
       action={actionHref}
-      data-catalog-primary-workbench-command="retry-import-job"
+      data-catalog-primary-workbench-command="job.retry"
       data-catalog-scope-sync-state-retry-provider={unit.providerKey}
       data-catalog-scope-sync-state-retry-unit={unit.unitKey}
     >
-      <CommandHiddenInputs readModel={readModel} intent="retry-import-job" jobId={unit.lastJobId} />
+      <CommandHiddenInputs readModel={readModel} intent="job.retry" jobId={unit.lastJobId} />
       <Button type="submit" size="sm" tone="secondary">
         {t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.retry")}
       </Button>

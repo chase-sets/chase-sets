@@ -19,6 +19,9 @@ describe("account selection page", () => {
 
     render(<AccountSelectionPage memberships={memberships} />);
 
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1, name: "Choose Account" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Competitive Cards" })).toBeTruthy();
     expect(screen.getByText("Competitive Cards")).toBeTruthy();
     expect(screen.getByText("Role: Owner")).toBeTruthy();
     expect(screen.queryByText("acc_competitive_cards")).toBeNull();

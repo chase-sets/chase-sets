@@ -162,7 +162,7 @@ describe("run e2e suite", () => {
     ]);
     expect(
       e2eSuiteIdsForChangedFile(
-        "bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx",
+        "bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-drawer.tsx",
       ),
     ).toEqual(["admin_commerce"]);
   });
@@ -229,6 +229,10 @@ describe("run e2e suite", () => {
   it("routes Listing Evidence Policy administration to platform admin coverage", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/marketplace/routes/admin/listing-evidence-policy.tsx")).toEqual([
       "admin_platform",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/marketplace/routes/account-desk.tsx")).toEqual([
+      "marketplace_account",
+      "marketplace_seller",
     ]);
     expect(
       e2eSuiteIdsForChangedFile(

@@ -24,6 +24,7 @@
   "streamPrefix": "platform-operations.",
   "apiBasePath": "/api/platform",
   "slices": [
+    "operations-attention-queue",
     "projection-operations",
     "insights-dashboards",
     "offer-economics",
@@ -224,6 +225,13 @@
       "resetStrategy": "replay-only"
     },
     {
+      "projectionName": "support-request-projection",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": ["support_request_pages"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "platform-policy-document-projection",
       "sourceContextNames": ["platform-operations"],
       "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
@@ -284,6 +292,41 @@
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Platform feedback queue redirects carry the Platform Operations command receipt so list and metric reads happen after the platform feedback projection catches up."
+        }
+      },
+      "proof": {
+        "tests": ["bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "platform-operations.support-request-detail-fresh-read",
+      "owner": "platform-operations",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "account-support-detail",
+        "actions": [
+          "Submit evidence",
+          "Record response",
+          "Accept or decline offer",
+          "Request support review",
+          "Cancel case"
+        ],
+        "command": "Participant support request commands",
+        "helperUses": ["navigateAfterWrite"]
+      },
+      "destination": {
+        "routeId": "account-support-detail",
+        "apiContextName": "platform-operations",
+        "apiRoutePath": "/support-requests/:id",
+        "readModelTables": ["support_request_pages"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Participant support case redirects carry the command receipt so the detail loader waits for the support request projection before showing the updated timeline and next action."
         }
       },
       "proof": {
@@ -358,7 +401,18 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "additional",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/support-requests/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "support_request_pages"
+            }
+          ]
+        }
+      ]
     }
   ],
   "mcpCapabilities": {
@@ -491,6 +545,9 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H090ea3341e9c#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H06da2c035548#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H1b6d037ca088#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H258af581f1ec#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H31517d83b32d#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H33de9622a3ad#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H537734e8ce72#1",
@@ -498,7 +555,6 @@
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H6538afa47d55#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST Hf61121d741a8#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H955abd591b11#1",
-        "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST Hd01240dac608#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H89ff8773b197#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H94cf592c73e1#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST Ha7ff9b51d176#1",
@@ -506,7 +562,10 @@
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST Hcaa44528da0a#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST Hd0c3e2d71ea3#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST He1b05b8dcede#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST He1efd03400a0#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST Heb381849ac54#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST Hfbac100c8589#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST Hff6f5b3f7149#1",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/cancel",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/attachments",
@@ -561,6 +620,37 @@
           "bounded-contexts/platform-operations/features/support-requests/api/attachments.test.ts",
           "bounded-contexts/platform-operations/features/support-requests/api/route.test.ts",
           "bounded-contexts/platform-operations/support/request-support/api-clients.test.ts",
+          "bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "platform-operations.support-request-detail-fresh-read-mutations",
+      "owner": "platform-operations",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-page.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-page.tsx:Hb08a81ecfd73#2",
+        "post-form:bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-page.tsx:Hb08a81ecfd73#3",
+        "post-form:bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-page.tsx:Hb08a81ecfd73#4",
+        "post-form:bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-page.tsx:Hb08a81ecfd73#5",
+        "post-form:bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-page.tsx:Hb08a81ecfd73#6",
+        "route-action:bounded-contexts/platform-operations/routes/marketplace/account-support-detail.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-support-detail",
+        "apiContextName": "platform-operations",
+        "apiRoutePath": "/support-requests/:id",
+        "readModelTables": ["support_request_pages"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The participant detail route redirects with the command receipt and waits for the support request projection before rendering the new status, timeline entry, or next action."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-page.test.tsx",
           "bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"
         ]
       }
@@ -670,6 +760,13 @@
           "fileExport": "./routes/marketplace/account-support",
           "routeType": "route",
           "sourceContext": "platform-operations"
+        },
+        {
+          "routeId": "account-support-detail",
+          "routePath": "account/support/:id",
+          "fileExport": "./routes/marketplace/account-support-detail",
+          "routeType": "route",
+          "sourceContext": "platform-operations"
         }
       ]
     },
@@ -755,6 +852,14 @@
           "routeType": "route",
           "sourceContext": "platform-operations",
           "section": "support"
+        },
+        {
+          "routeId": "operations-attention",
+          "routePath": "operations-attention",
+          "fileExport": "./routes/admin/operations-attention",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "platform"
         },
         {
           "routeId": "projection-operations",
@@ -897,6 +1002,18 @@
     {
       "deployable": "admin-web",
       "slot": "primary-nav",
+      "key": "operations-attention",
+      "label": "Attention Queue",
+      "icon": "inbox",
+      "href": "/operations-attention",
+      "section": "platform",
+      "order": 1,
+      "visibility": "signed-in",
+      "requiredPermissions": ["projection-operations.view"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
       "key": "projection-operations",
       "label": "Projection Operations",
       "icon": "refreshCcw",
@@ -944,6 +1061,11 @@
     }
   ],
   "directoryIntent": {
+    "operations-attention-queue": {
+      "classification": "slice",
+      "purpose": "Own the operations attention queue: the operator 'what needs you, most important first' read model that composes platform-operations signals (projection poison events, blocked streams, stalled wake jobs, support requests by deadline, unreviewed platform feedback) into one severity-ordered surface, with per-source degradation, rollup counts computed from the rendered items, and per-source operator RBAC. Modeled parallel to the Seller Desk attention queue; consumes owning slices' existing reads via the request-support composition root, never rebuilding their read models.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
+    },
     "projection-operations": {
       "classification": "slice",
       "purpose": "Own projection-operations operator workflow, UI contracts, and admin console language for Platform Operations.",

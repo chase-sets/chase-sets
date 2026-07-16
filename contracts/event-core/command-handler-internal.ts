@@ -21,11 +21,12 @@ export function createCommandHandler<State, Command, Event extends DomainEvent>(
     const expectedVersion = input.expectedVersion ?? loaded.version;
     const storedEvents = await config.repository.append({
       streamId: input.streamId,
+      ...(config.commitSourceContextName ? { wakeSourceContextName: config.commitSourceContextName } : {}),
       expectedVersion,
       context: input.context,
       events: newEvents,
     });
-    recordCommittedEvents(storedEvents);
+    recordCommittedEvents(storedEvents, config.commitSourceContextName);
     const state = applyEvents(loaded.state, config.evolve, newEvents);
     const version = storedEvents.length === 0 ? loaded.version : storedEvents[storedEvents.length - 1].streamVersion;
 

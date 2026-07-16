@@ -256,14 +256,12 @@ describe("Catalog integrations route", () => {
     expect(routeData.readModel.readiness.freshness).toBe("unavailable");
     expect(routeData.readModel.sourceObservationReview.freshness).toBe("unavailable");
     expect(routeData.readModel.sourceScopeWorkset.status).toBe("scope-required");
-    expect(routeData.readModel.actions.find((actionEntry) => actionEntry.key === "preview-promotion")).toMatchObject({
+    expect(routeData.readModel.actions.find((actionEntry) => actionEntry.key === "observation.promote")).toMatchObject({
       state: "unavailable",
       blockers: ["read-model-unavailable"],
       copyKey: "catalog.primary.review.blocked",
     });
-    expect(
-      routeData.readModel.actions.find((actionEntry) => actionEntry.key === "reject-source-observations"),
-    ).toMatchObject({
+    expect(routeData.readModel.actions.find((actionEntry) => actionEntry.key === "observation.reject")).toMatchObject({
       state: "unavailable",
       blockers: ["read-model-unavailable"],
       copyKey: "catalog.primary.review.blocked",

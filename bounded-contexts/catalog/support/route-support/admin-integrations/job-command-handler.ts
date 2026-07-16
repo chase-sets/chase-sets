@@ -10,17 +10,13 @@ type RouteContext = CatalogIntegrationsCommandResult["context"];
 // drives from the import-jobs module and the sync-scope workset: retry a failed
 // run, resume a paused one, or cancel one in flight. These are the `job` entity
 // actions in the Catalog Control Plane v2 vocabulary (`job.retry` | `job.resume`
-// | `job.cancel`); lifting them out of the daily review/promote handler keeps each
-// command handler responsible for a single entity. Every transition targets one
+// | `job.cancel`); each command handler remains responsible for one entity. Every
+// transition targets one
 // durable import job and stays on the daily import-to-promotion surface: the
 // result names that section and the surface renders a status banner in place.
-export type JobCommandIntent = "retry-import-job" | "resume-import-job" | "cancel-import-job";
+export type JobCommandIntent = "job.retry" | "job.resume" | "job.cancel";
 
-const JOB_COMMAND_INTENTS = new Set<string>([
-  "retry-import-job",
-  "resume-import-job",
-  "cancel-import-job",
-] satisfies JobCommandIntent[]);
+const JOB_COMMAND_INTENTS = new Set<string>(["job.retry", "job.resume", "job.cancel"] satisfies JobCommandIntent[]);
 
 export function isJobCommandIntent(intent: string): intent is JobCommandIntent {
   return JOB_COMMAND_INTENTS.has(intent);
@@ -42,7 +38,7 @@ export async function handleJobCommand(input: {
 
   const job = await runJobLifecycleTransition(api, intent, context.jobId);
 
-  return jobResult(intent, "success", intent === "cancel-import-job" ? "job-cancelled" : "job-queued", {
+  return jobResult(intent, "success", intent === "job.cancel" ? "job-cancelled" : "job-queued", {
     ...context,
     selectedObservationIds,
     jobId: stringValue(job.jobId) ?? context.jobId,
@@ -56,11 +52,11 @@ function runJobLifecycleTransition(
   jobId: string,
 ): Promise<CatalogCommandJobResponse> {
   switch (intent) {
-    case "retry-import-job":
+    case "job.retry":
       return api.retrySourceObservationIntegrationJob<CatalogCommandJobResponse>(jobId);
-    case "resume-import-job":
+    case "job.resume":
       return api.resumeSourceObservationIntegrationJob<CatalogCommandJobResponse>(jobId);
-    case "cancel-import-job":
+    case "job.cancel":
       return api.cancelSourceObservationIntegrationJob<CatalogCommandJobResponse>(jobId);
   }
 }

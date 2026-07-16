@@ -12,6 +12,7 @@ import {
   type MembershipState,
 } from "../domain/domain";
 import {
+  countActiveOwnersForAccount,
   getMembership,
   getActiveMembershipForUserAccount,
   listMemberships,
@@ -23,6 +24,7 @@ export type MembershipServices = Readonly<{
   commandHandler: CommandHandler<MembershipCommand, MembershipState, MembershipEvent>;
   listMemberships: (params?: Parameters<typeof listMemberships>[1]) => ReturnType<typeof listMemberships>;
   getMembership: (membershipId: string) => ReturnType<typeof getMembership>;
+  countActiveOwnersForAccount: (accountId: string) => ReturnType<typeof countActiveOwnersForAccount>;
   getMembershipState: (membershipId: string) => Promise<MembershipState | null>;
   getActiveMembershipForUserAccount: (
     userId: string,
@@ -45,6 +47,7 @@ export function createMembershipRuntime(deps: IdentityRuntimeDeps): MembershipSe
     commandHandler,
     listMemberships: (params) => listMemberships(deps.db, params),
     getMembership: (membershipId) => getMembership(deps.db, membershipId),
+    countActiveOwnersForAccount: (accountId) => countActiveOwnersForAccount(deps.db, accountId),
     getMembershipState: async (membershipId) => {
       const aggregate = await repository.load(`identity.membership-${membershipId}`);
       return aggregate.state.id ? aggregate.state : null;

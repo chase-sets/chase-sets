@@ -136,6 +136,7 @@ describe("registration auth routes", () => {
       status: "pending",
       expires_at: new Date(Date.now() + 60_000).toISOString(),
       accepted_by_user_id: null,
+      invited_by_user_id: "usr_inviter",
       updated_at: new Date().toISOString(),
     });
     mockCreateIdentityAuthRequestClient.mockReturnValue({

@@ -1,8 +1,11 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
+import { applyEvents } from "@chase-sets/event-core/domain";
+import type { EventStoreError } from "@chase-sets/event-core/event-store";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { EventStoreContext, GlobalPosition } from "@chase-sets/event-core/storage";
 import { createPostgresAggregateSnapshotStore } from "@chase-sets/event-core-postgres";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import { createId, type AccountId, type ListingId, type TenantId, type UserId } from "@chase-sets/primitives/typed-ids";
@@ -56,6 +59,14 @@ import { createListingPublishedCsatOutcomeFact } from "./request-support/custome
 import { marketplaceListingGatePolicy, type MarketplaceListingGatePolicyValue } from "../domain/listing-gate-policy";
 import { marketplaceListingBulkPriceUpdatePolicy } from "../domain/bulk-price-update-policy";
 import {
+  assertActiveListingCapacity,
+  decideInventoryListingCapacity,
+  evolveInventoryListingCapacity,
+  initialInventoryListingCapacityState,
+  inventoryListingCapacityStreamId,
+  type InventoryListingCapacityEvent,
+} from "../domain/inventory-listing-capacity";
+import {
   evaluateListingEvidencePolicy,
   LISTING_EVIDENCE_LAUNCH_POLICY_VALUE,
   marketplaceListingEvidencePolicy,
@@ -83,7 +94,6 @@ import {
 } from "../domain/seller-order-capacity";
 import { buildMarketplaceListingProjectionHandlers } from "../read-model/projection";
 import {
-  getActiveQuantityCapForInventoryItem,
   getInventoryItemSupply,
   getMarketplaceAccountRisk,
   getMarketSummaryForItem,
@@ -622,9 +632,10 @@ function normalizeAnonymousOwnerId(value: string) {
 }
 
 export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): MarketplaceListingServices {
+  const listingCodec = createPassthroughDomainEventCodec<MarketplaceListingEvent>();
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<MarketplaceListingEvent>(),
+    codec: listingCodec,
     initialState: () => initialMarketplaceListingState,
     evolve: evolveMarketplaceListing,
     decide: decideMarketplaceListing,
@@ -633,6 +644,14 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       schemaVersion: MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION,
       everyNEvents: MARKETPLACE_LISTING_SNAPSHOT_EVERY_N_EVENTS,
     },
+  });
+  const capacityCodec = createPassthroughDomainEventCodec<InventoryListingCapacityEvent>();
+  const { repository: inventoryListingCapacityRepository } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: capacityCodec,
+    initialState: () => initialInventoryListingCapacityState,
+    evolve: evolveInventoryListingCapacity,
+    decide: decideInventoryListingCapacity,
   });
   const { commandHandler: sellerAvailabilityCommandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
@@ -677,19 +696,173 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     return resolved.value;
   }
 
-  async function ensureActiveCapacity(
-    inventoryItemId: string,
-    requestedQuantityCap: number,
-    excludeListingId?: string,
-  ) {
-    const supply = await getInventoryItemSupply(deps.db, inventoryItemId);
-    assert(supply, "Inventory item not found.");
+  function isConcurrencyConflict(error: unknown): error is EventStoreError {
+    return Boolean(error && typeof error === "object" && "code" in error && error.code === "concurrency_conflict");
+  }
 
-    const activeQuantityCap = await getActiveQuantityCapForInventoryItem(deps.db, inventoryItemId, excludeListingId);
-    assert(
-      activeQuantityCap + requestedQuantityCap <= supply.available_quantity,
-      "Active listing quantity caps cannot exceed current sellable inventory.",
-    );
+  async function discoverInventoryListingIds(inventoryItemId: string): Promise<readonly string[]> {
+    const listingIds = new Set<string>();
+    let afterGlobalPosition: GlobalPosition | undefined;
+    for (;;) {
+      const events = await deps.eventStore.readAll({
+        ...(afterGlobalPosition === undefined ? {} : { afterGlobalPosition }),
+        eventTypes: ["marketplace.listing.created"],
+        streamPrefixes: ["marketplace.listing-"],
+        limit: 500,
+      });
+      for (const event of events) {
+        if ((event.payload as Readonly<Record<string, unknown>>).inventoryItemId === inventoryItemId) {
+          listingIds.add(event.streamId.slice("marketplace.listing-".length));
+        }
+      }
+      if (events.length < 500) {
+        return [...listingIds].sort();
+      }
+      afterGlobalPosition = events[events.length - 1]?.globalPosition;
+    }
+  }
+
+  async function commitListingCreation(
+    listingStreamId: string,
+    inventoryItemId: string,
+    command: Extract<MarketplaceListingCommand, { type: "CreateListing" }>,
+    context: EventStoreContext,
+  ): Promise<number> {
+    const appendToStreams = deps.eventStore.appendToStreams;
+    assert(appendToStreams, "Atomic inventory listing registration is unavailable.");
+    const capacityStreamId = inventoryListingCapacityStreamId(inventoryItemId);
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const [listing, capacity] = await Promise.all([
+        repository.load(listingStreamId),
+        inventoryListingCapacityRepository.load(capacityStreamId),
+      ]);
+      if (listing.state.listingId !== null) {
+        return listing.version;
+      }
+      const discoveredListingIds =
+        capacity.state.listingIds.length === 0 ? await discoverInventoryListingIds(inventoryItemId) : [];
+      const listingEvents = decideMarketplaceListing(listing.state, command);
+      const capacityEvents = decideInventoryListingCapacity(capacity.state, {
+        type: "RegisterInventoryListings",
+        inventoryItemId,
+        listingIds: [...discoveredListingIds, command.listingId],
+      });
+      try {
+        const results = await appendToStreams([
+          {
+            streamId: capacityStreamId,
+            expectedVersion: capacity.version,
+            context,
+            events: capacityEvents.map(capacityCodec.encode),
+          },
+          {
+            streamId: listingStreamId,
+            expectedVersion: listing.version,
+            context,
+            events: listingEvents.map(listingCodec.encode),
+          },
+        ]);
+        recordCommittedEvents(results.flatMap((result) => result.storedEvents));
+        return listing.version + listingEvents.length;
+      } catch (error) {
+        if (!isConcurrencyConflict(error) || attempt === 4) {
+          throw error;
+        }
+      }
+    }
+    throw new Error("Inventory listing registration did not converge.");
+  }
+
+  async function commitCapacityBoundListingCommand(
+    listingId: string,
+    accountId: string,
+    command: MarketplaceListingCommand,
+    context: EventStoreContext,
+  ): Promise<number> {
+    const appendToStreams = deps.eventStore.appendToStreams;
+    assert(appendToStreams, "Atomic inventory listing capacity writes are unavailable.");
+    const listingStreamId = `marketplace.listing-${listingId}`;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const listing = await repository.load(listingStreamId);
+      assert(listing.state.listingId !== null && listing.state.accountId === accountId, "Listing not found.");
+      assert(listing.state.inventoryItemId, "Listing inventory item is missing.");
+      const inventoryItemId = listing.state.inventoryItemId;
+      const capacityStreamId = inventoryListingCapacityStreamId(inventoryItemId);
+      const capacity = await inventoryListingCapacityRepository.load(capacityStreamId);
+      const discoveredListingIds =
+        capacity.state.listingIds.length === 0 ? await discoverInventoryListingIds(inventoryItemId) : [];
+      const registeredListingIds = [
+        ...new Set([...capacity.state.listingIds, ...discoveredListingIds, listingId]),
+      ].sort();
+      const listingEvents = decideMarketplaceListing(listing.state, command);
+      if (listingEvents.length === 0) {
+        return listing.version;
+      }
+      const nextListing = applyEvents(listing.state, evolveMarketplaceListing, listingEvents);
+      const otherListings = await Promise.all(
+        registeredListingIds
+          .filter((registeredListingId) => registeredListingId !== listingId)
+          .map((registeredListingId) => repository.load(`marketplace.listing-${registeredListingId}`)),
+      );
+      const supply = await getInventoryItemSupply(deps.db, inventoryItemId);
+      assert(supply, "Inventory item not found.");
+      assertActiveListingCapacity(
+        [nextListing, ...otherListings.map((aggregate) => aggregate.state)].map((state) => ({
+          status: state.status,
+          quantityCap: state.quantityCap,
+        })),
+        supply.available_quantity,
+      );
+      const registrationEvents = decideInventoryListingCapacity(capacity.state, {
+        type: "RegisterInventoryListings",
+        inventoryItemId,
+        listingIds: registeredListingIds,
+      });
+      const capacityEvents = [
+        ...registrationEvents,
+        ...decideInventoryListingCapacity(
+          applyEvents(capacity.state, evolveInventoryListingCapacity, registrationEvents),
+          {
+            type: "CommitInventoryListingCapacity",
+            inventoryItemId,
+            listingId,
+            quantityCap: nextListing.quantityCap,
+          },
+        ),
+      ];
+
+      try {
+        const results = await appendToStreams([
+          {
+            streamId: capacityStreamId,
+            expectedVersion: capacity.version,
+            context,
+            events: capacityEvents.map(capacityCodec.encode),
+          },
+          {
+            streamId: listingStreamId,
+            expectedVersion: listing.version,
+            context,
+            events: listingEvents.map(listingCodec.encode),
+          },
+        ]);
+        recordCommittedEvents(results.flatMap((result) => result.storedEvents));
+        repository.scheduleSnapshot?.({
+          streamId: listingStreamId,
+          priorVersion: listing.version,
+          version: listing.version + listingEvents.length,
+          state: nextListing,
+        });
+        return listing.version + listingEvents.length;
+      } catch (error) {
+        if (!isConcurrencyConflict(error) || attempt === 4) {
+          throw error;
+        }
+      }
+    }
+    throw new Error("Inventory listing capacity write did not converge.");
   }
 
   async function reconcileInventoryCapacity(inventoryItemId: string) {
@@ -1237,9 +1410,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       throw new Error("Listing evidence requirements are unavailable.");
     }
 
-    const result = await commandHandler({
+    const version = await commitListingCreation(
       streamId,
-      command: {
+      supply.item_id,
+      {
         type: "CreateListing",
         listingId,
         accountId: params.accountId,
@@ -1264,9 +1438,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         evidence,
       },
       context,
-    });
+    );
 
-    return { listingId, version: result.version, feeQuoteFingerprint: quote.fee_quote_fingerprint };
+    return { listingId, version, feeQuoteFingerprint: quote.fee_quote_fingerprint };
   }
 
   async function addListingPhotos(
@@ -1670,23 +1844,24 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
       }
 
-      if (listing.status === "active") {
-        assert(listing.inventoryItemId, "Listing inventory item is missing.");
-        await ensureActiveCapacity(listing.inventoryItemId, params.quantityCap, params.listingId);
-      }
+      const command = {
+        type: "UpdateListingQuantityCap",
+        quantityCap: params.quantityCap,
+        purchaseLimits: params.purchaseLimits,
+        addedUnitsFeeLock: quote ? feeLockFromMarketplaceTermsQuote(addedUnitCount, quote) : null,
+      } as const satisfies MarketplaceListingCommand;
+      const version =
+        listing.status === "active"
+          ? await commitCapacityBoundListingCommand(params.listingId, params.accountId, command, context)
+          : (
+              await commandHandler({
+                streamId: `marketplace.listing-${params.listingId}`,
+                command,
+                context,
+              })
+            ).version;
 
-      const result = await commandHandler({
-        streamId: `marketplace.listing-${params.listingId}`,
-        command: {
-          type: "UpdateListingQuantityCap",
-          quantityCap: params.quantityCap,
-          purchaseLimits: params.purchaseLimits,
-          addedUnitsFeeLock: quote ? feeLockFromMarketplaceTermsQuote(addedUnitCount, quote) : null,
-        },
-        context,
-      });
-
-      return { listingId: params.listingId, version: result.version };
+      return { listingId: params.listingId, version };
     },
     updateListingPurchaseLimits: async (params, context) => {
       await loadOwnedListingState(params.listingId, params.accountId);
@@ -1723,11 +1898,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         );
         throw new MarketplaceListingEvidenceIncompleteError(evidenceReadiness);
       }
-      await ensureActiveCapacity(listing.inventoryItemId, listing.quantityCap, params.listingId);
-
-      const result = await commandHandler({
-        streamId: `marketplace.listing-${params.listingId}`,
-        command: {
+      const version = await commitCapacityBoundListingCommand(
+        params.listingId,
+        params.accountId,
+        {
           type: "PublishListing",
           readiness,
           csatOutcomeFact: createListingPublishedCsatOutcomeFact({
@@ -1736,9 +1910,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           }),
         },
         context,
-      });
+      );
 
-      return { listingId: params.listingId, version: result.version };
+      return { listingId: params.listingId, version };
     },
     pauseListing: async (params, context) => {
       await loadOwnedListingState(params.listingId, params.accountId);

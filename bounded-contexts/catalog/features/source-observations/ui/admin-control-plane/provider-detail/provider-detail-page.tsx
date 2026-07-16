@@ -112,7 +112,7 @@ export function CatalogProviderDetailPage({
           <WorkbenchForm
             method="post"
             action={submitHref}
-            data-catalog-primary-workbench-command="clone-provider-profile"
+            data-catalog-primary-workbench-command="provider-profile.clone"
           >
             <ProfileAuthoringHiddenInputs readModel={readModel} authoring={authoring} />
             <TextInput

@@ -4,13 +4,13 @@ import { previewCatalogMergeCandidateReviewCommand } from "./catalog-merge-candi
 
 describe("Catalog Merge Candidate review command payloads", () => {
   it("builds an update Product mapping body from the review row snapshot and provenance", () => {
-    const result = previewCatalogMergeCandidateReviewCommand(candidateRow(), "update-merge-candidate");
+    const result = previewCatalogMergeCandidateReviewCommand(candidateRow(), "candidate.edit");
 
     expect(result.status).toBe("available");
     if (result.status !== "available") {
       throw new Error("Expected update command preview.");
     }
-    if (result.preview.commandKey !== "update-merge-candidate") {
+    if (result.preview.commandKey !== "candidate.edit") {
       throw new Error("Expected update command preview.");
     }
 
@@ -48,13 +48,13 @@ describe("Catalog Merge Candidate review command payloads", () => {
   });
 
   it("builds a split body only when row membership and references are separable", () => {
-    const result = previewCatalogMergeCandidateReviewCommand(candidateRow(), "split-merge-candidate");
+    const result = previewCatalogMergeCandidateReviewCommand(candidateRow(), "candidate.split");
 
     expect(result.status).toBe("available");
     if (result.status !== "available") {
       throw new Error("Expected split command preview.");
     }
-    if (result.preview.commandKey !== "split-merge-candidate") {
+    if (result.preview.commandKey !== "candidate.split") {
       throw new Error("Expected split command preview.");
     }
 
@@ -86,10 +86,7 @@ describe("Catalog Merge Candidate review command payloads", () => {
   });
 
   it("fails closed when the review row lacks membership provenance", () => {
-    const result = previewCatalogMergeCandidateReviewCommand(
-      candidateRow({ membership_json: [] }),
-      "update-merge-candidate",
-    );
+    const result = previewCatalogMergeCandidateReviewCommand(candidateRow({ membership_json: [] }), "candidate.edit");
 
     expect(result).toEqual({
       status: "blocked",

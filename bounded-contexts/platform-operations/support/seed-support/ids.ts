@@ -8,10 +8,13 @@ export const experienceSeedIds = {
 export const supportSeedIds = {
   supportRequests: {
     activeProductNotReceived: "sup_seed_active_product_not_received",
+    selfServiceProductDamaged: "sup_seed_self_service_product_damaged",
     resolvedPartialRefund: "sup_seed_resolved_partial_refund",
   },
   evidence: {
     activeBuyerAttestation: "sev_seed_active_buyer_attestation",
+    selfServiceBuyerAttestation: "sev_seed_self_service_buyer_attestation",
+    selfServicePhoto: "sev_seed_self_service_photo",
     resolvedBuyerAttestation: "sev_seed_resolved_buyer_attestation",
     resolvedPhoto: "sev_seed_resolved_photo",
   },

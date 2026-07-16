@@ -7,14 +7,21 @@ import { t } from "@chase-sets/localization";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf } from "../../features/sessions/domain/auth-flow";
-import { mapInvitationAcceptanceLinkRequestedToNotification } from "../../features/sessions/integrations/notifications/notification-intents";
+import { mapInvitationAcceptanceLinkRequestedToNotification } from "../../features/invitation-acceptance/integrations/notifications/notification-intents";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
-import { upsertPasswordCredential } from "../auth-support/store";
+import {
+  consumeChallenge,
+  getPasswordCredentialByUserId,
+  upsertPasskeyCredential,
+  upsertPasswordCredential,
+} from "../auth-support/store";
+import { verifyPasskeyRegistration } from "../auth-support/webauthn";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import {
   createIdentityMutations,
   createOwnedUserDisplayName,
   getBootstrapContext,
+  jsonWithMutationReceipts,
   readIdentityMutationConflict,
   type AuthApiApp,
 } from "./support";
@@ -42,9 +49,9 @@ function identityMutationStatus(error: unknown) {
   return error && typeof error === "object" && "status" in error ? Number(error.status) : null;
 }
 
-function safeLandingPath(value: unknown) {
+function safeLandingPath(value: unknown, fallback: string) {
   const path = typeof value === "string" ? value.trim() : "";
-  return path.startsWith("/") && !path.startsWith("//") ? path : "/invitations/accept";
+  return path.startsWith("/") && !path.startsWith("//") ? path : fallback;
 }
 
 function invitationTokenExpiresAt(invitationExpiresAt: string, magicLinkTtlMs: number) {
@@ -59,7 +66,10 @@ function buildInvitationAcceptanceLink(
     landingPath: unknown;
   }>,
 ) {
-  const url = new URL(safeLandingPath(input.landingPath), resolvePublicRequestOrigin(request));
+  const url = new URL(
+    safeLandingPath(input.landingPath, `/invite/${encodeURIComponent(input.invitationId)}`),
+    resolvePublicRequestOrigin(request),
+  );
   url.searchParams.set("invitationId", input.invitationId);
   url.searchParams.set("token", input.token);
   return url.toString();
@@ -92,6 +102,43 @@ const invitationAcceptIdentifierRateLimiter = createConfiguredInMemoryRateLimite
 });
 
 export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices) {
+  app.post("/invitations/inspect", async (c) => {
+    const body = await c.req.json();
+    const invitationId = String(body.invitationId ?? "");
+    const token = String(body.token ?? "");
+    const invitation = invitationId ? await services.identity.getInvitation(invitationId) : null;
+    if (!invitation) return c.json({ status: "unavailable" as const });
+    if (invitation.status === "accepted") return c.json({ status: "accepted" as const });
+    if (invitation.status === "cancelled" || invitation.status === "declined") {
+      return c.json({ status: "revoked" as const });
+    }
+    if (invitation.status === "expired" || !(Date.parse(invitation.expires_at) > Date.now())) {
+      return c.json({ status: "expired" as const });
+    }
+    if (!token) return c.json({ status: "unavailable" as const });
+
+    try {
+      await createIdentityMutations(c).verifyInvitationAcceptanceToken({
+        invitationId,
+        acceptanceTokenHash: services.auth.hashSecret(token),
+      });
+    } catch {
+      return c.json({ status: "unavailable" as const });
+    }
+
+    return c.json({
+      status: "pending" as const,
+      invitationId,
+      email: invitation.email,
+      accountName: invitation.account_display_name || "Chase Sets account",
+      invitedByName: invitation.invited_by_display_name || "An account owner",
+      roleLabel:
+        invitation.role_key === "viewer"
+          ? "Viewer"
+          : invitation.role_key.replace(/(^|-)([a-z])/g, (_m, p, c) => `${p}${c.toUpperCase()}`),
+    });
+  });
+
   app.post("/invitations/acceptance-link/request", async (c) => {
     const body = await c.req.json();
     const identityMutations = createIdentityMutations(c);
@@ -140,6 +187,8 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
     await services.notificationOutbox.enqueueNotification({
       message: mapInvitationAcceptanceLinkRequestedToNotification({
         email: issued.email,
+        accountName: invitation.account_display_name || "a Chase Sets account",
+        roleLabel: invitation.role_key === "viewer" ? "Viewer" : invitation.role_key,
         invitationLink: buildInvitationAcceptanceLink(c.req.raw, {
           invitationId: issued.invitationId,
           token,
@@ -203,11 +252,35 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
       return c.json(invalidInvitationToken(), 401);
     }
 
-    let user = await services.identity.getUserByEmail(invitation.email);
-    if (!user) {
-      let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
+    const hasPasskeyRegistration = Boolean(body.challengeId || body.webauthnResponse);
+    if (!body.password && !hasPasskeyRegistration) {
+      return c.json({ error: t("auth.support.apiSupport.invitationRoutes.choose.a.password.or.passkey") }, 400);
+    }
+
+    let verifiedPasskey: Awaited<ReturnType<typeof verifyPasskeyRegistration>> = null;
+    if (hasPasskeyRegistration) {
+      const challenge = await consumeChallenge(services.db, {
+        challengeId: String(body.challengeId ?? ""),
+        purpose: "passkey-register",
+        challengeValue: String(body.challenge ?? ""),
+      });
+      if (!challenge || challenge.email !== services.identity.normalizeEmail(invitation.email)) {
+        return c.json(invalidInvitationToken(), 401);
+      }
+      verifiedPasskey = await verifyPasskeyRegistration(c.req.raw, {
+        webauthnResponse: body.webauthnResponse,
+        expectedChallenge: challenge.challenge_value,
+        externalCredentialId: typeof body.externalCredentialId === "string" ? body.externalCredentialId : null,
+      });
+      if (!verifiedPasskey) return c.json(invalidInvitationToken(), 401);
+    }
+
+    const existingUser = await services.identity.getUserByEmail(invitation.email);
+    let userId = existingUser?.user_id ?? null;
+    let createdIdentity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>> | null = null;
+    if (!userId) {
       try {
-        identity = await identityMutations.createPersonalIdentity({
+        createdIdentity = await identityMutations.createPersonalIdentity({
           email: invitation.email,
           displayName: createOwnedUserDisplayName(invitation.email),
           foundersBetaAccessStartedAt: new Date().toISOString(),
@@ -220,36 +293,63 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
 
         throw error;
       }
-      user = await services.identity.getUser(identity.userId);
+      userId = createdIdentity.userId;
+    }
+
+    const existingPasswordCredential = body.password ? await getPasswordCredentialByUserId(services.db, userId) : null;
+    if (
+      existingPasswordCredential &&
+      !services.auth.verifySecret(String(body.password), existingPasswordCredential.secret_hash)
+    ) {
+      return c.json({ error: t("auth.support.apiSupport.invitationRoutes.password.is.incorrect") }, 401);
     }
 
     const membership = await identityMutations.acceptInvitationForUser({
       invitationId,
-      userId: user!.user_id,
+      userId,
       acceptanceTokenHash,
     });
-    await identityMutations.verifyEmailContactMethod({
-      userId: user!.user_id,
+    const verifiedEmail = await identityMutations.verifyEmailContactMethod({
+      userId,
       email: invitation.email,
     });
 
-    if (body.password) {
+    let credentialResult: unknown = null;
+    if (body.password && !existingPasswordCredential) {
       const credentialId = createId("crd");
-      await identityMutations.enablePasswordCredential({
-        userId: user!.user_id,
+      credentialResult = await identityMutations.enablePasswordCredential({
+        userId,
         credentialId,
       });
       await upsertPasswordCredential(services.db, {
         credentialId,
-        userId: user!.user_id,
+        userId,
         secretHash: services.auth.hashSecret(String(body.password)),
       });
     }
 
+    if (verifiedPasskey) {
+      const credentialId = createId("crd");
+      credentialResult = await identityMutations.registerPasskeyCredential({
+        userId,
+        credentialId,
+      });
+      await upsertPasskeyCredential(services.db, {
+        credentialId,
+        userId,
+        externalCredentialId: verifiedPasskey.externalCredentialId,
+        label: String(body.label ?? ""),
+        publicKey: verifiedPasskey.publicKey,
+        signCount: verifiedPasskey.signCount,
+        credentialDeviceType: verifiedPasskey.credentialDeviceType,
+        credentialBackedUp: verifiedPasskey.credentialBackedUp,
+      });
+    }
+
     const authResult = await startInteractiveAuth(services, {
-      userId: user!.user_id,
+      userId,
       accountId: invitation.accountId,
-      authenticationMethod: body.password ? "password" : "magic-link",
+      authenticationMethod: verifiedPasskey ? "passkey" : "password",
       context: getBootstrapContext(c),
       membershipsOverride: [
         {
@@ -263,10 +363,15 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
       publishAuthenticationOutcome: true,
     });
 
-    return c.json({
-      ...authResult,
-      invitationId,
-      membershipId: membership.membershipId,
-    });
+    return jsonWithMutationReceipts(
+      c,
+      {
+        ...authResult,
+        invitationId,
+        membershipId: membership.membershipId,
+      },
+      200,
+      [createdIdentity, membership, verifiedEmail, credentialResult],
+    );
   });
 }

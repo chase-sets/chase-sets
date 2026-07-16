@@ -25,6 +25,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 - [Product Brief](./PRODUCT.md): product vision, users, and marketplace economics.
 - [Marketplace Glossary](./GLOSSARY.md): canonical marketplace language, account-role naming rules, and cross-cutting architecture vocabulary.
+- [Terms of Service Publication](../bounded-contexts/public-presence/docs/terms-of-service-publication.md): Public Presence ownership, counsel placeholder posture, version/consent metadata contract, publication procedure, and launch-copy gate.
 
 ### Campaigns
 

@@ -25,8 +25,19 @@ export function truncateDiscoverySearchSuggestionQuery(value: string): string {
   return [...value].slice(0, DISCOVERY_SEARCH_SUGGESTION_QUERY_MAX_CODE_POINTS).join("");
 }
 
-export function normalizeSimpleSearchText(value: string): string {
+/**
+ * Removes combining marks from Latin letters while preserving marks used by
+ * other scripts, including Japanese dakuten and handakuten.
+ */
+export function foldSearchDiacritics(value: string): string {
   return value
+    .normalize("NFD")
+    .replace(/(\p{Script=Latin})\p{M}+/gu, "$1")
+    .normalize("NFC");
+}
+
+export function normalizeSimpleSearchText(value: string): string {
+  return foldSearchDiacritics(value)
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/g, " ");

@@ -27,7 +27,7 @@ Settlement owns internal financial truth for marketplace balances and payouts.
 ## Ubiquitous Language
 
 Settlement terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
-Account-money navigation and Wallet/Payouts placement are documented in [Account Money Navigation](./docs/account-money-navigation.md).
+Seller Desk Money navigation and Wallet/Payout placement are documented in [Account Money Navigation](./docs/account-money-navigation.md).
 
 ## Core Aggregates and Process Managers
 

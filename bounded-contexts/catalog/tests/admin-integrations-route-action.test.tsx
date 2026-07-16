@@ -106,7 +106,7 @@ describe("Catalog integrations route", () => {
     });
 
     const result = await runDailyAction({
-      _intent: "start-provider-import",
+      _intent: "scope.import",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
@@ -127,6 +127,12 @@ describe("Catalog integrations route", () => {
     expect(result.context.jobId).toBe("job_import_123");
     expect(result.feedback.status).toBe("success");
     expect(result.feedback.result).toBe("job-queued");
+    expect(result.feedback).toMatchObject({
+      intent: "scope.import",
+      target: { entity: "scope", id: "en:3:base:base1", count: 1 },
+      nextStep: "monitor-job",
+      undoAction: null,
+    });
     expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventName: "catalog_control_plane.import_started",
@@ -147,7 +153,7 @@ describe("Catalog integrations route", () => {
     });
 
     const response = await runDailyActionRedirect({
-      _intent: "start-catalog-sync",
+      _intent: "scope.sync",
       productDomain: "pokemon",
       productForm: "single-card",
       languageCode: "ja",
@@ -180,7 +186,7 @@ describe("Catalog integrations route", () => {
     });
     expect(location.searchParams.get("jobId")).toBe("catalog_sync_run_123");
     expect(location.searchParams.get("commandStatus")).toBe("success");
-    expect(location.searchParams.get("commandIntent")).toBe("start-catalog-sync");
+    expect(location.searchParams.get("commandIntent")).toBe("scope.sync");
     expect(location.searchParams.get("commandResult")).toBe("job-queued");
     expect(location.searchParams.get("importScope")).toBe("ja:SV:SV8");
   });
@@ -193,7 +199,7 @@ describe("Catalog integrations route", () => {
 
     const response = await runDailyActionRedirect(
       {
-        _intent: "start-catalog-sync",
+        _intent: "scope.sync",
         productDomain: "pokemon",
         productForm: "single-card",
         languageCode: "en",
@@ -231,7 +237,7 @@ describe("Catalog integrations route", () => {
     const enqueuedScope = enqueueCatalogSyncRun.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(enqueuedScope).not.toHaveProperty("providerHints");
     expect(location.searchParams.get("jobId")).toBe("catalog_sync_run_tcgplayer_base");
-    expect(location.searchParams.get("commandIntent")).toBe("start-catalog-sync");
+    expect(location.searchParams.get("commandIntent")).toBe("scope.sync");
     expect(location.searchParams.get("commandResult")).toBe("job-queued");
   });
 
@@ -250,7 +256,7 @@ describe("Catalog integrations route", () => {
 
     const result = await runDailyAction(
       {
-        _intent: "start-catalog-sync",
+        _intent: "scope.sync",
         productDomain: "pokemon",
         productForm: "single-card",
         languageCode: "en",
@@ -269,9 +275,9 @@ describe("Catalog integrations route", () => {
     );
 
     expect(enqueueCatalogSyncRun).toHaveBeenCalled();
-    expect(result.feedback).toEqual({
+    expect(result.feedback).toMatchObject({
       status: "error",
-      intent: "start-catalog-sync",
+      intent: "scope.sync",
       result: "catalog-sync-blocked",
     });
     expect(JSON.stringify(result)).not.toContain("provider secret leaked");
@@ -286,7 +292,7 @@ describe("Catalog integrations route", () => {
     });
 
     await runDailyAction({
-      _intent: "start-provider-import",
+      _intent: "scope.import",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:single-card:source-observation-import",
       importScope: "ja:SV:SV8",
@@ -311,7 +317,7 @@ describe("Catalog integrations route", () => {
     });
 
     const result = await runDailyAction({
-      _intent: "start-provider-import",
+      _intent: "scope.import",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:single-card:source-observation-import",
       languageCode: "ja",
@@ -345,7 +351,7 @@ describe("Catalog integrations route", () => {
     });
 
     const result = await runDailyAction({
-      _intent: "start-provider-import",
+      _intent: "scope.import",
       providerKey: "mtgjson",
       unitKey: "mtgjson:mtg:single-card:reference-data",
       importScope: "en:5DN",
@@ -377,7 +383,7 @@ describe("Catalog integrations route", () => {
     });
 
     const result = await runDailyAction({
-      _intent: "start-provider-import",
+      _intent: "scope.import",
       providerKey: "tcgplayer",
       unitKey: "tcgplayer:mtg:single-card:source-observation-import",
       importScope: "en:1:Classic Sixth Edition",
@@ -413,7 +419,7 @@ describe("Catalog integrations route", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
 
     const result = await runDailyAction({
-      _intent: "start-provider-import",
+      _intent: "scope.import",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:single-card:source-observation-import",
       profileVersion: "2026.06.03",
@@ -422,9 +428,9 @@ describe("Catalog integrations route", () => {
     expect(enqueueSourceObservationIntegrationJob).not.toHaveBeenCalled();
     expect(result.section).toBe("import-to-promotion");
     expect(result.context.jobId).toBeNull();
-    expect(result.feedback).toEqual({
+    expect(result.feedback).toMatchObject({
       status: "error",
-      intent: "start-provider-import",
+      intent: "scope.import",
       result: "command-failed",
     });
   });
@@ -435,7 +441,7 @@ describe("Catalog integrations route", () => {
 
     const result = await runDailyAction(
       {
-        _intent: "start-provider-import",
+        _intent: "scope.import",
         providerKey: "ygoprodeck",
         unitKey: "ygoprodeck:yugioh:single-card:reference-data",
         importScope: "",
@@ -457,9 +463,9 @@ describe("Catalog integrations route", () => {
       expansionId: null,
       expansionName: null,
     });
-    expect(result.feedback).toEqual({
+    expect(result.feedback).toMatchObject({
       status: "error",
-      intent: "start-provider-import",
+      intent: "scope.import",
       result: "command-failed",
     });
   });
@@ -475,7 +481,7 @@ describe("Catalog integrations route", () => {
 
     const response = await runDailyActionRedirect(
       {
-        _intent: "preview-promotion",
+        _intent: "observation.promote",
         providerKey: "tcgdex",
         unitKey: "tcgdex:pokemon:card:import",
         importScope: "en:3:base:base1",
@@ -506,7 +512,7 @@ describe("Catalog integrations route", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
 
     const response = await runDailyActionRedirect({
-      _intent: "preview-promotion",
+      _intent: "observation.promote",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
@@ -534,7 +540,7 @@ describe("Catalog integrations route", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
 
     const result = await runDailyAction({
-      _intent: "preview-promotion",
+      _intent: "observation.promote",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       profileVersion: "2026.06.04",
@@ -559,7 +565,7 @@ describe("Catalog integrations route", () => {
     });
 
     const response = await runProviderDetailAction({
-      _intent: "clone-provider-profile",
+      _intent: "provider-profile.clone",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
@@ -604,7 +610,7 @@ describe("Catalog integrations route", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({ cloneSourceObservationProviderProfile });
 
     const response = await runProviderDetailAction({
-      _intent: "clone-provider-profile",
+      _intent: "provider-profile.clone",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
@@ -641,7 +647,7 @@ describe("Catalog integrations route", () => {
     });
 
     const response = await runProviderDetailAction({
-      _intent: "update-provider-profile-section",
+      _intent: "provider-profile.edit-section",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
@@ -707,7 +713,7 @@ describe("Catalog integrations route", () => {
 
     const response = await runProviderDetailAction(
       {
-        _intent: "update-provider-profile-section",
+        _intent: "provider-profile.edit-section",
         providerKey: "tcgdex",
         unitKey: "tcgdex:pokemon:card:import",
         importScope: "en:3:base:base1",
@@ -743,7 +749,7 @@ describe("Catalog integrations route", () => {
     expect(response.headers.get("Location")).toContain("commandResult=section-saved");
     expect(response.headers.get("Location")).toContain("commandSection=migration-evidence");
     expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
-    // provider-setup-command-handler.ts's migration-evidence special case keys
+    // The provider-profile handler keeps migration-evidence saves on validation readiness.
     // off an incoming context.section === "validation-readiness", which can no
     // longer be parsed from a URL (#3832 retires that workspace key), so this
     // section save now always returns the profile-authoring detour target. The
@@ -775,7 +781,7 @@ describe("Catalog integrations route", () => {
 
     const response = await runProviderDetailAction(
       {
-        _intent: "activate-provider-profile",
+        _intent: "provider-profile.activate",
         providerKey: "tcgdex",
         unitKey: "tcgdex:pokemon:card:import",
         importScope: "en:3:base:base1",
@@ -835,10 +841,10 @@ describe("Catalog integrations route", () => {
     const lifecycleUrl = "https://admin.example/catalog/providers/tcgdex";
     const rollbackResponse = await runProviderDetailAction(
       {
-        _intent: "rollback-provider-profile",
+        _intent: "provider-profile.rollback",
         providerKey: "tcgdex",
         profileVersion: "2026.06.03",
-        lifecycleConfirmation: lifecycleConfirmationValue("rollback-provider-profile", "tcgdex", "2026.06.03"),
+        lifecycleConfirmation: lifecycleConfirmationValue("provider-profile.rollback", "tcgdex", "2026.06.03"),
         selectedObservationIds: "obs_001",
         promotionPreviewId: "preview-stale",
       },
@@ -846,19 +852,19 @@ describe("Catalog integrations route", () => {
     );
     const deprecateResponse = await runProviderDetailAction(
       {
-        _intent: "deprecate-provider-profile",
+        _intent: "provider-profile.deprecate",
         providerKey: "tcgdex",
         profileVersion: "2026.06.04",
-        lifecycleConfirmation: lifecycleConfirmationValue("deprecate-provider-profile", "tcgdex", "2026.06.04"),
+        lifecycleConfirmation: lifecycleConfirmationValue("provider-profile.deprecate", "tcgdex", "2026.06.04"),
       },
       lifecycleUrl,
     );
     const retireResponse = await runProviderDetailAction(
       {
-        _intent: "retire-provider-profile",
+        _intent: "provider-profile.retire",
         providerKey: "tcgdex",
         profileVersion: "2026.06.02",
-        lifecycleConfirmation: lifecycleConfirmationValue("retire-provider-profile", "tcgdex", "2026.06.02"),
+        lifecycleConfirmation: lifecycleConfirmationValue("provider-profile.retire", "tcgdex", "2026.06.02"),
       },
       lifecycleUrl,
     );
@@ -903,7 +909,7 @@ describe("Catalog integrations route", () => {
 
     const response = await runProviderDetailAction(
       {
-        _intent: "retire-provider-profile",
+        _intent: "provider-profile.retire",
         providerKey: "tcgdex",
         unitKey: "tcgdex:pokemon:card:import",
         importScope: "en:3:base:base1",
@@ -942,12 +948,12 @@ describe("Catalog integrations route", () => {
 
     const response = await runProviderDetailAction(
       {
-        _intent: "retire-provider-profile",
+        _intent: "provider-profile.retire",
         providerKey: "tcgdex",
         unitKey: "tcgdex:pokemon:card:import",
         importScope: "en:3:base:base1",
         profileVersion: "2026.06.02",
-        lifecycleConfirmation: lifecycleConfirmationValue("retire-provider-profile", "tcgdex", "2026.06.02"),
+        lifecycleConfirmation: lifecycleConfirmationValue("provider-profile.retire", "tcgdex", "2026.06.02"),
         promotionPreviewId: "preview-stale",
       },
       "https://admin.example/catalog/providers/tcgdex",
@@ -988,7 +994,7 @@ describe("Catalog integrations route", () => {
     });
 
     const conflictResponse = await runProviderDetailAction({
-      _intent: "update-provider-profile-section",
+      _intent: "provider-profile.edit-section",
       providerKey: "tcgdex",
       profileVersion: "2026.06.04-draft",
       sectionKey: "source-contract",
@@ -997,7 +1003,7 @@ describe("Catalog integrations route", () => {
       fixtureSetVersion: "tcgdex-proof-v1",
     });
     const invalidResponse = await runProviderDetailAction({
-      _intent: "update-provider-profile-section",
+      _intent: "provider-profile.edit-section",
       providerKey: "tcgdex",
       profileVersion: "2026.06.04-draft",
       sectionKey: "source-contract",
@@ -1017,7 +1023,8 @@ describe("Catalog integrations route", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({ bulkPromoteSourceObservations });
 
     const result = await runDailyAction({
-      _intent: "execute-promotion",
+      _intent: "observation.promote",
+      promotionPhase: "execute",
       providerKey: "tcgdex",
       importScope: "en:3:base:base1",
       selectedObservationIds: "obs_001",
@@ -1043,7 +1050,7 @@ describe("Catalog integrations route", () => {
     });
 
     const result = await runDailyAction({
-      _intent: "execute-promotion",
+      _intent: "observation.promote",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
@@ -1076,7 +1083,7 @@ describe("Catalog integrations route", () => {
     });
 
     const result = await runDailyAction({
-      _intent: "execute-promotion",
+      _intent: "observation.promote",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
@@ -1113,7 +1120,7 @@ describe("Catalog integrations route", () => {
     });
 
     const result = await runDailyAction({
-      _intent: "execute-promotion",
+      _intent: "observation.promote",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
@@ -1145,7 +1152,7 @@ describe("Catalog integrations route", () => {
     });
 
     const result = await runDailyAction({
-      _intent: "execute-promotion",
+      _intent: "observation.promote",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
@@ -1176,7 +1183,7 @@ describe("Catalog integrations route", () => {
     });
 
     const result = await runDailyAction({
-      _intent: "execute-promotion",
+      _intent: "observation.promote",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
@@ -1214,7 +1221,7 @@ describe("Catalog integrations route", () => {
     });
 
     const result = await runDailyAction({
-      _intent: "execute-promotion",
+      _intent: "observation.promote",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       profileVersion: "2026.06.04",
@@ -1233,7 +1240,7 @@ describe("Catalog integrations route", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({ bulkRejectSourceObservations });
 
     const result = await runDailyAction({
-      _intent: "reject-source-observations",
+      _intent: "observation.reject",
       providerKey: "tcgdex",
       importScope: "en:3:base:base1",
       selectedObservationIds: "obs_001",
@@ -1249,7 +1256,7 @@ describe("Catalog integrations route", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({ bulkRejectSourceObservations });
 
     const result = await runDailyAction({
-      _intent: "reject-source-observations",
+      _intent: "observation.reject",
       providerKey: "tcgdex",
       importScope: "en:3:base:base1",
       selectedObservationIds: "obs_001",
@@ -1266,7 +1273,7 @@ describe("Catalog integrations route", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({ reapplySourceObservations });
 
     const result = await runDailyAction({
-      _intent: "start-reapply",
+      _intent: "observation.reapply",
       providerKey: "tcgdex",
       importScope: "en:3:base:base1",
       selectedObservationIds: "obs_001",
@@ -1289,9 +1296,9 @@ describe("Catalog integrations route", () => {
       cancelSourceObservationIntegrationJob,
     });
 
-    const retryResult = await runDailyAction({ _intent: "retry-import-job", jobId: "job_import_123" });
-    const resumeResult = await runDailyAction({ _intent: "resume-import-job", jobId: "job_import_123" });
-    const cancelResult = await runDailyAction({ _intent: "cancel-import-job", jobId: "job_import_123" });
+    const retryResult = await runDailyAction({ _intent: "job.retry", jobId: "job_import_123" });
+    const resumeResult = await runDailyAction({ _intent: "job.resume", jobId: "job_import_123" });
+    const cancelResult = await runDailyAction({ _intent: "job.cancel", jobId: "job_import_123" });
 
     expect(retrySourceObservationIntegrationJob).toHaveBeenCalledWith("job_import_123");
     expect(resumeSourceObservationIntegrationJob).toHaveBeenCalledWith("job_import_123");
@@ -1305,7 +1312,7 @@ describe("Catalog integrations route", () => {
     const retrySourceObservationIntegrationJob = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({ retrySourceObservationIntegrationJob });
 
-    const result = await runDailyAction({ _intent: "retry-import-job" });
+    const result = await runDailyAction({ _intent: "job.retry" });
 
     expect(retrySourceObservationIntegrationJob).not.toHaveBeenCalled();
     expect(result.feedback.status).toBe("error");
@@ -1317,7 +1324,7 @@ describe("Catalog integrations route", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({ deferSourceObservations });
 
     const deferResult = await runDailyAction({
-      _intent: "defer-source-observations",
+      _intent: "observation.defer",
       selectedObservationIds: "obs_001",
       promotionPreviewId: "preview-stale",
     });
@@ -1334,7 +1341,7 @@ describe("Catalog integrations route", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({ replaySourceObservations });
 
     const replayResult = await runDailyAction({
-      _intent: "start-replay",
+      _intent: "observation.replay",
       selectedObservationIds: "obs_001",
       promotionPreviewId: "preview-stale",
     });
@@ -1351,7 +1358,7 @@ describe("Catalog integrations route", () => {
 
     const invalidResult = await runDailyAction({ _intent: "legacy-json-patch" });
     const failureResult = await runDailyAction({
-      _intent: "start-provider-import",
+      _intent: "scope.import",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",

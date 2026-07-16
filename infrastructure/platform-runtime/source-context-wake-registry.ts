@@ -407,6 +407,7 @@ export const sourceContextWakeRegistry = [
       "identity.admin-invitation-list-fresh-read",
       "identity.admin-membership-detail-fresh-read",
       "identity.admin-user-detail-fresh-read",
+      "identity.invitation-email-auth-projection-fresh-read",
       "identity.marketplace-account-profile-fresh-read",
       "identity.registration-current-actor-display-fresh-read",
       "identity.shipping-addresses-fresh-read",
@@ -559,7 +560,7 @@ export const sourceContextWakeRegistry = [
     ],
     routeDependencyIds: [
       "ordering.accepted-offer-to-sales-list",
-      "ordering.postage-policy-command-to-detail",
+      "ordering.postage-policy-command-to-home",
       "ordering.postage-policy-create-to-list",
       "ordering.purchase-cancel-to-detail",
       "ordering.sale-cancel-to-detail",
@@ -625,6 +626,7 @@ export const sourceContextWakeRegistry = [
       "platform-operations:risk-alert-queue-projection",
       "fulfillment:fulfillment-support-return-source-projection",
       "notifications:notifications-source-facts-outbox-projection",
+      "platform-operations:support-request-projection",
       "payments:payments-support-refund-effect",
       "marketplace:marketplace-review-hold-reaction",
       "marketplace:marketplace-review-moderation-reaction",
@@ -639,6 +641,7 @@ export const sourceContextWakeRegistry = [
     routeDependencyIds: [
       "platform-operations.platform-feedback-detail-fresh-read",
       "platform-operations.platform-feedback-list-fresh-read",
+      "platform-operations.support-request-detail-fresh-read",
     ],
   }),
   registryEntry({

@@ -424,7 +424,7 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["admin_access"],
   },
   {
-    pattern: /^bounded-contexts\/marketplace\/routes\/account-(?:listing|listings|offer)/,
+    pattern: /^bounded-contexts\/marketplace\/routes\/account-(?:desk|listing|listings|offer)/,
     suites: ["marketplace_account", "marketplace_seller"],
   },
   {

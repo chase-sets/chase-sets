@@ -161,6 +161,93 @@ describe("support operations queue read-model query", () => {
     expect(itemQuery.indexOf("CASE WHEN priority = 'urgent'")).toBeGreaterThan(itemQuery.indexOf("LEAST("));
   });
 
+  it("sorts contested cases first, ahead of the deadline ordering", async () => {
+    const calls: QueryCall[] = [];
+    const db = buildDb(calls);
+
+    await listSupportOperationsQueue(db, { now: "2026-06-01T00:00:00.000Z" });
+
+    const itemQuery = calls[1]?.sql ?? "";
+    const contestedOrderIndex = itemQuery.indexOf("CASE WHEN (");
+    expect(contestedOrderIndex).toBeGreaterThan(-1);
+    expect(contestedOrderIndex).toBeLessThan(itemQuery.indexOf("LEAST("));
+    expect(itemQuery).toContain(`responses @> '[{"responseType":"challenge-with-evidence"}]'::jsonb`);
+    expect(itemQuery).toContain(`offers @> '[{"status":"declined"}]'::jsonb`);
+  });
+
+  it("exposes a computed contested flag on queue rows", async () => {
+    const calls: QueryCall[] = [];
+    const db = buildDb(calls);
+
+    await listSupportOperationsQueue(db, { now: "2026-06-01T00:00:00.000Z" });
+
+    expect(calls[1]?.sql).toContain("AS contested");
+  });
+
+  it("narrows the queue to contested cases when the contested filter is set", async () => {
+    const calls: QueryCall[] = [];
+    const db = buildDb(calls);
+
+    await listSupportOperationsQueue(db, { now: "2026-06-01T00:00:00.000Z", contested: true });
+
+    expect(calls[0]?.sql).toContain("escalated_by_role IN ('buyer', 'seller')");
+    // Contested is a parameter-free predicate, so no new bind parameters appear.
+    expect(calls[0]?.params).toEqual(["2026-06-01T00:00:00.000Z"]);
+  });
+
+  it("narrows the queue to overdue cases against the now timestamp when the overdue filter is set", async () => {
+    const calls: QueryCall[] = [];
+    const db = buildDb(calls);
+
+    await listSupportOperationsQueue(db, { now: "2026-06-01T00:00:00.000Z", overdue: true });
+
+    expect(calls[0]?.sql).toContain("seller_response_due_at <= $1::timestamptz");
+    expect(calls[0]?.sql).toContain("support_review_due_at <= $1::timestamptz");
+    expect(calls[0]?.params).toEqual(["2026-06-01T00:00:00.000Z"]);
+  });
+
+  it("filters by flow type when it is a recognized flow, ignoring unknown flows", async () => {
+    const recognized: QueryCall[] = [];
+    const unknown: QueryCall[] = [];
+
+    await listSupportOperationsQueue(buildDb(recognized), {
+      now: "2026-06-01T00:00:00.000Z",
+      flowType: "product-not-as-described",
+    });
+    await listSupportOperationsQueue(buildDb(unknown), {
+      now: "2026-06-01T00:00:00.000Z",
+      flowType: "not-a-real-flow",
+    });
+
+    expect(recognized[0]?.sql).toContain("flow_type = $2");
+    expect(recognized[0]?.params).toEqual(["2026-06-01T00:00:00.000Z", "product-not-as-described"]);
+    expect(unknown[0]?.sql).not.toContain("flow_type = $2");
+    expect(unknown[0]?.params).toEqual(["2026-06-01T00:00:00.000Z"]);
+  });
+
+  it("keeps flow type after search in the parameter ordering so existing binds are stable", async () => {
+    const calls: QueryCall[] = [];
+    const db = buildDb(calls, "1", [{ support_request_id: "sup_1" }]);
+
+    await listSupportOperationsQueue(db, {
+      now: "2026-06-01T00:00:00.000Z",
+      accountId: "acc_seller",
+      status: "waiting-on-seller",
+      priority: "normal",
+      search: "sup1",
+      flowType: "return-request",
+    });
+
+    expect(calls[0]?.params).toEqual([
+      "2026-06-01T00:00:00.000Z",
+      "acc_seller",
+      "waiting-on-seller",
+      "normal",
+      "%sup1%",
+      "return-request",
+    ]);
+  });
+
   it("exposes an explicit legacy responsibility interpretation from pre-change read-model JSON", async () => {
     const calls: QueryCall[] = [];
     const db = buildDb(calls, "0", [

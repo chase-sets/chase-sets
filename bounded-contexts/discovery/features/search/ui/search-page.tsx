@@ -1,11 +1,12 @@
 import { formatDisplayIdentity, formatLanguageCodeLabel, t } from "@chase-sets/localization";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Text,
   Heading,
   AppliedFilterChips,
   Button,
   CommerceSheet,
+  Form,
   SearchInput,
   Select,
   CurrencyInput,
@@ -29,6 +30,7 @@ import {
   MarketplaceMobileFilterBar,
   SavedSearchPrompt,
   SearchControlBar,
+  SearchResultsTransition,
 } from "@chase-sets/design-system";
 import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 import type {
@@ -250,6 +252,8 @@ export interface SearchPageProps {
   savedListClaim?: SavedListClaimLoadState;
   restoreSearchFocus?: boolean;
   onSearchChange: (value: string) => void;
+  onSearchSubmit: () => void;
+  onClearSearch: () => void;
   onCategoryChange: (value: string) => void;
   onTagClear?: () => void;
   onLanguageChange: (value: string) => void;
@@ -321,6 +325,8 @@ export function SearchPage({
   savedListClaim,
   restoreSearchFocus = false,
   onSearchChange,
+  onSearchSubmit,
+  onClearSearch,
   onCategoryChange,
   onTagClear,
   onLanguageChange,
@@ -385,6 +391,18 @@ export function SearchPage({
     inStock ||
     activeDynamicFilterCount > 0 ||
     sort !== "relevance";
+  const hasActiveFilters =
+    Boolean(category) ||
+    Boolean(tag) ||
+    Boolean(language) ||
+    Boolean(marketActivity) ||
+    Boolean(priceMin) ||
+    Boolean(priceMax) ||
+    inStock ||
+    activeDynamicFilterCount > 0 ||
+    sort !== "relevance";
+  const normalizedDraftSearch = search.trim();
+  const clearFiltersHref = normalizedDraftSearch ? `/search?q=${encodeURIComponent(normalizedDraftSearch)}` : "/search";
   const showHomeMerchandising =
     !hasFocusedResults &&
     homeMerchandising !== null &&
@@ -586,6 +604,11 @@ export function SearchPage({
     bulkActionData?.status !== "bulk-added",
   );
 
+  function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSearchSubmit();
+  }
+
   useEffect(() => {
     if (bulkActionData) {
       setBulkSheetOpen(true);
@@ -633,13 +656,15 @@ export function SearchPage({
               title={t("discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and")}
               description={t("discovery.features.search.ui.searchPage.search.live.supply.compare.active.markets")}
               search={
-                <SearchInput
-                  label={t("discovery.features.search.ui.searchPage.marketplace.search")}
-                  hideLabel
-                  placeholder={t("discovery.features.search.ui.searchPage.search.pikachu.spider.man.jordan.vintage")}
-                  value={search}
-                  onChange={(e) => onSearchChange(e.target.value)}
-                />
+                <Form role="search" spacing="none" onSubmit={handleSearchSubmit}>
+                  <SearchInput
+                    label={t("discovery.features.search.ui.searchPage.marketplace.search")}
+                    hideLabel
+                    placeholder={t("discovery.features.search.ui.searchPage.search.pikachu.spider.man.jordan.vintage")}
+                    value={search}
+                    onChange={(e) => onSearchChange(e.target.value)}
+                  />
+                </Form>
               }
               filters={[
                 {
@@ -686,14 +711,16 @@ export function SearchPage({
         {hasFocusedResults ? (
           <SearchControlBar
             search={
-              <SearchInput
-                label={t("discovery.features.search.ui.searchPage.marketplace.search")}
-                hideLabel
-                placeholder={t("discovery.features.search.ui.searchPage.search.catalog.items")}
-                value={search}
-                autoFocus={restoreSearchFocus}
-                onChange={(e) => onSearchChange(e.target.value)}
-              />
+              <Form role="search" spacing="none" onSubmit={handleSearchSubmit}>
+                <SearchInput
+                  label={t("discovery.features.search.ui.searchPage.marketplace.search")}
+                  hideLabel
+                  placeholder={t("discovery.features.search.ui.searchPage.search.catalog.items")}
+                  value={search}
+                  autoFocus={restoreSearchFocus}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                />
+              </Form>
             }
             sort={
               <Select
@@ -880,229 +907,247 @@ export function SearchPage({
           />
         ) : null}
 
-        {showHomeMerchandising ? <HomeMerchandising {...homeMerchandising} /> : null}
+        <SearchResultsTransition
+          busy={loading}
+          busyLabel={t("discovery.features.search.ui.searchPage.updating.results")}
+        >
+          {showHomeMerchandising ? <HomeMerchandising {...homeMerchandising} /> : null}
 
-        {loading && !data ? (
-          <LoadingSpinner label={t("discovery.features.search.ui.searchPage.searching")} />
-        ) : data && data.items.length === 0 && !showHomeMerchandising ? (
-          <NoResultsRecovery
-            title={t("discovery.features.search.ui.searchPage.no.items.found")}
-            description={
-              search ||
-              category ||
-              language ||
-              marketActivity ||
-              priceMin ||
-              priceMax ||
-              inStock ||
-              activeDynamicFilterCount > 0
-                ? t("discovery.features.search.ui.searchPage.try.adjusting.your.search.or.filters")
-                : t("discovery.features.search.ui.searchPage.no.catalog.items.are.available.yet")
-            }
-            recommendations={featuredCategories.slice(0, 3).map((item) => item.name)}
-            trustCue={
-              <PlatformCredibilityCue
-                title={t("discovery.features.search.ui.searchPage.saved.search.recovery.title")}
-                description={t("discovery.features.search.ui.searchPage.saved.search.recovery.description")}
-              />
-            }
-            resetAction={
-              <LinkButton href="/search" tone="secondary">
-                {t("discovery.features.search.ui.searchPage.all.categories")}
-              </LinkButton>
-            }
-            savedSearchAction={
-              <LinkButton href={productAlertSettingsHref} tone="secondary">
-                {t("discovery.features.search.ui.searchPage.save.search")}
-              </LinkButton>
-            }
-          />
-        ) : data && data.items.length > 0 ? (
-          <>
-            {data.retrievalMode === "rescue" ? (
-              <Stack gap={1}>
-                <Heading level={2} visualSize={4}>
-                  {t("discovery.features.search.ui.searchPage.closest.matches")}
-                </Heading>
-                <Text size="sm" tone="secondary">
-                  {data.lexicalCount
-                    ? t("discovery.features.search.ui.searchPage.closest.matches.with.lexical", {
-                        count: data.lexicalCount,
-                      })
-                    : t("discovery.features.search.ui.searchPage.closest.matches.semantic.only")}
-                </Text>
-              </Stack>
-            ) : null}
-            <Grid columns={{ base: 1, lg: 2, "2xl": 3 }} gap={4}>
-              {data.items.map((item, index) => {
-                const listingCount = item.market_summary?.active_listing_count ?? 0;
-                const hasActiveListings = listingCount > 0;
-                const itemDetailHref = buildItemDetailHref(item.slug, dynamicFilters);
-                const displayIdentity = formatDisplayIdentity(item.title, item.subtitle);
-                const productAssetImage = buildDiscoveryProductAssetImage(
-                  item.product_asset_sets,
-                  "search-card",
-                  "(min-width: 768px) 164px, 124px",
-                );
-                const imageSrc =
-                  productAssetImage?.src ??
-                  item.image_urls[0] ??
-                  (item.image_fallback?.usage === "permanent" ? item.image_fallback.url : undefined);
-                const buyHref = withMarketIntent(itemDetailHref, "buy");
-                const sellHref = withMarketIntent(itemDetailHref, "sell");
-                const watchHref = withMarketIntent(itemDetailHref, "watch");
-                const claimedPreparation =
-                  savedListClaim?.preparation?.product.catalogItemId === item.catalog_item_id
-                    ? savedListClaim.preparation
-                    : null;
-                const savedListProductKey =
-                  claimedPreparation?.product.productId ??
-                  JSON.stringify([
-                    item.catalog_item_id,
-                    dynamicFilters.filter((filter) => filter.kind === "dimension"),
-                  ]);
-                const primaryIntent = hasActiveListings
-                  ? {
-                      href: buyHref,
-                      label: t("discovery.features.search.ui.searchPage.buy.intent"),
-                      accessibleLabel: t("discovery.features.search.ui.searchPage.buy"),
-                    }
-                  : {
-                      href: sellHref,
-                      label: t("discovery.features.search.ui.searchPage.sell.intent"),
-                      accessibleLabel: t("discovery.features.search.ui.searchPage.sell"),
-                    };
-                const secondaryIntents = hasActiveListings
-                  ? [
-                      {
-                        href: sellHref,
-                        label: t("discovery.features.search.ui.searchPage.sell.intent"),
-                        accessibleLabel: t("discovery.features.search.ui.searchPage.sell"),
-                      },
-                      {
-                        href: watchHref,
-                        label: t("discovery.features.search.ui.searchPage.watch.intent"),
-                        accessibleLabel: t("discovery.features.search.ui.searchPage.watch"),
-                      },
-                    ]
-                  : [
-                      {
+          {loading && !data ? (
+            <LoadingSpinner label={t("discovery.features.search.ui.searchPage.searching")} />
+          ) : data && data.items.length === 0 && !showHomeMerchandising ? (
+            <NoResultsRecovery
+              title={t("discovery.features.search.ui.searchPage.no.items.found")}
+              description={
+                search ||
+                category ||
+                language ||
+                marketActivity ||
+                priceMin ||
+                priceMax ||
+                inStock ||
+                activeDynamicFilterCount > 0
+                  ? t("discovery.features.search.ui.searchPage.try.adjusting.your.search.or.filters")
+                  : t("discovery.features.search.ui.searchPage.no.catalog.items.are.available.yet")
+              }
+              recommendations={featuredCategories.slice(0, 3).map((item) => ({
+                href: `/categories/${item.slug}`,
+                id: item.category_id,
+                label: item.name,
+              }))}
+              trustCue={
+                <PlatformCredibilityCue
+                  title={t("discovery.features.search.ui.searchPage.saved.search.recovery.title")}
+                  description={t("discovery.features.search.ui.searchPage.saved.search.recovery.description")}
+                />
+              }
+              resetAction={
+                <>
+                  {normalizedDraftSearch ? (
+                    <Button type="button" tone="secondary" onClick={onClearSearch}>
+                      {t("discovery.features.search.ui.searchPage.clear.search")}
+                    </Button>
+                  ) : null}
+                  {hasActiveFilters ? (
+                    <LinkButton href={clearFiltersHref} tone="secondary">
+                      {t("discovery.features.search.ui.searchPage.clear.all.filters")}
+                    </LinkButton>
+                  ) : null}
+                </>
+              }
+              savedSearchAction={
+                <LinkButton href={productAlertSettingsHref} tone="secondary">
+                  {t("discovery.features.search.ui.searchPage.save.search")}
+                </LinkButton>
+              }
+            />
+          ) : data && data.items.length > 0 ? (
+            <>
+              {data.retrievalMode === "rescue" ? (
+                <Stack gap={1}>
+                  <Heading level={2} visualSize={4}>
+                    {t("discovery.features.search.ui.searchPage.closest.matches")}
+                  </Heading>
+                  <Text size="sm" tone="secondary">
+                    {data.lexicalCount
+                      ? t("discovery.features.search.ui.searchPage.closest.matches.with.lexical", {
+                          count: data.lexicalCount,
+                        })
+                      : t("discovery.features.search.ui.searchPage.closest.matches.semantic.only")}
+                  </Text>
+                </Stack>
+              ) : null}
+              <Grid columns={{ base: 1, lg: 2, "2xl": 3 }} gap={4}>
+                {data.items.map((item, index) => {
+                  const listingCount = item.market_summary?.active_listing_count ?? 0;
+                  const hasActiveListings = listingCount > 0;
+                  const itemDetailHref = buildItemDetailHref(item.slug, dynamicFilters);
+                  const displayIdentity = formatDisplayIdentity(item.title, item.subtitle);
+                  const productAssetImage = buildDiscoveryProductAssetImage(
+                    item.product_asset_sets,
+                    "search-card",
+                    "(min-width: 768px) 164px, 124px",
+                  );
+                  const imageSrc =
+                    productAssetImage?.src ??
+                    item.image_urls[0] ??
+                    (item.image_fallback?.usage === "permanent" ? item.image_fallback.url : undefined);
+                  const buyHref = withMarketIntent(itemDetailHref, "buy");
+                  const sellHref = withMarketIntent(itemDetailHref, "sell");
+                  const watchHref = withMarketIntent(itemDetailHref, "watch");
+                  const claimedPreparation =
+                    savedListClaim?.preparation?.product.catalogItemId === item.catalog_item_id
+                      ? savedListClaim.preparation
+                      : null;
+                  const savedListProductKey =
+                    claimedPreparation?.product.productId ??
+                    JSON.stringify([
+                      item.catalog_item_id,
+                      dynamicFilters.filter((filter) => filter.kind === "dimension"),
+                    ]);
+                  const primaryIntent = hasActiveListings
+                    ? {
                         href: buyHref,
                         label: t("discovery.features.search.ui.searchPage.buy.intent"),
                         accessibleLabel: t("discovery.features.search.ui.searchPage.buy"),
-                      },
-                      {
-                        href: watchHref,
-                        label: t("discovery.features.search.ui.searchPage.watch.intent"),
-                        accessibleLabel: t("discovery.features.search.ui.searchPage.watch"),
-                      },
-                    ];
+                      }
+                    : {
+                        href: sellHref,
+                        label: t("discovery.features.search.ui.searchPage.sell.intent"),
+                        accessibleLabel: t("discovery.features.search.ui.searchPage.sell"),
+                      };
+                  const secondaryIntents = hasActiveListings
+                    ? [
+                        {
+                          href: sellHref,
+                          label: t("discovery.features.search.ui.searchPage.sell.intent"),
+                          accessibleLabel: t("discovery.features.search.ui.searchPage.sell"),
+                        },
+                        {
+                          href: watchHref,
+                          label: t("discovery.features.search.ui.searchPage.watch.intent"),
+                          accessibleLabel: t("discovery.features.search.ui.searchPage.watch"),
+                        },
+                      ]
+                    : [
+                        {
+                          href: buyHref,
+                          label: t("discovery.features.search.ui.searchPage.buy.intent"),
+                          accessibleLabel: t("discovery.features.search.ui.searchPage.buy"),
+                        },
+                        {
+                          href: watchHref,
+                          label: t("discovery.features.search.ui.searchPage.watch.intent"),
+                          accessibleLabel: t("discovery.features.search.ui.searchPage.watch"),
+                        },
+                      ];
 
-                return (
-                  <ListingCard
-                    key={item.catalog_item_id}
-                    cardLayout="search-result"
-                    href={itemDetailHref}
-                    title={item.title}
-                    image={productAssetImage ?? undefined}
-                    imageSrc={imageSrc}
-                    imageWidth={SEARCH_CARD_IMAGE_WIDTH}
-                    imageHeight={SEARCH_CARD_IMAGE_HEIGHT}
-                    imageLoading={index < PRIORITY_SEARCH_RESULT_IMAGE_COUNT ? "eager" : "lazy"}
-                    imageFetchPriority={index < PRIORITY_SEARCH_RESULT_IMAGE_COUNT ? "high" : "auto"}
-                    imageSlot="compact-product"
-                    imageAlt={displayIdentity}
-                    imageFallbackSrc={item.image_fallback?.url}
-                    imageFallbackAlt={displayIdentity}
-                    imageFallbackSrcSet={imageVariantSrcSet(item.image_fallback, "card")}
-                    imageFallbackSizes="(min-width: 1280px) 18rem, (min-width: 640px) 15rem, 100vw"
-                    imageFallbackMode={item.image_fallback?.usage ?? "permanent"}
-                    detailLinkLabel={t("localization.listingCard.view.details.for", { identity: displayIdentity })}
-                    saveLabel={t("localization.listingCard.save", { identity: displayIdentity })}
-                    savedLabel={t("localization.listingCard.saved", { identity: displayIdentity })}
-                    watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
-                    price={hasActiveListings ? formatPrice(item) : undefined}
-                    subtitle={formatSearchIdentityLine(item)}
-                    valueCue={formatSearchResultMetadata(item)}
-                    primaryAction={
-                      <LinkButton
-                        href={primaryIntent.href}
-                        aria-label={primaryIntent.accessibleLabel}
-                        size="sm"
-                        tone="primary"
+                  return (
+                    <ListingCard
+                      key={item.catalog_item_id}
+                      cardLayout="search-result"
+                      href={itemDetailHref}
+                      title={item.title}
+                      image={productAssetImage ?? undefined}
+                      imageSrc={imageSrc}
+                      imageWidth={SEARCH_CARD_IMAGE_WIDTH}
+                      imageHeight={SEARCH_CARD_IMAGE_HEIGHT}
+                      imageLoading={index < PRIORITY_SEARCH_RESULT_IMAGE_COUNT ? "eager" : "lazy"}
+                      imageFetchPriority={index < PRIORITY_SEARCH_RESULT_IMAGE_COUNT ? "high" : "auto"}
+                      imageSlot="compact-product"
+                      imageAlt={displayIdentity}
+                      imageFallbackSrc={item.image_fallback?.url}
+                      imageFallbackAlt={displayIdentity}
+                      imageFallbackSrcSet={imageVariantSrcSet(item.image_fallback, "card")}
+                      imageFallbackSizes="(min-width: 1280px) 18rem, (min-width: 640px) 15rem, 100vw"
+                      imageFallbackMode={item.image_fallback?.usage ?? "permanent"}
+                      detailLinkLabel={t("localization.listingCard.view.details.for", { identity: displayIdentity })}
+                      saveLabel={t("localization.listingCard.save", { identity: displayIdentity })}
+                      savedLabel={t("localization.listingCard.saved", { identity: displayIdentity })}
+                      watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
+                      price={hasActiveListings ? formatPrice(item) : undefined}
+                      subtitle={formatSearchIdentityLine(item)}
+                      valueCue={formatSearchResultMetadata(item)}
+                      primaryAction={
+                        <LinkButton
+                          href={primaryIntent.href}
+                          aria-label={primaryIntent.accessibleLabel}
+                          size="sm"
+                          tone="primary"
+                        >
+                          {primaryIntent.label}
+                        </LinkButton>
+                      }
+                      secondaryAction={
+                        <Inline gap={1}>
+                          <AddToSavedListControl
+                            productKey={savedListProductKey}
+                            productLabel={displayIdentity}
+                            prepareFields={{ slug: item.slug }}
+                            initialPreparation={claimedPreparation}
+                          />
+                          {secondaryIntents.map((intent) => (
+                            <LinkButton
+                              key={intent.accessibleLabel}
+                              href={intent.href}
+                              aria-label={intent.accessibleLabel}
+                              tone="ghost"
+                              size="sm"
+                            >
+                              {intent.label}
+                            </LinkButton>
+                          ))}
+                        </Inline>
+                      }
+                    />
+                  );
+                })}
+              </Grid>
+              {hasFocusedResults ? (
+                <SavedSearchPrompt
+                  title={t("discovery.features.search.ui.searchPage.save.this.search")}
+                  description={t("discovery.features.search.ui.searchPage.get.alerts.when.supply.matches")}
+                  action={
+                    <LinkButton href={productAlertSettingsHref} tone="secondary" size="sm">
+                      {t("discovery.features.search.ui.searchPage.save.search")}
+                    </LinkButton>
+                  }
+                />
+              ) : null}
+              {canLoadMore || loadingMore || loadMoreError ? (
+                <Stack gap={3}>
+                  <Slot ref={loadMoreRef} purpose="observer" />
+                  {loadMoreError ? (
+                    <Banner
+                      tone="danger"
+                      title={t("discovery.features.search.ui.searchPage.load.more.error.title")}
+                      description={loadMoreError}
+                    />
+                  ) : null}
+                  {loadingMore ? (
+                    <Inline align="center">
+                      <LoadingSpinner label={t("discovery.features.search.ui.searchPage.loading.more.results")} />
+                    </Inline>
+                  ) : null}
+                  {canLoadMore ? (
+                    <Inline align="center">
+                      <Button
+                        type="button"
+                        tone={loadMoreError ? "secondary" : "ghost"}
+                        disabled={loadingMore}
+                        onClick={onLoadMore}
                       >
-                        {primaryIntent.label}
-                      </LinkButton>
-                    }
-                    secondaryAction={
-                      <Inline gap={1}>
-                        <AddToSavedListControl
-                          productKey={savedListProductKey}
-                          productLabel={displayIdentity}
-                          prepareFields={{ slug: item.slug }}
-                          initialPreparation={claimedPreparation}
-                        />
-                        {secondaryIntents.map((intent) => (
-                          <LinkButton
-                            key={intent.accessibleLabel}
-                            href={intent.href}
-                            aria-label={intent.accessibleLabel}
-                            tone="ghost"
-                            size="sm"
-                          >
-                            {intent.label}
-                          </LinkButton>
-                        ))}
-                      </Inline>
-                    }
-                  />
-                );
-              })}
-            </Grid>
-            {hasFocusedResults ? (
-              <SavedSearchPrompt
-                title={t("discovery.features.search.ui.searchPage.save.this.search")}
-                description={t("discovery.features.search.ui.searchPage.get.alerts.when.supply.matches")}
-                action={
-                  <LinkButton href={productAlertSettingsHref} tone="secondary" size="sm">
-                    {t("discovery.features.search.ui.searchPage.save.search")}
-                  </LinkButton>
-                }
-              />
-            ) : null}
-            {canLoadMore || loadingMore || loadMoreError ? (
-              <Stack gap={3}>
-                <Slot ref={loadMoreRef} purpose="observer" />
-                {loadMoreError ? (
-                  <Banner
-                    tone="danger"
-                    title={t("discovery.features.search.ui.searchPage.load.more.error.title")}
-                    description={loadMoreError}
-                  />
-                ) : null}
-                {loadingMore ? (
-                  <Inline align="center">
-                    <LoadingSpinner label={t("discovery.features.search.ui.searchPage.loading.more.results")} />
-                  </Inline>
-                ) : null}
-                {canLoadMore ? (
-                  <Inline align="center">
-                    <Button
-                      type="button"
-                      tone={loadMoreError ? "secondary" : "ghost"}
-                      disabled={loadingMore}
-                      onClick={onLoadMore}
-                    >
-                      {loadMoreError
-                        ? t("discovery.features.search.ui.searchPage.retry.loading.results")
-                        : t("discovery.features.search.ui.searchPage.load.more.results")}
-                    </Button>
-                  </Inline>
-                ) : null}
-              </Stack>
-            ) : null}
-          </>
-        ) : null}
+                        {loadMoreError
+                          ? t("discovery.features.search.ui.searchPage.retry.loading.results")
+                          : t("discovery.features.search.ui.searchPage.load.more.results")}
+                      </Button>
+                    </Inline>
+                  ) : null}
+                </Stack>
+              ) : null}
+            </>
+          ) : null}
+        </SearchResultsTransition>
       </Stack>
       {bulkAdd && bulkPreview ? (
         <CommerceSheet

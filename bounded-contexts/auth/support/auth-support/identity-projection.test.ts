@@ -66,6 +66,7 @@ describe("auth identity membership reads", () => {
     expect(authIdentityProjectionSchemaSql).toContain("auth_identity_user_memberships_user_status_idx");
     expect(authIdentityProjectionSchemaSql).toContain("auth_identity_user_memberships_user_account_status_idx");
     expect(authIdentityProjectionSchemaSql).toContain("auth_identity_memberships_user_account_status_idx");
+    expect(authIdentityProjectionSchemaSql).toContain("ADD COLUMN IF NOT EXISTS invited_by_user_id");
   });
 });
 

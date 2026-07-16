@@ -33,6 +33,7 @@ vi.mock("../../support/request-support/api-client", async () => {
 });
 
 import { action as accountPayoutSetupAction, loader as accountPayoutSetupLoader } from "./account-payout-setup";
+import { loader as legacyAccountPayoutSetupLoader } from "./account-desk-settings";
 
 async function readResolvedFreshWriteToken(url: URL) {
   const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(url));
@@ -57,7 +58,7 @@ function readyPayoutReadiness() {
   };
 }
 
-function formRequest(form: URLSearchParams, url = "http://localhost/account/payouts/setup") {
+function formRequest(form: URLSearchParams, url = "http://localhost/account/desk/settings") {
   return new Request(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -70,6 +71,22 @@ describe("settlement account payout setup route action", () => {
     vi.resetAllMocks();
   });
 
+  it("redirects the legacy payout setup URL to Seller Desk settings", async () => {
+    let response: Response | null = null;
+    try {
+      response = legacyAccountPayoutSetupLoader({
+        request: new Request("http://localhost/account/payouts/setup?mode=manage"),
+        params: {},
+        context: undefined,
+      } as never) as Response;
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(302);
+    expect(response?.headers.get("Location")).toBe("/account/desk/settings?mode=manage");
+  });
+
   it("returns an account access state instead of throwing 403 for signed-in actors without payout setup access", async () => {
     mockResolveRequiredActorFromAuthApi.mockResolvedValue({
       kind: "forbidden",
@@ -80,14 +97,14 @@ describe("settlement account payout setup route action", () => {
     mockCreateSettlementRequestApiClient.mockReturnValue({ getPayoutReadiness });
 
     const result = await accountPayoutSetupLoader({
-      request: new Request("http://localhost/account/payouts/setup?mode=manage"),
+      request: new Request("http://localhost/account/desk/settings?mode=manage"),
       params: {},
       context: undefined,
     } as never);
 
     expect(result).toMatchObject({
       accountAccessRequired: {
-        returnTo: "/account/payouts/setup?mode=manage",
+        returnTo: "/account/desk/settings?mode=manage",
       },
     });
     expect(getPayoutReadiness).not.toHaveBeenCalled();
@@ -143,7 +160,7 @@ describe("settlement account payout setup route action", () => {
           intent: "refresh-payout-setup",
           mode: "setup",
         }),
-        "http://localhost/account/payouts/setup?returnTo=%2Faccount%2Fsell-list",
+        "http://localhost/account/desk/settings?returnTo=%2Faccount%2Fsell-list",
       ),
       params: {},
       context: undefined,
@@ -190,7 +207,7 @@ describe("settlement account payout setup route action", () => {
           intent: "refresh-payout-setup",
           mode: "setup",
         }),
-        "http://localhost/account/payouts/setup?returnTo=https%3A%2F%2Fexample.test%2Fsteal",
+        "http://localhost/account/desk/settings?returnTo=https%3A%2F%2Fexample.test%2Fsteal",
       ),
       params: {},
       context: undefined,
@@ -233,7 +250,7 @@ describe("settlement account payout setup route action", () => {
           intent: "refresh-payout-setup",
           mode: "setup",
         }),
-        "http://localhost/account/payouts/setup?returnTo=%2Faccount%2Fsell-list",
+        "http://localhost/account/desk/settings?returnTo=%2Faccount%2Fsell-list",
       ),
       params: {},
       context: undefined,
@@ -269,7 +286,7 @@ describe("settlement account payout setup route action", () => {
           intent: "refresh-payout-setup",
           mode: "setup",
         }),
-        "http://localhost/account/payouts/setup?returnTo=%2Faccount%2Fsell-list",
+        "http://localhost/account/desk/settings?returnTo=%2Faccount%2Fsell-list",
       ),
       params: {},
       context: undefined,

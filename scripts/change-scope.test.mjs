@@ -628,7 +628,7 @@ describe("change-scope", () => {
         "bounded-contexts/discovery/features/search/ui/search-page.tsx",
         "bounded-contexts/checkout/features/cart/api/cart-routes.ts",
         "bounded-contexts/inventory/features/inventory/ui/account-inventory.tsx",
-        "bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx",
+        "bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-drawer.tsx",
         "bounded-contexts/identity/features/invitations/ui/invitation-detail-page.tsx",
       ],
       workspaces: [

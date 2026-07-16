@@ -155,6 +155,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `platform-operations:public-doc-review-queue-projection` | Platform Operations | **commercial-terms**, **platform-operations** | push-enabled | 2/2 |
 | `platform-operations:reported-content-queue-projection` | Platform Operations | **marketplace**, **platform-operations** | push-enabled | 2/2 |
 | `platform-operations:risk-alert-queue-projection` | Platform Operations | **identity**, **marketplace**, **payments**, **platform-operations** | push-enabled | 4/4 |
+| `platform-operations:support-request-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:support-affected-line-amount-projection` | Platform Operations | **ordering**, **payments** | push-enabled | 2/2 |
 | `platform-operations:support-order-source-projection` | Platform Operations | **ordering** | push-enabled | 1/1 |
 | `platform-operations:support-shipment-source-projection` | Platform Operations | fulfillment | push-eligible | 0/1 |
@@ -228,6 +229,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `identity.admin-invitation-list-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-membership-detail-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-user-detail-fresh-read` | identity | important | exact wait | push-accelerated |
+| `identity.invitation-email-auth-projection-fresh-read` | identity | important | not-post-write-read exception (identity, review 2026-10-15) | push-accelerated |
 | `identity.marketplace-account-profile-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.registration-current-actor-display-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.shipping-addresses-fresh-read` | identity | important | exact wait | push-accelerated |
@@ -249,7 +251,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `marketplace.order-capacity-self-refresh` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.submitted-offer-detail` | marketplace | important | exact wait | push-accelerated |
 | `ordering.accepted-offer-to-sales-list` | ordering | critical | exact wait | push-accelerated |
-| `ordering.postage-policy-command-to-detail` | ordering | important | exact wait | push-accelerated |
+| `ordering.postage-policy-command-to-home` | ordering | important | exact wait | push-accelerated |
 | `ordering.postage-policy-create-to-list` | ordering | important | exact wait | push-accelerated |
 | `ordering.purchase-cancel-to-detail` | ordering | important | exact wait | push-accelerated |
 | `ordering.sale-cancel-to-detail` | ordering | important | exact wait | push-accelerated |
@@ -258,6 +260,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `payments.detail-self-refresh` | payments | important | exact wait | push-accelerated |
 | `platform-operations.platform-feedback-detail-fresh-read` | platform-operations | important | exact wait | push-accelerated |
 | `platform-operations.platform-feedback-list-fresh-read` | platform-operations | important | exact wait | push-accelerated |
+| `platform-operations.support-request-detail-fresh-read` | platform-operations | important | exact wait | push-accelerated |
 | `public-presence.waitlist-signup-to-admin-review` | public-presence | critical | exact wait | push wake enabled |
 | `marketplace.review-reply-to-detail` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.review-submit-to-detail` | marketplace | important | exact wait | push-accelerated |

@@ -74,6 +74,39 @@ groups:
         for: 2m
         labels:
           severity: warning
+      - uid: commercial-terms-policy-overlap
+        title: Commercial Terms active policy overlap observed
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              expr: sum(rate(chase_sets_post_write_consistency_events_total{context="commercial-terms",strategy="active-policy-overlap-detection"}[5m]))
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        for: 0m
+        labels:
+          severity: critical
+          route: commercial-terms
       - uid: platform-api-ucp-signature-failures
         title: UCP signature verification failures
         condition: C

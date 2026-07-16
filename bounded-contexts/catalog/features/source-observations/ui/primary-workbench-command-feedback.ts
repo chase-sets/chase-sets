@@ -1,8 +1,19 @@
 import { t } from "@chase-sets/localization";
+import type {
+  CatalogControlPlaneActionId,
+  CatalogControlPlaneEntityKey,
+} from "./admin-control-plane/information-architecture-v2";
 
 export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
   status: "success" | "error";
   intent: string;
+  target?: Readonly<{
+    entity: CatalogControlPlaneEntityKey;
+    id: string | null;
+    count: number;
+  }>;
+  nextStep?: "review-and-confirm" | "re-preview" | "monitor-job" | "correct-input" | null;
+  undoAction?: CatalogControlPlaneActionId | null;
   result:
     | "job-queued"
     | "job-cancelled"
