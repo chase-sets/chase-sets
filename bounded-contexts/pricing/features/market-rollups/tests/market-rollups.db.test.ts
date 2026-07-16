@@ -28,10 +28,16 @@ if (!databaseBaseUrl && process.env.CI) {
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 const contextNames = ["pricing"] as const;
 
+// Monotonic version stamped in delivery order so the projection's stream-version
+// guards advance across an entity's lifecycle events even when these seed events
+// are not all keyed by the same streamId (mirrors real ordered delivery).
+let nextEventStreamVersion = 0;
 function event(type: string, data: Record<string, unknown>, recordedAt: string, streamId?: string) {
+  nextEventStreamVersion += 1;
   return {
     type,
     streamId: streamId ?? `stream_${type}`,
+    streamVersion: nextEventStreamVersion,
     data,
     timing: { recordedAt },
   } as never;
