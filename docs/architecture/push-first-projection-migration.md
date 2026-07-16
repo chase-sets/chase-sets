@@ -144,6 +144,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `ordering:ordering-order-projection` | Ordering | **ordering** | push-enabled | 1/1 |
 | `ordering:ordering-payment-capture` | Ordering | **payments** | push-enabled | 1/1 |
 | `ordering:ordering-postage-policy-projection` | Ordering | **ordering** | push-enabled | 1/1 |
+| `ordering:ordering-support-cancellation` | Ordering | **platform-operations** | push-enabled | 1/1 |
 | `payments:payments-account-risk-source-projection` | Payments | **identity**, **payments** | push-enabled | 2/2 |
 | `payments:payments-dispute-evidence-submission` | Payments | **payments** | push-enabled | 1/1 |
 | `payments:payments-fulfillment-dispute-evidence-source-projection` | Payments | fulfillment | push-eligible | 0/1 |
