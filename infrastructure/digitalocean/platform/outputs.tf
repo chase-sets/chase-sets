@@ -23,10 +23,6 @@ output "landing_domain" {
   value = local.landing_domain
 }
 
-output "legacy_public_redirect_domains" {
-  value = local.legacy_public_redirect_domains
-}
-
 output "marketplace_domains" {
   value = local.marketplace_domains
 }

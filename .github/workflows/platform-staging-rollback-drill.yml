@@ -58,7 +58,6 @@ jobs:
       SMOKE_REQUIRE_ADMIN: "true"
       SMOKE_REQUIRE_MARKETPLACE: "true"
       SMOKE_REQUIRE_MARKETPLACE_ROOT: "true"
-      SMOKE_REQUIRE_LEGACY_REDIRECT: "true"
       SMOKE_WRITE_WAITLIST: "false"
       SMOKE_FETCH_ATTEMPTS: "24"
       SMOKE_FETCH_RETRY_DELAY_MS: "5000"
@@ -126,13 +125,11 @@ jobs:
           app_id="$(terraform output -raw app_id)"
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
-          legacy_public_redirect_domain="$(terraform output -json legacy_public_redirect_domains | jq -r '.[0] // empty')"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
           staging_root_marketplace_domain="$(terraform output -json staging_root_marketplace_domains | jq -r '.[0] // empty')"
           registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
           if [ -z "$app_id" ] || [ -z "$landing_domain" ] || [ -z "$admin_domain" ] ||
-            [ -z "$legacy_public_redirect_domain" ] || [ -z "$marketplace_domain" ] ||
-            [ -z "$staging_root_marketplace_domain" ] || [ -z "$registry_name" ]; then
+            [ -z "$marketplace_domain" ] || [ -z "$staging_root_marketplace_domain" ] || [ -z "$registry_name" ]; then
             echo "Required staging app, smoke domain, or registry output was missing." >&2
             exit 1
           fi
@@ -142,7 +139,6 @@ jobs:
             echo "LANDING_URL=https://${landing_domain}"
             echo "ADMIN_URL=https://${admin_domain}"
             echo "MARKETPLACE_URL=https://${marketplace_domain}"
-            echo "LEGACY_REDIRECT_URL=https://${legacy_public_redirect_domain}"
             echo "MARKETPLACE_ROOT_WEB_URL=https://${staging_root_marketplace_domain}"
           } >> "$GITHUB_ENV"
 

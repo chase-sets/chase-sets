@@ -700,7 +700,6 @@ The platform smoke script checks:
 - admin home page loads
 - admin API readiness passes through the deployed API component
 - marketplace home and search pages load when a marketplace URL is supplied
-- legacy dash-based staging URLs return temporary HTTPS `302` redirects to their nested equivalents when supplied, including `landing-staging.chasesets.com` to `www.staging.chasesets.com`
 - waitlist signup accepts a tagged synthetic lead
 - admin password sign-in works when admin credentials are supplied
 - waitlist admin endpoint can find the synthetic lead when the smoke wrote one
@@ -708,7 +707,7 @@ The platform smoke script checks:
 
 Catalog asset CDN smoke verifies that each environment's `CATALOG_ASSET_PUBLIC_BASE_URL` resolves over HTTPS and returns the expected protected-root `403` after the `catalog-assets` Terraform root applies and during staging/production platform smoke. A known object URL must return `200`; that proof belongs in the `Platform Catalog Assets Apply` workflow with a support-safe object path, or in provider-import evidence that confirms the stored URL starts with the environment CDN base URL.
 
-Set `SMOKE_REQUIRE_ADMIN=true` and `SMOKE_REQUIRE_MARKETPLACE=true` for preview CI and staging. Staging also sets `SMOKE_REQUIRE_LEGACY_REDIRECT=true` and `SMOKE_WRITE_WAITLIST=false`. Production sets `SMOKE_REQUIRE_ADMIN=true`. Set `SMOKE_WRITE_WAITLIST=false` only for an intentionally read-only smoke check.
+Set `SMOKE_REQUIRE_ADMIN=true` and `SMOKE_REQUIRE_MARKETPLACE=true` for preview CI and staging. Staging also sets `SMOKE_WRITE_WAITLIST=false`. Production sets `SMOKE_REQUIRE_ADMIN=true`. Set `SMOKE_WRITE_WAITLIST=false` only for an intentionally read-only smoke check.
 
 Production sets `SMOKE_REQUIRE_MARKETPLACE=true` only when `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true` after launch, Marketplace Checkout Fee, Checkout Launch, Support operations, Fulfillment postage, transactional email, launch supply measurement, and Tax approval evidence has passed validation. The current production posture should not include a marketplace URL in smoke output.
 

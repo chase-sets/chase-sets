@@ -426,10 +426,13 @@ describe("DigitalOcean platform configuration", () => {
     }
   });
 
-  it("keeps staging landing under the environment namespace and redirects the legacy dash host", () => {
+  it("keeps staging landing under the environment namespace with the legacy dash host retired (#5568)", () => {
     expect(platformLocals).toContain('local.is_staging ? "www.${var.environment}.${var.root_domain}"');
     expect(platformLocals).not.toContain('local.is_staging ? "${var.environment}.${var.root_domain}"');
-    expect(platformLocals).toContain('"landing-${var.environment}.${var.root_domain}"     = local.landing_domain');
+    expect(platformLocals).not.toContain("legacy_domain_redirects");
+    expect(platformLocals).not.toContain("legacy_public_redirect_domains");
+    expect(platformMain).not.toContain("legacy_domain_redirects");
+    expect(platformOutputs).not.toContain("legacy_public_redirect_domains");
   });
 
   it("uploads support-safe representative commerce selector evidence", () => {
@@ -1441,9 +1444,9 @@ describe("DigitalOcean platform configuration", () => {
     // legacy landing-/marketplace-/admin-staging redirect hostnames, whose
     // App Platform routes go empty once DOKS owns serving (a ready ingress
     // with no matching route is a stable, deterministic 404 that previously
-    // blocked every staging deploy). Legacy redirect behavior is still
-    // exercised separately by the staging admin-smoke/rollback-drill/
-    // bootstrap-hook-drill workflows via SMOKE_REQUIRE_LEGACY_REDIRECT.
+    // blocked every staging deploy). Those legacy hosts were retired outright
+    // (#5568): their DNS ALIAS records and App Platform redirect plumbing are
+    // deleted, not rewired to DOKS.
     expect(stagingIngressWaitStep).not.toContain("legacy_public_redirect_domains");
     expect(stagingIngressWaitStep).not.toContain('"https://${hostname}/"');
 

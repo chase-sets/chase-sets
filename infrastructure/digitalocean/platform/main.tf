@@ -452,15 +452,6 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "domain" {
-      for_each = keys(local.legacy_domain_redirects)
-      content {
-        name = domain.value
-        type = "ALIAS"
-        zone = local.app_domain_zones[domain.value]
-      }
-    }
-
-    dynamic "domain" {
       for_each = local.app_platform_marketplace_domains
       content {
         name = domain.value
@@ -1888,25 +1879,6 @@ resource "digitalocean_app" "platform" {
           component {
             name                 = rule.value.component
             preserve_path_prefix = true
-          }
-        }
-      }
-
-      dynamic "rule" {
-        for_each = local.app_platform_legacy_domain_redirects
-        content {
-          match {
-            authority {
-              exact = rule.key
-            }
-            path {
-              prefix = "/"
-            }
-          }
-          redirect {
-            authority     = rule.value
-            scheme        = "https"
-            redirect_code = 302
           }
         }
       }

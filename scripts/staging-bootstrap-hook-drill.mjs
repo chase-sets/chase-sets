@@ -49,7 +49,6 @@ export function parseStagingBootstrapHookDrillArgs(argv, env = process.env) {
     landingUrl: readOption(argv, "--landing-url") ?? readEnv("LANDING_URL", env),
     adminUrl: readOption(argv, "--admin-url") ?? readEnv("ADMIN_URL", env),
     marketplaceUrl: readOption(argv, "--marketplace-url") ?? readEnv("MARKETPLACE_URL", env),
-    legacyRedirectUrl: readOption(argv, "--legacy-redirect-url") ?? readEnv("LEGACY_REDIRECT_URL", env),
     marketplaceRootUrl: readOption(argv, "--marketplace-root-url") ?? readEnv("MARKETPLACE_ROOT_WEB_URL", env),
     helmPath: readOption(argv, "--helm") ?? readEnv("HELM_PATH", env) ?? "helm",
     kubectlPath: readOption(argv, "--kubectl") ?? readEnv("KUBECTL_PATH", env) ?? "kubectl",
@@ -718,8 +717,8 @@ function validateOptions(options) {
   if (options.namespace !== DEFAULT_NAMESPACE) {
     errors.push(`Refusing stale or non-staging namespace '${options.namespace}'; expected '${DEFAULT_NAMESPACE}'.`);
   }
-  if (!options.landingUrl || !options.adminUrl || !options.marketplaceUrl || !options.legacyRedirectUrl) {
-    errors.push("Landing, admin, marketplace, and legacy redirect smoke URLs are required.");
+  if (!options.landingUrl || !options.adminUrl || !options.marketplaceUrl) {
+    errors.push("Landing, admin, and marketplace smoke URLs are required.");
   }
   return errors;
 }
@@ -898,7 +897,6 @@ async function runSmokePhase(label, options, runner, now) {
     SMOKE_REQUIRE_ADMIN: "true",
     SMOKE_REQUIRE_MARKETPLACE: "true",
     SMOKE_REQUIRE_MARKETPLACE_ROOT: options.marketplaceRootUrl ? "true" : "false",
-    SMOKE_REQUIRE_LEGACY_REDIRECT: "true",
     SMOKE_WRITE_WAITLIST: "false",
     SMOKE_FETCH_ATTEMPTS: process.env.SMOKE_FETCH_ATTEMPTS ?? "24",
     SMOKE_FETCH_RETRY_DELAY_MS: process.env.SMOKE_FETCH_RETRY_DELAY_MS ?? "5000",
@@ -906,15 +904,7 @@ async function runSmokePhase(label, options, runner, now) {
   };
   const result = await runner(
     options.pnpmPath,
-    [
-      "run",
-      "smoke:platform",
-      "--",
-      options.landingUrl,
-      options.adminUrl,
-      options.marketplaceUrl,
-      options.legacyRedirectUrl,
-    ],
+    ["run", "smoke:platform", "--", options.landingUrl, options.adminUrl, options.marketplaceUrl],
     { env, allowFailure: true },
   );
   await writeTextArtifact(options, `${label}-smoke-output.txt`, `${result.stdout ?? ""}\n${result.stderr ?? ""}`);

@@ -39,10 +39,6 @@ locals {
     local.is_staging ? "www.${var.environment}.${var.root_domain}" : "${local.environment_slug}.preview.${var.root_domain}",
   ]
 
-  legacy_public_redirect_domains = local.is_staging ? [
-    "landing-${var.environment}.${var.root_domain}",
-  ] : []
-
   marketplace_domains = local.marketplace_public_enabled ? [
     local.is_production ? "marketplace.${var.root_domain}" : local.is_staging ? "marketplace.${var.environment}.${var.root_domain}" : "marketplace.${local.environment_slug}.preview.${var.root_domain}",
   ] : []
@@ -62,7 +58,6 @@ locals {
   app_platform_staging_root_marketplace_domains = local.serving_from_doks ? [] : local.staging_root_marketplace_domains
   app_platform_admin_domains                    = local.serving_from_doks ? [] : [local.admin_domain]
   app_platform_all_marketplace_domains          = concat(local.app_platform_marketplace_domains, local.app_platform_staging_root_marketplace_domains)
-  app_platform_legacy_domain_redirects          = local.serving_from_doks ? {} : local.legacy_domain_redirects
   # App Platform auto-assigns an un-routed web component to "/". Once DOKS
   # serving removes every authority-qualified route, all three web components
   # would otherwise collide there. Keep public-web as the harmless default and
@@ -83,14 +78,9 @@ locals {
     },
   ] : []
 
-  admin_domain       = local.is_production ? "admin.${var.root_domain}" : local.is_staging ? "admin.${var.environment}.${var.root_domain}" : "admin.${local.environment_slug}.preview.${var.root_domain}"
-  landing_domain     = local.public_domains[0]
-  marketplace_domain = length(local.marketplace_domains) > 0 ? local.marketplace_domains[0] : null
-  legacy_domain_redirects = local.is_staging ? {
-    "landing-${var.environment}.${var.root_domain}"     = local.landing_domain
-    "marketplace-${var.environment}.${var.root_domain}" = local.marketplace_domain
-    "admin-${var.environment}.${var.root_domain}"       = local.admin_domain
-  } : {}
+  admin_domain                  = local.is_production ? "admin.${var.root_domain}" : local.is_staging ? "admin.${var.environment}.${var.root_domain}" : "admin.${local.environment_slug}.preview.${var.root_domain}"
+  landing_domain                = local.public_domains[0]
+  marketplace_domain            = length(local.marketplace_domains) > 0 ? local.marketplace_domains[0] : null
   api_private_url               = "$${platform-api.PRIVATE_URL}"
   admin_web_internal_api_origin = local.api_private_url
   marketplace_origin            = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
@@ -751,7 +741,7 @@ locals {
     context_name => "DATABASE_URL_${upper(replace(context_name, "-", "_"))}_WAITER"
   }
 
-  all_public_hostnames = concat(local.public_domains, keys(local.legacy_domain_redirects), local.all_marketplace_domains)
+  all_public_hostnames = concat(local.public_domains, local.all_marketplace_domains)
   ucp_route_prefixes   = ["/.well-known", "/ucp"]
   ucp_route_domains    = local.platform_enabled ? concat(local.app_platform_public_domains, local.app_platform_admin_domains, local.app_platform_all_marketplace_domains) : []
   native_mcp_route_prefixes = [
@@ -791,10 +781,6 @@ locals {
     {
       for domain in local.public_domains :
       domain => local.is_staging ? local.environment_zone : var.root_domain
-    },
-    {
-      for domain in keys(local.legacy_domain_redirects) :
-      domain => var.root_domain
     },
     {
       for domain in local.marketplace_domains :
