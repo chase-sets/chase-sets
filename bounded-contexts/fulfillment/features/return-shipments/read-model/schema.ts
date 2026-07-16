@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS fulfillment_return_shipment_operator_pages (
   status text NOT NULL,
   ship_from_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
-  facility_id text NOT NULL,
+  facility_id text NULL,
   facility_config_version text NOT NULL,
   selection_policy_version text NOT NULL,
   package_requirements jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -186,6 +186,13 @@ CREATE INDEX IF NOT EXISTS fulfillment_return_shipment_provider_events_shipment_
 `;
 
 export const fulfillmentReturnShipmentSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260715_fulfillment_seller_return_destination",
+    description: "Allow ordinary return shipments to target the seller snapshot instead of a platform facility.",
+    statements: [
+      `ALTER TABLE IF EXISTS fulfillment_return_shipment_operator_pages ALTER COLUMN facility_id DROP NOT NULL`,
+    ],
+  },
   {
     migrationId: "20260715_fulfillment_return_shipment_support_linkage",
     description: "Add affected order-line linkage to replayable ReturnShipment operator pages.",

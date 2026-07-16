@@ -46,7 +46,9 @@ describe("resolveTermsAcceptanceStatus", () => {
         account_id: "acc_1",
         policy_key: "terms-of-service",
         policy_version: "v1",
+        status: "recorded",
         recorded_at: "2026-03-01T00:00:00.000Z",
+        withdrawn_at: null,
         updated_at: "2026-03-01T00:00:00.000Z",
       },
     ]);
@@ -58,5 +60,28 @@ describe("resolveTermsAcceptanceStatus", () => {
     const current = await resolveTermsAcceptanceStatus(db, fakePolicies("v1"), { userId: "usr_1" });
     expect(current.accepted).toBe(true);
     expect(current.acceptedAt).toBe("2026-03-01T00:00:00.000Z");
+  });
+
+  it("fails closed when the current-version consent was withdrawn", async () => {
+    const db = fakeDb([
+      {
+        consent_id: "cns_1",
+        subject_type: "user",
+        subject_id: "usr_1",
+        user_id: "usr_1",
+        account_id: "acc_1",
+        policy_key: "terms-of-service",
+        policy_version: "v2",
+        status: "withdrawn",
+        recorded_at: "2026-03-01T00:00:00.000Z",
+        withdrawn_at: "2026-04-01T00:00:00.000Z",
+        updated_at: "2026-04-01T00:00:00.000Z",
+      },
+    ]);
+
+    const status = await resolveTermsAcceptanceStatus(db, fakePolicies("v2"), { userId: "usr_1" });
+
+    expect(status.accepted).toBe(false);
+    expect(status.acceptedVersion).toBe("v2");
   });
 });

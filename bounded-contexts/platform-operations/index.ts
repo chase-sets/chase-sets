@@ -15,6 +15,7 @@ import {
   buildCommercialTermsPublicDocReviewProjectionHandlers,
   buildPlatformOperationsPublicDocReviewProjectionHandlers,
 } from "./features/public-doc-reviews/read-model/projection";
+import { buildCommercialTermsEffectiveDateAttentionProjectionHandlers } from "./features/commercial-terms-attention/read-model/projection";
 import {
   buildMarketplaceReportedContentProjectionHandlers,
   buildPlatformOperationsReportedContentProjectionHandlers,
@@ -32,6 +33,7 @@ import {
   buildSupportOrderSourceProjectionHandlers,
   buildSupportShipmentSourceProjectionHandlers,
 } from "./features/support-requests/integrations/source/source-projection";
+import { buildSupportReturnLabelSourceProjectionHandlers } from "./features/support-requests/integrations/source/return-label-source-projection";
 import { platformOperationsSchemaSql } from "./support/runtime-support/schema";
 import { supportRequestSchemaMigrations } from "./features/support-requests/read-model/schema";
 import { platformOperationsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
@@ -98,6 +100,10 @@ export const module = defineBoundedContextModule<
           subscriptionName: "support.shipment-source-projection",
           buildHandlers: () => buildSupportShipmentSourceProjectionHandlers(services.db, services.supportRequests),
         },
+        "fulfillment.support-return-label-source-projection": {
+          subscriptionName: "support.return-label-source-projection",
+          buildHandlers: () => buildSupportReturnLabelSourceProjectionHandlers(services.db),
+        },
         "marketplace.reported-content-queue-projection": {
           subscriptionName: "platform-operations.reported-content-queue-projection",
           buildHandlers: () => buildMarketplaceReportedContentProjectionHandlers(services.db),
@@ -109,6 +115,10 @@ export const module = defineBoundedContextModule<
         "commercial-terms.public-doc-review-queue-projection": {
           subscriptionName: "platform-operations.public-doc-review-queue-projection",
           buildHandlers: () => buildCommercialTermsPublicDocReviewProjectionHandlers(services.db),
+        },
+        "commercial-terms.commercial-terms-effective-date-attention-projection": {
+          subscriptionName: "platform-operations.commercial-terms-effective-date-attention-projection",
+          buildHandlers: () => buildCommercialTermsEffectiveDateAttentionProjectionHandlers(services.db),
         },
         "platform-operations.public-doc-review-queue-projection": {
           subscriptionName: "platform-operations.public-doc-review-queue-projection",

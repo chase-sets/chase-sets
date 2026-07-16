@@ -80,4 +80,30 @@ describe("policy console list page", () => {
     expect(screen.getAllByText("11 days")).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "Confirm current" })).toHaveLength(2);
   });
+
+  it("surfaces Commercial Terms effective-date attention in the operations queue", () => {
+    render(
+      <PolicyConsolePage
+        items={items}
+        commercialTermsSchedulesHref="/commerce/terms"
+        commercialTermsAttentionItems={[
+          {
+            id: "agreement:cag_launch:expiring",
+            kind: "expiring-override",
+            label: "Launch override",
+            detail: "Override expires 2026-08-15",
+            attentionAt: "2026-08-15T00:00:00.000Z",
+            href: "/commerce/terms?agreement=cag_launch",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Commercial terms attention" })).toBeTruthy();
+    expect(screen.getAllByText("Override expires 2026-08-15")).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: "Review terms" })[0]).toHaveProperty(
+      "href",
+      expect.stringContaining("agreement=cag_launch"),
+    );
+  });
 });

@@ -26,6 +26,7 @@
   "slices": [
     "operations-attention-queue",
     "projection-operations",
+    "commercial-terms-attention",
     "insights-dashboards",
     "offer-economics",
     "platform-feedback",
@@ -43,6 +44,15 @@
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
   "eventSubscriptions": [
+    {
+      "sourceContextName": "commercial-terms",
+      "projectionName": "commercial-terms-effective-date-attention-projection",
+      "subscriptionVersion": 1,
+      "sourceContextMount": "when-mounted",
+      "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
+      "order": 55,
+      "projectionHandlerSetNames": ["commercial-terms-effective-date-attention-projection"]
+    },
     {
       "sourceContextName": "commercial-terms",
       "projectionName": "public-doc-review-queue-projection",
@@ -143,22 +153,49 @@
     {
       "sourceContextName": "fulfillment",
       "projectionName": "support-shipment-source-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "fulfillment.shipment.created",
         "fulfillment.shipment.dispatched",
         "fulfillment.shipment.delivered",
         "fulfillment.shipment.returned",
         "fulfillment.shipment.exception-raised",
+        "fulfillment.return-shipment.facility-intake-completed.v1",
         "fulfillment.return-shipment.carrier-accepted.v1",
-        "fulfillment.return-shipment.delivered.v1",
-        "fulfillment.return-shipment.facility-intake-completed.v1"
+        "fulfillment.return-shipment.delivered.v1"
       ],
       "order": 80,
       "projectionHandlerSetNames": ["support-shipment-source-projection"]
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "support-return-label-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "fulfillment.return-shipment.requested.v1",
+        "fulfillment.return-shipment.requested.v2",
+        "fulfillment.return-shipment.label-ready.v1",
+        "fulfillment.return-shipment.label-purchase-failed.v1",
+        "fulfillment.return-shipment.label-voided.v1",
+        "fulfillment.return-shipment.carrier-accepted.v1",
+        "fulfillment.return-shipment.in-transit-recorded.v1",
+        "fulfillment.return-shipment.delivered.v1",
+        "fulfillment.return-shipment.cancelled.v1",
+        "fulfillment.return-shipment.expired.v1"
+      ],
+      "order": 81,
+      "projectionHandlerSetNames": ["support-return-label-source-projection"]
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "commercial-terms-effective-date-attention-projection",
+      "sourceContextNames": ["commercial-terms"],
+      "optionalSourceContextNames": ["commercial-terms"],
+      "ownedTables": ["platform_operations_commercial_terms_attention_pages"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
     {
       "projectionName": "experience-platform-feedback-projection",
       "sourceContextNames": ["platform-operations"],
@@ -213,6 +250,13 @@
       "projectionName": "support-shipment-source-projection",
       "sourceContextNames": ["fulfillment"],
       "ownedTables": ["support_shipment_sources"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "support-return-label-source-projection",
+      "sourceContextNames": ["fulfillment"],
+      "ownedTables": ["support_return_label_sources"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
@@ -450,11 +494,12 @@
       "surfaces": [
         "api-client:bounded-contexts/platform-operations/features/projection-operations/api/client.ts:POST H1e2a330b475d#1",
         "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#4",
-        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#5",
-        "route-action:bounded-contexts/platform-operations/routes/admin/projection-operations.tsx"
+        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-detail-drawer.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-detail-drawer.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-detail-drawer.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-detail-drawer.tsx:H2df726441e2a#4",
+        "route-action:bounded-contexts/platform-operations/routes/admin/projection-operations.tsx",
+        "route-action:bounded-contexts/platform-operations/routes/admin/projection-operations-reference.tsx"
       ],
       "visibleDestination": {
         "description": "Projection operation commands return live-refresh, queued-operation, or cancellation snapshots; the route action redirects to the same projection console URL so the loader refetches projection, wake, stale, lagging, partial, and unavailable states."
@@ -862,6 +907,14 @@
           "section": "platform"
         },
         {
+          "routeId": "projection-operations-reference",
+          "routePath": "projections/reference",
+          "fileExport": "./routes/admin/projection-operations-reference",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "platform"
+        },
+        {
           "routeId": "policy-console",
           "routePath": "policy-console",
           "fileExport": "./routes/admin/policy-console",
@@ -1053,6 +1106,11 @@
     }
   ],
   "directoryIntent": {
+    "commercial-terms-attention": {
+      "classification": "slice",
+      "purpose": "Own the commercial-terms-attention read model for upcoming schedules and expiring account overrides.",
+      "expectedConsumers": ["Policy Console admin route", "Internal platform-operations module composition"]
+    },
     "operations-attention-queue": {
       "classification": "slice",
       "purpose": "Own the operations attention queue: the operator 'what needs you, most important first' read model that composes platform-operations signals (projection poison events, blocked streams, stalled wake jobs, support requests by deadline, unreviewed platform feedback) into one severity-ordered surface, with per-source degradation, rollup counts computed from the rendered items, and per-source operator RBAC. Modeled parallel to the Seller Desk attention queue; consumes owning slices' existing reads via the request-support composition root, never rebuilding their read models.",

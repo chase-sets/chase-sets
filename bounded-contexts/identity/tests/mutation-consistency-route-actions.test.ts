@@ -16,6 +16,10 @@ import { action as invitationsAction } from "../routes/admin/invitations";
 import { action as membershipDetailAction } from "../routes/admin/memberships-detail";
 import { action as userDetailAction } from "../routes/admin/users-detail";
 import { action as accountAction } from "../routes/marketplace/account";
+import {
+  action as accountConsentsAction,
+  loader as accountConsentsLoader,
+} from "../routes/marketplace/account-consents";
 import { action as accountSecurityAction } from "../routes/marketplace/account-security";
 import {
   action as accountShippingAddressesAction,
@@ -335,6 +339,15 @@ describe("Identity mutation consistency route actions", () => {
         expectedPath: "/account/team",
       },
       {
+        action: accountConsentsAction,
+        request: formRequest("/account/consents", {
+          intent: "withdraw",
+          consentId: "cns_1",
+        }),
+        params: {},
+        expectedPath: "/account/consents",
+      },
+      {
         action: accountShippingAddressesAction,
         request: formRequest("/account/shipping-addresses", {
           intent: "create",
@@ -640,6 +653,40 @@ describe("Identity mutation consistency route actions", () => {
     expect(decodeFreshWriteReceipt(observedHeaders[0]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER), nowMs)).toMatchObject({
       commitPosition: "89",
       sources: [expect.objectContaining({ sourceContextName: "identity", maxGlobalPosition: "89" })],
+    });
+    expect(observedHeaders[0]!.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("identity");
+  });
+
+  it("forwards consent-withdrawal fresh-read receipts into consent history reads", async () => {
+    const observedHeaders: Headers[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+
+        if (url.includes("/api/identity/consents")) {
+          observedHeaders.push(new Headers(init?.headers));
+          return jsonResponse({ items: [], total: 0, count: 0 });
+        }
+
+        return jsonResponse({ actor });
+      }),
+    );
+
+    const nowMs = Date.now();
+    const path = appendFreshWriteToken("/account/consents", identityCommit("94"), nowMs);
+    await accountConsentsLoader({
+      request: new Request(`https://chasesets.test${path}`, {
+        headers: { cookie: "session=identity" },
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(observedHeaders).toHaveLength(1);
+    expect(decodeFreshWriteReceipt(observedHeaders[0]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER), nowMs)).toMatchObject({
+      commitPosition: "94",
+      sources: [expect.objectContaining({ sourceContextName: "identity", maxGlobalPosition: "94" })],
     });
     expect(observedHeaders[0]!.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("identity");
   });

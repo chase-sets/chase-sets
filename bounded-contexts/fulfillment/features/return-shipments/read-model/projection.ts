@@ -111,9 +111,11 @@ export function buildFulfillmentReturnShipmentProjectionHandlers(db: PgQueryable
         data.returnDirective,
         JSON.stringify(data.shipFromSnapshot),
         JSON.stringify(destination),
-        destination.facilityId,
-        destination.configVersion,
-        destination.selectionPolicyVersion,
+        destination.destinationType === "platform-facility" ? destination.facilityId : null,
+        destination.destinationType === "platform-facility" ? destination.configVersion : destination.snapshotVersion,
+        destination.destinationType === "platform-facility"
+          ? destination.selectionPolicyVersion
+          : destination.snapshotVersion,
         JSON.stringify(data.packageRequirements),
         data.costPayer,
         data.costAllocationReference,

@@ -5,6 +5,7 @@ import type {
   PolicyConsoleRegistryItem,
 } from "../../features/policy-console/api/contracts";
 import type { PublicDocReviewQueueItem } from "../../features/public-doc-reviews/read-model/queries";
+import type { CommercialTermsAttentionItem } from "../../features/commercial-terms-attention/read-model/queries";
 
 export type { CreatePolicyConsoleRevisionRequest, PolicyConsoleOverview, PolicyConsoleRegistryItem };
 
@@ -14,6 +15,7 @@ export type PolicyConsoleRegistryResponse = Readonly<{
 }>;
 
 export type PublicDocReviewQueueResponse = Readonly<{ items: readonly PublicDocReviewQueueItem[] }>;
+export type CommercialTermsAttentionResponse = Readonly<{ items: readonly CommercialTermsAttentionItem[] }>;
 
 export type PolicyConsoleDocumentHistoryRow = Readonly<{
   history_id: string;
@@ -59,6 +61,14 @@ export async function loadPublicDocReviewQueue(request: Request): Promise<Public
   });
   if (!response.ok) throw new Response(await response.text(), { status: response.status });
   return (await response.json()) as PublicDocReviewQueueResponse;
+}
+
+export async function loadCommercialTermsAttention(request: Request): Promise<CommercialTermsAttentionResponse> {
+  const response = await fetch(resolveRequestApiBaseUrl(request, "/api/platform/commercial-terms-attention"), {
+    headers: createForwardedAuthHeaders(request),
+  });
+  if (!response.ok) throw new Response(await response.text(), { status: response.status });
+  return (await response.json()) as CommercialTermsAttentionResponse;
 }
 
 export async function confirmPublicDocReview(

@@ -103,6 +103,14 @@ export function createAgreementRoutes(services: AgreementServices) {
     });
   });
 
+  app.get("/account-options", async (c) => {
+    const access = requireAccess(c, "commercial-terms.view");
+    if (access.response) {
+      return access.response;
+    }
+    return c.json({ items: await services.listAccountOptions() });
+  });
+
   app.get("/:id", async (c) => {
     const access = requireAccess(c, "commercial-terms.view");
     if (access.response) {

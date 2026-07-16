@@ -7,7 +7,12 @@ import {
   DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
   type CommercialTermsStatus,
 } from "../../../support/runtime-support/common";
-import { getAgreement, getCommercialTermsAccountReference, listAgreements } from "../read-model/queries";
+import {
+  getAgreement,
+  getCommercialTermsAccountReference,
+  listAgreements,
+  listCommercialTermsAccountOptions,
+} from "../read-model/queries";
 import { normalizeAgreementAccountIdText } from "./account-id";
 
 /**
@@ -61,6 +66,7 @@ export type AgreementServices = Readonly<{
   ) => Promise<{ agreementId: string; version: number }>;
   listAgreements: (params: Readonly<{ limit?: number; offset?: number }>) => ReturnType<typeof listAgreements>;
   getAgreement: (agreementId: string) => ReturnType<typeof getAgreement>;
+  listAccountOptions: () => ReturnType<typeof listCommercialTermsAccountOptions>;
 }>;
 
 export function createAgreementRuntime(deps: AgreementRuntimeDeps): AgreementServices {
@@ -124,5 +130,6 @@ export function createAgreementRuntime(deps: AgreementRuntimeDeps): AgreementSer
     },
     listAgreements: (params) => listAgreements(deps.db, params),
     getAgreement: (agreementId) => getAgreement(deps.db, agreementId),
+    listAccountOptions: () => listCommercialTermsAccountOptions(deps.db),
   };
 }

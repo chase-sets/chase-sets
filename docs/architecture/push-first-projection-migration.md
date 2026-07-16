@@ -91,6 +91,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `fulfillment:fulfillment-support-return-source-projection` | Fulfillment | **platform-operations** | push-enabled | 1/1 |
 | `identity:identity-account-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-api-key-projection` | Identity | **identity** | push-enabled | 1/1 |
+| `identity:identity-consent-current-state-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-consent-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-founder-claim-reaction` | Identity | **marketplace** | push-enabled | 1/1 |
 | `identity:identity-founders-cohort-projection` | Identity | **identity** | push-enabled | 1/1 |
@@ -149,8 +150,9 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `payments:payments-order-cancellation-refund-effect` | Payments | **ordering**, **payments** | push-enabled | 2/2 |
 | `payments:payments-order-input-projection` | Payments | **ordering** | push-enabled | 1/1 |
 | `payments:payments-payment-projection` | Payments | **payments** | push-enabled | 1/1 |
-| `payments:payments-support-refund-effect` | Payments | **platform-operations** | push-enabled | 1/1 |
+| `payments:payments-support-refund-effect` | Payments | fulfillment, **platform-operations** | push-eligible | 1/2 |
 | `platform-operations:experience-platform-feedback-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
+| `platform-operations:commercial-terms-effective-date-attention-projection` | Platform Operations | **commercial-terms** | push-enabled | 1/1 |
 | `platform-operations:platform-policy-document-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:public-doc-review-queue-projection` | Platform Operations | **commercial-terms**, **platform-operations** | push-enabled | 2/2 |
 | `platform-operations:reported-content-queue-projection` | Platform Operations | **marketplace**, **platform-operations** | push-enabled | 2/2 |
@@ -158,6 +160,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `platform-operations:support-request-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:support-affected-line-amount-projection` | Platform Operations | **ordering**, **payments** | push-enabled | 2/2 |
 | `platform-operations:support-order-source-projection` | Platform Operations | **ordering** | push-enabled | 1/1 |
+| `platform-operations:support-return-label-source-projection` | Platform Operations | fulfillment | push-eligible | 0/1 |
 | `platform-operations:support-shipment-source-projection` | Platform Operations | fulfillment | push-eligible | 0/1 |
 | `pricing:pricing-catalog-input-projection` | Pricing | **catalog** | push-enabled | 1/1 |
 | `pricing:pricing-fulfillment-input-projection` | Pricing | fulfillment | push-eligible | 0/1 |
@@ -182,7 +185,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 
 Totals: 111 `push-enabled`, 29 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (76)
+## Read-After-Write Route Inventory (77)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -205,11 +208,11 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `collections.saved-list-create-to-detail` | collections | important | exact wait | deferred until wave 4 |
 | `collections.saved-list-detail-self-refresh` | collections | important | exact wait | deferred until wave 4 |
 | `collections.saved-list-list-self-refresh` | collections | important | exact wait | deferred until wave 4 |
-| `commercial-terms.account-agreement-create-to-list` | commercial-terms | important | exact wait | push-accelerated |
-| `commercial-terms.agreement-create-to-list` | commercial-terms | important | exact wait | push-accelerated |
-| `commercial-terms.agreement-update-to-detail` | commercial-terms | important | exact wait | push-accelerated |
-| `commercial-terms.schedule-create-to-list` | commercial-terms | important | exact wait | push-accelerated |
-| `commercial-terms.schedule-update-to-detail` | commercial-terms | important | exact wait | push-accelerated |
+| `commercial-terms.account-agreement-create-to-home` | commercial-terms | important | exact wait | push-accelerated |
+| `commercial-terms.agreement-create-to-home` | commercial-terms | important | exact wait | push-accelerated |
+| `commercial-terms.agreement-update-to-home` | commercial-terms | important | exact wait | push-accelerated |
+| `commercial-terms.schedule-create-to-home` | commercial-terms | important | exact wait | push-accelerated |
+| `commercial-terms.schedule-update-to-home` | commercial-terms | important | exact wait | push-accelerated |
 | `discovery.item-detail-add-to-cart-semantic-handoff` | discovery | critical | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
 | `discovery.item-detail-add-to-sell-list-semantic-handoff` | discovery | critical | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
 | `discovery.item-detail-checkout-handoff` | discovery | important | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
@@ -220,6 +223,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `identity.account-security-user-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.account-team-invitation-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.account-team-membership-fresh-read` | identity | important | exact wait | push-accelerated |
+| `identity.consent-withdrawal-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-account-detail-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-api-key-create-detail-fresh-read` | identity | critical | exact wait | push-accelerated |
 | `identity.admin-api-key-detail-fresh-read` | identity | critical | exact wait | push-accelerated |

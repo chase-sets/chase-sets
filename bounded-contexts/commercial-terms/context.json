@@ -12,6 +12,7 @@
   "streamPrefix": "commercial-terms.",
   "apiBasePath": "/api/commercial-terms",
   "slices": [
+    "home",
     "schedules",
     "agreements",
     "resolutions",
@@ -19,7 +20,7 @@
     "checkout-processing-fee",
     "authenticity-fee"
   ],
-  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
+  "allowedSupportDirectories": ["runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/identity", "@chase-sets/public-presence"],
   "seedRequirements": ["identity"],
@@ -137,7 +138,7 @@
   ],
   "readAfterWriteRouteInventory": [
     {
-      "id": "commercial-terms.schedule-create-to-list",
+      "id": "commercial-terms.schedule-create-to-home",
       "owner": "commercial-terms",
       "risk": "important",
       "freshnessSlo": {
@@ -146,25 +147,25 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeId": "commercial-terms-schedules",
+        "routeId": "commercial-terms-home",
         "actions": ["Create commercial-terms schedule"],
         "command": "CreatePolicyDocument",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": ["formActionRedirect"]
       },
       "destination": {
-        "routeId": "commercial-terms-schedules",
+        "routeId": "commercial-terms-home",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/schedules",
         "readModelTables": ["platform_policy_documents"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Schedule list waits on the schedule page projection after create and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+          "behavior": "Commercial Terms home waits on schedule projections after create and keeps projection lag inside the home-owned unavailable state."
         }
       }
     },
     {
-      "id": "commercial-terms.schedule-update-to-detail",
+      "id": "commercial-terms.schedule-update-to-home",
       "owner": "commercial-terms",
       "risk": "important",
       "freshnessSlo": {
@@ -173,25 +174,25 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeId": "commercial-terms-schedules-detail",
+        "routeId": "commercial-terms-home",
         "actions": ["Update commercial-terms schedule"],
         "command": "RevisePolicyDocument",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": ["formActionRedirect"]
       },
       "destination": {
-        "routeId": "commercial-terms-schedules-detail",
+        "routeId": "commercial-terms-home",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/schedules/:id",
         "readModelTables": ["platform_policy_documents", "platform_policy_document_history"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Schedule detail waits on the schedule page and history projections after update and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+          "behavior": "Commercial Terms home reopens the schedule sheet after the exact fresh read has caught up, including revision history."
         }
       }
     },
     {
-      "id": "commercial-terms.agreement-create-to-list",
+      "id": "commercial-terms.agreement-create-to-home",
       "owner": "commercial-terms",
       "risk": "important",
       "freshnessSlo": {
@@ -200,25 +201,25 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeId": "commercial-terms-agreements",
+        "routeId": "commercial-terms-home",
         "actions": ["Create commercial agreement"],
         "command": "CreatePolicyDocument",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": ["formActionRedirect"]
       },
       "destination": {
-        "routeId": "commercial-terms-agreements",
+        "routeId": "commercial-terms-home",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/agreements",
         "readModelTables": ["platform_policy_documents"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Agreement list waits on the agreement page projection after create and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+          "behavior": "Commercial Terms home reopens the new account override after its exact fresh read has caught up."
         }
       }
     },
     {
-      "id": "commercial-terms.account-agreement-create-to-list",
+      "id": "commercial-terms.account-agreement-create-to-home",
       "owner": "commercial-terms",
       "risk": "important",
       "freshnessSlo": {
@@ -227,25 +228,25 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeId": "commercial-terms-account-agreement-new",
+        "routeId": "commercial-terms-home",
         "actions": ["Create commercial agreement for account"],
         "command": "CreatePolicyDocument",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": ["formActionRedirect"]
       },
       "destination": {
-        "routeId": "commercial-terms-agreements",
+        "routeId": "commercial-terms-home",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/agreements",
         "readModelTables": ["platform_policy_documents"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account-scoped agreement create redirects to the agreement list with afterWrite and the agreement list loader waits on the agreement page projection before showing the list."
+          "behavior": "The inline account-scoped override flow reopens the created agreement after its exact fresh read has caught up."
         }
       }
     },
     {
-      "id": "commercial-terms.agreement-update-to-detail",
+      "id": "commercial-terms.agreement-update-to-home",
       "owner": "commercial-terms",
       "risk": "important",
       "freshnessSlo": {
@@ -254,20 +255,20 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeId": "commercial-terms-agreements-detail",
+        "routeId": "commercial-terms-home",
         "actions": ["Update commercial agreement"],
         "command": "RevisePolicyDocument",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": ["formActionRedirect"]
       },
       "destination": {
-        "routeId": "commercial-terms-agreements-detail",
+        "routeId": "commercial-terms-home",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/agreements/:id",
         "readModelTables": ["platform_policy_documents", "platform_policy_document_history"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Agreement detail waits on the agreement page and history projections after update and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+          "behavior": "Commercial Terms home reopens the agreement sheet after the exact fresh read has caught up, including revision history."
         }
       }
     }
@@ -304,41 +305,22 @@
       }
     },
     {
-      "id": "commercial-terms.api-client-command-snapshots",
-      "owner": "commercial-terms",
-      "risk": "important",
-      "strategy": "snapshot-return",
-      "surfaces": [
-        "api-client:bounded-contexts/commercial-terms/support/request-support/api-client.ts:POST H5b57320d9a50#1",
-        "api-client:bounded-contexts/commercial-terms/support/request-support/api-client.ts:POST H91104146c650#1",
-        "api-client:bounded-contexts/commercial-terms/support/request-support/api-client.ts:PUT H84ff06186f96#1",
-        "api-client:bounded-contexts/commercial-terms/support/request-support/api-client.ts:PUT H8f5693b22186#1"
-      ],
-      "visibleDestination": {
-        "description": "Commercial Terms admin request client returns typed command snapshots with commandReceipt metadata attached from platform API response headers."
-      },
-      "proof": {
-        "authoritativeResponse": "The request client attaches response metadata to create/update schedule and agreement results so callers can either consume the id/version snapshot or carry the receipt into a fresh-read redirect.",
-        "tests": ["bounded-contexts/commercial-terms/support/request-support/api-client.test.ts"]
-      }
-    },
-    {
       "id": "commercial-terms.schedule-create-form-fresh-read",
       "owner": "commercial-terms",
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/commercial-terms/features/schedules/ui/schedule-list-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/commercial-terms/routes/admin/schedules.tsx"
+        "post-form:bounded-contexts/commercial-terms/features/home/ui/commercial-terms-home-page.tsx:Hb08a81ecfd73#1",
+        "route-action:bounded-contexts/commercial-terms/routes/admin/home.tsx"
       ],
       "visibleDestination": {
-        "routeId": "commercial-terms-schedules",
+        "routeId": "commercial-terms-home",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/schedules",
         "readModelTables": ["platform_policy_documents"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Schedule create redirects with afterWrite and the schedule list loader waits on the schedule page projection before showing the list."
+          "behavior": "Schedule create redirects with afterWrite and the home loader waits before reopening the created schedule sheet."
         }
       },
       "proof": {
@@ -351,17 +333,17 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/commercial-terms/features/schedules/ui/schedule-detail-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/commercial-terms/routes/admin/schedules-detail.tsx"
+        "post-form:bounded-contexts/commercial-terms/features/home/ui/commercial-terms-home-page.tsx:Hb08a81ecfd73#2",
+        "route-action:bounded-contexts/commercial-terms/routes/admin/home.tsx"
       ],
       "visibleDestination": {
-        "routeId": "commercial-terms-schedules-detail",
+        "routeId": "commercial-terms-home",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/schedules/:id",
         "readModelTables": ["platform_policy_documents", "platform_policy_document_history"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Schedule update redirects with afterWrite and the schedule detail loader waits on the schedule page and history projections before showing the edited schedule."
+          "behavior": "Schedule update redirects with afterWrite and the home loader waits before reopening the revised schedule sheet."
         }
       },
       "proof": {
@@ -374,19 +356,17 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/commercial-terms/features/agreements/ui/agreement-list-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/commercial-terms/features/agreements/ui/agreement-account-create-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/commercial-terms/routes/admin/agreements.tsx",
-        "route-action:bounded-contexts/commercial-terms/routes/admin/account-agreement-new.tsx"
+        "post-form:bounded-contexts/commercial-terms/features/home/ui/commercial-terms-home-page.tsx:Hb08a81ecfd73#3",
+        "route-action:bounded-contexts/commercial-terms/routes/admin/home.tsx"
       ],
       "visibleDestination": {
-        "routeId": "commercial-terms-agreements",
+        "routeId": "commercial-terms-home",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/agreements",
         "readModelTables": ["platform_policy_documents"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Agreement create redirects with afterWrite and the agreement list loader waits on the agreement page projection before showing the list."
+          "behavior": "Agreement create redirects with afterWrite and the home loader waits before reopening the created account override."
         }
       },
       "proof": {
@@ -399,17 +379,17 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/commercial-terms/features/agreements/ui/agreement-detail-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/commercial-terms/routes/admin/agreements-detail.tsx"
+        "post-form:bounded-contexts/commercial-terms/features/home/ui/commercial-terms-home-page.tsx:Hb08a81ecfd73#4",
+        "route-action:bounded-contexts/commercial-terms/routes/admin/home.tsx"
       ],
       "visibleDestination": {
-        "routeId": "commercial-terms-agreements-detail",
+        "routeId": "commercial-terms-home",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/agreements/:id",
         "readModelTables": ["platform_policy_documents", "platform_policy_document_history"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Agreement update redirects with afterWrite and the agreement detail loader waits on the agreement page and history projections before showing the edited agreement."
+          "behavior": "Agreement update redirects with afterWrite and the home loader waits before reopening the revised account override."
         }
       },
       "proof": {
@@ -454,6 +434,14 @@
     {
       "deployable": "admin-web",
       "routes": [
+        {
+          "routeId": "commercial-terms-home",
+          "routePath": "terms",
+          "fileExport": "./routes/admin/home",
+          "routeType": "route",
+          "sourceContext": "commercial-terms",
+          "section": "commerce"
+        },
         {
           "routeId": "commercial-terms-schedules",
           "routePath": "terms/schedules",
@@ -517,7 +505,7 @@
       "key": "commercial-terms",
       "label": "Commercial Terms",
       "icon": "settings",
-      "href": "/terms/schedules",
+      "href": "/terms",
       "section": "commerce",
       "order": 70,
       "visibility": "signed-in",
@@ -525,6 +513,11 @@
     }
   ],
   "directoryIntent": {
+    "home": {
+      "classification": "slice",
+      "purpose": "Own the Commercial Terms home card ordering, effective-date presentation, and inline schedule and agreement workflows.",
+      "expectedConsumers": ["Commercial Terms admin route contribution"]
+    },
     "schedules": {
       "classification": "slice",
       "purpose": "Own commercial-terms schedule behavior, read models, and UI contracts.",
@@ -564,12 +557,6 @@
         "Internal commercial-terms module composition",
         "Ordering (via authenticityFeePolicyResolver host port)"
       ]
-    },
-    "request-support": {
-      "classification": "support",
-      "purpose": "Provide Commercial Terms request composition for admin routes that span schedules, agreements, and resolutions.",
-      "expectedConsumers": ["agreements", "schedules"],
-      "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
       "classification": "support",

@@ -154,3 +154,20 @@ export async function getCommercialTermsAccountReference(db: PgQueryable, accoun
 
   return result.rows[0] ?? null;
 }
+
+export type CommercialTermsAccountOption = Readonly<{
+  account_id: string;
+  display_name: string;
+  account_type: string;
+}>;
+
+export async function listCommercialTermsAccountOptions(db: PgQueryable) {
+  const result = await db.query<CommercialTermsAccountOption>(
+    `SELECT account_id, display_name, account_type
+     FROM commercial_terms_account_pages
+     WHERE status = 'active'
+     ORDER BY display_name ASC, account_id ASC
+     LIMIT 250`,
+  );
+  return result.rows;
+}

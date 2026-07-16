@@ -59,7 +59,13 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
           filterToEventTypes: true,
         },
         "platform-operations.fulfillment-support-return-source-projection": {
-          buildHandlers: () => buildFulfillmentSupportReturnSourceProjectionHandlers(services.db),
+          buildHandlers: () =>
+            buildFulfillmentSupportReturnSourceProjectionHandlers(services.db, {
+              onResolved: (input, context) =>
+                services.returnShipments.supportReturnLabels.issueForResolution(input, context),
+              onCancelled: (input, context) =>
+                services.returnShipments.supportReturnLabels.voidForCancellation(input, context),
+            }),
           filterToEventTypes: true,
         },
       },

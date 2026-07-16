@@ -8,14 +8,15 @@ Projections are normally woken by the push-first pipeline (event-store wake noti
 
 Open Admin > Operations > Projection Operations.
 
-The console is owned by the Platform Operations bounded context. It should be used as an attention-first triage surface, not as a raw table dump:
+The console is owned by the Platform Operations bounded context. It is an attention-first triage surface, not a raw table dump:
 
 1. Start with the summary band and confirm whether the console says `Healthy`, `Running`, `Review`, `Stale`, or `Needs attention`.
-2. Review the Attention tab before scanning routine projection groups.
-3. Select a failed operation, degraded projection group, blocked stream, stale worker, or stale revision to open its detail panel.
-4. Retry blocked streams only from blocked-stream detail after the handler or data issue is fixed.
+2. Review the Projection repair queue before scanning routine projection groups.
+3. Select a failed operation, degraded projection group, blocked stream, poison event, stale worker, or stale revision to open its detail drawer.
+4. Retry blocked streams only from blocked-stream or poison-event detail after the handler or data issue is fixed.
 5. Rebuild a projection group only from projection-group detail and only when replay is the safer repair path.
 6. Cancel queued or running operations from operation detail when the work should stop at the next safe lease or transaction boundary.
+7. Use Settings and reference for the projection-group inventory, subscription matrix, worker state, diagnostics, and push-wake handoff.
 
 ## Backlog
 
@@ -35,7 +36,7 @@ The console is owned by the Platform Operations bounded context. It should be us
   signal and lease guard before claims, between batch items, before provider
   calls, and before completion writes. Deployment cancellation should preserve
   progress and release or expire the claim rather than record business failure.
-- Use the Operations tab in Admin to inspect queued, running, succeeded, failed, cancel-requested, and cancelled operations.
+- Use Recent operation runs in Admin to inspect queued, running, succeeded, failed, cancel-requested, and cancelled operations.
 - The operation history API supports filters for `contextName`, `projectionName`, `state`, and `requestedByUserId`.
 - Operation summaries expose queued count, running count, failed count, cancel-requested count, oldest queued/running timestamps, and average operation duration.
 
@@ -53,7 +54,7 @@ Poison handling is stream-isolated. A projection group reports `degraded` when i
 
 ### Triage
 
-1. Open Admin > Operations > Projection Operations and start in the Attention tab.
+1. Open Admin > Operations > Projection Operations and start in the Projection repair queue.
 2. Select the blocked stream or degraded projection group and check source lag, applicable lag, blocked stream count, and poison event count.
 3. Inspect poison event detail: projection key, event type, stream id, stream version, global position, retry count, first/last seen timestamps, and error message.
 4. Decide whether the failure is a handler bug, malformed historical data, missing reference data, or a projection definition change.

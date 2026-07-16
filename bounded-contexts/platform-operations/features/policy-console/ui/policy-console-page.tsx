@@ -16,6 +16,7 @@ import {
 } from "@chase-sets/design-system";
 import type { PolicyConsoleRegistryItem } from "../api/contracts";
 import type { PublicDocReviewQueueItem } from "../../public-doc-reviews/read-model/queries";
+import type { CommercialTermsAttentionItem } from "../../commercial-terms-attention/read-model/queries";
 
 const routeKey = "platformOperations.policyConsole";
 
@@ -50,10 +51,12 @@ export function PolicyConsolePage({
   items,
   commercialTermsSchedulesHref,
   reviewItems = [],
+  commercialTermsAttentionItems = [],
 }: Readonly<{
   items: readonly PolicyConsoleRegistryItem[];
   commercialTermsSchedulesHref: string;
   reviewItems?: readonly PublicDocReviewQueueItem[];
+  commercialTermsAttentionItems?: readonly CommercialTermsAttentionItem[];
 }>) {
   const groups = groupByContext(items);
 
@@ -76,6 +79,41 @@ export function PolicyConsolePage({
             </Stack>
           </Inset>
         </Card>
+      </PageSection>
+
+      <PageSection
+        title={t(`${routeKey}.commercialTermsAttention.title`)}
+        description={t(`${routeKey}.commercialTermsAttention.description`)}
+      >
+        {commercialTermsAttentionItems.length === 0 ? (
+          <Text tone="secondary">{t(`${routeKey}.commercialTermsAttention.empty`)}</Text>
+        ) : (
+          <DataTable<CommercialTermsAttentionItem>
+            rows={[...commercialTermsAttentionItems]}
+            getRowId={(item) => item.id}
+            columns={[
+              {
+                key: "terms",
+                header: t(`${routeKey}.commercialTermsAttention.terms`),
+                cell: (item) => item.label,
+              },
+              {
+                key: "timing",
+                header: t(`${routeKey}.commercialTermsAttention.timing`),
+                cell: (item) => item.detail,
+              },
+              {
+                key: "action",
+                header: t(`${routeKey}.commercialTermsAttention.action`),
+                cell: (item) => (
+                  <LinkButton href={item.href} tone="secondary" size="sm">
+                    {t(`${routeKey}.commercialTermsAttention.review`)}
+                  </LinkButton>
+                ),
+              },
+            ]}
+          />
+        )}
       </PageSection>
 
       <PageSection title={t(`${routeKey}.reviewQueue.title`)} description={t(`${routeKey}.reviewQueue.description`)}>

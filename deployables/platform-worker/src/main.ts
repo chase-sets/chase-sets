@@ -1402,6 +1402,18 @@ function createScheduledJobRunners(
             limit?: number;
           }) => Promise<{ checked: number; failed: number }>;
         };
+        returnShipments?: {
+          sweepReturnShipmentDeadlines?: (
+            params: { now?: string; limit?: number } | undefined,
+            context: typeof SYSTEM_CONTEXT,
+          ) => Promise<{ checked: number; expired: number; skipped: number }>;
+          labelPurchase?: {
+            reconcileStaleReturnLabelPurchases?: (params?: {
+              staleAfterMs?: number;
+              limit?: number;
+            }) => Promise<{ checked: number; attached: number; failed: number }>;
+          };
+        };
       }
     | undefined;
   const discovery = services.discovery as
@@ -1806,6 +1818,40 @@ function createScheduledJobRunners(
           });
           logger.info("Fulfillment postage label void reconciliation completed.", {
             type: "fulfillment.postage-label-void-reconciliation",
+            result,
+          });
+          return result.checked;
+        },
+      ),
+    );
+  }
+
+  if (fulfillment?.returnShipments?.sweepReturnShipmentDeadlines) {
+    runners.push(
+      createScheduledJobRunner("fulfillment.return-shipment-deadline-sweep", 5 * 60 * 1000, controlPlane, async () => {
+        const result = await fulfillment.returnShipments!.sweepReturnShipmentDeadlines!({ limit: 100 }, SYSTEM_CONTEXT);
+        logger.info("Fulfillment return-shipment deadline sweep completed.", {
+          type: "fulfillment.return-shipment-deadline-sweep",
+          result,
+        });
+        return result.checked;
+      }),
+    );
+  }
+
+  if (fulfillment?.returnShipments?.labelPurchase?.reconcileStaleReturnLabelPurchases) {
+    runners.push(
+      createScheduledJobRunner(
+        "fulfillment.return-label-purchase-reconciliation",
+        5 * 60 * 1000,
+        controlPlane,
+        async () => {
+          const result = await fulfillment.returnShipments!.labelPurchase!.reconcileStaleReturnLabelPurchases!({
+            staleAfterMs: 5 * 60 * 1000,
+            limit: 100,
+          });
+          logger.info("Fulfillment return-label purchase reconciliation completed.", {
+            type: "fulfillment.return-label-purchase-reconciliation",
             result,
           });
           return result.checked;

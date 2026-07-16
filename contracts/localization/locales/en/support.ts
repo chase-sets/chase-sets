@@ -537,6 +537,19 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportOperationsPage.remedy.action.correctionRequested":
     "Correction or escalation requested.",
   "support.routes.admin.operationsRequestDetail.request.failed": "Support request action failed.",
+  "support.features.supportRequests.ui.returnShipping.title": "Return shipping",
+  "support.features.supportRequests.ui.returnShipping.pending": "Creating label",
+  "support.features.supportRequests.ui.returnShipping.ready": "Ready to ship",
+  "support.features.supportRequests.ui.returnShipping.delivered": "Return delivered",
+  "support.features.supportRequests.ui.returnShipping.failed": "Label needs attention",
+  "support.features.supportRequests.ui.returnShipping.voided": "Label voided",
+  "support.features.supportRequests.ui.returnShipping.fallback":
+    "We couldn't create the label automatically. Support will provide replacement shipping instructions.",
+  "support.features.supportRequests.ui.returnShipping.openLabel": "Open return label",
+  "support.features.supportRequests.ui.returnShipping.tracking": "Tracking: {tracking}",
+  "support.features.supportRequests.ui.returnShipping.buyerPays": "{amount} will be deducted from the buyer refund.",
+  "support.features.supportRequests.ui.returnShipping.sellerPays":
+    "Return postage will be deducted from the seller balance.",
   "support.routes.admin.operationsQueue.request.failed": "Support operations request failed.",
   "support.routes.admin.operationsQueue.meta.title": "Support operations | Admin",
   "support.routes.admin.operationsRequestDetail.meta.title": "Support request {id} | Admin",

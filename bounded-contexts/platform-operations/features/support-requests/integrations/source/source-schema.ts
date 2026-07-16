@@ -58,4 +58,20 @@ CREATE TABLE IF NOT EXISTS support_shipment_sources (
 
 CREATE INDEX IF NOT EXISTS support_shipment_sources_order_idx
   ON support_shipment_sources (order_id, updated_at DESC);
+
+CREATE UNLOGGED TABLE IF NOT EXISTS support_return_label_sources (
+  support_request_id text PRIMARY KEY,
+  return_shipment_id text NOT NULL UNIQUE,
+  status text NOT NULL,
+  label_status text NOT NULL,
+  cost_payer text NOT NULL,
+  tracking_identifier text NULL,
+  label_document_url text NULL,
+  postage_amount_cents integer NULL,
+  postage_currency text NULL,
+  failure_reason text NULL,
+  ship_by_deadline_at timestamptz NOT NULL,
+  return_by_deadline_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
 `;

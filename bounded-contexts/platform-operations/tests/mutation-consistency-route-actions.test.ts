@@ -24,6 +24,7 @@ import {
 import { action as platformFeedbackDetailAction } from "../routes/admin/platform-feedback-detail";
 import { action as platformFeedbackListAction } from "../routes/admin/platform-feedback";
 import { action as projectionOperationsAction } from "../routes/admin/projection-operations";
+import { action as projectionOperationsReferenceAction } from "../routes/admin/projection-operations-reference";
 import { action as supportOperationsDetailAction } from "../routes/admin/request-detail";
 import { action as supportOperationsAction } from "../routes/admin/requests";
 
@@ -84,7 +85,7 @@ describe("platform operations mutation consistency route actions", () => {
     });
 
     const response = (await projectionOperationsAction({
-      request: formRequest("http://localhost/platform/projections?tab=groups&selected=catalog", form),
+      request: formRequest("http://localhost/platform/projections?selected=catalog", form),
       params: {},
       context: undefined,
     } as never)) as Response;
@@ -97,7 +98,33 @@ describe("platform operations mutation consistency route actions", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/platform/projections?tab=groups&selected=catalog");
+    expect(response.headers.get("Location")).toBe("/platform/projections?selected=catalog");
+  });
+
+  it("refetches the selected projection reference destination after drawer actions", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ accepted: true }, 202)),
+    );
+    const form = new URLSearchParams({
+      intent: "retry-stream",
+      projectionKey: "catalog.catalog-item-projection",
+      streamId: "catalog.item-1",
+    });
+
+    const response = (await projectionOperationsReferenceAction({
+      request: formRequest(
+        "http://localhost/platform/projections/reference?search=catalog&selected=catalog.item-1",
+        form,
+      ),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(
+      "/platform/projections/reference?search=catalog&selected=catalog.item-1",
+    );
   });
 
   it("refetches platform feedback detail after review snapshots", async () => {

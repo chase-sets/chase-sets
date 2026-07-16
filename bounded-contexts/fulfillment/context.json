@@ -52,11 +52,13 @@
     {
       "sourceContextName": "platform-operations",
       "projectionName": "fulfillment-support-return-source-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.affected-line-items-recorded",
-        "support.support-request.remedy-authorized.v1"
+        "support.support-request.remedy-authorized.v1",
+        "support.support-request.resolved",
+        "support.support-request.cancelled"
       ],
       "order": 40,
       "projectionHandlerSetNames": ["fulfillment-support-return-source-projection"]
@@ -530,7 +532,7 @@
     },
     "return-shipments": {
       "classification": "slice",
-      "purpose": "Own the buyer-to-platform return-shipment aggregate, platform-facility destination directory, facility intake and discrepancy workflow, unidentified package reconciliation, and customer-safe and operator read models.",
+      "purpose": "Own buyer-to-seller and buyer-to-platform return-shipment behavior, label issuance and voiding, destination selection, facility intake and discrepancy workflow, unidentified package reconciliation, and customer-safe and operator read models.",
       "expectedConsumers": ["Internal fulfillment module composition"]
     },
     "request-support": {

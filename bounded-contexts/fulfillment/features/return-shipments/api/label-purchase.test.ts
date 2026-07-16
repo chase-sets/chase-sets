@@ -256,6 +256,54 @@ describe("return-shipment label purchase", () => {
     expect(call.recipient.city).toBe("Newark");
   });
 
+  it("routes an ordinary support return back to the immutable seller origin without facility selection", async () => {
+    const { service, provider, readAllEvents } = buildService({
+      directory: createReturnFacilityDirectory([]),
+      linkageSource: {
+        supportOrderId: "ord_1",
+        supportAffectedOrderLineIds: ["oli_1"],
+        remedySupportRequestId: "sup_1",
+        remedyReturnDirective: "return-to-seller",
+        shipmentOrderId: "ord_1",
+        shipmentOrderLineIds: ["oli_1"],
+      },
+    });
+    const result = await service.issueReturnLabel(
+      directive({
+        returnDirective: "return-to-seller",
+        destinationSnapshot: {
+          destinationType: "seller",
+          sellerAccountId: "acc_seller",
+          snapshotVersion: "outbound-shipment-origin-v1",
+          displayName: "Seller return",
+          displayInstructions: "Use the provided label and keep the carrier receipt until the return is complete.",
+          postalAddress: {
+            name: "Seller",
+            line1: "8 Seller St",
+            city: "Madison",
+            state: "WI",
+            postalCode: "53703",
+            country: "US",
+          },
+          region: "us",
+          selectedAt: "2026-06-02T00:00:00.000Z",
+        },
+        costPayer: "seller",
+      }),
+      context,
+    );
+
+    expect(result.outcome).toBe("label-ready");
+    const requested = readAllEvents().find((entry) => entry.eventType === "fulfillment.return-shipment.requested.v2");
+    expect(requested?.payload).toMatchObject({
+      returnDirective: "return-to-seller",
+      costPayer: "seller",
+      destinationSnapshot: { destinationType: "seller", sellerAccountId: "acc_seller" },
+    });
+    const call = (provider.purchaseUspsLabel as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.recipient.city).toBe("Madison");
+  });
+
   it("is idempotent under retries: a second directive buys no second label", async () => {
     const { service, provider, loadLinkageSource, readAllEvents } = buildService();
     const first = await service.issueReturnLabel(directive(), context);

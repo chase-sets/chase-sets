@@ -13,6 +13,7 @@ import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { createPlatformFeedbackRuntime } from "../../features/platform-feedback/api/runtime";
 import { createPublicDocReviewRuntime } from "../../features/public-doc-reviews/api/runtime";
+import { createCommercialTermsAttentionRuntime } from "../../features/commercial-terms-attention/api/runtime";
 import { createDashboardQueryService } from "../../features/insights-dashboards/read-model/queries";
 import { createOpsDashboardRuntime } from "../../features/insights-dashboards/api/ops-runtime";
 import type { OpsMarketAnalyticsCrossContextPort } from "../../features/insights-dashboards/api/ops-contracts";
@@ -79,6 +80,7 @@ export type PlatformOperationsServices = Readonly<{
   offerEconomics: ReturnType<typeof createOfferEconomicsRuntime>;
   platformFeedback: ReturnType<typeof createPlatformFeedbackRuntime>;
   publicDocReviews: ReturnType<typeof createPublicDocReviewRuntime>;
+  commercialTermsAttention: ReturnType<typeof createCommercialTermsAttentionRuntime>;
   reportedContent: ReturnType<typeof createReportedContentRuntime>;
   riskAlerts: ReturnType<typeof createRiskAlertRuntime>;
   supportRequests: ReturnType<typeof createSupportRequestRuntime>;
@@ -109,6 +111,7 @@ export function createPlatformOperationsServices(
     db,
   });
   const publicDocReviews = createPublicDocReviewRuntime({ db, eventStore });
+  const commercialTermsAttention = createCommercialTermsAttentionRuntime(db);
   const reportedContent = createReportedContentRuntime({ db, eventStore });
   const riskAlerts = createRiskAlertRuntime({ db, eventStore });
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
@@ -190,6 +193,7 @@ export function createPlatformOperationsServices(
     offerEconomics: createOfferEconomicsRuntime({ crossContext: ports.offerEconomicsCrossContext }),
     platformFeedback,
     publicDocReviews,
+    commercialTermsAttention,
     reportedContent,
     riskAlerts,
     supportRequests,

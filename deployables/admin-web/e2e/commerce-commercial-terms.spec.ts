@@ -8,6 +8,7 @@ import {
 } from "./support/admin-e2e";
 
 const demoAccountId = "acc_seed_demo_account";
+const commercialTermsProjectionName = "platform-policy-document-projection";
 
 test.describe("commerce admin commercial terms", () => {
   test("operator manages fee schedules and commercial agreements @admin-commerce", async ({ page }) => {
@@ -17,57 +18,65 @@ test.describe("commerce admin commercial terms", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/commerce/terms/schedules", "/access/sign-in");
+    await authenticateAdmin(page, "/commerce/terms", "/access/sign-in");
     const suffix = Date.now().toString(36);
     await expectScheduleOverlapValidation(page, suffix);
     await createInactiveScheduleAndInspectHistory(page, suffix);
-    await expectAgreementAccountValidation(page);
     await createInactiveAgreementAndInspectHistory(page, suffix);
   });
 });
 
+// The schedules and agreements admin surfaces were unified onto a single
+// /commerce/terms home page. Creating or revising a term happens in an
+// in-place edit sheet; a successful write redirects back to /commerce/terms
+// with the created term selected (and a fresh-write receipt token), so the
+// sheet reopens on the new record's revision history.
+
+async function openCommercialTermsHome(page: Page) {
+  await expectPageOk(page, "/commerce/terms");
+  await expectAdminPageReady(page, { heading: "Commercial Terms" });
+}
+
 async function expectScheduleOverlapValidation(page: Page, suffix: string) {
-  await expectPageOk(page, "/commerce/terms/schedules");
-  await expectAdminPageReady(page, { heading: "Fee Schedules" });
+  await openCommercialTermsHome(page);
 
   const effectiveFrom = new Date(Date.now() + 365 * 24 * 60 * 60 * 1_000 + Math.random() * 10_000_000_000);
   const effectiveUntil = new Date(effectiveFrom.getTime() + 1_000);
   const activeLabel = `E2E overlap baseline ${suffix}`;
-  const form = createScheduleForm(page);
-  await form.getByLabel("Label").fill(activeLabel);
-  await form.getByLabel("Account type").selectOption("business");
-  await form.getByLabel("Status").selectOption("active");
-  await form.getByLabel("Effective from").fill(effectiveFrom.toISOString());
-  await form.getByLabel("Effective until").fill(effectiveUntil.toISOString());
-  await form.getByRole("button", { name: "Create schedule" }).click();
 
-  await page.waitForURL((url) => url.pathname === "/commerce/terms/schedules" && url.search.includes("afterWrite"), {
-    timeout: 30_000,
-  });
-  const createUrl = new URL(page.url());
+  const baselineForm = await openCreateScheduleSheet(page);
+  await baselineForm.getByLabel("Account type").selectOption("business");
+  await baselineForm.getByLabel("Label").fill(activeLabel);
+  await baselineForm.getByLabel("Status").selectOption("active");
+  await baselineForm.getByLabel("Effective from").fill(effectiveFrom.toISOString());
+  await baselineForm.getByLabel("Effective until").fill(effectiveUntil.toISOString());
+  await baselineForm.getByRole("button", { name: "Save schedule", exact: true }).click();
+
+  const createUrl = await waitForCommercialTermsWrite(page, "schedule");
   await waitForCommercialTermsProjection(page, createUrl, {
-    projectionName: "platform-policy-document-projection",
+    projectionName: commercialTermsProjectionName,
     label: `create overlap baseline schedule ${activeLabel}`,
   });
-  await page.goto(createUrl.pathname, { waitUntil: "domcontentloaded" });
-  await expectAdminPageReady(page, { heading: "Fee Schedules" });
 
-  const overlapForm = createScheduleForm(page);
-  await overlapForm.getByLabel("Label").fill(`E2E overlapping business schedule ${suffix}`);
+  await openCommercialTermsHome(page);
+  const overlapForm = await openCreateScheduleSheet(page);
   await overlapForm.getByLabel("Account type").selectOption("business");
+  await overlapForm.getByLabel("Label").fill(`E2E overlapping business schedule ${suffix}`);
   await overlapForm.getByLabel("Status").selectOption("active");
   await overlapForm.getByLabel("Effective from").fill(effectiveFrom.toISOString());
   await overlapForm.getByLabel("Effective until").fill(effectiveUntil.toISOString());
-  await overlapForm.getByRole("button", { name: "Create schedule" }).click();
+  await overlapForm.getByRole("button", { name: "Save schedule", exact: true }).click();
 
   await expect(page.getByText(/already covers that account type and effective window/i)).toBeVisible();
 }
 
 async function createInactiveScheduleAndInspectHistory(page: Page, suffix: string) {
   const label = `E2E inactive schedule ${suffix}`;
-  const form = createScheduleForm(page);
-  await form.getByLabel("Label").fill(label);
+  await openCommercialTermsHome(page);
+
+  const form = await openCreateScheduleSheet(page);
   await form.getByLabel("Account type").selectOption("enterprise");
+  await form.getByLabel("Label").fill(label);
   await fillCommercialTermsFeeFields(form, {
     marketplaceSalesFeePercentageBps: "640",
     marketplaceSalesFeeFixedAmount: "0.02",
@@ -76,44 +85,25 @@ async function createInactiveScheduleAndInspectHistory(page: Page, suffix: strin
   await form.getByLabel("Status").selectOption("inactive");
   await form.getByLabel("Effective from").fill("2027-01-01T00:00:00.000Z");
   await form.getByLabel("Effective until").fill("2027-12-31T00:00:00.000Z");
-  await form.getByRole("button", { name: "Create schedule" }).click();
+  await form.getByRole("button", { name: "Save schedule", exact: true }).click();
 
-  await page.waitForURL((url) => url.pathname === "/commerce/terms/schedules" && url.search.includes("afterWrite"), {
-    timeout: 30_000,
-  });
-  const createUrl = new URL(page.url());
+  const createUrl = await waitForCommercialTermsWrite(page, "schedule");
   await waitForCommercialTermsProjection(page, createUrl, {
-    projectionName: "platform-policy-document-projection",
+    projectionName: commercialTermsProjectionName,
     label: `create commercial terms schedule ${label}`,
   });
-  await page.goto(createUrl.pathname, { waitUntil: "domcontentloaded" });
-  await expectAdminPageReady(page, { heading: "Fee Schedules" });
-  const openedLabel = await openListRowDetail(page, label, "E2E inactive schedule");
-  await expectAdminPageReady(page, { heading: openedLabel });
-  await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
-  await expect(page.getByRole("row").filter({ hasText: "created" })).toBeVisible();
-}
 
-async function expectAgreementAccountValidation(page: Page) {
-  await expectPageOk(page, "/commerce/terms/agreements");
-  await expectAdminPageReady(page, { heading: "Commercial Agreements" });
-
-  const form = createAgreementForm(page);
-  await form.getByLabel("Label").fill(`E2E invalid account agreement ${Date.now().toString(36)}`);
-  await form.getByLabel("Account ID").fill("acc_e2e_missing_account");
-  await form.getByLabel("Status").selectOption("inactive");
-  await form.getByLabel("Effective from").fill("2027-01-01T00:00:00.000Z");
-  await form.getByLabel("Effective until").fill("2027-12-31T00:00:00.000Z");
-  await form.getByRole("button", { name: "Create agreement" }).click();
-
-  await expect(page.getByText(/Account acc_e2e_missing_account is not available for commercial terms/i)).toBeVisible();
+  await reopenCommercialTerm(page, "schedule", createUrl);
+  await expectCommercialTermRevisionHistory(page);
 }
 
 async function createInactiveAgreementAndInspectHistory(page: Page, suffix: string) {
   const label = `E2E inactive agreement ${suffix}`;
-  const form = createAgreementForm(page);
+  await openCommercialTermsHome(page);
+
+  const form = await openCreateAgreementSheet(page);
+  await form.getByLabel("Account", { exact: true }).selectOption(demoAccountId);
   await form.getByLabel("Label").fill(label);
-  await form.getByLabel("Account ID").fill(demoAccountId);
   await fillCommercialTermsFeeFields(form, {
     marketplaceSalesFeePercentageBps: "690",
     marketplaceSalesFeeFixedAmount: "0.03",
@@ -122,84 +112,57 @@ async function createInactiveAgreementAndInspectHistory(page: Page, suffix: stri
   await form.getByLabel("Status").selectOption("inactive");
   await form.getByLabel("Effective from").fill("2027-01-01T00:00:00.000Z");
   await form.getByLabel("Effective until").fill("2027-12-31T00:00:00.000Z");
-  await form.getByRole("button", { name: "Create agreement" }).click();
+  await form.getByRole("button", { name: "Save account override", exact: true }).click();
 
-  await page.waitForURL((url) => url.pathname === "/commerce/terms/agreements" && url.search.includes("afterWrite"), {
-    timeout: 30_000,
-  });
-  const createUrl = new URL(page.url());
+  const createUrl = await waitForCommercialTermsWrite(page, "agreement");
   await waitForCommercialTermsProjection(page, createUrl, {
-    projectionName: "platform-policy-document-projection",
+    projectionName: commercialTermsProjectionName,
     label: `create commercial agreement ${label}`,
   });
-  await page.goto(createUrl.pathname, { waitUntil: "domcontentloaded" });
-  await expectAdminPageReady(page, { heading: "Commercial Agreements" });
-  const openedLabel = await openListRowDetail(page, label, "E2E inactive agreement");
-  await expectAdminPageReady(page, { heading: openedLabel });
-  await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
-  await expect(page.getByRole("row").filter({ hasText: "created" })).toBeVisible();
+
+  await reopenCommercialTerm(page, "agreement", createUrl);
+  await expectCommercialTermRevisionHistory(page);
 }
 
-function createScheduleForm(page: Page): Locator {
-  return page.locator("form").filter({ has: page.getByRole("button", { name: "Create schedule" }) });
+async function openCreateScheduleSheet(page: Page): Promise<Locator> {
+  await page.getByRole("link", { name: "Create schedule", exact: true }).click();
+  const form = scheduleCreateForm(page);
+  await expect(form.getByRole("button", { name: "Save schedule", exact: true })).toBeVisible();
+  return form;
 }
 
-function createAgreementForm(page: Page): Locator {
-  return page.locator("form").filter({ has: page.getByRole("button", { name: "Create agreement" }) });
+async function openCreateAgreementSheet(page: Page): Promise<Locator> {
+  await page.getByRole("link", { name: "Create account override", exact: true }).click();
+  const form = agreementCreateForm(page);
+  await expect(form.getByRole("button", { name: "Save account override", exact: true })).toBeVisible();
+  return form;
 }
 
-async function waitForListRow(page: Page, label: string, fallbackPrefix: string) {
-  const exactRow = page.getByRole("row").filter({ hasText: label }).first();
-  const fallbackRow = page.getByRole("row").filter({ hasText: fallbackPrefix }).first();
-  await expect
-    .poll(
-      async () => {
-        if (await exactRow.isVisible().catch(() => false)) {
-          return true;
-        }
-
-        await reloadCommercialTermsListAfterFreshnessRecovery(page);
-        await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
-        return exactRow.isVisible().catch(() => false);
-      },
-      { intervals: [1_000, 2_000, 5_000], timeout: 15_000 },
-    )
-    .toBe(true)
-    .catch(async () => {
-      await expect(fallbackRow).toBeVisible({ timeout: 30_000 });
-    });
-
-  return (await exactRow.isVisible().catch(() => false)) ? exactRow : fallbackRow;
+function scheduleCreateForm(page: Page): Locator {
+  return page.locator("form").filter({ has: page.getByRole("button", { name: "Save schedule", exact: true }) });
 }
 
-async function reloadCommercialTermsListAfterFreshnessRecovery(page: Page) {
-  const freshnessTimeoutVisible = await page
-    .getByText(/Projection read model did not catch up/i)
-    .isVisible({ timeout: 1_000 })
-    .catch(() => false);
-
-  if (freshnessTimeoutVisible) {
-    const url = new URL(page.url());
-    await page.goto(url.pathname, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => undefined);
-    return;
-  }
-
-  await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
+function agreementCreateForm(page: Page): Locator {
+  return page.locator("form").filter({ has: page.getByRole("button", { name: "Save account override", exact: true }) });
 }
 
-async function openListRowDetail(page: Page, label: string, fallbackPrefix: string) {
-  const row = await waitForListRow(page, label, fallbackPrefix);
-  const openedLabel = (await row.locator("td").first().locator("p").first().innerText()).trim();
-  const link = row.getByRole("link", { name: "Open" });
-  const href = await link.getAttribute("href");
-  expect(href, `Open link for ${label} should have a destination`).toBeTruthy();
-  const destination = new URL(href!, page.url());
+async function waitForCommercialTermsWrite(page: Page, kind: "schedule" | "agreement"): Promise<URL> {
+  await page.waitForURL(
+    (url) => url.pathname === "/commerce/terms" && url.searchParams.has(kind) && url.search.includes("afterWrite"),
+    { timeout: 30_000 },
+  );
+  return new URL(page.url());
+}
 
-  await link.click();
-  await page
-    .waitForURL((url) => url.pathname === destination.pathname, { timeout: 5_000 })
-    .catch(async () => expectPageOk(page, href!));
-  return openedLabel;
+async function reopenCommercialTerm(page: Page, kind: "schedule" | "agreement", createUrl: URL) {
+  const id = createUrl.searchParams.get(kind);
+  expect(id, `created ${kind} id should be present in the post-write url`).toBeTruthy();
+  await page.goto(`/commerce/terms?${kind}=${encodeURIComponent(id!)}`, { waitUntil: "domcontentloaded" });
+}
+
+async function expectCommercialTermRevisionHistory(page: Page) {
+  await expect(page.getByText("Revision history")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/created/i).first()).toBeVisible();
 }
 
 async function waitForCommercialTermsProjection(

@@ -157,7 +157,7 @@ export type ReturnFacilitySelectionCriteria = Readonly<{
  * the facility id/version for audit — but never the restricted operational
  * contact or internal routing code, so those secrets stay out of the event log.
  */
-export type ReturnDestinationSnapshot = Readonly<{
+export type ReturnFacilityDestinationSnapshot = Readonly<{
   destinationType: "platform-facility";
   facilityId: string;
   configVersion: string;
@@ -169,8 +169,27 @@ export type ReturnDestinationSnapshot = Readonly<{
   selectedAt: string;
 }>;
 
+export type ReturnSellerDestinationSnapshot = Readonly<{
+  destinationType: "seller";
+  sellerAccountId: string;
+  snapshotVersion: string;
+  displayName: string;
+  displayInstructions: string;
+  postalAddress: AddressSnapshot;
+  region: string;
+  selectedAt: string;
+  // Seller returns carry no platform-facility id. Declaring it as an absent
+  // (`undefined`) witness keeps `facilityId` structurally readable off the
+  // ReturnDestinationSnapshot union without runtime narrowing, so the shared
+  // custody seam can read a facility id on a facility snapshot directly. The
+  // `destinationType` discriminant still narrows the two variants apart.
+  facilityId?: undefined;
+}>;
+
+export type ReturnDestinationSnapshot = ReturnFacilityDestinationSnapshot | ReturnSellerDestinationSnapshot;
+
 export type ReturnFacilitySelectionResult =
-  | Readonly<{ outcome: "selected"; facility: ReturnFacility; snapshot: ReturnDestinationSnapshot }>
+  | Readonly<{ outcome: "selected"; facility: ReturnFacility; snapshot: ReturnFacilityDestinationSnapshot }>
   | Readonly<{ outcome: "no-eligible-facility"; reason: string }>;
 
 function facilityIsActiveAt(facility: ReturnFacility, asOf: string): boolean {
@@ -250,8 +269,23 @@ export function selectReturnFacility(
 
 /** Validates an already-captured destination snapshot (e.g. one decoded from an event) without re-selecting. */
 export function normalizeReturnDestinationSnapshot(input: ReturnDestinationSnapshot): ReturnDestinationSnapshot {
+  if (input.destinationType === "seller") {
+    return {
+      destinationType: "seller",
+      sellerAccountId: normalizeRequiredText(input.sellerAccountId, "Destination seller account id is required."),
+      snapshotVersion: normalizeRequiredText(input.snapshotVersion, "Destination snapshot version is required."),
+      displayName: normalizeRequiredText(input.displayName, "Destination snapshot display name is required."),
+      displayInstructions: normalizeRequiredText(
+        input.displayInstructions,
+        "Destination snapshot display instructions are required.",
+      ),
+      postalAddress: normalizeAddressSnapshot(input.postalAddress, "Destination snapshot postal address"),
+      region: normalizeRequiredText(input.region, "Destination snapshot region is required.").toLowerCase(),
+      selectedAt: ensureIsoTimestamp(input.selectedAt, "Destination snapshot must record a selection timestamp."),
+    };
+  }
   if (input.destinationType !== "platform-facility") {
-    throw new FulfillmentDomainError("Return destination snapshot must target a platform facility.");
+    throw new FulfillmentDomainError("Return destination snapshot type is not supported.");
   }
   return {
     destinationType: "platform-facility",
@@ -273,6 +307,26 @@ export function normalizeReturnDestinationSnapshot(input: ReturnDestinationSnaps
     ),
     selectedAt: ensureIsoTimestamp(input.selectedAt, "Destination snapshot must record a selection timestamp."),
   };
+}
+
+export function createSellerReturnDestination(
+  input: Readonly<{
+    sellerAccountId: string;
+    postalAddress: AddressSnapshot;
+    selectedAt: string;
+    snapshotVersion: string;
+  }>,
+): ReturnSellerDestinationSnapshot {
+  return normalizeReturnDestinationSnapshot({
+    destinationType: "seller",
+    sellerAccountId: input.sellerAccountId,
+    snapshotVersion: input.snapshotVersion,
+    displayName: "Seller return",
+    displayInstructions: "Use the provided label and keep the carrier receipt until the return is complete.",
+    postalAddress: input.postalAddress,
+    region: input.postalAddress.country,
+    selectedAt: input.selectedAt,
+  }) as ReturnSellerDestinationSnapshot;
 }
 
 /** Removes restricted operational fields, leaving only what a customer may see. */
