@@ -1325,9 +1325,17 @@ jobs:
           done
 
           cd ../../..
+          # Bounded transient readiness budget (60 x 30s) for genuinely-warming
+          # backends, but fail fast on a deterministic ingress topology defect
+          # (#5498): once a ready ingress returns a stable 404 on the same URL
+          # for --topology-streak consecutive probes past the --warmup-grace-ms
+          # window, stop and hold the promotion with an actionable diagnostic
+          # instead of burning the full ~30-minute budget.
           node ./scripts/platform-ingress-wait.mjs \
             --attempts 60 \
             --delay-ms 30000 \
+            --topology-streak 4 \
+            --warmup-grace-ms 60000 \
             "${ingress_args[@]}"
 
       # Pre-cutover DOKS proof (#4604, epic #4059): while App Platform still

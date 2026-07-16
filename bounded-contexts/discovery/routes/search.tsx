@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { ClientLoaderFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
   type ActionFunctionArgs,
   redirect,
@@ -34,6 +34,11 @@ import {
   persistSearchRestoration,
   restoreSearchRestoration,
 } from "../features/search/ui/search-scroll-restoration";
+import {
+  cacheSearchLoaderData,
+  readCachedSearchLoaderData,
+  searchLoaderCacheKey,
+} from "../features/search/ui/search-loader-cache";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 import { useDiscoveryRealtimeRevalidation } from "../support/realtime-support/revalidation";
 import {
@@ -279,6 +284,25 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     canonicalUrl: new URL(canonicalPath, url.origin).toString(),
     savedListClaim,
   };
+}
+
+/**
+ * Restore the Result Set instantly on back/forward navigation.
+ *
+ * React Router forces a loader run whenever it re-enters a route it had unmounted
+ * (`isNewLoader` sees the missing loader data), so a shopper returning from item detail
+ * would otherwise block on a full server round-trip before the cached results and scroll
+ * context could paint. Under merge-queue backend load that round-trip was the ~7.4s
+ * restoration stall. When a still-fresh payload for this exact Result Set URL is cached
+ * we serve it without a refetch; otherwise we defer to the authoritative server loader.
+ */
+export async function clientLoader({ request, serverLoader }: ClientLoaderFunctionArgs) {
+  const loadFromServer = () => serverLoader<typeof loader>();
+  const cached = readCachedSearchLoaderData<Awaited<ReturnType<typeof loadFromServer>>>(
+    getSearchSessionStorage(),
+    searchLoaderCacheKey(request.url),
+  );
+  return cached ?? loadFromServer();
 }
 
 type BulkAddActionData =
@@ -577,6 +601,22 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       persistCurrentRestoration();
     };
   }, []);
+
+  // Cache the authoritative loader payload for this Result Set URL so a later back/forward
+  // navigation can restore it via `clientLoader` without a blocking server round-trip. Both
+  // server-rendered and client-navigated visits pass through here, so the cache is warm
+  // before the shopper ever leaves for item detail. The empty fallback carries no
+  // `canonicalUrl`, so guarding on it keeps a stale-state placeholder out of the cache.
+  useEffect(() => {
+    if (!("canonicalUrl" in data)) {
+      return;
+    }
+    cacheSearchLoaderData(
+      getSearchSessionStorage(),
+      searchLoaderCacheKey(`${location.pathname}${location.search}`),
+      data,
+    );
+  }, [data, location.pathname, location.search]);
 
   if (
     draftSearchState.committedSearch !== data.search &&
