@@ -69,6 +69,22 @@ describe("agent order webhook projector", () => {
     expect(enqueued).toHaveLength(2);
   });
 
+  it("skips an order whose recipient cannot be resolved", async () => {
+    const { outbox, enqueued } = collectingOutbox();
+    const resolveWebhookTargets = vi.fn(async () => targets);
+    await projectOrderLifecycleEventToAgentWebhooks(
+      {
+        outbox,
+        resolveWebhookTargets,
+        resolveOrderRecipient: async () => null,
+        resolveShipmentOrderId: async () => null,
+      },
+      event("ordering.order.cancelled", { orderId: "ord_1", reason: "payment-deadline" }),
+    );
+    expect(enqueued).toHaveLength(0);
+    expect(resolveWebhookTargets).not.toHaveBeenCalled();
+  });
+
   it("resolves the order for a shipment dispatch before mapping", async () => {
     const { outbox, enqueued } = collectingOutbox();
     const resolveShipmentOrderId = vi.fn(async () => "ord_7");
@@ -84,6 +100,30 @@ describe("agent order webhook projector", () => {
     expect(resolveShipmentOrderId).toHaveBeenCalledWith("shp_1");
     expect(enqueued[0].orderId).toBe("ord_7");
     expect(enqueued[0].orderStatus).toBe("shipped");
+  });
+
+  it("fans a multi-order refund out per order, resolving each order's recipient independently", async () => {
+    const { outbox, enqueued } = collectingOutbox();
+    const recipientByOrder: Record<string, string> = { ord_1: "acc_buyer", ord_2: "acc_other" };
+    const targetsByAccount: Record<string, readonly AgentWebhookTarget[]> = {
+      acc_buyer: [{ clientId: "ocl_1", accountId: "acc_buyer", callbackUrl: "https://a.example/hooks" }],
+      acc_other: [{ clientId: "ocl_2", accountId: "acc_other", callbackUrl: "https://b.example/hooks" }],
+    };
+    await projectOrderLifecycleEventToAgentWebhooks(
+      {
+        outbox,
+        resolveWebhookTargets: async (accountId) => targetsByAccount[accountId] ?? [],
+        resolveOrderRecipient: async (orderId) => recipientByOrder[orderId] ?? null,
+        resolveShipmentOrderId: async () => null,
+      },
+      event("payments.refund-issued", { refundId: "rf_1", orderIds: ["ord_1", "ord_2"] }),
+    );
+    expect(enqueued.map((entry) => ({ orderId: entry.orderId, clientId: entry.clientId }))).toEqual([
+      { orderId: "ord_1", clientId: "ocl_1" },
+      { orderId: "ord_2", clientId: "ocl_2" },
+    ]);
+    expect(enqueued.every((entry) => entry.orderStatus === "refunded")).toBe(true);
+    expect(new Set(enqueued.map((entry) => entry.idempotencyKey)).size).toBe(2);
   });
 
   it("enqueues nothing when the account has no registered callbacks", async () => {
