@@ -1,0 +1,26 @@
+name: Epic
+description: Coordination artifact for a multi-slice feature (write-once body)
+title: "Epic: <feature outcome>"
+labels: []
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What ships when every child closes; how it serves the owning milestone.
+    validations:
+      required: true
+  - type: textarea
+    id: handoff
+    attributes:
+      label: Orchestrator handoff
+      description: "Chain DAG / waves (explicit issue-number chains), gates, parked children with un-park conditions, decision registry."
+    validations:
+      required: true
+  - type: textarea
+    id: children
+    attributes:
+      label: Child index
+      description: One line per child — number, title, chain position.
+    validations:
+      required: true

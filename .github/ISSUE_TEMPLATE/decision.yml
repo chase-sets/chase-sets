@@ -1,0 +1,26 @@
+name: Decision
+description: A decision only Todd can make, queued so work flows around it
+title: "Decision: <what must be decided>"
+labels: ["decision"]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What surfaced this; repo evidence; blast radius.
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Options & recommendation
+      description: Each option with trade-offs; state a clear recommendation.
+    validations:
+      required: true
+  - type: input
+    id: needed_by
+    attributes:
+      label: Needed by
+      description: Date derived from what this blocks (and what it blocks).
+    validations:
+      required: true
