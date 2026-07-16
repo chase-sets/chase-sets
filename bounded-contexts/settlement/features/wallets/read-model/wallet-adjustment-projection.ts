@@ -1,4 +1,4 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { resolveProjectionDb, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { AccountId, WalletAdjustmentId } from "@chase-sets/primitives/typed-ids";
@@ -47,13 +47,22 @@ function correlationIdFromEvent(event: { id: string; trace: { traceId?: string |
  * replay therefore reconstructs the same row and the same ledger linkage
  * without regressing an already-advanced adjustment. The notification
  * outbox's own idempotency key dedupes retries/replay of the notice itself.
+ *
+ * Every handler resolves the transaction-scoped projection connection via
+ * `resolveProjectionDb(context, db)` so its writes commit inside the projector's
+ * single BEGIN/COMMIT alongside the checkpoint. A crash before the checkpoint
+ * commits rolls the status advance (and its recorded balance-before/after and
+ * ledger linkage) back with it, so redelivery re-applies the transition rather
+ * than leaving a committed-but-uncheckpointed page drifting from the wallet
+ * balance; the monotonic status guards keep a full redelivery a no-op.
  */
 export function buildWalletAdjustmentProjectionHandlers(
   db: PgQueryable,
   notificationOutbox?: NotificationOutbox,
 ): ProjectorHandlerMap {
   return {
-    "settlement.wallet-adjustment.requested": async (event) => {
+    "settlement.wallet-adjustment.requested": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         adjustmentId: string;
         targetAccountId: string;
@@ -70,7 +79,7 @@ export function buildWalletAdjustmentProjectionHandlers(
       };
 
       await withWalletAdjustmentDisplayReference(data.adjustmentId as WalletAdjustmentId, (displayReference) =>
-        db.query(
+        projectionDb.query(
           `INSERT INTO settlement_wallet_adjustment_pages (
              adjustment_id,
              status,
@@ -109,7 +118,8 @@ export function buildWalletAdjustmentProjectionHandlers(
         ),
       );
     },
-    "settlement.wallet-adjustment.approved": async (event) => {
+    "settlement.wallet-adjustment.approved": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         adjustmentId: string;
         approvedBy: string;
@@ -126,7 +136,7 @@ export function buildWalletAdjustmentProjectionHandlers(
         reversalAfterFundsSettled: boolean;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE settlement_wallet_adjustment_pages
          SET status = 'approved',
              approved_by = $2,
@@ -157,7 +167,8 @@ export function buildWalletAdjustmentProjectionHandlers(
         ],
       );
     },
-    "settlement.wallet-adjustment.rejected": async (event) => {
+    "settlement.wallet-adjustment.rejected": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         adjustmentId: string;
         rejectedBy: string;
@@ -165,7 +176,7 @@ export function buildWalletAdjustmentProjectionHandlers(
         rejectionReason: string | null;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE settlement_wallet_adjustment_pages
          SET status = 'rejected',
              rejected_by = $2,
@@ -177,7 +188,8 @@ export function buildWalletAdjustmentProjectionHandlers(
         [data.adjustmentId, data.rejectedBy, data.rejectedAt, data.rejectionReason],
       );
     },
-    "settlement.wallet-adjustment.posted": async (event) => {
+    "settlement.wallet-adjustment.posted": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         adjustmentId: string;
         ledgerEntryId: string;
@@ -186,7 +198,7 @@ export function buildWalletAdjustmentProjectionHandlers(
         availableBalanceAfter: string;
       };
 
-      const result = await db.query<{
+      const result = await projectionDb.query<{
         target_account_id: string;
         direction: string;
         amount: string;
@@ -217,7 +229,7 @@ export function buildWalletAdjustmentProjectionHandlers(
           message: mapWalletAdjustmentPostedToNotification({
             adjustmentId: data.adjustmentId,
             targetAccountId,
-            targetAccountEmail: await targetAccountEmail(db, posted.target_account_id),
+            targetAccountEmail: await targetAccountEmail(projectionDb, posted.target_account_id),
             direction: posted.direction as LedgerEntryDirection,
             amount: posted.amount,
             currencyCode: posted.currency_code,
@@ -235,14 +247,15 @@ export function buildWalletAdjustmentProjectionHandlers(
         });
       }
     },
-    "settlement.wallet-adjustment.reversed": async (event) => {
+    "settlement.wallet-adjustment.reversed": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         adjustmentId: string;
         reversalAdjustmentId: string;
         reversedAt: string;
       };
 
-      const result = await db.query<{
+      const result = await projectionDb.query<{
         target_account_id: string;
         direction: string;
         amount: string;
@@ -261,7 +274,7 @@ export function buildWalletAdjustmentProjectionHandlers(
 
       const original = result.rows[0];
       if (original && notificationOutbox) {
-        const reversalRow = await db.query<{ available_balance_after: string | null }>(
+        const reversalRow = await projectionDb.query<{ available_balance_after: string | null }>(
           `SELECT available_balance_after::text AS available_balance_after
            FROM settlement_wallet_adjustment_pages
            WHERE adjustment_id = $1`,
@@ -275,7 +288,7 @@ export function buildWalletAdjustmentProjectionHandlers(
             originalAdjustmentId: data.adjustmentId,
             reversalAdjustmentId: data.reversalAdjustmentId,
             targetAccountId,
-            targetAccountEmail: await targetAccountEmail(db, original.target_account_id),
+            targetAccountEmail: await targetAccountEmail(projectionDb, original.target_account_id),
             originalDirection: original.direction as LedgerEntryDirection,
             amount: original.amount,
             currencyCode: original.currency_code,
