@@ -241,6 +241,14 @@ class DiscoverySearchProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 0 };
     }
 
+    if (sql.includes("discovery_search_product_contents") && sql.includes("SELECT")) {
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (sql.includes("DELETE FROM discovery_search_items")) {
+      return { rows: [], rowCount: 0 };
+    }
+
     if (
       sql.includes("discovery_search_catalog_categories") ||
       sql.includes("discovery_search_catalog_blueprints") ||

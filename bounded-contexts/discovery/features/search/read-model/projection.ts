@@ -488,6 +488,54 @@ async function buildContentSearchText(db: PgQueryable, containedCatalogItemId: s
     .join(" ");
 }
 
+/**
+ * Aggregates the contained-item text mirrored on a container's Product Contents
+ * rows so it can be folded into the container item's own tsvector at weight D.
+ * Reads the already-normalized `content_search_text` columns (English-folded and
+ * simple), which are maintained empty for draft/archived contained items, so the
+ * fold inherits the active-contained-item gating without re-checking status here.
+ */
+async function loadContainerContentSearchText(
+  db: PgQueryable,
+  containerCatalogItemId: string,
+): Promise<{ english: string; simple: string }> {
+  const result = await db.query<{ content_search_text: string; content_search_text_simple: string }>(
+    `SELECT content_search_text, content_search_text_simple
+     FROM ${SEARCH_PRODUCT_CONTENTS_TABLE}
+     WHERE container_catalog_item_id = $1`,
+    [containerCatalogItemId],
+  );
+
+  return {
+    english: uniqueStrings(result.rows.map((row) => row.content_search_text ?? ""))
+      .filter((entry) => entry.trim().length > 0)
+      .join(" "),
+    simple: uniqueStrings(result.rows.map((row) => row.content_search_text_simple ?? ""))
+      .filter((entry) => entry.trim().length > 0)
+      .join(" "),
+  };
+}
+
+/**
+ * Re-folds every container that includes a given contained item. Called whenever
+ * a contained item's mirrored text changes (display identity, publish, retire,
+ * archive, removal) so the container's tsvector reflects the new contents. The
+ * container refresh runs without `refreshProductContentText`, so it never
+ * re-enters this cascade.
+ */
+async function refreshContainersForContainedItem(db: PgQueryable, containedCatalogItemId: string): Promise<void> {
+  const result = await db.query<{ container_catalog_item_id: string }>(
+    `SELECT DISTINCT container_catalog_item_id
+     FROM ${SEARCH_PRODUCT_CONTENTS_TABLE}
+     WHERE contained_catalog_item_id = $1`,
+    [containedCatalogItemId],
+  );
+
+  for (const row of result.rows) {
+    await refreshDiscoverySearchItem(db, row.container_catalog_item_id);
+  }
+}
+
 function contentSearchWeight(value: number | null | undefined): number {
   if (!Number.isFinite(value ?? Number.NaN)) {
     return 0.2;
@@ -575,12 +623,17 @@ async function applyProductContentsResolved(
       updatedAt,
     );
   }
+
+  // The container's contents changed, so re-fold its tsvector from the refreshed
+  // Product Contents mirror.
+  await refreshDiscoverySearchItem(db, input.containerCatalogItemId);
 }
 
 async function refreshSearchProductContentsForContainedItem(
   db: PgQueryable,
   containedCatalogItemId: string,
   updatedAt: string,
+  options: Readonly<{ cascadeContainers?: boolean }> = {},
 ): Promise<void> {
   const contentSearchText = foldSearchDiacritics(await buildContentSearchText(db, containedCatalogItemId));
   const contentSearchTextSimple = buildSimpleSearchText(contentSearchText);
@@ -595,12 +648,19 @@ async function refreshSearchProductContentsForContainedItem(
      WHERE contained_catalog_item_id = $1`,
     [containedCatalogItemId, contentSearchText, contentSearchTextSimple, updatedAt],
   );
+
+  // A contained item's mirrored text just changed, so re-fold every container
+  // that includes it. Skipped during a full rebuild, which folds every container
+  // directly from the mirror as it walks the catalog.
+  if (options.cascadeContainers !== false) {
+    await refreshContainersForContainedItem(db, containedCatalogItemId);
+  }
 }
 
 async function refreshDiscoverySearchItem(
   db: PgQueryable,
   itemId: string,
-  options: Readonly<{ refreshProductContentText?: boolean }> = {},
+  options: Readonly<{ refreshProductContentText?: boolean; cascadeContainerContents?: boolean }> = {},
 ): Promise<void> {
   const result = await db.query<SearchCatalogItemRow>(
     `SELECT * FROM discovery_search_catalog_items WHERE catalog_item_id = $1`,
@@ -612,7 +672,9 @@ async function refreshDiscoverySearchItem(
   if (!item) {
     await db.query(`DELETE FROM discovery_search_items WHERE catalog_item_id = $1`, [itemId]);
     if (options.refreshProductContentText) {
-      await refreshSearchProductContentsForContainedItem(db, itemId, new Date().toISOString());
+      await refreshSearchProductContentsForContainedItem(db, itemId, new Date().toISOString(), {
+        cascadeContainers: options.cascadeContainerContents,
+      });
     }
     return;
   }
@@ -734,6 +796,14 @@ async function refreshDiscoverySearchItem(
     C: joinSearchText(baseTextByWeight.C, aliasWeights.C),
     D: joinSearchText(baseTextByWeight.D, aliasWeights.D),
   };
+
+  // Fold the contained-item text mirrored on this item's Product Contents rows
+  // into the lowest-priority weight D alongside the description and weight-D
+  // aliases. This makes a container matchable by its contents through the same
+  // GIN-indexed tsvector as its own text, with no query-time correlated EXISTS.
+  const containerContents = await loadContainerContentSearchText(db, item.catalog_item_id);
+  const searchTextEnglishD = joinSearchText(foldSearchDiacritics(weightedText.D), containerContents.english);
+  const searchTextSimpleD = joinSearchText(buildSimpleSearchText(weightedText.D), containerContents.simple);
   const embeddingDocument = buildDiscoveryEmbeddingDocument({
     title: item.title,
     titleI18n: item.title_i18n,
@@ -851,18 +921,20 @@ async function refreshDiscoverySearchItem(
       foldSearchDiacritics(weightedText.A),
       foldSearchDiacritics(weightedText.B),
       foldSearchDiacritics(weightedText.C),
-      foldSearchDiacritics(weightedText.D),
+      searchTextEnglishD,
       buildSimpleSearchText(weightedText.A),
       buildSimpleSearchText(weightedText.B),
       buildSimpleSearchText(weightedText.C),
-      buildSimpleSearchText(weightedText.D),
+      searchTextSimpleD,
       embeddingDocument.hash,
       item.updated_at,
     ],
   );
 
   if (options.refreshProductContentText) {
-    await refreshSearchProductContentsForContainedItem(db, item.catalog_item_id, item.updated_at);
+    await refreshSearchProductContentsForContainedItem(db, item.catalog_item_id, item.updated_at, {
+      cascadeContainers: options.cascadeContainerContents,
+    });
   }
 }
 
@@ -1053,7 +1125,13 @@ export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void
     select: { column: "catalog_item_id" },
     from: { table: SEARCH_CATALOG_ITEMS_TABLE },
     orderBy: [{ column: "catalog_item_id" }],
-    refresh: (itemId) => refreshDiscoverySearchItem(db, itemId, { refreshProductContentText: true }),
+    refresh: (itemId) =>
+      refreshDiscoverySearchItem(db, itemId, {
+        refreshProductContentText: true,
+        // The walk folds every container directly from the mirror, so the
+        // per-contained-item container cascade would be redundant re-work.
+        cascadeContainerContents: false,
+      }),
   });
 
   await refreshAllSearchIndexMarketSignals(db);

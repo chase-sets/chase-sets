@@ -365,8 +365,10 @@ describe("searchDiscoveryItems cursor paging", () => {
 
     const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
     expect(listCall?.sql).toContain("(ts_rank(search_text");
-    expect(listCall?.sql).toContain("discovery_search_product_contents AS content");
-    expect(listCall?.sql).toContain("* 0.20");
+    // Rank is computed purely from the item's own folded tsvectors — no correlated
+    // content-rank subquery and no 0.20 content dampener.
+    expect(listCall?.sql).not.toContain("discovery_search_product_contents");
+    expect(listCall?.sql).not.toContain("* 0.20");
     expect(listCall?.sql).toContain("search_base_match");
     // Mixed-direction ORDER BY (baseMatch DESC, rank DESC, title ASC, id ASC) requires an
     // expanded lexicographic keyset predicate rather than a single row-value comparison.
@@ -381,7 +383,7 @@ describe("searchDiscoveryItems cursor paging", () => {
     expect(listCall?.values.slice(-5)).toEqual([1, 0.75, "Bulbasaur", "cat_002", 25]);
   });
 
-  it("orders exact item matches ahead of content-only container matches", async () => {
+  it("matches container contents through the folded item tsvector without a correlated subquery", async () => {
     const { db, calls } = createCapturingDb();
 
     await searchDiscoveryItems(db, {
@@ -391,13 +393,16 @@ describe("searchDiscoveryItems cursor paging", () => {
     });
 
     const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
-    expect(listCall?.sql).toContain("OR EXISTS");
-    expect(listCall?.sql).toContain("FROM discovery_search_product_contents AS content");
-    expect(listCall?.sql).toContain("INNER JOIN discovery_search_catalog_items AS contained_item");
-    expect(listCall?.sql).toContain("contained_item.status = 'active'");
-    expect(listCall?.sql).toContain("content.container_catalog_item_id = discovery_search_items.catalog_item_id");
-    expect(listCall?.sql).toContain("content.content_type_search_weight::real");
-    expect(listCall?.sql).toContain("* 0.20");
+    // Product-contents text is folded into the item's tsvector at projection time,
+    // so the text match is a pure GIN-indexable @@ predicate: no correlated EXISTS
+    // in the filter and no correlated content-rank subquery in the ORDER BY.
+    expect(listCall?.sql).not.toContain("EXISTS");
+    expect(listCall?.sql).not.toContain("discovery_search_product_contents");
+    expect(listCall?.sql).not.toContain("content_type_search_weight");
+    expect(listCall?.sql).not.toContain("* 0.20");
+    expect(listCall?.sql).toContain(
+      "(search_text @@ plainto_tsquery('english', $2) OR search_text_simple @@ plainto_tsquery('simple', $3))",
+    );
     expect(listCall?.sql).toContain(
       "ORDER BY (search_text @@ plainto_tsquery('english', $2) OR search_text_simple @@ plainto_tsquery('simple', $3)) DESC",
     );

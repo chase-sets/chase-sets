@@ -56,6 +56,8 @@ class AliasProjectionDb implements PgQueryable {
       sql.includes("discovery_search_catalog_categories") ||
       sql.includes("discovery_search_catalog_fields") ||
       sql.includes("discovery_search_catalog_blueprints") ||
+      sql.includes("discovery_search_product_contents") ||
+      sql.includes("DELETE FROM discovery_search_items") ||
       sql.includes("UPDATE discovery_search_catalog_items")
     ) {
       return { rows: [], rowCount: 0 };

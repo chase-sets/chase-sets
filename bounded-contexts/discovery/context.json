@@ -113,7 +113,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-search-item-projection",
-      "subscriptionVersion": 7,
+      "subscriptionVersion": 8,
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",

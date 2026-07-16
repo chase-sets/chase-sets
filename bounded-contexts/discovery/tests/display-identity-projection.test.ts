@@ -170,6 +170,14 @@ class DiscoveryProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 0 };
     }
 
+    if (sql.includes("discovery_search_product_contents") && sql.includes("SELECT")) {
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (sql.includes("DELETE FROM discovery_search_items")) {
+      return { rows: [], rowCount: 0 };
+    }
+
     if (sql.includes("INSERT INTO discovery_item_detail_pages")) {
       this.derivedWrites.push("detail");
       this.detailDisplayBadges.push(JSON.parse(String(values[7])) as unknown[]);
