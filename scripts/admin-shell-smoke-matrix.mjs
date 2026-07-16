@@ -387,14 +387,14 @@ export const ADMIN_DEPLOYED_PAGE_SMOKE_ROWS = [
     id: "SMOKE-PAGE-COMMERCE-TERMS-SCHEDULES",
     path: "/commerce/terms/schedules",
     section: "Commerce",
-    expectedText: ["Commerce", "Commercial Terms", "Schedules"],
+    expectedText: ["Commerce", "Commercial Terms", "Active and scheduled terms"],
     coverageIds: ["SMOKE-SHELL-COMMERCE", "SMOKE-API-COMMERCIAL-TERMS-ADMIN-SERVER"],
   },
   {
     id: "SMOKE-PAGE-COMMERCE-TERMS-AGREEMENTS",
     path: "/commerce/terms/agreements",
     section: "Commerce",
-    expectedText: ["Commerce", "Commercial Terms", "Agreements"],
+    expectedText: ["Commerce", "Commercial Terms", "Active and scheduled terms"],
     coverageIds: ["SMOKE-SHELL-COMMERCE", "SMOKE-API-COMMERCIAL-TERMS-ADMIN-SERVER"],
   },
   {
