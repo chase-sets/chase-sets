@@ -44,7 +44,7 @@ async function evaluationFacts(
     [input.catalogItemId],
   );
   const account = await deps.db.query<{ review_count: number; badges: unknown }>(
-    `SELECT review_count_as_seller AS review_count, badges
+    `SELECT rating_count_as_seller AS review_count, badges
        FROM marketplace_account_pages
       WHERE account_id = $1`,
     [input.accountId],

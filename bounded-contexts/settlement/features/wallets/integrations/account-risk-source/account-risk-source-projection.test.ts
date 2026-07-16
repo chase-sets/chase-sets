@@ -56,7 +56,19 @@ describe("settlement account risk source projection", () => {
     expect(db.query).toHaveBeenNthCalledWith(
       2,
       expect.stringContaining("INSERT INTO settlement_account_review_sources"),
-      ["rev_1", "ord_1", "acc_seller", "buyer", 5, "2026-05-03T00:00:00.000Z"],
+      [
+        "rev_1",
+        "ord_1",
+        "acc_seller",
+        "buyer",
+        5,
+        "2026-05-03T00:00:00.000Z",
+        "included",
+        "normal-completion",
+        "resolution-aware-v1",
+        "[]",
+        null,
+      ],
     );
     expect(db.query).toHaveBeenNthCalledWith(3, expect.stringContaining("review_count"), [
       "acc_seller",

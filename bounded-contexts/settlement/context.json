@@ -133,13 +133,19 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "settlement-account-risk-source-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.review.submitted",
         "marketplace.review.updated",
         "marketplace.review.withdrawn",
-        "marketplace.review.revealed"
+        "marketplace.review.revealed",
+        "marketplace.review-scoring.disposition-projected.v1",
+        "marketplace.review-hold.placed",
+        "marketplace.review-hold.extended",
+        "marketplace.review-hold.reduced",
+        "marketplace.review-hold.released",
+        "marketplace.review-hold.terminal-recorded"
       ],
       "order": 70,
       "projectionHandlerSetNames": ["settlement-account-risk-source-projection"]
@@ -214,6 +220,7 @@
     },
     {
       "projectionName": "settlement-account-risk-source-projection",
+      "projectionRevision": 2,
       "sourceContextNames": ["identity", "marketplace", "payments"],
       "ownedTables": [
         "settlement_account_risk_sources",

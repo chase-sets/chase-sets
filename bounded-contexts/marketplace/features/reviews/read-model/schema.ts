@@ -14,11 +14,25 @@ CREATE TABLE IF NOT EXISTS marketplace_review_pages (
   submitted_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
   withdrawn_at timestamptz NULL,
-  held boolean NOT NULL DEFAULT false
+  held boolean NOT NULL DEFAULT false,
+  scoring_disposition text NOT NULL DEFAULT 'included',
+  scoring_reason_code text NOT NULL DEFAULT 'normal-completion',
+  scoring_policy_version text NOT NULL DEFAULT 'resolution-aware-v1',
+  scoring_source_fact_versions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  scoring_operational_signal text NULL,
+  rating_contribution_status boolean NOT NULL DEFAULT false,
+  rating_contribution_version bigint NOT NULL DEFAULT 0
 );
 
 ALTER TABLE marketplace_review_pages
-  ADD COLUMN IF NOT EXISTS held boolean NOT NULL DEFAULT false;
+  ADD COLUMN IF NOT EXISTS held boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS scoring_disposition text NOT NULL DEFAULT 'included',
+  ADD COLUMN IF NOT EXISTS scoring_reason_code text NOT NULL DEFAULT 'normal-completion',
+  ADD COLUMN IF NOT EXISTS scoring_policy_version text NOT NULL DEFAULT 'resolution-aware-v1',
+  ADD COLUMN IF NOT EXISTS scoring_source_fact_versions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS scoring_operational_signal text NULL,
+  ADD COLUMN IF NOT EXISTS rating_contribution_status boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS rating_contribution_version bigint NOT NULL DEFAULT 0;
 
 -- Double-blind reveal (m108). revealed_at IS NULL means the review is
 -- hidden: excluded from public lists, summaries, and every downstream
@@ -70,6 +84,7 @@ CREATE TABLE IF NOT EXISTS marketplace_review_summary_pages (
   account_id text PRIMARY KEY,
   average_rating_as_seller numeric(4, 2) NULL,
   review_count_as_seller integer NOT NULL DEFAULT 0,
+  rating_count_as_seller integer NOT NULL DEFAULT 0,
   rating_1_count_as_seller integer NOT NULL DEFAULT 0,
   rating_2_count_as_seller integer NOT NULL DEFAULT 0,
   rating_3_count_as_seller integer NOT NULL DEFAULT 0,
@@ -77,6 +92,7 @@ CREATE TABLE IF NOT EXISTS marketplace_review_summary_pages (
   rating_5_count_as_seller integer NOT NULL DEFAULT 0,
   average_rating_as_buyer numeric(4, 2) NULL,
   review_count_as_buyer integer NOT NULL DEFAULT 0,
+  rating_count_as_buyer integer NOT NULL DEFAULT 0,
   rating_1_count_as_buyer integer NOT NULL DEFAULT 0,
   rating_2_count_as_buyer integer NOT NULL DEFAULT 0,
   rating_3_count_as_buyer integer NOT NULL DEFAULT 0,
@@ -88,6 +104,7 @@ CREATE TABLE IF NOT EXISTS marketplace_review_summary_pages (
 ALTER TABLE marketplace_review_summary_pages
   ADD COLUMN IF NOT EXISTS average_rating_as_seller numeric(4, 2) NULL,
   ADD COLUMN IF NOT EXISTS review_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_count_as_seller integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_1_count_as_seller integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_2_count_as_seller integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_3_count_as_seller integer NOT NULL DEFAULT 0,
@@ -95,6 +112,7 @@ ALTER TABLE marketplace_review_summary_pages
   ADD COLUMN IF NOT EXISTS rating_5_count_as_seller integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS average_rating_as_buyer numeric(4, 2) NULL,
   ADD COLUMN IF NOT EXISTS review_count_as_buyer integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_count_as_buyer integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_1_count_as_buyer integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_2_count_as_buyer integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_3_count_as_buyer integer NOT NULL DEFAULT 0,
@@ -148,9 +166,59 @@ CREATE TABLE IF NOT EXISTS marketplace_review_hold_pages (
   released_at timestamptz NULL,
   updated_at timestamptz NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS marketplace_review_scoring_pages (
+  order_id text PRIMARY KEY,
+  buyer_to_seller_disposition text NOT NULL,
+  buyer_to_seller_reason_code text NOT NULL,
+  seller_to_buyer_disposition text NOT NULL,
+  seller_to_buyer_reason_code text NOT NULL,
+  policy_version text NOT NULL,
+  source_fact_versions jsonb NOT NULL,
+  operational_signal text NULL,
+  last_stream_version bigint NOT NULL,
+  updated_at timestamptz NOT NULL
+);
 `;
 
 export const reviewSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260715_marketplace_review_scoring_disposition",
+    description:
+      "Persist directional review scoring and preserve historical contribution until authoritative scoring facts replay.",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `ALTER TABLE marketplace_review_pages
+  ADD COLUMN IF NOT EXISTS scoring_disposition text NOT NULL DEFAULT 'included',
+  ADD COLUMN IF NOT EXISTS scoring_reason_code text NOT NULL DEFAULT 'normal-completion',
+  ADD COLUMN IF NOT EXISTS scoring_policy_version text NOT NULL DEFAULT 'resolution-aware-v1',
+  ADD COLUMN IF NOT EXISTS scoring_source_fact_versions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS scoring_operational_signal text NULL,
+  ADD COLUMN IF NOT EXISTS rating_contribution_status boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS rating_contribution_version bigint NOT NULL DEFAULT 0`,
+      `ALTER TABLE marketplace_review_summary_pages
+  ADD COLUMN IF NOT EXISTS rating_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_count_as_buyer integer NOT NULL DEFAULT 0`,
+      `CREATE TABLE IF NOT EXISTS marketplace_review_scoring_pages (
+  order_id text PRIMARY KEY,
+  buyer_to_seller_disposition text NOT NULL,
+  buyer_to_seller_reason_code text NOT NULL,
+  seller_to_buyer_disposition text NOT NULL,
+  seller_to_buyer_reason_code text NOT NULL,
+  policy_version text NOT NULL,
+  source_fact_versions jsonb NOT NULL,
+  operational_signal text NULL,
+  last_stream_version bigint NOT NULL,
+  updated_at timestamptz NOT NULL
+)`,
+      `UPDATE marketplace_review_pages
+   SET rating_contribution_status = (status = 'active' AND revealed_at IS NOT NULL AND held = false),
+       rating_contribution_version = GREATEST(rating_contribution_version, 1)`,
+      `UPDATE marketplace_review_summary_pages AS summary
+   SET rating_count_as_seller = summary.review_count_as_seller,
+       rating_count_as_buyer = summary.review_count_as_buyer`,
+    ],
+  },
   {
     migrationId: "20260714_marketplace_review_hold_and_clock_pause",
     description: "Persist review hold visibility and pauseable directional review clocks.",

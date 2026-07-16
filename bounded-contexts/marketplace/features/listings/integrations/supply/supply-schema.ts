@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS marketplace_account_pages (
   badges jsonb NOT NULL DEFAULT '[]'::jsonb,
   average_rating_as_seller numeric(4, 2) NULL,
   review_count_as_seller integer NOT NULL DEFAULT 0,
+  rating_count_as_seller integer NOT NULL DEFAULT 0,
   rating_1_count_as_seller integer NOT NULL DEFAULT 0,
   rating_2_count_as_seller integer NOT NULL DEFAULT 0,
   rating_3_count_as_seller integer NOT NULL DEFAULT 0,
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS marketplace_account_pages (
   rating_5_count_as_seller integer NOT NULL DEFAULT 0,
   average_rating_as_buyer numeric(4, 2) NULL,
   review_count_as_buyer integer NOT NULL DEFAULT 0,
+  rating_count_as_buyer integer NOT NULL DEFAULT 0,
   rating_1_count_as_buyer integer NOT NULL DEFAULT 0,
   rating_2_count_as_buyer integer NOT NULL DEFAULT 0,
   rating_3_count_as_buyer integer NOT NULL DEFAULT 0,
@@ -33,6 +35,7 @@ ALTER TABLE marketplace_account_pages
   ADD COLUMN IF NOT EXISTS badges jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS average_rating_as_seller numeric(4, 2) NULL,
   ADD COLUMN IF NOT EXISTS review_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_count_as_seller integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_1_count_as_seller integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_2_count_as_seller integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_3_count_as_seller integer NOT NULL DEFAULT 0,
@@ -40,6 +43,7 @@ ALTER TABLE marketplace_account_pages
   ADD COLUMN IF NOT EXISTS rating_5_count_as_seller integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS average_rating_as_buyer numeric(4, 2) NULL,
   ADD COLUMN IF NOT EXISTS review_count_as_buyer integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_count_as_buyer integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_1_count_as_buyer integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_2_count_as_buyer integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_3_count_as_buyer integer NOT NULL DEFAULT 0,
@@ -55,13 +59,25 @@ CREATE TABLE IF NOT EXISTS marketplace_account_reviews (
   rating integer NOT NULL,
   status text NOT NULL,
   updated_at timestamptz NOT NULL,
-  held boolean NOT NULL DEFAULT false
+  held boolean NOT NULL DEFAULT false,
+  scoring_disposition text NOT NULL DEFAULT 'included',
+  scoring_reason_code text NOT NULL DEFAULT 'normal-completion',
+  scoring_policy_version text NOT NULL DEFAULT 'resolution-aware-v1',
+  scoring_source_fact_versions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  scoring_operational_signal text NULL,
+  last_scoring_stream_version bigint NOT NULL DEFAULT 0
 );
 
 ALTER TABLE marketplace_account_reviews
   ADD COLUMN IF NOT EXISTS author_role text NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS order_id text NULL,
-  ADD COLUMN IF NOT EXISTS held boolean NOT NULL DEFAULT false;
+  ADD COLUMN IF NOT EXISTS held boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS scoring_disposition text NOT NULL DEFAULT 'included',
+  ADD COLUMN IF NOT EXISTS scoring_reason_code text NOT NULL DEFAULT 'normal-completion',
+  ADD COLUMN IF NOT EXISTS scoring_policy_version text NOT NULL DEFAULT 'resolution-aware-v1',
+  ADD COLUMN IF NOT EXISTS scoring_source_fact_versions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS scoring_operational_signal text NULL,
+  ADD COLUMN IF NOT EXISTS last_scoring_stream_version bigint NOT NULL DEFAULT 0;
 
 -- Double-blind reveal (m108): a review contributes to
 -- marketplace_account_pages reputation counters only once revealed_at is set.
@@ -209,6 +225,26 @@ ALTER TABLE marketplace_supply_holds
 `;
 
 export const marketplaceSupplyProjectionSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260715_marketplace_account_review_scoring",
+    description: "Persist canonical review scoring disposition for Marketplace account reputation.",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `ALTER TABLE marketplace_account_pages
+  ADD COLUMN IF NOT EXISTS rating_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_count_as_buyer integer NOT NULL DEFAULT 0`,
+      `ALTER TABLE marketplace_account_reviews
+  ADD COLUMN IF NOT EXISTS scoring_disposition text NOT NULL DEFAULT 'included',
+  ADD COLUMN IF NOT EXISTS scoring_reason_code text NOT NULL DEFAULT 'normal-completion',
+  ADD COLUMN IF NOT EXISTS scoring_policy_version text NOT NULL DEFAULT 'resolution-aware-v1',
+  ADD COLUMN IF NOT EXISTS scoring_source_fact_versions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS scoring_operational_signal text NULL,
+  ADD COLUMN IF NOT EXISTS last_scoring_stream_version bigint NOT NULL DEFAULT 0`,
+      `UPDATE marketplace_account_pages
+   SET rating_count_as_seller = review_count_as_seller,
+       rating_count_as_buyer = review_count_as_buyer`,
+    ],
+  },
   {
     migrationId: "20260714_marketplace_account_review_holds",
     description: "Exclude held order reviews from Marketplace account reputation inputs.",

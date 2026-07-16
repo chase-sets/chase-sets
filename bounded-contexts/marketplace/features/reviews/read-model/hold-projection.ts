@@ -19,7 +19,7 @@ const reviewHoldEventTypes = [
   "marketplace.review-hold.terminal-recorded",
 ] as const;
 
-async function projectReviewHold(db: PgQueryable, data: ReviewHoldTransitionData) {
+async function projectReviewHold(db: PgQueryable, data: ReviewHoldTransitionData, contributionVersion: string) {
   await db.query(
     `INSERT INTO marketplace_review_hold_pages (
        order_id,
@@ -51,10 +51,18 @@ async function projectReviewHold(db: PgQueryable, data: ReviewHoldTransitionData
        WHEN author_role = 'buyer' THEN 'buyer-to-seller' = ANY($2::text[])
        ELSE 'seller-to-buyer' = ANY($2::text[])
      END,
+         rating_contribution_status =
+           status = 'active' AND revealed_at IS NOT NULL AND scoring_disposition = 'included' AND NOT (
+             CASE
+               WHEN author_role = 'buyer' THEN 'buyer-to-seller' = ANY($2::text[])
+               ELSE 'seller-to-buyer' = ANY($2::text[])
+             END
+           ),
+         rating_contribution_version = GREATEST(rating_contribution_version, $4::bigint),
          updated_at = GREATEST(updated_at, $3::timestamptz)
      WHERE order_id = $1
      RETURNING subject_account_id`,
-    [data.orderId, data.heldDirections, data.lifecycleAt],
+    [data.orderId, data.heldDirections, data.lifecycleAt, contributionVersion],
   );
 
   for (const subjectAccountId of new Set(affected.rows.map((row) => row.subject_account_id))) {
@@ -67,7 +75,11 @@ export function buildReviewHoldProjectionHandlers(db: PgQueryable): ProjectorHan
     reviewHoldEventTypes.map((eventType) => [
       eventType,
       async (event: Parameters<ProjectorHandlerMap[string]>[0]) => {
-        await projectReviewHold(db, event.data as ReviewHoldTransitionData);
+        await projectReviewHold(
+          db,
+          event.data as ReviewHoldTransitionData,
+          String(event.globalPosition ?? event.streamVersion ?? 0),
+        );
       },
     ]),
   );

@@ -19,6 +19,7 @@
     "./event-store": "./event-store.ts",
     "./platform-coverage-facts": "./platform-coverage-facts.ts",
     "./projector": "./projector.ts",
+    "./review-scoring-facts": "./review-scoring-facts.ts",
     "./public-event-payloads": "./public-event-payloads.ts",
     "./storage": "./storage.ts",
     "./stream-id": "./stream-id.ts",

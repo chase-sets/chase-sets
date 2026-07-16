@@ -101,6 +101,8 @@ Run `pnpm --filter @chase-sets/marketplace run test:watch` for the sub-second wa
 
 Marketplace owns reviews and rating policy as the `reviews` slice. Reviews are post-transaction evaluations tied to completed commerce: Identity provides author and subject account references, Ordering provides order references and counterparty pairing, Fulfillment delivery-complete signals unlock review eligibility, and Support provides factual resolved responsibility. Support does not decide eligibility, visibility, or rating impact, and remedies such as refunds, returns, replacements, and cancellations never imply responsibility.
 
+The deterministic historical rebuild, invariant report, retry procedure, and rollback boundaries are documented in [Review scoring migration](./docs/review-scoring-migration.md).
+
 The canonical directional policy produces transaction eligibility, submission state, visibility state, scoring disposition, a neutral reason code, and an effective deadline. For an otherwise eligible transaction, its baseline scoring matrix is:
 
 | Support fact | Buyer reviewing seller | Seller reviewing buyer |

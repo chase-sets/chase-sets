@@ -1,5 +1,9 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
+import {
+  normalizeMarketplaceReviewScoringFact,
+  normalizeMarketplaceReviewSubmittedScoring,
+} from "@chase-sets/event-core/review-scoring-facts";
 import type {
   InventoryHoldPurpose,
   InventoryHoldReleaseReason,
@@ -20,6 +24,7 @@ async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: s
        badges,
        average_rating_as_seller,
        review_count_as_seller,
+       rating_count_as_seller,
        rating_1_count_as_seller,
        rating_2_count_as_seller,
        rating_3_count_as_seller,
@@ -27,6 +32,7 @@ async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: s
        rating_5_count_as_seller,
        average_rating_as_buyer,
        review_count_as_buyer,
+       rating_count_as_buyer,
        rating_1_count_as_buyer,
        rating_2_count_as_buyer,
        rating_3_count_as_buyer,
@@ -41,25 +47,27 @@ async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: s
        COALESCE((SELECT status FROM marketplace_account_pages WHERE account_id = $1), 'active'),
        COALESCE((SELECT badges FROM marketplace_account_pages WHERE account_id = $1), '[]'::jsonb),
        CASE
-         WHEN COUNT(*) FILTER (WHERE author_role = 'buyer') = 0 THEN NULL
-         ELSE ROUND(AVG(rating) FILTER (WHERE author_role = 'buyer')::numeric, 2)
+         WHEN COUNT(*) FILTER (WHERE author_role = 'buyer' AND scoring_disposition = 'included') = 0 THEN NULL
+         ELSE ROUND(AVG(rating) FILTER (WHERE author_role = 'buyer' AND scoring_disposition = 'included')::numeric, 2)
        END,
        COUNT(*) FILTER (WHERE author_role = 'buyer')::integer,
-       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 1)::integer,
-       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 2)::integer,
-       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 3)::integer,
-       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 4)::integer,
-       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 5)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND scoring_disposition = 'included')::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND scoring_disposition = 'included' AND rating = 1)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND scoring_disposition = 'included' AND rating = 2)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND scoring_disposition = 'included' AND rating = 3)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND scoring_disposition = 'included' AND rating = 4)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND scoring_disposition = 'included' AND rating = 5)::integer,
        CASE
-         WHEN COUNT(*) FILTER (WHERE author_role = 'seller') = 0 THEN NULL
-         ELSE ROUND(AVG(rating) FILTER (WHERE author_role = 'seller')::numeric, 2)
+         WHEN COUNT(*) FILTER (WHERE author_role = 'seller' AND scoring_disposition = 'included') = 0 THEN NULL
+         ELSE ROUND(AVG(rating) FILTER (WHERE author_role = 'seller' AND scoring_disposition = 'included')::numeric, 2)
        END,
        COUNT(*) FILTER (WHERE author_role = 'seller')::integer,
-       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 1)::integer,
-       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 2)::integer,
-       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 3)::integer,
-       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 4)::integer,
-       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 5)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND scoring_disposition = 'included')::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND scoring_disposition = 'included' AND rating = 1)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND scoring_disposition = 'included' AND rating = 2)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND scoring_disposition = 'included' AND rating = 3)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND scoring_disposition = 'included' AND rating = 4)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND scoring_disposition = 'included' AND rating = 5)::integer,
        $2,
        $2
      FROM marketplace_account_reviews
@@ -70,6 +78,7 @@ async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: s
      ON CONFLICT (account_id) DO UPDATE SET
        average_rating_as_seller = EXCLUDED.average_rating_as_seller,
        review_count_as_seller = EXCLUDED.review_count_as_seller,
+       rating_count_as_seller = EXCLUDED.rating_count_as_seller,
        rating_1_count_as_seller = EXCLUDED.rating_1_count_as_seller,
        rating_2_count_as_seller = EXCLUDED.rating_2_count_as_seller,
        rating_3_count_as_seller = EXCLUDED.rating_3_count_as_seller,
@@ -77,6 +86,7 @@ async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: s
        rating_5_count_as_seller = EXCLUDED.rating_5_count_as_seller,
        average_rating_as_buyer = EXCLUDED.average_rating_as_buyer,
        review_count_as_buyer = EXCLUDED.review_count_as_buyer,
+       rating_count_as_buyer = EXCLUDED.rating_count_as_buyer,
        rating_1_count_as_buyer = EXCLUDED.rating_1_count_as_buyer,
        rating_2_count_as_buyer = EXCLUDED.rating_2_count_as_buyer,
        rating_3_count_as_buyer = EXCLUDED.rating_3_count_as_buyer,
@@ -230,6 +240,7 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
         rating: number;
         submittedAt: string;
       };
+      const scoring = normalizeMarketplaceReviewSubmittedScoring(event.data);
 
       await db.query(
         `INSERT INTO marketplace_account_reviews (
@@ -240,16 +251,38 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
            rating,
            status,
            updated_at,
-           held
-         ) VALUES ($1, $2, $3, $4, $5, 'active', $6, false)
+           held,
+           scoring_disposition,
+           scoring_reason_code,
+           scoring_policy_version,
+           scoring_source_fact_versions,
+           scoring_operational_signal
+         ) VALUES ($1, $2, $3, $4, $5, 'active', $6, false, $7, $8, $9, $10::jsonb, $11)
          ON CONFLICT (review_id) DO UPDATE SET
            order_id = EXCLUDED.order_id,
            subject_account_id = EXCLUDED.subject_account_id,
            author_role = EXCLUDED.author_role,
            rating = EXCLUDED.rating,
            status = EXCLUDED.status,
+           scoring_disposition = EXCLUDED.scoring_disposition,
+           scoring_reason_code = EXCLUDED.scoring_reason_code,
+           scoring_policy_version = EXCLUDED.scoring_policy_version,
+           scoring_source_fact_versions = EXCLUDED.scoring_source_fact_versions,
+           scoring_operational_signal = EXCLUDED.scoring_operational_signal,
            updated_at = EXCLUDED.updated_at`,
-        [data.reviewId, data.orderId, data.subjectAccountId, data.authorRole, data.rating, data.submittedAt],
+        [
+          data.reviewId,
+          data.orderId,
+          data.subjectAccountId,
+          data.authorRole,
+          data.rating,
+          data.submittedAt,
+          scoring.scoringDisposition,
+          scoring.reasonCode,
+          scoring.policyVersion,
+          JSON.stringify(scoring.sourceFactVersions),
+          scoring.operationalSignal,
+        ],
       );
       await refreshMarketplaceAccountReputation(db, data.subjectAccountId, data.submittedAt);
     },
@@ -306,6 +339,37 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
       const subjectAccountId = subjectResult.rows[0]?.subject_account_id;
       if (subjectAccountId) {
         await refreshMarketplaceAccountReputation(db, subjectAccountId, data.revealedAt);
+      }
+    },
+    "marketplace.review-scoring.disposition-projected.v1": async (event) => {
+      const fact = normalizeMarketplaceReviewScoringFact(event.data);
+      const affected = await db.query<{ subject_account_id: string }>(
+        `UPDATE marketplace_account_reviews
+         SET scoring_disposition = CASE WHEN author_role = 'buyer' THEN $2 ELSE $4 END,
+             scoring_reason_code = CASE WHEN author_role = 'buyer' THEN $3 ELSE $5 END,
+             scoring_policy_version = $6,
+             scoring_source_fact_versions = $7::jsonb,
+             scoring_operational_signal = $8,
+             last_scoring_stream_version = $9,
+             updated_at = GREATEST(updated_at, $10::timestamptz)
+         WHERE order_id = $1
+           AND last_scoring_stream_version <= $9
+         RETURNING subject_account_id`,
+        [
+          fact.orderId,
+          fact.buyerToSeller.scoringDisposition,
+          fact.buyerToSeller.reasonCode,
+          fact.sellerToBuyer.scoringDisposition,
+          fact.sellerToBuyer.reasonCode,
+          fact.buyerToSeller.policyVersion,
+          JSON.stringify(fact.buyerToSeller.sourceFactVersions),
+          fact.buyerToSeller.operationalSignal ?? fact.sellerToBuyer.operationalSignal,
+          event.streamVersion,
+          fact.projectedAt,
+        ],
+      );
+      for (const subjectAccountId of new Set(affected.rows.map((row) => row.subject_account_id))) {
+        await refreshMarketplaceAccountReputation(db, subjectAccountId, fact.projectedAt);
       }
     },
     ...Object.fromEntries(

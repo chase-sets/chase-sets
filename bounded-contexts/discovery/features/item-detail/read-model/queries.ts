@@ -401,7 +401,7 @@ export async function getDiscoveryItemDetail(
          account.seller_slug,
          account.seller_display_name,
          account.average_rating_as_seller::text AS seller_average_rating,
-         COALESCE(account.review_count_as_seller, 0)::integer AS seller_review_count,
+         COALESCE(account.rating_count_as_seller, 0)::integer AS seller_review_count,
          COALESCE(account.badges, '[]'::jsonb) AS seller_badges,
          account.founder_number AS seller_founder_number,
          COALESCE(account.seller_at_capacity, false) AS seller_at_capacity,
@@ -474,7 +474,7 @@ export async function getDiscoveryItemDetail(
        account.seller_slug AS buyer_slug,
        account.seller_display_name AS buyer_display_name,
        account.average_rating_as_buyer::text AS buyer_average_rating,
-       COALESCE(account.review_count_as_buyer, 0)::integer AS buyer_review_count,
+       COALESCE(account.rating_count_as_buyer, 0)::integer AS buyer_review_count,
        offer.created_at::text AS created_at,
        offer.updated_at::text AS updated_at
      FROM discovery_offer_demand_matches AS offer
@@ -586,7 +586,7 @@ export async function getDiscoveryItemDetailSellerOverlay(
        offer.accepted_at::text AS accepted_at,
        buyer.seller_slug AS buyer_slug,
        buyer.average_rating_as_buyer::text AS buyer_average_rating,
-       COALESCE(buyer.review_count_as_buyer, 0)::integer AS buyer_review_count,
+       COALESCE(buyer.rating_count_as_buyer, 0)::integer AS buyer_review_count,
        COALESCE(seller_listing.seller_available_quantity, 0)::integer AS seller_available_quantity,
        (COALESCE(seller_listing.seller_available_quantity, 0) >= offer.quantity_requested)::boolean AS can_fulfill,
        EXISTS (
@@ -681,7 +681,7 @@ export async function getDiscoveryItemDetailSellerOverlay(
            account.seller_listing_availability_reason_category,
            account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
            account.average_rating_as_seller::text AS seller_average_rating,
-           COALESCE(account.review_count_as_seller, 0)::integer AS seller_review_count,
+           COALESCE(account.rating_count_as_seller, 0)::integer AS seller_review_count,
            ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
          FROM discovery_market_listings AS listing
          LEFT JOIN discovery_item_detail_pages AS item

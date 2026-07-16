@@ -38,6 +38,11 @@ export type ReviewDispositionReasonCode =
   | "submission-window-expired"
   | "transaction-not-completed";
 
+export type ReviewScoringReasonCode = Exclude<
+  ReviewDispositionReasonCode,
+  "cancellation-not-reviewable" | "submission-window-expired" | "transaction-not-completed"
+>;
+
 type PublishableReviewVisibilityState = Exclude<ReviewVisibilityState, "held">;
 
 type EligibleReviewDispositionBase = Readonly<{
@@ -101,7 +106,7 @@ export type DirectionalReviewPolicyInput = Readonly<{
   }>;
 }>;
 
-type ResolvedResponsibilityFact = Readonly<{
+export type ResolvedResponsibilityFact = Readonly<{
   responsibility: ResolvedResponsibility | null;
   responsibilityRecognized: boolean;
   resolvedAt: string | null;
@@ -145,10 +150,10 @@ function laterTimestamp(left: string, right: string): string {
   return Date.parse(left) >= Date.parse(right) ? left : right;
 }
 
-function scoreDirection(
+export function decideReviewScoringForDirection(
   reviewerRole: ReviewRole,
   resolvedFacts: readonly ResolvedResponsibilityFact[],
-): Readonly<{ scoringDisposition: ReviewScoringDisposition; reasonCode: ReviewDispositionReasonCode }> {
+): Readonly<{ scoringDisposition: ReviewScoringDisposition; reasonCode: ReviewScoringReasonCode }> {
   if (resolvedFacts.length === 0) {
     return { scoringDisposition: "included", reasonCode: "normal-completion" };
   }
@@ -209,7 +214,7 @@ function decideDirection(
     return ineligibleDisposition(params.hasUnrecognizedFact ? "responsibility-unrecognized" : params.ineligibleReason);
   }
 
-  const scoring = scoreDirection(params.reviewerRole, params.resolvedFacts);
+  const scoring = decideReviewScoringForDirection(params.reviewerRole, params.resolvedFacts);
   const effectiveDeadline = addReviewWindowDays(params.eligibleAt, REVIEW_WINDOW_DAYS);
   if (params.isHeld || params.hasUnrecognizedFact) {
     return {

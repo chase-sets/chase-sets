@@ -261,7 +261,7 @@ type ListingFactRow = Readonly<{
   selected_options: unknown;
   graded_card: unknown;
   price_amount: string;
-  review_count_as_seller: number | null;
+  rating_count_as_seller: number | null;
   badges: unknown;
 }>;
 
@@ -288,7 +288,7 @@ function factsFromRow(row: ListingFactRow): ListingEvidenceEvaluationFacts {
     gradedItem: row.graded_card !== null,
     priceAmount: row.price_amount,
     seller: {
-      reviewCount: Number(row.review_count_as_seller ?? 0),
+      reviewCount: Number(row.rating_count_as_seller ?? 0),
       badgeKeys: asStringList(row.badges),
       riskLevel: null,
     },
@@ -317,7 +317,7 @@ async function impactPreview(
               listing.selected_options,
               listing.graded_card,
               listing.price_amount::text,
-              account.review_count_as_seller,
+              account.rating_count_as_seller,
               account.badges
          FROM marketplace_listing_pages listing
          LEFT JOIN marketplace_catalog_items catalog_item ON catalog_item.catalog_item_id = listing.catalog_item_id
