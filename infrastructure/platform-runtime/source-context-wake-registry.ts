@@ -343,6 +343,7 @@ export const sourceContextWakeRegistry = [
       "marketplace:marketplace-seller-metrics-shipment-source-projection",
       "settlement:settlement-fulfillment-source-projection",
       "platform-operations:support-shipment-source-projection",
+      "platform-operations:support-return-label-source-projection",
     ],
     routeDependencyIds: ["fulfillment.seller-shipment-self-refresh"],
   }),
