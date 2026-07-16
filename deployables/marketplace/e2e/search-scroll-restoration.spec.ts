@@ -2,6 +2,11 @@ import { expect, test } from "@playwright/test";
 
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
 const searchRestorationStorageKey = "discovery.search.restoration.v2";
+// Correctness must not hinge on a stopwatch: a slow CI machine should never turn a working
+// restoration into a timing flake, so the visible-state assertions get a generous hard
+// budget. The performance target is asserted separately and softly below.
+const RESTORATION_HARD_TIMEOUT_MS = 15_000;
+const RESTORATION_PERF_BUDGET_MS = 5_000;
 
 type SearchItem = Record<string, unknown> & Readonly<{ catalog_item_id: string; title: string }>;
 type SearchResponse = Readonly<{
@@ -68,13 +73,30 @@ test.describe("marketplace search scroll restoration", () => {
 
     await roundtripLink.click();
     await expect(page).toHaveURL(/\/items\//);
+
+    const restorationStart = Date.now();
     await page.goBack({ waitUntil: "domcontentloaded" });
     await expect(page).toHaveURL(new RegExp(`/search\\?q=${searchQuery}$`));
-    await expect(page.getByText(/loaded-twice item 24$/)).toBeVisible();
+    // The cached Result Set and scroll context return without a refetch (the loaded page
+    // count below stays at two). Web-first assertions gate on visible state, never on sleeps.
+    await expect(page.getByText(/loaded-twice item 24$/)).toBeVisible({ timeout: RESTORATION_HARD_TIMEOUT_MS });
     await expect
-      .poll(async () => Math.abs((await page.evaluate(() => window.scrollY)) - beforeRoundtrip))
+      .poll(async () => Math.abs((await page.evaluate(() => window.scrollY)) - beforeRoundtrip), {
+        timeout: RESTORATION_HARD_TIMEOUT_MS,
+      })
       .toBeLessThan(200);
-    expect(loadCount).toBe(2);
+    const restorationMs = Date.now() - restorationStart;
+
+    // The loaded pages restore exactly once: back navigation serves the cached Result Set and
+    // must not re-issue the cursor fetches that built it.
+    expect(loadCount, "restoration must not refetch the loaded Result Set").toBe(2);
+
+    // Performance target, reported separately from the hard correctness budget above. A soft
+    // assertion surfaces a restoration regression without masking it as a correctness failure.
+    test.info().annotations.push({ type: "restoration-ms", description: String(restorationMs) });
+    expect
+      .soft(restorationMs, "Result Set restoration performance budget")
+      .toBeLessThan(RESTORATION_PERF_BUDGET_MS);
   });
 });
 

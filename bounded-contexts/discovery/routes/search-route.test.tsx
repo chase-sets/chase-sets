@@ -44,7 +44,12 @@ vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
   subscribeRealtimePatches: mockSubscribeRealtimePatches,
 }));
 
-import SearchRoute, { loader } from "./search";
+import SearchRoute, { clientLoader, loader } from "./search";
+import {
+  cacheSearchLoaderData,
+  readCachedSearchLoaderData,
+  searchLoaderCacheKey,
+} from "../features/search/ui/search-loader-cache";
 
 type SubscribeRealtimePatchesOptions = Parameters<typeof subscribeRealtimePatches>[0];
 
@@ -797,6 +802,69 @@ describe("marketplace search route", () => {
       ),
     ).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("marketplace search back-navigation restoration", () => {
+  beforeEach(() => {
+    mockUseLocation.mockReturnValue({ pathname: "/search", search: "?q=pikachu", hash: "", state: null, key: "test" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn(), state: "idle" });
+    Object.defineProperty(window, "scrollTo", { configurable: true, value: vi.fn() });
+  });
+
+  afterEach(() => {
+    cleanup();
+    window.sessionStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  it("serves a cached Result Set on back navigation without a server refetch", async () => {
+    const cached = searchDataWithResults("pikachu");
+    cacheSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=pikachu"), cached);
+    const serverLoader = vi.fn(async () => {
+      throw new Error("clientLoader must not refetch when a fresh Result Set is cached.");
+    });
+
+    const result = await clientLoader({
+      request: new Request("http://localhost/search?q=pikachu"),
+      params: {},
+      context: {},
+      serverLoader,
+    } as unknown as Parameters<typeof clientLoader>[0]);
+
+    expect(serverLoader).not.toHaveBeenCalled();
+    expect(result).toEqual(cached);
+  });
+
+  it("falls back to the authoritative server loader when nothing is cached", async () => {
+    const fresh = searchDataWithResults("pikachu");
+    const serverLoader = vi.fn(async () => fresh);
+
+    const result = await clientLoader({
+      request: new Request("http://localhost/search?q=pikachu"),
+      params: {},
+      context: {},
+      serverLoader,
+    } as unknown as Parameters<typeof clientLoader>[0]);
+
+    expect(serverLoader).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(fresh);
+  });
+
+  it("warms the loader cache while a Result Set is on screen so a later return is instant", async () => {
+    const loaderData = searchDataWithResults("pikachu");
+    mockUseLoaderData.mockReturnValue(loaderData);
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+
+    render(<SearchRoute />);
+
+    await waitFor(() =>
+      expect(readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey("/search?q=pikachu"))).toEqual(
+        loaderData,
+      ),
+    );
   });
 });
 
