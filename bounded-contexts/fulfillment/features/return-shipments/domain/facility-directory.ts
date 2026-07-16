@@ -178,6 +178,12 @@ export type ReturnSellerDestinationSnapshot = Readonly<{
   postalAddress: AddressSnapshot;
   region: string;
   selectedAt: string;
+  // Seller returns carry no platform-facility id. Declaring it as an absent
+  // (`undefined`) witness keeps `facilityId` structurally readable off the
+  // ReturnDestinationSnapshot union without runtime narrowing, so the shared
+  // custody seam can read a facility id on a facility snapshot directly. The
+  // `destinationType` discriminant still narrows the two variants apart.
+  facilityId?: undefined;
 }>;
 
 export type ReturnDestinationSnapshot = ReturnFacilityDestinationSnapshot | ReturnSellerDestinationSnapshot;

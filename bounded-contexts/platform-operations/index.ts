@@ -97,10 +97,11 @@ export const module = defineBoundedContextModule<
         },
         "fulfillment.support-shipment-source-projection": {
           subscriptionName: "support.shipment-source-projection",
-          buildHandlers: () => ({
-            ...buildSupportShipmentSourceProjectionHandlers(services.db, services.supportRequests),
-            ...buildSupportReturnLabelSourceProjectionHandlers(services.db),
-          }),
+          buildHandlers: () => buildSupportShipmentSourceProjectionHandlers(services.db, services.supportRequests),
+        },
+        "fulfillment.support-return-label-source-projection": {
+          subscriptionName: "support.return-label-source-projection",
+          buildHandlers: () => buildSupportReturnLabelSourceProjectionHandlers(services.db),
         },
         "marketplace.reported-content-queue-projection": {
           subscriptionName: "platform-operations.reported-content-queue-projection",

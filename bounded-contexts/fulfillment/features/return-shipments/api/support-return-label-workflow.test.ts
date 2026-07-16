@@ -34,12 +34,15 @@ function source() {
     packagePlan: {
       packages: [
         {
+          packageId: "pkg_1",
           mailpieceClass: "parcel" as const,
           lengthInches: 9,
           widthInches: 6,
           heightInches: 2,
           weightOunces: 10,
+          billableWeightOunces: 10,
           serviceLevel: "standard-parcel" as const,
+          productMeasureVersions: ["product-measure-v1"],
         },
       ],
     },
@@ -51,7 +54,9 @@ describe("support return-label workflow", () => {
     ["product-damaged", "seller"],
     ["return-request", "buyer"],
   ] as const)("issues %s returns once with %s cost allocation", async (flowType, costPayer) => {
-    const issueReturnLabel = vi.fn(async () => ({ outcome: "label-ready" as const }));
+    const issueReturnLabel = vi.fn(async (_directive: unknown, _context?: unknown) => ({
+      outcome: "label-ready" as const,
+    }));
     const workflow = createSupportReturnLabelWorkflow({
       loadSource: vi.fn(async () => source()),
       issueReturnLabel: issueReturnLabel as never,

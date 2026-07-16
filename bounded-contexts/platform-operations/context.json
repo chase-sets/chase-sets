@@ -151,6 +151,17 @@
         "fulfillment.shipment.returned",
         "fulfillment.shipment.exception-raised",
         "fulfillment.return-shipment.facility-intake-completed.v1",
+        "fulfillment.return-shipment.carrier-accepted.v1",
+        "fulfillment.return-shipment.delivered.v1"
+      ],
+      "order": 80,
+      "projectionHandlerSetNames": ["support-shipment-source-projection"]
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "support-return-label-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
         "fulfillment.return-shipment.requested.v1",
         "fulfillment.return-shipment.requested.v2",
         "fulfillment.return-shipment.label-ready.v1",
@@ -162,8 +173,8 @@
         "fulfillment.return-shipment.cancelled.v1",
         "fulfillment.return-shipment.expired.v1"
       ],
-      "order": 80,
-      "projectionHandlerSetNames": ["support-shipment-source-projection"]
+      "order": 81,
+      "projectionHandlerSetNames": ["support-return-label-source-projection"]
     }
   ],
   "projectionGroups": [
@@ -220,7 +231,14 @@
     {
       "projectionName": "support-shipment-source-projection",
       "sourceContextNames": ["fulfillment"],
-      "ownedTables": ["support_shipment_sources", "support_return_label_sources"],
+      "ownedTables": ["support_shipment_sources"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "support-return-label-source-projection",
+      "sourceContextNames": ["fulfillment"],
+      "ownedTables": ["support_return_label_sources"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },

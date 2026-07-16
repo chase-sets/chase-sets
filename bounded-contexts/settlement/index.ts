@@ -93,7 +93,7 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
           filterToEventTypes: true,
         },
         "fulfillment.settlement-fulfillment-source-projection": () =>
-          buildSettlementFulfillmentSourceProjectionHandlers(services.db, services.wallets),
+          buildSettlementFulfillmentSourceProjectionHandlers(services.db),
         "inventory.settlement-inventory-recovery-workflow": () => ({
           "inventory.recovered-item.value-reported.v1": async (event: Parameters<BcEventSubscriptionHandler>[0]) => {
             const data = event.data as InventoryRecoveredItemValueReportedPayload;
