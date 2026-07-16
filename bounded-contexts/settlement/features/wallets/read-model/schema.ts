@@ -87,11 +87,29 @@ const settlementWalletSpendHoldsActiveExpiryIndexSql = `CREATE INDEX CONCURRENTL
   ON settlement_wallet_spend_holds (expires_at)
   WHERE status = 'active' AND expires_at IS NOT NULL;`;
 
+// Lock-safe reshape of settlement_wallet_pages (a populated hot table): add the
+// column with a constant NOT NULL default (metadata-only fast default on
+// PostgreSQL 11+, no rewrite), then add the value-domain CHECK as NOT VALID and
+// VALIDATE it under SHARE UPDATE EXCLUSIVE -- never an inline CHECK, which would
+// force a validating scan under ACCESS EXCLUSIVE against rolling-deploy reads.
 const settlementWalletNegativeBalanceColumnsSql = `ALTER TABLE settlement_wallet_pages
-  ADD COLUMN IF NOT EXISTS negative_balance_status text NOT NULL DEFAULT 'in-good-standing'
-    CHECK (negative_balance_status IN ('in-good-standing', 'negative', 'collections')),
+  ADD COLUMN IF NOT EXISTS negative_balance_status text NOT NULL DEFAULT 'in-good-standing',
   ADD COLUMN IF NOT EXISTS negative_balance_started_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS collections_escalated_at timestamptz NULL;`;
+
+const settlementWalletNegativeBalanceStatusConstraintSql = `DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'settlement_wallet_pages_negative_balance_status_check'
+  ) THEN
+    ALTER TABLE settlement_wallet_pages
+      ADD CONSTRAINT settlement_wallet_pages_negative_balance_status_check
+      CHECK (negative_balance_status IN ('in-good-standing', 'negative', 'collections')) NOT VALID;
+  END IF;
+END $$;`;
+
+const settlementWalletNegativeBalanceStatusValidateSql = `ALTER TABLE settlement_wallet_pages
+  VALIDATE CONSTRAINT settlement_wallet_pages_negative_balance_status_check;`;
 
 const settlementWalletNegativeBalanceIndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_wallet_pages_negative_balance_idx
   ON settlement_wallet_pages (negative_balance_status, negative_balance_started_at)
@@ -104,6 +122,8 @@ export const settlementWalletSchemaMigrations: readonly BcSchemaMigration[] = [
     statements: [
       "SET lock_timeout = '5s';",
       settlementWalletNegativeBalanceColumnsSql,
+      settlementWalletNegativeBalanceStatusConstraintSql,
+      settlementWalletNegativeBalanceStatusValidateSql,
       settlementWalletNegativeBalanceIndexSql,
     ],
   },
