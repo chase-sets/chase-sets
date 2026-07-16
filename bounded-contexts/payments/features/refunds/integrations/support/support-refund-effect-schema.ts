@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS payments_support_refund_effects (
   requested_amount numeric(12, 2) NULL,
   status text NOT NULL,
   failure_message text NULL,
+  attempts integer NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
   return_delivered_at timestamptz NULL,
@@ -45,3 +46,13 @@ CREATE INDEX IF NOT EXISTS payments_support_refund_effects_order_idx
 CREATE INDEX IF NOT EXISTS payments_support_refund_effects_status_idx
   ON payments_support_refund_effects (status, updated_at DESC);
 `;
+
+export const paymentsSupportRefundEffectSchemaMigrations = [
+  {
+    migrationId: "20260716_payments_support_refund_effect_attempts",
+    description: "Track support refund effect retry attempts for bounded automatic retries",
+    statements: [
+      "ALTER TABLE payments_support_refund_effects ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;",
+    ],
+  },
+] as const;

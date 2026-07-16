@@ -8,8 +8,14 @@ import type { RefundServices } from "../../api/runtime";
 import type { RefundCausationInput } from "../../domain/causation";
 import { refundIdForRemedy } from "../../domain/causation";
 import { getCapturedPaymentByOrderId, getOrderPaymentInput } from "../../../payments/read-model/queries";
+import { recordRefundEffectFailure } from "../refund-effect-retry";
 
-const refundResolutionTypes = new Set(["full-refund", "partial-refund", "return-for-refund", "cancel-order"]);
+// `cancel-order` is intentionally excluded: it is driven through order
+// cancellation (ordering emits `ordering.order.cancelled`, which the
+// cancellation refund effect handles), so the buyer is refunded — including the
+// checkout fee — only once the order actually transitions to cancelled and its
+// inventory holds are released.
+const refundResolutionTypes = new Set(["full-refund", "partial-refund", "return-for-refund"]);
 
 /** Structured, non-free-form reason carried as refund causation when a platform-coverage remedy releases its refund. */
 const REMEDY_REFUND_RELEASED_REASON_CODE = "platform-coverage-remedy-refund-released";
@@ -22,7 +28,7 @@ const REMEDY_REFUND_RELEASED_REASON_CODE = "platform-coverage-remedy-refund-rele
  * (`support.support-request.return-refund-released`). Every other resolution
  * type keeps issuing its refund immediately at resolution time.
  */
-const immediateRefundResolutionTypes = new Set(["full-refund", "partial-refund", "cancel-order"]);
+const immediateRefundResolutionTypes = new Set(["full-refund", "partial-refund"]);
 
 function compareMoney(left: string, right: string) {
   return Number.parseFloat(left) - Number.parseFloat(right);
@@ -278,11 +284,13 @@ async function issueClaimedRefund(
     amount: string;
     reason: string;
     causation?: RefundCausationInput | null;
+    capToRemainingRefundable?: boolean;
     context: EventStoreContext;
   }>,
 ) {
+  let result: Awaited<ReturnType<RefundServices["issueRefund"]>>;
   try {
-    const result = await refunds.issueRefund(
+    result = await refunds.issueRefund(
       {
         refundId: params.refundId,
         paymentId: params.paymentId as PaymentId,
@@ -290,36 +298,56 @@ async function issueClaimedRefund(
         amount: params.amount,
         reason: params.reason,
         causation: params.causation ?? null,
+        capToRemainingRefundable: params.capToRemainingRefundable ?? false,
       },
       params.context,
     );
-    await db.query(
-      `UPDATE payments_support_refund_effects
-       SET payment_id = $2,
-           refund_id = $3,
-           status = 'refund-requested',
-           failure_message = NULL,
-           updated_at = $4
-       WHERE support_request_id = $1`,
-      [params.supportRequestId, params.paymentId, result.refundId, new Date().toISOString()],
-    );
   } catch (error) {
+    await recordRefundEffectFailure(db, {
+      table: "payments_support_refund_effects",
+      keyColumn: "support_request_id",
+      keyValue: params.supportRequestId,
+      failureMessage: error instanceof Error ? error.message : "Support refund failed.",
+      now: new Date().toISOString(),
+    });
+    return;
+  }
+
+  if (result.outcome === "not-refundable") {
     await db.query(
       `UPDATE payments_support_refund_effects
-       SET payment_id = $2,
-           status = 'failed',
-           failure_message = $3,
-           updated_at = $4
-       WHERE support_request_id = $1`,
-      [
-        params.supportRequestId,
-        params.paymentId,
-        error instanceof Error ? error.message : "Support refund failed.",
-        new Date().toISOString(),
-      ],
+       SET status = 'skipped',
+           failure_message = $2,
+           updated_at = $3
+       WHERE support_request_id = $1
+         AND status = 'processing'`,
+      [params.supportRequestId, result.reason, new Date().toISOString()],
     );
-    throw error;
+    return;
   }
+
+  if (result.outcome === "gateway-failed") {
+    await recordRefundEffectFailure(db, {
+      table: "payments_support_refund_effects",
+      keyColumn: "support_request_id",
+      keyValue: params.supportRequestId,
+      failureMessage: result.failureMessage,
+      now: new Date().toISOString(),
+    });
+    return;
+  }
+
+  await db.query(
+    `UPDATE payments_support_refund_effects
+     SET payment_id = $2,
+         refund_id = $3,
+         requested_amount = $4,
+         status = 'refund-requested',
+         failure_message = NULL,
+         updated_at = $5
+     WHERE support_request_id = $1`,
+    [params.supportRequestId, params.paymentId, result.refundId, result.amount, new Date().toISOString()],
+  );
 }
 
 export function buildPaymentsSupportRefundEffectHandlers(
@@ -484,6 +512,7 @@ export function buildPaymentsSupportRefundEffectHandlers(
         orderId: data.orderId,
         amount,
         reason: `Support ${data.supportRequestId}: ${data.resolution.summary}`,
+        capToRemainingRefundable: true,
         context: { tenantId: event.tenantId, audit: event.audit, trace: event.trace },
       });
     },
@@ -706,6 +735,7 @@ export function buildPaymentsSupportRefundEffectHandlers(
         orderId: data.orderId,
         amount,
         reason: `Support ${data.supportRequestId}: return refund released after inspection window.`,
+        capToRemainingRefundable: true,
         context: { tenantId: event.tenantId, audit: event.audit, trace: event.trace },
       });
     },

@@ -27,6 +27,7 @@ import {
 } from "./features/orders/integrations/supply/supply-projection";
 import { buildOrderingFulfillmentCancellationProjectionHandlers } from "./features/orders/integrations/fulfillment/fulfillment-projection";
 import { buildOrderingReputationProjectionHandlers } from "./features/orders/integrations/reputation/reputation-projection";
+import { buildOrderingSupportCancellationReactionHandlers } from "./features/orders/integrations/support-cancellation/support-cancellation-reaction";
 import { buildOrderingMoneyTimelineProjectionHandlers } from "./features/orders/integrations/money-timeline/money-timeline-projection";
 import { listAcceptedOfferBatchInputs } from "./features/orders/integrations/supply/supply-queries";
 import { createOrderingServices } from "./support/runtime-support/services";
@@ -209,6 +210,14 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
                 });
               },
             }),
+          // A support resolution that cancels an order must actually drive the
+          // order into a cancelled state; the refund and inventory-hold release
+          // follow from `ordering.order.cancelled`. Without this, a cancel-order
+          // resolution would leave the order fulfillable while its refund fired.
+          "platform-operations.ordering-support-cancellation": {
+            filterToEventTypes: true,
+            buildHandlers: () => buildOrderingSupportCancellationReactionHandlers(services.orders.commandHandler),
+          },
           "marketplace.ordering-marketplace-offer-acceptance": {
             filterToEventTypes: true,
             buildHandlers: () =>

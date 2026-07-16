@@ -639,6 +639,7 @@ export const sourceContextWakeRegistry = [
       "marketplace:marketplace-seller-metrics-support-source-projection",
       "ordering:ordering-order-money-timeline-projection",
       "ordering:ordering-order-review-opportunity-projection",
+      "ordering:ordering-support-cancellation",
       "settlement:settlement-liability-allocation-reserve-projection",
       "settlement:settlement-support-hold-lifecycle-projection",
       "settlement:settlement-support-hold-projection",

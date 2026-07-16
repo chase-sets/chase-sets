@@ -88,7 +88,7 @@ function paymentCapturedEvent() {
 
 describe("payments order cancellation refund effect projection", () => {
   it("refunds the cancelled order total plus allocated checkout fee once", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 2 }));
+    const issueRefund = vi.fn(async () => ({ outcome: "requested", refundId: "rfd_1", version: 2, amount: "10.33" }));
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("FROM payments_payment_pages")) {
@@ -122,6 +122,7 @@ describe("payments order cancellation refund effect projection", () => {
         orderIds: ["ord_1"],
         amount: "10.33",
         reason: "Self-service purchase cancellation for order ord_1.",
+        capToRemainingRefundable: true,
       },
       expect.objectContaining({
         tenantId: "tnt_test",
@@ -130,7 +131,7 @@ describe("payments order cancellation refund effect projection", () => {
   });
 
   it("keeps pre-payment cancellation as a skipped no-refund claim", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 2 }));
+    const issueRefund = vi.fn(async () => ({ outcome: "requested", refundId: "rfd_1", version: 2, amount: "10.33" }));
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("FROM payments_payment_pages")) {
@@ -157,7 +158,7 @@ describe("payments order cancellation refund effect projection", () => {
   });
 
   it("upgrades a skipped cancellation claim when capture later arrives", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 2 }));
+    const issueRefund = vi.fn(async () => ({ outcome: "requested", refundId: "rfd_1", version: 2, amount: "10.33" }));
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("WHERE order_id = ANY($1)")) {
@@ -195,7 +196,7 @@ describe("payments order cancellation refund effect projection", () => {
   });
 
   it("does not double-refund duplicate capture events after the claim is no longer skipped", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 2 }));
+    const issueRefund = vi.fn(async () => ({ outcome: "requested", refundId: "rfd_1", version: 2, amount: "10.33" }));
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("WHERE order_id = ANY($1)")) {
@@ -217,7 +218,7 @@ describe("payments order cancellation refund effect projection", () => {
   });
 
   it("uses the same capture-later refund path for seller-cancelled orders", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 2 }));
+    const issueRefund = vi.fn(async () => ({ outcome: "requested", refundId: "rfd_1", version: 2, amount: "10.33" }));
     let insertCalls = 0;
     const db = {
       query: vi.fn(async (sql: string) => {
@@ -256,7 +257,12 @@ describe("payments order cancellation refund effect projection", () => {
   });
 
   it("reuses a claimed refund id when a failed cancellation effect is retried", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_retry", version: 2 }));
+    const issueRefund = vi.fn(async () => ({
+      outcome: "requested",
+      refundId: "rfd_retry",
+      version: 2,
+      amount: "10.33",
+    }));
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("FROM payments_payment_pages")) {
@@ -293,6 +299,112 @@ describe("payments order cancellation refund effect projection", () => {
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("payments_order_cancellation_refund_effects.status IN ('skipped', 'failed')"),
       expect.arrayContaining(["ord_1", "pay_1", expect.any(String), "10.33", "processing"]),
+    );
+  });
+
+  it("records a retryable failure and rethrows a transient error when the gateway fails", async () => {
+    const issueRefund = vi.fn(async () => ({
+      outcome: "gateway-failed",
+      refundId: "rfd_claimed",
+      version: 2,
+      amount: "10.33",
+      failureMessage: "processor timeout",
+    }));
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM payments_payment_pages")) {
+          return { rows: [paymentRow] };
+        }
+        if (sql.includes("WHERE order_id = ANY($1)")) {
+          return { rows: [{ order_id: "ord_1", total_amount: "10.00", status: "cancelled" }] };
+        }
+        if (sql.includes("FROM payments_order_inputs")) {
+          return { rows: [{ order_id: "ord_1", total_amount: "10.00" }] };
+        }
+        if (sql.includes("INSERT INTO payments_order_cancellation_refund_effects")) {
+          return { rowCount: 1, rows: [{ order_id: "ord_1", refund_id: "rfd_claimed" }] };
+        }
+        if (sql.includes("attempts = attempts + 1")) {
+          return { rows: [{ status: "failed" }] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildPaymentsOrderCancellationRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await expect(handlers["ordering.order.cancelled"]?.(cancellationEvent())).rejects.toThrow(/retried/i);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("attempts = attempts + 1"),
+      expect.arrayContaining(["ord_1", "processor timeout"]),
+    );
+    // The effect is never marked refund-requested when the gateway failed.
+    const requestedCall = db.query.mock.calls.find(([sql]) => String(sql).includes("status = 'refund-requested'"));
+    expect(requestedCall).toBeUndefined();
+  });
+
+  it("parks the effect in manual-review once the retry bound is exhausted, without rethrowing", async () => {
+    const issueRefund = vi.fn(async () => ({
+      outcome: "gateway-failed",
+      refundId: "rfd_claimed",
+      version: 2,
+      amount: "10.33",
+      failureMessage: "processor down",
+    }));
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM payments_payment_pages")) {
+          return { rows: [paymentRow] };
+        }
+        if (sql.includes("WHERE order_id = ANY($1)")) {
+          return { rows: [{ order_id: "ord_1", total_amount: "10.00", status: "cancelled" }] };
+        }
+        if (sql.includes("FROM payments_order_inputs")) {
+          return { rows: [{ order_id: "ord_1", total_amount: "10.00" }] };
+        }
+        if (sql.includes("INSERT INTO payments_order_cancellation_refund_effects")) {
+          return { rowCount: 1, rows: [{ order_id: "ord_1", refund_id: "rfd_claimed" }] };
+        }
+        if (sql.includes("attempts = attempts + 1")) {
+          return { rows: [{ status: "manual-review" }] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildPaymentsOrderCancellationRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await expect(handlers["ordering.order.cancelled"]?.(cancellationEvent())).resolves.toBeUndefined();
+  });
+
+  it("skips the cancellation refund when the order has no remaining refundable amount", async () => {
+    const issueRefund = vi.fn(async () => ({
+      outcome: "not-refundable",
+      refundId: "rfd_claimed",
+      reason: "Order has no remaining refundable amount.",
+    }));
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM payments_payment_pages")) {
+          return { rows: [paymentRow] };
+        }
+        if (sql.includes("WHERE order_id = ANY($1)")) {
+          return { rows: [{ order_id: "ord_1", total_amount: "10.00", status: "cancelled" }] };
+        }
+        if (sql.includes("FROM payments_order_inputs")) {
+          return { rows: [{ order_id: "ord_1", total_amount: "10.00" }] };
+        }
+        if (sql.includes("INSERT INTO payments_order_cancellation_refund_effects")) {
+          return { rowCount: 1, rows: [{ order_id: "ord_1", refund_id: "rfd_claimed" }] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildPaymentsOrderCancellationRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await handlers["ordering.order.cancelled"]?.(cancellationEvent());
+
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("status = 'skipped'"),
+      expect.arrayContaining(["ord_1", "Order has no remaining refundable amount."]),
     );
   });
 });

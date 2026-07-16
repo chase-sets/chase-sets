@@ -1,5 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { recordRefundEffectFailure } from "../refund-effect-retry";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId, type PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { RefundId } from "../../../../support/runtime-support/common";
@@ -201,14 +202,16 @@ async function issueCancellationRefund(
     return;
   }
 
+  let result: Awaited<ReturnType<RefundServices["issueRefund"]>>;
   try {
-    const result = await refunds.issueRefund(
+    result = await refunds.issueRefund(
       {
         refundId: claimed,
         paymentId: params.payment.payment_id as PaymentId,
         orderIds: [params.orderId],
         amount: refundableAmount,
         reason: `Self-service purchase cancellation for order ${params.orderId}.`,
+        capToRemainingRefundable: true,
       },
       {
         tenantId: params.tenantId,
@@ -216,32 +219,52 @@ async function issueCancellationRefund(
         trace: params.trace,
       },
     );
-    await db.query(
-      `UPDATE payments_order_cancellation_refund_effects
-       SET refund_id = $2,
-           status = 'refund-requested',
-           failure_message = NULL,
-           updated_at = $3
-       WHERE order_id = $1
-         AND status = 'processing'`,
-      [params.orderId, result.refundId, new Date().toISOString()],
-    );
   } catch (error) {
+    await recordRefundEffectFailure(db, {
+      table: "payments_order_cancellation_refund_effects",
+      keyColumn: "order_id",
+      keyValue: params.orderId,
+      failureMessage: error instanceof Error ? error.message : "Self-service cancellation refund failed.",
+      now: new Date().toISOString(),
+    });
+    return;
+  }
+
+  if (result.outcome === "not-refundable") {
     await db.query(
       `UPDATE payments_order_cancellation_refund_effects
-       SET status = 'failed',
+       SET status = 'skipped',
            failure_message = $2,
            updated_at = $3
        WHERE order_id = $1
          AND status = 'processing'`,
-      [
-        params.orderId,
-        error instanceof Error ? error.message : "Self-service cancellation refund failed.",
-        new Date().toISOString(),
-      ],
+      [params.orderId, result.reason, new Date().toISOString()],
     );
-    throw error;
+    return;
   }
+
+  if (result.outcome === "gateway-failed") {
+    await recordRefundEffectFailure(db, {
+      table: "payments_order_cancellation_refund_effects",
+      keyColumn: "order_id",
+      keyValue: params.orderId,
+      failureMessage: result.failureMessage,
+      now: new Date().toISOString(),
+    });
+    return;
+  }
+
+  await db.query(
+    `UPDATE payments_order_cancellation_refund_effects
+     SET refund_id = $2,
+         requested_amount = $3,
+         status = 'refund-requested',
+         failure_message = NULL,
+         updated_at = $4
+     WHERE order_id = $1
+       AND status = 'processing'`,
+    [params.orderId, result.refundId, result.amount, new Date().toISOString()],
+  );
 }
 
 export function buildPaymentsOrderCancellationRefundEffectHandlers(
