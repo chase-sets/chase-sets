@@ -35,14 +35,34 @@ export type CommercialTermsPolicyWindowRecordedEvent = DomainEvent<
   }>
 >;
 
+/**
+ * Parses an effective-window bound to an epoch millisecond value, failing
+ * closed (throwing rather than returning `NaN`) when the bound does not
+ * parse. `NaN` comparisons are always false, so an unparseable bound left
+ * unchecked would silently evade overlap detection instead of blocking it.
+ */
+function parseEffectiveBound(value: string, fieldName: string): number {
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    throw new PlatformPolicyDomainError(`Policy window ${fieldName} is not a parseable ISO timestamp: '${value}'.`);
+  }
+  return parsed;
+}
+
 function windowsOverlap(
   left: Readonly<{ effectiveFrom: string; effectiveUntil: string | null }>,
   right: Readonly<{ effectiveFrom: string; effectiveUntil: string | null }>,
 ): boolean {
-  const leftStart = Date.parse(left.effectiveFrom);
-  const leftEnd = left.effectiveUntil === null ? Number.POSITIVE_INFINITY : Date.parse(left.effectiveUntil);
-  const rightStart = Date.parse(right.effectiveFrom);
-  const rightEnd = right.effectiveUntil === null ? Number.POSITIVE_INFINITY : Date.parse(right.effectiveUntil);
+  const leftStart = parseEffectiveBound(left.effectiveFrom, "effectiveFrom");
+  const leftEnd =
+    left.effectiveUntil === null
+      ? Number.POSITIVE_INFINITY
+      : parseEffectiveBound(left.effectiveUntil, "effectiveUntil");
+  const rightStart = parseEffectiveBound(right.effectiveFrom, "effectiveFrom");
+  const rightEnd =
+    right.effectiveUntil === null
+      ? Number.POSITIVE_INFINITY
+      : parseEffectiveBound(right.effectiveUntil, "effectiveUntil");
   return leftStart < rightEnd && rightStart < leftEnd;
 }
 
