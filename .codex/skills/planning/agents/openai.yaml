@@ -1,0 +1,4 @@
+interface:
+  display_name: "Planning"
+  short_description: "Plan work into lane-ready issues, epics, milestones"
+  default_prompt: "Use $planning to plan this feature or problem: calibrate scope first (issues into an existing milestone by default; epic or new milestone only when the outcome demands it), sweep repo evidence with a don't-rebuild check, decompose into vertical slices with footprint-driven chains, extract every decision up front (queue unresolved ones with recommendations), draft artifacts to the reference standards, pressure-test in a fresh context, then register on GitHub with blocked-by links wired."

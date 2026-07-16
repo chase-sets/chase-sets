@@ -1,0 +1,52 @@
+name: Slice
+description: A lane-ready unit of work (dispatch brief)
+title: "<verb + outcome, ubiquitous language>"
+labels: []
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why this exists; epic/ADR links; 2–5 repo evidence pointers (paths, symbols, prior art).
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope fence
+      description: In-scope, and at least one explicit non-goal.
+    validations:
+      required: true
+  - type: textarea
+    id: decisions
+    attributes:
+      label: Decisions already made
+      description: Settled rulings with links. Unsettled full-path decisions must block this issue via a decision issue.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: One per line, each with its evidence method (test name, verifier, screenshot, ops check).
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification plan
+      description: Runnable scoped commands that prove the change.
+    validations:
+      required: true
+  - type: textarea
+    id: footprint
+    attributes:
+      label: Footprint & chain
+      description: "Predicted workspaces/files; chain links: Blocked by #N / Blocks #M."
+    validations:
+      required: true
+  - type: input
+    id: tier
+    attributes:
+      label: Tier + routing hint
+      description: "fast|full path; presentation|system."
+    validations:
+      required: true
