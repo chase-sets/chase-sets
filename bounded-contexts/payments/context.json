@@ -11,8 +11,7 @@
     "@chase-sets/auth",
     "@chase-sets/customer-feedback",
     "@chase-sets/marketplace",
-    "@chase-sets/ordering",
-    "@chase-sets/platform-operations"
+    "@chase-sets/ordering"
   ],
   "seedRequirements": ["identity", "marketplace", "ordering"],
   "eventSubscriptions": [
