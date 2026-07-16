@@ -118,12 +118,12 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
   await upsertPasswordCredential(db, {
     credentialId: demo.credentialId,
     userId: demo.userId,
-    secretHash: auth.hashSecret("demo1234"),
+    secretHash: await auth.hashPassword("demo1234"),
   });
   await upsertPasswordCredential(db, {
     credentialId: collector.credentialId,
     userId: collector.userId,
-    secretHash: auth.hashSecret("collector1234"),
+    secretHash: await auth.hashPassword("collector1234"),
   });
 
   void sessions.projectors;

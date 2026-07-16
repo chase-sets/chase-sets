@@ -10,13 +10,17 @@ import type { AuthServices } from "../runtime-support/services";
 import { registerPasswordRoutes } from "./password-routes";
 import type { AuthApiEnv } from "./support";
 
-const { mockGetPasswordCredentialByUserId, mockStartInteractiveAuth } = vi.hoisted(() => ({
-  mockGetPasswordCredentialByUserId: vi.fn(),
-  mockStartInteractiveAuth: vi.fn(),
-}));
+const { mockGetPasswordCredentialByUserId, mockUpsertPasswordCredential, mockStartInteractiveAuth } = vi.hoisted(
+  () => ({
+    mockGetPasswordCredentialByUserId: vi.fn(),
+    mockUpsertPasswordCredential: vi.fn(),
+    mockStartInteractiveAuth: vi.fn(),
+  }),
+);
 
 vi.mock("../auth-support/store", () => ({
   getPasswordCredentialByUserId: mockGetPasswordCredentialByUserId,
+  upsertPasswordCredential: mockUpsertPasswordCredential,
 }));
 
 vi.mock("../runtime-support/services", () => ({
@@ -48,7 +52,7 @@ function createServices() {
       query: vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] })),
     },
     auth: {
-      verifySecret: vi.fn(() => true),
+      verifyPassword: vi.fn(async () => ({ valid: true }) as { valid: boolean; upgradedHash?: string }),
     },
     identity: {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
@@ -65,7 +69,7 @@ function signInRequest(app: ReturnType<typeof buildApp>, body: unknown, forwarde
   });
 }
 
-useMockReset(mockGetPasswordCredentialByUserId, mockStartInteractiveAuth);
+useMockReset(mockGetPasswordCredentialByUserId, mockUpsertPasswordCredential, mockStartInteractiveAuth);
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -102,7 +106,8 @@ describe("password auth routes", () => {
     });
     expect(services.identity.getUserByEmail).toHaveBeenCalledWith("buyer@example.com");
     expect(mockGetPasswordCredentialByUserId).toHaveBeenCalledWith(services.db, "usr_existing");
-    expect(services.auth.verifySecret).toHaveBeenCalledWith("correct-horse", "hash_correct");
+    expect(services.auth.verifyPassword).toHaveBeenCalledWith("correct-horse", "hash_correct");
+    expect(mockUpsertPasswordCredential).not.toHaveBeenCalled();
     expect(mockStartInteractiveAuth).toHaveBeenCalledWith(
       services,
       expect.objectContaining({
@@ -132,7 +137,7 @@ describe("password auth routes", () => {
       user_id: "usr_existing",
       secret_hash: "hash_correct",
     });
-    services.auth.verifySecret = vi.fn(() => false);
+    services.auth.verifyPassword = vi.fn(async () => ({ valid: false }));
     const app = buildApp(services);
 
     const response = await signInRequest(app, { email: "buyer@example.com", password: "wrong" }, "203.0.113.62");
@@ -140,6 +145,7 @@ describe("password auth routes", () => {
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({ error: "Invalid email or password." });
     expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+    expect(mockUpsertPasswordCredential).not.toHaveBeenCalled();
   });
 
   it("rejects sign-in when the user has no password credential on file", async () => {
@@ -150,8 +156,40 @@ describe("password auth routes", () => {
     const response = await signInRequest(app, { email: "buyer@example.com", password: "whatever" }, "203.0.113.63");
 
     expect(response.status).toBe(401);
-    expect(services.auth.verifySecret).not.toHaveBeenCalled();
+    expect(services.auth.verifyPassword).not.toHaveBeenCalled();
     expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+  });
+
+  it("persists the upgraded hash when verify returns a rehash (transparent migration)", async () => {
+    const services = createServices();
+    mockGetPasswordCredentialByUserId.mockResolvedValue({
+      credential_id: "pwd_1",
+      user_id: "usr_existing",
+      secret_hash: "a".repeat(64),
+    });
+    services.auth.verifyPassword = vi.fn(async () => ({
+      valid: true,
+      upgradedHash: "scrypt$N=32768,r=8,p=1$c2FsdA==$aGFzaA==",
+    }));
+    mockStartInteractiveAuth.mockResolvedValue({ type: "session-started", sessionToken: "session_token" });
+    const app = buildApp(services);
+
+    const response = await signInRequest(
+      app,
+      { email: "buyer@example.com", password: "correct-horse" },
+      "203.0.113.70",
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockUpsertPasswordCredential).toHaveBeenCalledWith(
+      services.db,
+      expect.objectContaining({
+        credentialId: "pwd_1",
+        userId: "usr_existing",
+        secretHash: "scrypt$N=32768,r=8,p=1$c2FsdA==$aGFzaA==",
+      }),
+    );
+    expect(mockStartInteractiveAuth).toHaveBeenCalled();
   });
 
   it("rate limits failed password verification per identifier and per IP", async () => {

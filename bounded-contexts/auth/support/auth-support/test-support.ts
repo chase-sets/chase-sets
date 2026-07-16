@@ -64,6 +64,8 @@ export function createAuthServicesFake(overrides: AuthServicesFakeOverrides = {}
       issueChallenge: vi.fn(() => "challenge_value"),
       hashSecret: vi.fn((value: string) => `hashed:${value}`),
       verifySecret: vi.fn(() => true),
+      hashPassword: vi.fn(async (value: string) => `password:${value}`),
+      verifyPassword: vi.fn(async () => ({ valid: true })),
       ...auth,
     },
     identity: {
