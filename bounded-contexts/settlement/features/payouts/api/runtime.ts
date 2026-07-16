@@ -1428,7 +1428,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       const unavailableReasons: string[] = [];
       // Buyer-spend holds reserve balance the account applied at checkout but
       // that has not yet debited at capture; it must not be payable meanwhile,
-      // or the same funds could be both withdrawn and spent (issue #3568).
+      // or the same funds could be both withdrawn and spent.
       const payoutAvailableBalanceAmount = subtractMoney(
         subtractMoney(wallet.available_balance_amount, activeSupportHoldAmount),
         activeSpendHoldAmount,

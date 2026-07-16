@@ -267,7 +267,7 @@ export function createPlatformApiHost(
     ? createSettlementBalanceCreditResolver(settlementPool, {
         termsAcceptanceResolver,
         // Wallet write port so checkout reserves applied balance authoritatively
-        // and concurrent checkouts cannot double-spend wallet credit (issue #3568).
+        // and concurrent checkouts cannot double-spend wallet credit.
         walletSpendHolds: createSettlementWalletSpendHoldPort(settlementPool),
       })
     : undefined;

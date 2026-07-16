@@ -129,7 +129,7 @@ export const settlementWalletSchemaMigrations: readonly BcSchemaMigration[] = [
   },
   {
     migrationId: "20260715_settlement_wallet_spend_holds",
-    description: "Create the buyer-spend hold read model backing the balance-credit reservation (issue #3568).",
+    description: "Create the buyer-spend hold read model backing the balance-credit reservation.",
     statements: [
       "SET lock_timeout = '5s';",
       settlementWalletSpendHoldsTableSql,

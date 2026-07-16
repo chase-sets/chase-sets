@@ -6,7 +6,7 @@ export const settlementRetentionSweeps: readonly BcRetentionSweep[] = [
   ageSweep("money-movement-webhook-events", "settlement_money_movement_webhook_events", "received_at"),
   ageSweep("provider-idempotency-keys", "settlement_provider_idempotency_keys", "created_at"),
   {
-    // Prune only long-released buyer-spend holds (issue #3568). Active holds are
+    // Prune only long-released buyer-spend holds. Active holds are
     // live money reservations and must never be swept, so the predicate is
     // gated on the terminal 'released' status, not merely age.
     name: "wallet-spend-holds",
@@ -54,7 +54,7 @@ export const settlementRetentionSchemaMigrations: readonly BcSchemaMigration[] =
   },
   {
     migrationId: "20260715_settlement_wallet_spend_holds_retention_index",
-    description: "Add the released-hold ordering index used by the buyer-spend hold retention sweep (issue #3568).",
+    description: "Add the released-hold ordering index used by the buyer-spend hold retention sweep.",
     statements: [
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_wallet_spend_holds_retention_idx
   ON settlement_wallet_spend_holds (released_at)

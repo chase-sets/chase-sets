@@ -450,7 +450,7 @@ export async function listPendingCreditEntriesMaturedBy(
  * Sum of the account's active buyer-spend holds (balance-credit reservations
  * placed at checkout, not yet captured/released). Subtracted from available
  * balance wherever spendable/payable funds are computed, so a hold cannot be
- * spent or paid out twice. See issue #3568.
+ * spent or paid out twice.
  */
 export async function getAccountActiveSpendHoldAmount(db: PgQueryable, accountId: string): Promise<string> {
   const result = await db.query<{ amount: string }>(

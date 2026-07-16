@@ -212,7 +212,7 @@ const balanceCreditResolver = pools.settlement
   ? createSettlementBalanceCreditResolver(pools.settlement, {
       termsAcceptanceResolver,
       // Wallet write port so checkout reserves applied balance authoritatively
-      // and concurrent checkouts cannot double-spend wallet credit (issue #3568).
+      // and concurrent checkouts cannot double-spend wallet credit.
       walletSpendHolds: createSettlementWalletSpendHoldPort(pools.settlement),
     })
   : undefined;
@@ -1775,7 +1775,7 @@ function createScheduledJobRunners(
         async () => {
           // Backstop against buyer-spend holds leaking on payments that never
           // conclude: release any hold whose expiry has elapsed, returning the
-          // reserved credit to the buyer's spendable balance (issue #3568).
+          // reserved credit to the buyer's spendable balance.
           const result = await settlement.wallets.sweepExpiredSpendHolds({ limit: 500 }, SYSTEM_CONTEXT);
           logger.info("Spend-hold sweep completed.", {
             type: "settlement.spend-hold-sweep",
