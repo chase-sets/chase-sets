@@ -5,6 +5,17 @@ const SIX_HOURS_MS = 6 * 60 * 60 * 1_000;
 export const settlementRetentionSweeps: readonly BcRetentionSweep[] = [
   ageSweep("money-movement-webhook-events", "settlement_money_movement_webhook_events", "received_at"),
   ageSweep("provider-idempotency-keys", "settlement_provider_idempotency_keys", "created_at"),
+  {
+    // Prune only long-released buyer-spend holds (issue #3568). Active holds are
+    // live money reservations and must never be swept, so the predicate is
+    // gated on the terminal 'released' status, not merely age.
+    name: "wallet-spend-holds",
+    tableName: "settlement_wallet_spend_holds",
+    predicateSql: `candidate.status = 'released' AND candidate.released_at < now() - interval '90 days'`,
+    orderBySql: `candidate.released_at ASC`,
+    intervalMs: SIX_HOURS_MS,
+    batchLimit: 500,
+  },
 ];
 
 export const settlementRetentionExemptions: readonly BcRetentionExemption[] = [
@@ -39,6 +50,15 @@ export const settlementRetentionSchemaMigrations: readonly BcSchemaMigration[] =
     statements: [
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_provider_idempotency_keys_retention_idx
   ON settlement_provider_idempotency_keys (created_at)`,
+    ],
+  },
+  {
+    migrationId: "20260715_settlement_wallet_spend_holds_retention_index",
+    description: "Add the released-hold ordering index used by the buyer-spend hold retention sweep (issue #3568).",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_wallet_spend_holds_retention_idx
+  ON settlement_wallet_spend_holds (released_at)
+  WHERE status = 'released'`,
     ],
   },
 ];

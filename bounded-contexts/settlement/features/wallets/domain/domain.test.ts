@@ -1,11 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { decideWallet, evolveWallet, initialWalletState } from "./domain";
+import { decideWallet, evolveWallet, initialWalletState, walletSpendableBalanceAmount } from "./domain";
 
 function applyCommands(commands: readonly Parameters<typeof decideWallet>[1][]) {
   return commands.reduce(
     (state, command) => decideWallet(state, command).reduce(evolveWallet, state),
     initialWalletState,
   );
+}
+
+/** Wallet opened with `available` of balance credit ready to spend. */
+function walletWithAvailableCredit(availableAmount: string) {
+  return applyCommands([
+    { type: "OpenWallet", accountId: "acc_buyer" as never, currencyCode: "usd", openedAt: "2026-04-02T00:00:00.000Z" },
+    {
+      type: "PostLedgerEntry",
+      ledgerEntryId: "led_credit" as never,
+      kind: "adjustment",
+      direction: "credit",
+      amount: availableAmount,
+      currencyCode: "usd",
+      fundsStatus: "available",
+      postedAt: "2026-04-02T00:01:00.000Z",
+    },
+  ]);
 }
 
 describe("settlement wallet domain", () => {
@@ -291,5 +308,169 @@ describe("settlement wallet domain", () => {
         postedAt: "2026-04-02T00:02:00.000Z",
       }),
     ).toThrow("Ledger entry has already been posted.");
+  });
+
+  describe("buyer-spend holds", () => {
+    it("reserves against available balance and reduces spendable without moving money", () => {
+      const held = decideWallet(walletWithAvailableCredit("50.00"), {
+        type: "PlaceSpendHold",
+        holdId: "hold_balance_credit_pay_1",
+        paymentId: "pay_1" as never,
+        amount: "50.00",
+        currencyCode: "usd",
+        placedAt: "2026-04-02T00:02:00.000Z",
+      }).reduce(evolveWallet, walletWithAvailableCredit("50.00"));
+
+      expect(held.availableBalanceAmount).toBe("50.00");
+      expect(held.heldBalanceAmount).toBe("50.00");
+      expect(walletSpendableBalanceAmount(held)).toBe("0.00");
+      expect(held.spendHolds[0]?.status).toBe("active");
+    });
+
+    it("caps a second hold to the balance still unheld (concurrent double-spend guard)", () => {
+      const afterFirstHold = applyCommands([
+        {
+          type: "OpenWallet",
+          accountId: "acc_buyer" as never,
+          currencyCode: "usd",
+          openedAt: "2026-04-02T00:00:00.000Z",
+        },
+        {
+          type: "PostLedgerEntry",
+          ledgerEntryId: "led_credit" as never,
+          kind: "adjustment",
+          direction: "credit",
+          amount: "50.00",
+          currencyCode: "usd",
+          fundsStatus: "available",
+          postedAt: "2026-04-02T00:01:00.000Z",
+        },
+        {
+          type: "PlaceSpendHold",
+          holdId: "hold_balance_credit_pay_1",
+          paymentId: "pay_1" as never,
+          amount: "50.00",
+          currencyCode: "usd",
+          placedAt: "2026-04-02T00:02:00.000Z",
+        },
+      ]);
+
+      const secondHoldEvents = decideWallet(afterFirstHold, {
+        type: "PlaceSpendHold",
+        holdId: "hold_balance_credit_pay_2",
+        paymentId: "pay_2" as never,
+        amount: "50.00",
+        currencyCode: "usd",
+        placedAt: "2026-04-02T00:03:00.000Z",
+      });
+
+      // Nothing left to reserve: the second checkout is capped to zero, so the
+      // same $50 is never held twice.
+      expect(secondHoldEvents).toHaveLength(0);
+    });
+
+    it("caps a partially-overlapping hold to the remaining unheld balance", () => {
+      const afterThirtyHeld = decideWallet(walletWithAvailableCredit("50.00"), {
+        type: "PlaceSpendHold",
+        holdId: "hold_balance_credit_pay_1",
+        amount: "30.00",
+        currencyCode: "usd",
+        placedAt: "2026-04-02T00:02:00.000Z",
+      }).reduce(evolveWallet, walletWithAvailableCredit("50.00"));
+
+      const [placed] = decideWallet(afterThirtyHeld, {
+        type: "PlaceSpendHold",
+        holdId: "hold_balance_credit_pay_2",
+        amount: "50.00",
+        currencyCode: "usd",
+        placedAt: "2026-04-02T00:03:00.000Z",
+      });
+
+      expect(placed?.type).toBe("settlement.wallet.spend-hold-placed");
+      expect(placed?.type === "settlement.wallet.spend-hold-placed" ? placed.data.amount : null).toBe("20.00");
+    });
+
+    it("is idempotent for a repeated hold id", () => {
+      const afterHold = decideWallet(walletWithAvailableCredit("50.00"), {
+        type: "PlaceSpendHold",
+        holdId: "hold_balance_credit_pay_1",
+        amount: "50.00",
+        currencyCode: "usd",
+        placedAt: "2026-04-02T00:02:00.000Z",
+      }).reduce(evolveWallet, walletWithAvailableCredit("50.00"));
+
+      const replay = decideWallet(afterHold, {
+        type: "PlaceSpendHold",
+        holdId: "hold_balance_credit_pay_1",
+        amount: "50.00",
+        currencyCode: "usd",
+        placedAt: "2026-04-02T00:02:30.000Z",
+      });
+
+      expect(replay).toHaveLength(0);
+    });
+
+    it("restores spendable balance when a hold is released, and is idempotent", () => {
+      const afterHold = decideWallet(walletWithAvailableCredit("50.00"), {
+        type: "PlaceSpendHold",
+        holdId: "hold_balance_credit_pay_1",
+        amount: "50.00",
+        currencyCode: "usd",
+        placedAt: "2026-04-02T00:02:00.000Z",
+      }).reduce(evolveWallet, walletWithAvailableCredit("50.00"));
+
+      const released = decideWallet(afterHold, {
+        type: "ReleaseSpendHold",
+        holdId: "hold_balance_credit_pay_1",
+        reason: "payment-failed",
+        releasedAt: "2026-04-02T00:05:00.000Z",
+      }).reduce(evolveWallet, afterHold);
+
+      expect(released.heldBalanceAmount).toBe("0.00");
+      expect(released.availableBalanceAmount).toBe("50.00");
+      expect(walletSpendableBalanceAmount(released)).toBe("50.00");
+      expect(released.spendHolds[0]?.status).toBe("released");
+
+      // Redelivered release (e.g. capture retried after failure) is a no-op.
+      const replay = decideWallet(released, {
+        type: "ReleaseSpendHold",
+        holdId: "hold_balance_credit_pay_1",
+        reason: "payment-failed",
+        releasedAt: "2026-04-02T00:06:00.000Z",
+      });
+      expect(replay).toHaveLength(0);
+    });
+
+    it("does not reserve against a negative (receivable) available balance", () => {
+      const overdrawn = applyCommands([
+        {
+          type: "OpenWallet",
+          accountId: "acc_buyer" as never,
+          currencyCode: "usd",
+          openedAt: "2026-04-02T00:00:00.000Z",
+        },
+        {
+          type: "PostLedgerEntry",
+          ledgerEntryId: "led_receivable" as never,
+          kind: "refund",
+          direction: "debit",
+          amount: "10.00",
+          currencyCode: "usd",
+          fundsStatus: "available",
+          allowNegativeBalance: true,
+          postedAt: "2026-04-02T00:01:00.000Z",
+        },
+      ]);
+
+      const events = decideWallet(overdrawn, {
+        type: "PlaceSpendHold",
+        holdId: "hold_balance_credit_pay_1",
+        amount: "5.00",
+        currencyCode: "usd",
+        placedAt: "2026-04-02T00:02:00.000Z",
+      });
+
+      expect(events).toHaveLength(0);
+    });
   });
 });

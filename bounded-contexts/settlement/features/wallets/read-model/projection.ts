@@ -186,5 +186,55 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
         [data.accountId, data.recoveredAt],
       );
     },
+    "settlement.wallet.spend-hold-placed": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        holdId: string;
+        paymentId: string | null;
+        amount: string;
+        currencyCode: string;
+        placedAt: string;
+        expiresAt: string | null;
+      };
+
+      await db.query(
+        `INSERT INTO settlement_wallet_spend_holds (
+           hold_id,
+           account_id,
+           payment_id,
+           amount,
+           currency_code,
+           status,
+           placed_at,
+           expires_at,
+           released_at,
+           release_reason,
+           updated_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, 'active', $6, $7, NULL, NULL, $6
+         )
+         ON CONFLICT (hold_id) DO NOTHING`,
+        [data.holdId, data.accountId, data.paymentId, data.amount, data.currencyCode, data.placedAt, data.expiresAt],
+      );
+    },
+    "settlement.wallet.spend-hold-released": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        holdId: string;
+        reason: string;
+        releasedAt: string;
+      };
+
+      await db.query(
+        `UPDATE settlement_wallet_spend_holds
+         SET status = 'released',
+             release_reason = $2,
+             released_at = $3,
+             updated_at = $3
+         WHERE hold_id = $1
+           AND status = 'active'`,
+        [data.holdId, data.reason, data.releasedAt],
+      );
+    },
   };
 }
