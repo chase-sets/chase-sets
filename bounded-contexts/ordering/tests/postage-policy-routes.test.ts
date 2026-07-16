@@ -6,7 +6,7 @@ import {
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
   encodeCommitReceipt,
 } from "@chase-sets/http/responses";
-import { action as detailAction, loader as detailLoader } from "../routes/admin/postage-policies-detail";
+import { loader as detailLoader } from "../routes/admin/postage-policies-detail";
 import { action as listAction, loader as listLoader } from "../routes/admin/postage-policies";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
@@ -55,7 +55,7 @@ describe("ordering postage policy routes", () => {
     vi.clearAllMocks();
   });
 
-  it("redirects list creates to the new draft detail with the Ordering commit receipt", async () => {
+  it("keeps list creates on the lifecycle home and opens the new draft drawer with the Ordering commit receipt", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -86,7 +86,7 @@ describe("ordering postage policy routes", () => {
 
     expect(response).toBeInstanceOf(Response);
     const location = (response as Response).headers.get("Location") ?? "";
-    expect(location).toContain("/commerce/postage-policies/opp_1");
+    expect(location).toContain("/commerce/postage-policies?policy=opp_1");
     expect(location).toContain("afterWrite=");
   });
 
@@ -153,7 +153,36 @@ describe("ordering postage policy routes", () => {
     expect(response.statusText).toBe("Preparing postage policies");
   });
 
-  it("returns postage preview snapshots without redirecting", async () => {
+  it("loads selected policy detail for the home drawer", async () => {
+    const fetchCalls: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        fetchCalls.push(request);
+        const url = requestUrl(request);
+        if (url.includes("/api/marketplace/admin/postage-policies/opp_1")) {
+          return Promise.resolve(jsonResponse(policy));
+        }
+        if (url.includes("/api/marketplace/admin/postage-policies")) {
+          return Promise.resolve(jsonResponse({ items: [policy], total: 1, count: 1 }));
+        }
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const result = await listLoader({
+      request: new Request("http://localhost/commerce/postage-policies?policy=opp_1"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.items).toHaveLength(1);
+    expect(result.selectedPolicy?.policy_id).toBe("opp_1");
+    expect(fetchCalls).toHaveLength(2);
+  });
+
+  it("returns postage preview snapshots on the lifecycle home without redirecting", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -186,11 +215,12 @@ describe("ordering postage policy routes", () => {
       }),
     );
 
-    const result = await detailAction({
-      request: new Request("http://localhost/commerce/postage-policies/opp_1", {
+    const result = await listAction({
+      request: new Request("http://localhost/commerce/postage-policies?policy=opp_1", {
         method: "POST",
         body: new URLSearchParams({
           intent: "preview",
+          policyId: "opp_1",
           label: "Default postage policy",
           effectiveFrom: "2026-06-01T00:00:00.000Z",
           previewShippingOption: "standard",
@@ -203,7 +233,7 @@ describe("ordering postage policy routes", () => {
           previewPhysicalFlags: "raw-card",
         }),
       }),
-      params: { id: "opp_1" },
+      params: {},
       context: undefined,
     } as never);
 
@@ -218,7 +248,7 @@ describe("ordering postage policy routes", () => {
     });
   });
 
-  it("redirects detail lifecycle commands with the Ordering commit receipt", async () => {
+  it("keeps lifecycle commands on the home drawer with the Ordering commit receipt", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -235,44 +265,70 @@ describe("ordering postage policy routes", () => {
       }),
     );
 
-    const response = await detailAction({
-      request: new Request("http://localhost/commerce/postage-policies/opp_1", {
+    const response = await listAction({
+      request: new Request("http://localhost/commerce/postage-policies?policy=opp_1", {
         method: "POST",
-        body: new URLSearchParams({ intent: "activate", activationReason: "Reviewed policy thresholds." }),
+        body: new URLSearchParams({
+          intent: "activate",
+          policyId: "opp_1",
+          activationReason: "Reviewed policy thresholds.",
+        }),
       }),
-      params: { id: "opp_1" },
+      params: {},
       context: undefined,
     } as never);
 
     expect(response).toBeInstanceOf(Response);
-    expect((response as Response).headers.get("Location")).toContain("afterWrite=");
+    const location = (response as Response).headers.get("Location") ?? "";
+    expect(location).toContain("/commerce/postage-policies?policy=opp_1");
+    expect(location).toContain("afterWrite=");
   });
 
-  it("forwards fresh-write metadata when detail reloads after a lifecycle command", async () => {
+  it("forwards fresh-write metadata to list and selected detail after a lifecycle command", async () => {
     const fetchCalls: Request[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const request = input instanceof Request ? input : new Request(input, init);
         fetchCalls.push(request);
-        return Promise.resolve(jsonResponse(policy));
+        const url = requestUrl(request);
+        return Promise.resolve(
+          url.includes("/api/marketplace/admin/postage-policies/opp_1")
+            ? jsonResponse(policy)
+            : jsonResponse({ items: [policy], total: 1, count: 1 }),
+        );
       }),
     );
 
-    const result = await detailLoader({
+    const result = await listLoader({
       request: new Request(
-        `http://localhost${appendFreshWriteToken("/commerce/postage-policies/opp_1", { commitPositions: [orderingCommit] }, Date.now())}`,
+        `http://localhost${appendFreshWriteToken("/commerce/postage-policies?policy=opp_1", { commitPositions: [orderingCommit] }, Date.now())}`,
       ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.selectedPolicy?.policy_id).toBe("opp_1");
+    expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("ordering");
+    expect(fetchCalls[1]?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(fetchCalls[1]?.headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("ordering");
+  });
+
+  it("redirects legacy detail URLs to the selected policy drawer", async () => {
+    const response = await detailLoader({
+      request: new Request("http://localhost/commerce/postage-policies/opp_1?afterWrite=receipt"),
       params: { id: "opp_1" },
       context: undefined,
     } as never);
 
-    expect(result.policy_id).toBe("opp_1");
-    expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
-    expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("ordering");
+    expect(response).toBeInstanceOf(Response);
+    expect((response as Response).headers.get("Location")).toBe(
+      "/commerce/postage-policies?afterWrite=receipt&policy=opp_1",
+    );
   });
 
-  it("returns temporary recovery when a fresh postage policy detail is still catching up", async () => {
+  it("returns temporary recovery when the selected postage policy is still catching up", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -291,52 +347,27 @@ describe("ordering postage policy routes", () => {
           );
         }
 
-        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
-      }),
-    );
-
-    const response = (await detailLoader({
-      request: new Request(
-        `http://localhost${appendFreshWriteToken(
-          "/commerce/postage-policies/opp_1",
-          { commitPositions: [orderingCommit] },
-          Date.now(),
-        )}`,
-      ),
-      params: { id: "opp_1" },
-      context: undefined,
-    } as never).catch((error) => error)) as Response;
-
-    expect(response.status).toBe(503);
-    expect(response.statusText).toBe("Preparing postage policy");
-  });
-
-  it("returns permanent not-found when a postage policy handoff is expired", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string | URL | Request) => {
-        const url = requestUrl(input);
-        if (url.includes("/api/marketplace/admin/postage-policies/opp_1")) {
-          return Promise.resolve(jsonResponse({ error: { code: "not_found" } }, 404));
+        if (url.includes("/api/marketplace/admin/postage-policies")) {
+          return Promise.resolve(jsonResponse({ items: [policy], total: 1, count: 1 }));
         }
 
         return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
       }),
     );
 
-    const response = (await detailLoader({
+    const response = (await listLoader({
       request: new Request(
         `http://localhost${appendFreshWriteToken(
-          "/commerce/postage-policies/opp_1",
+          "/commerce/postage-policies?policy=opp_1",
           { commitPositions: [orderingCommit] },
-          Date.now() - 40_000,
+          Date.now(),
         )}`,
       ),
-      params: { id: "opp_1" },
+      params: {},
       context: undefined,
-    } as never).catch((caught) => caught)) as Response;
+    } as never).catch((error) => error)) as Response;
 
-    expect(response.status).toBe(404);
-    await expect(response.text()).resolves.toBe("Postage policy not found.");
+    expect(response.status).toBe(503);
+    expect(response.statusText).toBe("Preparing postage policies");
   });
 });

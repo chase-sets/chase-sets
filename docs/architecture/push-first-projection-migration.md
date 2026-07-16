@@ -251,7 +251,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `marketplace.order-capacity-self-refresh` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.submitted-offer-detail` | marketplace | important | exact wait | push-accelerated |
 | `ordering.accepted-offer-to-sales-list` | ordering | critical | exact wait | push-accelerated |
-| `ordering.postage-policy-command-to-detail` | ordering | important | exact wait | push-accelerated |
+| `ordering.postage-policy-command-to-home` | ordering | important | exact wait | push-accelerated |
 | `ordering.postage-policy-create-to-list` | ordering | important | exact wait | push-accelerated |
 | `ordering.purchase-cancel-to-detail` | ordering | important | exact wait | push-accelerated |
 | `ordering.sale-cancel-to-detail` | ordering | important | exact wait | push-accelerated |

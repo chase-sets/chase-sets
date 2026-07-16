@@ -48,7 +48,6 @@ const canonicalReserveZeroConsumerExports = [
   "clearFieldError",
   "ColorModeToggle",
   "CommentsSheet",
-  "ComparisonModule",
   "ConditionBadge",
   "DatePicker",
   "cx",

@@ -559,7 +559,7 @@ export const sourceContextWakeRegistry = [
     ],
     routeDependencyIds: [
       "ordering.accepted-offer-to-sales-list",
-      "ordering.postage-policy-command-to-detail",
+      "ordering.postage-policy-command-to-home",
       "ordering.postage-policy-create-to-list",
       "ordering.purchase-cancel-to-detail",
       "ordering.sale-cancel-to-detail",

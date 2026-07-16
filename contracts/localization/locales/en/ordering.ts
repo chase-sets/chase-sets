@@ -3,7 +3,6 @@ export const orderingEnglishTranslations = {
   "ordering.features.postagePolicies.api.route.authentication.required": "Authentication required.",
   "ordering.features.postagePolicies.api.route.forbidden": "Forbidden.",
   "ordering.features.postagePolicies.api.route.policy.not.found": "Postage policy not found.",
-  "ordering.features.postagePolicies.ui.common.back": "Back",
   "ordering.features.postagePolicies.ui.common.effective.from": "Effective from",
   "ordering.features.postagePolicies.ui.common.effective.until": "Effective until",
   "ordering.features.postagePolicies.ui.common.label": "Label",
@@ -13,6 +12,9 @@ export const orderingEnglishTranslations = {
   "ordering.features.postagePolicies.ui.common.status": "Status",
   "ordering.features.postagePolicies.ui.common.yes": "yes",
   "ordering.features.postagePolicies.ui.detail.activate": "Activate",
+  "ordering.features.postagePolicies.ui.detail.activate.confirm.description":
+    "Activation will replace the currently active postage policy for new order package plans.",
+  "ordering.features.postagePolicies.ui.detail.activate.confirm.title": "Activate {label}?",
   "ordering.features.postagePolicies.ui.detail.activated": "Activated: {value}",
   "ordering.features.postagePolicies.ui.detail.activation.reason": "Activation reason: {value}",
   "ordering.features.postagePolicies.ui.detail.activation.reason.default":
@@ -22,6 +24,8 @@ export const orderingEnglishTranslations = {
   "ordering.features.postagePolicies.ui.detail.active.comparison": "Active Comparison",
   "ordering.features.postagePolicies.ui.detail.actor": "Actor",
   "ordering.features.postagePolicies.ui.detail.clone.rollback.draft": "Clone as rollback draft",
+  "ordering.features.postagePolicies.ui.detail.close": "Close policy details",
+  "ordering.features.postagePolicies.ui.detail.confirm.cancel": "Cancel",
   "ordering.features.postagePolicies.ui.detail.description":
     "Revise thresholds, parcel requirements, and signature requirements before activation.",
   "ordering.features.postagePolicies.ui.detail.draft.label": "Draft label",
@@ -51,6 +55,9 @@ export const orderingEnglishTranslations = {
   "ordering.features.postagePolicies.ui.detail.reason": "Reason",
   "ordering.features.postagePolicies.ui.detail.recorded": "Recorded",
   "ordering.features.postagePolicies.ui.detail.retire": "Retire",
+  "ordering.features.postagePolicies.ui.detail.retire.confirm.description":
+    "Retirement removes this postage policy from future package-plan selection.",
+  "ordering.features.postagePolicies.ui.detail.retire.confirm.title": "Retire {label}?",
   "ordering.features.postagePolicies.ui.detail.retirement.reason.default": "Replaced by a newer postage policy.",
   "ordering.features.postagePolicies.ui.detail.retirement.reason.label": "Retirement reason",
   "ordering.features.postagePolicies.ui.detail.revise.policy": "Revise Policy",
@@ -92,24 +99,32 @@ export const orderingEnglishTranslations = {
   "ordering.features.postagePolicies.ui.form.slab": "Slab",
   "ordering.features.postagePolicies.ui.form.standard": "Standard",
   "ordering.features.postagePolicies.ui.list.actions": "Actions",
+  "ordering.features.postagePolicies.ui.list.active.empty.description":
+    "Activate a reviewed draft to establish the policy used for new order package plans.",
+  "ordering.features.postagePolicies.ui.list.active.empty.title": "No active postage policy",
+  "ordering.features.postagePolicies.ui.list.active.policies": "Active policies",
+  "ordering.features.postagePolicies.ui.list.candidates": "Drafts awaiting activation",
+  "ordering.features.postagePolicies.ui.list.candidates.empty.description":
+    "Create a draft when postage requirements need to change.",
+  "ordering.features.postagePolicies.ui.list.candidates.empty.title": "No draft postage policies",
   "ordering.features.postagePolicies.ui.list.create.draft": "Create Draft",
   "ordering.features.postagePolicies.ui.list.create.draft.action": "Create draft",
   "ordering.features.postagePolicies.ui.list.default.policy": "Default postage policy",
   "ordering.features.postagePolicies.ui.list.description":
     "Manage parcel, letter, and signature requirements used when ordering snapshots package plans.",
-  "ordering.features.postagePolicies.ui.list.empty.description":
-    "Create a draft policy before activating postage policy controls.",
-  "ordering.features.postagePolicies.ui.list.empty.title": "No postage policies",
   "ordering.features.postagePolicies.ui.list.immutable.description":
     "Policy changes affect new checkout and accepted-offer orders only; existing order shipment snapshots remain unchanged.",
   "ordering.features.postagePolicies.ui.list.immutable.title": "Order snapshots are immutable",
   "ordering.features.postagePolicies.ui.list.open": "Open",
-  "ordering.features.postagePolicies.ui.list.policies": "Policies",
   "ordering.features.postagePolicies.ui.list.policy": "Policy",
   "ordering.features.postagePolicies.ui.list.insurance.value.threshold": "value >= {value}",
   "ordering.features.postagePolicies.ui.list.requirement.summary":
     "Parcel: {parcel}; Signature: {signature}; Insurance: {insurance}",
   "ordering.features.postagePolicies.ui.list.requirements": "Requirements",
+  "ordering.features.postagePolicies.ui.list.retired.archive": "Retired archive",
+  "ordering.features.postagePolicies.ui.list.retired.empty.description":
+    "Retired policies remain here as an immutable operational record.",
+  "ordering.features.postagePolicies.ui.list.retired.empty.title": "No retired postage policies",
   "ordering.features.postagePolicies.ui.list.signature.value.threshold": "value >= {value}",
   "ordering.features.postagePolicies.ui.list.title": "Postage Policies",
   "ordering.features.postagePolicies.ui.list.updated": "Updated",
@@ -293,9 +308,7 @@ export const orderingEnglishTranslations = {
   "ordering.routes.accountPurchases.your.checkout.activity.and.accepted.offers":
     "Your checkout activity and accepted offers will appear here.",
   "ordering.routes.admin.postagePolicies.title": "Postage Policies | Chase Sets Admin",
-  "ordering.routes.admin.postagePoliciesDetail.fallback.title": "Postage Policy",
   "ordering.routes.admin.postagePoliciesDetail.not.found": "Postage policy not found.",
-  "ordering.routes.admin.postagePoliciesDetail.title": "{label} | Chase Sets Admin",
   "ordering.routes.accountSale.forbidden": "Forbidden.",
   "ordering.routes.accountSale.inspect.a.sale.cancel.it.while":
     "Inspect a sale, cancel it while open, and review the counterpart feedback workflow.",
