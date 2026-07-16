@@ -196,6 +196,17 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "reactionName": "ordering-support-cancellation",
+      "subscriptionVersion": 1,
+      "eventTypes": ["support.support-request.resolved"],
+      "order": 65,
+      "reactionHandlerSetNames": ["ordering-support-cancellation"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
     }
   ],
   "projectionGroups": [
@@ -248,6 +259,14 @@
       "handlerKind": "reaction",
       "sourceContextNames": ["payments"],
       "ownedTables": ["ordering_payment_capture_inputs", "ordering_payment_deadline_inputs"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "ordering-support-cancellation",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": [],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },

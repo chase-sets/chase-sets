@@ -696,7 +696,12 @@ describe("payment runtime", () => {
       paymentById: (paymentId) => paymentsById.get(paymentId) ?? null,
     });
     const refunds = {
-      issueRefund: vi.fn(async () => ({ refundId: "rfd_fraud_issfr_123" as never, version: 1 })),
+      issueRefund: vi.fn(async () => ({
+        outcome: "requested" as const,
+        refundId: "rfd_fraud_issfr_123" as never,
+        version: 1,
+        amount: "10.00",
+      })),
     };
     const services = createPaymentRuntime({
       eventStore,

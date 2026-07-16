@@ -22,7 +22,7 @@ function baseEvent() {
 
 describe("payments support refund effect projection", () => {
   it("records a concrete support refund effect id for launch evidence", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 1 }));
+    const issueRefund = vi.fn(async () => ({ outcome: "requested", refundId: "rfd_1", version: 1, amount: "12.00" }));
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("FROM payments_payment_pages")) {
@@ -74,51 +74,89 @@ describe("payments support refund effect projection", () => {
     );
   });
 
-  it.each(["full-refund", "cancel-order"] as const)(
-    "issues %s refunds immediately at resolution time, unchanged by the return-for-refund gate",
-    async (resolutionType) => {
-      const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 1 }));
-      const db = {
-        query: vi.fn(async (sql: string) => {
-          if (sql.includes("FROM payments_payment_pages")) {
-            return { rows: [{ payment_id: "pay_1" }] };
-          }
-          if (sql.includes("FROM payments_order_inputs")) {
-            return { rows: [{ order_id: "ord_1", total_amount: "12.00" }] };
-          }
-          if (sql.includes("INSERT INTO payments_support_refund_effects")) {
-            return { rowCount: 1, rows: [{ support_request_id: "sup_01ABC", refund_id: "rfd_support" }] };
-          }
-          return { rows: [], rowCount: 0 };
-        }),
-      };
-      const handlers = buildPaymentsSupportRefundEffectHandlers(db as never, { issueRefund } as never);
+  it("issues a full-refund immediately at resolution time, unchanged by the return-for-refund gate", async () => {
+    const issueRefund = vi.fn(async () => ({ outcome: "requested", refundId: "rfd_1", version: 1, amount: "12.00" }));
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM payments_payment_pages")) {
+          return { rows: [{ payment_id: "pay_1" }] };
+        }
+        if (sql.includes("FROM payments_order_inputs")) {
+          return { rows: [{ order_id: "ord_1", total_amount: "12.00" }] };
+        }
+        if (sql.includes("INSERT INTO payments_support_refund_effects")) {
+          return { rowCount: 1, rows: [{ support_request_id: "sup_01ABC", refund_id: "rfd_support" }] };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const handlers = buildPaymentsSupportRefundEffectHandlers(db as never, { issueRefund } as never);
 
-      await handlers["support.support-request.resolved"]?.({
-        ...baseEvent(),
-        type: "support.support-request.resolved",
-        data: {
-          supportRequestId: "sup_01ABC",
-          orderId: "ord_1",
-          resolution: {
-            resolutionType,
-            refundAmount: null,
-            summary: "Immediate resolution.",
-            resolvedAt: "2026-05-31T14:00:00.000Z",
-          },
+    await handlers["support.support-request.resolved"]?.({
+      ...baseEvent(),
+      type: "support.support-request.resolved",
+      data: {
+        supportRequestId: "sup_01ABC",
+        orderId: "ord_1",
+        resolution: {
+          resolutionType: "full-refund",
+          refundAmount: null,
+          summary: "Immediate resolution.",
+          resolvedAt: "2026-05-31T14:00:00.000Z",
         },
-      } as never);
+      },
+    } as never);
 
-      expect(issueRefund).toHaveBeenCalledTimes(1);
-      const insertCall = db.query.mock.calls.find(([sql]) =>
-        String(sql).includes("INSERT INTO payments_support_refund_effects"),
-      );
-      expect(insertCall?.[0]).not.toContain("awaiting-return");
-    },
-  );
+    expect(issueRefund).toHaveBeenCalledTimes(1);
+    expect(issueRefund).toHaveBeenCalledWith(
+      expect.objectContaining({ capToRemainingRefundable: true }),
+      expect.anything(),
+    );
+    const insertCall = db.query.mock.calls.find(([sql]) =>
+      String(sql).includes("INSERT INTO payments_support_refund_effects"),
+    );
+    expect(insertCall?.[0]).not.toContain("awaiting-return");
+  });
+
+  it("does not issue a support refund for a cancel-order resolution (handled by order cancellation)", async () => {
+    const issueRefund = vi.fn(async () => ({ outcome: "requested", refundId: "rfd_1", version: 1, amount: "12.00" }));
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM payments_payment_pages")) {
+          return { rows: [{ payment_id: "pay_1" }] };
+        }
+        if (sql.includes("FROM payments_order_inputs")) {
+          return { rows: [{ order_id: "ord_1", total_amount: "12.00" }] };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const handlers = buildPaymentsSupportRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await handlers["support.support-request.resolved"]?.({
+      ...baseEvent(),
+      type: "support.support-request.resolved",
+      data: {
+        supportRequestId: "sup_01ABC",
+        orderId: "ord_1",
+        resolution: {
+          resolutionType: "cancel-order",
+          refundAmount: null,
+          summary: "Buyer cancellation.",
+          resolvedAt: "2026-05-31T14:00:00.000Z",
+        },
+      },
+    } as never);
+
+    expect(issueRefund).not.toHaveBeenCalled();
+    const insertCall = db.query.mock.calls.find(([sql]) =>
+      String(sql).includes("INSERT INTO payments_support_refund_effects"),
+    );
+    expect(insertCall).toBeUndefined();
+  });
 
   it("gates a return-for-refund resolution: records a pending-return effect without issuing a refund", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 1 }));
+    const issueRefund = vi.fn(async () => ({ outcome: "requested", refundId: "rfd_1", version: 1, amount: "12.00" }));
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("FROM payments_payment_pages")) {
@@ -195,7 +233,7 @@ describe("payments support refund effect projection", () => {
   });
 
   it("issues the refund when the return refund releases, re-deriving the amount against live payment state", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 1 }));
+    const issueRefund = vi.fn(async () => ({ outcome: "requested", refundId: "rfd_1", version: 1, amount: "12.00" }));
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("SELECT requested_amount")) {
@@ -298,7 +336,7 @@ describe("payments support refund effect projection", () => {
   });
 
   it("skips the return refund release when nothing is pending (idempotent replay)", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 1 }));
+    const issueRefund = vi.fn(async () => ({ outcome: "requested", refundId: "rfd_1", version: 1, amount: "12.00" }));
     const db = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
     const handlers = buildPaymentsSupportRefundEffectHandlers(db as never, { issueRefund } as never);
 
@@ -348,7 +386,12 @@ describe("payments support refund effect projection", () => {
   }
 
   it("executes a platform-coverage remedy refund carrying remedy and allocation causation", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_final", version: 1 }));
+    const issueRefund = vi.fn(async () => ({
+      outcome: "requested",
+      refundId: "rfd_final",
+      version: 1,
+      amount: "12.00",
+    }));
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("SELECT order_id, payment_id, status")) {
@@ -388,7 +431,12 @@ describe("payments support refund effect projection", () => {
   });
 
   it("rejects a platform-funded release that lacks the approved coverage reference", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_final", version: 1 }));
+    const issueRefund = vi.fn(async () => ({
+      outcome: "requested",
+      refundId: "rfd_final",
+      version: 1,
+      amount: "12.00",
+    }));
     const db = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
     const handlers = buildPaymentsSupportRefundEffectHandlers(db as never, { issueRefund } as never);
 
@@ -401,7 +449,12 @@ describe("payments support refund effect projection", () => {
   });
 
   it("routes a remedy release to manual review when the authorized amount exceeds the remaining refundable balance", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_final", version: 1 }));
+    const issueRefund = vi.fn(async () => ({
+      outcome: "requested",
+      refundId: "rfd_final",
+      version: 1,
+      amount: "12.00",
+    }));
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("SELECT order_id, payment_id, status")) {
@@ -436,7 +489,12 @@ describe("payments support refund effect projection", () => {
   });
 
   it("no-ops a remedy release replay once the refund is already processing", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_final", version: 1 }));
+    const issueRefund = vi.fn(async () => ({
+      outcome: "requested",
+      refundId: "rfd_final",
+      version: 1,
+      amount: "12.00",
+    }));
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("SELECT order_id, payment_id, status")) {
@@ -453,7 +511,12 @@ describe("payments support refund effect projection", () => {
   });
 
   it("no-ops a remedy release with no captured-payment-backed effect registered", async () => {
-    const issueRefund = vi.fn(async () => ({ refundId: "rfd_final", version: 1 }));
+    const issueRefund = vi.fn(async () => ({
+      outcome: "requested",
+      refundId: "rfd_final",
+      version: 1,
+      amount: "12.00",
+    }));
     const db = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
     const handlers = buildPaymentsSupportRefundEffectHandlers(db as never, { issueRefund } as never);
 

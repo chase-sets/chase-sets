@@ -789,6 +789,23 @@ function remainingRefundableAmountForOrder(state: PaymentState, orderId: OrderId
   return centsToMoney(Math.max(0, moneyToCents(cap) - moneyToCents(refunded) - moneyToCents(requested)));
 }
 
+/**
+ * Authoritative cumulative per-order remaining-refundable across every refund
+ * path (self-service cancellation, support, remedy). It subtracts both settled
+ * refunds and still-open refund reservations, so two refunds racing on one
+ * order can never jointly exceed the order's refundable total. Pass the
+ * refund's own id as `excludingRefundId` so a retry/replay of an
+ * already-reserved refund sees its own reservation excluded and re-issues the
+ * same amount idempotently.
+ */
+export function remainingRefundableAmountForOrders(
+  state: PaymentState,
+  orderIds: readonly OrderId[],
+  excludingRefundId?: RefundId | null,
+): string {
+  return sumMoney(orderIds.map((orderId) => remainingRefundableAmountForOrder(state, orderId, excludingRefundId)));
+}
+
 function assertRefundOrdersBelongToPayment(state: PaymentState, orderIds: readonly OrderId[]) {
   for (const orderId of orderIds) {
     assert(state.orderIds.includes(orderId), "Refund order must belong to the payment.");
