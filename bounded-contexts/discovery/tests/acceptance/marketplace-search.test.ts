@@ -1371,6 +1371,72 @@ describe("marketplace search", () => {
     ]);
   });
 
+  it("matches an active container only by its contents and re-folds the tsvector when the contained item text changes", async () => {
+    const handlers = buildDiscoverySearchItemProjectionHandlers(pools.discovery);
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_catalog_items (catalog_item_id, language_code, title, status, updated_at)
+       VALUES
+         ('cat_fold_container', 'en', 'Grandmaster Collector Tin', 'active', now()),
+         ('cat_fold_contained', 'en', 'Zephyrquux Alpha Card', 'active', now())`,
+    );
+    await rebuildDiscoverySearchIndex(pools.discovery);
+
+    await handlers["catalog.product-contents.resolved"]?.(
+      productContentsResolvedEvent({
+        containerCatalogItemId: "cat_fold_container",
+        containedCatalogItemId: "cat_fold_contained",
+      }),
+    );
+
+    // The container is found by a term that appears ONLY in its contained item's
+    // title, resolved purely through the folded item tsvector (no correlated EXISTS).
+    // The contained item also matches the term via its own title (weight A) and,
+    // because contents fold in at weight D, it correctly ranks ahead of the
+    // content-only container match — preserving exact-item-before-content ordering.
+    const containedTermBody = await (
+      await app.request(
+        `/api/marketplace/items?language=en&search=${encodeURIComponent("Zephyrquux")}&includeTotal=true`,
+      )
+    ).json();
+    const containedTermIds = containedTermBody.items.map((item: { catalog_item_id: string }) => item.catalog_item_id);
+    expect(containedTermIds).toContain("cat_fold_container");
+    expect(containedTermIds).toContain("cat_fold_contained");
+    expect(containedTermIds.indexOf("cat_fold_contained")).toBeLessThan(containedTermIds.indexOf("cat_fold_container"));
+    expect(containedTermBody.total).toBe(2);
+
+    // A contents change (the contained item's display identity is revised) re-folds
+    // the container's tsvector against the new text.
+    await handlers["catalog.catalog-item.display-identity-resolved"]?.(
+      displayIdentityResolvedEvent({
+        catalogItemId: "cat_fold_contained",
+        title: "Wobblenaut Omega Card",
+        subtitle: null,
+      }),
+    );
+
+    const newTermIds = (
+      await (
+        await app.request(
+          `/api/marketplace/items?language=en&search=${encodeURIComponent("Wobblenaut")}&includeTotal=true`,
+        )
+      ).json()
+    ).items.map((item: { catalog_item_id: string }) => item.catalog_item_id);
+    expect(newTermIds).toContain("cat_fold_container");
+    expect(newTermIds).toContain("cat_fold_contained");
+
+    // The stale contained term no longer matches the container (re-folded) nor the
+    // contained item itself (renamed) after the contents change.
+    const staleTermBody = await (
+      await app.request(
+        `/api/marketplace/items?language=en&search=${encodeURIComponent("Zephyrquux")}&includeTotal=true`,
+      )
+    ).json();
+    expect(staleTermBody.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).not.toContain(
+      "cat_fold_container",
+    );
+    expect(staleTermBody.total).toBe(0);
+  });
+
   describe("Catalog alias facts in search (#1911)", () => {
     const aliasSeed = {
       categoryId: "cat_pokemon",
@@ -1675,6 +1741,31 @@ function productContentsResolvedEvent(input: {
     {
       id: "evt_contents",
       streamId: `catalog.product-contents-${input.containerCatalogItemId}`,
+      tenantId: "tnt_test",
+      audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
+      timing: { occurredAt: "2026-07-02T00:00:00.000Z", recordedAt: "2026-07-02T00:00:00.000Z" },
+    },
+  );
+}
+
+function displayIdentityResolvedEvent(input: {
+  catalogItemId: string;
+  title: string;
+  subtitle: string | null;
+}): TransportEvent {
+  return buildTransportEvent(
+    "catalog.catalog-item.display-identity-resolved",
+    {
+      catalogItemId: input.catalogItemId,
+      languageCode: "en",
+      title: input.title,
+      subtitle: input.subtitle,
+    },
+    {
+      id: `evt_identity_${input.catalogItemId}`,
+      streamId: `catalog.item-${input.catalogItemId}`,
+      streamVersion: 2,
+      globalPosition: "2",
       tenantId: "tnt_test",
       audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
       timing: { occurredAt: "2026-07-02T00:00:00.000Z", recordedAt: "2026-07-02T00:00:00.000Z" },

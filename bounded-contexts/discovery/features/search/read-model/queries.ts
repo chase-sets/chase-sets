@@ -196,9 +196,6 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
   const values: unknown[] = [];
   let paramIndex = 1;
   const itemColumn = (name: string) => (options.itemAlias ? `${options.itemAlias}.${name}` : name);
-  const outerItemIdColumn = options.itemAlias
-    ? itemColumn("catalog_item_id")
-    : "discovery_search_items.catalog_item_id";
 
   conditions.push(`${itemColumn("status")} = $${paramIndex}`);
   values.push(params.status ?? "active");
@@ -213,19 +210,13 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     values.push(foldSearchDiacritics(params.search));
     paramIndex++;
     simpleSearchParamIndex = paramIndex;
+    // Product-contents text is folded into the item's own tsvector at projection
+    // time (weight D), so a container matched only by its contained items is
+    // satisfiable purely through the two GIN-indexed @@ predicates. No correlated
+    // EXISTS over discovery_search_product_contents — that disjunct defeated the
+    // GIN bitmap scan and forced a per-row probe of every active item.
     conditions.push(
-      `(${itemColumn("search_text")} @@ plainto_tsquery('english', $${englishSearchParamIndex}) OR ${itemColumn("search_text_simple")} @@ plainto_tsquery('simple', $${simpleSearchParamIndex}) OR EXISTS (
-         SELECT 1
-         FROM discovery_search_product_contents AS content
-         INNER JOIN discovery_search_catalog_items AS contained_item
-           ON contained_item.catalog_item_id = content.contained_catalog_item_id
-          AND contained_item.status = 'active'
-         WHERE content.container_catalog_item_id = ${outerItemIdColumn}
-           AND (
-             content.search_text @@ plainto_tsquery('english', $${englishSearchParamIndex})
-             OR content.search_text_simple @@ plainto_tsquery('simple', $${simpleSearchParamIndex})
-           )
-       ))`,
+      `(${itemColumn("search_text")} @@ plainto_tsquery('english', $${englishSearchParamIndex}) OR ${itemColumn("search_text_simple")} @@ plainto_tsquery('simple', $${simpleSearchParamIndex}))`,
     );
     values.push(buildSimpleSearchQuery(params.search));
     paramIndex++;
@@ -590,16 +581,13 @@ export async function searchDiscoveryItems(
     default:
       if (hasSearch) {
         baseMatchExpression = `(search_text @@ plainto_tsquery('english', $${englishSearchParamIndex}) OR search_text_simple @@ plainto_tsquery('simple', $${simpleSearchParamIndex}))`;
-        const baseRankExpression = `(ts_rank(search_text, plainto_tsquery('english', $${englishSearchParamIndex})) + ts_rank(search_text_simple, plainto_tsquery('simple', $${simpleSearchParamIndex})))`;
-        const contentRankExpression = `COALESCE((
-          SELECT MAX((ts_rank(content.search_text, plainto_tsquery('english', $${englishSearchParamIndex})) + ts_rank(content.search_text_simple, plainto_tsquery('simple', $${simpleSearchParamIndex}))) * content.content_type_search_weight::real)
-          FROM discovery_search_product_contents AS content
-          INNER JOIN discovery_search_catalog_items AS contained_item
-            ON contained_item.catalog_item_id = content.contained_catalog_item_id
-           AND contained_item.status = 'active'
-          WHERE content.container_catalog_item_id = discovery_search_items.catalog_item_id
-        ), 0)`;
-        rankExpression = `(${baseRankExpression} + (${contentRankExpression} * 0.20))`;
+        // Contents text is folded into search_text at weight D, so ts_rank over the
+        // item's own tsvectors already accounts for content matches (weight D ranks
+        // them below title/subtitle/body). No correlated per-row rank subquery, and
+        // the former 0.20 content dampener is dropped: weight D already orders
+        // content-only matches below every base-text match, so the extra factor was
+        // redundant double-dampening on top of the per-content-type weight.
+        rankExpression = `(ts_rank(search_text, plainto_tsquery('english', $${englishSearchParamIndex})) + ts_rank(search_text_simple, plainto_tsquery('simple', $${simpleSearchParamIndex})))`;
         orderBy = `${baseMatchExpression} DESC, ${rankExpression} DESC, title ASC, catalog_item_id ASC`;
         if (cursor) {
           // ORDER BY mixes directions (baseMatch DESC, rank DESC, title ASC, id ASC),

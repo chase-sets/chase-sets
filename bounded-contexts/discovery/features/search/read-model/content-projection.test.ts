@@ -80,6 +80,37 @@ class ContentProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 1 };
     }
 
+    if (
+      sql.includes("SELECT DISTINCT container_catalog_item_id") &&
+      sql.includes("discovery_search_product_contents")
+    ) {
+      const containers = new Set<string>();
+      for (const row of this.contents.values()) {
+        if (row.contained_catalog_item_id === values[0]) {
+          containers.add(row.container_catalog_item_id);
+        }
+      }
+      return {
+        rows: [...containers].map((container_catalog_item_id) => ({ container_catalog_item_id })) as Row[],
+        rowCount: containers.size,
+      };
+    }
+
+    if (sql.includes("SELECT content_search_text") && sql.includes("discovery_search_product_contents")) {
+      const rows = [...this.contents.values()].filter((row) => row.container_catalog_item_id === values[0]);
+      return {
+        rows: rows.map((row) => ({
+          content_search_text: row.content_search_text,
+          content_search_text_simple: row.content_search_text_simple,
+        })) as Row[],
+        rowCount: rows.length,
+      };
+    }
+
+    if (sql.includes("DELETE FROM discovery_search_items")) {
+      return { rows: [], rowCount: 0 };
+    }
+
     if (sql.includes("DELETE FROM discovery_search_product_contents")) {
       for (const [lineId, row] of [...this.contents.entries()]) {
         if (row.container_catalog_item_id === values[0] && row.container_product_id === (values[1] ?? null)) {
