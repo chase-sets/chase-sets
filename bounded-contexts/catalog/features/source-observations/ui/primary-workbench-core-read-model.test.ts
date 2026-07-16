@@ -48,7 +48,7 @@ describe("Catalog primary workbench read model - core composition", () => {
       promoted: 16,
       eligible: 124,
     });
-    expect(readModel.actions.find((action) => action.key === "preview-promotion")).toMatchObject({
+    expect(readModel.actions.find((action) => action.key === "observation.promote")).toMatchObject({
       state: "available",
       blockers: [],
     });
@@ -64,7 +64,7 @@ describe("Catalog primary workbench read model - core composition", () => {
     });
 
     expect(readModel.readiness.blockers).toEqual(["permission-denied", "missing-active-profile"]);
-    expect(readModel.actions.find((action) => action.key === "start-provider-import")).toMatchObject({
+    expect(readModel.actions.find((action) => action.key === "scope.import")).toMatchObject({
       state: "blocked",
       blockers: ["permission-denied"],
     });
@@ -82,7 +82,7 @@ describe("Catalog primary workbench read model - core composition", () => {
 
     expect(readModel.routeContext.profileVersion).toBeNull();
     expect(readModel.readiness.blockers).toContain("missing-active-profile");
-    expect(readModel.actions.find((action) => action.key === "start-provider-import")).toMatchObject({
+    expect(readModel.actions.find((action) => action.key === "scope.import")).toMatchObject({
       state: "blocked",
       blockers: ["missing-active-profile"],
     });
@@ -98,7 +98,7 @@ describe("Catalog primary workbench read model - core composition", () => {
     });
 
     expect(readModel.importJobs.selectedScope).toBeNull();
-    expect(readModel.actions.find((action) => action.key === "start-provider-import")).toMatchObject({
+    expect(readModel.actions.find((action) => action.key === "scope.import")).toMatchObject({
       state: "blocked",
       blockers: ["import-scope-required"],
       copyKey: "catalog.primary.providerScope.required",

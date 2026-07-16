@@ -277,7 +277,7 @@ function unitAffectedPrimaryAction(
     unit.fixtureValidationStatus === "blocked" ||
     unit.dryRunStatus === "blocked"
   ) {
-    return "preview-promotion";
+    return "observation.promote";
   }
 
   return "review-source-observations";

@@ -258,13 +258,13 @@ function lifecycleCommandKey(
 ): LifecycleOperationRow["commandKey"] {
   switch (operation) {
     case "activation":
-      return "activate-provider-profile";
+      return "provider-profile.activate";
     case "rollback":
-      return "rollback-provider-profile";
+      return "provider-profile.rollback";
     case "deprecate":
-      return "deprecate-provider-profile";
+      return "provider-profile.deprecate";
     case "retire":
-      return "retire-provider-profile";
+      return "provider-profile.retire";
   }
 }
 

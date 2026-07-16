@@ -24,6 +24,7 @@
   "streamPrefix": "platform-operations.",
   "apiBasePath": "/api/platform",
   "slices": [
+    "operations-attention-queue",
     "projection-operations",
     "commercial-terms-attention",
     "insights-dashboards",
@@ -863,6 +864,14 @@
           "section": "support"
         },
         {
+          "routeId": "operations-attention",
+          "routePath": "operations-attention",
+          "fileExport": "./routes/admin/operations-attention",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "platform"
+        },
+        {
           "routeId": "projection-operations",
           "routePath": "projections",
           "fileExport": "./routes/admin/projection-operations",
@@ -1003,6 +1012,18 @@
     {
       "deployable": "admin-web",
       "slot": "primary-nav",
+      "key": "operations-attention",
+      "label": "Attention Queue",
+      "icon": "inbox",
+      "href": "/operations-attention",
+      "section": "platform",
+      "order": 1,
+      "visibility": "signed-in",
+      "requiredPermissions": ["projection-operations.view"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
       "key": "projection-operations",
       "label": "Projection Operations",
       "icon": "refreshCcw",
@@ -1054,6 +1075,11 @@
       "classification": "slice",
       "purpose": "Own the commercial-terms-attention read model for upcoming schedules and expiring account overrides.",
       "expectedConsumers": ["Policy Console admin route", "Internal platform-operations module composition"]
+    },
+    "operations-attention-queue": {
+      "classification": "slice",
+      "purpose": "Own the operations attention queue: the operator 'what needs you, most important first' read model that composes platform-operations signals (projection poison events, blocked streams, stalled wake jobs, support requests by deadline, unreviewed platform feedback) into one severity-ordered surface, with per-source degradation, rollup counts computed from the rendered items, and per-source operator RBAC. Modeled parallel to the Seller Desk attention queue; consumes owning slices' existing reads via the request-support composition root, never rebuilding their read models.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
     },
     "projection-operations": {
       "classification": "slice",

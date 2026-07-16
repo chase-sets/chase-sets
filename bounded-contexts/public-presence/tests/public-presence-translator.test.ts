@@ -31,11 +31,6 @@ describe("public presence translator", () => {
       "publicPresence.info.contact.description",
       "publicPresence.info.contact.status.body",
       "publicPresence.info.privacy.description",
-      "publicPresence.info.terms.accounts.body",
-      "publicPresence.info.terms.description",
-      "publicPresence.info.terms.marketplace.body",
-      "publicPresence.info.terms.prelaunch.body",
-      "publicPresence.info.terms.prelaunch.title",
       "publicPresence.routes.privacy.meta.description",
       "publicPresence.routes.terms.meta.description",
     ];

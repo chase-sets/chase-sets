@@ -23,8 +23,7 @@ const accountCriticalRoutes = [
   { path: "/account/inventory", heading: /^Inventory$/i, flow: "inventory" },
   { path: "/account/purchases", heading: /^Purchases$/i, flow: "purchases" },
   { path: "/account/sales", heading: /^Sales$/i, flow: "sales" },
-  { path: "/account/settlement", heading: /^Wallet$/i, flow: "wallet" },
-  { path: "/account/payouts", heading: /^Payouts$/i, flow: "payouts" },
+  { path: "/account/desk/money", heading: /^Money$/i, flow: "money" },
 ] as const;
 
 type AccountRoute = {

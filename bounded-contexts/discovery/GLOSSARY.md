@@ -109,6 +109,7 @@ Notes:
 Notes:
 
 - Latin text uses the stock Postgres `english`/`simple` configurations.
+- Latin combining-mark diacritics are folded symmetrically before index and query tokenization.
 - Native CJK scripts (e.g. Japanese kana) have no word boundaries, so Discovery indexes overlapping character bigrams per CJK run and queries those bigrams, making native-script substring search work under the `simple` config without a database extension.
 
 ### Search Embedding

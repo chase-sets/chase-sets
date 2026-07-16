@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleDailyCommand } from "./daily-command-handler";
+import { handleCandidateCommand } from "./candidate-command-handler";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 
-describe("daily Catalog integrations command handler", () => {
+describe("merge-candidate entity command handler", () => {
   it("submits typed update merge-candidate bodies when the workbench preview generated them", async () => {
     const updateCatalogMergeCandidate = vi.fn(async () => ({ ok: true }));
     const formData = new FormData();
@@ -15,9 +15,9 @@ describe("daily Catalog integrations command handler", () => {
       }),
     );
 
-    const result = await handleDailyCommand({
+    const result = await handleCandidateCommand({
       api: { updateCatalogMergeCandidate } as never,
-      intent: "update-merge-candidate",
+      intent: "candidate.edit",
       context: commandContext(),
       formData,
       selectedObservationIds: [],
@@ -27,7 +27,7 @@ describe("daily Catalog integrations command handler", () => {
       reason: "Update Product mapping from the scope-first Catalog sync workbench.",
       snapshot: { identityFingerprint: "sha256:cand_1" },
     });
-    expect(result.feedback).toMatchObject({ status: "success", intent: "update-merge-candidate" });
+    expect(result.feedback).toMatchObject({ status: "success", intent: "candidate.edit" });
   });
 
   it("submits typed split merge-candidate bodies when the workbench preview generated them", async () => {
@@ -44,9 +44,9 @@ describe("daily Catalog integrations command handler", () => {
       }),
     );
 
-    const result = await handleDailyCommand({
+    const result = await handleCandidateCommand({
       api: { splitCatalogMergeCandidate } as never,
-      intent: "split-merge-candidate",
+      intent: "candidate.split",
       context: commandContext(),
       formData,
       selectedObservationIds: [],
@@ -58,7 +58,7 @@ describe("daily Catalog integrations command handler", () => {
       splitCandidateId: "cand_1__split__obs_2",
       splitSnapshot: { identityFingerprint: "sha256:cand_1:split" },
     });
-    expect(result.feedback).toMatchObject({ status: "success", intent: "split-merge-candidate" });
+    expect(result.feedback).toMatchObject({ status: "success", intent: "candidate.split" });
   });
 
   it("fails split/update closed when no typed body is posted", async () => {
@@ -66,16 +66,16 @@ describe("daily Catalog integrations command handler", () => {
     const formData = new FormData();
     formData.set("candidateId", "cand_1");
 
-    const result = await handleDailyCommand({
+    const result = await handleCandidateCommand({
       api: { updateCatalogMergeCandidate } as never,
-      intent: "update-merge-candidate",
+      intent: "candidate.edit",
       context: commandContext(),
       formData,
       selectedObservationIds: [],
     });
 
     expect(updateCatalogMergeCandidate).not.toHaveBeenCalled();
-    expect(result.feedback).toMatchObject({ status: "error", intent: "update-merge-candidate" });
+    expect(result.feedback).toMatchObject({ status: "error", intent: "candidate.edit" });
   });
 
   it("applies a typed candidate edit onto the base snapshot with manual provenance", async () => {
@@ -87,9 +87,9 @@ describe("daily Catalog integrations command handler", () => {
     formData.set("candidateEditFact.name", "Charmander - corrected");
     formData.set("reason", "Operator corrected the printed name.");
 
-    const result = await handleDailyCommand({
+    const result = await handleCandidateCommand({
       api: { updateCatalogMergeCandidate } as never,
-      intent: "update-merge-candidate",
+      intent: "candidate.edit",
       context: commandContext(),
       formData,
       selectedObservationIds: [],
@@ -106,7 +106,7 @@ describe("daily Catalog integrations command handler", () => {
     expect(body.snapshot.fieldProvenance).toEqual(
       expect.arrayContaining([expect.objectContaining({ fieldPath: "catalogItem.name", confidence: "manual" })]),
     );
-    expect(result.feedback).toMatchObject({ status: "success", intent: "update-merge-candidate" });
+    expect(result.feedback).toMatchObject({ status: "success", intent: "candidate.edit" });
   });
 
   it("requires a reason for a candidate edit", async () => {
@@ -115,9 +115,9 @@ describe("daily Catalog integrations command handler", () => {
     formData.set("candidateId", "cand_1");
     formData.set("candidateEditBaseSnapshot", JSON.stringify(editBaseSnapshot()));
 
-    const result = await handleDailyCommand({
+    const result = await handleCandidateCommand({
       api: { updateCatalogMergeCandidate } as never,
-      intent: "update-merge-candidate",
+      intent: "candidate.edit",
       context: commandContext(),
       formData,
       selectedObservationIds: [],
@@ -132,9 +132,9 @@ describe("daily Catalog integrations command handler", () => {
     const formData = new FormData();
     formData.set("bulkCandidateIds", "cand_1,cand_2,cand_1");
 
-    const result = await handleDailyCommand({
+    const result = await handleCandidateCommand({
       api: { promoteCatalogMergeCandidate } as never,
-      intent: "bulk-promote-merge-candidates",
+      intent: "candidate.promote",
       context: commandContext(),
       formData,
       selectedObservationIds: [],
@@ -151,21 +151,21 @@ describe("daily Catalog integrations command handler", () => {
       "cand_2",
       expect.objectContaining({ reason: expect.any(String) }),
     );
-    expect(result.feedback).toMatchObject({ status: "success", intent: "bulk-promote-merge-candidates" });
+    expect(result.feedback).toMatchObject({ status: "success", intent: "candidate.promote" });
   });
 
   it("fails a bulk promote closed when no candidate IDs are posted", async () => {
     const promoteCatalogMergeCandidate = vi.fn();
-    const result = await handleDailyCommand({
+    const result = await handleCandidateCommand({
       api: { promoteCatalogMergeCandidate } as never,
-      intent: "bulk-promote-merge-candidates",
+      intent: "candidate.promote",
       context: commandContext(),
       formData: new FormData(),
       selectedObservationIds: [],
     });
 
     expect(promoteCatalogMergeCandidate).not.toHaveBeenCalled();
-    expect(result.feedback).toMatchObject({ status: "error", intent: "bulk-promote-merge-candidates" });
+    expect(result.feedback).toMatchObject({ status: "error", intent: "candidate.promote" });
   });
 
   it("bulk-defers the remainder with the operator reason", async () => {
@@ -174,9 +174,9 @@ describe("daily Catalog integrations command handler", () => {
     formData.set("bulkCandidateIds", "cand_3,cand_4");
     formData.set("reason", "Deferred pending conflict review.");
 
-    const result = await handleDailyCommand({
+    const result = await handleCandidateCommand({
       api: { deferCatalogMergeCandidate } as never,
-      intent: "bulk-defer-merge-candidates",
+      intent: "candidate.defer",
       context: commandContext(),
       formData,
       selectedObservationIds: [],
@@ -186,7 +186,7 @@ describe("daily Catalog integrations command handler", () => {
     expect(deferCatalogMergeCandidate).toHaveBeenNthCalledWith(1, "cand_3", {
       reason: "Deferred pending conflict review.",
     });
-    expect(result.feedback).toMatchObject({ status: "success", intent: "bulk-defer-merge-candidates" });
+    expect(result.feedback).toMatchObject({ status: "success", intent: "candidate.defer" });
   });
 
   it("requires a reason to bulk-defer the remainder", async () => {
@@ -194,9 +194,9 @@ describe("daily Catalog integrations command handler", () => {
     const formData = new FormData();
     formData.set("bulkCandidateIds", "cand_3");
 
-    const result = await handleDailyCommand({
+    const result = await handleCandidateCommand({
       api: { deferCatalogMergeCandidate } as never,
-      intent: "bulk-defer-merge-candidates",
+      intent: "candidate.defer",
       context: commandContext(),
       formData,
       selectedObservationIds: [],

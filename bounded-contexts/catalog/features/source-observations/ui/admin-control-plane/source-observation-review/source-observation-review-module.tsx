@@ -268,8 +268,7 @@ function SourceObservationReviewBulkActionBar({
 }>) {
   const selectedObservationIds = [...selectedObservationKeys];
   const previewDisabled = selectedEligibleObservationCount === 0;
-  const deferDisabled =
-    selectedReviewableObservationCount === 0 || !isActionAvailable(readModel, "defer-source-observations");
+  const deferDisabled = selectedReviewableObservationCount === 0 || !isActionAvailable(readModel, "observation.defer");
 
   return (
     <BulkActionBar
@@ -280,7 +279,8 @@ function SourceObservationReviewBulkActionBar({
       primaryActions={
         <CommandFormButton
           readModel={readModel}
-          intent="preview-promotion"
+          intent="observation.promote"
+          promotionPhase="preview"
           size="sm"
           selectedObservationIds={selectedObservationIds}
           disabled={previewDisabled}
@@ -297,7 +297,7 @@ function SourceObservationReviewBulkActionBar({
         <>
           <CommandFormButton
             readModel={readModel}
-            intent="defer-source-observations"
+            intent="observation.defer"
             size="sm"
             tone="secondary"
             selectedObservationIds={selectedObservationIds}
@@ -348,7 +348,7 @@ function SourceObservationRejectPanel({
   const rejectFormId = useId();
   const actionHref = useCatalogIntegrationCommandHref(readModel.routeContext);
   const rejectDisabled =
-    selectedReviewableObservationCount === 0 || !isActionAvailable(readModel, "reject-source-observations");
+    selectedReviewableObservationCount === 0 || !isActionAvailable(readModel, "observation.reject");
   const rejectDeniedLabel = rejectDisabled
     ? t("catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.reject.denied")
     : undefined;
@@ -398,11 +398,11 @@ function SourceObservationRejectPanel({
         variant="plain"
         method="post"
         action={actionHref}
-        data-catalog-primary-workbench-command="reject-source-observations"
+        data-catalog-primary-workbench-command="observation.reject"
       >
         <CommandHiddenInputs
           readModel={readModel}
-          intent="reject-source-observations"
+          intent="observation.reject"
           selectedObservationIds={selectedObservationIds}
         />
         <TextInput
@@ -494,10 +494,10 @@ function RowCommandAction({
   });
 
   if (
-    actionEntry.key === "preview-promotion" ||
-    actionEntry.key === "defer-source-observations" ||
-    actionEntry.key === "start-reapply" ||
-    actionEntry.key === "start-replay"
+    actionEntry.key === "observation.promote" ||
+    actionEntry.key === "observation.defer" ||
+    actionEntry.key === "observation.reapply" ||
+    actionEntry.key === "observation.replay"
   ) {
     return (
       <CommandFormButton
@@ -505,9 +505,9 @@ function RowCommandAction({
         intent={actionEntry.key}
         selectedObservationIds={[row.observationId]}
         size="sm"
-        tone={actionEntry.key === "preview-promotion" ? "primary" : "secondary"}
+        tone={actionEntry.key === "observation.promote" ? "primary" : "secondary"}
         reason={
-          actionEntry.key === "defer-source-observations"
+          actionEntry.key === "observation.defer"
             ? t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer.reason")
             : undefined
         }
@@ -756,15 +756,15 @@ function rowActionLabel(key: SourceObservationReviewRow["actions"][number]["key"
   switch (key) {
     case "view-source-observation":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.view");
-    case "preview-promotion":
+    case "observation.promote":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion");
-    case "reject-source-observations":
+    case "observation.reject":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject");
-    case "defer-source-observations":
+    case "observation.defer":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer");
-    case "start-reapply":
+    case "observation.reapply":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reapply");
-    case "start-replay":
+    case "observation.replay":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.replay");
   }
 }

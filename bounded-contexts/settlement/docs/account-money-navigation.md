@@ -1,7 +1,7 @@
 # Account Money Navigation
 
-Settlement owns the Wallet as the primary account-money destination in the marketplace app. Wallet is the account-facing place to inspect pending balance, available balance, payout readiness, and ledger activity.
+Settlement owns the Seller Desk Money dashboard at `/account/desk/money` as the single account-money destination in the marketplace app. Money combines available and pending Wallet balance, the next Payout, payout attention, payout requests, payout history, and Wallet activity without exposing provider or reconciliation internals.
 
-Payouts remains the Settlement-owned workflow for payout setup, payout requests, and payout history. It should be reachable from Wallet and from account-money navigation where grouped child navigation is available, but it should not be the only visible entry point for account money.
+Payout Setup remains a distinct Settlement-owned flow at `/account/desk/settings`, entered from Money when setup is incomplete or the payout account needs management. A Payout remains a forward entity surface at `/account/desk/payouts/:payoutId`; Wallet Adjustment details open as a drawer over Money.
 
-Marketplace deployables may group Wallet and Payouts under Account navigation, or promote Wallet directly in constrained navigation surfaces such as mobile bottom navigation. They should not move Wallet behavior, read models, route loaders, or permissions out of Settlement.
+The former `/account/settlement`, `/account/payouts`, `/account/payouts/:payoutId`, `/account/payouts/setup`, and `/account/wallet/adjustments/:reference` routes are compatibility redirects. Marketplace navigation contributes one Money entry and must not move Wallet or Payout behavior, read models, route loaders, or permissions out of Settlement.

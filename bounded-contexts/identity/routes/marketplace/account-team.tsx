@@ -9,6 +9,7 @@ import { requireActorFromIdentityApi } from "../../support/route-support/identit
 import type { Invitation, Membership } from "../../support/request-support/api-client";
 import { TeamPage } from "../../features/memberships/ui/account-team-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
+import { requestInvitationAcceptanceLink } from "../../features/invitations/integrations/request-invitation-acceptance-link";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromIdentityApi({
@@ -27,17 +28,18 @@ export async function loader({ request }: LoaderFunctionArgs) {
 export const action = defineFormAction({
   authorization: ({ request }) => requireActorFromIdentityApi({ request, permission: "memberships.manage" }),
   intents: {
-    "create-invitation": async ({ request, actor, formData }) =>
-      formActionRedirect(
-        await createIdentityRequestApiClient(request).createInvitation({
-          invitationId: createId("ivt"),
-          accountId: actor!.accountId,
-          email: String(formData.get("email") ?? ""),
-          roleKey: String(formData.get("roleKey") ?? "viewer"),
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        }),
-        "/account/team",
-      ),
+    "create-invitation": async ({ request, actor, formData }) => {
+      const invitationId = createId("ivt");
+      const result = await createIdentityRequestApiClient(request).createInvitation({
+        invitationId,
+        accountId: actor!.accountId,
+        email: String(formData.get("email") ?? ""),
+        roleKey: String(formData.get("roleKey") ?? "viewer"),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+      await requestInvitationAcceptanceLink(request, invitationId, result);
+      return formActionRedirect(result, "/account/team");
+    },
     "change-role": async ({ request, formData }) =>
       formActionRedirect(
         await createIdentityRequestApiClient(request).changeMembershipRole(

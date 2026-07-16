@@ -576,4 +576,40 @@ export const supportEnglishTranslations = {
     "“{query}” did not match an order, shipment, payout, or checkout reference.",
   "support.routes.admin.supportReferenceLookup.meta.title": "Reference lookup | Admin",
   "support.routes.admin.supportReferenceLookup.request.failed": "Reference lookup request failed.",
+
+  "support.features.supportRequests.ui.supportOperationsPage.flowType": "Issue type",
+  "support.features.supportRequests.ui.supportOperationsPage.flowType.filter.all": "All issue types",
+  "support.features.supportRequests.ui.supportOperationsPage.flowType.filter.chip": "Issue type: {flowType}",
+  "support.features.supportRequests.ui.supportOperationsPage.contested": "Case attention",
+  "support.features.supportRequests.ui.supportOperationsPage.contested.filter.all": "All cases",
+  "support.features.supportRequests.ui.supportOperationsPage.contested.filter.contestedOnly": "Contested only",
+  "support.features.supportRequests.ui.supportOperationsPage.contested.filter.chip": "Contested only",
+  "support.features.supportRequests.ui.supportOperationsPage.overdue.filter.overdueOnly": "Overdue only",
+  "support.features.supportRequests.ui.supportOperationsPage.overdue.filter.chip": "Overdue only",
+  "support.features.supportRequests.ui.supportOperationsPage.contested.badge": "Contested",
+
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.title": "Adjudication",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.description":
+    "Compare both parties' positions and the offer history, then issue a binding decision.",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.buyerPosition": "Buyer's claim",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.sellerPosition": "Seller's response",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.noBuyerPosition":
+    "No buyer submissions recorded.",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.noSellerPosition":
+    "No seller submissions recorded.",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.escalation.title": "Escalation",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.escalation.origin": "Raised by {role}",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.escalation.none":
+    "No party escalated this case.",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.offers.title": "Offer history",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.offers.none": "No offers were exchanged.",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.offers.offeredBy": "Offered by {role}",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.offers.declinedBy": "Declined by {role}",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.evidence.title": "Evidence",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.evidence.attachment": "Attachment {index}",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.evidence.noAttachments": "No attachments",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.decision.summaryVerbatim":
+    "This summary is shown to both the buyer and the seller exactly as written, and the decision is binding.",
+  "support.features.supportRequests.ui.supportOperationsPage.adjudication.decision.refundCap":
+    "Refund is prefilled from the affected lines and capped at {amount}.",
 } as const;

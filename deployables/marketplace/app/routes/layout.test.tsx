@@ -110,7 +110,9 @@ describe("marketplace route layout", () => {
       "Browse",
       "Purchases",
       "Notifications",
+      "Seller Desk",
       "Sell List",
+      "Money",
       "Support",
       "Sell",
       "Buy Cart",
@@ -133,19 +135,13 @@ describe("marketplace route layout", () => {
       "/account/sales",
       "/account/sales/shipments",
     ]);
-    expect(accountMenuItems.map((item) => item.label)).toEqual([
-      "Account",
-      "Wallet",
-      "Payouts",
-      "Submitted Offers",
-      "Reviews",
-    ]);
+    expect(accountMenuItems.map((item) => item.label)).toEqual(["Account", "Submitted Offers", "Reviews"]);
     expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toEqual([
       "Browse",
       "Buy Cart",
       "Alerts",
       "Sell",
-      "Wallet",
+      "Money",
     ]);
     expect(html).toContain('href="/account/inventory"');
     expect(html).toContain('href="/account/inventory/imports"');
@@ -156,7 +152,7 @@ describe("marketplace route layout", () => {
     expect(html).toContain('href="/account/support"');
     expect(html).toContain('href="/account/listings"');
     expect(html).toContain('href="/account/offers/matches"');
-    expect(html).toContain('href="/account/settlement"');
+    expect(html).toContain('href="/account/desk/money"');
     expect(html).toContain('href="/account/purchases"');
     expect(html).toContain('href="/account/sales"');
     expect(html).not.toContain('href="/account/shipments"');
@@ -207,18 +203,22 @@ describe("marketplace route layout", () => {
 
     await user.click(screen.getByRole("button", { name: "Account menu" }));
 
-    const accountMenu = await screen.findByRole("dialog", { name: "Account menu" });
+    const accountMenu = await screen.findByRole("menu", { name: "Account menu" });
 
     expect(within(accountMenu).getByText("Alex Clerk")).toBeTruthy();
-    expect(within(accountMenu).getByRole("link", { name: "Account" }).getAttribute("href")).toBe("/account");
-    expect(within(accountMenu).getByRole("link", { name: "Wallet" }).getAttribute("href")).toBe("/account/settlement");
-    expect(within(accountMenu).getByRole("link", { name: "Payouts" }).getAttribute("href")).toBe("/account/payouts");
+    expect(within(accountMenu).getByRole("menuitem", { name: "Account" }).getAttribute("href")).toBe("/account");
+    expect(within(accountMenu).getByRole("menuitem", { name: "Submitted Offers" }).getAttribute("href")).toBe(
+      "/account/offers/submitted",
+    );
+    expect(within(accountMenu).getByRole("menuitem", { name: "Reviews" }).getAttribute("href")).toBe(
+      "/account/reviews",
+    );
     expect(within(accountMenu).getByRole("group", { name: "Color theme" })).toBeTruthy();
     expect(within(accountMenu).getByRole("radio", { name: "System" })).toBeTruthy();
     await user.click(within(accountMenu).getByRole("radio", { name: "Dark" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     expect(document.querySelector('[data-color-mode="dark"]')).toBeTruthy();
-    expect(within(accountMenu).getByRole("button", { name: "Sign Out" }).getAttribute("form")).toBe(
+    expect(within(accountMenu).getByRole("menuitem", { name: "Sign Out" }).getAttribute("form")).toBe(
       "marketplace-account-menu-sign-out",
     );
     const signOutForm = document.getElementById("marketplace-account-menu-sign-out");
@@ -264,23 +264,23 @@ describe("marketplace route layout", () => {
     expect(sellNav?.children?.map((item) => item.href)).not.toContain("/account/inventory/imports");
   });
 
-  it("keeps wallet discoverable through account navigation without selling workflow permissions", () => {
+  it("keeps money discoverable outside the account menu without selling workflow permissions", () => {
     const actor = {
       permissions: ["accounts.view", "orders.view", "orders.manage", "payouts.view"],
     };
 
     const accountMenuItems = resolveMarketplaceAccountMenuItems(actor);
     const bottomAccountNav = resolveMarketplaceNavItems("bottom-nav", actor).find((item) => item.key === "account");
-    const bottomWalletNav = resolveMarketplaceNavItems("bottom-nav", actor).find((item) => item.key === "wallet");
+    const bottomMoneyNav = resolveMarketplaceNavItems("bottom-nav", actor).find((item) => item.key === "money");
 
-    expect(accountMenuItems.map((item) => item.label)).toEqual(["Account", "Wallet", "Payouts"]);
-    expect(bottomWalletNav?.href).toBe("/account/settlement");
-    expect(bottomAccountNav?.children?.map((item) => item.label)).toEqual(["Account", "Wallet", "Payouts"]);
+    expect(accountMenuItems.map((item) => item.label)).toEqual(["Account"]);
+    expect(bottomMoneyNav?.href).toBe("/account/desk/money");
+    expect(bottomAccountNav?.children?.map((item) => item.label)).toEqual(["Account"]);
     expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toEqual([
       "Browse",
       "Buy Cart",
       "Alerts",
-      "Wallet",
+      "Money",
       "Account",
     ]);
   });

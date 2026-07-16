@@ -5,71 +5,152 @@ import {
   type CatalogControlPlaneTelemetryApi,
 } from "../../../features/source-observations/ui/primary-workbench-telemetry";
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
-import {
-  commandContextFromFormData,
-  observationIdsFromFormData,
-  type CatalogPrimaryWorkbenchFormIntent,
-} from "./integrations-command-context";
+import { commandContextFromFormData, observationIdsFromFormData } from "./integrations-command-context";
 import { CatalogApiError } from "../../../client";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 import { handleAliasReviewCommand, isAliasReviewCommandIntent } from "./alias-review-command-handler";
 import { handleAttentionQueueCommand, isAttentionQueueCommandIntent } from "./attention-queue-command-handler";
-import { handleDailyCommand, isDailyCommandIntent } from "./daily-command-handler";
-import { handleGovernanceCommand, isGovernanceCommandIntent } from "./governance-command-handler";
+import { handleCandidateCommand, isCandidateCommandIntent } from "./candidate-command-handler";
 import { handleJobCommand, isJobCommandIntent } from "./job-command-handler";
-import { handleProviderSetupCommand, isProviderSetupCommandIntent } from "./provider-setup-command-handler";
+import { handleObservationCommand, isObservationCommandIntent } from "./observation-command-handler";
+import { handleProviderProfileCommand, isProviderProfileCommandIntent } from "./provider-profile-command-handler";
+import { handleScopeCommand, isScopeCommandIntent } from "./scope-command-handler";
 import {
-  catalogControlPlaneActionByLegacyIntent,
   CATALOG_CONTROL_PLANE_ACTIONS,
   type CatalogControlPlaneAction,
+  type CatalogControlPlaneActionId,
+  type CatalogControlPlaneEntityKey,
 } from "../../../features/source-observations/ui/admin-control-plane/information-architecture-v2";
 
 // The integrations command dispatcher. It is the single result-routing point for
-// every Catalog control-plane command: it resolves the submitted legacy intent to
-// its Catalog Control Plane v2 action — the reduced, per-entity `${entity}.${verb}`
-// vocabulary in `information-architecture-v2.ts` — and rejects anything that is not
-// part of that vocabulary before any surface handler ever sees it. A recognized
-// action is then routed to the surface that owns it (daily / alias-review /
-// provider-setup / governance), telemetry is recorded keyed by the v2 action id
-// (not the legacy wire string), and the structured command result is returned as
-// data. It does NOT navigate: the surface entry point decides its own post-command
-// UX from the result.
+// every Catalog control-plane command: it accepts only the per-entity
+// `${entity}.${verb}` vocabulary, routes the action to its entity handler, records
+// telemetry, and returns one structured result. It does not navigate; route entry
+// points derive any redirect from the result.
 export async function dispatchIntegrationsCommand({
   request,
 }: ActionFunctionArgs): Promise<CatalogIntegrationsCommandResult> {
   const api = createCatalogRequestApiClient(request);
   const formData = await request.formData();
-  const intent = String(formData.get("_intent") ?? "") as CatalogPrimaryWorkbenchFormIntent;
+  const intent = String(formData.get("_intent") ?? "");
   const context = commandContextFromFormData(request.url, formData);
   const selectedObservationIds = observationIdsFromFormData(formData, context.selectedObservationIds);
   const controlPlaneAction = catalogControlPlaneActionForIntent(intent);
 
+  const routedResult =
+    controlPlaneAction || isAttentionQueueCommandIntent(intent)
+      ? await runIntegrationsCommand({
+          api,
+          action: controlPlaneAction,
+          intent,
+          context,
+          formData,
+          selectedObservationIds,
+        })
+      : invalidIntentResult(intent, context, selectedObservationIds);
   const result = controlPlaneAction
-    ? await runIntegrationsCommand({ api, intent, context, formData, selectedObservationIds })
-    : invalidIntentResult(intent, context, selectedObservationIds);
+    ? withUniformFeedback(routedResult, controlPlaneAction, formData, selectedObservationIds)
+    : routedResult;
   await recordCommandTelemetry(api, result);
 
   return result;
 }
 
-// Resolve the Catalog Control Plane v2 action for a submitted intent, or
-// `undefined` when the intent is outside the reduced blueprint vocabulary. An
-// intent matches either as an already-migrated v2 action id submitted directly
-// (this slice's alias-review and dispatcher-owned surfaces already submit
-// `alias.accept` etc. on the wire) or as one of a legacy intent's
-// `replacesIntents` entries (surfaces not yet migrated onto the v2 dispatcher).
-// Exposed so callers (route tests, audit trails) can assert dispatcher behavior
-// in terms of the v2 action id rather than the legacy wire string.
-export function catalogControlPlaneActionForIntent(intent: string): CatalogControlPlaneAction | undefined {
-  return (
-    CATALOG_CONTROL_PLANE_ACTIONS.find((action) => action.id === intent) ??
-    catalogControlPlaneActionByLegacyIntent(intent)
+function withUniformFeedback(
+  result: CatalogIntegrationsCommandResult,
+  action: CatalogControlPlaneAction,
+  formData: FormData,
+  selectedObservationIds: readonly string[],
+): CatalogIntegrationsCommandResult {
+  const targetIds = commandTargetIds(action, result, formData, selectedObservationIds);
+  return {
+    ...result,
+    feedback: {
+      ...result.feedback,
+      intent: action.id,
+      target: {
+        entity: action.entity,
+        id: targetIds.at(0) ?? null,
+        count: targetIds.length,
+      },
+      nextStep: commandNextStep(result.feedback.result),
+      undoAction: null,
+    },
+  };
+}
+
+function commandTargetIds(
+  action: CatalogControlPlaneAction,
+  result: CatalogIntegrationsCommandResult,
+  formData: FormData,
+  selectedObservationIds: readonly string[],
+): readonly string[] {
+  if (action.entity === "scope") {
+    return compactIds(formData.get("scopeRecordId"), formData.get("referenceId"), result.context.importScope).slice(
+      0,
+      1,
+    );
+  }
+  if (action.entity === "job") {
+    return compactIds(result.context.jobId);
+  }
+  if (action.entity === "observation") {
+    return selectedObservationIds.length > 0 ? selectedObservationIds : compactIds(result.context.importScope);
+  }
+  if (action.entity === "candidate") {
+    return compactIds(formData.get("candidateId"), ...String(formData.get("bulkCandidateIds") ?? "").split(","));
+  }
+  if (action.entity === "alias") {
+    return compactIds(...String(formData.get("aliasHashes") ?? "").split(","));
+  }
+  return compactIds(
+    result.context.providerKey && result.context.profileVersion
+      ? `${result.context.providerKey}:${result.context.profileVersion}`
+      : result.context.providerKey,
   );
 }
 
+function compactIds(...values: unknown[]): readonly string[] {
+  return [...new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean))];
+}
+
+function commandNextStep(
+  result: CatalogPrimaryWorkbenchCommandFeedback["result"],
+): CatalogPrimaryWorkbenchCommandFeedback["nextStep"] {
+  if (result === "preview-ready") {
+    return "review-and-confirm";
+  }
+  if (result === "preview-required") {
+    return "re-preview";
+  }
+  if (result === "job-queued") {
+    return "monitor-job";
+  }
+  if (result.endsWith("required") || result === "invalid-intent") {
+    return "correct-input";
+  }
+  return null;
+}
+
+// Resolve a submitted action id directly. Retired page-scoped intent strings are
+// deliberately not translated.
+export function catalogControlPlaneActionForIntent(intent: string): CatalogControlPlaneAction | undefined {
+  return CATALOG_CONTROL_PLANE_ACTIONS.find((action) => action.id === intent);
+}
+
+export function catalogControlPlaneCommandRouteForAction(
+  actionId: CatalogControlPlaneActionId,
+): CatalogControlPlaneEntityKey {
+  const action = catalogControlPlaneActionForIntent(actionId);
+  if (!action) {
+    throw new Error(`Unknown Catalog control-plane action '${actionId}'.`);
+  }
+  return action.entity;
+}
+
 function invalidIntentResult(
-  intent: CatalogPrimaryWorkbenchFormIntent,
+  intent: string,
   context: ReturnType<typeof commandContextFromFormData>,
   selectedObservationIds: readonly string[],
 ): CatalogIntegrationsCommandResult {
@@ -82,38 +163,48 @@ function invalidIntentResult(
 
 async function runIntegrationsCommand(input: {
   api: ReturnType<typeof createCatalogRequestApiClient>;
-  intent: CatalogPrimaryWorkbenchFormIntent;
+  action: CatalogControlPlaneAction | undefined;
+  intent: string;
   context: ReturnType<typeof commandContextFromFormData>;
   formData: FormData;
   selectedObservationIds: readonly string[];
 }): Promise<CatalogIntegrationsCommandResult> {
-  const { api, intent, context, formData, selectedObservationIds } = input;
+  const { api, action, intent, context, formData, selectedObservationIds } = input;
 
   try {
-    if (isAliasReviewCommandIntent(intent)) {
-      return await handleAliasReviewCommand({ api, intent, context, formData });
-    }
     if (isAttentionQueueCommandIntent(intent)) {
       return await handleAttentionQueueCommand({ api, intent, context, formData });
     }
-    if (isJobCommandIntent(intent)) {
-      return await handleJobCommand({ api, intent, context, selectedObservationIds });
-    }
-    if (isDailyCommandIntent(intent)) {
-      return await handleDailyCommand({ api, intent, context, formData, selectedObservationIds });
-    }
-    if (isProviderSetupCommandIntent(intent)) {
-      return await handleProviderSetupCommand({ api, intent, context, formData, selectedObservationIds });
-    }
-    if (isGovernanceCommandIntent(intent)) {
-      return await handleGovernanceCommand({ api, intent, context, formData, selectedObservationIds });
+    if (!action) {
+      return invalidIntentResult(intent, context, selectedObservationIds);
     }
 
-    return {
-      feedback: { status: "error", intent, result: "invalid-intent" },
-      context,
-      section: context.section,
-    };
+    switch (action.entity) {
+      case "alias":
+        return isAliasReviewCommandIntent(intent)
+          ? await handleAliasReviewCommand({ api, intent, context, formData })
+          : invalidIntentResult(intent, context, selectedObservationIds);
+      case "job":
+        return isJobCommandIntent(intent)
+          ? await handleJobCommand({ api, intent, context, selectedObservationIds })
+          : invalidIntentResult(intent, context, selectedObservationIds);
+      case "scope":
+        return isScopeCommandIntent(intent)
+          ? await handleScopeCommand({ api, intent, context, formData })
+          : invalidIntentResult(intent, context, selectedObservationIds);
+      case "observation":
+        return isObservationCommandIntent(intent)
+          ? await handleObservationCommand({ api, intent, context, formData, selectedObservationIds })
+          : invalidIntentResult(intent, context, selectedObservationIds);
+      case "candidate":
+        return isCandidateCommandIntent(intent)
+          ? await handleCandidateCommand({ api, intent, context, formData, selectedObservationIds })
+          : invalidIntentResult(intent, context, selectedObservationIds);
+      case "provider-profile":
+        return isProviderProfileCommandIntent(intent)
+          ? await handleProviderProfileCommand({ api, intent, context, formData, selectedObservationIds })
+          : invalidIntentResult(intent, context, selectedObservationIds);
+    }
   } catch (error) {
     // Fail closed without leaking the underlying error to the operator banner.
     return {
@@ -124,11 +215,8 @@ async function runIntegrationsCommand(input: {
   }
 }
 
-function commandFailureResult(
-  intent: CatalogPrimaryWorkbenchFormIntent,
-  error: unknown,
-): CatalogPrimaryWorkbenchCommandFeedback["result"] {
-  if (intent === "start-catalog-sync" && isCatalogSyncScopeApiError(error)) {
+function commandFailureResult(intent: string, error: unknown): CatalogPrimaryWorkbenchCommandFeedback["result"] {
+  if (intent === "scope.sync" && isCatalogSyncScopeApiError(error)) {
     return "catalog-sync-blocked";
   }
 

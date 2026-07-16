@@ -278,6 +278,13 @@
     {
       "deployable": "admin-web",
       "section": "platform",
+      "family": "operations-attention",
+      "owningContext": "platform-operations",
+      "purpose": "Operator operations attention queue (platform-operations): the 'what needs you, most important first' landing surface composing projection, support, and feedback signals into one severity-ordered queue."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "platform",
       "family": "projections",
       "owningContext": "platform-operations",
       "purpose": "Operator projection-health console (platform-operations): catch-up state and replay controls for read models."
@@ -366,6 +373,12 @@
       "family": "items",
       "owningContext": "discovery",
       "purpose": "Items surface (discovery)."
+    },
+    {
+      "deployable": "marketplace-web",
+      "family": "invite",
+      "owningContext": "auth",
+      "purpose": "Invitation recipient acceptance journey (auth)."
     },
     {
       "deployable": "marketplace-web",

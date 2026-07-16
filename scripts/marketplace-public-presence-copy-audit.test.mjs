@@ -22,6 +22,10 @@ function html(title, body) {
   return `<html><head><title>${title}</title></head><body>${body}</body></html>`;
 }
 
+function publishedTermsHtml(body) {
+  return `<html><head><title>terms</title></head><body><main data-policy-key="terms-of-service" data-policy-version="v2" data-policy-publication-status="published" data-policy-effective-at="2026-09-01T00:00:00.000Z">${body}</main></body></html>`;
+}
+
 function allPages(body) {
   return Object.fromEntries(REQUIRED_PUBLIC_PRESENCE_PAGES.map((page) => [page.path, html(page.name, body)]));
 }
@@ -75,6 +79,8 @@ describe("marketplace public presence copy audit", () => {
   });
 
   it("passes launch posture only after future-only copy is removed", async () => {
+    const pages = allPages("Live marketplace policies are available. Support is available.");
+    pages["/terms"] = publishedTermsHtml("Live marketplace policies are available. Support is available.");
     const audit = await auditPublicPresenceCopy(
       {
         baseUrl: "https://chasesets.com",
@@ -82,12 +88,37 @@ describe("marketplace public presence copy audit", () => {
         checkedAt: "2026-05-30T15:00:00.000Z",
       },
       {
-        fetch: fetchWithPages(allPages("Live marketplace policies are available. Support is available.")),
+        fetch: fetchWithPages(pages),
       },
     );
 
     expect(audit.passesPublicPresenceCopyAudit).toBe(true);
     expect(audit.futureOnlyLaunchCopyRemoved).toBe(true);
+    expect(audit.termsPublicationReady).toBe(true);
+  });
+
+  it("fails launch posture while the terms artifact is still awaiting counsel review", async () => {
+    const pages = allPages("Live marketplace policies are available. Support is available.");
+    pages["/terms"] =
+      `<html><head><title>terms</title></head><body><main data-policy-key="terms-of-service" data-policy-version="v1" data-policy-publication-status="counsel-review-required" data-policy-effective-at="">Counsel-approved language required.</main></body></html>`;
+
+    const audit = await auditPublicPresenceCopy(
+      {
+        baseUrl: "https://chasesets.com",
+        mode: "launch",
+        checkedAt: "2026-05-30T15:00:00.000Z",
+      },
+      { fetch: fetchWithPages(pages) },
+    );
+
+    expect(audit.passesPublicPresenceCopyAudit).toBe(false);
+    expect(audit.termsPublicationReady).toBe(false);
+    expect(audit.errors).toEqual(
+      expect.arrayContaining([
+        "Public Presence /terms policy artifact must be published before launch.",
+        "Public Presence /terms policy artifact must expose an effective ISO timestamp before launch.",
+      ]),
+    );
   });
 
   it("fails launch posture while future-only copy remains live", async () => {

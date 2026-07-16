@@ -403,7 +403,7 @@ function sourceScopeUnitRow(
     commandContext,
     actions: {
       import: action(
-        "start-provider-import",
+        "scope.import",
         importBlockers(
           input.canManage,
           selectedScope,
@@ -415,7 +415,7 @@ function sourceScopeUnitRow(
         ),
       ),
       previewPromotion: action(
-        "preview-promotion",
+        "observation.promote",
         promotionPreviewBlockers(
           input.canManage,
           selectedScope,
@@ -427,7 +427,7 @@ function sourceScopeUnitRow(
         ),
       ),
       reapply: action(
-        "start-reapply",
+        "observation.reapply",
         reapplyBlockers(
           input.canManage,
           selectedScope,
