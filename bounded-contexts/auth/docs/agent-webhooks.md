@@ -34,3 +34,18 @@ The local in-process lifecycle test covers projection, signing, callback verific
 4. Return HTTP 500 from the receiver and confirm exponential `next_attempt_at` values, then confirm a terminal `failed` row after `max_attempts`.
 
 Do not use an unapproved public request-bin or commit staging credentials/evidence to the repository.
+
+## Secret at rest & residual risks
+
+- **Signing secret at rest (tracked follow-up).** `webhook_signing_secret` on `identity_ucp_oauth_clients` is
+  stored as plaintext because the dispatcher needs the raw secret to compute an HMAC on every send. The read
+  surface is already narrowed to a single resolver (`resolveAgentWebhookSigningSecret`) and the secret is never
+  echoed to reads or logs. Column-level encryption / KMS envelope wrapping is a deliberate hardening follow-up
+  rather than in-scope here: it needs a new at-rest crypto primitive (none exists in the repo today), a key
+  source, and a backfill migration over a shared table. Because the access surface is a single resolver, that
+  upgrade stays local when it lands.
+- **Shipment → order resolution coupling.** `resolveShipmentOrderId` reads `ordering_fulfillment_cancellation_inputs`.
+  A `fulfillment.shipment.dispatched` event whose shipment row has not yet been projected there resolves to
+  `null` and the `shipped` delivery is skipped (it is not retried from the projector). In practice the
+  cancellation-input projection is fed by the same fulfillment stream, but a dedicated shipment→order read model
+  would remove the cross-projection freshness dependency. Tracked as a follow-up, not a blocker.
