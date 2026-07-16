@@ -10,7 +10,8 @@
     "payouts",
     "money-dashboard",
     "protection-coverage",
-    "liability-allocation"
+    "liability-allocation",
+    "liability-reconciliation"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
@@ -557,6 +558,11 @@
       "purpose": "Allocate refund liability per the authorized LiabilityAllocation: post the seller-funded portion to the wallet ledger-entry record, consume the platform-funded protection-coverage reservation, reconcile the correlated support hold, and quarantine mismatches for operator repair.",
       "expectedConsumers": ["Internal settlement module composition"]
     },
+    "liability-reconciliation": {
+      "classification": "slice",
+      "purpose": "Reconcile the ledger's liability total (wallet balances plus in-flight payout demand) against the provider platform balance on a schedule, recording runs and flagging solvency shortfalls for operator investigation.",
+      "expectedConsumers": ["Internal settlement module composition"]
+    },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by settlement-owned features and composition seams.",
@@ -566,7 +572,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by settlement-owned features and composition seams.",
-      "expectedConsumers": ["payout-readiness", "payouts", "protection-coverage", "wallets"]
+      "expectedConsumers": ["liability-reconciliation", "payout-readiness", "payouts", "protection-coverage", "wallets"]
     },
     "seed-support": {
       "classification": "support",

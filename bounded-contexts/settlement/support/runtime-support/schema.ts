@@ -19,6 +19,7 @@ import {
   settlementProtectionCoverageSchemaSql,
 } from "../../features/protection-coverage/read-model/protection-coverage-schema";
 import { settlementRefundLiabilityAllocationSchemaSql } from "../../features/liability-allocation/read-model/liability-allocation-schema";
+import { settlementLiabilityReconciliationSchemaSql } from "../../features/liability-reconciliation/read-model/liability-reconciliation";
 import {
   settlementPayoutReadinessSchemaMigrations,
   settlementPayoutReadinessSchemaSql,
@@ -57,6 +58,7 @@ export const settlementSchemaSql = [
   settlementPayoutSchemaSql,
   settlementProtectionCoverageSchemaSql,
   settlementRefundLiabilityAllocationSchemaSql,
+  settlementLiabilityReconciliationSchemaSql,
   settlementWorkClaimSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
   // for the clearance-window and payout-bounds policies -- see

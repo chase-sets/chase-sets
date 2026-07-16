@@ -376,6 +376,69 @@ export async function recordSettlementProviderIdempotencyKey(
   );
 }
 
+export type PayoutRequestIdempotencyRecord = Readonly<{
+  payout_id: string;
+  requested_amount: string;
+  currency_code: string;
+}>;
+
+/** Look up an existing payout-request idempotency reservation for this account and key. */
+export async function findPayoutRequestIdempotency(
+  db: PgQueryable,
+  accountId: string,
+  idempotencyKey: string,
+): Promise<PayoutRequestIdempotencyRecord | null> {
+  const result = await db.query<PayoutRequestIdempotencyRecord>(
+    `SELECT payout_id, requested_amount::text AS requested_amount, currency_code
+     FROM settlement_payout_request_idempotency
+     WHERE account_id = $1 AND idempotency_key = $2`,
+    [accountId, idempotencyKey],
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * Reserve (account_id, idempotency_key) for a freshly minted payout. Returns the
+ * winning reservation: `reserved` is true when this call inserted the row, false
+ * when a concurrent request already owned the key (in which case the returned
+ * payout_id is the winner's, and this caller must replay it rather than proceed).
+ * A single statement so the decision is atomic under concurrency.
+ */
+export async function reservePayoutRequestIdempotency(
+  db: PgQueryable,
+  entry: Readonly<{
+    accountId: string;
+    idempotencyKey: string;
+    payoutId: string;
+    requestedAmount: string;
+    currencyCode: string;
+    createdAt: string;
+  }>,
+): Promise<PayoutRequestIdempotencyRecord & Readonly<{ reserved: boolean }>> {
+  const result = await db.query<PayoutRequestIdempotencyRecord & { reserved: boolean }>(
+    `WITH ins AS (
+       INSERT INTO settlement_payout_request_idempotency (
+         account_id, idempotency_key, payout_id, requested_amount, currency_code, created_at
+       ) VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (account_id, idempotency_key) DO NOTHING
+       RETURNING payout_id, requested_amount, currency_code
+     )
+     SELECT payout_id, requested_amount::text AS requested_amount, currency_code, true AS reserved
+     FROM ins
+     UNION ALL
+     SELECT payout_id, requested_amount::text AS requested_amount, currency_code, false AS reserved
+     FROM settlement_payout_request_idempotency
+     WHERE account_id = $1 AND idempotency_key = $2 AND NOT EXISTS (SELECT 1 FROM ins)
+     LIMIT 1`,
+    [entry.accountId, entry.idempotencyKey, entry.payoutId, entry.requestedAmount, entry.currencyCode, entry.createdAt],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error("Payout request idempotency reservation returned no row.");
+  }
+  return row;
+}
+
 export async function recordSettlementProviderOperationPending(
   db: PgQueryable,
   operation: Readonly<{

@@ -67,6 +67,22 @@ CREATE INDEX IF NOT EXISTS settlement_provider_idempotency_keys_account_idx
   ON settlement_provider_idempotency_keys (account_id, created_at DESC)
   WHERE account_id IS NOT NULL;
 
+-- Client-supplied payout-request idempotency. Keyed per requesting account so a
+-- redelivered or double-submitted POST /payouts replays the original payout
+-- instead of minting and debiting a second one. The reservation is written
+-- before the payout stream is created, so the (account_id, idempotency_key)
+-- primary key is the single point that serialises concurrent duplicates: the
+-- first writer wins and every later submit replays its payout_id.
+CREATE TABLE IF NOT EXISTS settlement_payout_request_idempotency (
+  account_id text NOT NULL,
+  idempotency_key text NOT NULL,
+  payout_id text NOT NULL,
+  requested_amount numeric(12, 2) NOT NULL,
+  currency_code text NOT NULL,
+  created_at timestamptz NOT NULL,
+  PRIMARY KEY (account_id, idempotency_key)
+);
+
 CREATE TABLE IF NOT EXISTS settlement_provider_operations (
   operation_key text PRIMARY KEY,
   provider_name text NOT NULL,

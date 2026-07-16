@@ -1,16 +1,17 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { resolveProjectionDb, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "settlement.wallet.opened": async (event) => {
+    "settlement.wallet.opened": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         accountId: string;
         currencyCode: string;
         openedAt: string;
       };
 
-      await db.query(
+      await projectionDb.query(
         `INSERT INTO settlement_wallet_pages (
            account_id,
            currency_code,
@@ -33,7 +34,8 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
         [data.accountId, data.currencyCode, data.openedAt],
       );
     },
-    "settlement.wallet.ledger-entry-posted": async (event) => {
+    "settlement.wallet.ledger-entry-posted": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         accountId: string;
         ledgerEntryId: string;
@@ -54,7 +56,7 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
       const creditedDelta = data.direction === "credit" ? data.amount : "0.00";
       const debitedDelta = data.direction === "debit" ? data.amount : "0.00";
 
-      const insertedEntry = await db.query(
+      const insertedEntry = await projectionDb.query(
         `INSERT INTO settlement_ledger_entry_pages (
            ledger_entry_id,
            account_id,
@@ -95,7 +97,7 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
         return;
       }
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE settlement_wallet_pages
          SET pending_balance_amount = pending_balance_amount + $2::numeric,
              available_balance_amount = available_balance_amount + $3::numeric,
@@ -106,7 +108,8 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
         [data.accountId, pendingDelta, availableDelta, creditedDelta, debitedDelta, data.postedAt],
       );
     },
-    "settlement.wallet.ledger-entry-available-recorded": async (event) => {
+    "settlement.wallet.ledger-entry-available-recorded": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         accountId: string;
         ledgerEntryId: string;
@@ -114,7 +117,7 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
         availableAt: string;
       };
 
-      const releasedEntry = await db.query(
+      const releasedEntry = await projectionDb.query(
         `UPDATE settlement_ledger_entry_pages
          SET funds_status = 'available',
              available_at = $2,
@@ -128,7 +131,7 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
         return;
       }
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE settlement_wallet_pages
          SET pending_balance_amount = pending_balance_amount - $2::numeric,
              available_balance_amount = available_balance_amount + $2::numeric,
@@ -137,13 +140,14 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
         [data.accountId, data.amount, data.availableAt],
       );
     },
-    "settlement.wallet.negative-balance-entered": async (event) => {
+    "settlement.wallet.negative-balance-entered": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         accountId: string;
         enteredAt: string;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE settlement_wallet_pages
          SET negative_balance_status = 'negative',
              negative_balance_started_at = $2,
@@ -153,14 +157,15 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
         [data.accountId, data.enteredAt],
       );
     },
-    "settlement.wallet.negative-balance-collections-opened": async (event) => {
+    "settlement.wallet.negative-balance-collections-opened": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         accountId: string;
         negativeSince: string;
         openedAt: string;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE settlement_wallet_pages
          SET negative_balance_status = 'collections',
              negative_balance_started_at = $2,
@@ -170,13 +175,14 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
         [data.accountId, data.negativeSince, data.openedAt],
       );
     },
-    "settlement.wallet.negative-balance-recovered": async (event) => {
+    "settlement.wallet.negative-balance-recovered": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         accountId: string;
         recoveredAt: string;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE settlement_wallet_pages
          SET negative_balance_status = 'in-good-standing',
              negative_balance_started_at = NULL,
@@ -186,7 +192,8 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
         [data.accountId, data.recoveredAt],
       );
     },
-    "settlement.wallet.spend-hold-placed": async (event) => {
+    "settlement.wallet.spend-hold-placed": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         accountId: string;
         holdId: string;
@@ -197,7 +204,7 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
         expiresAt: string | null;
       };
 
-      await db.query(
+      await projectionDb.query(
         `INSERT INTO settlement_wallet_spend_holds (
            hold_id,
            account_id,
@@ -217,7 +224,8 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
         [data.holdId, data.accountId, data.paymentId, data.amount, data.currencyCode, data.placedAt, data.expiresAt],
       );
     },
-    "settlement.wallet.spend-hold-released": async (event) => {
+    "settlement.wallet.spend-hold-released": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         accountId: string;
         holdId: string;
@@ -225,7 +233,7 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
         releasedAt: string;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE settlement_wallet_spend_holds
          SET status = 'released',
              release_reason = $2,

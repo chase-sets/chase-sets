@@ -68,6 +68,8 @@ import {
 } from "../integrations/transactional-email/transactional-email-projector";
 import {
   getPayout,
+  findPayoutRequestIdempotency,
+  reservePayoutRequestIdempotency,
   getAccountPayoutRiskSummary,
   getPayoutByProviderOperationReference,
   getPayoutByProviderPayoutReference,
@@ -290,6 +292,7 @@ export type PayoutServices = Readonly<{
       notificationEmail?: string | null;
       actorUserId?: string | null;
       sensitiveActionToken?: string | null;
+      idempotencyKey?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ payoutId: PayoutId; version: number; payout: PayoutCommandSnapshot }>;
@@ -371,6 +374,23 @@ async function requireExistingPayout(db: PgQueryable, payoutId: string, accountI
     throw new SettlementDomainError("Payout was not found.");
   }
   return payout;
+}
+
+const MAX_PAYOUT_IDEMPOTENCY_KEY_LENGTH = 255;
+
+/** Normalise a client Idempotency-Key: trim, drop empties, and bound its length. */
+function normalizePayoutIdempotencyKey(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  if (trimmed.length > MAX_PAYOUT_IDEMPOTENCY_KEY_LENGTH) {
+    throw new SettlementDomainError("Idempotency key is too long.");
+  }
+  return trimmed;
 }
 
 function providerObjectReferenceFromEvent(event: MoneyMovementWebhookEvent) {
@@ -575,6 +595,40 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
     }
     const loaded = await repository.load(`settlement.payout-${payoutId}`);
     return loaded.state.payoutId ? requirePayoutSnapshot(loaded.state, loaded.version) : null;
+  }
+
+  // Replay the payout an idempotency reservation points at, straight from the
+  // aggregate (strongly consistent — never the lagging read model). A reservation
+  // is written immediately before the RequestPayout append, so in the rare window
+  // where a concurrent duplicate reads the reservation before the winner's event
+  // is visible, retry briefly rather than fabricate a snapshot; we never debited
+  // on this path, so a transient throw is safe and the client's retry replays.
+  async function replayReservedPayout(
+    payoutId: string,
+    requestedAmount: string,
+    reservedAmount: string,
+  ): Promise<{ payoutId: PayoutId; version: number; payout: PayoutCommandSnapshot }> {
+    let amountsMatch = false;
+    try {
+      amountsMatch = compareMoney(reservedAmount, requestedAmount) === 0;
+    } catch {
+      amountsMatch = false;
+    }
+    if (!amountsMatch) {
+      throw new SettlementDomainError("This idempotency key was already used for a different payout amount.");
+    }
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const loaded = await repository.load(`settlement.payout-${payoutId}`);
+      if (loaded.state.payoutId) {
+        return {
+          payoutId: payoutId as PayoutId,
+          version: loaded.version,
+          payout: requirePayoutSnapshot(loaded.state, loaded.version),
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new SettlementDomainError("Payout request is still being created; retry the request shortly.");
   }
 
   async function recordPayoutProviderReferences(
@@ -1507,6 +1561,15 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       };
     },
     async requestPayout(params, context) {
+      const idempotencyKey = normalizePayoutIdempotencyKey(params.idempotencyKey);
+      if (idempotencyKey) {
+        const existing = await findPayoutRequestIdempotency(deps.db, params.accountId, idempotencyKey);
+        if (existing) {
+          // A prior request with this key already minted (and debited) a payout;
+          // replay it rather than create a second one.
+          return await replayReservedPayout(existing.payout_id, params.amount, existing.requested_amount);
+        }
+      }
       await recordOperation({
         kind: "payout-requested",
         accountId: params.accountId,
@@ -1663,6 +1726,22 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
 
       const payoutId = createId("pyo") as PayoutId;
       const requestedAt = new Date().toISOString();
+      if (idempotencyKey) {
+        // Claim the key before the payout stream is created and the wallet is
+        // debited. If a concurrent duplicate already won the claim, abandon this
+        // freshly minted (still-uncreated, undebited) payoutId and replay theirs.
+        const reservation = await reservePayoutRequestIdempotency(deps.db, {
+          accountId: params.accountId,
+          idempotencyKey,
+          payoutId,
+          requestedAmount: amount,
+          currencyCode,
+          createdAt: requestedAt,
+        });
+        if (!reservation.reserved) {
+          return await replayReservedPayout(reservation.payout_id, amount, reservation.requested_amount);
+        }
+      }
       const result = await commandHandler({
         streamId: `settlement.payout-${payoutId}`,
         command: {

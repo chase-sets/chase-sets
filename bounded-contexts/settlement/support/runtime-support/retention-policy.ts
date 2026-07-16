@@ -5,6 +5,10 @@ const SIX_HOURS_MS = 6 * 60 * 60 * 1_000;
 export const settlementRetentionSweeps: readonly BcRetentionSweep[] = [
   ageSweep("money-movement-webhook-events", "settlement_money_movement_webhook_events", "received_at"),
   ageSweep("provider-idempotency-keys", "settlement_provider_idempotency_keys", "created_at"),
+  // Client payout-request idempotency reservations are only useful for the retry
+  // window of a submit; a redelivery 90 days later is not a real double-submit.
+  // Prune on the same horizon as provider idempotency keys.
+  ageSweep("payout-request-idempotency", "settlement_payout_request_idempotency", "created_at"),
   {
     // Prune only long-released buyer-spend holds. Active holds are
     // live money reservations and must never be swept, so the predicate is
@@ -28,6 +32,12 @@ export const settlementRetentionExemptions: readonly BcRetentionExemption[] = [
     tableName: "settlement_reconciliation_runs",
     owner: "settlement",
     reason: "Payout reconciliation history is accounting evidence and requires archive policy.",
+  },
+  {
+    tableName: "settlement_liability_reconciliation_runs",
+    owner: "settlement",
+    reason:
+      "Ledger-vs-provider liability reconciliation history is solvency audit evidence and requires archive policy.",
   },
   {
     tableName: "settlement_protection_coverage",
@@ -59,6 +69,14 @@ export const settlementRetentionSchemaMigrations: readonly BcSchemaMigration[] =
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_wallet_spend_holds_retention_idx
   ON settlement_wallet_spend_holds (released_at)
   WHERE status = 'released'`,
+    ],
+  },
+  {
+    migrationId: "20260716_settlement_payout_request_idempotency_retention_index",
+    description: "Add the created-at ordering index used by the payout-request idempotency retention sweep.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_payout_request_idempotency_retention_idx
+  ON settlement_payout_request_idempotency (created_at)`,
     ],
   },
 ];
