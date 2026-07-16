@@ -643,7 +643,6 @@ jobs:
           app_id="$(terraform output -raw app_id)"
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
-          mapfile -t legacy_public_redirect_domains < <(terraform output -json legacy_public_redirect_domains | jq -r '.[]')
           mapfile -t marketplace_domains < <(terraform output -json marketplace_domains | jq -r '.[]')
           mapfile -t staging_root_marketplace_domains < <(terraform output -json staging_root_marketplace_domains | jq -r '.[]')
           if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ "${#marketplace_domains[@]}" -eq 0 ] || [ "${#staging_root_marketplace_domains[@]}" -eq 0 ]; then
@@ -655,7 +654,6 @@ jobs:
             "$app_id" \
             "$landing_domain" \
             "$admin_domain" \
-            "${legacy_public_redirect_domains[@]}" \
             "${marketplace_domains[@]}" \
             "${staging_root_marketplace_domains[@]}" \
             --timeout-seconds=1800 \

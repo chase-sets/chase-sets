@@ -3094,6 +3094,27 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain('reset-domain "$app_id" staging.chasesets.com');
   });
 
+  it("drops the legacy redirect domains from the staging App Platform domain-attachment wait (#5567)", () => {
+    const waitDomainsStep = workflowStep(platformStagingResetWorkflow, "Wait for staging domains");
+
+    // #5567: once DOKS owns staging serving, the legacy landing-/marketplace-/
+    // admin-staging redirect hosts are no longer attached to the App Platform
+    // spec, so waiting on them via wait-domains stalled every run until the
+    // 1800s timeout (a different mechanism than the ingress probe fixed in
+    // #5566). wait-domains only needs the hosts App Platform still serves —
+    // landing, admin, marketplace, and staging-root.
+    expect(waitDomainsStep).not.toContain("legacy_public_redirect_domains");
+    expect(waitDomainsStep).toContain('landing_domain="$(terraform output -raw landing_domain)"');
+    expect(waitDomainsStep).toContain('admin_domain="$(terraform output -raw admin_domain)"');
+    expect(waitDomainsStep).toContain("mapfile -t marketplace_domains");
+    expect(waitDomainsStep).toContain("mapfile -t staging_root_marketplace_domains");
+    expect(waitDomainsStep).toContain("node ../../../scripts/digitalocean-app-deployment.mjs wait-domains");
+    expect(waitDomainsStep).toContain('"$landing_domain"');
+    expect(waitDomainsStep).toContain('"$admin_domain"');
+    expect(waitDomainsStep).toContain('"${marketplace_domains[@]}"');
+    expect(waitDomainsStep).toContain('"${staging_root_marketplace_domains[@]}"');
+  });
+
   it("makes DOKS the primary rollout lane with a single-flag App Platform kill switch (#4049)", () => {
     const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
     const reconcileStep = workflowStep(deployStagingJob, "Reconcile staging serving DNS state");
