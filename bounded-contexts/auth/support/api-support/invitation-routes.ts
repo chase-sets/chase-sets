@@ -3,6 +3,7 @@ import {
   publicClientRequestKey,
   rateLimitExceededJsonResponse,
 } from "@chase-sets/http/rate-limit";
+import { CHASE_SETS_READ_AFTER_WRITE_HEADER, decodeFreshWriteReceipt } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -152,6 +153,15 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
     );
     if (invitationDecision.limited) {
       return rateLimitExceededJsonResponse("auth.invitation.acceptance-link.identifier", invitationDecision);
+    }
+
+    // The caller (Identity's invitation command) forwards a fresh-write receipt
+    // so Auth's invitation projection can catch up before this read. Consume it
+    // with a bounded, best-effort wait; on timeout it falls back to reading the
+    // projection as-is, so a slow projection never blocks or breaks the email.
+    const freshWriteReceipt = decodeFreshWriteReceipt(c.req.header(CHASE_SETS_READ_AFTER_WRITE_HEADER));
+    if (freshWriteReceipt && freshWriteReceipt.sources.length > 0) {
+      await services.awaitInvitationProjectionFreshness?.(freshWriteReceipt);
     }
 
     const invitation = await services.identity.getInvitation(invitationId);

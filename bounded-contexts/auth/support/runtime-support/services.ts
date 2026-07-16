@@ -50,6 +50,11 @@ import {
   type AgentWebhookTarget,
 } from "../ucp-support/agent-webhooks";
 import { publishAuthenticationCsatOutcomeFact } from "../request-support/csat-outcome-facts";
+import {
+  createAuthIdentityInvitationProjectionPositionReader,
+  createInvitationProjectionFreshnessWaiter,
+  type InvitationProjectionFreshnessWaiter,
+} from "./invitation-projection-freshness";
 
 type AuthIdentityReadServices = Readonly<{
   bootstrapTenantId: string;
@@ -91,6 +96,16 @@ export type AuthServices = Readonly<{
   eventStore: EventStore;
   auth: ReturnType<typeof createAuthSecretAdapters>;
   identity: AuthIdentityReadServices;
+  /**
+   * Bounded, best-effort read-your-write settle for Auth's invitation
+   * projection. The acceptance-link handler consumes a forwarded fresh-write
+   * receipt through this before reading the invitation so a just-created or
+   * resent invitation is observed. Always populated by `createAuthServices`;
+   * optional on the type only so unit-test service doubles that stub a handful
+   * of fields keep typechecking (a missing waiter degrades to today's
+   * no-wait behavior).
+   */
+  awaitInvitationProjectionFreshness?: InvitationProjectionFreshnessWaiter;
   sessions: ReturnType<typeof createSessionRuntime>;
   notificationOutbox: NotificationOutbox;
   agentWebhookOutbox: AgentWebhookOutbox;
@@ -197,6 +212,9 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
       getInvitation: (invitationId) => getAuthIdentityInvitation(db, invitationId),
       findPendingInvitationByEmail: (email) => getPendingAuthIdentityInvitationByEmail(db, email),
     },
+    awaitInvitationProjectionFreshness: createInvitationProjectionFreshnessWaiter({
+      readInvitationProjectionPosition: createAuthIdentityInvitationProjectionPositionReader(db),
+    }),
     sessions,
     notificationOutbox,
     agentWebhookOutbox,

@@ -6,9 +6,23 @@ import {
   useMockReset,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { describe, expect, it, vi } from "vitest";
+import {
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  encodeFreshWriteReceipt,
+  type FreshWriteReceipt,
+} from "@chase-sets/http/responses";
 import type { AuthServices } from "../runtime-support/services";
+import { createInvitationProjectionFreshnessWaiter } from "../runtime-support/invitation-projection-freshness";
 import { registerInvitationRoutes } from "./invitation-routes";
 import type { AuthApiEnv } from "./support";
+
+function invitationFreshWriteHeader(maxGlobalPosition: string): Record<string, string> {
+  const receipt: FreshWriteReceipt = {
+    observedAtMs: Date.now(),
+    sources: [{ sourceContextName: "identity", maxGlobalPosition, eventIds: [`evt_${maxGlobalPosition}`] }],
+  };
+  return { [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt(receipt) };
+}
 
 const {
   mockConsumeChallenge,
@@ -197,6 +211,83 @@ describe("invitation auth routes", () => {
     );
     const message = services.notificationOutbox.enqueueNotification.mock.calls[0]?.[0].message;
     expect(String(message?.templateData.invitationLink)).toContain("invitationId=ivt_1");
+  });
+
+  it("waits for the forwarded invitation projection version before reading, then emails", async () => {
+    const services = createServices();
+    const awaitInvitationProjectionFreshness = vi.fn(async (_receipt: FreshWriteReceipt) => undefined);
+    const withWaiter = { ...services, awaitInvitationProjectionFreshness };
+    const identityMutations = createIdentityMutations();
+    mockCreateIdentityAuthRequestClient.mockReturnValue(identityMutations);
+    const app = buildApp(withWaiter);
+
+    const response = await app.request("https://marketplace.test/invitations/acceptance-link/request", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": "203.0.113.10",
+        ...invitationFreshWriteHeader("42"),
+      },
+      body: JSON.stringify({ invitationId: "ivt_wait" }),
+    });
+
+    expect(response.status).toBe(200);
+    // The wait consumed the forwarded receipt at its target version...
+    expect(awaitInvitationProjectionFreshness).toHaveBeenCalledTimes(1);
+    expect(awaitInvitationProjectionFreshness.mock.calls[0][0]).toMatchObject({
+      sources: [{ sourceContextName: "identity", maxGlobalPosition: "42" }],
+    });
+    // ...and it ran before the invitation projection read.
+    expect(awaitInvitationProjectionFreshness.mock.invocationCallOrder[0]).toBeLessThan(
+      services.identity.getInvitation.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
+  });
+
+  it("still reads and emails without a forwarded receipt (unchanged behavior)", async () => {
+    const services = createServices();
+    const awaitInvitationProjectionFreshness = vi.fn(async (_receipt: FreshWriteReceipt) => undefined);
+    const identityMutations = createIdentityMutations();
+    mockCreateIdentityAuthRequestClient.mockReturnValue(identityMutations);
+    const app = buildApp({ ...services, awaitInvitationProjectionFreshness });
+
+    const response = await app.request("https://marketplace.test/invitations/acceptance-link/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "203.0.113.11" },
+      body: JSON.stringify({ invitationId: "ivt_nowait" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(awaitInvitationProjectionFreshness).not.toHaveBeenCalled();
+    expect(services.identity.getInvitation).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to emailing when the invitation projection never catches up within the bound", async () => {
+    const services = createServices();
+    // Real bounded waiter whose checkpoint never reaches the forwarded version.
+    const awaitInvitationProjectionFreshness = createInvitationProjectionFreshnessWaiter({
+      readInvitationProjectionPosition: async () => "1",
+      timeoutMs: 40,
+      pollIntervalMs: 1,
+    });
+    const identityMutations = createIdentityMutations();
+    mockCreateIdentityAuthRequestClient.mockReturnValue(identityMutations);
+    const app = buildApp({ ...services, awaitInvitationProjectionFreshness });
+
+    const response = await app.request("https://marketplace.test/invitations/acceptance-link/request", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": "203.0.113.12",
+        ...invitationFreshWriteHeader("999"),
+      },
+      body: JSON.stringify({ invitationId: "ivt_fallback" }),
+    });
+
+    // Graceful: the bounded wait times out, the handler still reads the pending
+    // invitation and issues the acceptance email rather than failing.
+    expect(response.status).toBe(200);
+    expect(services.identity.getInvitation).toHaveBeenCalledTimes(1);
+    expect(services.notificationOutbox.enqueueNotification).toHaveBeenCalledTimes(1);
   });
 
   it("completes the invite, email link, acceptance, and invited-account session journey", async () => {
