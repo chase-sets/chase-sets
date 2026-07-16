@@ -1,7 +1,35 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { returnLabelRemedyIdForSupportRequest } from "../../domain/support-return-label-policy";
 
-export function buildFulfillmentSupportReturnSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+type SupportReturnReaction = Readonly<{
+  onResolved?: (
+    input: Readonly<{
+      supportRequestId: string;
+      flowType: string;
+      resolution: Readonly<{ resolutionType: string; resolvedAt: string }>;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<unknown>;
+  onCancelled?: (
+    input: Readonly<{ supportRequestId: string; reason: string }>,
+    context: EventStoreContext,
+  ) => Promise<unknown>;
+}>;
+
+function eventContext(event: {
+  tenantId: EventStoreContext["tenantId"];
+  audit: EventStoreContext["audit"];
+  trace: EventStoreContext["trace"];
+}): EventStoreContext {
+  return { tenantId: event.tenantId, audit: event.audit, trace: event.trace };
+}
+
+export function buildFulfillmentSupportReturnSourceProjectionHandlers(
+  db: PgQueryable,
+  reaction: SupportReturnReaction = {},
+): ProjectorHandlerMap {
   return {
     "support.support-request.opened": async (event) => {
       const data = event.data as { supportRequestId: string; orderId: string; openedAt: string };
@@ -45,6 +73,36 @@ export function buildFulfillmentSupportReturnSourceProjectionHandlers(db: PgQuer
            return_directive = EXCLUDED.return_directive,
            updated_at = EXCLUDED.updated_at`,
         [data.remedyId, data.supportRequestId, data.returnDirective, data.occurredAt],
+      );
+    },
+    "support.support-request.resolved": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        flowType: string;
+        resolution: { resolutionType: string; resolvedAt: string };
+      };
+      if (data.resolution.resolutionType !== "return-for-refund") return;
+      await db.query(
+        `INSERT INTO fulfillment_support_return_remedy_sources (
+           remedy_id, support_request_id, return_directive, updated_at
+         ) VALUES ($1, $2, 'return-to-seller', $3)
+         ON CONFLICT (remedy_id) DO UPDATE SET
+           support_request_id = EXCLUDED.support_request_id,
+           return_directive = EXCLUDED.return_directive,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          returnLabelRemedyIdForSupportRequest(data.supportRequestId),
+          data.supportRequestId,
+          data.resolution.resolvedAt,
+        ],
+      );
+      await reaction.onResolved?.(data, eventContext(event));
+    },
+    "support.support-request.cancelled": async (event) => {
+      const data = event.data as { supportRequestId: string; cancellationReason?: string };
+      await reaction.onCancelled?.(
+        { supportRequestId: data.supportRequestId, reason: data.cancellationReason ?? "support-request-cancelled" },
+        eventContext(event),
       );
     },
   };

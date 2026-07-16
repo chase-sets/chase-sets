@@ -59,6 +59,18 @@
       "projectionHandlerSetNames": ["payments-support-refund-effect"]
     },
     {
+      "sourceContextName": "fulfillment",
+      "projectionName": "payments-support-refund-effect",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "fulfillment.return-shipment.requested.v2",
+        "fulfillment.return-shipment.label-ready.v1",
+        "fulfillment.return-shipment.label-voided.v1"
+      ],
+      "order": 71,
+      "projectionHandlerSetNames": ["payments-support-refund-effect"]
+    },
+    {
       "sourceContextName": "ordering",
       "projectionName": "payments-order-cancellation-refund-effect",
       "subscriptionVersion": 1,
@@ -125,8 +137,8 @@
     },
     {
       "projectionName": "payments-support-refund-effect",
-      "sourceContextNames": ["platform-operations"],
-      "ownedTables": ["payments_support_refund_effects"],
+      "sourceContextNames": ["platform-operations", "fulfillment"],
+      "ownedTables": ["payments_support_refund_effects", "payments_return_label_sources"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },

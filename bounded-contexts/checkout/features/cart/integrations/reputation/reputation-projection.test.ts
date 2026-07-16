@@ -6,12 +6,15 @@ import { buildCheckoutReputationSellerReviewsProjectionHandlers } from "./reputa
 
 type ReviewRow = {
   review_id: string;
+  order_id: string;
   subject_account_id: string;
   author_role: string;
   rating: number;
   status: string;
   last_stream_version: number;
   revealed_at: string | null;
+  held: boolean;
+  scoring_disposition: "included" | "context-only";
 };
 type SellerAccountRow = {
   account_id: string;
@@ -19,6 +22,7 @@ type SellerAccountRow = {
   slug: string;
   average_rating: number | null;
   review_count: number;
+  rating_count: number;
 };
 
 /**
@@ -40,6 +44,7 @@ class ReputationProjectionDb implements PgQueryable {
       slug: row.slug ?? "card-vault",
       average_rating: row.average_rating ?? null,
       review_count: row.review_count ?? 0,
+      rating_count: row.rating_count ?? 0,
     });
   }
 
@@ -53,22 +58,26 @@ class ReputationProjectionDb implements PgQueryable {
         review.subject_account_id === accountId &&
         review.status === "active" &&
         review.author_role === "buyer" &&
-        review.revealed_at !== null,
+        review.revealed_at !== null &&
+        !review.held,
     );
-    const count = active.length;
+    const scoring = active.filter((review) => review.scoring_disposition === "included");
+    const count = scoring.length;
     const average =
-      count === 0 ? null : Math.round((active.reduce((sum, review) => sum + review.rating, 0) / count) * 100) / 100;
+      count === 0 ? null : Math.round((scoring.reduce((sum, review) => sum + review.rating, 0) / count) * 100) / 100;
     const existing = this.accounts.get(accountId);
     if (existing) {
       existing.average_rating = average;
-      existing.review_count = count;
+      existing.review_count = active.length;
+      existing.rating_count = count;
     } else {
       this.accounts.set(accountId, {
         account_id: accountId,
         display_name: "",
         slug: "",
         average_rating: average,
-        review_count: count,
+        review_count: active.length,
+        rating_count: count,
       });
     }
   }
@@ -79,20 +88,24 @@ class ReputationProjectionDb implements PgQueryable {
   ): Promise<PgQueryResult<Row>> {
     if (sql.includes("INSERT INTO checkout_seller_account_reviews")) {
       const reviewId = String(values[0]);
-      const subjectAccountId = String(values[1]);
-      const authorRole = String(values[2]);
-      const rating = Number(values[3]);
-      const streamVersion = Number(values[4]);
+      const orderId = String(values[1]);
+      const subjectAccountId = String(values[2]);
+      const authorRole = String(values[3]);
+      const rating = Number(values[4]);
+      const streamVersion = Number(values[5]);
       const existing = this.reviews.get(reviewId);
       if (!existing || existing.last_stream_version < streamVersion) {
         this.reviews.set(reviewId, {
           review_id: reviewId,
+          order_id: orderId,
           subject_account_id: subjectAccountId,
           author_role: authorRole,
           rating,
           status: "active",
           last_stream_version: streamVersion,
           revealed_at: null,
+          held: false,
+          scoring_disposition: String(values[7]) as "included" | "context-only",
         });
       }
       return { rows: [], rowCount: 1 };
@@ -159,6 +172,38 @@ function event(type: string, streamVersion: number, data: Record<string, unknown
 }
 
 describe("checkout reputation seller-reviews projection", () => {
+  it("removes context-only ratings from checkout reassurance without deleting the review", async () => {
+    const queries: string[] = [];
+    const db = {
+      query: async (sql: string) => {
+        queries.push(sql);
+        if (sql.includes("RETURNING subject_account_id")) {
+          return { rows: [{ subject_account_id: "acc_seller" }] };
+        }
+        return { rows: [] };
+      },
+    };
+    const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db as never);
+
+    await handlers["marketplace.review-scoring.disposition-projected.v1"]?.({
+      streamVersion: 2,
+      data: {
+        factSchemaVersion: 1,
+        orderId: "ord_1",
+        policyVersion: "resolution-aware-v1",
+        sourceFactVersions: [{ supportRequestId: "sup_1", sourceStreamVersion: 3, status: "resolved" }],
+        buyerToSeller: { scoringDisposition: "context-only", reasonCode: "external-responsibility" },
+        sellerToBuyer: { scoringDisposition: "context-only", reasonCode: "external-responsibility" },
+        operationalSignal: null,
+        projectedAt: "2026-07-03T00:00:00.000Z",
+      },
+    } as never);
+
+    expect(queries[0]).toContain("UPDATE checkout_seller_account_reviews");
+    expect(queries[0]).toContain("scoring_disposition");
+    expect(queries[1]).toContain("scoring_disposition = 'included'");
+  });
+
   it("hides a submitted review from the aggregate until it is revealed (m108 #4267)", async () => {
     const db = new ReputationProjectionDb();
     db.seedAccount({ account_id: "acc_seller" });

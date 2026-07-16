@@ -1,6 +1,12 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, OrderId, ReviewId } from "@chase-sets/primitives/typed-ids";
 import {
+  normalizeMarketplaceReviewSubmittedScoring,
+  type MarketplaceReviewScoringDisposition,
+  type MarketplaceReviewScoringReasonCode,
+  type MarketplaceReviewScoringSourceFactVersion,
+} from "@chase-sets/event-core/review-scoring-facts";
+import {
   assert,
   assertNever,
   ensureIsoTimestamp,
@@ -98,6 +104,11 @@ export type SubmitReviewCommand = Readonly<{
   // just at the runtime boundary) so the domain invariant holds regardless of
   // caller: a review cannot be submitted once its window has closed.
   reviewWindowExpiresAt: string;
+  scoringDisposition?: MarketplaceReviewScoringDisposition;
+  scoringReasonCode?: MarketplaceReviewScoringReasonCode;
+  scoringPolicyVersion?: string;
+  scoringSourceFactVersions?: readonly MarketplaceReviewScoringSourceFactVersion[];
+  scoringOperationalSignal?: "responsibility-missing" | "responsibility-unrecognized" | null;
 }>;
 
 export type UpdateReviewCommand = Readonly<{
@@ -195,6 +206,11 @@ export type ReviewSubmittedEvent = DomainEvent<
     feedback: string | null;
     submittedAt: string;
     reviewWindowExpiresAt: string;
+    scoringDisposition?: MarketplaceReviewScoringDisposition;
+    scoringReasonCode?: MarketplaceReviewScoringReasonCode;
+    scoringPolicyVersion?: string;
+    scoringSourceFactVersions?: readonly MarketplaceReviewScoringSourceFactVersion[];
+    scoringOperationalSignal?: "responsibility-missing" | "responsibility-unrecognized" | null;
   }>
 >;
 
@@ -294,6 +310,7 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
       );
 
       const authorRole = normalizeReviewRole(command.authorRole);
+      const scoring = normalizeMarketplaceReviewSubmittedScoring(command);
       return [
         {
           type: "marketplace.review.submitted",
@@ -307,6 +324,14 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
             feedback: normalizeFeedback(command.feedback),
             submittedAt,
             reviewWindowExpiresAt,
+            scoringDisposition: scoring.scoringDisposition,
+            scoringReasonCode: scoring.reasonCode,
+            scoringPolicyVersion: scoring.policyVersion,
+            scoringSourceFactVersions: scoring.sourceFactVersions,
+            scoringOperationalSignal:
+              scoring.operationalSignal === "policy-version-unrecognized"
+                ? "responsibility-unrecognized"
+                : scoring.operationalSignal,
           },
         },
         {

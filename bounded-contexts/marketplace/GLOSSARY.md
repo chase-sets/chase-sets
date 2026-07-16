@@ -265,6 +265,10 @@ A **Directional Review Disposition** is Marketplace's canonical policy decision 
 
 Support owns factual Resolved Responsibility (`seller`, `buyer`, `carrier`, `platform`, `shared`, or `undetermined`). Marketplace alone maps that fact to a Directional Review Disposition. Buyer-to-seller feedback is Included only for seller responsibility or normal completion; seller-to-buyer feedback is Included only for buyer responsibility or normal completion. All other resolved responsibility values are Context-only in both directions. A remedy, refund amount, return, replacement, or monetary outcome never determines the disposition.
 
+## Review Scoring
+
+**Review Scoring** is the deterministic, order-keyed policy projection that converts the complete versioned Support request history into separate buyer-to-seller and seller-to-buyer Scoring Dispositions. Its published fact carries the policy version, source fact versions, reason codes, and any fail-safe operational signal so Marketplace and downstream consumers rebuild the same rating impact without inspecting remedies.
+
 ## Scoring Disposition
 
 A **Scoring Disposition** states whether an otherwise publishable Review is **Included** in aggregate reputation or is **Context-only**. Context-only Review text and rating may be displayed with neutral explanatory status, but its stars do not contribute to rating aggregates or rank/risk consumers. Scoring is binary: there are no fractional weights or hidden penalties. Moderation and double-blind reveal remain independent visibility decisions.

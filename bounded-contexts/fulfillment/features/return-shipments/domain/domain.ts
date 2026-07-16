@@ -571,9 +571,12 @@ export const decideReturnShipment: AggregateDecider<ReturnShipmentState, ReturnS
   switch (command.type) {
     case "RequestReturnShipment": {
       const returnDirective = assertReturnDirective(command.returnDirective);
+      assert(returnDirective !== "no-return", "A ReturnShipment must move goods to a return destination.");
       assert(
-        returnDirective === "return-to-platform",
-        "A ReturnShipment models a buyer-to-platform reverse movement; its directive must be return-to-platform.",
+        (returnDirective === "return-to-platform" &&
+          command.destinationSnapshot.destinationType === "platform-facility") ||
+          (returnDirective === "return-to-seller" && command.destinationSnapshot.destinationType === "seller"),
+        "Return directive and destination snapshot must describe the same destination.",
       );
       const affectedOrderLineIds = normalizeAffectedOrderLineIds(command.affectedOrderLineIds);
       if (state.returnShipmentId !== null) {
@@ -799,7 +802,11 @@ export const decideReturnShipment: AggregateDecider<ReturnShipmentState, ReturnS
       const intake = normalizeReturnShipmentFacilityIntake(command.intake);
       const metadata = normalizeMetadata(state.remedyId!, command.metadata);
       assert(
-        intake.facilityId === state.destinationSnapshot?.facilityId,
+        state.destinationSnapshot?.destinationType === "platform-facility",
+        "Only a platform return can be intaken.",
+      );
+      assert(
+        intake.facilityId === state.destinationSnapshot.facilityId,
         "This return shipment is assigned to a different facility.",
       );
       if (!shouldAdvanceTo(state, "received")) {

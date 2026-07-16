@@ -1294,18 +1294,78 @@ describe("platform Kubernetes deployment", () => {
           ],
         ),
       }),
-    ).rejects.toThrow("Preview namespace chase-sets-pr-44 still exists after kubectl delete namespace completed");
+    ).rejects.toThrow("Namespace chase-sets-pr-44 still exists after kubectl delete namespace completed");
   });
 
-  it("refuses to tear down a namespace that is not a preview namespace", async () => {
-    await expect(
-      teardownPlatformKubernetesNamespace({
-        release: "chase-sets-platform",
-        namespace: "chase-sets-platform",
-        timeout: "5m",
-        spawn: successfulSpawn([]),
-      }),
-    ).rejects.toThrow('Refusing to tear down non-preview namespace "chase-sets-platform"');
+  it("tears down an ephemeral verification namespace by its exact chase-sets-verify-<run>-<attempt> kind", async () => {
+    const calls = [];
+    const result = await teardownPlatformKubernetesNamespace({
+      release: "csv-29420884860-1",
+      namespace: "chase-sets-verify-29420884860-1",
+      timeout: "5m",
+      spawn: completedSpawn(calls, [
+        { code: 0, stdout: '{"name":"csv-29420884860-1"}' }, // helm status
+        { code: 0 }, // helm uninstall
+        { code: 0 }, // kubectl delete namespace
+        { code: 1, stderr: 'Error from server (NotFound): namespaces "chase-sets-verify-29420884860-1" not found' }, // kubectl get namespace
+      ]),
+    });
+
+    expect(calls.map((call) => [call.command, call.args[0]])).toEqual([
+      ["helm", "status"],
+      ["helm", "uninstall"],
+      ["kubectl", "delete"],
+      ["kubectl", "get"],
+    ]);
+    expect(result).toMatchObject({
+      action: "teardown",
+      release: "csv-29420884860-1",
+      namespace: "chase-sets-verify-29420884860-1",
+      result: "success",
+      releaseUninstalled: true,
+    });
+  });
+
+  it("idempotently succeeds tearing down an already-absent verification namespace", async () => {
+    const result = await teardownPlatformKubernetesNamespace({
+      release: "csv-100-2",
+      namespace: "chase-sets-verify-100-2",
+      timeout: "5m",
+      spawn: completedSpawn(
+        [],
+        [
+          { code: 1, stderr: "Error: release: not found" }, // helm status
+          { code: 0 }, // kubectl delete namespace (already gone: no-op)
+          { code: 1, stderr: 'Error from server (NotFound): namespaces "chase-sets-verify-100-2" not found' }, // kubectl get namespace
+        ],
+      ),
+    });
+
+    expect(result).toMatchObject({ result: "success", releaseUninstalled: false });
+  });
+
+  it("refuses to tear down namespaces that are neither preview nor verification kinds", async () => {
+    for (const namespace of [
+      "chase-sets-platform", // production/staging default
+      "staging",
+      "production",
+      "kube-system",
+      "chase-sets-verify-", // missing run/attempt
+      "chase-sets-verify-abc-1", // non-numeric run
+      "chase-sets-verify-1", // missing attempt
+      "chase-sets-pr-", // missing number
+      "chase-sets-pr-verify-1-1", // hybrid that matches neither exact kind
+      "",
+    ]) {
+      await expect(
+        teardownPlatformKubernetesNamespace({
+          release: "chase-sets-platform",
+          namespace,
+          timeout: "5m",
+          spawn: successfulSpawn([]),
+        }),
+      ).rejects.toThrow(/Refusing to tear down non-disposable namespace|namespace is required/);
+    }
   });
 
   it("builds kubectl diagnostics without requiring App Platform state", () => {

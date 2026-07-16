@@ -24,6 +24,7 @@ import {
 import { buildReviewNotificationProjectionHandlers } from "../integrations/notifications/notification-projector";
 import { buildReviewProjectionHandlers } from "../read-model/projection";
 import { buildReviewHoldProjectionHandlers } from "../read-model/hold-projection";
+import { buildReviewScoringProjectionHandlers } from "../read-model/scoring-projection";
 import { createReviewRuntime } from "../api/runtime";
 import {
   findPendingCounterpartReview,
@@ -849,6 +850,112 @@ describeDb("marketplace post-delivery review nudges SQL persistence boundary (m1
     const result = await runtime.sweepReviewOpportunityReminders({ now: "2026-07-01T00:00:00.000Z" });
     expect(result.remindersSent).toBe(0);
     expect(outbox.enqueued).toHaveLength(0);
+  });
+
+  it("rebuilds historical directional scoring identically and tolerates duplicate fact delivery", async () => {
+    const pool = pools.marketplace;
+    const review = buildReviewProjectionHandlers(pool);
+    const scoring = buildReviewScoringProjectionHandlers(pool);
+    const submittedBuyer = event("marketplace.review.submitted", {
+      reviewId: "rev_buyer_to_seller",
+      orderId: "ord_migration",
+      authorAccountId: "acc_buyer",
+      subjectAccountId: "acc_seller",
+      authorRole: "buyer",
+      rating: 5,
+      feedback: "Resolved fairly.",
+      submittedAt: "2026-04-05T00:00:00.000Z",
+      reviewWindowExpiresAt: "2026-06-04T00:00:00.000Z",
+    });
+    const submittedSeller = event("marketplace.review.submitted", {
+      reviewId: "rev_seller_to_buyer",
+      orderId: "ord_migration",
+      authorAccountId: "acc_seller",
+      subjectAccountId: "acc_buyer",
+      authorRole: "seller",
+      rating: 1,
+      feedback: "Partial refund requested.",
+      submittedAt: "2026-04-05T00:00:00.000Z",
+      reviewWindowExpiresAt: "2026-06-04T00:00:00.000Z",
+    });
+    const revealedBuyer = event("marketplace.review.revealed", {
+      reviewId: "rev_buyer_to_seller",
+      revealedAt: "2026-04-06T00:00:00.000Z",
+      reason: "counterpart-submitted",
+    });
+    const revealedSeller = event("marketplace.review.revealed", {
+      reviewId: "rev_seller_to_buyer",
+      revealedAt: "2026-04-06T00:00:00.000Z",
+      reason: "counterpart-submitted",
+    });
+    const disposition = event("marketplace.review-scoring.disposition-projected.v1", {
+      factSchemaVersion: 1,
+      orderId: "ord_migration",
+      policyVersion: "resolution-aware-v1",
+      supportFacts: [
+        {
+          supportRequestId: "sup_partial_refund",
+          sourceStreamVersion: 3,
+          status: "resolved",
+          responsibility: "seller",
+          resolutionType: "partial-refund",
+          lifecycleAt: "2026-04-07T00:00:00.000Z",
+        },
+      ],
+      sourceFactVersions: [{ supportRequestId: "sup_partial_refund", sourceStreamVersion: 3, status: "resolved" }],
+      buyerToSeller: { scoringDisposition: "included", reasonCode: "subject-responsible" },
+      sellerToBuyer: { scoringDisposition: "context-only", reasonCode: "reviewer-responsible" },
+      operationalSignal: null,
+      projectedAt: "2026-04-07T00:00:00.000Z",
+    });
+
+    const replay = async () => {
+      await review["marketplace.review.submitted"]!(submittedBuyer);
+      await review["marketplace.review.submitted"]!(submittedSeller);
+      await review["marketplace.review.revealed"]!(revealedBuyer);
+      await review["marketplace.review.revealed"]!(revealedSeller);
+      await scoring["marketplace.review-scoring.disposition-projected.v1"]!(disposition);
+      await scoring["marketplace.review-scoring.disposition-projected.v1"]!(disposition);
+    };
+    const snapshot = async () => ({
+      reviews: (
+        await pool.query(
+          `SELECT review_id, scoring_disposition, rating_contribution_status
+           FROM marketplace_review_pages
+           ORDER BY review_id`,
+        )
+      ).rows,
+      summaries: (
+        await pool.query(
+          `SELECT account_id, average_rating_as_seller::text, review_count_as_seller, rating_count_as_seller,
+                  average_rating_as_buyer::text, review_count_as_buyer, rating_count_as_buyer
+           FROM marketplace_review_summary_pages
+           ORDER BY account_id`,
+        )
+      ).rows,
+    });
+
+    await replay();
+    const migrated = await snapshot();
+    expect(migrated.reviews).toEqual([
+      {
+        review_id: "rev_buyer_to_seller",
+        scoring_disposition: "included",
+        rating_contribution_status: true,
+      },
+      {
+        review_id: "rev_seller_to_buyer",
+        scoring_disposition: "context-only",
+        rating_contribution_status: false,
+      },
+    ]);
+
+    await pool.query(
+      `TRUNCATE marketplace_review_pages, marketplace_review_scoring_pages, marketplace_review_summary_pages`,
+    );
+    await replay();
+
+    await expect(snapshot()).resolves.toEqual(migrated);
   });
 
   it("never reminds a direction that was suspended before the reminder became due", async () => {

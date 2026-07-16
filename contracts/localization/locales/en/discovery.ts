@@ -700,6 +700,7 @@ export const discoveryEnglishTranslations = {
     "Price, quantity, condition, and fulfillment signals stay visible before checkout.",
   "discovery.routes.publicAccount.compare": "Compare",
   "discovery.routes.publicAccount.contact.account": "Contact account",
+  "discovery.routes.publicAccount.context.only.rating": "Shared for context · rating not included",
   "discovery.routes.publicAccount.fulfillment.confirmed.at.checkout": "Fulfillment confirmed at checkout",
   "discovery.routes.publicAccount.feedback": "Feedback",
   "discovery.routes.publicAccount.feedback.summary": "{rating} average from {count} reviews.",
@@ -725,6 +726,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.publicAccount.review.reply.label": "Seller response:",
   "discovery.routes.publicAccount.reviews.visible.after.orders": "Reviews visible after orders",
   "discovery.routes.publicAccount.reputation.rating": "{rating} from {count} reviews",
+  "discovery.routes.publicAccount.ratings.included": "{ratingCount} ratings included · {reviewCount} reviews",
   "discovery.routes.publicAccount.secure.checkout": "Secure checkout",
   "discovery.routes.publicAccount.secure.checkout.description":
     "Payment and policy review happen before the final payment action.",

@@ -41,6 +41,7 @@ function accountFixture(overrides: Partial<DiscoveryPublicAccount> = {}): Discov
     badges: [],
     average_rating_as_seller: "4.80",
     review_count_as_seller: 8,
+    rating_count_as_seller: 8,
     rating_1_count_as_seller: 0,
     rating_2_count_as_seller: 0,
     rating_3_count_as_seller: 1,
@@ -48,6 +49,7 @@ function accountFixture(overrides: Partial<DiscoveryPublicAccount> = {}): Discov
     rating_5_count_as_seller: 5,
     average_rating_as_buyer: "5.00",
     review_count_as_buyer: 2,
+    rating_count_as_buyer: 2,
     rating_1_count_as_buyer: 0,
     rating_2_count_as_buyer: 0,
     rating_3_count_as_buyer: 0,
@@ -64,6 +66,7 @@ function accountFixture(overrides: Partial<DiscoveryPublicAccount> = {}): Discov
           author_role: "buyer",
           rating: 5,
           feedback: "Packed well and shipped quickly.",
+          scoring_disposition: "included",
           submitted_at: "2026-05-12T00:00:00.000Z",
           updated_at: "2026-05-12T00:00:00.000Z",
           reply_feedback: null,
@@ -302,6 +305,24 @@ describe("discovery public account route", () => {
     render(<PublicAccountRoute />);
 
     expect(screen.getByText("Founder #047")).toBeTruthy();
+  });
+
+  it("labels context-only history and separates published reviews from included ratings", () => {
+    const account = accountFixture({ review_count_as_seller: 8, rating_count_as_seller: 6 });
+    account.reviews.items[0]!.scoring_disposition = "context-only";
+    mockUseLoaderData.mockReturnValue({
+      account,
+      notFound: false,
+      canonicalUrl: "http://localhost/accounts/north-store",
+      reviewRole: null,
+      reviewPage: 1,
+      search: "",
+    });
+
+    render(<PublicAccountRoute />);
+
+    expect(document.body.textContent).toContain("6 ratings included · 8 reviews");
+    expect(screen.getByText("Shared for context · rating not included")).toBeTruthy();
   });
 
   it("renders a minimal unavailable profile for a suspended account, withholding listings and reviews", () => {

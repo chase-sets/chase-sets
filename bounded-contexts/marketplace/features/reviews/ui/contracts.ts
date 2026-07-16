@@ -17,6 +17,12 @@ export interface ReviewListItem {
   revealed_at: string | null;
   reveal_reason: string | null;
   held: boolean;
+  scoring_reason_code: string;
+  scoring_policy_version: string;
+  scoring_source_fact_versions: unknown;
+  scoring_operational_signal: string | null;
+  rating_contribution_status: boolean;
+  rating_contribution_version: string;
   // Moderation (m108).
   withdrawn_by_actor_type: string | null;
   moderation_operator_user_id: string | null;
@@ -56,6 +62,7 @@ export interface ReviewSummary {
   account_display_name: string | null;
   average_rating_as_seller: string | null;
   review_count_as_seller: number;
+  rating_count_as_seller: number;
   rating_1_count_as_seller: number;
   rating_2_count_as_seller: number;
   rating_3_count_as_seller: number;
@@ -63,6 +70,7 @@ export interface ReviewSummary {
   rating_5_count_as_seller: number;
   average_rating_as_buyer: string | null;
   review_count_as_buyer: number;
+  rating_count_as_buyer: number;
   rating_1_count_as_buyer: number;
   rating_2_count_as_buyer: number;
   rating_3_count_as_buyer: number;

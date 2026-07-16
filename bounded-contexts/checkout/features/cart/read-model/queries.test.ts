@@ -496,7 +496,7 @@ describe("listCartLines seller_options join", () => {
     // Seller reputation (average rating / review count) is resolved through the
     // same seller-accounts join table, with the denormalized columns as fallback.
     expect(db.lastSql).toContain("COALESCE(seller.average_rating, o.seller_average_rating)::text");
-    expect(db.lastSql).toContain("COALESCE(seller.review_count, o.seller_review_count, 0)");
+    expect(db.lastSql).toContain("COALESCE(seller.rating_count, o.seller_review_count, 0)");
     expect(db.lastSql).toContain("line.selected_listing_id");
     expect(db.lastSql).toContain("line.selected_listing_price_amount::text AS selected_listing_price_amount");
     expect(db.lastSql).toContain(

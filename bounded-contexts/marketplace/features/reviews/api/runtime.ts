@@ -60,6 +60,17 @@ import {
   type ReviewHoldState,
 } from "../domain/review-hold";
 import { buildReviewHoldProjectionHandlers } from "../read-model/hold-projection";
+import { buildReviewScoringProjectionHandlers } from "../read-model/scoring-projection";
+import { marketplaceReviewScoringPolicyVersion } from "@chase-sets/event-core/review-scoring-facts";
+import {
+  decideReviewScoring,
+  evolveReviewScoring,
+  initialReviewScoringState,
+  reviewScoringForAuthorRole,
+  type ReviewScoringCommand,
+  type ReviewScoringEvent,
+  type ReviewScoringState,
+} from "../domain/review-scoring";
 
 type ReviewRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -156,6 +167,18 @@ export type ReviewServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<void>;
+  recordReviewScoringSupportFact: (
+    params: Readonly<{
+      orderId: string;
+      supportRequestId: string;
+      sourceStreamVersion: number;
+      status: "open" | "resolved" | "cancelled";
+      responsibility?: unknown;
+      resolutionType?: string | null;
+      lifecycleAt: string;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<void>;
   /**
    * Double-blind reveal expiry sweep (m108). Self-heals any pending
    * review pair whose counterpart-submission reveal was missed by the
@@ -212,9 +235,20 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
     evolve: evolveReviewHold,
     decide: decideReviewHold,
   });
+  const reviewScoringRuntime = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<ReviewScoringEvent>(),
+    initialState: () => initialReviewScoringState,
+    evolve: evolveReviewScoring,
+    decide: decideReviewScoring,
+  });
 
   async function loadReviewHold(orderId: string): Promise<ReviewHoldState> {
     return (await reviewHoldRuntime.repository.load(`marketplace.review-hold-${orderId}`)).state;
+  }
+
+  async function loadReviewScoring(orderId: string): Promise<ReviewScoringState> {
+    return (await reviewScoringRuntime.repository.load(`marketplace.review-scoring-${orderId}`)).state;
   }
 
   async function isDirectionHeld(orderId: string, authorRole: ReviewRole): Promise<boolean> {
@@ -239,6 +273,21 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
         if ((error as { code?: string }).code !== "concurrency_conflict" || attempt === 2) {
           throw error;
         }
+      }
+    }
+  }
+
+  async function recordReviewScoring(command: ReviewScoringCommand, context: EventStoreContext): Promise<void> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await reviewScoringRuntime.commandHandler({
+          streamId: `marketplace.review-scoring-${command.orderId}`,
+          command,
+          context,
+        });
+        return;
+      } catch (error) {
+        if ((error as { code?: string }).code !== "concurrency_conflict" || attempt === 2) throw error;
       }
     }
   }
@@ -271,6 +320,22 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
           supportRequestId: params.supportRequestId,
           terminalAt: params.terminalAt,
           terminalStatus: params.terminalStatus,
+        },
+        context,
+      );
+    },
+    recordReviewScoringSupportFact: async (params, context) => {
+      const orderId = normalizeRequiredText(params.orderId, "Order is required.") as OrderId;
+      await recordReviewScoring(
+        {
+          type: "RecordReviewScoringSupportFact",
+          orderId,
+          supportRequestId: params.supportRequestId,
+          sourceStreamVersion: params.sourceStreamVersion,
+          status: params.status,
+          ...(params.responsibility !== undefined ? { responsibility: params.responsibility } : {}),
+          resolutionType: params.resolutionType ?? null,
+          lifecycleAt: params.lifecycleAt,
         },
         context,
       );
@@ -344,6 +409,8 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       }
 
       const reviewId = createId("rev") as ReviewId;
+      const scoringState = await loadReviewScoring(orderId);
+      const scoring = reviewScoringForAuthorRole(scoringState, authorRole);
       const result = await commandHandler({
         streamId: `marketplace.review-${reviewId}`,
         command: {
@@ -357,6 +424,15 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
           feedback: params.feedback ?? null,
           submittedAt,
           reviewWindowExpiresAt,
+          scoringDisposition: scoring.scoringDisposition,
+          scoringReasonCode: scoring.reasonCode,
+          scoringPolicyVersion: marketplaceReviewScoringPolicyVersion,
+          scoringSourceFactVersions: Object.values(scoringState.supportFacts).map((fact) => ({
+            supportRequestId: fact.supportRequestId,
+            sourceStreamVersion: fact.sourceStreamVersion,
+            status: fact.status,
+          })),
+          scoringOperationalSignal: scoringState.operationalSignal,
         },
         context,
       });
@@ -601,7 +677,10 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
     projectors: [
       createProjectionHandlerSet({
         projectionName: "marketplace-review-projection",
-        handlers: buildReviewProjectionHandlers(deps.db),
+        handlers: {
+          ...buildReviewProjectionHandlers(deps.db),
+          ...buildReviewScoringProjectionHandlers(deps.db),
+        },
         streamPrefixes: ["marketplace.review-"],
       }),
       createProjectionHandlerSet({

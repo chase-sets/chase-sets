@@ -4,6 +4,7 @@ import {
   getCustomerReturnShipment,
   getOperatorReturnShipment,
   getReturnIntakeEvidenceReference,
+  listReturnShipmentDeadlineCandidates,
   resolveOperatorReturnShipmentForIntake,
 } from "./queries";
 
@@ -81,5 +82,14 @@ describe("return shipment read-model queries", () => {
     expect(captured[0]).toContain("WHERE facility_id = $2");
     expect(captured[0]).toContain("evidence->>'attachmentId' = $1");
     expect(captured[0]).not.toContain("public");
+  });
+
+  it("selects only pre-carrier returns whose ship-by window has lapsed", async () => {
+    const { db, captured } = mockDb([{ return_shipment_id: "rsh_due" }]);
+    expect(await listReturnShipmentDeadlineCandidates(db, { now: "2026-07-30T00:00:00.000Z", limit: 25 })).toEqual([
+      "rsh_due",
+    ]);
+    expect(captured[0]).toContain("status IN ('requested', 'ready-to-ship')");
+    expect(captured[0]).toContain("ship_by_deadline_at <= $1");
   });
 });

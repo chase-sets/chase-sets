@@ -109,6 +109,11 @@ export function ReviewListPage({
                             {t("reputation.features.reviews.ui.reviewListPage.feedback.on.hold.badge")}
                           </Badge>
                         ) : null}
+                        {review.scoring_disposition === "context-only" ? (
+                          <Badge tone="neutral">
+                            {t("reputation.features.reviews.ui.context.only.rating.explanation")}
+                          </Badge>
+                        ) : null}
                       </Stack>
                     }
                     verified

@@ -77,12 +77,18 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "checkout-seller-accounts-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "marketplace.review.submitted",
         "marketplace.review.updated",
         "marketplace.review.withdrawn",
-        "marketplace.review.revealed"
+        "marketplace.review.revealed",
+        "marketplace.review-scoring.disposition-projected.v1",
+        "marketplace.review-hold.placed",
+        "marketplace.review-hold.extended",
+        "marketplace.review-hold.reduced",
+        "marketplace.review-hold.released",
+        "marketplace.review-hold.terminal-recorded"
       ],
       "order": 22,
       "projectionHandlerSetNames": ["checkout.marketplace-review-seller-options-projection"]
@@ -270,6 +276,7 @@
     },
     {
       "projectionName": "checkout-seller-accounts-projection",
+      "projectionRevision": 2,
       "sourceContextNames": ["identity", "marketplace"],
       "ownedTables": ["checkout_seller_accounts", "checkout_ship_from_addresses", "checkout_seller_account_reviews"],
       "requiredDuringBootstrap": true,

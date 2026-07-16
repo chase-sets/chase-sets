@@ -10,6 +10,7 @@ import type {
   SupportRequestRemedyAuthorizedV1Payload,
   SupportRequestRemedyCompletedV1Payload,
 } from "./platform-coverage-facts";
+import type { MarketplaceReviewScoringDispositionProjectedV1Payload } from "./review-scoring-facts";
 
 export type EmptyEventPayload = Readonly<Record<string, never>>;
 
@@ -526,6 +527,7 @@ export type MarketplaceEventPayloads = Readonly<{
   "marketplace.offer.submitted": MarketplaceOfferSubmittedPayload;
   "marketplace.listing.offer-commitment-recorded": MarketplaceListingOfferCommitmentRecordedPayload;
   "marketplace.seller-listing-availability.commitment-checked": MarketplaceSellerListingAvailabilityCommitmentCheckedPayload;
+  "marketplace.review-scoring.disposition-projected.v1": MarketplaceReviewScoringDispositionProjectedV1Payload;
 }>;
 
 export type CheckoutSessionPaymentStartedPayload = Readonly<{

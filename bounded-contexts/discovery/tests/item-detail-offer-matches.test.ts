@@ -55,6 +55,11 @@ describe("item detail offer matches", () => {
       5,
       "Packed well and shipped quickly.",
       "2026-05-12T00:00:00.000Z",
+      "included",
+      "normal-completion",
+      "resolution-aware-v1",
+      "[]",
+      null,
     ]);
   });
 

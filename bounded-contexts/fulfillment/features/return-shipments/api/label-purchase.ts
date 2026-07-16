@@ -11,6 +11,7 @@ import {
   type PurchasedPostageLabel,
 } from "@chase-sets/postage-labels";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import { assertReturnDirective, type ReturnDirective } from "@chase-sets/primitives/platform-coverage";
 import type {
   OrderId,
   RemedyId,
@@ -28,7 +29,13 @@ import {
   type ReturnShipmentPackageRequirements,
   type ReturnShipmentState,
 } from "../domain/domain";
-import { selectReturnFacility, type ReturnFacility, type ReturnFacilityDirectory } from "../domain/facility-directory";
+import {
+  normalizeReturnDestinationSnapshot,
+  selectReturnFacility,
+  type ReturnDestinationSnapshot,
+  type ReturnFacility,
+  type ReturnFacilityDirectory,
+} from "../domain/facility-directory";
 import { returnShipmentStreamId } from "./runtime";
 import {
   listStaleReturnShipmentLabelOperations,
@@ -60,6 +67,8 @@ export type ReturnLabelDirective = Readonly<{
   orderId: OrderId;
   outboundShipmentId: ShipmentId;
   affectedOrderLineIds: readonly string[];
+  returnDirective?: ReturnDirective;
+  destinationSnapshot?: ReturnDestinationSnapshot;
   returnProgram: string;
   carrier: string;
   region: string;
@@ -344,13 +353,14 @@ export function createReturnShipmentLabelPurchaseService(
     | Readonly<{ ok: true; state: ReturnShipmentState; version: number }>
     | Readonly<{ ok: false; result: IssueReturnLabelResult }>
   > {
+    const returnDirective = assertReturnDirective(directive.returnDirective ?? "return-to-platform");
     const linkage: ReturnShipmentLinkage = {
       supportRequestId: directive.supportRequestId,
       remedyId: directive.remedyId,
       orderId: directive.orderId,
       outboundShipmentId: directive.outboundShipmentId,
       affectedOrderLineIds: directive.affectedOrderLineIds,
-      returnDirective: "return-to-platform",
+      returnDirective,
     };
     const streamId = returnShipmentStreamId(directive.returnShipmentId);
     const existing = await repository.load(streamId);
@@ -419,29 +429,46 @@ export function createReturnShipmentLabelPurchaseService(
       };
     }
 
-    const selection = selectReturnFacility(
-      deps.facilityDirectory,
-      {
-        returnProgram: directive.returnProgram,
-        carrier: directive.carrier,
-        region: directive.region,
-        packageWeightOunces: directive.packageRequirements.weightOunces,
-        packageLengthInches: directive.packageRequirements.lengthInches,
-        packageWidthInches: directive.packageRequirements.widthInches,
-        packageHeightInches: directive.packageRequirements.heightInches,
-      },
-      { asOf, selectionPolicyVersion: directive.selectionPolicyVersion },
-    );
-    if (selection.outcome !== "selected") {
-      return {
-        ok: false,
-        result: {
-          outcome: "failed",
-          returnShipmentId: null,
-          failureReason: classifyUnselectableFacility(deps.facilityDirectory, directive, asOf),
-          failureDetail: selection.reason,
+    let destinationSnapshot: ReturnDestinationSnapshot;
+    if (returnDirective === "return-to-seller") {
+      if (!directive.destinationSnapshot || directive.destinationSnapshot.destinationType !== "seller") {
+        return {
+          ok: false,
+          result: {
+            outcome: "failed",
+            returnShipmentId: null,
+            failureReason: "invalid-return-linkage",
+            failureDetail: "A seller return must include the immutable seller destination snapshot.",
+          },
+        };
+      }
+      destinationSnapshot = normalizeReturnDestinationSnapshot(directive.destinationSnapshot);
+    } else {
+      const selection = selectReturnFacility(
+        deps.facilityDirectory,
+        {
+          returnProgram: directive.returnProgram,
+          carrier: directive.carrier,
+          region: directive.region,
+          packageWeightOunces: directive.packageRequirements.weightOunces,
+          packageLengthInches: directive.packageRequirements.lengthInches,
+          packageWidthInches: directive.packageRequirements.widthInches,
+          packageHeightInches: directive.packageRequirements.heightInches,
         },
-      };
+        { asOf, selectionPolicyVersion: directive.selectionPolicyVersion },
+      );
+      if (selection.outcome !== "selected") {
+        return {
+          ok: false,
+          result: {
+            outcome: "failed",
+            returnShipmentId: null,
+            failureReason: classifyUnselectableFacility(deps.facilityDirectory, directive, asOf),
+            failureDetail: selection.reason,
+          },
+        };
+      }
+      destinationSnapshot = selection.snapshot;
     }
 
     let shipFromSnapshot: AddressSnapshot;
@@ -470,9 +497,9 @@ export function createReturnShipmentLabelPurchaseService(
           orderId: directive.orderId,
           outboundShipmentId: directive.outboundShipmentId,
           affectedOrderLineIds: directive.affectedOrderLineIds,
-          returnDirective: "return-to-platform",
+          returnDirective,
           shipFromSnapshot,
-          destinationSnapshot: selection.snapshot,
+          destinationSnapshot,
           packageRequirements: directive.packageRequirements,
           costPayer: directive.costPayer,
           costAllocationReference: directive.costAllocationReference ?? null,

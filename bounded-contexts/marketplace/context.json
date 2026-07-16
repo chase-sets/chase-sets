@@ -140,12 +140,13 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "marketplace-identity-account-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "eventTypes": [
         "marketplace.review.submitted",
         "marketplace.review.updated",
         "marketplace.review.withdrawn",
         "marketplace.review.revealed",
+        "marketplace.review-scoring.disposition-projected.v1",
         "marketplace.review-hold.placed",
         "marketplace.review-hold.extended",
         "marketplace.review-hold.reduced",
@@ -273,6 +274,21 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "reactionName": "marketplace-review-scoring-reaction",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.resolved",
+        "support.support-request.cancelled"
+      ],
+      "order": 93,
+      "reactionHandlerSetNames": ["marketplace-review-scoring-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
     }
   ],
   "projectionGroups": [
@@ -291,6 +307,7 @@
     },
     {
       "projectionName": "marketplace-identity-account-projection",
+      "projectionRevision": 2,
       "sourceContextNames": ["identity", "marketplace"],
       "ownedTables": ["marketplace_account_pages", "marketplace_account_reviews"],
       "requiredDuringBootstrap": true,
@@ -327,8 +344,13 @@
     },
     {
       "projectionName": "marketplace-review-projection",
+      "projectionRevision": 2,
       "sourceContextNames": ["marketplace"],
-      "ownedTables": ["marketplace_review_pages", "marketplace_review_summary_pages"],
+      "ownedTables": [
+        "marketplace_review_pages",
+        "marketplace_review_scoring_pages",
+        "marketplace_review_summary_pages"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
@@ -405,6 +427,14 @@
     },
     {
       "projectionName": "marketplace-review-moderation-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "marketplace-review-scoring-reaction",
       "handlerKind": "reaction",
       "sourceContextNames": ["platform-operations"],
       "ownedTables": [],

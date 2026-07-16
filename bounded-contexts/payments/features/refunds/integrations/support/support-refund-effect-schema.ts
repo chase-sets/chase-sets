@@ -19,8 +19,22 @@ CREATE TABLE IF NOT EXISTS payments_support_refund_effects (
   updated_at timestamptz NOT NULL,
   return_delivered_at timestamptz NULL,
   refund_release_due_at timestamptz NULL,
-  return_condition_disputed_at timestamptz NULL
+  return_condition_disputed_at timestamptz NULL,
+  return_shipping_deduction_amount numeric(12, 2) NOT NULL DEFAULT 0
 );
+
+CREATE UNLOGGED TABLE IF NOT EXISTS payments_return_label_sources (
+  return_shipment_id text PRIMARY KEY,
+  support_request_id text NOT NULL,
+  cost_payer text NOT NULL,
+  postage_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  currency_code text NULL,
+  label_status text NOT NULL DEFAULT 'requested',
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS payments_return_label_sources_case_idx
+  ON payments_return_label_sources (support_request_id, return_shipment_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS payments_support_refund_effects_effect_id_idx
   ON payments_support_refund_effects (refund_effect_id);

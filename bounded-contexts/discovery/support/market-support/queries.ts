@@ -64,6 +64,7 @@ export type DiscoveryPublicAccountRow = Readonly<{
   founder_number: number | null;
   average_rating_as_seller: string | null;
   review_count_as_seller: number;
+  rating_count_as_seller: number;
   rating_1_count_as_seller: number;
   rating_2_count_as_seller: number;
   rating_3_count_as_seller: number;
@@ -71,6 +72,7 @@ export type DiscoveryPublicAccountRow = Readonly<{
   rating_5_count_as_seller: number;
   average_rating_as_buyer: string | null;
   review_count_as_buyer: number;
+  rating_count_as_buyer: number;
   rating_1_count_as_buyer: number;
   rating_2_count_as_buyer: number;
   rating_3_count_as_buyer: number;
@@ -89,6 +91,7 @@ export type DiscoveryPublicAccountReviewRow = Readonly<{
   author_role: string;
   rating: number;
   feedback: string | null;
+  scoring_disposition: "included" | "context-only";
   submitted_at: string | null;
   updated_at: string;
   // Subject reply mirror (m108): a single threaded response, visible
@@ -155,7 +158,7 @@ export async function getDiscoveryPublicListingBySlug(
          account.seller_available_again_at::text AS seller_available_again_at,
          COALESCE(account.seller_at_capacity, false) AS seller_at_capacity,
          account.average_rating_as_seller::text AS seller_average_rating,
-         COALESCE(account.review_count_as_seller, 0)::integer AS seller_review_count,
+         COALESCE(account.rating_count_as_seller, 0)::integer AS seller_review_count,
          COALESCE(account.badges, '[]'::jsonb) AS seller_badges,
          account.founder_number AS seller_founder_number,
          google_feed.payload AS google_shopping_structured_data_payload,
@@ -220,6 +223,7 @@ export async function getDiscoveryPublicAccountBySlug(
        account.created_at::text AS created_at,
        account.average_rating_as_seller::text AS average_rating_as_seller,
        COALESCE(account.review_count_as_seller, 0)::integer AS review_count_as_seller,
+       COALESCE(account.rating_count_as_seller, 0)::integer AS rating_count_as_seller,
        COALESCE(account.rating_1_count_as_seller, 0)::integer AS rating_1_count_as_seller,
        COALESCE(account.rating_2_count_as_seller, 0)::integer AS rating_2_count_as_seller,
        COALESCE(account.rating_3_count_as_seller, 0)::integer AS rating_3_count_as_seller,
@@ -227,6 +231,7 @@ export async function getDiscoveryPublicAccountBySlug(
        COALESCE(account.rating_5_count_as_seller, 0)::integer AS rating_5_count_as_seller,
        account.average_rating_as_buyer::text AS average_rating_as_buyer,
        COALESCE(account.review_count_as_buyer, 0)::integer AS review_count_as_buyer,
+       COALESCE(account.rating_count_as_buyer, 0)::integer AS rating_count_as_buyer,
        COALESCE(account.rating_1_count_as_buyer, 0)::integer AS rating_1_count_as_buyer,
        COALESCE(account.rating_2_count_as_buyer, 0)::integer AS rating_2_count_as_buyer,
        COALESCE(account.rating_3_count_as_buyer, 0)::integer AS rating_3_count_as_buyer,
@@ -291,7 +296,7 @@ export async function getDiscoveryPublicAccountBySlug(
            account.seller_available_again_at::text AS seller_available_again_at,
            COALESCE(account.seller_at_capacity, false) AS seller_at_capacity,
            account.average_rating_as_seller::text AS seller_average_rating,
-           COALESCE(account.review_count_as_seller, 0)::integer AS seller_review_count,
+           COALESCE(account.rating_count_as_seller, 0)::integer AS seller_review_count,
            COALESCE(account.badges, '[]'::jsonb) AS seller_badges,
            account.founder_number AS seller_founder_number,
            NULL::jsonb AS google_shopping_structured_data_payload,
@@ -327,6 +332,7 @@ export async function getDiscoveryPublicAccountBySlug(
          review.author_role,
          review.rating,
          review.feedback,
+         review.scoring_disposition,
          review.submitted_at::text AS submitted_at,
          review.updated_at::text AS updated_at,
          CASE WHEN review.reply_status = 'active' THEN review.reply_feedback ELSE NULL END AS reply_feedback,

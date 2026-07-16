@@ -42,12 +42,14 @@ import {
   getCustomerReturnShipment,
   getOperatorReturnShipment,
   listCustomerReturnShipmentsForRemedy,
+  listReturnShipmentDeadlineCandidates,
   resolveOperatorReturnShipmentForIntake,
 } from "../read-model/queries";
 import { createReturnShipmentLabelPurchaseService, type ReturnShipmentLabelPurchaseService } from "./label-purchase";
 import { loadReturnShipmentLinkageSource } from "../read-model/linkage";
 import { processReturnShipmentTrackingEvent, type ReturnShipmentTrackingIngestionResult } from "./tracking-ingestion";
 import type { PostageProviderWebhookEvent } from "@chase-sets/postage-labels";
+import { createSupportReturnLabelWorkflow, loadSupportReturnLabelSource } from "./support-return-label-workflow";
 
 export const FULFILLMENT_RETURN_SHIPMENT_PROJECTION = "fulfillment-return-shipment-projection";
 
@@ -78,6 +80,7 @@ export type FulfillmentReturnShipmentServices = Readonly<{
   >;
   streamIdFor: (returnShipmentId: string) => string;
   labelPurchase: ReturnShipmentLabelPurchaseService;
+  supportReturnLabels: ReturnType<typeof createSupportReturnLabelWorkflow>;
   getCustomerReturnShipment: (returnShipmentId: string) => ReturnType<typeof getCustomerReturnShipment>;
   listCustomerReturnShipmentsForRemedy: (remedyId: string) => ReturnType<typeof listCustomerReturnShipmentsForRemedy>;
   getOperatorReturnShipment: (returnShipmentId: string) => ReturnType<typeof getOperatorReturnShipment>;
@@ -121,6 +124,10 @@ export type FulfillmentReturnShipmentServices = Readonly<{
     event: PostageProviderWebhookEvent,
     context: EventStoreContext,
   ) => Promise<ReturnShipmentTrackingIngestionResult>;
+  sweepReturnShipmentDeadlines: (
+    params: Readonly<{ now?: string; limit?: number }> | undefined,
+    context: EventStoreContext,
+  ) => Promise<Readonly<{ checked: number; expired: number; skipped: number }>>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -174,12 +181,18 @@ export function createFulfillmentReturnShipmentRuntime(
     facilityDirectory: deps.facilityDirectory ?? createReturnFacilityDirectory([]),
     loadLinkageSource: (linkage) => loadReturnShipmentLinkageSource(deps.db, linkage),
   });
+  const supportReturnLabels = createSupportReturnLabelWorkflow({
+    loadSource: (supportRequestId) => loadSupportReturnLabelSource(deps.db, supportRequestId),
+    issueReturnLabel: labelPurchase.issueReturnLabel,
+    voidReturnLabel: labelPurchase.voidReturnLabel,
+  });
 
   return {
     commandHandler,
     unidentifiedPackageCommandHandler,
     streamIdFor: returnShipmentStreamId,
     labelPurchase,
+    supportReturnLabels,
     getCustomerReturnShipment: (returnShipmentId) => getCustomerReturnShipment(deps.db, returnShipmentId),
     listCustomerReturnShipmentsForRemedy: (remedyId) => listCustomerReturnShipmentsForRemedy(deps.db, remedyId),
     getOperatorReturnShipment: (returnShipmentId) => getOperatorReturnShipment(deps.db, returnShipmentId),
@@ -233,6 +246,46 @@ export function createFulfillmentReturnShipmentRuntime(
         event,
         context,
       ),
+    sweepReturnShipmentDeadlines: async (params, context) => {
+      const expiredAt = params?.now ?? new Date().toISOString();
+      const candidates = await listReturnShipmentDeadlineCandidates(deps.db, {
+        now: expiredAt,
+        limit: params?.limit,
+      });
+      let expired = 0;
+      let skipped = 0;
+      for (const returnShipmentId of candidates) {
+        const before = await repository.load(returnShipmentStreamId(returnShipmentId));
+        if (before.state.status !== "requested" && before.state.status !== "ready-to-ship") {
+          skipped += 1;
+          continue;
+        }
+        await labelPurchase.voidReturnLabel({ returnShipmentId, reason: "return-shipping-window-lapsed" }, context);
+        const current = await repository.load(returnShipmentStreamId(returnShipmentId));
+        if (current.state.status !== "requested" && current.state.status !== "ready-to-ship") {
+          skipped += 1;
+          continue;
+        }
+        await commandHandler({
+          streamId: returnShipmentStreamId(returnShipmentId),
+          expectedVersion: current.version,
+          context,
+          command: {
+            type: "ExpireReturnShipment",
+            reason: "return-shipping-window-lapsed",
+            metadata: {
+              correlationRemedyId: current.state.remedyId!,
+              causationId: `return-shipment:${returnShipmentId}:deadline-sweep`,
+              idempotencyKey: `return-shipment:${returnShipmentId}:expire`,
+              policyVersion: current.state.policyVersion ?? "return-policy",
+            },
+            expiredAt,
+          },
+        });
+        expired += 1;
+      }
+      return { checked: candidates.length, expired, skipped };
+    },
     projectors: [
       createProjectionHandlerSet({
         projectionName: FULFILLMENT_RETURN_SHIPMENT_PROJECTION,

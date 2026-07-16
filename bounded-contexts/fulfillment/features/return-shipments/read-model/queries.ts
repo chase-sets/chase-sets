@@ -85,7 +85,7 @@ export type OperatorReturnShipmentView = Readonly<{
   status: string;
   ship_from_snapshot: unknown;
   destination_snapshot: unknown;
-  facility_id: string;
+  facility_id: string | null;
   facility_config_version: string;
   selection_policy_version: string;
   package_requirements: unknown;
@@ -216,6 +216,23 @@ export async function findReturnShipmentForTracking(
     [trackingIdentifier, providerShipmentId],
   );
   return result.rows[0] ?? null;
+}
+
+export async function listReturnShipmentDeadlineCandidates(
+  db: PgQueryable,
+  params: Readonly<{ now: string; limit?: number }>,
+): Promise<readonly string[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
+  const result = await db.query<{ return_shipment_id: string }>(
+    `SELECT return_shipment_id
+     FROM fulfillment_return_shipment_operator_pages
+     WHERE status IN ('requested', 'ready-to-ship')
+       AND ship_by_deadline_at <= $1::timestamptz
+     ORDER BY ship_by_deadline_at ASC, return_shipment_id ASC
+     LIMIT $2`,
+    [params.now, limit],
+  );
+  return result.rows.map((row) => row.return_shipment_id);
 }
 
 export type ReturnShipmentIntakeResolution =

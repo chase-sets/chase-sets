@@ -35,6 +35,7 @@ ALTER TABLE discovery_market_accounts
 ALTER TABLE discovery_market_accounts
   ADD COLUMN IF NOT EXISTS average_rating_as_seller numeric(4, 2) NULL,
   ADD COLUMN IF NOT EXISTS review_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_count_as_seller integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_1_count_as_seller integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_2_count_as_seller integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_3_count_as_seller integer NOT NULL DEFAULT 0,
@@ -42,6 +43,7 @@ ALTER TABLE discovery_market_accounts
   ADD COLUMN IF NOT EXISTS rating_5_count_as_seller integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS average_rating_as_buyer numeric(4, 2) NULL,
   ADD COLUMN IF NOT EXISTS review_count_as_buyer integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_count_as_buyer integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_1_count_as_buyer integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_2_count_as_buyer integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_3_count_as_buyer integer NOT NULL DEFAULT 0,
@@ -74,7 +76,13 @@ CREATE TABLE IF NOT EXISTS discovery_market_account_reviews (
   status text NOT NULL,
   submitted_at timestamptz NULL,
   updated_at timestamptz NOT NULL,
-  held boolean NOT NULL DEFAULT false
+  held boolean NOT NULL DEFAULT false,
+  scoring_disposition text NOT NULL DEFAULT 'included',
+  scoring_reason_code text NOT NULL DEFAULT 'normal-completion',
+  scoring_policy_version text NOT NULL DEFAULT 'resolution-aware-v1',
+  scoring_source_fact_versions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  scoring_operational_signal text NULL,
+  last_scoring_stream_version bigint NOT NULL DEFAULT 0
 );
 
 ALTER TABLE discovery_market_account_reviews
@@ -83,7 +91,13 @@ ALTER TABLE discovery_market_account_reviews
   ADD COLUMN IF NOT EXISTS feedback text NULL,
   ADD COLUMN IF NOT EXISTS submitted_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS order_id text NULL,
-  ADD COLUMN IF NOT EXISTS held boolean NOT NULL DEFAULT false;
+  ADD COLUMN IF NOT EXISTS held boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS scoring_disposition text NOT NULL DEFAULT 'included',
+  ADD COLUMN IF NOT EXISTS scoring_reason_code text NOT NULL DEFAULT 'normal-completion',
+  ADD COLUMN IF NOT EXISTS scoring_policy_version text NOT NULL DEFAULT 'resolution-aware-v1',
+  ADD COLUMN IF NOT EXISTS scoring_source_fact_versions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS scoring_operational_signal text NULL,
+  ADD COLUMN IF NOT EXISTS last_scoring_stream_version bigint NOT NULL DEFAULT 0;
 
 -- Double-blind reveal (m108): a review contributes to
 -- discovery_market_accounts reputation counters only once revealed_at is set.
@@ -272,6 +286,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_sell_list_lines_offer_un
   WHERE offer_id IS NOT NULL;`;
 
 export const discoveryMarketSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260715_discovery_market_review_scoring",
+    description: "Persist canonical scoring disposition in Discovery reputation inputs.",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `ALTER TABLE discovery_market_accounts
+  ADD COLUMN IF NOT EXISTS rating_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_count_as_buyer integer NOT NULL DEFAULT 0`,
+      `ALTER TABLE discovery_market_account_reviews
+  ADD COLUMN IF NOT EXISTS scoring_disposition text NOT NULL DEFAULT 'included',
+  ADD COLUMN IF NOT EXISTS scoring_reason_code text NOT NULL DEFAULT 'normal-completion',
+  ADD COLUMN IF NOT EXISTS scoring_policy_version text NOT NULL DEFAULT 'resolution-aware-v1',
+  ADD COLUMN IF NOT EXISTS scoring_source_fact_versions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS scoring_operational_signal text NULL,
+  ADD COLUMN IF NOT EXISTS last_scoring_stream_version bigint NOT NULL DEFAULT 0`,
+      `UPDATE discovery_market_accounts
+   SET rating_count_as_seller = review_count_as_seller,
+       rating_count_as_buyer = review_count_as_buyer`,
+    ],
+  },
   {
     migrationId: "20260714_discovery_market_review_holds",
     description: "Exclude held order reviews from Discovery profiles and reputation inputs.",

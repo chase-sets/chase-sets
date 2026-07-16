@@ -44,6 +44,7 @@ describe("discovery public market queries", () => {
             author_role: "buyer",
             rating: 5,
             feedback: "Packed well and shipped quickly.",
+            scoring_disposition: "included",
             submitted_at: "2026-05-12T00:00:00.000Z",
             updated_at: "2026-05-12T00:00:00.000Z",
           },

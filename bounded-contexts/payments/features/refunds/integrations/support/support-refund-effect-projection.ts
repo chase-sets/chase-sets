@@ -183,6 +183,17 @@ async function insertPendingReturnRefundEffect(
       params.now,
     ],
   );
+  await db.query(
+    `UPDATE payments_support_refund_effects effect
+     SET return_shipping_deduction_amount = source.postage_amount,
+         updated_at = GREATEST(effect.updated_at, source.updated_at)
+     FROM payments_return_label_sources source
+     WHERE effect.support_request_id = $1
+       AND source.support_request_id = effect.support_request_id
+       AND source.cost_payer = 'buyer'
+       AND source.label_status = 'ready'`,
+    [params.supportRequestId],
+  );
 }
 
 /** Opens the gate for a claimed (but not yet issued) return refund; guarded so a replay after a successful claim is a no-op, matching `claimSupportRefundEffect`'s retry semantics. */
@@ -316,6 +327,69 @@ export function buildPaymentsSupportRefundEffectHandlers(
   refunds: RefundServices,
 ): ProjectorHandlerMap {
   return {
+    "fulfillment.return-shipment.requested.v2": async (event) => {
+      const data = event.data as {
+        returnShipmentId: string;
+        supportRequestId: string;
+        costPayer: string;
+        requestedAt: string;
+      };
+      await db.query(
+        `INSERT INTO payments_return_label_sources (
+           return_shipment_id, support_request_id, cost_payer, updated_at
+         ) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (return_shipment_id) DO NOTHING`,
+        [data.returnShipmentId, data.supportRequestId, data.costPayer, data.requestedAt],
+      );
+    },
+    "fulfillment.return-shipment.label-ready.v1": async (event) => {
+      const data = event.data as {
+        returnShipmentId: string;
+        postageAmountCents: number | null;
+        postageCurrency: string | null;
+        readyAt: string;
+      };
+      const amount = centsToMoney(data.postageAmountCents ?? 0);
+      await db.query(
+        `WITH source AS (
+           UPDATE payments_return_label_sources
+           SET postage_amount = $2::numeric,
+               currency_code = $3,
+               label_status = 'ready',
+               updated_at = $4
+           WHERE return_shipment_id = $1
+           RETURNING support_request_id, cost_payer
+         )
+         UPDATE payments_support_refund_effects effect
+         SET return_shipping_deduction_amount = $2::numeric,
+             updated_at = $4
+         WHERE effect.support_request_id = (SELECT support_request_id FROM source)
+           AND (SELECT cost_payer FROM source) = 'buyer'
+           AND effect.status IN ('awaiting-return', 'return-received', 'return-condition-disputed')`,
+        [data.returnShipmentId, amount, data.postageCurrency, data.readyAt],
+      );
+    },
+    "fulfillment.return-shipment.label-voided.v1": async (event) => {
+      const data = event.data as { returnShipmentId: string; refundStatus: string; voidedAt: string };
+      if (data.refundStatus.trim().toLowerCase() !== "refunded") return;
+      await db.query(
+        `WITH source AS (
+           UPDATE payments_return_label_sources
+           SET postage_amount = 0,
+               label_status = 'voided',
+               updated_at = $2
+           WHERE return_shipment_id = $1
+           RETURNING support_request_id, cost_payer
+         )
+         UPDATE payments_support_refund_effects effect
+         SET return_shipping_deduction_amount = 0,
+             updated_at = $2
+         WHERE effect.support_request_id = (SELECT support_request_id FROM source)
+           AND (SELECT cost_payer FROM source) = 'buyer'
+           AND effect.status IN ('awaiting-return', 'return-received', 'return-condition-disputed')`,
+        [data.returnShipmentId, data.voidedAt],
+      );
+    },
     "support.support-request.resolved": async (event) => {
       const data = event.data as {
         supportRequestId: string;
@@ -555,8 +629,14 @@ export function buildPaymentsSupportRefundEffectHandlers(
         releasedAt: string;
       };
 
-      const existing = await db.query<{ requested_amount: string | null; resolution_type: string }>(
-        `SELECT requested_amount::text AS requested_amount, resolution_type
+      const existing = await db.query<{
+        requested_amount: string | null;
+        return_shipping_deduction_amount: string;
+        resolution_type: string;
+      }>(
+        `SELECT requested_amount::text AS requested_amount,
+                return_shipping_deduction_amount::text AS return_shipping_deduction_amount,
+                resolution_type
          FROM payments_support_refund_effects
          WHERE support_request_id = $1
            AND status IN ('return-received', 'return-condition-disputed')`,
@@ -590,7 +670,10 @@ export function buildPaymentsSupportRefundEffectHandlers(
       // other refunds on this order may have landed while the return was in
       // transit, so cap it again before ever calling issueRefund.
       const remainingOrderAmount = remainingRefundableOrderAmount(payment, data.orderId, orderInput.total_amount);
-      const amount = minMoney(pending.requested_amount, remainingOrderAmount);
+      const grossAmount = minMoney(pending.requested_amount, remainingOrderAmount);
+      const amount = centsToMoney(
+        Math.max(0, moneyToCents(grossAmount) - moneyToCents(pending.return_shipping_deduction_amount ?? "0.00")),
+      );
       if (compareMoney(amount, "0.00") <= 0) {
         await db.query(
           `UPDATE payments_support_refund_effects
