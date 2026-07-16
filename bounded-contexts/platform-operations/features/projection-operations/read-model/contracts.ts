@@ -109,12 +109,24 @@ export type ProjectionOperationsSnapshot = Readonly<{
 }>;
 
 export type ProjectionOperationsFilters = Readonly<{
-  tab: string;
   state: string;
   contextName: string;
   projectionName: string;
   search: string;
   selected: string;
+}>;
+
+export type ProjectionRepairQueueItem = Readonly<{
+  kind: "operation" | "projection-group" | "poison-event" | "blocked-stream" | "worker";
+  targetId: string;
+  label: string;
+  detail: string;
+  state: string;
+  tone: "danger" | "warning" | "accent";
+  contextName?: string;
+  projectionName?: string;
+  projectionKey?: string;
+  streamId?: string;
 }>;
 
 export type ProjectionOperationSummary = Readonly<{
@@ -201,6 +213,117 @@ export function buildBlockedRows(data: ProjectionOperationsSnapshot): readonly B
   return data.blockedProjections.flatMap((projection) =>
     projection.blockedStreams.map((stream) => ({ ...stream, projectionKey: projection.projectionKey })),
   );
+}
+
+export function buildProjectionRepairQueue(data: ProjectionOperationsSnapshot): readonly ProjectionRepairQueueItem[] {
+  const items: ProjectionRepairQueueItem[] = [];
+
+  for (const operation of data.operations) {
+    if (operation.state !== "failed" && operation.state !== "cancel_requested") {
+      continue;
+    }
+    items.push({
+      kind: "operation",
+      targetId: operation.operationId,
+      label: operation.operationKind,
+      detail: operationTarget(operation),
+      state: operation.state,
+      tone: operation.state === "failed" ? "danger" : "warning",
+      contextName: operation.contextName,
+      projectionName: operation.projectionName ?? undefined,
+      projectionKey: operation.projectionKey ?? undefined,
+      streamId: operation.streamId ?? undefined,
+    });
+  }
+
+  for (const group of data.projectionGroups) {
+    if (group.state !== "degraded" && group.state !== "error" && !group.revisionStale) {
+      continue;
+    }
+    items.push({
+      kind: "projection-group",
+      targetId: `${group.targetContextName}:${group.projectionName}`,
+      label: group.projectionName,
+      detail: `${group.targetContextName} projection group`,
+      state: group.revisionStale ? "stale" : group.state,
+      tone: group.state === "error" ? "danger" : "warning",
+      contextName: group.targetContextName,
+      projectionName: group.projectionName,
+    });
+  }
+
+  for (const projection of data.blockedProjections) {
+    const { contextName, projectionName } = splitProjectionKey(projection.projectionKey);
+    for (const event of projection.poisonEvents) {
+      items.push({
+        kind: "poison-event",
+        targetId: `poison-event:${event.eventId}`,
+        label: event.eventType,
+        detail: event.errorMessage,
+        state: event.state,
+        tone: "danger",
+        contextName,
+        projectionName,
+        projectionKey: projection.projectionKey,
+        streamId: event.streamId,
+      });
+    }
+
+    for (const stream of projection.blockedStreams) {
+      items.push({
+        kind: "blocked-stream",
+        targetId: `${projection.projectionKey}:${stream.streamId}`,
+        label: stream.streamId,
+        detail: projection.projectionKey,
+        state: stream.state,
+        tone: "warning",
+        contextName,
+        projectionName,
+        projectionKey: projection.projectionKey,
+        streamId: stream.streamId,
+      });
+    }
+  }
+
+  for (const worker of data.workers) {
+    const state = String(worker.worker_state ?? "");
+    if (state !== "stale" && state !== "expired") {
+      continue;
+    }
+    items.push({
+      kind: "worker",
+      targetId: String(worker.worker_id ?? ""),
+      label: String(worker.worker_id ?? "Worker"),
+      detail: String(worker.worker_kind ?? "Projection worker"),
+      state,
+      tone: "warning",
+    });
+  }
+
+  return items.sort((left, right) => {
+    const kindComparison = repairKindOrder(left.kind) - repairKindOrder(right.kind);
+    if (kindComparison !== 0) {
+      return kindComparison;
+    }
+    return stateSeverity(left.state) - stateSeverity(right.state) || left.label.localeCompare(right.label);
+  });
+}
+
+function splitProjectionKey(projectionKey: string) {
+  const separator = projectionKey.indexOf(".");
+  return separator < 0
+    ? { contextName: projectionKey, projectionName: projectionKey }
+    : { contextName: projectionKey.slice(0, separator), projectionName: projectionKey.slice(separator + 1) };
+}
+
+function operationTarget(operation: ProjectionOperation) {
+  return [operation.contextName, operation.projectionName, operation.projectionKey, operation.streamId]
+    .filter(Boolean)
+    .join(" / ");
+}
+
+function repairKindOrder(kind: ProjectionRepairQueueItem["kind"]) {
+  return ["operation", "projection-group", "poison-event", "blocked-stream", "worker"].indexOf(kind);
 }
 
 export function activeWorkerCount(data: ProjectionOperationsSnapshot) {

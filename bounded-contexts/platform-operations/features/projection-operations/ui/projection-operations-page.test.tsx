@@ -2,11 +2,11 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectionOperationsPage } from "./projection-operations-page";
+import { ProjectionOperationsReferencePage } from "./projection-operations-reference-page";
 import { normalizeProjectionOperationsSnapshot } from "../read-model/contracts";
 import { normalizeWakeStatusSnapshot } from "../read-model/wake-status-contracts";
 
 const emptyFilters = {
-  tab: "",
   state: "",
   contextName: "",
   projectionName: "",
@@ -125,6 +125,44 @@ describe("ProjectionOperationsPage", () => {
     expect(screen.getAllByText("Failed operations").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Blocked streams").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Poison events").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.getByRole("link", { name: "Settings and reference" }).getAttribute("href")).toBe(
+      "/platform/projections/reference",
+    );
+  });
+
+  it("opens poison-event evidence in a drawer with the stream retry action", () => {
+    const data = normalizeProjectionOperationsSnapshot({
+      summary: { status: "degraded" },
+      projectionStatusSource: "worker-snapshot",
+      blockedProjections: [
+        {
+          projectionKey: "catalog.catalog-item-projection",
+          blockedStreams: [{ streamId: "catalog.item-1", state: "blocked" }],
+          poisonEvents: [
+            {
+              eventId: "evt_poison",
+              eventType: "catalog.item.updated",
+              streamId: "catalog.item-1",
+              state: "blocked",
+              errorMessage: "handler failed",
+            },
+          ],
+        },
+      ],
+    });
+
+    render(
+      <ProjectionOperationsPage
+        data={data}
+        filters={{ ...emptyFilters, selected: "poison-event:evt_poison" }}
+        actorPermissions={["projection-operations.view", "projection-operations.operate"]}
+      />,
+    );
+
+    expect(screen.getByRole("dialog", { name: "catalog.item.updated" })).toBeTruthy();
+    expect(screen.getAllByText("handler failed").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 
   it("renders selected operation detail with cancellable action", () => {
@@ -152,6 +190,7 @@ describe("ProjectionOperationsPage", () => {
     );
 
     expect(screen.getByText("rebuild-projection-group / running")).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "rebuild-projection-group / running" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
   });
 
@@ -378,7 +417,7 @@ describe("ProjectionOperationsPage", () => {
 
     render(<ProjectionOperationsPage data={data} filters={emptyFilters} />);
 
-    expect(screen.getByText("Review")).toBeTruthy();
+    expect(screen.getByText("Stale")).toBeTruthy();
     expect(screen.getAllByText("Cancel requested").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Stale workers").length).toBeGreaterThan(0);
   });
@@ -521,9 +560,9 @@ describe("ProjectionOperationsPage", () => {
       },
     });
 
-    render(<ProjectionOperationsPage data={data} filters={{ ...emptyFilters, tab: "wake" }} wakeStatus={wakeStatus} />);
+    render(<ProjectionOperationsReferencePage data={data} filters={emptyFilters} wakeStatus={wakeStatus} />);
 
-    expect(screen.getByRole("tab", { name: "Push wakes" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Projection settings and reference" })).toBeTruthy();
     expect(screen.getByText("Wake telemetry lives in Grafana")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Open Grafana wake dashboard" }).getAttribute("href")).toBe(
       "https://grafana.chasesets.com/d/chase-sets-projection-wake-pipeline/projection-wake-pipeline",
@@ -557,7 +596,7 @@ describe("ProjectionOperationsPage", () => {
   it("renders an explicit unavailable state when wake status is missing", () => {
     const data = normalizeProjectionOperationsSnapshot({ summary: { status: "ok" } });
 
-    render(<ProjectionOperationsPage data={data} filters={{ ...emptyFilters, tab: "wake" }} wakeStatus={null} />);
+    render(<ProjectionOperationsReferencePage data={data} filters={emptyFilters} wakeStatus={null} />);
 
     expect(screen.getByText("Push-wake status unavailable")).toBeTruthy();
   });
@@ -577,7 +616,7 @@ describe("ProjectionOperationsPage", () => {
     });
 
     render(
-      <ProjectionOperationsPage
+      <ProjectionOperationsReferencePage
         data={data}
         filters={{
           ...emptyFilters,

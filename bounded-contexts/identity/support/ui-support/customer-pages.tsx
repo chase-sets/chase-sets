@@ -102,7 +102,7 @@ export function CustomerSummaryPage({
   title: string;
   description: string;
   controls?: ReactNode;
-  sections: readonly { title: string; body: string; action?: ReactNode }[];
+  sections: readonly { key?: string; title: string; body: string; action?: ReactNode }[];
 }) {
   return (
     <Stack gap={4}>
@@ -114,7 +114,7 @@ export function CustomerSummaryPage({
       </Stack>
       {controls}
       {sections.map((section) => (
-        <Card key={section.title}>
+        <Card key={section.key ?? section.title}>
           <Stack gap={2}>
             <Heading level={2} visualSize={6}>
               {section.title}

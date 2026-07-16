@@ -91,6 +91,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `fulfillment:fulfillment-support-return-source-projection` | Fulfillment | **platform-operations** | push-enabled | 1/1 |
 | `identity:identity-account-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-api-key-projection` | Identity | **identity** | push-enabled | 1/1 |
+| `identity:identity-consent-current-state-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-consent-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-founder-claim-reaction` | Identity | **marketplace** | push-enabled | 1/1 |
 | `identity:identity-founders-cohort-projection` | Identity | **identity** | push-enabled | 1/1 |
@@ -182,7 +183,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 
 Totals: 111 `push-enabled`, 29 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (76)
+## Read-After-Write Route Inventory (77)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -220,6 +221,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `identity.account-security-user-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.account-team-invitation-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.account-team-membership-fresh-read` | identity | important | exact wait | push-accelerated |
+| `identity.consent-withdrawal-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-account-detail-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-api-key-create-detail-fresh-read` | identity | critical | exact wait | push-accelerated |
 | `identity.admin-api-key-detail-fresh-read` | identity | critical | exact wait | push-accelerated |

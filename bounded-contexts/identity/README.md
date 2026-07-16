@@ -71,6 +71,7 @@ User preference ownership is governed by [Settings Ownership](../../docs/archite
 - `MembershipRevoked`
 - `ContactMethodVerified`
 - `ConsentRecorded`
+- `ConsentWithdrawn`
 
 ## Invariants
 

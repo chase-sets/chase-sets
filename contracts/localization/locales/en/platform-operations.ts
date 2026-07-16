@@ -103,6 +103,7 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.projectionOperations.applyFilters": "Apply filters",
   "platformOperations.projectionOperations.attention": "Attention",
   "platformOperations.projectionOperations.behind": "Behind",
+  "platformOperations.projectionOperations.backToOperations": "Back to projection operations",
   "platformOperations.projectionOperations.blockedStreams": "Blocked streams",
   "platformOperations.projectionOperations.blockedStreamDetailTitle": "{projection} / {stream}",
   "platformOperations.projectionOperations.cancel": "Cancel",
@@ -111,6 +112,7 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.projectionOperations.caughtUpCount": "{count} caught up",
   "platformOperations.projectionOperations.claimOwner": "Claim owner",
   "platformOperations.projectionOperations.clearFilters": "Clear filters",
+  "platformOperations.projectionOperations.closeDetail": "Close projection detail",
   "platformOperations.projectionOperations.completedAt": "Completed at",
   "platformOperations.projectionOperations.confirmRebuild": "Queue rebuild",
   "platformOperations.projectionOperations.confirmRebuildContext": "Queue context rebuild",
@@ -136,6 +138,8 @@ export const platformOperationsEnglishTranslations = {
     "Monitor projection health, triage failed work, and run targeted repair from durable operations.",
   "platformOperations.projectionOperations.details": "Details",
   "platformOperations.projectionOperations.diagnostics": "Diagnostics",
+  "platformOperations.projectionOperations.drawerDescription":
+    "Inspect evidence, live operation state, and the actions available for this projection record.",
   "platformOperations.projectionOperations.error": "Error",
   "platformOperations.projectionOperations.errorGroups": "Error groups",
   "platformOperations.projectionOperations.eventType": "Event type",
@@ -146,6 +150,7 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.projectionOperations.filterProjection": "Projection: {value}",
   "platformOperations.projectionOperations.filterSearch": "Search: {value}",
   "platformOperations.projectionOperations.filterState": "State: {value}",
+  "platformOperations.projectionOperations.firstSeenAt": "First seen at",
   "platformOperations.projectionOperations.firstVersion": "First version",
   "platformOperations.projectionOperations.groups": "Groups",
   "platformOperations.projectionOperations.healthy": "Healthy",
@@ -156,6 +161,7 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.projectionOperations.issues": "Issues",
   "platformOperations.projectionOperations.issueSummary": "{blocked} blocked / {poison} poison",
   "platformOperations.projectionOperations.kind": "Kind",
+  "platformOperations.projectionOperations.lastSeenAt": "Last seen at",
   "platformOperations.projectionOperations.lastUpdated": "Last updated: {value}",
   "platformOperations.projectionOperations.meaning": "Meaning",
   "platformOperations.projectionOperations.metaTitle": "Projection Operations | Chase Sets Admin",
@@ -166,6 +172,7 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.projectionOperations.noAttention": "No attention signals",
   "platformOperations.projectionOperations.noAttentionDescription":
     "Failed operations, blocked streams, stale workers, and stale revisions will appear here.",
+  "platformOperations.projectionOperations.noWakeAttention": "No push-wake attention signals.",
   "platformOperations.projectionOperations.noBlockedStreams": "No blocked streams",
   "platformOperations.projectionOperations.noBlockedStreamsDescription":
     "No stream-isolated projection errors are currently active.",
@@ -207,11 +214,23 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.projectionOperations.queuedOperations": "Queued operations",
   "platformOperations.projectionOperations.rebuild": "Rebuild",
   "platformOperations.projectionOperations.rebuildContext": "Rebuild context",
+  "platformOperations.projectionOperations.recentOperations": "Recent operation runs",
+  "platformOperations.projectionOperations.recentOperationsDescription":
+    "Open an operation to follow live progress or request cancellation at the next safe boundary.",
+  "platformOperations.projectionOperations.reference": "Settings and reference",
+  "platformOperations.projectionOperations.referenceDescription":
+    "Read-only projection groups, subscription wiring, worker state, diagnostics, and push-wake operational references.",
+  "platformOperations.projectionOperations.referenceMetaTitle": "Projection Settings and Reference | Chase Sets Admin",
+  "platformOperations.projectionOperations.referenceTitle": "Projection settings and reference",
   "platformOperations.projectionOperations.refresh": "Refresh status",
+  "platformOperations.projectionOperations.repairQueue": "Projection repair queue",
+  "platformOperations.projectionOperations.repairQueueDescription":
+    "Blocked streams, poison events, degraded groups, failed operations, and stale workers that need operator review.",
   "platformOperations.projectionOperations.requiredDuringBootstrap": "Required during bootstrap",
   "platformOperations.projectionOperations.requestedAt": "Requested at",
   "platformOperations.projectionOperations.requestedBy": "Requested by",
   "platformOperations.projectionOperations.retry": "Retry",
+  "platformOperations.projectionOperations.retryCount": "Retry count",
   "platformOperations.projectionOperations.review": "Review",
   "platformOperations.projectionOperations.reviewDescription":
     "Projection operations are running with non-critical attention signals.",
@@ -240,6 +259,9 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.projectionOperations.statusSource": "Status source",
   "platformOperations.projectionOperations.stream": "Stream",
   "platformOperations.projectionOperations.subscriptions": "Subscriptions",
+  "platformOperations.projectionOperations.subscriptionMatrix": "Subscription matrix",
+  "platformOperations.projectionOperations.subscriptionMatrixDescription":
+    "Read-only source-context subscriptions and checkpoint boundaries by projection group.",
   "platformOperations.projectionOperations.systemShape": "System shape",
   "platformOperations.projectionOperations.target": "Target",
   "platformOperations.projectionOperations.targetContext": "Target context",
@@ -247,6 +269,7 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.projectionOperations.updated": "Updated",
   "platformOperations.projectionOperations.version": "Version",
   "platformOperations.projectionOperations.wake": "Push wakes",
+  "platformOperations.projectionOperations.wakeReference": "Push-wake reference",
   "platformOperations.projectionOperations.wakeObservabilityTitle": "Wake telemetry lives in Grafana",
   "platformOperations.projectionOperations.wakeObservabilityDescription":
     "Use the Projection Wake Pipeline dashboard for rates, percentiles, logs, and alert context. Use this console for projection rebuilds, blocked-stream retries, and durable operation state.",
