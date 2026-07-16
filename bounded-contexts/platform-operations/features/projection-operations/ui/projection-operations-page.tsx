@@ -153,7 +153,11 @@ export function ProjectionOperationsPage({
       />
       <ActionBar>
         {canOperate ? (
-          <Form spacing="none" method="post">
+          <Form
+            spacing="none"
+            method="post"
+            action={projectionSelectionHref("/platform/projections", filters, filters.selected)}
+          >
             <HiddenInput type="hidden" name="intent" value="refresh-status" readOnly />
             <Button type="submit" leadingIcon="refreshCcw">
               {t(`${routeKey}.refresh`)}

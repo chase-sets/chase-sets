@@ -138,8 +138,7 @@ test.describe("platform admin projection operations", () => {
       }
       const rebuildContext = page.getByRole("button", { name: "Rebuild context" });
       await expect(rebuildContext).toBeVisible();
-      await page.goto("/platform/projections/reference?search=identity");
-      await expectPageOk(page, "/platform/projections/reference");
+      await expectPageOk(page, "/platform/projections/reference?search=identity");
       await expectAdminPageReady(page, { heading: "Projection settings and reference" });
     } else {
       logSeedContractGap(
