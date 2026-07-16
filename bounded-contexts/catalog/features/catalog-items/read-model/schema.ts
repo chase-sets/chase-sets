@@ -101,6 +101,8 @@ CREATE TABLE IF NOT EXISTS catalog_item_display_identities (
   display_identity_hash text NOT NULL,
   resolver_version integer NOT NULL,
   resolved_at timestamptz NOT NULL,
+  resolution_status text NOT NULL DEFAULT 'degraded',
+  missing_tokens jsonb NOT NULL DEFAULT '[]'::jsonb,
   last_published_display_identity_hash text NULL,
   last_published_at timestamptz NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -156,6 +158,13 @@ ALTER TABLE catalog_item_display_identities
   ADD COLUMN IF NOT EXISTS display_template_target_id text NULL,
   ADD COLUMN IF NOT EXISTS resolver_version integer NOT NULL DEFAULT 1,
   ADD COLUMN IF NOT EXISTS resolved_at timestamptz NOT NULL DEFAULT now(),
+  -- Constant defaults keep this a metadata-only add on the populated table. The
+  -- pessimistic 'degraded' default avoids a false-healthy window: existing rows
+  -- read as degraded until the resolver-version replay recomputes their true
+  -- status. The resolution_status enum is enforced by a NOT VALID/VALIDATE CHECK
+  -- in the migration ledger below (inline CHECK on a populated table is unsafe).
+  ADD COLUMN IF NOT EXISTS resolution_status text NOT NULL DEFAULT 'degraded',
+  ADD COLUMN IF NOT EXISTS missing_tokens jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS last_published_display_identity_hash text NULL,
   ADD COLUMN IF NOT EXISTS last_published_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
@@ -209,6 +218,19 @@ export const catalogCatalogItemSchemaMigrations: readonly BcSchemaMigration[] = 
       "SET lock_timeout = '5s';",
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_item_display_identity_recompute_work_status_idx
   ON catalog_item_display_identity_recompute_work (status, available_at, updated_at)`,
+    ],
+  },
+  {
+    migrationId: "20260716_catalog_display_identity_resolution_status_check",
+    description:
+      "Constrain display identity resolution_status to the resolved/degraded enum without an inline validating scan.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      `ALTER TABLE catalog_item_display_identities
+  ADD CONSTRAINT catalog_item_display_identities_resolution_status_check
+  CHECK (resolution_status IN ('resolved', 'degraded')) NOT VALID`,
+      `ALTER TABLE catalog_item_display_identities
+  VALIDATE CONSTRAINT catalog_item_display_identities_resolution_status_check`,
     ],
   },
 ];

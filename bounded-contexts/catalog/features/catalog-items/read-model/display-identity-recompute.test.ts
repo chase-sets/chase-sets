@@ -47,7 +47,9 @@ describe("display identity recomputation work", () => {
           subtitle: "Base Set",
           displayTemplateKey: "pokemon-card",
           displayIdentityHash: persistedWrites[0]?.[7],
-          resolverVersion: 2,
+          resolverVersion: 3,
+          resolutionStatus: "resolved",
+          missingTokens: [],
         }),
       }),
     );
