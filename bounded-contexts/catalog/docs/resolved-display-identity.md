@@ -28,6 +28,10 @@ Resolved Display Identity contains:
 - `display_identity_hash`
 - `resolved_at`
 - resolver version metadata
+- `resolution_status` — `resolved` (a template matched and every non-optional title token rendered non-empty) or `degraded` (no template matched, a targeted template's required field was unsatisfied, or a non-optional title token rendered empty). Added additively to the fact; historical facts without it are treated as `resolved`.
+- `missing_tokens` — the required field keys or non-optional title tokens left unsatisfied when degraded (or the `template` sentinel when no template targeted the item); empty when resolved.
+
+A degraded identity still carries a displayable title (the bare native metadata title), so `resolution_status` changes observability, not what renders. The resolution outcome is folded into `display_identity_hash`, so a status transition republishes even when the rendered title and subtitle are unchanged.
 
 The fact never changes:
 

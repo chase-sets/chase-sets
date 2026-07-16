@@ -209,7 +209,9 @@ describe("resolveCatalogItemDisplayIdentity", () => {
       templateKey: "global-card",
       templateTargetKind: "global",
       templateTargetId: null,
-      resolverVersion: 2,
+      resolverVersion: 3,
+      resolutionStatus: "resolved",
+      missingTokens: [],
     });
     expect(first.hash).toMatch(/^[a-f0-9]{64}$/);
     expect(second.hash).toBe(first.hash);
@@ -251,6 +253,7 @@ describe("resolveCatalogItemDisplayIdentity", () => {
     );
 
     expect(result.changed).toBe(true);
+    expect(result.identity.resolutionStatus).toBe("resolved");
     expect(persistedWrites).toHaveLength(1);
     expect(persistedWrites[0]).toEqual([
       "cat_persist",
@@ -261,9 +264,143 @@ describe("resolveCatalogItemDisplayIdentity", () => {
       "global",
       null,
       result.identity.hash,
-      2,
+      3,
       "2026-06-06T22:00:00.000Z",
+      "resolved",
+      "[]",
     ]);
+  });
+
+  it("degrades to the bare native title with the no-template sentinel when nothing matches", async () => {
+    const db = displayIdentityDb({ fields: [], references: [], templates: [] });
+
+    await expect(
+      resolveCatalogItemDisplayIdentity(db, {
+        catalog_item_id: "cat_no_template",
+        title: "Bare Title",
+        subtitle: " Bare Sub ",
+        blueprint_id: null,
+        category_ids: [],
+        field_values: [],
+      }),
+    ).resolves.toMatchObject({
+      title: "Bare Title",
+      subtitle: "Bare Sub",
+      templateKey: null,
+      resolutionStatus: "degraded",
+      missingTokens: ["template"],
+    });
+  });
+
+  it("degrades and reports the unsatisfied required field key when a targeted template misses a field", async () => {
+    const db = displayIdentityDb({
+      fields: [
+        { field_id: "fld_name", key: "card-name" },
+        { field_id: "fld_number", key: "card-number" },
+      ],
+      references: [],
+      templates: [
+        {
+          key: "pokemon-card",
+          target_kind: "blueprint",
+          target_id: "bpr_pokemon",
+          priority: 10,
+          title_template: "{field.card-name} {field.card-number}",
+          subtitle_template: null,
+          required_field_keys: ["card-name", "card-number"],
+        },
+      ],
+    });
+
+    await expect(
+      resolveCatalogItemDisplayIdentity(db, {
+        catalog_item_id: "cat_missing_field",
+        title: "Charizard",
+        subtitle: null,
+        blueprint_id: "bpr_pokemon",
+        category_ids: [],
+        field_values: [{ fieldId: "fld_name", value: "Charizard" }],
+      }),
+    ).resolves.toMatchObject({
+      title: "Charizard",
+      templateKey: null,
+      resolutionStatus: "degraded",
+      missingTokens: ["card-number"],
+    });
+  });
+
+  it("degrades and reports the empty non-optional token when a matched template renders one blank", async () => {
+    const db = displayIdentityDb({
+      fields: [
+        { field_id: "fld_name", key: "card-name" },
+        { field_id: "fld_number", key: "card-number" },
+      ],
+      references: [],
+      templates: [
+        {
+          key: "global-card",
+          target_kind: "global",
+          target_id: null,
+          priority: 1,
+          // card-number is non-optional in the title but not a declared required key,
+          // so the template is chosen yet the token renders blank.
+          title_template: "{field.card-name} {field.card-number}",
+          subtitle_template: null,
+          required_field_keys: ["card-name"],
+        },
+      ],
+    });
+
+    await expect(
+      resolveCatalogItemDisplayIdentity(db, {
+        catalog_item_id: "cat_blank_token",
+        title: "Charizard",
+        subtitle: null,
+        blueprint_id: null,
+        category_ids: [],
+        field_values: [{ fieldId: "fld_name", value: "Charizard" }],
+      }),
+    ).resolves.toMatchObject({
+      title: "Charizard",
+      templateKey: "global-card",
+      resolutionStatus: "degraded",
+      missingTokens: ["field.card-number"],
+    });
+  });
+
+  it("stays resolved with no missing tokens when the subtitle is empty but the title is complete", async () => {
+    const db = displayIdentityDb({
+      fields: [{ field_id: "fld_name", key: "card-name" }],
+      references: [],
+      templates: [
+        {
+          key: "global-card",
+          target_kind: "global",
+          target_id: null,
+          priority: 1,
+          title_template: "{field.card-name}",
+          subtitle_template: "{field.rarity}",
+          required_field_keys: ["card-name"],
+        },
+      ],
+    });
+
+    await expect(
+      resolveCatalogItemDisplayIdentity(db, {
+        catalog_item_id: "cat_empty_subtitle",
+        title: "Fallback",
+        subtitle: null,
+        blueprint_id: null,
+        category_ids: [],
+        field_values: [{ fieldId: "fld_name", value: "Pikachu" }],
+      }),
+    ).resolves.toMatchObject({
+      title: "Pikachu",
+      subtitle: null,
+      templateKey: "global-card",
+      resolutionStatus: "resolved",
+      missingTokens: [],
+    });
   });
 
   function japaneseCard() {

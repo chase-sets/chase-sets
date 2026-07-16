@@ -154,6 +154,14 @@ export type ReviseCatalogItemMetadataCommand = Readonly<{
   description?: LocalizedTextMap;
 }>;
 
+/**
+ * Whether the resolver produced a fully-templated display identity (`resolved`)
+ * or fell back to bare metadata because no template matched or a non-optional
+ * token was missing/empty (`degraded`). Persisted and published so a degraded
+ * catalog is visible state rather than a silent fallback.
+ */
+export type CatalogItemDisplayResolutionStatus = "resolved" | "degraded";
+
 export type RecordCatalogItemDisplayIdentityCommand = Readonly<{
   type: "RecordCatalogItemDisplayIdentity";
   catalogItemId: CatalogItemId;
@@ -166,6 +174,10 @@ export type RecordCatalogItemDisplayIdentityCommand = Readonly<{
   displayIdentityHash: string;
   resolverVersion: number;
   resolvedAt: string;
+  /** Resolver outcome; absent legacy commands are treated as `resolved`. */
+  resolutionStatus?: CatalogItemDisplayResolutionStatus;
+  /** Required tokens/fields left unsatisfied when degraded; empty when resolved. */
+  missingTokens?: readonly string[];
 }>;
 
 /**
@@ -355,6 +367,10 @@ export type ItemDisplayIdentityResolvedData = Readonly<{
   displayIdentityHash: string;
   resolverVersion: number;
   resolvedAt: string;
+  // Additive resolver-outcome fields. Optional so historical facts replayed
+  // before this resolver version remain valid; new facts always carry them.
+  resolutionStatus?: CatalogItemDisplayResolutionStatus;
+  missingTokens?: readonly string[];
 }>;
 
 export type ItemDisplayIdentityResolvedEvent = DomainEvent<
@@ -1022,7 +1038,29 @@ function normalizeDisplayIdentityResolvedData(
     displayIdentityHash,
     resolverVersion: command.resolverVersion,
     resolvedAt,
+    resolutionStatus: normalizeResolutionStatus(command.resolutionStatus),
+    missingTokens: normalizeMissingTokens(command.missingTokens),
   };
+}
+
+function normalizeResolutionStatus(
+  value: CatalogItemDisplayResolutionStatus | undefined,
+): CatalogItemDisplayResolutionStatus {
+  // Legacy commands predate resolver-outcome tracking; treat them as resolved.
+  if (value === undefined) {
+    return "resolved";
+  }
+
+  assert(
+    value === "resolved" || value === "degraded",
+    "Resolved display identity resolution status must be resolved or degraded.",
+  );
+  return value;
+}
+
+function normalizeMissingTokens(tokens: readonly string[] | undefined): readonly string[] {
+  const normalized = [...new Set((tokens ?? []).map((token) => token.trim()).filter((token) => token.length > 0))];
+  return normalized.sort((left, right) => left.localeCompare(right));
 }
 
 function normalizeItemAliasesResolvedData(command: RecordCatalogItemAliasesCommand): ItemAliasesResolvedData {

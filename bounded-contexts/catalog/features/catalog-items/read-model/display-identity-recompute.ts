@@ -262,6 +262,8 @@ async function publishDisplayIdentityIfNeeded(
       displayIdentityHash: identity.hash,
       resolverVersion: identity.resolverVersion,
       resolvedAt: result.resolvedAt,
+      resolutionStatus: identity.resolutionStatus,
+      missingTokens: identity.missingTokens,
     },
     context,
   });

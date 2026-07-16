@@ -412,6 +412,8 @@ describe("CatalogItem aggregate", () => {
         displayIdentityHash: " display-hash-1 ",
         resolverVersion: 1,
         resolvedAt: "2026-06-06T12:00:00.000Z",
+        resolutionStatus: "resolved",
+        missingTokens: [],
       });
 
       expect(events[0]).toMatchObject({
@@ -427,7 +429,48 @@ describe("CatalogItem aggregate", () => {
           displayIdentityHash: "display-hash-1",
           resolverVersion: 1,
           resolvedAt: "2026-06-06T12:00:00.000Z",
+          resolutionStatus: "resolved",
+          missingTokens: [],
         },
+      });
+    });
+
+    it("records a degraded display identity fact carrying its missing tokens", () => {
+      const events = decide(decideCatalogItem, activeState(), {
+        type: "RecordCatalogItemDisplayIdentity" as const,
+        catalogItemId: itemId,
+        title: "Bare Title",
+        displayIdentityHash: "display-hash-2",
+        resolverVersion: 3,
+        resolvedAt: "2026-06-06T12:00:00.000Z",
+        resolutionStatus: "degraded",
+        missingTokens: [" card-number ", "card-name", "card-name"],
+      });
+
+      expect(events[0]).toMatchObject({
+        type: "catalog.catalog-item.display-identity-resolved",
+        data: {
+          catalogItemId: itemId,
+          resolutionStatus: "degraded",
+          // Trimmed, de-duplicated, and deterministically ordered.
+          missingTokens: ["card-name", "card-number"],
+        },
+      });
+    });
+
+    it("treats a legacy display identity command without resolution status as resolved", () => {
+      const events = decide(decideCatalogItem, activeState(), {
+        type: "RecordCatalogItemDisplayIdentity" as const,
+        catalogItemId: itemId,
+        title: "Legacy",
+        displayIdentityHash: "display-hash-3",
+        resolverVersion: 1,
+        resolvedAt: "2026-06-06T12:00:00.000Z",
+      });
+
+      expect(events[0]).toMatchObject({
+        type: "catalog.catalog-item.display-identity-resolved",
+        data: { resolutionStatus: "resolved", missingTokens: [] },
       });
     });
 

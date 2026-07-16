@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { asArray, asStringArray, type FieldValue } from "../../../support/projection-support/read-model-support";
+import type { CatalogItemDisplayResolutionStatus } from "../domain/domain";
 import {
   composeDisplayWithNativeSecondary,
   loadCatalogItemDisplayAlias,
@@ -10,9 +11,13 @@ import {
 
 const MAX_REFERENCE_EXPANSION_DEPTH = 4;
 // Bump this version whenever the resolved hash depends on a new input (e.g. the
-// chosen display alias), so a resolver upgrade re-resolves every item even when
-// the template output is unchanged.
-const DISPLAY_IDENTITY_RESOLVER_VERSION = 2;
+// chosen display alias, or the resolution-outcome metadata), so a resolver
+// upgrade re-resolves every item even when the template output is unchanged.
+const DISPLAY_IDENTITY_RESOLVER_VERSION = 3;
+
+// Sentinel recorded in missing_tokens when no display template targeted the item
+// at all (as opposed to a targeted template whose required fields were missing).
+const NO_TEMPLATE_MATCHED_TOKEN = "template";
 
 export type DisplayIdentityItem = Readonly<{
   catalog_item_id: string;
@@ -34,6 +39,10 @@ export type ResolvedDisplayIdentity = Readonly<{
   templateTargetId: string | null;
   hash: string;
   resolverVersion: number;
+  /** Whether a template fully resolved the display title, or it fell back. */
+  resolutionStatus: CatalogItemDisplayResolutionStatus;
+  /** Required tokens/fields left unsatisfied when degraded; empty when resolved. */
+  missingTokens: readonly string[];
 }>;
 
 export type PersistedDisplayIdentityResult = Readonly<{
@@ -253,20 +262,31 @@ function resolveCatalogItemDisplayIdentityWithLoadedData(
     itemDisplayAlias: prefersEnglishAlias ? aliases.itemDisplayAlias : null,
     referenceDisplayAliasesById: prefersEnglishAlias ? aliases.referenceDisplayAliasesById : new Map(),
   };
-  const template = chooseTemplate(context, templates);
+  const selection = selectDisplayTemplate(context, templates);
+  const template = selection.template;
 
   if (!template) {
-    const nativeTitle = item.title;
+    // Degraded: no template resolved this item, so the bare native title (still
+    // displayable) is a fallback. Record which required keys were unsatisfied,
+    // or the no-template sentinel when nothing targeted the item at all.
+    const missingTokens =
+      selection.missingRequiredFieldKeys.length > 0 ? selection.missingRequiredFieldKeys : [NO_TEMPLATE_MATCHED_TOKEN];
     return withDisplayIdentityMetadata(item, languageCode, {
-      title: applyItemDisplayAlias(context, nativeTitle),
+      title: applyItemDisplayAlias(context, item.title),
       subtitle: item.subtitle?.trim() || null,
       templateKey: null,
       templateTargetKind: null,
       templateTargetId: null,
       displayAlias: context.itemDisplayAlias,
+      resolutionStatus: "degraded",
+      missingTokens,
     });
   }
 
+  // A template matched. Degradation here means a non-optional title token
+  // rendered empty (an empty subtitle is allowed and never degrades). The
+  // rendered title still falls back to the bare native title for display.
+  const missingTitleTokens = unresolvedNonOptionalTitleTokens(template, context);
   const nativeTitle = renderTemplate(template.title_template, context).trim() || item.title;
   const subtitle = template.subtitle_template ? renderTemplate(template.subtitle_template, context).trim() : "";
 
@@ -277,6 +297,8 @@ function resolveCatalogItemDisplayIdentityWithLoadedData(
     templateTargetKind: template.target_kind,
     templateTargetId: template.target_id,
     displayAlias: context.itemDisplayAlias,
+    resolutionStatus: missingTitleTokens.length > 0 ? "degraded" : "resolved",
+    missingTokens: missingTitleTokens,
   });
 }
 
@@ -326,8 +348,10 @@ export async function resolveAndPersistCatalogItemDisplayIdentity(
        display_identity_hash,
        resolver_version,
        resolved_at,
+       resolution_status,
+       missing_tokens,
        updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $10)
      ON CONFLICT (catalog_item_id, language_code) DO UPDATE SET
        title = EXCLUDED.title,
        subtitle = EXCLUDED.subtitle,
@@ -337,6 +361,8 @@ export async function resolveAndPersistCatalogItemDisplayIdentity(
        display_identity_hash = EXCLUDED.display_identity_hash,
        resolver_version = EXCLUDED.resolver_version,
        resolved_at = EXCLUDED.resolved_at,
+       resolution_status = EXCLUDED.resolution_status,
+       missing_tokens = EXCLUDED.missing_tokens,
        updated_at = EXCLUDED.updated_at`,
     [
       identity.catalogItemId,
@@ -349,6 +375,8 @@ export async function resolveAndPersistCatalogItemDisplayIdentity(
       identity.hash,
       identity.resolverVersion,
       resolvedAt,
+      identity.resolutionStatus,
+      JSON.stringify(identity.missingTokens),
     ],
   );
 
@@ -405,6 +433,8 @@ async function persistDisplayIdentities(
        display_identity_hash,
        resolver_version,
        resolved_at,
+       resolution_status,
+       missing_tokens,
        updated_at
      )
      SELECT
@@ -418,6 +448,8 @@ async function persistDisplayIdentities(
        input.display_identity_hash,
        input.resolver_version,
        input.resolved_at,
+       input.resolution_status,
+       input.missing_tokens::jsonb,
        input.resolved_at
      FROM unnest(
        $1::text[],
@@ -429,7 +461,9 @@ async function persistDisplayIdentities(
        $7::text[],
        $8::text[],
        $9::integer[],
-       $10::timestamptz[]
+       $10::timestamptz[],
+       $11::text[],
+       $12::text[]
      ) AS input(
        catalog_item_id,
        language_code,
@@ -440,7 +474,9 @@ async function persistDisplayIdentities(
        display_template_target_id,
        display_identity_hash,
        resolver_version,
-       resolved_at
+       resolved_at,
+       resolution_status,
+       missing_tokens
      )
      ON CONFLICT (catalog_item_id, language_code) DO UPDATE SET
        title = EXCLUDED.title,
@@ -451,6 +487,8 @@ async function persistDisplayIdentities(
        display_identity_hash = EXCLUDED.display_identity_hash,
        resolver_version = EXCLUDED.resolver_version,
        resolved_at = EXCLUDED.resolved_at,
+       resolution_status = EXCLUDED.resolution_status,
+       missing_tokens = EXCLUDED.missing_tokens,
        updated_at = EXCLUDED.updated_at`,
     [
       results.map((result) => result.identity.catalogItemId),
@@ -463,6 +501,8 @@ async function persistDisplayIdentities(
       results.map((result) => result.identity.hash),
       results.map((result) => result.identity.resolverVersion),
       results.map((result) => result.resolvedAt),
+      results.map((result) => result.identity.resolutionStatus),
+      results.map((result) => JSON.stringify(result.identity.missingTokens)),
     ],
   );
 }
@@ -476,9 +516,12 @@ function withDisplayIdentityMetadata(
   languageCode: string,
   identity: Pick<
     ResolvedDisplayIdentity,
-    "title" | "subtitle" | "templateKey" | "templateTargetKind" | "templateTargetId"
-  > & { displayAlias: ResolvedDisplayAlias | null },
+    "title" | "subtitle" | "templateKey" | "templateTargetKind" | "templateTargetId" | "resolutionStatus"
+  > & { displayAlias: ResolvedDisplayAlias | null; missingTokens: readonly string[] },
 ): ResolvedDisplayIdentity {
+  // Deterministic ordering keeps the persisted list and hash stable regardless
+  // of the order tokens were discovered, so replay/backfill reproduce the fact.
+  const missingTokens = [...new Set(identity.missingTokens)].sort((left, right) => left.localeCompare(right));
   const snapshot = {
     catalogItemId: item.catalog_item_id,
     languageCode,
@@ -488,6 +531,8 @@ function withDisplayIdentityMetadata(
     templateTargetKind: identity.templateTargetKind,
     templateTargetId: identity.templateTargetId,
     resolverVersion: DISPLAY_IDENTITY_RESOLVER_VERSION,
+    resolutionStatus: identity.resolutionStatus,
+    missingTokens,
   };
 
   return {
@@ -505,6 +550,8 @@ function displayIdentityHash(input: {
   templateTargetKind: string | null;
   templateTargetId: string | null;
   resolverVersion: number;
+  resolutionStatus: CatalogItemDisplayResolutionStatus;
+  missingTokens: readonly string[];
   displayAlias: ResolvedDisplayAlias | null;
 }): string {
   return createHash("sha256")
@@ -518,6 +565,11 @@ function displayIdentityHash(input: {
         templateTargetKind: input.templateTargetKind,
         templateTargetId: input.templateTargetId,
         resolverVersion: input.resolverVersion,
+        // Resolution outcome is display truth: fold it into the hash so a status
+        // transition (e.g. resolved -> degraded) republishes even when the
+        // rendered title/subtitle happen to be identical.
+        resolutionStatus: input.resolutionStatus,
+        missingTokens: input.missingTokens,
         // The chosen display alias is part of resolved display truth: include its
         // identity so the hash changes when the display-relevant alias changes,
         // even if the rendered title text happens to collide.
@@ -538,21 +590,68 @@ function normalizeLanguageCode(value: string | undefined): string {
   return normalized && normalized.length > 0 ? normalized : "en";
 }
 
-function chooseTemplate(
+type DisplayTemplateSelection = Readonly<{
+  /** The chosen template whose requirements are satisfied, or null. */
+  template: DisplayTemplateRow | null;
+  /**
+   * When no template was chosen but one targeted this item, the required field
+   * keys that were unsatisfied (why it was excluded). Empty when a template was
+   * chosen or when nothing targeted the item.
+   */
+  missingRequiredFieldKeys: readonly string[];
+}>;
+
+function selectDisplayTemplate(
   context: ResolutionContext,
   templates: readonly DisplayTemplateRow[],
-): DisplayTemplateRow | null {
+): DisplayTemplateSelection {
   const categoryIds = new Set(asStringArray(context.item.category_ids));
 
-  const candidates = templates
+  const targeted = templates
     .map((template) => ({ template, score: templateScore(template, context, categoryIds) }))
-    .filter((candidate) => candidate.score !== null)
-    .filter((candidate): candidate is { template: DisplayTemplateRow; score: number } =>
-      Boolean(candidate.score !== null && templateRequirementsSatisfied(candidate.template, context)),
-    )
+    .filter((candidate): candidate is { template: DisplayTemplateRow; score: number } => candidate.score !== null)
     .sort((left, right) => right.score - left.score || left.template.key.localeCompare(right.template.key));
 
-  return candidates[0]?.template ?? null;
+  const chosen = targeted.find((candidate) => templateRequirementsSatisfied(candidate.template, context));
+  if (chosen) {
+    return { template: chosen.template, missingRequiredFieldKeys: [] };
+  }
+
+  // No targeted template satisfied its requirements. Surface the missing
+  // required keys of the best-scoring targeted template for degradation
+  // diagnostics; when nothing targeted the item there are none to report.
+  const bestTargeted = targeted[0];
+  return {
+    template: null,
+    missingRequiredFieldKeys: bestTargeted ? missingRequiredFieldKeys(bestTargeted.template, context) : [],
+  };
+}
+
+function missingRequiredFieldKeys(template: DisplayTemplateRow, context: ResolutionContext): string[] {
+  return asStringArray(template.required_field_keys).filter(
+    (fieldKey) => !formatCatalogValue(context.fieldsByKey.get(fieldKey)?.value, context.referencesById),
+  );
+}
+
+/**
+ * The non-optional title tokens (outside `[...]` optional segments) that render
+ * empty for this item. A non-empty result means the resolved title degraded to
+ * the bare native title for one or more required tokens.
+ */
+function unresolvedNonOptionalTitleTokens(template: DisplayTemplateRow, context: ResolutionContext): string[] {
+  const withoutOptionalSegments = template.title_template.replace(/\[[^\[\]]+\]/g, "");
+  const unresolved = new Set<string>();
+
+  withoutOptionalSegments.replace(/\{([^{}]+)\}/g, (_match, token: string) => {
+    const trimmed = token.trim();
+    const rendered = resolveToken(trimmed, context);
+    if (!rendered || rendered.trim().length === 0) {
+      unresolved.add(trimmed);
+    }
+    return "";
+  });
+
+  return [...unresolved];
 }
 
 function templateScore(
