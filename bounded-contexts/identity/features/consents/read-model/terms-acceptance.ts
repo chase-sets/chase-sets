@@ -2,7 +2,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { identityTermsOfServicePolicy } from "../domain/terms-of-service-policy";
 import { TERMS_OF_SERVICE_CONSENT_POLICY_KEY } from "../domain/terms-of-service";
-import { findLatestConsent } from "./queries";
+import { findCurrentConsent } from "./queries";
 
 export type TermsAcceptanceStatus = Readonly<{
   policyKey: string;
@@ -33,7 +33,7 @@ export async function resolveTermsAcceptanceStatus(
 ): Promise<TermsAcceptanceStatus> {
   const resolved = await policies.resolvePolicy(identityTermsOfServicePolicy);
   const requiredVersion = resolved.value.version;
-  const latest = await findLatestConsent(db, {
+  const current = await findCurrentConsent(db, {
     userId: subject.userId ?? null,
     accountId: subject.accountId ?? null,
     policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
@@ -42,8 +42,8 @@ export async function resolveTermsAcceptanceStatus(
   return {
     policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
     requiredVersion,
-    accepted: latest?.policy_version === requiredVersion,
-    acceptedVersion: latest?.policy_version ?? null,
-    acceptedAt: latest?.recorded_at ?? null,
+    accepted: current?.status === "recorded" && current.policy_version === requiredVersion,
+    acceptedVersion: current?.policy_version ?? null,
+    acceptedAt: current?.recorded_at ?? null,
   };
 }

@@ -40,12 +40,22 @@ function buildApp(services: ConsentServices, currentActor: ResolvedActor | null 
   return app;
 }
 
-function buildServices() {
+function buildServices(consent: Record<string, unknown> | null = null) {
   return {
-    commandHandler: vi.fn(),
+    commandHandler: vi.fn(async () => ({
+      version: 2,
+      state: { status: "withdrawn", withdrawnAt: "2026-07-15T00:00:00.000Z" },
+      newEvents: [],
+      storedEvents: [],
+    })),
+    getConsent: vi.fn(async () => consent),
     listConsents: vi.fn(async () => ({ items: [], total: 0 })),
     projectors: [],
-  } satisfies ConsentServices;
+  } as unknown as ConsentServices & {
+    commandHandler: ReturnType<typeof vi.fn>;
+    getConsent: ReturnType<typeof vi.fn>;
+    listConsents: ReturnType<typeof vi.fn>;
+  };
 }
 
 describe("consent API route", () => {
@@ -89,5 +99,56 @@ describe("consent API route", () => {
         accountId: "acc_subject",
       }),
     );
+  });
+
+  it("withdraws the actor's current user consent on its event stream", async () => {
+    const services = buildServices({
+      consent_id: "cns_1",
+      subject_type: "user",
+      user_id: actor.userId,
+      account_id: actor.accountId,
+      policy_key: "marketing-email",
+      policy_version: "v1",
+      status: "recorded",
+      recorded_at: "2026-07-01T00:00:00.000Z",
+      withdrawn_at: null,
+      updated_at: "2026-07-01T00:00:00.000Z",
+      is_current: true,
+    });
+
+    const response = await buildApp(services).request("/consents/cns_1/withdraw", { method: "POST" });
+
+    expect(response.status).toBe(200);
+    expect(services.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: "identity.consent-cns_1",
+        command: expect.objectContaining({ type: "WithdrawConsent" }),
+      }),
+    );
+    await expect(response.json()).resolves.toMatchObject({ id: "cns_1", version: 2, status: "withdrawn" });
+  });
+
+  it("does not allow an actor to withdraw another user's consent", async () => {
+    const services = buildServices({
+      consent_id: "cns_2",
+      subject_type: "user",
+      user_id: "usr_other",
+      account_id: "acc_other",
+      policy_key: "marketing-email",
+      policy_version: "v1",
+      status: "recorded",
+      recorded_at: "2026-07-01T00:00:00.000Z",
+      withdrawn_at: null,
+      updated_at: "2026-07-01T00:00:00.000Z",
+      is_current: true,
+    });
+
+    const response = await buildApp(services, { ...actor, permissions: ["security.manage"] }).request(
+      "/consents/cns_2/withdraw",
+      { method: "POST" },
+    );
+
+    expect(response.status).toBe(403);
+    expect(services.commandHandler).not.toHaveBeenCalled();
   });
 });

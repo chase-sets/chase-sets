@@ -325,6 +325,11 @@ export function createIdentityApiClient({
         }),
       );
     },
+    async withdrawConsent<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.consents[":id"].withdraw.$post({ param: { id }, json: {}, header: headers }),
+      );
+    },
   };
 }
 
