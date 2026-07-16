@@ -509,6 +509,17 @@ describe("render platform Helm values", () => {
       "marketplace.staging.chasesets.com",
       "admin.staging.chasesets.com",
     ]);
+
+    // #5564: this is the canonical DOKS-served staging topology — exactly 4
+    // hosts, none of them the legacy landing-/marketplace-/admin-staging
+    // redirect hostnames (those go unrouted once DOKS owns serving; see
+    // app_platform_legacy_domain_redirects in locals.tf). The deploy-blocking
+    // ingress-wait gate in .github/workflows/platform-production.yml probes
+    // exactly this host set (guarded in digitalocean-platform-config.test.mjs)
+    // and must never regress to including a legacy hostname.
+    for (const host of stagingValues.doksIngress.hosts.map((entry) => entry.host)) {
+      expect(host).not.toMatch(/^(landing|marketplace|admin)-staging\./);
+    }
   });
 
   it("renders DOKS preview ingress hosts for a preview identifier", () => {

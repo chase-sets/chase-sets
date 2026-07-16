@@ -1300,7 +1300,6 @@ jobs:
           set -euo pipefail
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
-          mapfile -t legacy_public_redirect_domains < <(terraform output -json legacy_public_redirect_domains | jq -r '.[]')
           mapfile -t marketplace_domains < <(terraform output -json marketplace_domains | jq -r '.[]')
           mapfile -t staging_root_marketplace_domains < <(terraform output -json staging_root_marketplace_domains | jq -r '.[]')
           if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ "${#marketplace_domains[@]}" -eq 0 ] || [ "${#staging_root_marketplace_domains[@]}" -eq 0 ]; then
@@ -1308,15 +1307,24 @@ jobs:
             exit 1
           fi
 
+          # #5564: probe exactly the 4 hosts DOKS serves (landing, admin,
+          # marketplace, staging-root — matching buildDoksIngressHosts() in
+          # scripts/render-platform-helm-values.mjs), not the legacy
+          # landing-/marketplace-/admin-staging redirect hostnames. App
+          # Platform's legacy redirects are intentionally empty once DOKS owns
+          # serving (locals.tf app_platform_legacy_domain_redirects), so those
+          # legacy hosts have no route on either platform and probing them was
+          # a stable, deterministic 404 that blocked every deploy. Legacy
+          # redirect behavior itself is still exercised by the dedicated
+          # staging admin-smoke/rollback-drill/bootstrap-hook-drill workflows
+          # (SMOKE_REQUIRE_LEGACY_REDIRECT); retiring vs rewiring those hosts
+          # is tracked separately (see the decision issue linked from #5564).
           ingress_urls=(
             "https://${landing_domain}/health/ready"
             "https://${admin_domain}/health/ready"
           )
           for hostname in "${marketplace_domains[@]}" "${staging_root_marketplace_domains[@]}"; do
             ingress_urls+=("https://${hostname}/health/ready")
-          done
-          for hostname in "${legacy_public_redirect_domains[@]}"; do
-            ingress_urls+=("https://${hostname}/")
           done
 
           ingress_args=()
