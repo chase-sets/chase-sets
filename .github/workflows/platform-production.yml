@@ -3798,8 +3798,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          release_commit="${RELEASE_COMMIT:-${GITHUB_SHA}}"
-
           if [ "${DEPLOY_INCIDENT_ACTION}" = "close" ]; then
             close_comment="$(node ./scripts/platform-deploy-incident.mjs --command build-comment)"
             open_incidents="$(
