@@ -615,9 +615,7 @@ function PublicAccountRealtimeView({
                         context={
                           <Stack gap={2}>
                             {review.scoring_disposition === "context-only" ? (
-                              <Badge tone="neutral">
-                                {t("discovery.routes.publicAccount.context.only.rating")}
-                              </Badge>
+                              <Badge tone="neutral">{t("discovery.routes.publicAccount.context.only.rating")}</Badge>
                             ) : null}
                             <ReviewScoringContext review={review} />
                           </Stack>
