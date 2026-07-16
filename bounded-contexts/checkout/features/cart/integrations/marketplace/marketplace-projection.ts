@@ -47,12 +47,20 @@ async function transformListingEvidence(
  * created after its inventory item already has supply/holds is immediately
  * accurate. Seller identity (identity) is added in a later wave.
  *
- * Seller-listing availability is keyed by `accountId` and gates every
- * active row for that seller: `disabled` flips active rows to
- * `seller-unavailable`, `enabled` restores them to `active`. Lifecycle
- * states (draft / paused / withdrawn) are orthogonal and left untouched
- * by the availability gate, mirroring the marketplace read model that
- * keeps listing status and seller availability as separate concerns.
+ * Seller-listing availability is keyed by `accountId` and is projected
+ * authoritatively into `checkout_marketplace_seller_availability`
+ * (`available` latch, version-guarded against stale redelivery). It gates
+ * every active row for that seller: `disabled` records the seller
+ * unavailable and flips its active rows to `seller-unavailable`, `enabled`
+ * records the seller available and restores them to `active`. Crucially,
+ * `published` consults that authoritative availability record rather than
+ * unconditionally activating, so a listing published while its seller is
+ * unavailable projects `seller-unavailable` — publish and disable converge
+ * to a non-purchasable row in either replay order, and a listing created
+ * after its seller was already disabled is projected correctly too.
+ * Lifecycle states (draft / paused / withdrawn) are orthogonal and left
+ * untouched by the availability gate, mirroring the marketplace read model
+ * that keeps listing status and seller availability as separate concerns.
  */
 export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -264,11 +272,28 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
     },
     "marketplace.listing.published": async (event) => {
       const listingId = extractIdFromStreamId(event.streamId, "marketplace.listing-");
+      // Project purchasability from the authoritative seller-availability
+      // record, not unconditionally: publishing a listing while its seller is
+      // unavailable must yield `seller-unavailable`, so publish and disable
+      // converge to the same non-purchasable row in either order (and a listing
+      // created after the seller was disabled is projected correctly on
+      // replay). Absent availability record means available (COALESCE true).
       const updated = await db.query<{ inventory_item_id: string | null }>(
-        `UPDATE checkout_marketplace_seller_options
-         SET status = 'active',
+        `UPDATE checkout_marketplace_seller_options AS option
+         SET status = CASE
+               WHEN COALESCE(
+                 (
+                   SELECT availability.available
+                   FROM checkout_marketplace_seller_availability AS availability
+                   WHERE availability.account_id = option.seller_account_id
+                 ),
+                 true
+               )
+               THEN 'active'
+               ELSE 'seller-unavailable'
+             END,
              updated_at = $2
-         WHERE listing_id = $1
+         WHERE option.listing_id = $1
          RETURNING inventory_item_id`,
         [listingId, event.timing.recordedAt],
       );
@@ -299,26 +324,56 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
     "marketplace.seller-listing-availability.disabled": async (event) => {
       const data = event.data as { accountId: string };
 
-      await db.query(
-        `UPDATE checkout_marketplace_seller_options
-         SET status = 'seller-unavailable',
-             updated_at = $2
-         WHERE seller_account_id = $1
-           AND status = 'active'`,
-        [data.accountId, event.timing.recordedAt],
+      // Record the authoritative latch first (version-guarded so a stale
+      // redelivered event cannot regress a newer one), then flip the seller's
+      // currently-active rows — but only when this event actually advanced the
+      // latch, so a stale disabled that lost the guard never hides rows.
+      const latch = await db.query(
+        `INSERT INTO checkout_marketplace_seller_availability (account_id, available, last_stream_version, updated_at)
+         VALUES ($1, false, $2, $3)
+         ON CONFLICT (account_id) DO UPDATE
+         SET available = EXCLUDED.available,
+             last_stream_version = EXCLUDED.last_stream_version,
+             updated_at = EXCLUDED.updated_at
+         WHERE checkout_marketplace_seller_availability.last_stream_version < EXCLUDED.last_stream_version`,
+        [data.accountId, event.streamVersion, event.timing.recordedAt],
       );
+
+      if (latch.rowCount === 1) {
+        await db.query(
+          `UPDATE checkout_marketplace_seller_options
+           SET status = 'seller-unavailable',
+               updated_at = $2
+           WHERE seller_account_id = $1
+             AND status = 'active'`,
+          [data.accountId, event.timing.recordedAt],
+        );
+      }
     },
     "marketplace.seller-listing-availability.enabled": async (event) => {
       const data = event.data as { accountId: string };
 
-      await db.query(
-        `UPDATE checkout_marketplace_seller_options
-         SET status = 'active',
-             updated_at = $2
-         WHERE seller_account_id = $1
-           AND status = 'seller-unavailable'`,
-        [data.accountId, event.timing.recordedAt],
+      const latch = await db.query(
+        `INSERT INTO checkout_marketplace_seller_availability (account_id, available, last_stream_version, updated_at)
+         VALUES ($1, true, $2, $3)
+         ON CONFLICT (account_id) DO UPDATE
+         SET available = EXCLUDED.available,
+             last_stream_version = EXCLUDED.last_stream_version,
+             updated_at = EXCLUDED.updated_at
+         WHERE checkout_marketplace_seller_availability.last_stream_version < EXCLUDED.last_stream_version`,
+        [data.accountId, event.streamVersion, event.timing.recordedAt],
       );
+
+      if (latch.rowCount === 1) {
+        await db.query(
+          `UPDATE checkout_marketplace_seller_options
+           SET status = 'active',
+               updated_at = $2
+           WHERE seller_account_id = $1
+             AND status = 'seller-unavailable'`,
+          [data.accountId, event.timing.recordedAt],
+        );
+      }
     },
     // At-capacity buyer signal (m127, producer: ordering's open-order
     // enforcement slice -- registered ahead of that slice landing, mirroring

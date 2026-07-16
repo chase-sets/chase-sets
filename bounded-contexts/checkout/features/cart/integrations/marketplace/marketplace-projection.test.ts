@@ -27,6 +27,7 @@ type SellerOptionRow = {
  */
 class ProjectionDb implements PgQueryable {
   public readonly options = new Map<string, SellerOptionRow>();
+  public readonly availabilities = new Map<string, { available: boolean; version: number }>();
   public readonly recomputedInventoryItemIds: string[] = [];
 
   async query<Row = Record<string, unknown>>(
@@ -96,8 +97,29 @@ class ProjectionDb implements PgQueryable {
       return { rows: [], rowCount: row ? 1 : 0 };
     }
 
-    if (sql.includes("SET status = 'active'") && sql.includes("WHERE listing_id = $1")) {
-      return this.setStatusByListing(String(values[0]), "active", String(values[1]), true);
+    if (sql.includes("INSERT INTO checkout_marketplace_seller_availability")) {
+      const accountId = String(values[0]);
+      const available = sql.includes("VALUES ($1, true");
+      const version = Number(values[1]);
+      const existing = this.availabilities.get(accountId);
+      if (!existing || existing.version < version) {
+        this.availabilities.set(accountId, { available, version });
+        return { rows: [], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (sql.includes("checkout_marketplace_seller_availability") && sql.includes("WHERE option.listing_id = $1")) {
+      const row = this.options.get(String(values[0]));
+      if (row) {
+        const latch = this.availabilities.get(row.seller_account_id);
+        row.status = !latch || latch.available ? "active" : "seller-unavailable";
+        row.updated_at = String(values[1]);
+      }
+      return {
+        rows: row ? ([{ inventory_item_id: row.inventory_item_id }] as Row[]) : [],
+        rowCount: row ? 1 : 0,
+      };
     }
 
     if (sql.includes("SET status = 'paused'")) {
@@ -153,21 +175,13 @@ class ProjectionDb implements PgQueryable {
     throw new Error(`Unexpected query: ${sql}`);
   }
 
-  private setStatusByListing<Row>(
-    listingId: string,
-    status: string,
-    updatedAt: string,
-    returnInventoryItem = false,
-  ): PgQueryResult<Row> {
+  private setStatusByListing<Row>(listingId: string, status: string, updatedAt: string): PgQueryResult<Row> {
     const row = this.options.get(listingId);
     if (row) {
       row.status = status;
       row.updated_at = updatedAt;
     }
-    return {
-      rows: row && returnInventoryItem ? ([{ inventory_item_id: row.inventory_item_id }] as Row[]) : [],
-      rowCount: row ? 1 : 0,
-    };
+    return { rows: [], rowCount: row ? 1 : 0 };
   }
 
   private flipSellerStatus<Row>(
@@ -205,10 +219,11 @@ class ProjectionDb implements PgQueryable {
   }
 }
 
-function event(type: string, streamId: string, data: Record<string, unknown>): TransportEvent {
+function event(type: string, streamId: string, data: Record<string, unknown>, streamVersion = 1): TransportEvent {
   return buildTransportEvent(type, data, {
     id: "evt_1",
     streamId,
+    streamVersion,
     tenantId: "tnt_1",
     audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
     timing: { occurredAt: "2026-05-09T00:00:00.000Z", recordedAt: "2026-05-09T00:00:00.000Z" },
@@ -408,26 +423,151 @@ describe("checkout marketplace seller-options projection", () => {
     );
 
     await handlers["marketplace.seller-listing-availability.disabled"]!(
-      event("marketplace.seller-listing-availability.disabled", "marketplace.seller-listing-availability-acc_seller", {
-        accountId: "acc_seller",
-      }),
+      event(
+        "marketplace.seller-listing-availability.disabled",
+        "marketplace.seller-listing-availability-acc_seller",
+        { accountId: "acc_seller" },
+        1,
+      ),
     );
 
     expect(db.options.get("lst_1")?.status).toBe("seller-unavailable");
     expect(db.options.get("lst_2")?.status).toBe("seller-unavailable");
     expect(db.options.get("lst_paused")?.status).toBe("paused");
     expect(db.options.get("lst_other")?.status).toBe("active");
+    expect(db.availabilities.get("acc_seller")).toEqual({ available: false, version: 1 });
 
     await handlers["marketplace.seller-listing-availability.enabled"]!(
-      event("marketplace.seller-listing-availability.enabled", "marketplace.seller-listing-availability-acc_seller", {
-        accountId: "acc_seller",
-      }),
+      event(
+        "marketplace.seller-listing-availability.enabled",
+        "marketplace.seller-listing-availability-acc_seller",
+        { accountId: "acc_seller" },
+        2,
+      ),
     );
 
     expect(db.options.get("lst_1")?.status).toBe("active");
     expect(db.options.get("lst_2")?.status).toBe("active");
     expect(db.options.get("lst_paused")?.status).toBe("paused");
     expect(db.options.get("lst_other")?.status).toBe("active");
+    expect(db.availabilities.get("acc_seller")).toEqual({ available: true, version: 2 });
+  });
+
+  it("publish-then-disable converges to a non-purchasable row for an unavailable seller", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
+
+    await handlers["marketplace.listing.created"]!(createdEvent({ listingId: "lst_1" }));
+    await handlers["marketplace.listing.published"]!(
+      event("marketplace.listing.published", "marketplace.listing-lst_1", {}),
+    );
+    expect(db.options.get("lst_1")?.status).toBe("active");
+
+    await handlers["marketplace.seller-listing-availability.disabled"]!(
+      event("marketplace.seller-listing-availability.disabled", "marketplace.seller-listing-availability-acc_seller", {
+        accountId: "acc_seller",
+      }),
+    );
+
+    expect(db.options.get("lst_1")?.status).toBe("seller-unavailable");
+    expect(db.availabilities.get("acc_seller")).toEqual({ available: false, version: 1 });
+  });
+
+  it("disable-then-publish converges to a non-purchasable row (row already exists)", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
+
+    // Seller has a draft (paused-style) listing; availability is disabled while
+    // it is still non-active, then the listing is published. The disabled
+    // handler skips the non-active row, so only the availability-aware publish
+    // keeps it out of the buyer-facing candidate set.
+    await handlers["marketplace.listing.created"]!(createdEvent({ listingId: "lst_1" }));
+    await handlers["marketplace.seller-listing-availability.disabled"]!(
+      event("marketplace.seller-listing-availability.disabled", "marketplace.seller-listing-availability-acc_seller", {
+        accountId: "acc_seller",
+      }),
+    );
+    expect(db.options.get("lst_1")?.status).toBe("draft");
+
+    await handlers["marketplace.listing.published"]!(
+      event("marketplace.listing.published", "marketplace.listing-lst_1", {}),
+    );
+
+    expect(db.options.get("lst_1")?.status).toBe("seller-unavailable");
+  });
+
+  it("projects a non-purchasable row when the listing is created after the seller was disabled", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
+
+    // Cross-stream replay interleaving: the seller-availability disabled event
+    // is applied before the listing row even exists. The authoritative latch
+    // still gates the later publish, so the row is never purchasable.
+    await handlers["marketplace.seller-listing-availability.disabled"]!(
+      event("marketplace.seller-listing-availability.disabled", "marketplace.seller-listing-availability-acc_seller", {
+        accountId: "acc_seller",
+      }),
+    );
+    await handlers["marketplace.listing.created"]!(createdEvent({ listingId: "lst_1" }));
+    await handlers["marketplace.listing.published"]!(
+      event("marketplace.listing.published", "marketplace.listing-lst_1", {}),
+    );
+
+    expect(db.options.get("lst_1")?.status).toBe("seller-unavailable");
+  });
+
+  it("projects an active row for a genuinely available published listing", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
+
+    await handlers["marketplace.listing.created"]!(createdEvent({ listingId: "lst_1" }));
+    await handlers["marketplace.listing.published"]!(
+      event("marketplace.listing.published", "marketplace.listing-lst_1", {}),
+    );
+
+    expect(db.options.get("lst_1")?.status).toBe("active");
+    expect(db.availabilities.get("acc_seller")).toBeUndefined();
+  });
+
+  it("ignores a stale redelivered disabled event so an enabled seller stays purchasable", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
+
+    await handlers["marketplace.listing.created"]!(createdEvent({ listingId: "lst_1" }));
+    await handlers["marketplace.listing.published"]!(
+      event("marketplace.listing.published", "marketplace.listing-lst_1", {}),
+    );
+    await handlers["marketplace.seller-listing-availability.disabled"]!(
+      event(
+        "marketplace.seller-listing-availability.disabled",
+        "marketplace.seller-listing-availability-acc_seller",
+        { accountId: "acc_seller" },
+        1,
+      ),
+    );
+    await handlers["marketplace.seller-listing-availability.enabled"]!(
+      event(
+        "marketplace.seller-listing-availability.enabled",
+        "marketplace.seller-listing-availability-acc_seller",
+        { accountId: "acc_seller" },
+        2,
+      ),
+    );
+    expect(db.options.get("lst_1")?.status).toBe("active");
+
+    // At-least-once redelivery of the superseded disabled event: the latch
+    // guard rejects it, so the seller stays available and the row purchasable.
+    await handlers["marketplace.seller-listing-availability.disabled"]!(
+      event(
+        "marketplace.seller-listing-availability.disabled",
+        "marketplace.seller-listing-availability-acc_seller",
+        { accountId: "acc_seller" },
+        1,
+      ),
+    );
+
+    expect(db.options.get("lst_1")?.status).toBe("active");
+    expect(db.availabilities.get("acc_seller")).toEqual({ available: true, version: 2 });
   });
 
   it("flags and clears a seller's rows at_capacity independently of the availability status", async () => {
