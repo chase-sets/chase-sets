@@ -262,8 +262,9 @@
     },
     {
       "projectionName": "checkout-marketplace-listing-options-projection",
+      "projectionRevision": 2,
       "sourceContextNames": ["marketplace", "catalog", "ordering"],
-      "ownedTables": ["checkout_marketplace_seller_options"],
+      "ownedTables": ["checkout_marketplace_seller_options", "checkout_marketplace_seller_availability"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },

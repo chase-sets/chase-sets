@@ -113,6 +113,7 @@ describe("pricing marketplace source projection", () => {
 
     expect(calls[0]?.sql).toContain("pricing_market_listing_inputs");
     expect(calls[0]?.sql).toContain("inventory_item_id");
+    expect(calls[0]?.sql).toContain("pricing_market_listing_inputs.last_stream_version < EXCLUDED.last_stream_version");
     expect(calls[0]?.params).toEqual([
       "lst_1",
       "acc_1",
@@ -122,7 +123,90 @@ describe("pricing marketplace source projection", () => {
       "20.00",
       2,
       "2026-05-09T00:00:00.000Z",
+      1,
     ]);
+  });
+
+  it("guards market listing price/lifecycle handlers against stale-version redelivery", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const handlers = buildPricingMarketplaceInputProjectionHandlers({
+      query: async (sql: string, params?: readonly unknown[]) => {
+        calls.push({ sql, params: params ?? [] });
+        return { rows: [] };
+      },
+    });
+
+    await handlers["marketplace.listing.price-updated"]?.({
+      type: "marketplace.listing.price-updated",
+      streamId: "marketplace.listing-lst_1",
+      streamVersion: 7,
+      data: { priceAmount: "18.00" },
+      timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
+    } as never);
+
+    await handlers["marketplace.listing.published"]?.({
+      type: "marketplace.listing.published",
+      streamId: "marketplace.listing-lst_1",
+      streamVersion: 8,
+      data: {},
+      timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
+    } as never);
+
+    // Every writing handler carries the event stream version and only advances
+    // rows strictly behind it, so a redelivered older event is a no-op.
+    expect(calls[0]?.sql).toContain("last_stream_version = $4");
+    expect(calls[0]?.sql).toContain("AND last_stream_version < $4");
+    expect(calls[0]?.params).toEqual(["lst_1", "18.00", "2026-05-09T00:00:00.000Z", 7]);
+    expect(calls[1]?.sql).toContain("last_stream_version = $3");
+    expect(calls[1]?.sql).toContain("AND last_stream_version < $3");
+    expect(calls[1]?.params).toEqual(["lst_1", "2026-05-09T00:00:00.000Z", 8]);
+  });
+
+  it("guards buyer offer submitted/accepted upserts against stale-version redelivery", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const handlers = buildPricingMarketplaceInputProjectionHandlers({
+      query: async (sql: string, params?: readonly unknown[]) => {
+        calls.push({ sql, params: params ?? [] });
+        return { rows: [] };
+      },
+    });
+
+    await handlers["marketplace.offer.submitted"]?.({
+      type: "marketplace.offer.submitted",
+      streamId: "marketplace.offer-off_1",
+      streamVersion: 1,
+      data: {
+        offerId: "off_1",
+        buyerAccountId: "acc_buyer",
+        catalogItemId: "cat_1",
+        productId: "prod_1",
+        priceAmount: "12.00",
+        quantityRequested: 1,
+      },
+      timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
+    } as never);
+
+    await handlers["marketplace.offer.accepted"]?.({
+      type: "marketplace.offer.accepted",
+      streamId: "marketplace.offer-off_1",
+      streamVersion: 2,
+      data: {
+        offerId: "off_1",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        catalogItemId: "cat_1",
+        productId: "prod_1",
+        priceAmount: "12.00",
+        quantityRequested: 1,
+        acceptedAt: "2026-05-09T00:00:00.000Z",
+      },
+      timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
+    } as never);
+
+    expect(calls[0]?.sql).toContain("pricing_buyer_offer_inputs.last_stream_version < EXCLUDED.last_stream_version");
+    expect(calls[0]?.params?.[calls[0].params.length - 1]).toBe(1);
+    expect(calls[1]?.sql).toContain("pricing_buyer_offer_inputs.last_stream_version < EXCLUDED.last_stream_version");
+    expect(calls[1]?.params?.[calls[1].params.length - 1]).toBe(2);
   });
 
   it("projects catalog item category assignment for repricing-policy catalog-filter scope resolution (#4330)", async () => {

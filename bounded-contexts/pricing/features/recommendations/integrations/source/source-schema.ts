@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS pricing_market_listing_inputs (
   price_amount numeric(12, 2) NOT NULL,
   quantity_cap integer NOT NULL CHECK (quantity_cap >= 0),
   status text NOT NULL,
-  updated_at timestamptz NOT NULL
+  updated_at timestamptz NOT NULL,
+  last_stream_version integer NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0)
 );
 
 CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_lookup_idx
@@ -71,6 +72,14 @@ CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_lookup_idx
 
 ALTER TABLE pricing_market_listing_inputs
   ADD COLUMN IF NOT EXISTS inventory_item_id text NULL;
+
+-- Stale-input guard: the listing handlers only advance a row when the event
+-- carries a newer stream version, so a redelivered old price/lifecycle event
+-- can never regress a newer competitor price. Backfilled lock-safely with a
+-- constant 0 default (0 = pre-versioned baseline that the next real event,
+-- always version >= 1, supersedes).
+ALTER TABLE pricing_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS last_stream_version integer NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_inventory_idx
   ON pricing_market_listing_inputs (seller_account_id, inventory_item_id, status)
@@ -86,11 +95,18 @@ CREATE TABLE IF NOT EXISTS pricing_buyer_offer_inputs (
   quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
   status text NOT NULL,
   accepted_at timestamptz NULL,
-  updated_at timestamptz NOT NULL
+  updated_at timestamptz NOT NULL,
+  last_stream_version integer NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0)
 );
 
 CREATE INDEX IF NOT EXISTS pricing_buyer_offer_inputs_lookup_idx
   ON pricing_buyer_offer_inputs (catalog_catalog_item_id, product_id, status);
+
+-- Stale-input guard: submitted/accepted upserts only advance a row when the
+-- offer-stream version is newer, so a redelivered submitted can never clobber
+-- an accepted price. Backfilled lock-safely with a constant 0 default.
+ALTER TABLE pricing_buyer_offer_inputs
+  ADD COLUMN IF NOT EXISTS last_stream_version integer NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS pricing_order_signal_lines (
   order_id text NOT NULL,

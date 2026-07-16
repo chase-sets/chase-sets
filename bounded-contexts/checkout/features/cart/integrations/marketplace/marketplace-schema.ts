@@ -43,6 +43,22 @@ ALTER TABLE checkout_marketplace_seller_options
 
 ALTER TABLE checkout_marketplace_seller_options
   ADD COLUMN IF NOT EXISTS evidence jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+-- Authoritative per-seller listing availability, projected from the
+-- Marketplace seller-listing-availability stream keyed by account. This is the
+-- checkout-local mirror of Marketplace's own availability gate and is the
+-- single source of truth the published handler consults so a listing that is
+-- published while its seller is unavailable is projected non-purchasable
+-- regardless of the order publish and disable are replayed in. available
+-- defaults true so a seller with no availability event yet reads as available;
+-- last_stream_version guards the latch against stale redelivery so an old
+-- disabled/enabled event can never regress a newer one.
+CREATE TABLE IF NOT EXISTS checkout_marketplace_seller_availability (
+  account_id text PRIMARY KEY,
+  available boolean NOT NULL DEFAULT true,
+  last_stream_version integer NOT NULL CHECK (last_stream_version >= 1),
+  updated_at timestamptz NOT NULL
+);
 `;
 
 export const checkoutMarketplaceSellerOptionsSchemaMigrations: readonly BcSchemaMigration[] = [
