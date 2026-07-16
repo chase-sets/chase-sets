@@ -1,10 +1,22 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  DEPLOY_ROOT_CAUSE_CODES,
+  buildDeployIncidentBody,
   buildSupersededNoOpResolutionComment,
+  classifyDeploymentRootCause,
   classifyPlatformDeployRun,
   classifySupersededNoOpIncident,
   parsePlatformDeployIncidentOptions,
+  redactDeployDiagnosticText,
+  renderDeployRootCauseSummary,
 } from "./platform-deploy-incident.mjs";
+
+const fixtureDirectory = resolve("scripts/fixtures/platform-deploy-incidents");
+const rootCauseFixtures = readdirSync(fixtureDirectory)
+  .filter((name) => name.endsWith(".json"))
+  .map((name) => JSON.parse(readFileSync(resolve(fixtureDirectory, name), "utf8")));
 
 describe("platform deploy incident classification", () => {
   it("closes a superseded production run with successful dependencies", () => {
@@ -30,7 +42,7 @@ describe("platform deploy incident classification", () => {
         deployProductionResult: "skipped",
         recordStagingHealthResult: "success",
       }),
-    ).toMatchObject({ action: "close", reason: "staging-superseded-before-apply", noOp: true });
+    ).toMatchObject({ action: "close", reason: "superseded-pre-mutation", noOp: true });
   });
 
   it("supports the pre-applied-signal workflow as a legacy no-op", () => {
@@ -58,7 +70,7 @@ describe("platform deploy incident classification", () => {
     ).toMatchObject({ action: "create-or-update", kind: "deploy-failure", noOp: false });
   });
 
-  it("preserves a bounded bootstrap failure classification for staging incidents", () => {
+  it("maps legacy staging bootstrap classifications into the stable public taxonomy", () => {
     expect(
       classifyPlatformDeployRun({
         resolveReleaseResult: "success",
@@ -66,12 +78,12 @@ describe("platform deploy incident classification", () => {
         deployStagingResult: "failure",
         deployProductionResult: "skipped",
         recordStagingHealthResult: "success",
-        stagingFailureClassification: "staging-bootstrap-schema-lock-timeout",
+        stagingRootCauseCode: "staging-bootstrap-schema-lock-timeout",
       }),
     ).toMatchObject({
       action: "create-or-update",
-      reason: "staging-bootstrap-schema-lock-timeout",
-      stagingFailureClassification: "staging-bootstrap-schema-lock-timeout",
+      reason: "doks-bootstrap-or-migration",
+      rootCauseCode: "doks-bootstrap-or-migration",
     });
   });
 
@@ -145,7 +157,94 @@ describe("platform deploy incident classification", () => {
       resolveReleaseResult: "success",
       deployStagingResult: "success",
       stagingApplied: "false",
-      stagingFailureClassification: "staging-bootstrap-timeout",
+      stagingRootCauseCode: "staging-bootstrap-timeout",
     });
+  });
+});
+
+describe("deployment root-cause taxonomy", () => {
+  it("publishes the complete initial stable taxonomy", () => {
+    expect(DEPLOY_ROOT_CAUSE_CODES).toEqual([
+      "app-platform-bootstrap-config",
+      "app-platform-bootstrap-runtime",
+      "doks-bootstrap-or-migration",
+      "terraform-provider-or-state",
+      "staging-dns",
+      "staging-advisory-seed-or-e2e",
+      "blocking-staging-verification",
+      "production-verification",
+      "superseded-pre-mutation",
+      "unknown",
+    ]);
+  });
+
+  for (const fixture of rootCauseFixtures) {
+    it(`classifies fixture: ${fixture.name}`, () => {
+      expect(classifyDeploymentRootCause(fixture.input)).toMatchObject(fixture.expected);
+    });
+  }
+
+  it("renders the same concise root cause into the artifact, summary, and incident body", () => {
+    const fixture = rootCauseFixtures.find(
+      ({ expected }) => expected.rootCauseCode === "app-platform-bootstrap-config",
+    );
+    const artifact = classifyDeploymentRootCause(fixture.input);
+    const summary = renderDeployRootCauseSummary(artifact);
+    const body = buildDeployIncidentBody({
+      ...artifact,
+      rootCausePhase: artifact.phase,
+      runUrl: "https://github.com/chase-sets/chase-sets/actions/runs/29333994354",
+      releaseCommit: "a".repeat(40),
+      artifactsUrl: "https://github.com/chase-sets/chase-sets/actions/runs/29333994354/artifacts",
+    });
+
+    expect(artifact).toMatchObject({
+      schemaVersion: "platform-deploy-root-cause/v1",
+      rootCauseCode: "app-platform-bootstrap-config",
+      affectedComponent: "platform-bootstrap",
+      blocking: true,
+    });
+    for (const output of [summary, body]) {
+      expect(output).toContain("app-platform-bootstrap-config");
+      expect(output).toContain(artifact.rootCauseSummary);
+      expect(output).toContain(artifact.remediation);
+    }
+    expect(body).toContain("29333994354");
+    expect(body).toContain(artifact.rootCauseSignature);
+    expect(body).not.toContain("fixture-secret");
+  });
+
+  it("redacts tokens, connection strings, cookies, authorization headers, JSON secrets, and private keys", () => {
+    const redacted = redactDeployDiagnosticText(
+      [
+        "Authorization: Bearer bearer-secret",
+        "proxy-authorization: Basic basic-secret",
+        "postgresql://user:password@db.example/marketplace",
+        "redis://default:password@cache.example/0",
+        "cookie=session-cookie",
+        "Set-Cookie: auth=cookie-value",
+        "DATABASE_URL_MARKETPLACE=opaque-environment-secret",
+        '{"token":"json-secret","database_url":"postgres://hidden"}',
+        "dop_v1_provider_token",
+        "-----BEGIN PRIVATE KEY-----\nprivate-material\n-----END PRIVATE KEY-----",
+        "Missing DATABASE_URL_MARKETPLACE",
+      ].join("\n"),
+    );
+
+    for (const secret of [
+      "bearer-secret",
+      "basic-secret",
+      "user:password",
+      "default:password",
+      "session-cookie",
+      "cookie-value",
+      "opaque-environment-secret",
+      "json-secret",
+      "provider_token",
+      "private-material",
+    ]) {
+      expect(redacted).not.toContain(secret);
+    }
+    expect(redacted).toContain("Missing DATABASE_URL_MARKETPLACE");
   });
 });

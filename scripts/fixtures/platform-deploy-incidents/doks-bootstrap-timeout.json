@@ -1,0 +1,18 @@
+{
+  "name": "DOKS bootstrap schema lock timeout",
+  "input": {
+    "phase": "staging-deploy",
+    "diagnostics": [
+      {
+        "namespace": "chase-sets-platform",
+        "reason": "Schema bootstrap lock was not acquired before lock_timeout"
+      }
+    ]
+  },
+  "expected": {
+    "rootCauseCode": "doks-bootstrap-or-migration",
+    "affectedComponent": "platform-bootstrap",
+    "phase": "doks-bootstrap-or-migration",
+    "blocking": true
+  }
+}

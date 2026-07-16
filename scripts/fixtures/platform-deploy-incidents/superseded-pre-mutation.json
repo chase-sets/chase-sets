@@ -1,0 +1,13 @@
+{
+  "name": "release superseded before mutation",
+  "input": {
+    "phase": "superseded-pre-mutation",
+    "superseded": true
+  },
+  "expected": {
+    "rootCauseCode": "superseded-pre-mutation",
+    "affectedComponent": "deploy-lane",
+    "phase": "pre-mutation",
+    "blocking": false
+  }
+}

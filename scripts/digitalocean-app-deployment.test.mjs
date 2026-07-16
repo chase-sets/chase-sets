@@ -19,6 +19,7 @@ import {
   durableDatabaseDestructiveResourceChanges,
   latestDeployment,
   listDeploymentSummariesFromApi,
+  normalizeDeploymentProgressSteps,
   parseDeploymentSummaryRows,
   pendingDomains,
   planAppChanged,
@@ -1012,21 +1013,65 @@ running BUILDING 2026-06-19T22:05:00Z
     });
 
     expect(record).toMatchObject({
-      schemaVersion: "digitalocean-app-deployment-diagnostics/v1",
+      schemaVersion: "digitalocean-app-deployment-diagnostics/v2",
       appId: "app-id",
       deploymentId: "failed-deployment",
       bootstrapFailure: true,
+      rootCauseCode: "app-platform-bootstrap-runtime",
+      affectedComponent: "platform-bootstrap",
       steps: [
         {
           name: "platform-bootstrap",
-          status: "ERROR",
-          reason: "DeployContainerExitNonZero",
+          componentName: "platform-bootstrap",
+          phase: "ERROR",
+          reasonCode: "DeployContainerExitNonZero",
+          message: "",
         },
       ],
     });
     expect(record.logs[0].output).not.toContain("do-not-publish");
     expect(record.logs[0].output).not.toContain("gho_secret");
     expect(record.logs[0].output).not.toContain("user:password");
+  });
+
+  it("recursively normalizes nested deployment progress and classifies run 29333994354", () => {
+    const fixture = JSON.parse(
+      readFileSync(resolve("scripts/fixtures/platform-deploy-incidents/app-platform-bootstrap-config.json"), "utf8"),
+    );
+    const steps = normalizeDeploymentProgressSteps(fixture.input.steps);
+    const record = buildDeploymentDiagnosticsRecord({
+      appId: "app-id",
+      deploymentId: "run-29333994354",
+      deploymentPhase: "ERROR",
+      componentNames: ["platform-bootstrap"],
+      logTypes: ["deploy"],
+      steps,
+      logs: fixture.input.logs,
+    });
+
+    expect(steps).toEqual([
+      {
+        name: "deploy",
+        componentName: "unknown",
+        phase: "ERROR",
+        reasonCode: "",
+        message: "",
+      },
+      {
+        name: "platform-bootstrap",
+        componentName: "platform-bootstrap",
+        phase: "ERROR",
+        reasonCode: "DeployContainerExitNonZero",
+        message: "",
+      },
+    ]);
+    expect(record).toMatchObject({
+      bootstrapFailure: true,
+      rootCauseCode: "app-platform-bootstrap-config",
+      affectedComponent: "platform-bootstrap",
+      phase: "app-platform-bootstrap",
+    });
+    expect(record.logs[0].output).not.toContain("fixture-secret");
   });
 
   it("parses deployment diagnostics details JSON from a failed doctl command stdout", async () => {

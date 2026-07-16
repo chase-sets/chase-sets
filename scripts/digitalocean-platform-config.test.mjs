@@ -1164,6 +1164,7 @@ describe("DigitalOcean platform configuration", () => {
       "Seed staging Kubernetes scenario data",
     );
     const stagingDiagnosticsStep = workflowStep(deployStagingJob, "Capture staging Kubernetes deploy diagnostics");
+    const stagingFailureClassificationStep = workflowStep(deployStagingJob, "Classify staging deployment failure");
     const stagingIngressWaitStep = workflowStep(deployStagingJob, "Wait for staging ingress URLs");
     const kubeconfigStep = workflowStep(deployProductionJob, "Configure production Kubernetes context");
     const captureStep = workflowStep(deployProductionJob, "Capture production rollback target");
@@ -1185,6 +1186,10 @@ describe("DigitalOcean platform configuration", () => {
     const productionKubernetesDiagnosticsUpload = workflowStep(
       deployProductionJob,
       "Upload production Kubernetes deploy diagnostics",
+    );
+    const productionFailureClassificationStep = workflowStep(
+      deployProductionJob,
+      "Classify production deployment failure",
     );
     const diagnosticsStep = workflowStep(deployProductionJob, "Capture post-cutover production Kubernetes diagnostics");
     const rollbackStep = workflowStep(deployProductionJob, "Roll back production Kubernetes release");
@@ -1211,6 +1216,11 @@ describe("DigitalOcean platform configuration", () => {
       "--out=artifacts/release-health/staging-app-platform-bootstrap-diagnostics.json",
     );
     expect(stagingAppPlatformBootstrapDiagnosticsUpload).toContain("name: staging-app-platform-bootstrap-diagnostics");
+    expect(stagingFailureClassificationStep).toContain("--command classify-root-cause");
+    expect(stagingFailureClassificationStep).toContain("--phase staging-deploy");
+    expect(stagingFailureClassificationStep).toContain("staging-deploy-root-cause.json");
+    expect(stagingFailureClassificationStep).toContain('github-summary "$GITHUB_STEP_SUMMARY"');
+    expect(stagingFailureClassificationStep).not.toContain("grep -Eiq");
     expect(deployStagingJob).not.toContain("digitalocean-app-deployment.mjs wait-domains");
     expect(deployStagingJob).not.toContain("- name: Reset stale staging root domain attachment");
     expect(deployStagingJob).not.toContain("- name: Deploy App Platform image");
@@ -1532,6 +1542,9 @@ describe("DigitalOcean platform configuration", () => {
       "name: production-app-platform-bootstrap-diagnostics",
     );
     expect(productionKubernetesDiagnosticsUpload).toContain("name: production-kubernetes-deploy-diagnostics");
+    expect(productionFailureClassificationStep).toContain("--command classify-root-cause");
+    expect(productionFailureClassificationStep).toContain("--phase production-verification");
+    expect(productionFailureClassificationStep).toContain("production-deploy-root-cause.json");
 
     expect(diagnosticsStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
     expect(diagnosticsStep).toContain("pnpm run platform:kubernetes-deployment -- diagnostics");
@@ -2113,8 +2126,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(notifyProductionDeployIncidentJob).toContain("name: Classify deploy outcome");
     expect(notifyProductionDeployIncidentJob).toContain("id: classify_deploy_outcome");
     expect(notifyProductionDeployIncidentJob).toContain("node ./scripts/platform-deploy-incident.mjs");
+    expect(notifyProductionDeployIncidentJob).toContain("--command build-incident-body");
+    expect(notifyProductionDeployIncidentJob).toContain("ROOT_CAUSE_SIGNATURE:");
     expect(notifyProductionDeployIncidentJob).toContain(
-      "Staging failure classification: ${STAGING_FAILURE_CLASSIFICATION:-unknown}",
+      'title="Incident: Platform Deploy ${PLATFORM_DEPLOY_INCIDENT_REASON} [${ROOT_CAUSE_SIGNATURE}]"',
     );
     expect(notifyProductionDeployIncidentJob).toContain(
       "STAGING_APPLIED: ${{ needs.deploy-staging.outputs.applied || '' }}",
@@ -2129,7 +2144,7 @@ describe("DigitalOcean platform configuration", () => {
       'issue_create_args+=(--milestone "${incident_milestone_title}")',
     );
     expect(notifyProductionDeployIncidentJob).not.toContain('--milestone "Incidents"');
-    expect(notifyProductionDeployIncidentJob).toContain("Incident: Platform Deploy failed for");
+    expect(notifyProductionDeployIncidentJob).toContain("Incident: Platform Deploy ${PLATFORM_DEPLOY_INCIDENT_REASON}");
     expect(notifyProductionDeployIncidentJob).not.toContain("Kind: production-superseded");
     expect(notifyProductionDeployIncidentJob).not.toContain("needs.deploy-production.outputs.superseded == 'true'");
     expect(notifyProductionDeployIncidentJob).toContain('gh issue close "${issue_number}"');
@@ -2148,9 +2163,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(closeResolvedDeployIncidentsJob).toContain("issues: write");
     expect(closeResolvedDeployIncidentsJob).toContain("Close resolved deploy incidents");
     expect(closeResolvedDeployIncidentsJob).toContain('--search "\\"Incident: Platform Deploy\\" in:title"');
-    expect(closeResolvedDeployIncidentsJob).toContain(
-      'startswith("Incident: Platform Deploy superseded before production for ")',
-    );
+    expect(closeResolvedDeployIncidentsJob).toContain('startswith("Incident: Platform Deploy ")');
     expect(closeResolvedDeployIncidentsJob).toContain("Resolving workflow run: ${RUN_URL}");
     expect(closeResolvedDeployIncidentsJob).toContain("Resolving release commit: ${release_commit}");
     expect(closeResolvedDeployIncidentsJob).toContain('gh issue close "${issue_number}"');
