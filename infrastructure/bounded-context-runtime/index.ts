@@ -48,6 +48,7 @@ export {
   summarizeRuntimeSubscriptionLedgers,
   syncContextSubscriptions,
 } from "./subscriptions";
+export { createCheckpointKey, loadSubscriptionCheckpoint } from "./subscription-store";
 export type {
   ContextProjectionGroup,
   ContextProjectionGroupStatus,
