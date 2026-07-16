@@ -2,6 +2,10 @@ import type {
   CatalogPrimaryWorkbenchRouteContext,
   CatalogPrimaryWorkbenchScopeContext,
 } from "../api/primary-workbench-admin-contracts";
+import {
+  providerImportScopeSecondSegmentIsExpansion,
+  providerImportScopeSecondSegmentIsProductLine,
+} from "../api/provider-import-scope-shape";
 import type { SourceObservationIntegrationJobScope, SourceObservationIntegrationScope } from "./contracts";
 
 export type CatalogPrimaryWorkbenchScopeQueryKey =
@@ -38,16 +42,6 @@ const emptyScope: CatalogPrimaryWorkbenchScopeContext = {
   expansionName: null,
   status: null,
 };
-const twoSegmentProductLineScopeProviders = new Set(["tcgplayer"]);
-const twoSegmentExpansionScopeProviders = new Set([
-  "lorcanajson",
-  "lorcast",
-  "mtgjson",
-  "scryfall",
-  "scrydex",
-  "ygojson",
-  "ygoprodeck",
-]);
 
 export function emptyCatalogPrimaryWorkbenchScopeContext(
   providerKey: string | null = null,
@@ -165,8 +159,8 @@ export function scopeContextFromImportScope(
   }
 
   if (segments.length === 2) {
-    const secondSegmentIsProductLine = providerUsesTwoSegmentProductLineScope(providerKey);
-    const secondSegmentIsExpansion = providerUsesTwoSegmentExpansionScope(providerKey);
+    const secondSegmentIsProductLine = providerImportScopeSecondSegmentIsProductLine(providerKey);
+    const secondSegmentIsExpansion = providerImportScopeSecondSegmentIsExpansion(providerKey);
     return scopeContextFromFields({
       providerKey,
       languageCode,
@@ -291,7 +285,7 @@ export function compactExpansionRouteScopeMatchesProviderScope(
   scope: SourceObservationIntegrationScope,
 ): boolean {
   const providerKey = context.providerKey ?? scope.provider_key;
-  if (!providerUsesTwoSegmentExpansionScope(providerKey)) {
+  if (!providerImportScopeSecondSegmentIsExpansion(providerKey)) {
     return false;
   }
 
@@ -395,14 +389,6 @@ function importScopeSegments(importScope: string | null): readonly string[] {
     .split(":")
     .map((segment) => segment.trim())
     .filter(Boolean);
-}
-
-function providerUsesTwoSegmentProductLineScope(providerKey: string | null): boolean {
-  return twoSegmentProductLineScopeProviders.has(providerKey ?? "");
-}
-
-function providerUsesTwoSegmentExpansionScope(providerKey: string | null): boolean {
-  return twoSegmentExpansionScopeProviders.has(providerKey ?? "");
 }
 
 function importScopeForStructuredMerge(

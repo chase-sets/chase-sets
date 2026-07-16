@@ -153,6 +153,40 @@ describe("Catalog primary workbench scope context", () => {
     });
   });
 
+  it("resolves compact two-segment import scopes per provider through the registry-backed scope shape", () => {
+    // TCGplayer leads with product-line/category in the provider registry, so the
+    // second segment is a product line.
+    expect(scopeContextFromImportScope("en:1", "tcgplayer")).toMatchObject({
+      providerKey: "tcgplayer",
+      languageCode: "en",
+      productLineId: "1",
+      seriesId: null,
+      expansionId: null,
+    });
+
+    // The reference-data providers lead with set-name, so the second segment is an
+    // expansion — covering every provider that was in the deleted expansion set.
+    for (const providerKey of ["lorcanajson", "lorcast", "mtgjson", "scryfall", "scrydex", "ygojson", "ygoprodeck"]) {
+      expect(scopeContextFromImportScope("en:SET1", providerKey)).toMatchObject({
+        providerKey,
+        languageCode: "en",
+        productLineId: null,
+        seriesId: null,
+        expansionId: "SET1",
+      });
+    }
+
+    // TCGdex carries its own language/series hierarchy, so the second segment is a
+    // series (the default shape, no special-casing).
+    expect(scopeContextFromImportScope("ja:SV", "tcgdex")).toMatchObject({
+      providerKey: "tcgdex",
+      languageCode: "ja",
+      productLineId: null,
+      seriesId: "SV",
+      expansionId: null,
+    });
+  });
+
   it("uses structured names for display labels instead of parsing raw importScope text", () => {
     const scope = scopeContextFromProviderScope(
       sourceObservationScope({
