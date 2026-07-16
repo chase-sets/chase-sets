@@ -74,6 +74,8 @@ function createServices() {
       issueOpaqueToken: vi.fn(() => "invite_token"),
       hashSecret: vi.fn((value: string) => `hashed:${value}`),
       verifySecret: vi.fn((value: string, hash: string) => hash === `hashed:${value}`),
+      hashPassword: vi.fn(async (value: string) => `password:${value}`),
+      verifyPassword: vi.fn(async (value: string, hash: string) => ({ valid: hash === `hashed:${value}` })),
     },
     identity: {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
@@ -466,7 +468,7 @@ describe("invitation auth routes", () => {
       services.db,
       expect.objectContaining({
         userId: "usr_new",
-        secretHash: "hashed:correct horse battery staple",
+        secretHash: "password:correct horse battery staple",
       }),
     );
     expect(mockStartInteractiveAuth).toHaveBeenCalledWith(

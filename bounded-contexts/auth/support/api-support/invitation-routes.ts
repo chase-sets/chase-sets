@@ -297,10 +297,10 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
     }
 
     const existingPasswordCredential = body.password ? await getPasswordCredentialByUserId(services.db, userId) : null;
-    if (
-      existingPasswordCredential &&
-      !services.auth.verifySecret(String(body.password), existingPasswordCredential.secret_hash)
-    ) {
+    const existingPasswordVerification = existingPasswordCredential
+      ? await services.auth.verifyPassword(String(body.password), existingPasswordCredential.secret_hash)
+      : null;
+    if (existingPasswordVerification && !existingPasswordVerification.valid) {
       return c.json({ error: t("auth.support.apiSupport.invitationRoutes.password.is.incorrect") }, 401);
     }
 
@@ -324,7 +324,14 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
       await upsertPasswordCredential(services.db, {
         credentialId,
         userId,
-        secretHash: services.auth.hashSecret(String(body.password)),
+        secretHash: await services.auth.hashPassword(String(body.password)),
+      });
+    } else if (existingPasswordCredential && existingPasswordVerification?.upgradedHash) {
+      // Transparent migration: strengthen a legacy/weak hash on this successful verify.
+      await upsertPasswordCredential(services.db, {
+        credentialId: existingPasswordCredential.credential_id,
+        userId: existingPasswordCredential.user_id,
+        secretHash: existingPasswordVerification.upgradedHash,
       });
     }
 

@@ -61,6 +61,7 @@ function createServices() {
     },
     auth: {
       hashSecret: vi.fn((value: string) => `hashed:${value}`),
+      hashPassword: vi.fn(async (value: string) => `password:${value}`),
     },
     identity: {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),

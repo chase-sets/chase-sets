@@ -18,6 +18,6 @@ export async function bootstrapPlatformAdminPassword(
   await upsertPasswordCredential(services.db, {
     userId: config.userId,
     credentialId: config.credentialId,
-    secretHash: services.auth.hashSecret(config.password),
+    secretHash: await services.auth.hashPassword(config.password),
   });
 }

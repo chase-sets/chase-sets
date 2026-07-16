@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { createAuthRateLimitPair } from "../../features/sign-in/api/rate-limits";
-import { getPasswordCredentialByUserId } from "../auth-support/store";
+import { getPasswordCredentialByUserId, upsertPasswordCredential } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import { getBootstrapContext, type AuthApiApp } from "./support";
 
@@ -36,12 +36,23 @@ export function registerPasswordRoutes(app: AuthApiApp, services: AuthServices) 
     }
 
     const passwordCredential = await getPasswordCredentialByUserId(services.db, user.user_id);
-    if (
-      !passwordCredential ||
-      !services.auth.verifySecret(String(body.password ?? ""), passwordCredential.secret_hash)
-    ) {
+    const verification = passwordCredential
+      ? await services.auth.verifyPassword(String(body.password ?? ""), passwordCredential.secret_hash)
+      : { valid: false };
+    if (!passwordCredential || !verification.valid) {
       passwordSignInFailureRateLimits.record(c.req.raw, identifierKey);
       return c.json({ error: t("auth.support.apiSupport.passwordRoutes.invalid.email.or.password.2") }, 401);
+    }
+
+    // Transparent migration: a successful verify against a legacy SHA-256 (or
+    // older scrypt-cost) hash yields an upgraded, salted hash to persist so the
+    // credential strengthens on this sign-in with no user-visible reset.
+    if (verification.upgradedHash) {
+      await upsertPasswordCredential(services.db, {
+        credentialId: passwordCredential.credential_id,
+        userId: passwordCredential.user_id,
+        secretHash: verification.upgradedHash,
+      });
     }
 
     const authResult = await startInteractiveAuth(services, {
