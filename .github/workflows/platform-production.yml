@@ -216,6 +216,9 @@ jobs:
 
       - name: Plan production platform in both serving modes
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           ../../../scripts/terraform-init-with-retry.sh \
@@ -264,9 +267,17 @@ jobs:
               continue
             fi
 
-            record_id="$(printf '%s' "$records_json" | jq -r --arg name "$name" --arg target "$app_target" 'first(.[] | select(.type == "CNAME" and .name == $name and (.data | rtrimstr(".")) == $target) | .id) // empty')"
+            mapfile -t serving_records < <(
+              printf '%s' "$records_json" | jq -c --arg name "$name" \
+                '.[] | select(.name == $name and (.type == "A" or .type == "CNAME"))'
+            )
+            if [ "${#serving_records[@]}" -ne 1 ]; then
+              echo "Expected exactly one live A/CNAME record for ${name}.chasesets.com; refusing an ambiguous plan import." >&2
+              exit 1
+            fi
+            record_id="$(printf '%s' "${serving_records[0]}" | jq -r --arg target "$app_target" 'select(.type == "CNAME" and (.data | rtrimstr(".")) == $target) | .id // empty')"
             if [ -z "$record_id" ]; then
-              echo "Live App Platform CNAME for ${name}.chasesets.com was not found; refusing an incomplete plan." >&2
+              echo "The sole live serving record for ${name}.chasesets.com is not the expected App Platform CNAME." >&2
               exit 1
             fi
             terraform -chdir="$plan_root" import "$address" "chasesets.com,${record_id}"
@@ -292,12 +303,28 @@ jobs:
             app-platform.tfplan.json \
             --title="Production platform App Platform live plan" >> "$GITHUB_STEP_SUMMARY"
 
-          terraform -chdir="$plan_root" plan -lock=false -out=doks.tfplan \
+          # The real deploy requires a separate applied TTL phase. Model that
+          # already-applied phase in the local-only state copy so this read-only
+          # plan proves the eventual bounded replacement without touching DNS.
+          jq '(.resources[] | select(.mode == "managed" and .type == "digitalocean_record" and .name == "app_serving").instances[].attributes.ttl) = 300' \
+            "$plan_root/terraform.tfstate" > "$plan_root/prepared-terraform.tfstate"
+          mv "$plan_root/prepared-terraform.tfstate" "$plan_root/terraform.tfstate"
+          test "$(terraform -chdir="$plan_root" state show 'digitalocean_record.app_serving["admin"]' | awk '/^    ttl/{print $3}')" = "300"
+          test "$(terraform -chdir="$plan_root" state show 'digitalocean_record.app_serving["www"]' | awk '/^    ttl/{print $3}')" = "300"
+
+          terraform -chdir="$plan_root" plan -refresh=false -lock=false -out=doks.tfplan \
             -var=production_app_serving=doks \
+            -var=production_serving_dns_phase=prepare-doks \
+            -var=production_serving_dns_prepared_at=2000-01-01T00:00:00Z \
+            -var=production_serving_dns_previous_ttl_seconds=1800 \
             -var=doks_ingress_target="$PRODUCTION_DOKS_INGRESS_TARGET" \
             -var=production_doks_certificate_ready=true \
             -var=production_marketplace_public_enabled=false
           terraform -chdir="$plan_root" show -json doks.tfplan > doks.tfplan.json
+          node ../../../scripts/terraform-plan-inspection.mjs assert-serving-mode-replacement \
+            doks.tfplan.json \
+            --from=app-platform \
+            --to=doks
           jq '{root:"platform",serving:"doks",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length)}' \
             doks.tfplan.json \
             > ../../../artifacts/production-cutover-live-plans/platform-doks-summary.json
@@ -2441,10 +2468,15 @@ jobs:
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
       TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}
       PRODUCTION_APP_SERVING: ${{ vars.PRODUCTION_APP_SERVING || 'app-platform' }}
+      PRODUCTION_SERVING_DNS_PHASE: ${{ vars.PRODUCTION_SERVING_DNS_PHASE || 'steady' }}
+      PRODUCTION_SERVING_DNS_REPLACEMENT_FROM: ""
       PRODUCTION_DOKS_INGRESS_TARGET: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
       PRODUCTION_DOKS_CERTIFICATE_READY: ${{ vars.PRODUCTION_DOKS_CERTIFICATE_READY || 'false' }}
       PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
       TF_VAR_production_app_serving: ${{ vars.PRODUCTION_APP_SERVING || 'app-platform' }}
+      TF_VAR_production_serving_dns_phase: ${{ vars.PRODUCTION_SERVING_DNS_PHASE || 'steady' }}
+      TF_VAR_production_serving_dns_prepared_at: ""
+      TF_VAR_production_serving_dns_previous_ttl_seconds: "0"
       TF_VAR_doks_ingress_target: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
       TF_VAR_production_doks_certificate_ready: ${{ vars.PRODUCTION_DOKS_CERTIFICATE_READY || 'false' }}
       TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || 'landing') }}
@@ -2893,6 +2925,9 @@ jobs:
       - name: Reconcile production serving DNS state
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           zone="chasesets.com"
@@ -2920,33 +2955,181 @@ jobs:
               continue
             fi
 
-            mapfile -t record_ids < <(
-              printf '%s' "$records_json" | jq -r \
-                --arg name "$name" \
-                --arg app_target "$app_target" \
-                --arg doks_target "${PRODUCTION_DOKS_INGRESS_TARGET:-}" \
-                '[.[] | select(.name == $name) | select(
-                  (.type == "CNAME" and (.data | rtrimstr(".")) == $app_target) or
-                  (.type == "A" and $doks_target != "" and .data == $doks_target)
-                ) | .id] | unique[]'
+            mapfile -t serving_records < <(
+              printf '%s' "$records_json" | jq -c --arg name "$name" \
+                '.[] | select(.name == $name and (.type == "A" or .type == "CNAME"))'
             )
 
-            if [ "${#record_ids[@]}" -gt 1 ]; then
-              echo "Multiple production serving records matched ${name}.${zone}; refusing an ambiguous import." >&2
+            if [ "${#serving_records[@]}" -gt 1 ]; then
+              echo "Multiple A/CNAME records own ${name}.${zone}; refusing an ambiguous import." >&2
               exit 1
             fi
-            if [ "${#record_ids[@]}" -eq 0 ]; then
-              conflicting_records="$(printf '%s' "$records_json" | jq -r --arg name "$name" '[.[] | select(.name == $name and (.type == "A" or .type == "CNAME"))] | length')"
-              if [ "$conflicting_records" -ne 0 ]; then
-                echo "An unmanaged A/CNAME record already owns ${name}.${zone}; refusing to create a conflicting serving record." >&2
-                exit 1
-              fi
+            if [ "${#serving_records[@]}" -eq 0 ]; then
               echo "No live serving record found for ${name}.${zone}; Terraform will create it."
               continue
             fi
 
-            terraform import "$address" "${zone},${record_ids[0]}"
+            record_id="$(
+              printf '%s' "${serving_records[0]}" | jq -r \
+                --arg app_target "$app_target" \
+                --arg doks_target "${PRODUCTION_DOKS_INGRESS_TARGET:-}" \
+                'select(
+                  (.type == "CNAME" and (.data | rtrimstr(".")) == $app_target) or
+                  (.type == "A" and $doks_target != "" and .data == $doks_target)
+                ) | .id // empty'
+            )"
+            if [ -z "$record_id" ]; then
+              echo "An unmanaged A/CNAME record already owns ${name}.${zone}; refusing to import or create a conflicting serving record." >&2
+              exit 1
+            fi
+
+            terraform import "$address" "${zone},${record_id}"
           done
+
+      - name: Gate production serving DNS replacement
+        if: env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          zone="chasesets.com"
+          target_type="CNAME"
+          preparation_phase="prepare-doks"
+          if [ "$PRODUCTION_APP_SERVING" = "doks" ]; then
+            target_type="A"
+            preparation_phase="prepare-app-platform"
+          fi
+
+          records_json="$(doctl compute domain records list "$zone" --output json)"
+          record_names=(admin www)
+          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+            record_names+=(marketplace)
+          fi
+
+          current_type=""
+          current_max_ttl=0
+          live_record_count=0
+          for name in "${record_names[@]}"; do
+            mapfile -t serving_records < <(
+              printf '%s' "$records_json" | jq -c --arg name "$name" \
+                '.[] | select(.name == $name and (.type == "A" or .type == "CNAME"))'
+            )
+            if [ "${#serving_records[@]}" -gt 1 ]; then
+              echo "Multiple A/CNAME records own ${name}.${zone}; refusing to evaluate a DNS replacement." >&2
+              exit 1
+            fi
+            if [ "${#serving_records[@]}" -eq 0 ]; then
+              continue
+            fi
+
+            record_type="$(printf '%s' "${serving_records[0]}" | jq -r '.type')"
+            record_ttl="$(printf '%s' "${serving_records[0]}" | jq -r '.ttl')"
+            if ! [[ "$record_ttl" =~ ^[0-9]+$ ]]; then
+              echo "The live TTL for ${name}.${zone} is not an integer; refusing the DNS replacement." >&2
+              exit 1
+            fi
+            if [ -n "$current_type" ] && [ "$record_type" != "$current_type" ]; then
+              echo "Production serving records have mixed A/CNAME types; refusing a partial replacement." >&2
+              exit 1
+            fi
+            current_type="$record_type"
+            live_record_count=$((live_record_count + 1))
+            if [ "$record_ttl" -gt "$current_max_ttl" ]; then
+              current_max_ttl="$record_ttl"
+            fi
+          done
+
+          if [ "$live_record_count" -eq 0 ]; then
+            echo "TF_VAR_production_serving_dns_prepared_at=" >> "$GITHUB_ENV"
+            echo "TF_VAR_production_serving_dns_previous_ttl_seconds=0" >> "$GITHUB_ENV"
+            echo "PRODUCTION_SERVING_DNS_REPLACEMENT_FROM=" >> "$GITHUB_ENV"
+            echo "No existing production serving records require a TTL preparation or replacement."
+            exit 0
+          fi
+
+          preparation_json="$(terraform output -json production_serving_dns_ttl_preparation 2>/dev/null || printf 'null')"
+          retained_phase="$(printf '%s' "$preparation_json" | jq -r '.phase // empty')"
+          retained_prepared_at="$(printf '%s' "$preparation_json" | jq -r '.prepared_at // empty')"
+          retained_previous_ttl="$(printf '%s' "$preparation_json" | jq -r '.previous_ttl_seconds // 0')"
+
+          if [ "$current_type" = "$target_type" ]; then
+            if [ "$PRODUCTION_SERVING_DNS_PHASE" = "steady" ]; then
+              echo "TF_VAR_production_serving_dns_prepared_at=" >> "$GITHUB_ENV"
+              echo "TF_VAR_production_serving_dns_previous_ttl_seconds=0" >> "$GITHUB_ENV"
+              echo "PRODUCTION_SERVING_DNS_REPLACEMENT_FROM=" >> "$GITHUB_ENV"
+              echo "Production serving DNS is steady; no record-type replacement is planned."
+              exit 0
+            fi
+
+            if [ "$PRODUCTION_SERVING_DNS_PHASE" != "$preparation_phase" ]; then
+              echo "${PRODUCTION_SERVING_DNS_PHASE} cannot prepare records currently served by ${PRODUCTION_APP_SERVING}; expected ${preparation_phase}." >&2
+              exit 1
+            fi
+
+            if [ "$retained_phase" = "$preparation_phase" ] && [ -n "$retained_prepared_at" ] && [[ "$retained_previous_ttl" =~ ^[1-9][0-9]*$ ]] && [ "$current_max_ttl" -le 300 ]; then
+              echo "TF_VAR_production_serving_dns_prepared_at=${retained_prepared_at}" >> "$GITHUB_ENV"
+              echo "TF_VAR_production_serving_dns_previous_ttl_seconds=${retained_previous_ttl}" >> "$GITHUB_ENV"
+              echo "PRODUCTION_SERVING_DNS_REPLACEMENT_FROM=" >> "$GITHUB_ENV"
+              echo "The ${preparation_phase} TTL phase is already retained; preserving its original wait window."
+            else
+              previous_ttl="$current_max_ttl"
+              minimum_previous_ttl=1800
+              if [ "$preparation_phase" = "prepare-app-platform" ]; then
+                minimum_previous_ttl=300
+              fi
+              if [ "$previous_ttl" -lt "$minimum_previous_ttl" ]; then
+                previous_ttl="$minimum_previous_ttl"
+              fi
+              echo "TF_VAR_production_serving_dns_prepared_at=" >> "$GITHUB_ENV"
+              echo "TF_VAR_production_serving_dns_previous_ttl_seconds=${previous_ttl}" >> "$GITHUB_ENV"
+              echo "PRODUCTION_SERVING_DNS_REPLACEMENT_FROM=" >> "$GITHUB_ENV"
+              echo "Preparing ${preparation_phase}: Terraform will lower live TTLs to 300 seconds or less and record apply time plus the conservative ${previous_ttl}s prior TTL."
+            fi
+            exit 0
+          fi
+
+          required_phase="prepare-doks"
+          expected_source_type="CNAME"
+          if [ "$target_type" = "CNAME" ]; then
+            required_phase="prepare-app-platform"
+            expected_source_type="A"
+          fi
+          if [ "$current_type" != "$expected_source_type" ]; then
+            echo "Expected ${expected_source_type} records before the ${PRODUCTION_APP_SERVING} replacement; found ${current_type}." >&2
+            exit 1
+          fi
+          if [ "$PRODUCTION_SERVING_DNS_PHASE" != "$required_phase" ]; then
+            echo "Refusing the record replacement: PRODUCTION_SERVING_DNS_PHASE must remain ${required_phase}." >&2
+            exit 1
+          fi
+          if [ "$current_max_ttl" -gt 300 ]; then
+            echo "Refusing the record replacement: live TTL ${current_max_ttl}s has not been lowered to 300s or less." >&2
+            exit 1
+          fi
+          if [ "$retained_phase" != "$required_phase" ] || [ -z "$retained_prepared_at" ] || ! [[ "$retained_previous_ttl" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Refusing the record replacement: Terraform state does not contain the matching applied TTL preparation." >&2
+            exit 1
+          fi
+
+          prepared_epoch="$(date --date="$retained_prepared_at" +%s)"
+          ready_epoch=$((prepared_epoch + retained_previous_ttl))
+          now_epoch="$(date -u +%s)"
+          if [ "$now_epoch" -lt "$ready_epoch" ]; then
+            ready_at="$(date -u --date="@${ready_epoch}" +%Y-%m-%dT%H:%M:%SZ)"
+            echo "Refusing the record replacement until ${ready_at}; the previous ${retained_previous_ttl}s TTL has not expired." >&2
+            exit 1
+          fi
+
+          echo "TF_VAR_production_serving_dns_prepared_at=${retained_prepared_at}" >> "$GITHUB_ENV"
+          echo "TF_VAR_production_serving_dns_previous_ttl_seconds=${retained_previous_ttl}" >> "$GITHUB_ENV"
+          replacement_from="app-platform"
+          if [ "$expected_source_type" = "A" ]; then
+            replacement_from="doks"
+          fi
+          echo "PRODUCTION_SERVING_DNS_REPLACEMENT_FROM=${replacement_from}" >> "$GITHUB_ENV"
+          echo "The ${required_phase} wait expired; the bounded ${expected_source_type}-to-${target_type} replacement may be planned."
 
       - name: Terraform plan
         if: env.SHOULD_DEPLOY != 'false'
@@ -2963,6 +3146,13 @@ jobs:
           mkdir -p artifacts/terraform-plans
           terraform show -no-color tfplan > artifacts/terraform-plans/production-tfplan.txt
           terraform show -json tfplan > artifacts/terraform-plans/production-tfplan.json
+          if [ -n "$PRODUCTION_SERVING_DNS_REPLACEMENT_FROM" ]; then
+            node ../../../scripts/terraform-plan-inspection.mjs assert-serving-mode-replacement \
+              artifacts/terraform-plans/production-tfplan.json \
+              --from="$PRODUCTION_SERVING_DNS_REPLACEMENT_FROM" \
+              --to="$PRODUCTION_APP_SERVING" \
+              --include-marketplace="${TF_VAR_production_marketplace_public_enabled:-false}"
+          fi
           node ../../../scripts/terraform-plan-inspection.mjs summarize-plan artifacts/terraform-plans/production-tfplan.json --title="Production Terraform plan" >> "$GITHUB_STEP_SUMMARY"
           echo "plan_written=true" >> "$GITHUB_OUTPUT"
           node ../../../scripts/terraform-plan-inspection.mjs assert-no-destructive-changes tfplan --allow-file="../../../${DESTRUCTIVE_CHANGE_ALLOW_FILE}"

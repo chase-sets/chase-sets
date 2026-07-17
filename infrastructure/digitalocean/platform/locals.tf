@@ -33,6 +33,12 @@ locals {
   name_prefix         = local.is_production ? "chase-sets" : "chase-sets-${local.environment_slug}"
   app_serving         = local.is_production ? var.production_app_serving : local.is_staging ? var.staging_app_serving : "app-platform"
   serving_from_doks   = (local.is_staging || local.is_production) && local.app_serving == "doks"
+  production_serving_dns_preparing = (
+    local.is_production && var.production_serving_dns_phase != "steady"
+  )
+  app_serving_record_ttl = local.production_serving_dns_preparing ? min(var.doks_ingress_ttl, 300) : (
+    local.serving_from_doks ? var.doks_ingress_ttl : 1800
+  )
 
   public_domains = local.is_production ? [
     var.root_domain,

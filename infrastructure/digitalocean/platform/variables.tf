@@ -835,6 +835,44 @@ variable "production_app_serving" {
   }
 }
 
+variable "production_serving_dns_phase" {
+  type        = string
+  default     = "steady"
+  description = "Managed production serving-record phase. prepare-doks lowers the current App Platform CNAME TTLs before cutover; prepare-app-platform mirrors that preparation before rollback."
+
+  validation {
+    condition     = contains(["steady", "prepare-doks", "prepare-app-platform"], var.production_serving_dns_phase)
+    error_message = "production_serving_dns_phase must be steady, prepare-doks, or prepare-app-platform."
+  }
+
+  validation {
+    condition     = var.environment == "production" || var.production_serving_dns_phase == "steady"
+    error_message = "production_serving_dns_phase may only change for production."
+  }
+}
+
+variable "production_serving_dns_prepared_at" {
+  type        = string
+  default     = ""
+  description = "Workflow-managed RFC3339 time retained from the applied TTL-lowering phase; leave empty when beginning a preparation so Terraform records apply time."
+
+  validation {
+    condition     = trimspace(var.production_serving_dns_prepared_at) == "" || can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", trimspace(var.production_serving_dns_prepared_at)))
+    error_message = "production_serving_dns_prepared_at must be empty or an RFC3339 UTC timestamp."
+  }
+}
+
+variable "production_serving_dns_previous_ttl_seconds" {
+  type        = number
+  default     = 0
+  description = "Workflow-observed maximum TTL before the managed lowering phase; retained in Terraform state and used to gate the later record-type replacement."
+
+  validation {
+    condition     = var.production_serving_dns_previous_ttl_seconds >= 0 && var.production_serving_dns_previous_ttl_seconds <= 86400
+    error_message = "production_serving_dns_previous_ttl_seconds must be between 0 and 86400 seconds."
+  }
+}
+
 variable "production_doks_certificate_ready" {
   type        = bool
   default     = false

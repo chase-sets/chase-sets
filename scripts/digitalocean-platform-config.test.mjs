@@ -160,6 +160,13 @@ function occurrenceCount(source, needle) {
   return source.split(needle).length - 1;
 }
 
+function hasSpacesBackendCredentials(source) {
+  return (
+    source.includes("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}") &&
+    source.includes("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}")
+  );
+}
+
 function expectGuardedTerraformResource(source, resourceType, resourceName) {
   const declaration = `resource "${resourceType}" "${resourceName}" {`;
   const start = source.indexOf(declaration);
@@ -3143,6 +3150,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).toContain('variable "doks_ingress_target"');
     expect(platformMain).toContain('check "doks_ingress_serving_target"');
     expect(platformVariables).toContain('variable "production_app_serving"');
+    expect(platformVariables).toContain('variable "production_serving_dns_phase"');
     expect(platformVariables).toContain('variable "production_doks_certificate_ready"');
     expect(platformMain).toContain('check "production_doks_certificate_preflight"');
     expect(platformMain).toContain('resource "digitalocean_record" "app_serving"');
@@ -3229,15 +3237,20 @@ describe("DigitalOcean platform configuration", () => {
     const addOnsStep = workflowStep(deployProductionJob, "Install production DOKS ingress and certificate add-ons");
     const preflightStep = workflowStep(deployProductionJob, "Verify production DOKS certificate before DNS flip");
     const reconcileStep = workflowStep(deployProductionJob, "Reconcile production serving DNS state");
+    const replacementGateStep = workflowStep(deployProductionJob, "Gate production serving DNS replacement");
     const shadowStep = workflowStep(deployProductionJob, "Verify production DOKS shadow hosts and certificate");
     const productionPlanStep = workflowStep(platformPrWorkflow, "Terraform plan production platform");
     const terraformApplyIndex = deployProductionJob.indexOf("- name: Terraform apply");
     const preflightIndex = deployProductionJob.indexOf("- name: Verify production DOKS certificate before DNS flip");
     const reconcileIndex = deployProductionJob.indexOf("- name: Reconcile production serving DNS state");
+    const replacementGateIndex = deployProductionJob.indexOf("- name: Gate production serving DNS replacement");
     const terraformPlanIndex = deployProductionJob.indexOf("- name: Terraform plan");
 
     expect(deployProductionJob).toContain(
       "PRODUCTION_APP_SERVING: ${{ vars.PRODUCTION_APP_SERVING || 'app-platform' }}",
+    );
+    expect(deployProductionJob).toContain(
+      "PRODUCTION_SERVING_DNS_PHASE: ${{ vars.PRODUCTION_SERVING_DNS_PHASE || 'steady' }}",
     );
     expect(deployProductionJob).toContain(
       "PRODUCTION_DOKS_INGRESS_TARGET: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}",
@@ -3265,18 +3278,39 @@ describe("DigitalOcean platform configuration", () => {
     expect(preflightIndex).toBeGreaterThan(-1);
     expect(terraformApplyIndex).toBeGreaterThan(preflightIndex);
     expect(reconcileIndex).toBeGreaterThan(-1);
-    expect(terraformPlanIndex).toBeGreaterThan(reconcileIndex);
+    expect(replacementGateIndex).toBeGreaterThan(reconcileIndex);
+    expect(terraformPlanIndex).toBeGreaterThan(replacementGateIndex);
     expect(reconcileStep).toContain('address="digitalocean_record.app_serving[\\"${name}\\"]"');
     expect(reconcileStep).toContain('(.type == "CNAME" and (.data | rtrimstr(".")) == $app_target)');
     expect(reconcileStep).toContain('(.type == "A" and $doks_target != "" and .data == $doks_target)');
-    expect(reconcileStep).toContain('terraform import "$address" "${zone},${record_ids[0]}"');
-    expect(reconcileStep).toContain("refusing to create a conflicting serving record");
+    expect(reconcileStep).toContain('terraform import "$address" "${zone},${record_id}"');
+    expect(reconcileStep).toContain("Multiple A/CNAME records own");
+    expect(reconcileStep).toContain("refusing to import or create a conflicting serving record");
+    expect(replacementGateStep).toContain('if [ "$current_max_ttl" -gt 300 ]');
+    expect(replacementGateStep).toContain("minimum_previous_ttl=1800");
+    expect(replacementGateStep).toContain("minimum_previous_ttl=300");
+    expect(replacementGateStep).toContain("the previous ${retained_previous_ttl}s TTL has not expired");
+    expect(replacementGateStep).toContain("terraform output -json production_serving_dns_ttl_preparation");
+    expect(replacementGateStep).toContain("PRODUCTION_SERVING_DNS_REPLACEMENT_FROM");
+    for (const terraformStateStep of [reconcileStep, replacementGateStep]) {
+      expect(hasSpacesBackendCredentials(terraformStateStep)).toBe(true);
+    }
+    const credentialNegativeControl = reconcileStep
+      .replace("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}", "")
+      .replace("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}", "");
+    expect(hasSpacesBackendCredentials(credentialNegativeControl)).toBe(false);
     expect(productionPlanStep).toContain("assert_serving_plan app-platform.tfplan CNAME false");
     expect(productionPlanStep).toContain("assert_serving_plan doks.tfplan A true");
     expect(productionPlanStep).toContain("-var=production_app_serving=app-platform");
     expect(productionPlanStep).toContain("-var=production_app_serving=doks");
     expect(productionPlanStep).toContain('.address == "digitalocean_record.doks_apex[0]"');
     expect(occurrenceCount(productionPlanStep, "assert-no-destructive-changes")).toBe(2);
+    expect(platformMain).toContain('resource "terraform_data" "production_serving_dns_ttl_preparation"');
+    expect(platformMain).toContain("ttl    = local.app_serving_record_ttl");
+    expect(platformMain).toContain('check "production_serving_dns_ttl"');
+    expect(digitaloceanPlatformRunbook).toContain("### Production Serving DNS Flip and Rollback");
+    expect(digitaloceanPlatformRunbook).toContain("PRODUCTION_SERVING_DNS_PHASE=prepare-doks");
+    expect(digitaloceanPlatformRunbook).toContain("PRODUCTION_SERVING_DNS_PHASE=prepare-app-platform");
     expect(shadowStep).toContain("--for=condition=Ready");
     expect(shadowStep).toContain("orders.acme.cert-manager.io,challenges.acme.cert-manager.io");
     expect(shadowStep).toContain("TF_VAR_production_marketplace_public_enabled:-false");
@@ -3306,7 +3340,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(environmentDnsPlan).toContain("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}");
     expect(environmentDnsPlan).toContain("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}");
     expect(planJob).toContain("landing/production.tfstate");
-    expect(occurrenceCount(planJob, "plan -lock=false")).toBe(3);
+    expect(occurrenceCount(planJob, "-lock=false")).toBe(3);
     expect(occurrenceCount(planJob, "-var=production_app_serving=app-platform")).toBe(2);
     expect(occurrenceCount(planJob, "-var=production_app_serving=doks")).toBe(1);
     expect(occurrenceCount(planJob, "-var=doks_ingress_target=")).toBe(3);
@@ -3316,6 +3350,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(occurrenceCount(planJob, "test \"$(jq -r '.destroy'")).toBe(2);
     expect(platformPlans).toContain('terraform state pull > "$plan_root/terraform.tfstate"');
     expect(platformPlans).toContain('terraform -chdir="$plan_root" import "$address"');
+    expect(platformPlans).toContain("Expected exactly one live A/CNAME record");
+    expect(platformPlans).toContain("attributes.ttl) = 300");
+    expect(platformPlans).toContain("plan -refresh=false -lock=false -out=doks.tfplan");
+    expect(platformPlans).toContain("assert-serving-mode-replacement");
+    expect(hasSpacesBackendCredentials(platformPlans)).toBe(true);
     expect(platformPlans).toContain('.change.actions == ["no-op"]');
     expect(platformPlans).toContain("DOKS plan deletes were not limited to the two intended CNAME-to-A replacements.");
     expect(platformPlans).toContain('.change.before.type == "CNAME" and .change.after.type == "A"');

@@ -51,8 +51,8 @@ Production reuses this root only for `doks.chasesets.com`, `www.doks.chasesets.c
 ## DOKS Ingress Cutover
 
 The DOKS cutover is designed so both platforms serve during the transition and the
-flip is an instant, reversible DNS change — never a burn-the-bridge move. It has two
-independent controls:
+final record replacement is a fast, reversible DNS change — never a burn-the-bridge
+move. It has independent target and serving-mode controls:
 
 - `doks_ingress_target` — the DOKS ingress load balancer IPv4 address. Setting it
   creates the **shadow validation hosts** `doks.staging.chasesets.com`,
@@ -78,7 +78,7 @@ terraform apply \
 Point HTTPS probes / `scripts/platform-ingress-wait.mjs` at the shadow hosts to prove
 ingress and certificate issuance before any live host moves.
 
-### Flip (instant cutover)
+### Flip (managed cutover)
 
 Apply this root to publish or retain the shadow records, then apply the sibling
 `platform` root with the same serving mode and ingress target. Its plan destroys
@@ -95,6 +95,12 @@ terraform apply \
 Run the live cutover apply from `infrastructure/digitalocean/platform`; this
 environment-DNS apply changes only stable and shadow records.
 
+Production adds an enforced TTL phase before this replacement. Keep the current
+serving mode, set `PRODUCTION_SERVING_DNS_PHASE=prepare-doks`, and deploy once to
+lower the affected CNAME TTLs to 300 seconds or less. Only after the workflow-stored
+previous TTL has expired may a second invocation set `PRODUCTION_APP_SERVING=doks`.
+The production workflow refuses a direct or premature flip.
+
 ### Rollback
 
 Flip `staging_app_serving` back to `app-platform` in both roots and apply. The
@@ -102,6 +108,12 @@ platform graph removes the DOKS records before restoring the App Platform domain
 attachments and CNAMEs. App Platform is kept warm through the soak, so rollback
 is a DNS change only. Keep `doks_ingress_ttl` low (300s default) until rollback
 confidence and smoke evidence are recorded.
+
+Production rollback mirrors the managed phase: retain DOKS serving while applying
+`PRODUCTION_SERVING_DNS_PHASE=prepare-app-platform`, wait out the recorded live A
+record TTL, then change `PRODUCTION_APP_SERVING` to `app-platform` in a second
+invocation. The full production sequence and steady-TTL restoration are documented
+in [DigitalOcean Platform Deployment](../../../docs/runbooks/digitalocean-platform-deployment.md#production-serving-dns-flip-and-rollback).
 
 The full ordered flip + rollback sequence, including the App Platform apex release, is
 in [DOKS Platform Operations](../../../docs/runbooks/doks-platform-operations.md).

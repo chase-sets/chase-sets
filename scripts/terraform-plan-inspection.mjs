@@ -13,6 +13,10 @@ const DURABLE_DATABASE_DESTRUCTIVE_RESOURCE_NAMES = new Map([
 
 const DESTRUCTIVE_APPROVAL_STATE_ACTIVE = "active";
 const DESTRUCTIVE_APPROVAL_STATE_NONE = "no-active-approval";
+const PRODUCTION_SERVING_RECORD_ADDRESSES = [
+  'digitalocean_record.app_serving["admin"]',
+  'digitalocean_record.app_serving["www"]',
+];
 
 function commandOutput(command, args) {
   return new Promise((resolve, reject) => {
@@ -167,6 +171,75 @@ export function destructiveResourceChanges(plan) {
       name: resourceChange.name ?? "",
       actions: resourceChange.change?.actions ?? [],
     }));
+}
+
+export function assertProductionServingModeReplacement(plan, options) {
+  const from = options?.from;
+  const to = options?.to;
+  const expectedTypes = {
+    "app-platform": "CNAME",
+    doks: "A",
+  };
+  if (!expectedTypes[from] || !expectedTypes[to] || from === to) {
+    throw new Error("Production serving-mode replacement requires different app-platform/doks from and to modes.");
+  }
+
+  const servingRecordAddresses = [...PRODUCTION_SERVING_RECORD_ADDRESSES];
+  if (options?.includeMarketplace) {
+    servingRecordAddresses.push('digitalocean_record.app_serving["marketplace"]');
+  }
+  const expectedDestroyedAddresses = [...servingRecordAddresses];
+  if (from === "doks") {
+    expectedDestroyedAddresses.push("digitalocean_record.doks_apex[0]");
+  }
+  expectedDestroyedAddresses.sort();
+
+  const destroyedAddresses = (plan.resource_changes ?? [])
+    .filter((change) => (change.change?.actions ?? []).includes("delete"))
+    .map((change) => change.address)
+    .sort();
+  if (JSON.stringify(destroyedAddresses) !== JSON.stringify(expectedDestroyedAddresses)) {
+    throw new Error(
+      `Production ${from}-to-${to} plan deletes must be limited to ${expectedDestroyedAddresses.join(", ")}; observed ${destroyedAddresses.join(", ") || "none"}.`,
+    );
+  }
+
+  for (const address of servingRecordAddresses) {
+    const change = (plan.resource_changes ?? []).find((candidate) => candidate.address === address);
+    const before = change?.change?.before;
+    const after = change?.change?.after;
+    if (
+      JSON.stringify(change?.change?.actions) !== JSON.stringify(["delete", "create"]) ||
+      before?.type !== expectedTypes[from] ||
+      after?.type !== expectedTypes[to] ||
+      !Number.isFinite(before?.ttl) ||
+      before.ttl > 300 ||
+      !Number.isFinite(after?.ttl) ||
+      after.ttl > 300
+    ) {
+      throw new Error(
+        `${address} must be a destroy-then-create ${expectedTypes[from]}-to-${expectedTypes[to]} replacement with before and after TTLs at 300 seconds or less.`,
+      );
+    }
+  }
+
+  if (from === "doks") {
+    const apex = (plan.resource_changes ?? []).find(
+      (candidate) => candidate.address === "digitalocean_record.doks_apex[0]",
+    );
+    if (
+      JSON.stringify(apex?.change?.actions) !== JSON.stringify(["delete"]) ||
+      apex?.change?.before?.type !== "A" ||
+      !Number.isFinite(apex?.change?.before?.ttl) ||
+      apex.change.before.ttl > 300
+    ) {
+      throw new Error(
+        "DOKS rollback must delete only the low-TTL DOKS apex A record in addition to the leaf replacements.",
+      );
+    }
+  }
+
+  return destroyedAddresses;
 }
 
 function durableDatabaseDestructiveResource(change) {
@@ -363,6 +436,24 @@ async function main(argv) {
     return;
   }
 
+  if (command === "assert-serving-mode-replacement") {
+    const [tfplanJsonPath, ...options] = args;
+    const from = readStringOption(options, "--from");
+    const to = readStringOption(options, "--to");
+    if (!tfplanJsonPath || !from || !to) {
+      throw new Error(
+        "Usage: node ./scripts/terraform-plan-inspection.mjs assert-serving-mode-replacement <tfplan-json> --from=<app-platform|doks> --to=<app-platform|doks>",
+      );
+    }
+
+    assertProductionServingModeReplacement(JSON.parse(readFileSync(tfplanJsonPath, "utf8")), {
+      from,
+      to,
+      includeMarketplace: readStringOption(options, "--include-marketplace", "false") === "true",
+    });
+    return;
+  }
+
   if (command === "postgres-cluster-id") {
     const [tfplanPath] = args;
     if (!tfplanPath) {
@@ -379,7 +470,7 @@ async function main(argv) {
   }
 
   throw new Error(
-    "Usage: node ./scripts/terraform-plan-inspection.mjs <plan-app-changed|assert-no-destructive-changes|postgres-cluster-id|summarize-plan>",
+    "Usage: node ./scripts/terraform-plan-inspection.mjs <plan-app-changed|assert-no-destructive-changes|assert-serving-mode-replacement|postgres-cluster-id|summarize-plan>",
   );
 }
 
