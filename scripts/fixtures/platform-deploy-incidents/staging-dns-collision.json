@@ -1,0 +1,21 @@
+{
+  "name": "staging App Platform DNS collision",
+  "input": {
+    "phase": "staging-deploy",
+    "steps": [
+      {
+        "name": "staging-domain",
+        "componentName": "staging-dns",
+        "phase": "ERROR",
+        "reasonCode": "DomainZoneInvalid",
+        "message": "The domain name already exists on another app"
+      }
+    ]
+  },
+  "expected": {
+    "rootCauseCode": "staging-dns",
+    "affectedComponent": "staging-dns",
+    "phase": "staging-dns",
+    "blocking": true
+  }
+}

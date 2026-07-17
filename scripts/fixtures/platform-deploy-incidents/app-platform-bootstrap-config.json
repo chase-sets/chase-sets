@@ -1,0 +1,33 @@
+{
+  "name": "run-29333994354 nested App Platform bootstrap configuration failure",
+  "input": {
+    "phase": "app-platform-bootstrap",
+    "steps": [
+      {
+        "name": "deploy",
+        "status": "ERROR",
+        "steps": [
+          {
+            "name": "platform-bootstrap",
+            "status": "ERROR",
+            "reason": { "code": "DeployContainerExitNonZero" }
+          }
+        ]
+      }
+    ],
+    "logs": [
+      {
+        "componentName": "platform-bootstrap",
+        "logType": "deploy",
+        "ok": true,
+        "output": "Bootstrap configuration invalid: required environment variable DATABASE_URL_MARKETPLACE is missing. token=fixture-secret"
+      }
+    ]
+  },
+  "expected": {
+    "rootCauseCode": "app-platform-bootstrap-config",
+    "affectedComponent": "platform-bootstrap",
+    "phase": "app-platform-bootstrap",
+    "blocking": true
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "staging advisory E2E authentication failure",
+  "input": {
+    "phase": "staging-advisory",
+    "diagnostics": [
+      {
+        "suite": "marketplace-e2e",
+        "result": "failure",
+        "message": "E2E login authentication failed for the operator fixture"
+      }
+    ]
+  },
+  "expected": {
+    "rootCauseCode": "staging-advisory-seed-or-e2e",
+    "affectedComponent": "staging-advisory",
+    "phase": "staging-advisory",
+    "blocking": false
+  }
+}

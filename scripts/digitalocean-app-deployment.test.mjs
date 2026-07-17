@@ -19,6 +19,7 @@ import {
   durableDatabaseDestructiveResourceChanges,
   latestDeployment,
   listDeploymentSummariesFromApi,
+  normalizeDeploymentProgressSteps,
   parseDeploymentSummaryRows,
   pendingDomains,
   planAppChanged,
@@ -658,6 +659,20 @@ The resources are retired by a reviewed context merge.
     });
   });
 
+  it("does not let a stale historical error displace the current deployment", () => {
+    expect(
+      deploymentForDiagnostics([
+        { id: "historical-error", phase: "ERROR", updated_at: "2026-06-12T22:00:00Z" },
+        { id: "current-run", phase: "ACTIVE", updated_at: "2026-06-19T22:01:00Z" },
+      ]),
+    ).toEqual({
+      id: "current-run",
+      phase: "ACTIVE",
+      createdAt: "",
+      updatedAt: "2026-06-19T22:01:00Z",
+    });
+  });
+
   it("parses compact DigitalOcean deployment summary rows", () => {
     expect(
       parseDeploymentSummaryRows(`
@@ -996,9 +1011,13 @@ running BUILDING 2026-06-19T22:05:00Z
       logTypes: ["deploy"],
       steps: [
         {
-          name: "platform-bootstrap",
+          name: "platform-bootstrap token=step-name-secret",
+          componentName: "platform-bootstrap",
           status: "ERROR",
-          reason: { code: "DeployContainerExitNonZero" },
+          reason: {
+            code: "DeployContainerExitNonZero token=step-reason-secret",
+            message: "sk_live_step_message https://user:url-secret@provider.example Pwd=step-password",
+          },
         },
       ],
       logs: [
@@ -1012,21 +1031,74 @@ running BUILDING 2026-06-19T22:05:00Z
     });
 
     expect(record).toMatchObject({
-      schemaVersion: "digitalocean-app-deployment-diagnostics/v1",
+      schemaVersion: "digitalocean-app-deployment-diagnostics/v2",
       appId: "app-id",
       deploymentId: "failed-deployment",
       bootstrapFailure: true,
+      rootCauseCode: "app-platform-bootstrap-runtime",
+      affectedComponent: "platform-bootstrap",
       steps: [
         {
-          name: "platform-bootstrap",
-          status: "ERROR",
-          reason: "DeployContainerExitNonZero",
+          name: "platform-bootstrap token=[REDACTED]",
+          componentName: "platform-bootstrap",
+          phase: "ERROR",
+          reasonCode: "DeployContainerExitNonZero token=[REDACTED]",
+          message: "[REDACTED_TOKEN] https://[REDACTED]@provider.example Pwd=[REDACTED]",
         },
       ],
     });
     expect(record.logs[0].output).not.toContain("do-not-publish");
     expect(record.logs[0].output).not.toContain("gho_secret");
     expect(record.logs[0].output).not.toContain("user:password");
+    for (const secret of [
+      "step-name-secret",
+      "step-reason-secret",
+      "url-secret",
+      "step-password",
+      "sk_live_step_message",
+    ]) {
+      expect(JSON.stringify(record.steps)).not.toContain(secret);
+    }
+  });
+
+  it("recursively normalizes nested deployment progress and classifies run 29333994354", () => {
+    const fixture = JSON.parse(
+      readFileSync(resolve("scripts/fixtures/platform-deploy-incidents/app-platform-bootstrap-config.json"), "utf8"),
+    );
+    const steps = normalizeDeploymentProgressSteps(fixture.input.steps);
+    const record = buildDeploymentDiagnosticsRecord({
+      appId: "app-id",
+      deploymentId: "run-29333994354",
+      deploymentPhase: "ERROR",
+      componentNames: ["platform-bootstrap"],
+      logTypes: ["deploy"],
+      steps,
+      logs: fixture.input.logs,
+    });
+
+    expect(steps).toEqual([
+      {
+        name: "deploy",
+        componentName: "unknown",
+        phase: "ERROR",
+        reasonCode: "",
+        message: "",
+      },
+      {
+        name: "platform-bootstrap",
+        componentName: "platform-bootstrap",
+        phase: "ERROR",
+        reasonCode: "DeployContainerExitNonZero",
+        message: "",
+      },
+    ]);
+    expect(record).toMatchObject({
+      bootstrapFailure: true,
+      rootCauseCode: "app-platform-bootstrap-config",
+      affectedComponent: "platform-bootstrap",
+      phase: "app-platform-bootstrap",
+    });
+    expect(record.logs[0].output).not.toContain("fixture-secret");
   });
 
   it("parses deployment diagnostics details JSON from a failed doctl command stdout", async () => {
