@@ -28,9 +28,11 @@ locals {
   )
   environment_slug    = var.environment == "preview" ? var.preview_identifier : var.environment
   environment_zone    = "${var.environment}.${var.root_domain}"
+  live_dns_zone       = local.is_production ? var.root_domain : local.environment_zone
   database_name_token = replace(local.environment_slug, "-", "_")
   name_prefix         = local.is_production ? "chase-sets" : "chase-sets-${local.environment_slug}"
-  serving_from_doks   = local.is_staging && var.staging_app_serving == "doks"
+  app_serving         = local.is_production ? var.production_app_serving : local.is_staging ? var.staging_app_serving : "app-platform"
+  serving_from_doks   = (local.is_staging || local.is_production) && local.app_serving == "doks"
 
   public_domains = local.is_production ? [
     var.root_domain,
@@ -49,34 +51,39 @@ locals {
   all_marketplace_domains = concat(local.marketplace_domains, local.staging_root_marketplace_domains)
   app_primary_domain      = local.is_staging ? local.staging_root_marketplace_domains[0] : local.public_domains[0]
 
-  # App Platform stays warm during the DOKS soak, but it must release every
-  # live staging domain before the records below change from CNAME to A. These
-  # attachment sets preserve production/preview behavior and remove only the
-  # staging live-host attachments during the cutover.
+  # App Platform stays warm during each DOKS soak, but it must release every
+  # live domain before the records below change to A. These attachment sets
+  # preserve preview behavior and remove only the active environment's live
+  # attachments during its explicit cutover.
   app_platform_public_domains                   = local.serving_from_doks ? [] : local.public_domains
   app_platform_marketplace_domains              = local.serving_from_doks ? [] : local.marketplace_domains
   app_platform_staging_root_marketplace_domains = local.serving_from_doks ? [] : local.staging_root_marketplace_domains
   app_platform_admin_domains                    = local.serving_from_doks ? [] : [local.admin_domain]
   app_platform_all_marketplace_domains          = concat(local.app_platform_marketplace_domains, local.app_platform_staging_root_marketplace_domains)
   # App Platform auto-assigns an un-routed web component to "/". Once DOKS
-  # serving removes every authority-qualified route, all three web components
-  # would otherwise collide there. Keep public-web as the harmless default and
-  # park the other warm fallback components on explicit, unique paths. This
-  # exact no-domain route set was accepted by `doctl apps propose` for staging.
-  app_platform_doks_ingress_routes = local.serving_from_doks ? [
-    {
-      component   = "public-web"
-      path_prefix = "/"
-    },
-    {
-      component   = "admin-web"
-      path_prefix = "/_app-platform/doks/admin"
-    },
-    {
-      component   = "marketplace"
-      path_prefix = "/_app-platform/doks/marketplace"
-    },
-  ] : []
+  # serving removes every authority-qualified route, the retained web
+  # components would otherwise collide there. Keep public-web as the harmless
+  # default and park each other warm fallback component on an explicit path.
+  # Marketplace is present only in an already-public runtime profile. This
+  # shape was accepted by `doctl apps propose` for staging and production.
+  app_platform_doks_ingress_routes = local.serving_from_doks ? concat(
+    [
+      {
+        component   = "public-web"
+        path_prefix = "/"
+      },
+      {
+        component   = "admin-web"
+        path_prefix = "/_app-platform/doks/admin"
+      },
+    ],
+    local.marketplace_public_enabled ? [
+      {
+        component   = "marketplace"
+        path_prefix = "/_app-platform/doks/marketplace"
+      },
+    ] : [],
+  ) : []
 
   admin_domain                  = local.is_production ? "admin.${var.root_domain}" : local.is_staging ? "admin.${var.environment}.${var.root_domain}" : "admin.${local.environment_slug}.preview.${var.root_domain}"
   landing_domain                = local.public_domains[0]
@@ -799,11 +806,14 @@ locals {
   # provider marks record type ForceNew, so a flip destroys the old CNAME/A
   # before creating its replacement and DigitalOcean never sees both types at
   # the same owner name.
-  staging_app_serving_record_names = local.is_staging ? toset([
+  app_serving_record_names = local.is_staging ? toset([
     "admin",
     "marketplace",
     "www",
-  ]) : toset([])
+    ]) : local.is_production && local.serving_from_doks ? toset(concat(
+    ["admin", "www"],
+    local.marketplace_public_enabled ? ["marketplace"] : [],
+  )) : toset([])
   ucp_ingress_routes = {
     for route in setproduct(local.ucp_route_domains, local.ucp_route_prefixes) :
     "${route[0]}:${route[1]}" => {

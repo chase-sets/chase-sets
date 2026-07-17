@@ -115,8 +115,13 @@ export function buildHelmUpgradeArgs(options = {}) {
     : requestedEnvOverrides;
   const environmentValuesPath = platformValuesPathForEnvironment(envOverrides.DEPLOYMENT_ENVIRONMENT);
   const doksIngressSetArgs =
-    envOverrides.DEPLOYMENT_ENVIRONMENT === "staging"
-      ? buildDoksIngressHelmSetArgs(buildDoksIngressValues({ env: options.env ?? {} }))
+    envOverrides.DEPLOYMENT_ENVIRONMENT === "staging" || envOverrides.DEPLOYMENT_ENVIRONMENT === "production"
+      ? buildDoksIngressHelmSetArgs(
+          buildDoksIngressValues({
+            env: options.env ?? {},
+            environment: envOverrides.DEPLOYMENT_ENVIRONMENT,
+          }),
+        )
       : envOverrides.DEPLOYMENT_ENVIRONMENT === "preview"
         ? buildDoksIngressHelmSetArgs(
             buildPreviewDoksIngressValues({
@@ -261,6 +266,15 @@ function buildDoksIngressHelmSetArgs(doksIngress) {
     ["--set-string", `doksIngress.clusterIssuer=${escapeHelmSetStringValue(doksIngress.clusterIssuer)}`],
     ["--set", `doksIngress.tls.enabled=${doksIngress.tls.enabled ? "true" : "false"}`],
     ["--set-string", `doksIngress.tls.secretName=${escapeHelmSetStringValue(doksIngress.tls.secretName)}`],
+    ["--set", `doksIngress.tls.certificate.enabled=${doksIngress.tls.certificate.enabled ? "true" : "false"}`],
+    [
+      "--set-string",
+      `doksIngress.tls.certificate.clusterIssuer=${escapeHelmSetStringValue(doksIngress.tls.certificate.clusterIssuer)}`,
+    ],
+    ...doksIngress.tls.certificate.dnsNames.map((dnsName, dnsNameIndex) => [
+      "--set-string",
+      `doksIngress.tls.certificate.dnsNames[${dnsNameIndex}]=${escapeHelmSetStringValue(dnsName)}`,
+    ]),
     ...doksIngress.hosts.flatMap((host, hostIndex) => [
       ["--set-string", `doksIngress.hosts[${hostIndex}].host=${escapeHelmSetStringValue(host.host)}`],
       ...host.paths.flatMap((route, routeIndex) => [

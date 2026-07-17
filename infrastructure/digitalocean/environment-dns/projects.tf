@@ -8,8 +8,8 @@ moved {
 }
 
 resource "digitalocean_project_resources" "environment" {
-  count = local.environment_project_id != "" ? 1 : 0
+  count = local.is_staging && local.environment_project_id != "" ? 1 : 0
 
   project   = local.environment_project_id
-  resources = [digitalocean_domain.environment.urn]
+  resources = [digitalocean_domain.environment[0].urn]
 }

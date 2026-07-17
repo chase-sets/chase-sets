@@ -27,19 +27,16 @@ clusterIssuers:
     name: "letsencrypt-production"
     server: "https://acme-v02.api.letsencrypt.org/directory"
     privateKeySecretName: "letsencrypt-production-account-key"
-    # DNS-01 solver, scoped by `selector.dnsZones` to ONLY the preview
-    # wildcard zone (#4857): every other certificate this issuer signs
-    # (staging/production app hosts) keeps using the http01 solver above,
-    # unaffected. This solver exists to issue exactly one certificate --
-    # the shared `*.preview.chasesets.com` wildcard rendered by
-    # templates/preview-wildcard-certificate.yaml -- because ACME forbids
-    # proving a wildcard name over HTTP-01.
+    # Environment-specific DNS-01 solver. The add-on planner enables this for
+    # preview.chasesets.com on staging and chasesets.com on production. The
+    # production solver lets the complete live-host certificate become Ready
+    # before the DNS flip; every name outside the selected zone continues to
+    # use the HTTP-01 solver above.
     dns01:
-      enabled: true
+      enabled: false
       secretName: "digitalocean-dns-token"
       secretKey: "access-token"
-      dnsZones:
-        - "preview.chasesets.com"
+      dnsZones: []
 
 # The ONE shared wildcard certificate every preview namespace's Ingress
 # references (copied in at deploy time by copyPreviewWildcardTlsSecret in

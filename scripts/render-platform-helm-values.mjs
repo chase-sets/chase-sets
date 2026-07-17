@@ -17,6 +17,7 @@ const bootstrapQuiesceTimeoutSeconds = 45;
 const bootstrapCommandTimeoutSeconds = 780;
 const bootstrapHookActiveDeadlineSeconds = 890;
 const stagingEnvironmentZone = "staging.chasesets.com";
+const productionEnvironmentZone = "chasesets.com";
 const doksIngressClassName = "nginx";
 const doksIngressClusterIssuer = "letsencrypt-production";
 const doksIngressTlsSecretName = "chase-sets-platform-doks-tls";
@@ -510,6 +511,11 @@ export function buildPlatformHelmValues(options = {}) {
       tls: {
         enabled: true,
         secretName: "chase-sets-platform-tls",
+        certificate: {
+          enabled: false,
+          clusterIssuer: "",
+          dnsNames: [],
+        },
       },
       hosts: [],
     },
@@ -594,26 +600,49 @@ export function renderPlatformHelmStagingValues() {
 
 export function buildDoksIngressValues(options = {}) {
   const env = options.env ?? {};
-  const target = String(env.DOKS_INGRESS_TARGET ?? "").trim();
-  const serving = String(env.STAGING_APP_SERVING ?? "app-platform").trim() || "app-platform";
+  const environment = options.environment ?? "staging";
+  if (!["staging", "production"].includes(environment)) {
+    throw new Error('DOKS ingress environment must be either "staging" or "production".');
+  }
+
+  const production = environment === "production";
+  const targetVariable = production ? "PRODUCTION_DOKS_INGRESS_TARGET" : "DOKS_INGRESS_TARGET";
+  const servingVariable = production ? "PRODUCTION_APP_SERVING" : "STAGING_APP_SERVING";
+  const target = String(env[targetVariable] ?? "").trim();
+  const serving = String(env[servingVariable] ?? "app-platform").trim() || "app-platform";
 
   if (!["app-platform", "doks"].includes(serving)) {
-    throw new Error('STAGING_APP_SERVING must be either "app-platform" or "doks".');
+    throw new Error(`${servingVariable} must be either "app-platform" or "doks".`);
   }
 
   const enabled = target !== "";
   const hostMode = serving === "doks" ? "live" : "shadow";
+  const marketplacePublicEnabled = env.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED === "true";
+  const hosts = enabled
+    ? production
+      ? buildProductionDoksIngressHosts({ marketplacePublicEnabled })
+      : buildDoksIngressHosts(stagingEnvironmentZone, hostMode, { apexService: "marketplace" })
+    : [];
+  const certificateDnsNames = production ? hosts.map((host) => host.host) : [];
 
   return {
     enabled,
     className: doksIngressClassName,
-    clusterIssuer: doksIngressClusterIssuer,
+    // Production uses one explicit DNS-01 Certificate containing both the
+    // shadow and live names. Its Ingress must not also ask ingress-shim to
+    // create a competing Certificate for the same Secret.
+    clusterIssuer: production ? "" : doksIngressClusterIssuer,
     annotations: {},
     tls: {
       enabled: true,
       secretName: doksIngressTlsSecretName,
+      certificate: {
+        enabled: production && enabled,
+        clusterIssuer: production ? doksIngressClusterIssuer : "",
+        dnsNames: certificateDnsNames,
+      },
     },
-    hosts: enabled ? buildDoksIngressHosts(hostMode) : [],
+    hosts,
   };
 }
 
@@ -638,31 +667,37 @@ export function buildPreviewDoksIngressValues(options = {}) {
     tls: {
       enabled: true,
       secretName: previewWildcardTlsSecretName,
+      certificate: {
+        enabled: false,
+        clusterIssuer: "",
+        dnsNames: [],
+      },
     },
     hosts: buildPreviewDoksIngressHosts(previewIdentifier),
   };
 }
 
-function buildDoksIngressHosts(hostMode) {
+function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
+  const apexService = options.apexService ?? "public-web";
   const hosts =
     hostMode === "live"
       ? {
-          apex: stagingEnvironmentZone,
-          www: `www.${stagingEnvironmentZone}`,
-          marketplace: `marketplace.${stagingEnvironmentZone}`,
-          admin: `admin.${stagingEnvironmentZone}`,
+          apex: environmentZone,
+          www: `www.${environmentZone}`,
+          marketplace: `marketplace.${environmentZone}`,
+          admin: `admin.${environmentZone}`,
         }
       : {
-          apex: `doks.${stagingEnvironmentZone}`,
-          www: `www.doks.${stagingEnvironmentZone}`,
-          marketplace: `marketplace.doks.${stagingEnvironmentZone}`,
-          admin: `admin.doks.${stagingEnvironmentZone}`,
+          apex: `doks.${environmentZone}`,
+          www: `www.doks.${environmentZone}`,
+          marketplace: `marketplace.doks.${environmentZone}`,
+          admin: `admin.doks.${environmentZone}`,
         };
 
   return [
     {
       host: hosts.apex,
-      paths: doksIngressPaths("marketplace"),
+      paths: doksIngressPaths(apexService),
     },
     {
       host: hosts.www,
@@ -677,6 +712,22 @@ function buildDoksIngressHosts(hostMode) {
       paths: doksIngressPaths("admin-web"),
     },
   ];
+}
+
+function buildProductionDoksIngressHosts(options = {}) {
+  const includeMarketplace = options.marketplacePublicEnabled === true;
+  const buildHostSet = (hostMode) =>
+    buildDoksIngressHosts(productionEnvironmentZone, hostMode).filter(
+      (host) => includeMarketplace || !host.host.startsWith("marketplace."),
+    );
+
+  // Keep both host sets routed before, during, and after the DNS flip. DNS
+  // continues to send live traffic to App Platform during rehearsal, while
+  // cert-manager can issue one DNS-01 certificate for every production name.
+  // Once the certificate is Ready, the Terraform flip is therefore only a
+  // DNS change: no Helm reconciliation or post-flip certificate race is left
+  // on the critical path. Shadow hosts remain usable for rollback evidence.
+  return [...buildHostSet("shadow"), ...buildHostSet("live")];
 }
 
 // Single-level preview hostnames: `pr-<n>`, `pr-<n>-marketplace`, and

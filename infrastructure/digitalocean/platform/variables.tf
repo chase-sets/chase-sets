@@ -819,10 +819,37 @@ variable "staging_app_serving" {
   }
 }
 
+variable "production_app_serving" {
+  type        = string
+  default     = "app-platform"
+  description = "Which platform serves the live production apex, admin, www, and approved marketplace hosts. The default keeps App Platform attached; \"doks\" is an explicit cutover-only switch after the production DOKS certificate preflight is green."
+
+  validation {
+    condition     = contains(["app-platform", "doks"], var.production_app_serving)
+    error_message = "production_app_serving must be either \"app-platform\" or \"doks\"."
+  }
+
+  validation {
+    condition     = var.environment == "production" || var.production_app_serving == "app-platform"
+    error_message = "production_app_serving may only change for production."
+  }
+}
+
+variable "production_doks_certificate_ready" {
+  type        = bool
+  default     = false
+  description = "Operator evidence gate set true only after the production DOKS Certificate is Ready for every live and shadow host. Required before production_app_serving may flip to \"doks\"."
+
+  validation {
+    condition     = var.environment == "production" || var.production_doks_certificate_ready == false
+    error_message = "production_doks_certificate_ready may only be true for production."
+  }
+}
+
 variable "doks_ingress_target" {
   type        = string
   default     = ""
-  description = "DOKS ingress load balancer IPv4 address. Required when staging_app_serving is \"doks\" so the live staging records can replace the App Platform records in the same Terraform graph."
+  description = "Environment-specific DOKS ingress load balancer IPv4 address. Required before staging_app_serving or production_app_serving flips to \"doks\". Production must receive PRODUCTION_DOKS_INGRESS_TARGET, never the repo-level staging target."
 
   validation {
     condition     = trimspace(var.doks_ingress_target) == "" || can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$", trimspace(var.doks_ingress_target)))

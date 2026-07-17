@@ -1,13 +1,21 @@
 output "environment_zone" {
-  value = digitalocean_domain.environment.name
+  value = local.environment_zone
 }
 
 output "catalog_asset_domain" {
-  value = "assets.${digitalocean_domain.environment.name}"
+  value = local.is_staging ? "assets.${local.environment_zone}" : null
 }
 
 output "staging_app_serving" {
   value = var.staging_app_serving
+}
+
+output "production_app_serving" {
+  value = var.production_app_serving
+}
+
+output "app_serving" {
+  value = local.app_serving
 }
 
 output "doks_ingress_shadow_domains" {

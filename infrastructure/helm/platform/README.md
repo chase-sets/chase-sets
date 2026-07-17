@@ -99,7 +99,9 @@ doksIngress:
           service: admin-web
 ```
 
-When `STAGING_APP_SERVING=app-platform`, hosts are the `doks.<zone>` shadow validation names. When it flips to `doks`, hosts become the live staging apex plus `www`, `marketplace`, and `admin`. The chart renders one `Ingress` and one SAN `Certificate` for the active host set. Provider webhook, MCP, UCP, well-known, and `/api` paths stay routed to `platform-api` before the web catch-all. Shadow DNS lives in `infrastructure/digitalocean/environment-dns`; mutually exclusive live App Platform/DOKS records live with the App Platform domain attachments in `infrastructure/digitalocean/platform`.
+When `STAGING_APP_SERVING=app-platform`, hosts are the `doks.<zone>` shadow validation names. When it flips to `doks`, hosts become the live staging apex plus `www`, `marketplace`, and `admin`; ingress-shim owns staging's HTTP-01 certificate.
+
+Production reads only `PRODUCTION_DOKS_INGRESS_TARGET` and `PRODUCTION_APP_SERVING`, so the repo-level staging target cannot leak into the production cluster. Once the production target is set, the Ingress keeps both shadow and live host rules warm. An explicit DNS-01 `Certificate` covers both sets before live DNS moves; the Ingress omits its issuer annotation so ingress-shim cannot race that certificate owner. The apex and `www` route to `public-web`, `admin` routes to `admin-web`, and marketplace hosts are absent unless `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true` is already approved. Provider webhook, MCP, UCP, well-known, and `/api` paths stay routed to `platform-api` before each web catch-all.
 
 ## Health Probes
 

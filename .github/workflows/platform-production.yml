@@ -922,9 +922,12 @@ jobs:
 
           records_json="$(doctl compute domain records list "$zone" --output json)"
           for name in admin marketplace www; do
-            address="digitalocean_record.staging_app_serving[\"${name}\"]"
+            address="digitalocean_record.app_serving[\"${name}\"]"
+            previous_address="digitalocean_record.staging_app_serving[\"${name}\"]"
             legacy_address="digitalocean_record.staging_app_alias[\"${name}\"]"
-            if terraform state show "$address" >/dev/null 2>&1 || terraform state show "$legacy_address" >/dev/null 2>&1; then
+            if terraform state show "$address" >/dev/null 2>&1 \
+              || terraform state show "$previous_address" >/dev/null 2>&1 \
+              || terraform state show "$legacy_address" >/dev/null 2>&1; then
               continue
             fi
 
@@ -2219,6 +2222,13 @@ jobs:
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
       TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}
+      PRODUCTION_APP_SERVING: ${{ vars.PRODUCTION_APP_SERVING || 'app-platform' }}
+      PRODUCTION_DOKS_INGRESS_TARGET: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
+      PRODUCTION_DOKS_CERTIFICATE_READY: ${{ vars.PRODUCTION_DOKS_CERTIFICATE_READY || 'false' }}
+      PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
+      TF_VAR_production_app_serving: ${{ vars.PRODUCTION_APP_SERVING || 'app-platform' }}
+      TF_VAR_doks_ingress_target: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
+      TF_VAR_production_doks_certificate_ready: ${{ vars.PRODUCTION_DOKS_CERTIFICATE_READY || 'false' }}
       TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || 'landing') }}
       TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
       TF_VAR_production_marketplace_promotion_approved: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}
@@ -2582,6 +2592,56 @@ jobs:
           echo "TF_VAR_platform_image_digest=${digest}" >> "$GITHUB_ENV"
           echo "Promoting ${image}@${digest}"
 
+      - name: Initialize production environment DNS
+        if: env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/environment-dns
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=environment-dns/production.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Validate production environment DNS
+        if: env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/environment-dns
+        run: |
+          terraform fmt -check -recursive
+          terraform validate
+
+      - name: Plan production environment DNS
+        if: env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/environment-dns
+        run: |
+          set -euo pipefail
+          terraform plan -out=production-environment-dns.tfplan
+          terraform show -json production-environment-dns.tfplan > production-environment-dns.tfplan.json
+          delete_count="$(
+            jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' \
+              production-environment-dns.tfplan.json
+          )"
+          if [ "$delete_count" -ne 0 ]; then
+            echo "Production environment DNS plans must never delete or replace resources during cutover preparation." >&2
+            exit 1
+          fi
+          node ../../../scripts/terraform-plan-inspection.mjs summarize-plan \
+            production-environment-dns.tfplan.json \
+            --title="Production environment DNS plan" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply production environment DNS
+        if: env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/environment-dns
+        run: terraform apply -auto-approve production-environment-dns.tfplan
+
       - name: Terraform init
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
@@ -2821,30 +2881,69 @@ jobs:
           echo "${RUNNER_TEMP}" >> "$GITHUB_PATH"
           "$binary" version >/dev/null 2>&1 || "$binary" --help >/dev/null
 
-      - name: Install Argo Rollouts controller and CRDs for production
-        if: env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
+      - name: Install production DOKS ingress and certificate add-ons
+        if: env.SHOULD_DEPLOY != 'false'
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          manifest="${RUNNER_TEMP}/argo-rollouts-install.yaml"
-          curl --fail --location --silent --show-error \
-            https://github.com/argoproj/argo-rollouts/releases/download/v1.9.0/install.yaml \
-            --output "$manifest"
-          echo "6d23b368a668065958124c5670d7c94d8656034fe1b48f6af73b7aecaceea674  ${manifest}" | sha256sum --check
-          kubectl create namespace argo-rollouts --dry-run=client -o yaml | kubectl apply -f -
-          kubectl apply -n argo-rollouts --server-side --force-conflicts -f "$manifest"
-          kubectl wait --for condition=Established --timeout=120s \
-            crd/rollouts.argoproj.io crd/analysistemplates.argoproj.io crd/analysisruns.argoproj.io
-          kubectl -n argo-rollouts rollout status deployment/argo-rollouts --timeout=300s
+          node ./scripts/doks-cluster-addons.mjs --environment production
 
-          keda_manifest="${RUNNER_TEMP}/keda-install.yaml"
-          curl --fail --location --silent --show-error \
-            https://github.com/kedacore/keda/releases/download/v2.17.2/keda-2.17.2.yaml \
-            --output "$keda_manifest"
-          echo "1912c29059e41e80b6abe8b29a566e07337f85fc4bf4fd5698c637fe63ecbf35  ${keda_manifest}" | sha256sum --check
-          kubectl apply --server-side --force-conflicts -f "$keda_manifest"
-          kubectl wait --for condition=Established --timeout=120s \
-            crd/scaledobjects.keda.sh crd/scaledjobs.keda.sh crd/triggerauthentications.keda.sh
-          kubectl -n keda rollout status deployment/keda-operator --timeout=300s
+          if [ "$ARGO_ROLLOUTS_ENABLED" = "true" ]; then
+            keda_manifest="${RUNNER_TEMP}/keda-install.yaml"
+            curl --fail --location --silent --show-error \
+              https://github.com/kedacore/keda/releases/download/v2.17.2/keda-2.17.2.yaml \
+              --output "$keda_manifest"
+            echo "1912c29059e41e80b6abe8b29a566e07337f85fc4bf4fd5698c637fe63ecbf35  ${keda_manifest}" | sha256sum --check
+            kubectl apply --server-side --force-conflicts -f "$keda_manifest"
+            kubectl wait --for condition=Established --timeout=120s \
+              crd/scaledobjects.keda.sh crd/scaledjobs.keda.sh crd/triggerauthentications.keda.sh
+            kubectl -n keda rollout status deployment/keda-operator --timeout=300s
+          fi
+
+      - name: Verify production DOKS certificate before DNS flip
+        if: env.SHOULD_DEPLOY != 'false' && env.PRODUCTION_APP_SERVING == 'doks'
+        run: |
+          set -euo pipefail
+          if [ "$PRODUCTION_DOKS_CERTIFICATE_READY" != "true" ]; then
+            echo "PRODUCTION_DOKS_CERTIFICATE_READY must be true only after the production DOKS certificate preflight passes." >&2
+            exit 1
+          fi
+
+          certificate_name="chase-sets-platform-doks-tls"
+          kubectl wait \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --for=condition=Ready \
+            "certificate/${certificate_name}" \
+            --timeout=30s
+
+          certificate_json="$(
+            kubectl get certificate "$certificate_name" \
+              --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+              --output json
+          )"
+          required_dns_names=(
+            doks.chasesets.com
+            www.doks.chasesets.com
+            admin.doks.chasesets.com
+            chasesets.com
+            www.chasesets.com
+            admin.chasesets.com
+          )
+          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+            required_dns_names+=(marketplace.doks.chasesets.com marketplace.chasesets.com)
+          fi
+          for dns_name in "${required_dns_names[@]}"; do
+            if ! jq -e --arg dns_name "$dns_name" '.spec.dnsNames | index($dns_name) != null' <<<"$certificate_json" >/dev/null; then
+              echo "Production DOKS Certificate is missing required DNS name ${dns_name}; refusing the DNS flip." >&2
+              exit 1
+            fi
+          done
+
+          node ./scripts/platform-ingress-wait.mjs \
+            --url https://doks.chasesets.com/ \
+            --url https://www.doks.chasesets.com/ \
+            --url https://admin.doks.chasesets.com/health/ready
 
       - name: Capture production rollback target
         if: env.SHOULD_DEPLOY != 'false'
@@ -3169,6 +3268,38 @@ jobs:
           path: artifacts/release-health/production-kubernetes-deploy-diagnostics.json
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Verify production DOKS shadow hosts and certificate
+        if: env.SHOULD_DEPLOY != 'false' && env.PRODUCTION_DOKS_INGRESS_TARGET != ''
+        run: |
+          set -euo pipefail
+          certificate_name="chase-sets-platform-doks-tls"
+          kubectl wait \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --for=condition=Ready \
+            "certificate/${certificate_name}" \
+            --timeout=10m
+
+          shadow_urls=(
+            --url https://doks.chasesets.com/
+            --url https://www.doks.chasesets.com/
+            --url https://admin.doks.chasesets.com/health/ready
+          )
+          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+            shadow_urls+=(--url https://marketplace.doks.chasesets.com/health/ready)
+          fi
+          node ./scripts/platform-ingress-wait.mjs "${shadow_urls[@]}"
+
+          unresolved="$(
+            kubectl get orders.acme.cert-manager.io,challenges.acme.cert-manager.io \
+              --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+              --output json \
+              | jq '[.items[] | select((.status.state // "") != "valid")] | length'
+          )"
+          if [ "$unresolved" -ne 0 ]; then
+            echo "Production cert-manager still has unresolved Order or Challenge resources." >&2
+            exit 1
+          fi
 
       - name: Wait for production domains
         if: env.SHOULD_DEPLOY != 'false'

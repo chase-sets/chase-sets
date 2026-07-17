@@ -213,7 +213,9 @@ The ingress controller (ingress-nginx), its DigitalOcean Load Balancer, cert-man
 
 ```bash
 node ./scripts/doks-cluster-addons.mjs --environment staging --dry-run   # preview pinned commands
-node ./scripts/doks-cluster-addons.mjs --environment staging             # install / upgrade
+DIGITALOCEAN_ACCESS_TOKEN=<token with DNS write access> \
+  node ./scripts/doks-cluster-addons.mjs --environment staging           # install / upgrade
+node ./scripts/doks-cluster-addons.mjs --environment production --dry-run
 ```
 
 This installs `ingress-nginx` (namespace `ingress-nginx`) whose `LoadBalancer` Service provisions the `chase-sets-<environment>-doks-ingress` DigitalOcean Load Balancer, `cert-manager` with CRDs (namespace `cert-manager`), the `letsencrypt-staging` / `letsencrypt-production` `ClusterIssuer`s, and the two-replica Argo Rollouts controller with CRDs (namespace `argo-rollouts`). The Argo dashboard is disabled. The load balancer runs L4 pass-through for 80/443 so NGINX terminates TLS with cert-manager certificates; port 80 stays reachable for HTTP-01 challenges and PROXY protocol carries real client IPs.
@@ -243,6 +245,8 @@ In addition to the ingress-nginx/cert-manager/ClusterIssuer steps above, a stagi
 2. Renders `previewWildcardCertificate.enabled=true` on the `letsencrypt-production` `ClusterIssuer` release, which adds a `Certificate` for `*.preview.chasesets.com` (secret name `preview-wildcard-tls`) in the `cert-manager` namespace, issued through a DNS-01 solver scoped (via `selector.dnsZones`) to only the `preview.chasesets.com` zone — every other certificate this issuer signs keeps using the existing HTTP-01 solver, unaffected.
 
 This bootstrap is idempotent: re-running it re-applies the same Secret and Certificate spec, which is a no-op once the token is current and the certificate is issued. Re-run it whenever the DigitalOcean token rotates.
+
+The production add-on run applies the same Secret safely over stdin but scopes its DNS-01 solver to `chasesets.com` and does not render the preview wildcard Certificate. That solver exists only so #4053 can issue the production live-and-shadow certificate before live DNS moves.
 
 The DNS wildcard that routes browser/client traffic to the load balancer is a separate, equally one-time step (DNS-01 issuance itself needs no A record — it proves ownership via a TXT record — but real preview traffic does):
 
@@ -341,7 +345,121 @@ Because App Platform never left, rollback is a single Terraform graph change —
 
 ### Production
 
-Production live hosts (root `chasesets.com` zone) are owned by the platform/runtime roots today, not environment-dns. The production flip in #4053 repoints those root-zone records at the production load balancer using the same shadow-then-flip pattern, during the low-signup window, with App Platform kept warm for the same DNS-only rollback.
+Production live hosts in the root `chasesets.com` zone remain owned by the platform root. The `environment-dns/production.tfstate` state owns only shadow records. `PRODUCTION_APP_SERVING` defaults to `app-platform`; `PRODUCTION_DOKS_INGRESS_TARGET` defaults empty; `PRODUCTION_DOKS_CERTIFICATE_READY` defaults false. Never reuse the repo-level staging `DOKS_INGRESS_TARGET`.
+
+Production differs from the staging rehearsal in one deliberate way: its Ingress keeps both shadow and live host rules warm, and one explicit DNS-01 `Certificate` covers both sets. The marketplace pair is omitted while `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`. This makes certificate issuance finish before the live-record flip and avoids the cert-manager NXDOMAIN/post-flip issuance race.
+
+#### Phase B: prepare add-ons and the dedicated target
+
+1. On merged `main`, let the production deploy install the production ingress-nginx, cert-manager, DNS-01 solver, and Argo add-ons. If CI cannot install them, configure the production context and run the same idempotent helper directly:
+
+   ```bash
+   doctl kubernetes cluster kubeconfig save chase-sets-production-doks --expiry-seconds 900
+   DIGITALOCEAN_ACCESS_TOKEN="$DIGITALOCEAN_ACCESS_TOKEN" \
+     node ./scripts/doks-cluster-addons.mjs --environment production
+   ```
+
+2. Record the new load balancer and require `active` status:
+
+   ```bash
+   read -r LB_ID LB_IP LB_STATUS < <(
+     doctl compute load-balancer list \
+       --format ID,IP,Name,Status --no-header \
+       | awk '$3 == "chase-sets-production-doks-ingress" { print $1, $2, $4 }'
+   )
+   test -n "$LB_ID" && test -n "$LB_IP" && test "$LB_STATUS" = "active"
+   printf 'production ingress lb id=%s ip=%s status=%s\n' "$LB_ID" "$LB_IP" "$LB_STATUS"
+   ```
+
+3. Publish only the target; explicitly retain App Platform and the closed certificate gate:
+
+   ```bash
+   gh variable set PRODUCTION_DOKS_INGRESS_TARGET --env production --body "$LB_IP"
+   gh variable set PRODUCTION_APP_SERVING --env production --body app-platform
+   gh variable set PRODUCTION_DOKS_CERTIFICATE_READY --env production --body false
+   gh variable get PRODUCTION_MARKETPLACE_PUBLIC_ENABLED --env production
+   # Expected: false. Do not alter the runtime profile, exposure flags, or secrets.
+   ```
+
+#### Phase B: rehearse and issue the certificate before the flip
+
+1. Dispatch `Platform Deploy` from `main`. With serving still `app-platform`, the production job applies `environment-dns/production.tfstate` to create only the applicable shadow A records, deploys both shadow and live Ingress rules, and waits for the DNS-01 certificate plus shadow HTTPS probes:
+
+   ```bash
+   gh workflow run platform-production.yml --ref main
+   RUN_ID="$(gh run list --workflow platform-production.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+   gh run watch "$RUN_ID" --exit-status
+   ```
+
+2. Reconfirm certificate and ingress evidence directly. Do not continue unless the certificate is `Ready=True`, every required live/shadow DNS name is present, shadow HTTPS is green, and unresolved Orders/Challenges are zero:
+
+   ```bash
+   kubectl wait --namespace chase-sets-platform --for=condition=Ready \
+     certificate/chase-sets-platform-doks-tls --timeout=10m
+   kubectl get certificate/chase-sets-platform-doks-tls \
+     --namespace chase-sets-platform -o jsonpath='{.spec.dnsNames}{"\n"}{.status.conditions}{"\n"}'
+   kubectl get orders.acme.cert-manager.io,challenges.acme.cert-manager.io \
+     --namespace chase-sets-platform
+   node ./scripts/platform-ingress-wait.mjs \
+     --url https://doks.chasesets.com/ \
+     --url https://www.doks.chasesets.com/ \
+     --url https://admin.doks.chasesets.com/health/ready
+   ```
+
+3. Retain the rehearsal run link: its `Smoke check` creates a synthetic production waitlist signup and verifies the admin read model. This is the before-flip signup evidence.
+
+#### Phase B: flip and verify
+
+1. Open the certificate gate, then change only the serving switch:
+
+   ```bash
+   gh variable set PRODUCTION_DOKS_CERTIFICATE_READY --env production --body true
+   gh variable set PRODUCTION_APP_SERVING --env production --body doks
+   ```
+
+2. Dispatch and watch `Platform Deploy`. The production job rechecks the ready certificate and shadow HTTPS **before** `terraform apply`; the platform apply then releases App Platform domain attachments and creates the production DOKS A records. App Platform and its parked fallback routes remain intact.
+
+   ```bash
+   gh workflow run platform-production.yml --ref main
+   FLIP_RUN_ID="$(gh run list --workflow platform-production.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+   gh run watch "$FLIP_RUN_ID" --exit-status
+   ```
+
+3. Verify live resolution, TLS/readiness, the production smoke and stage-1 canary steps, and the post-flip synthetic waitlist signup/admin read from the flip run:
+
+   ```bash
+   for host in chasesets.com www.chasesets.com admin.chasesets.com; do
+     test "$(dig +short A "$host" | tail -n 1)" = "$LB_IP"
+   done
+   node ./scripts/platform-ingress-wait.mjs \
+     --url https://chasesets.com/ \
+     --url https://www.chasesets.com/ \
+     --url https://admin.chasesets.com/health/ready
+   gh run view "$FLIP_RUN_ID" --json jobs \
+     --jq '.jobs[] | select(.name == "Deploy Production") | .steps[] | select(.name == "Smoke check" or .name == "Stage 1 production canary") | [.name,.conclusion] | @tsv'
+   ```
+
+The three-day soak clock begins only after these probes and both workflow steps are green. Keep App Platform, the target, shadow records, certificate, and marketplace-off posture unchanged for the whole soak.
+
+#### Phase B: DNS-only rollback
+
+Rollback is the serving variable re-flip. Leave the ingress target and ready certificate in place so the shadow/live DOKS path stays warm:
+
+```bash
+gh variable set PRODUCTION_APP_SERVING --env production --body app-platform
+gh workflow run platform-production.yml --ref main
+ROLLBACK_RUN_ID="$(gh run list --workflow platform-production.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+gh run watch "$ROLLBACK_RUN_ID" --exit-status
+node ./scripts/platform-ingress-wait.mjs \
+  --url https://chasesets.com/ \
+  --url https://www.chasesets.com/ \
+  --url https://admin.chasesets.com/health/ready
+for host in chasesets.com www.chasesets.com admin.chasesets.com; do
+  test "$(dig +short A "$host" | tail -n 1)" != "$LB_IP"
+done
+```
+
+Do not disable/delete the App Platform app, remove its components, clear the target/certificate, or destroy any infrastructure here. Those actions belong to #5171/#4055 after the separately approved soak gate.
 
 Certificate incidents:
 

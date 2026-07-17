@@ -442,6 +442,11 @@ describe("render platform Helm values", () => {
       tls: {
         enabled: true,
         secretName: "chase-sets-platform-doks-tls",
+        certificate: {
+          enabled: false,
+          clusterIssuer: "",
+          dnsNames: [],
+        },
       },
       hosts: [],
     });
@@ -520,6 +525,65 @@ describe("render platform Helm values", () => {
     for (const host of stagingValues.doksIngress.hosts.map((entry) => entry.host)) {
       expect(host).not.toMatch(/^(landing|marketplace|admin)-staging\./);
     }
+  });
+
+  it("renders production shadow and live hosts under one pre-flip DNS-01 certificate", () => {
+    const doksIngress = buildDoksIngressValues({
+      environment: "production",
+      env: {
+        PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20",
+        PRODUCTION_APP_SERVING: "app-platform",
+      },
+    });
+
+    expect(doksIngress.enabled).toBe(true);
+    expect(doksIngress.clusterIssuer).toBe("");
+    expect(doksIngress.hosts.map((host) => host.host)).toEqual([
+      "doks.chasesets.com",
+      "www.doks.chasesets.com",
+      "admin.doks.chasesets.com",
+      "chasesets.com",
+      "www.chasesets.com",
+      "admin.chasesets.com",
+    ]);
+    expect(doksIngress.tls.certificate).toEqual({
+      enabled: true,
+      clusterIssuer: "letsencrypt-production",
+      dnsNames: doksIngress.hosts.map((host) => host.host),
+    });
+    expect(doksIngress.hosts.find((host) => host.host === "chasesets.com").paths.at(-1)).toEqual({
+      path: "/",
+      service: "public-web",
+    });
+    expect(doksIngress.hosts.some((host) => host.host.startsWith("marketplace."))).toBe(false);
+  });
+
+  it("adds production marketplace ingress only when the existing public-exposure gate is true", () => {
+    const doksIngress = buildDoksIngressValues({
+      environment: "production",
+      env: {
+        PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20",
+        PRODUCTION_APP_SERVING: "doks",
+        PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: "true",
+      },
+    });
+
+    expect(doksIngress.hosts.map((host) => host.host)).toEqual(
+      expect.arrayContaining(["marketplace.doks.chasesets.com", "marketplace.chasesets.com"]),
+    );
+  });
+
+  it("does not let production inherit the repo-level staging ingress target", () => {
+    const doksIngress = buildDoksIngressValues({
+      environment: "production",
+      env: {
+        DOKS_INGRESS_TARGET: "159.203.145.65",
+        PRODUCTION_APP_SERVING: "app-platform",
+      },
+    });
+
+    expect(doksIngress.enabled).toBe(false);
+    expect(doksIngress.hosts).toEqual([]);
   });
 
   it("renders DOKS preview ingress hosts for a preview identifier", () => {
@@ -709,6 +773,7 @@ describe("render platform Helm values", () => {
     const chartFiles = [
       "templates/_helpers.tpl",
       "templates/analysis-template.yaml",
+      "templates/certificate.yaml",
       "templates/deployment.yaml",
       "templates/ingress.yaml",
       "templates/job.yaml",
@@ -730,6 +795,7 @@ describe("render platform Helm values", () => {
     expect(chartText).not.toMatch(/^kind: Secret$/m);
     expect(readFileSync(path.join(repoRoot, chartValuesRelativePath), "utf8")).toContain("doksIngress:");
     expect(chartText).toContain(".Values.doksIngress");
+    expect(chartText).toContain("kind: Certificate");
     expect(chartText).not.toContain("ExternalSecret");
     expect(chartText).not.toContain("SecretProviderClass");
     expect(rolloutStates).toEqual([false, false, false]);

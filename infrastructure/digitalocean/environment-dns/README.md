@@ -1,10 +1,13 @@
 # DigitalOcean Environment DNS
 
-This Terraform root owns stable environment-level DNS that must survive App Platform resets.
+This Terraform root owns stable environment-level DNS that must survive App Platform resets. Staging owns its delegated zone and stable records here; production uses a separate state key that owns only DOKS shadow-validation records in the existing root zone.
 
 ## Apply
 
-This root has one state key today, `environment-dns/staging.tfstate`; there is no production or preview key because the records below are staging-only.
+State keys:
+
+- `environment-dns/staging.tfstate` — delegated staging zone, stable staging records, and DOKS shadow records.
+- `environment-dns/production.tfstate` — production DOKS shadow records only. The `platform` root continues to own live production serving records and App Platform domain attachments.
 
 ```bash
 terraform init \
@@ -41,6 +44,10 @@ This root owns the child-zone records that are not App Platform domains:
 
 The sibling `platform` root owns the live serving records and App Platform domain attachments for `staging.chasesets.com`, `www.staging.chasesets.com`, `marketplace.staging.chasesets.com`, and `admin.staging.chasesets.com`. Keeping those records with their App Platform attachment graph makes the DOKS flip collision-free.
 
+## Production
+
+Production reuses this root only for `doks.chasesets.com`, `www.doks.chasesets.com`, `admin.doks.chasesets.com`, and `marketplace.doks.chasesets.com` when marketplace exposure is already approved. It does not create, import, assign, or destroy the existing `chasesets.com` zone or its stable mail/assets records. The default target is empty and `production_app_serving=app-platform`, so the shipped production state is a no-op until an operator records the dedicated production load-balancer address.
+
 ## DOKS Ingress Cutover
 
 The DOKS cutover is designed so both platforms serve during the transition and the
@@ -53,13 +60,12 @@ independent controls:
   App Platform never manages, so the DOKS ingress controller and cert-manager can
   issue real certificates and pass end-to-end HTTPS probes while App Platform keeps
   serving the live hosts. No live traffic moves.
-- `staging_app_serving` — `app-platform` (default, and the rollback state) or `doks`.
+- `staging_app_serving` / `production_app_serving` — `app-platform` (default, and the rollback state) or `doks`.
   This root validates and reports the coordinated serving mode. The sibling
   `platform` root performs the live-host replacement in the same state that owns
   the App Platform CNAMEs and domain attachments.
 
-The live DOKS records are `A` records because the staging zone apex also receives
-mail/TXT records and must not become a CNAME.
+The live DOKS records are `A` records because neither environment apex may become a CNAME. Production additionally requires `production_doks_certificate_ready=true` before the coordinated serving mode can report `doks`; set it only after the live-and-shadow DNS-01 certificate is `Ready`.
 
 ### Rehearse (both platforms serving)
 

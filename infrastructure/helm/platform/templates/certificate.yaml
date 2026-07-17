@@ -1,0 +1,20 @@
+{{- $ingress := .Values.doksIngress -}}
+{{- $certificate := $ingress.tls.certificate -}}
+{{- if and $ingress.enabled $ingress.tls.enabled $certificate.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $ingress.tls.secretName | quote }}
+  labels:
+{{ include "chase-sets-platform.labels" (dict "root" . "name" "doks-certificate") | nindent 4 }}
+spec:
+  secretName: {{ $ingress.tls.secretName | quote }}
+  dnsNames:
+    {{- range $certificate.dnsNames }}
+    - {{ . | quote }}
+    {{- end }}
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: {{ required "doksIngress.tls.certificate.clusterIssuer is required" $certificate.clusterIssuer | quote }}
+{{- end }}

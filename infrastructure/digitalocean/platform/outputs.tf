@@ -51,6 +51,10 @@ output "admin_domain" {
   value = local.admin_domain
 }
 
+output "app_serving" {
+  value = local.app_serving
+}
+
 output "uptime_check_targets" {
   value = local.uptime_check_targets
 }

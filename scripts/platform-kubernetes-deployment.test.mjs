@@ -575,7 +575,7 @@ describe("platform Kubernetes deployment", () => {
     expect(baseOriginEntry).not.toContain("secret");
   });
 
-  it("threads DOKS ingress Helm values only for staging when an ingress target is configured", () => {
+  it("threads environment-scoped DOKS ingress Helm values for staging and production", () => {
     const stagingArgs = buildHelmUpgradeArgs({
       release: "staging-platform",
       namespace: "staging",
@@ -615,12 +615,28 @@ describe("platform Kubernetes deployment", () => {
         DEPLOYMENT_ENVIRONMENT: "production",
       },
       env: {
-        DOKS_INGRESS_TARGET: "203.0.113.10",
-        STAGING_APP_SERVING: "doks",
+        PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20",
+        PRODUCTION_APP_SERVING: "app-platform",
       },
     });
 
-    expect(productionArgs).not.toContain("doksIngress.enabled=true");
+    expect(productionArgs).toEqual(
+      expect.arrayContaining([
+        "--set",
+        "doksIngress.enabled=true",
+        "--set-string",
+        "doksIngress.clusterIssuer=",
+        "--set",
+        "doksIngress.tls.certificate.enabled=true",
+        "--set-string",
+        "doksIngress.tls.certificate.clusterIssuer=letsencrypt-production",
+        "--set-string",
+        "doksIngress.hosts[0].host=doks.chasesets.com",
+        "--set-string",
+        "doksIngress.hosts[3].host=chasesets.com",
+      ]),
+    );
+    expect(productionArgs).not.toContain("marketplace.doks.chasesets.com");
   });
 
   it("enables preview Postgres and PR-specific ingress only for preview deployments", () => {

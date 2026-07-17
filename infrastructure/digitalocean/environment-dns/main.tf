@@ -1,4 +1,36 @@
+moved {
+  from = digitalocean_domain.environment
+  to   = digitalocean_domain.environment[0]
+}
+
+moved {
+  from = digitalocean_record.google_workspace_spf
+  to   = digitalocean_record.google_workspace_spf[0]
+}
+
+moved {
+  from = digitalocean_record.dmarc
+  to   = digitalocean_record.dmarc[0]
+}
+
+moved {
+  from = digitalocean_record.ses_bounce_mx
+  to   = digitalocean_record.ses_bounce_mx[0]
+}
+
+moved {
+  from = digitalocean_record.ses_bounce_spf
+  to   = digitalocean_record.ses_bounce_spf[0]
+}
+
+moved {
+  from = digitalocean_record.catalog_assets
+  to   = digitalocean_record.catalog_assets[0]
+}
+
 resource "digitalocean_domain" "environment" {
+  count = local.is_staging ? 1 : 0
+
   name = local.environment_zone
 
   lifecycle {
@@ -8,13 +40,20 @@ resource "digitalocean_domain" "environment" {
 
 check "doks_ingress_serving_target" {
   assert {
-    condition     = var.staging_app_serving != "doks" || local.doks_ingress_target_configured
-    error_message = "doks_ingress_target must be set to the DOKS ingress load balancer IPv4 address before staging_app_serving flips to \"doks\"."
+    condition     = local.app_serving != "doks" || local.doks_ingress_target_configured
+    error_message = "doks_ingress_target must be set to the environment's DOKS ingress load balancer IPv4 address before app serving flips to \"doks\"."
+  }
+}
+
+check "production_doks_certificate_preflight" {
+  assert {
+    condition     = !local.is_production || var.production_app_serving != "doks" || var.production_doks_certificate_ready
+    error_message = "production_doks_certificate_ready must be true after the live-and-shadow Certificate is Ready before production_app_serving flips to \"doks\"."
   }
 }
 
 resource "digitalocean_record" "delegation" {
-  for_each = toset(local.nameservers)
+  for_each = local.is_staging ? toset(local.nameservers) : toset([])
 
   domain = var.root_domain
   type   = "NS"
@@ -24,9 +63,9 @@ resource "digitalocean_record" "delegation" {
 }
 
 resource "digitalocean_record" "google_workspace_mx" {
-  for_each = local.google_workspace_mx_records
+  for_each = local.is_staging ? local.google_workspace_mx_records : {}
 
-  domain   = digitalocean_domain.environment.name
+  domain   = digitalocean_domain.environment[0].name
   type     = "MX"
   name     = "@"
   value    = each.value.value
@@ -35,7 +74,9 @@ resource "digitalocean_record" "google_workspace_mx" {
 }
 
 resource "digitalocean_record" "google_workspace_spf" {
-  domain = digitalocean_domain.environment.name
+  count = local.is_staging ? 1 : 0
+
+  domain = digitalocean_domain.environment[0].name
   type   = "TXT"
   name   = "@"
   value  = "v=spf1 include:_spf.google.com ~all"
@@ -43,9 +84,9 @@ resource "digitalocean_record" "google_workspace_spf" {
 }
 
 resource "digitalocean_record" "google_workspace_dkim" {
-  count = var.google_workspace_dkim_txt_value == "" ? 0 : 1
+  count = local.is_staging && var.google_workspace_dkim_txt_value != "" ? 1 : 0
 
-  domain = digitalocean_domain.environment.name
+  domain = digitalocean_domain.environment[0].name
   type   = "TXT"
   name   = "google._domainkey"
   value  = var.google_workspace_dkim_txt_value
@@ -53,7 +94,9 @@ resource "digitalocean_record" "google_workspace_dkim" {
 }
 
 resource "digitalocean_record" "dmarc" {
-  domain = digitalocean_domain.environment.name
+  count = local.is_staging ? 1 : 0
+
+  domain = digitalocean_domain.environment[0].name
   type   = "TXT"
   name   = "_dmarc"
   value  = "v=DMARC1; p=none;"
@@ -61,7 +104,9 @@ resource "digitalocean_record" "dmarc" {
 }
 
 resource "digitalocean_record" "ses_bounce_mx" {
-  domain   = digitalocean_domain.environment.name
+  count = local.is_staging ? 1 : 0
+
+  domain   = digitalocean_domain.environment[0].name
   type     = "MX"
   name     = "bounce"
   value    = "feedback-smtp.us-east-2.amazonses.com."
@@ -70,7 +115,9 @@ resource "digitalocean_record" "ses_bounce_mx" {
 }
 
 resource "digitalocean_record" "ses_bounce_spf" {
-  domain = digitalocean_domain.environment.name
+  count = local.is_staging ? 1 : 0
+
+  domain = digitalocean_domain.environment[0].name
   type   = "TXT"
   name   = "bounce"
   value  = "v=spf1 include:amazonses.com ~all"
@@ -78,9 +125,9 @@ resource "digitalocean_record" "ses_bounce_spf" {
 }
 
 resource "digitalocean_record" "ses_dkim" {
-  for_each = local.ses_dkim_records
+  for_each = local.is_staging ? local.ses_dkim_records : {}
 
-  domain = digitalocean_domain.environment.name
+  domain = digitalocean_domain.environment[0].name
   type   = "CNAME"
   name   = each.key
   value  = each.value
@@ -88,7 +135,9 @@ resource "digitalocean_record" "ses_dkim" {
 }
 
 resource "digitalocean_record" "catalog_assets" {
-  domain = digitalocean_domain.environment.name
+  count = local.is_staging ? 1 : 0
+
+  domain = digitalocean_domain.environment[0].name
   type   = "CNAME"
   name   = "assets"
   value  = local.catalog_asset_cdn_endpoint
@@ -101,9 +150,11 @@ resource "digitalocean_record" "catalog_assets" {
 resource "digitalocean_record" "doks_ingress_shadow" {
   for_each = local.doks_shadow_records
 
-  domain = digitalocean_domain.environment.name
+  domain = local.environment_zone
   type   = "A"
   name   = each.value.name
   value  = var.doks_ingress_target
   ttl    = var.doks_ingress_ttl
+
+  depends_on = [digitalocean_domain.environment]
 }

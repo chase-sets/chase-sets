@@ -9,6 +9,16 @@ moved {
 }
 
 moved {
+  from = digitalocean_record.staging_app_serving
+  to   = digitalocean_record.app_serving
+}
+
+moved {
+  from = digitalocean_record.staging_doks_apex
+  to   = digitalocean_record.doks_apex
+}
+
+moved {
   from = digitalocean_database_cluster.postgres
   to   = digitalocean_database_cluster.postgres[0]
 }
@@ -63,7 +73,14 @@ check "staging_production_observability_export" {
 check "doks_ingress_serving_target" {
   assert {
     condition     = !local.serving_from_doks || trimspace(var.doks_ingress_target) != ""
-    error_message = "doks_ingress_target must be set to the DOKS ingress load balancer IPv4 address before staging_app_serving flips to \"doks\"."
+    error_message = "doks_ingress_target must be set to the environment's DOKS ingress load balancer IPv4 address before app serving flips to \"doks\"."
+  }
+}
+
+check "production_doks_certificate_preflight" {
+  assert {
+    condition     = !local.is_production || var.production_app_serving != "doks" || var.production_doks_certificate_ready
+    error_message = "production_doks_certificate_ready must be true after the live-and-shadow Certificate is Ready before production_app_serving flips to \"doks\"."
   }
 }
 
@@ -2060,10 +2077,10 @@ resource "digitalocean_app" "platform" {
   ]
 }
 
-resource "digitalocean_record" "staging_app_serving" {
-  for_each = local.staging_app_serving_record_names
+resource "digitalocean_record" "app_serving" {
+  for_each = local.app_serving_record_names
 
-  domain = local.environment_zone
+  domain = local.live_dns_zone
   type   = local.serving_from_doks ? "A" : "CNAME"
   name   = each.value
   value  = local.serving_from_doks ? var.doks_ingress_target : "${trimsuffix(trimprefix(digitalocean_app.platform.default_ingress, "https://"), "/")}."
@@ -2072,19 +2089,19 @@ resource "digitalocean_record" "staging_app_serving" {
   depends_on = [digitalocean_app.platform]
 }
 
-# App Platform owns the staging apex A/AAAA records while it is attached. The
+# App Platform owns the environment apex A/AAAA records while it is attached. The
 # live DOKS apex A is created only after the app update releases that attachment;
 # on rollback Terraform destroys this dependent record before reattaching it.
-resource "digitalocean_record" "staging_doks_apex" {
+resource "digitalocean_record" "doks_apex" {
   count = local.serving_from_doks ? 1 : 0
 
-  domain = local.environment_zone
+  domain = local.live_dns_zone
   type   = "A"
   name   = "@"
   value  = var.doks_ingress_target
   ttl    = var.doks_ingress_ttl
 
-  depends_on = [digitalocean_record.staging_app_serving]
+  depends_on = [digitalocean_record.app_serving]
 }
 
 resource "digitalocean_uptime_check" "platform" {
@@ -2098,8 +2115,8 @@ resource "digitalocean_uptime_check" "platform" {
 
   depends_on = [
     digitalocean_app.platform,
-    digitalocean_record.staging_app_serving,
-    digitalocean_record.staging_doks_apex,
+    digitalocean_record.app_serving,
+    digitalocean_record.doks_apex,
   ]
 }
 

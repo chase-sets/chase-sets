@@ -376,9 +376,12 @@ jobs:
 
           records_json="$(doctl compute domain records list "$zone" --output json)"
           for name in admin marketplace www; do
-            address="digitalocean_record.staging_app_serving[\"${name}\"]"
+            address="digitalocean_record.app_serving[\"${name}\"]"
+            previous_address="digitalocean_record.staging_app_serving[\"${name}\"]"
             legacy_address="digitalocean_record.staging_app_alias[\"${name}\"]"
-            if terraform state show "$address" >/dev/null 2>&1 || terraform state show "$legacy_address" >/dev/null 2>&1; then
+            if terraform state show "$address" >/dev/null 2>&1 \
+              || terraform state show "$previous_address" >/dev/null 2>&1 \
+              || terraform state show "$legacy_address" >/dev/null 2>&1; then
               continue
             fi
 
