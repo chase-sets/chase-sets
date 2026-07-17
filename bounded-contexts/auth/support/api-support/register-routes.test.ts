@@ -171,6 +171,51 @@ describe("registration auth routes", () => {
     expect(services.identity.findPendingInvitationByEmail).toHaveBeenCalledWith("new.user@chasesets.test");
   });
 
+  it("does not qualify a non-wave pending invitation for founders cohort access", async () => {
+    const services = createServices();
+    services.registrationAdmission = {
+      mode: "invitation",
+      disposableEmailMode: "enforce",
+      disposableEmailDomains: ["mailinator.com"],
+    };
+    services.identity.findPendingInvitationByEmail.mockResolvedValue({
+      invitation_id: "ivt_support_1",
+      account_id: "acc_support",
+      email: "support-invite@chasesets.test",
+      role_key: "owner",
+      status: "pending",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      accepted_by_user_id: null,
+      invited_by_user_id: "usr_support",
+      updated_at: new Date().toISOString(),
+    });
+    const createPersonalIdentity = vi.fn(async () => ({
+      userId: "usr_support_invite",
+      accountId: "acc_support_invite",
+      membershipId: "mbr_support_invite",
+    }));
+    mockCreateIdentityAuthRequestClient.mockReturnValue({ createPersonalIdentity, enablePasswordCredential: vi.fn() });
+    mockStartInteractiveAuth.mockResolvedValue({
+      type: "session-started",
+      userId: "usr_support_invite",
+      sessionId: "ses_support_invite",
+      sessionToken: "session_token",
+      session: { session_id: "ses_support_invite", expires_at: new Date(Date.now() + 60_000).toISOString() },
+      memberships: [],
+    });
+
+    const response = await buildApp(services).request("/register", {
+      method: "POST",
+      headers: registrationRequestHeaders("203.0.113.111"),
+      body: JSON.stringify({ email: "support-invite@chasesets.test", displayName: "Support Invite" }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(createPersonalIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "support-invite@chasesets.test", foundersBetaAccessStartedAt: undefined }),
+    );
+  });
+
   it("allows a Public Presence beta admission before checking team invitations", async () => {
     const services = createServices();
     services.registrationAdmission = {

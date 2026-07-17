@@ -7,7 +7,8 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AuthServices } from "../runtime-support/services";
+import type { AuthServices, RegistrationAdmissionHostConfig } from "../runtime-support/services";
+import type { AuthIdentityInvitationRow } from "../auth-support/identity-projection";
 import { registerMagicLinkRoutes } from "./magic-link-routes";
 import type { AuthApiEnv } from "./support";
 
@@ -56,6 +57,12 @@ function buildApp(services: unknown) {
 }
 
 function createServices() {
+  const registrationAdmission: RegistrationAdmissionHostConfig = {
+    mode: "open",
+    disposableEmailMode: "enforce",
+    disposableEmailDomains: ["mailinator.com"],
+  };
+
   return {
     db: {
       query: vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] })),
@@ -69,15 +76,11 @@ function createServices() {
     },
     identity: {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
-      getUser: vi.fn(async () => ({ user_id: "usr_existing" })),
-      getUserByEmail: vi.fn(async () => ({ user_id: "usr_existing" })),
-      findPendingInvitationByEmail: vi.fn(async () => null),
+      getUser: vi.fn(async (): Promise<{ user_id: string } | null> => ({ user_id: "usr_existing" })),
+      getUserByEmail: vi.fn(async (): Promise<{ user_id: string } | null> => ({ user_id: "usr_existing" })),
+      findPendingInvitationByEmail: vi.fn(async (_email: string): Promise<AuthIdentityInvitationRow | null> => null),
     },
-    registrationAdmission: {
-      mode: "open",
-      disposableEmailMode: "enforce",
-      disposableEmailDomains: ["mailinator.com"],
-    },
+    registrationAdmission,
   };
 }
 
@@ -240,6 +243,106 @@ describe("magic link auth routes", () => {
       userId: "usr_existing",
       email: "todd.skelton@chasesets.com",
     });
+  });
+
+  it("grants founders cohort access to a wave-admitted magic-link registration", async () => {
+    const services = createServices();
+    services.identity.getUser.mockResolvedValue(null);
+    services.identity.getUserByEmail.mockResolvedValue(null);
+    services.registrationAdmission = {
+      mode: "invitation",
+      disposableEmailMode: "enforce",
+      disposableEmailDomains: ["mailinator.com"],
+      findAdmittedWaitlistSignupByEmail: vi.fn(async () => ({
+        signup_id: "wls_wave",
+        beta_invitation_id: "wvi_1_wave",
+        admitted_wave: 1,
+      })),
+    };
+    mockConsumeMagicLinkToken.mockResolvedValue({
+      token_id: "cmd_wave",
+      user_id: null,
+      email: "wave@chasesets.test",
+      token_hash: "hashed:magic_token",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      consumed_at: null,
+    });
+    const createPersonalIdentity = vi.fn(async () => ({
+      userId: "usr_wave",
+      accountId: "acc_wave",
+      membershipId: "mbr_wave",
+    }));
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity,
+      verifyEmailContactMethod: vi.fn(async () => ({ ok: true, userId: "usr_wave", snapshots: [] })),
+    });
+    mockStartInteractiveAuth.mockResolvedValue({ type: "session-started", sessionToken: "session_token" });
+
+    const response = await buildApp(services).request("/magic-link/consume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "magic_token" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(services.identity.findPendingInvitationByEmail).not.toHaveBeenCalled();
+    expect(createPersonalIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "wave@chasesets.test", foundersBetaAccessStartedAt: expect.any(String) }),
+    );
+  });
+
+  it("does not grant founders cohort access to a team-invited magic-link registration", async () => {
+    const services = createServices();
+    services.identity.getUser.mockResolvedValue(null);
+    services.identity.getUserByEmail.mockResolvedValue(null);
+    services.registrationAdmission = {
+      mode: "invitation",
+      disposableEmailMode: "enforce",
+      disposableEmailDomains: ["mailinator.com"],
+    };
+    services.identity.findPendingInvitationByEmail.mockResolvedValue({
+      invitation_id: "ivt_support_1",
+      account_id: "acc_support",
+      email: "support-invite@chasesets.test",
+      role_key: "owner",
+      status: "pending",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      accepted_by_user_id: null,
+      invited_by_user_id: "usr_support",
+      updated_at: new Date().toISOString(),
+    });
+    mockConsumeMagicLinkToken.mockResolvedValue({
+      token_id: "cmd_support",
+      user_id: null,
+      email: "support-invite@chasesets.test",
+      token_hash: "hashed:magic_token",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      consumed_at: null,
+    });
+    const createPersonalIdentity = vi.fn(async () => ({
+      userId: "usr_support_invite",
+      accountId: "acc_support_invite",
+      membershipId: "mbr_support_invite",
+    }));
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity,
+      verifyEmailContactMethod: vi.fn(async () => ({ ok: true, userId: "usr_support_invite", snapshots: [] })),
+    });
+    mockStartInteractiveAuth.mockResolvedValue({ type: "session-started", sessionToken: "session_token" });
+
+    const response = await buildApp(services).request("/magic-link/consume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "magic_token" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(createPersonalIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "support-invite@chasesets.test",
+        foundersBetaAccessStartedAt: undefined,
+      }),
+    );
   });
 
   it("rejects invalid, expired, or already consumed magic link tokens", async () => {

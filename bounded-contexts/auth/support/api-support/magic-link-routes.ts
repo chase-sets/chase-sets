@@ -134,7 +134,7 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
         identity = await identityMutations.createPersonalIdentity({
           email: record.email,
           displayName: createOwnedUserDisplayName(record.email),
-          foundersBetaAccessStartedAt: admission.invitationId ? new Date().toISOString() : undefined,
+          foundersBetaAccessStartedAt: admission.foundersBetaAccessStartedAt,
         });
       } catch (error) {
         const conflict = readIdentityMutationConflict(error);

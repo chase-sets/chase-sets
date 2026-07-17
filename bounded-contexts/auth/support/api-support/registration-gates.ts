@@ -38,7 +38,7 @@ export type RegistrationGateFailure = Readonly<{
 }>;
 
 export type RegistrationGateResult =
-  | Readonly<{ ok: true; invitationId?: string }>
+  | Readonly<{ ok: true; foundersBetaAccessStartedAt?: string }>
   | Readonly<{ ok: false; failure: RegistrationGateFailure }>;
 
 function registrationConfig(services: AuthServices): RegistrationAdmissionConfig {
@@ -130,7 +130,7 @@ export async function requireRegistrationAdmission(
 
   const waveAdmission = await services.registrationAdmission?.findAdmittedWaitlistSignupByEmail?.(normalizedEmail);
   if (waveAdmission) {
-    return { ok: true, invitationId: waveAdmission.beta_invitation_id };
+    return { ok: true, foundersBetaAccessStartedAt: new Date().toISOString() };
   }
 
   const invitation = await services.identity.findPendingInvitationByEmail(normalizedEmail);
@@ -138,5 +138,5 @@ export async function requireRegistrationAdmission(
     return { ok: false, failure: waitlistFailure() };
   }
 
-  return { ok: true, invitationId: invitation.invitation_id };
+  return { ok: true };
 }
