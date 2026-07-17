@@ -46,11 +46,19 @@ export default defineConfig({
   },
   webServer: skipWebServer
     ? undefined
-    : {
-        command: "pnpm run dev:browser-e2e",
-        url: `${marketplaceBaseUrl}/health/ready`,
-        reuseExistingServer: !isCi,
-        timeout: 300_000,
-      },
+    : [
+        {
+          command: "node ./scripts/dev-system.mjs dev browser-e2e",
+          url: `${marketplaceBaseUrl}/health/ready`,
+          reuseExistingServer: !isCi,
+          timeout: 600_000,
+        },
+        {
+          command: "node ./scripts/browser-e2e-readiness.mjs",
+          url: `${sandbox.urls.portal}/health/ready`,
+          reuseExistingServer: false,
+          timeout: 600_000,
+        },
+      ],
   projects,
 });
