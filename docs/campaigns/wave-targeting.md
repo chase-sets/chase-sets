@@ -50,7 +50,7 @@ This is a restatement, not a reopening, of two already-ratified rulings:
 
 **Founders-lock scope** (epic #4895 / #4081): the 0% lock covers the marketplace sales fee only. Any future metered capability charge is separate, opt-in, and never retroactive — repricing being free by law means the founders pitch never needs a repricing caveat.
 
-**Copy this posture unblocks** (feeds the m97 chain, #4336): "Algorithmic repricing built in — included with your account, never a paid add-on," substantiated by the #4888 ADR (a recorded law, not a promotion) within #4075's claims discipline; the unnamed-competitor line "no $50-300/month repricer subscription"; and a "repricing: included vs. subscription" row on the fee calculator (#4072) and comparison SEO pages (#4087).
+**Copy this posture unblocks** (feeds the m97 chain, #4336): "Algorithmic repricing built in — included with your account, never a paid add-on," substantiated by the interim ruling on epic #4335 (2026-07-11) — a recorded law, not a promotion — within #4075's claims discipline; #4888 is the open issue tracking the formal monetization ADR write-up of that ruling, not a closed ADR itself; the unnamed-competitor line "no $50-300/month repricer subscription"; and a "repricing: included vs. subscription" row on the fee calculator (#4072) and comparison SEO pages (#4087).
 
 **Copy boundaries this posture does not lift:** do not write "all analytics free forever" — analytics deep-history/export remain recorded m128 metered *candidates*; phrase claims around the presently-free surfaces (price history panels, market pages, portfolio value) specifically. Do not imply the 0% founders lock covers future usage charges. Throughput language is "scales with your track record," never "unlimited" — limits are level-scaled by design.
 
@@ -73,4 +73,5 @@ Wave dates cross-referenced against m111/m112/m113 reality, as of 2026-07-16. A 
 
 ## Revision log
 
+- **2026-07-17** — Precision fix per #5579: §3 no longer calls #4888 "the ADR" — it is an open issue tracking the formal monetization ADR write-up; the ruling it will formalize was already made as an interim ruling on epic #4335 (2026-07-11), which is what actually substantiates the "included, never a paid add-on" copy today.
 - **2026-07-16** — Initial version, folding the ratified #4337 GTM strategy update (positioning narrative, wave-targeting segments A/B/C, pricing posture, capability calendar) into the campaign-strategy corpus.

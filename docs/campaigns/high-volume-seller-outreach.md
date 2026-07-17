@@ -2,13 +2,15 @@
 
 Tracks issue #4337 (epic #4076, GTM & Founders Offer). This is the Segment A ("the 250k archetype") one-pager and outreach copy ratified on #4337 (2026-07-16); see [GTM Wave Targeting And Seller Positioning](./wave-targeting.md) §1-§2 for the narrative and segment criteria this collateral is built from, and §4 for the capability-calendar gate every claim below is checked against.
 
-**Truth gate:** this collateral follows [Offer Economics Claims Substantiation](./offer-economics-claims-substantiation.md) exactly — a claim not marked Substantiated or Softened-and-quoted-as-such in that document does not appear here, regardless of how well it fits the pitch. **The demo script for policy repricing is explicitly out of scope for this collateral.** It is anchored on the policy UX with dry-run preview (#4332), which is open; see [Wave Targeting §4](./wave-targeting.md#4-beta-capability-calendar). Do not draft or record a repricing demo until #4332 ships. The existing [Open-Offer Demo Walkthrough](./offer-flow-demo.md) covers the open-offer flow only and is unrelated to this gap.
+**Truth gate:** this collateral follows [Offer Economics Claims Substantiation](./offer-economics-claims-substantiation.md) exactly — a claim not marked Substantiated or Softened-and-quoted-as-such in that document does not appear here, regardless of how well it fits the pitch. The founders-offer terms below cite Claim 1a, re-reviewed 2026-07-17 and Substantiated as offer terms (not cohort-activity numbers); the badge wording says "publicly displayed," not "permanent," matching #4887's ratified scope exactly. **The demo script for policy repricing is explicitly out of scope for this collateral.** It is anchored on the policy UX with dry-run preview (#4332), which is open; see [Wave Targeting §4](./wave-targeting.md#4-beta-capability-calendar). Do not draft or record a repricing demo until #4332 ships. The existing [Open-Offer Demo Walkthrough](./offer-flow-demo.md) covers the open-offer flow only and is unrelated to this gap.
 
 ## Audience
 
 Online-only sellers with 10,000+ active listings (up to 250k+), selling today on TCGplayer and/or eBay, currently paying for a third-party repricer ($50-300/mo) or repricing by spreadsheet. Identified via the two-step-signup cohort-quality fields (inventory size, store link, games); no new build needed to source the list.
 
 ## One-pager copy
+
+*Gate: this full one-pager leads with policy repricing as live, which requires #4331 (repricing engine) and #4332 (dry-run policy UX) in staging — neither has shipped as of 2026-07-17 (see [Wave Targeting §4](./wave-targeting.md#4-beta-capability-calendar)). Do not send this variant until both are staged for the target wave; use the [Wave-1 truth-gated variant](#wave-1-truth-gated-variant) below until then.*
 
 > **You didn't get into this business to babysit a spreadsheet.**
 >
@@ -20,7 +22,7 @@ Online-only sellers with 10,000+ active listings (up to 250k+), selling today on
 >
 > **Built in. Included.** This is not a $50-300/month third-party repricer bolted onto someone else's marketplace. It's native, it's included with your account, and it is never a paid add-on.
 >
-> **Founders offer:** the first 500 accounts to list or make an offer claim a numbered founder badge, public and permanent. Beta access opens a 60-day 0% seller-fee window: every listing you create in that window locks 0% until it sells. *0% locked, and your prices manage themselves.*
+> **Founders offer:** the first 500 accounts to list or make an offer claim a numbered founder badge, publicly displayed. Beta access opens a 60-day 0% seller-fee window: every listing you create in that window locks 0% until it sells. *0% locked, and your prices manage themselves.*
 >
 > Terms in plain language: https://chasesets.com/founders
 
@@ -56,4 +58,5 @@ TODD owns: recipient list pull from the waitlist admin view's cohort-quality fie
 
 ## Revision log
 
+- **2026-07-17** — Re-ran founders-offer substantiation per #5579: #4068/#4887 both closed and verified shipped end-to-end in code, so the founders-terms lines here now cite Claim 1a (Substantiated as offer terms) rather than an implicit claim. Softened "public and permanent" to "publicly displayed" (badge wording, one-pager) to match #4887's ratified public-display scope — no permanence guarantee was ratified. Added an inline gating note under the one-pager heading pointing to the Wave-1 variant until #4331/#4332 stage.
 - **2026-07-16** — Initial version: Segment A one-pager and Wave-1 truth-gated variant drafted from the ratified #4337 GTM strategy update. Demo script intentionally excluded, gated on #4332.
