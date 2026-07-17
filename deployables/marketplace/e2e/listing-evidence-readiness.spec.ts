@@ -12,7 +12,7 @@ test.describe("seller Listing Evidence readiness", () => {
     await signInWithPassword(page, new URL(page.url()).origin, seller);
   });
 
-  test("shows active compliance from server-owned slots @marketplace-seller", async ({ page }) => {
+  test("shows active compliance from server-owned slots @marketplace-seller @browser-e2e-seed", async ({ page }) => {
     await page.goto("/account/listings/lst_seed_charizard_base_set_psa_8", { waitUntil: "domcontentloaded" });
 
     await expect(page.getByRole("heading", { name: "Listing readiness" })).toBeVisible();
@@ -23,7 +23,9 @@ test.describe("seller Listing Evidence readiness", () => {
     await expect(page.getByText("Seller-supplied evidence", { exact: true })).toBeVisible();
   });
 
-  test("keeps the draft path available with mobile camera capture @marketplace-seller", async ({ page }) => {
+  test("keeps the draft path available with mobile camera capture @marketplace-seller @browser-e2e-seed", async ({
+    page,
+  }) => {
     await page.goto("/account/listings/lst_seed_lugia_neo_genesis_draft", { waitUntil: "domcontentloaded" });
 
     await expect(page.getByRole("heading", { name: "Listing readiness" })).toBeVisible();

@@ -272,7 +272,7 @@ test.describe("buy funnel redesign — defect verification", () => {
 
   // ── 3. Cart with lines — verify "Estimated total" + stepper + hierarchy ───
 
-  test("buy cart with seeded items shows Estimated total and passes all redesign contracts @marketplace-checkout", async ({
+  test("buy cart with seeded items shows Estimated total and passes all redesign contracts @marketplace-checkout @browser-e2e-seed", async ({
     page,
   }) => {
     test.setTimeout(120_000);
@@ -354,7 +354,9 @@ test.describe("buy funnel redesign — defect verification", () => {
 
   // ── 5. Checkout session — authenticated + contracts ───────────────────────
 
-  test("authenticated buy checkout session satisfies redesign contracts @marketplace-checkout", async ({ page }) => {
+  test("authenticated buy checkout session satisfies redesign contracts @marketplace-checkout @browser-e2e-seed", async ({
+    page,
+  }) => {
     test.setTimeout(120_000);
 
     await authenticateSeededBuyer(page);
@@ -494,7 +496,7 @@ test.describe("buy funnel redesign — defect verification", () => {
 
   // ── 9. Cross-surface: "Estimated total" label and single deferral caption ──
 
-  test("buy cart Estimated total label and single deferred caption contract @marketplace-checkout", async ({
+  test("buy cart Estimated total label and single deferred caption contract @marketplace-checkout @browser-e2e-seed", async ({
     page,
   }, testInfo) => {
     test.setTimeout(120_000);

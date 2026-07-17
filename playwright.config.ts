@@ -28,6 +28,7 @@ const projects = [
 
 export default defineConfig({
   testDir: ".",
+  grepInvert: skipWebServer ? /@browser-e2e-seed/ : undefined,
   outputDir: "artifacts/playwright/test-results",
   fullyParallel: true,
   forbidOnly: isCi,

@@ -4,7 +4,7 @@ import { marketplaceBrowserE2eBuyerCredentials, marketplaceBrowserE2eSeedContrac
 import { logMarketplaceSeedContractGap } from "./support/seed-contract-gap";
 
 test.describe("marketplace buyer purchase journey", () => {
-  test("seeded buyer submits the marketplace sign-in form @marketplace-account", async ({ page }) => {
+  test("seeded buyer submits the marketplace sign-in form @marketplace-account @browser-e2e-seed", async ({ page }) => {
     await page.goto("/sign-in?returnTo=%2Faccount%2Fcart", { waitUntil: "domcontentloaded" });
     await signInThroughMarketplaceForm(page, marketplaceBrowserE2eBuyerCredentials());
 
@@ -12,7 +12,9 @@ test.describe("marketplace buyer purchase journey", () => {
     await expect(page.getByRole("heading", { name: /^Your cart$/i }).first()).toBeVisible();
   });
 
-  test("seeded buyer walks the real cart to the checkout-session boundary @marketplace-checkout", async ({ page }) => {
+  test("seeded buyer walks the real cart to the checkout-session boundary @marketplace-checkout @browser-e2e-seed", async ({
+    page,
+  }) => {
     test.setTimeout(120_000);
 
     await page.goto("/sign-in?returnTo=%2Faccount%2Fcart", { waitUntil: "domcontentloaded" });

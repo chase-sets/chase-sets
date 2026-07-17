@@ -14,7 +14,7 @@ async function waitForProjectedStatus(page: Page, status: string) {
 }
 
 test.describe("marketplace support case detail", () => {
-  test("carries a damaged-item case from seller offer to buyer acceptance @marketplace-account", async ({
+  test("carries a damaged-item case from seller offer to buyer acceptance @marketplace-account @browser-e2e-seed", async ({
     browser,
   }) => {
     test.setTimeout(180_000);

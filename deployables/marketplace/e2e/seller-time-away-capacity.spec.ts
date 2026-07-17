@@ -19,7 +19,7 @@ import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract"
 // it. Playwright auto-discovers this file via the marketplace testMatch glob.
 
 test.describe("marketplace seller time away & order capacity", () => {
-  test("schedules an away window, sees it, cancels it, and sets an order capacity cap @marketplace-account", async ({
+  test("schedules an away window, sees it, cancels it, and sets an order capacity cap @marketplace-account @browser-e2e-seed", async ({
     page,
   }) => {
     test.setTimeout(120_000);
