@@ -3266,7 +3266,8 @@ describe("DigitalOcean platform configuration", () => {
     const resolveReleaseJob = workflowJob(platformProductionWorkflow, "resolve-release");
 
     expect(planJob).toContain("inputs.cutover_plan_only == true");
-    expect(planJob).toContain("environment: production");
+    expect(planJob).toContain("environment: ${{ github.ref_name == 'main' && 'production' || 'preview' }}");
+    expect(planJob).toContain("x-chase-sets-observability-token=plan-only-placeholder");
     expect(planJob).toContain("environment-dns/production.tfstate");
     expect(planJob).toContain("landing/production.tfstate");
     expect(occurrenceCount(planJob, "terraform plan -lock=false")).toBe(2);

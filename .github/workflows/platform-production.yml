@@ -122,7 +122,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.cutover_plan_only == true
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: production
+    # Production deployment credentials are main-only by branch policy. A PR
+    # repair uses the preview environment's account-level DO/Spaces plan
+    # credentials; merged-main plan runs use production credentials.
+    environment: ${{ github.ref_name == 'main' && 'production' || 'preview' }}
     permissions:
       contents: read
     env:
@@ -138,7 +141,7 @@ jobs:
       TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
       TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
       TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-      TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
+      TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || 'x-chase-sets-observability-token=plan-only-placeholder' }}
       TF_VAR_platform_bootstrap_owner: ${{ vars.PLATFORM_BOOTSTRAP_OWNER || 'doks' }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
