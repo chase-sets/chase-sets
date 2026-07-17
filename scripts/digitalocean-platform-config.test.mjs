@@ -3267,6 +3267,10 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(planJob).toContain("inputs.cutover_plan_only == true");
     expect(planJob).toContain("environment: ${{ github.ref_name == 'main' && 'production' || 'preview' }}");
+    expect(platformProductionWorkflow).toContain("cutover_plan_alert_emails:");
+    expect(planJob).toContain(
+      "TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || inputs.cutover_plan_alert_emails || '[]' }}",
+    );
     expect(planJob).toContain("x-chase-sets-observability-token=plan-only-placeholder");
     expect(planJob).toContain("environment-dns/production.tfstate");
     expect(planJob).toContain("landing/production.tfstate");
