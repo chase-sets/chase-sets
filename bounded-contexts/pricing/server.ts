@@ -49,4 +49,8 @@ export {
   marketAnalyticsDisplayPolicy,
   type MarketAnalyticsDisplayPolicyValue,
 } from "./features/market-rollups/domain/display-policy";
+export {
+  marketEstimatePolicy,
+  type MarketEstimatePolicyValue,
+} from "./features/market-estimates/domain/estimate-policy";
 export type { ProductMarketStatsSnapshotResponse } from "./features/market-rollups/api/runtime";

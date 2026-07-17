@@ -2,6 +2,7 @@
   "contextName": "pricing",
   "packageName": "@chase-sets/pricing",
   "ownedNouns": [
+    "market-price",
     "market-price-snapshot",
     "price-recommendation",
     "price-signal",
@@ -21,6 +22,7 @@
     "price-signals",
     "market-trades",
     "market-rollups",
+    "market-estimates",
     "repricing-policies",
     "public-market-pages",
     "bulk-reprice-ingestion"
@@ -383,6 +385,11 @@
     "market-rollups": {
       "classification": "slice",
       "purpose": "Own the daily-product-rollup and market-state-snapshot read models, and the denormalized product market aggregate, computed from the trades-tape and current listing/offer state, plus the query API that serves them.",
+      "expectedConsumers": ["Internal pricing module composition"]
+    },
+    "market-estimates": {
+      "classification": "slice",
+      "purpose": "Own the blended Market-Value Estimate: the event-sourced Market Price aggregate publishing pricing.market-price.estimated per resolved product (platform verified trades weighted highest, unverified next, external comps by the market-estimate policy, all time-decayed), its minimum-input gate, the current-estimate read model, and the estimate recompute pass riding the market-rollups closer job.",
       "expectedConsumers": ["Internal pricing module composition"]
     },
     "repricing-policies": {
