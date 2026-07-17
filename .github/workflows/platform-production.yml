@@ -41,6 +41,16 @@ on:
         required: false
         default: false
         type: boolean
+      circuit_issue_number:
+        description: Active canonical delivery circuit issue required for manual recovery while a lane is held.
+        required: false
+        default: ""
+        type: string
+      circuit_reason:
+        description: Audited recovery reason required with circuit_issue_number.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -65,7 +75,28 @@ jobs:
     permissions:
       actions: write
       contents: read
+      issues: write
+      pull-requests: read
     steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Known Failure Guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT: ${{ vars.DELIVERY_FAILURE_RELEASE_CIRCUIT_ENFORCEMENT == 'true' && 'true' || 'false' }}
+        run: |
+          node ./scripts/release-health-merge-group-failure-signatures.mjs \
+            --command guard \
+            --lane release-dispatch \
+            --lane staging \
+            --lane production \
+            --base-sha "${{ github.sha }}" \
+            --candidate-sha "${{ github.sha }}" \
+            --actor "${{ github.triggering_actor }}" \
+            --automatic true \
+            --enforcement "$DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
       - name: Dispatch automatic release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -84,6 +115,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     if: github.event_name == 'workflow_dispatch'
+    permissions:
+      checks: read
+      contents: read
+      issues: write
+      pull-requests: read
     outputs:
       release_commit: ${{ steps.release.outputs.release_commit }}
       deployment_required: ${{ steps.deployment_scope.outputs.deploy }}
@@ -165,6 +201,25 @@ jobs:
             --recovery-reason "${{ github.event_name == 'workflow_dispatch' && inputs.recovery_reason || '' }}" \
             --out artifacts/release-health/production-recovery-mode.json \
             --github-output "$GITHUB_OUTPUT"
+
+      - name: Known Failure Guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT: ${{ vars.DELIVERY_FAILURE_RELEASE_CIRCUIT_ENFORCEMENT == 'true' && 'true' || 'false' }}
+        run: |
+          node ./scripts/release-health-merge-group-failure-signatures.mjs \
+            --command guard \
+            --lane release-dispatch \
+            --lane staging \
+            --lane production \
+            --base-sha "${{ steps.release.outputs.release_commit }}" \
+            --candidate-sha "${{ steps.release.outputs.release_commit }}" \
+            --actor "${{ github.triggering_actor }}" \
+            --automatic "${{ inputs.automatic_release == true && 'true' || 'false' }}" \
+            --circuit-issue-number "${{ inputs.circuit_issue_number }}" \
+            --circuit-reason "${{ inputs.circuit_reason }}" \
+            --enforcement "$DELIVERY_FAILURE_CIRCUIT_ENFORCEMENT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
 
   deployment-contract-preflight:
     name: Preflight Deployment Contract (${{ matrix.environment }})

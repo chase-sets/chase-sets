@@ -186,7 +186,7 @@ export const SUBCOMMANDS = {
   },
   "release-health:merge-group-failure-signatures": {
     script: "release-health-merge-group-failure-signatures.mjs",
-    description: "Read-only merge-group failure signature deduplication and attribution report.",
+    description: "Evaluate delivery failure signatures, canonical circuit issues, and lane holds.",
   },
   "release-health:merge-queue-posture": {
     script: "release-health-merge-queue-posture.mjs",

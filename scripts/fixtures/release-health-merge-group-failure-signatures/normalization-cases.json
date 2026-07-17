@@ -1,0 +1,16 @@
+{
+  "equivalent": [
+    {
+      "left": "2026-07-17T12:01:02.123Z run id 294200001 failed in /tmp/vitest-a3b9/file.ts on localhost:43127 namespace=chase-sets-verify-123-1: DomainZoneInvalid",
+      "right": "2026-07-17T12:08:44.999Z run id 294299999 failed in /tmp/vitest-z9x8/file.ts on localhost:51234 namespace=chase-sets-verify-999-2: DomainZoneInvalid"
+    },
+    {
+      "left": "attempt 1 /actions/runs/123456/attempts/1 ProviderFailure code E_STATE_LOCK",
+      "right": "attempt 2 /actions/runs/987654/attempts/2 ProviderFailure code E_STATE_LOCK"
+    }
+  ],
+  "redaction": {
+    "input": "Authorization: Bearer ghp_supersecret PASSWORD=hunter2 Cookie: session=abc123 database_url=postgres://user:pass@host/db path=/tmp/token-991/file",
+    "mustNotContain": ["ghp_supersecret", "hunter2", "abc123", "user:pass", "token-991"]
+  }
+}

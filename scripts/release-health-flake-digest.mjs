@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
+import { parseCircuitMarker } from "./release-health-merge-group-failure-signatures.mjs";
 
 export const RELEASE_HEALTH_FLAKE_DIGEST_VERSION = "release-health-flake-digest/v1";
 export const DEFAULT_WINDOW_DAYS = 7;
@@ -37,9 +38,10 @@ export async function collectReleaseHealthFlakeDigest(options) {
   }
 
   const windows = buildDigestWindows(options.checkedAt, options.windowDays);
-  const [currentRuns, previousRuns] = await Promise.all([
+  const [currentRuns, previousRuns, signatureFlakes] = await Promise.all([
     fetchWorkflowRunsForWindow(options, windows.current),
     fetchWorkflowRunsForWindow(options, windows.previous),
+    fetchDeliverySignatureFlakes(options, windows.current),
   ]);
 
   return buildFlakeDigest({
@@ -52,6 +54,7 @@ export async function collectReleaseHealthFlakeDigest(options) {
     },
     currentRuns,
     previousRuns,
+    signatureFlakes,
   });
 }
 
@@ -112,6 +115,8 @@ export function buildFlakeDigest(input) {
     previousFlakyFailureCount: previous.flakyFailureCount,
     breachCount: breaches.length,
     topFlakyJobs: jobs,
+    signatureFlakeCount: (input.signatureFlakes ?? []).length,
+    deliverySignatureFlakes: input.signatureFlakes ?? [],
     issueTitle: `CI flake digest breach: ${input.windows.current.start.slice(0, 10)} to ${input.windows.current.end.slice(0, 10)}`,
   };
   return {
@@ -153,6 +158,7 @@ export function renderFlakeDigestMarkdown(digest) {
     `Window: ${digest.window.current.start} to ${digest.window.current.end}.`,
     `Retries: ${digest.retryCount} (${formatSignedDelta(digest.retryCount - digest.previousRetryCount)} vs previous window). Flaky successful retries: ${digest.flakyFailureCount} (${formatSignedDelta(digest.flakyFailureCount - digest.previousFlakyFailureCount)}).`,
     `Thresholds: job retries >= ${digest.thresholds.retryCount}; job flaky successful retries >= ${digest.thresholds.flakyFailureCount}.`,
+    `Delivery signature retry-pass evidence: ${digest.signatureFlakeCount ?? 0}.`,
     "",
   ];
 
@@ -196,6 +202,29 @@ export function renderFlakeDigestIssueBody(digest) {
   ].join("\n");
 }
 
+export function summarizeDeliverySignatureFlakes(issues, window) {
+  return (issues ?? [])
+    .map((issue) => ({ issue, record: parseCircuitMarker(issue?.body) }))
+    .filter(({ record }) => {
+      const recovered = Date.parse(record?.recoveredAt);
+      return (
+        record?.state === "recovered" &&
+        /retry-pass/i.test(record?.recoveryReason ?? "") &&
+        Number.isFinite(recovered) &&
+        recovered >= Date.parse(window.start) &&
+        recovered <= Date.parse(window.end)
+      );
+    })
+    .map(({ issue, record }) => ({
+      issueNumber: issue.number,
+      signature: record.signature,
+      lane: record.lane,
+      job: record.job,
+      recoveredAt: record.recoveredAt,
+      recoveryReason: record.recoveryReason,
+    }));
+}
+
 export async function writeReleaseHealthFlakeDigest(options) {
   const digest = await collectReleaseHealthFlakeDigest(options);
   if (options.outPath) {
@@ -237,6 +266,30 @@ async function fetchWorkflowRunsForWindow(options, window) {
   }
 
   return runs;
+}
+
+async function fetchDeliverySignatureFlakes(options, window) {
+  const issues = [];
+  let url = new URL(`https://api.github.com/repos/${options.repository}/issues`);
+  url.searchParams.set("state", "all");
+  url.searchParams.set("sort", "updated");
+  url.searchParams.set("direction", "desc");
+  url.searchParams.set("per_page", "100");
+
+  while (url && issues.length < 300) {
+    const response = await options.fetchImpl(url, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!response.ok) throw new Error(`GitHub delivery signature issue lookup failed: ${response.status}`);
+    const body = await response.json();
+    issues.push(...(Array.isArray(body) ? body.filter((issue) => !issue.pull_request) : []));
+    url = nextLink(response.headers?.get?.("link"));
+  }
+  return summarizeDeliverySignatureFlakes(issues, window);
 }
 
 function nextLink(linkHeader) {
