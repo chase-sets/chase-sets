@@ -658,6 +658,24 @@ The workflow:
 15. Adds a matching `release-<yyyymmddHHMMSS>-<sha>` DOCR tag to the promoted image, creates the annotated Git release tag, and fast-forwards the protected `production` branch to the smoke-verified deployed release commit.
 16. Writes a `release-health/v1` artifact with queue timing, exposure-posture categories, staging and production results, the canary result (Stage 1 production canary plus the proof-mode Buy Now and Settlement provider-health probes when they run), release-lock state, release attempt phase/reason, and recovery metadata. Staging failures and stale staging skips upload `staging-release-health`; production attempts upload `production-release-health` including the proof-mode probe evidence.
 
+### Production Serving DNS Flip and Rollback
+
+Production record-type changes are deliberately two-invocation operations. Never change `PRODUCTION_APP_SERVING` and begin a TTL phase in the same invocation. The workflow imports exactly one A/CNAME owner per affected name, rejects duplicates or an unknown owner, and stores the applied TTL-preparation phase, timestamp, and observed previous maximum TTL in the platform Terraform state. A later replacement is refused until every affected live record is at 300 seconds or less and the stored previous TTL has elapsed. The replacement plan may delete only the affected `digitalocean_record.app_serving` identities (and, on rollback, `digitalocean_record.doks_apex[0]`) before immediately creating the opposite record type; the new records also use a TTL of 300 seconds or less.
+
+Forward cutover:
+
+1. Keep `PRODUCTION_APP_SERVING=app-platform`. Set `PRODUCTION_SERVING_DNS_PHASE=prepare-doks` and run Platform Deploy. This separate managed change lowers the live App Platform CNAME TTLs to at most 300 seconds and records apply time plus the prior TTL in Terraform state. It must not replace a serving record.
+2. Wait until the recorded prior TTL has elapsed. Keep `PRODUCTION_SERVING_DNS_PHASE=prepare-doks`, set `PRODUCTION_APP_SERVING=doks`, and run Platform Deploy again. The workflow also requires the DOKS certificate preflight, rejects a premature or missing preparation, and bounds the CNAME-to-A replacement to the intended record set.
+3. After DOKS smoke is green, set `PRODUCTION_SERVING_DNS_PHASE=steady`. DOKS records remain at 300 seconds or less through the rollback-confidence window.
+
+Rollback uses the same discipline in reverse:
+
+1. Keep `PRODUCTION_APP_SERVING=doks`. Set `PRODUCTION_SERVING_DNS_PHASE=prepare-app-platform` and run Platform Deploy. Even though DOKS A records should already be low-TTL, this separate invocation records a fresh rollback preparation time and the live previous TTL.
+2. Wait for that recorded TTL to expire. Keep `PRODUCTION_SERVING_DNS_PHASE=prepare-app-platform`, set `PRODUCTION_APP_SERVING=app-platform`, and run Platform Deploy. The guarded plan removes the DOKS apex and replaces only the affected leaf A records with App Platform CNAMEs at 300 seconds or less.
+3. After rollback smoke and resolver convergence are green, set `PRODUCTION_SERVING_DNS_PHASE=steady` and run the next reviewed deployment to restore the App Platform CNAME TTLs to 1800 seconds.
+
+The production destructive-plan approval remains an independent boundary: review the exact plan fingerprint and addresses before either replacement invocation. Do not bypass the TTL gate with a manual Terraform apply or direct DNS edit.
+
 ### DOKS Rollouts Scaffold
 
 Staging enables proportional Argo Rollouts for `public-web`, `marketplace`, and `platform-api` through `values.staging.yaml`. nginx receives 10% first; the controller calls each canary Service's existing readiness endpoint three times and auto-aborts on one failure. The release remains paused at 10% while the workflow runs its existing smoke, projection convergence, Buy Now freshness, and money checks. A green verification tail promotes the rollout through analyzed 25%, 50%, and 100% steps; a failed tail explicitly aborts before incident classification continues.

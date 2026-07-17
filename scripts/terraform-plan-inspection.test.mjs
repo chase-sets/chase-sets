@@ -5,6 +5,7 @@ import {
   appPlatformChanges,
   approvedDestructiveChangeAddressesFromText,
   assertNoDestructiveChanges,
+  assertProductionServingModeReplacement,
   destructiveChangesApprovalFingerprint,
   destructiveResourceChanges,
   durableDatabaseDestructiveResourceChanges,
@@ -38,6 +39,27 @@ function resourceChange(address, actions) {
 }
 
 describe("Terraform plan inspection", () => {
+  it("limits the App Platform rollback deletes in the DOKS-state fixture to the intended records", () => {
+    const plan = JSON.parse(
+      readFileSync(
+        resolve("scripts/fixtures/terraform-plans/production-platform-doks-state-to-app-platform.json"),
+        "utf8",
+      ),
+    );
+
+    expect(assertProductionServingModeReplacement(plan, { from: "doks", to: "app-platform" })).toEqual([
+      'digitalocean_record.app_serving["admin"]',
+      'digitalocean_record.app_serving["www"]',
+      "digitalocean_record.doks_apex[0]",
+    ]);
+
+    const ambiguousPlan = structuredClone(plan);
+    ambiguousPlan.resource_changes.push(resourceChange("digitalocean_project_resources.platform", ["delete"]));
+    expect(() => assertProductionServingModeReplacement(ambiguousPlan, { from: "doks", to: "app-platform" })).toThrow(
+      "plan deletes must be limited",
+    );
+  });
+
   it("detects create, update, and delete actions for the platform app", () => {
     expect(appPlatformChanges(planFor([appChange(["create"])]))).toBe(true);
     expect(appPlatformChanges(planFor([appChange(["update"])]))).toBe(true);

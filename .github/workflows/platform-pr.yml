@@ -637,14 +637,49 @@ jobs:
 
       - name: Terraform plan production platform
         run: |
+          set -euo pipefail
           tmp="$(mktemp -d)"
           cp -R infrastructure/digitalocean/platform/. "$tmp/"
           sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
           terraform -chdir="$tmp" init -backend=false
-          terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
+
+          assert_serving_plan() {
+            plan_file="$1"
+            expected_type="$2"
+            expected_apex="$3"
+            plan_json="$tmp/${plan_file}.json"
+            terraform -chdir="$tmp" show -json "$plan_file" > "$plan_json"
+
+            for name in admin www; do
+              address="digitalocean_record.app_serving[\"${name}\"]"
+              jq -e --arg address "$address" --arg type "$expected_type" \
+                'any(.planned_values.root_module.resources[]?; .address == $address and .values.type == $type)' \
+                "$plan_json" >/dev/null
+            done
+            jq -e 'all(.planned_values.root_module.resources[]?; .address != "digitalocean_record.app_serving[\"marketplace\"]")' \
+              "$plan_json" >/dev/null
+
+            if [ "$expected_apex" = "true" ]; then
+              jq -e 'any(.planned_values.root_module.resources[]?; .address == "digitalocean_record.doks_apex[0]" and .values.type == "A")' \
+                "$plan_json" >/dev/null
+            else
+              jq -e 'all(.planned_values.root_module.resources[]?; .address != "digitalocean_record.doks_apex[0]")' \
+                "$plan_json" >/dev/null
+            fi
+          }
+
+          terraform -chdir="$tmp" plan -refresh=false -lock=false -out=app-platform.tfplan \
+            -var=production_app_serving=app-platform
+          assert_serving_plan app-platform.tfplan CNAME false
+          terraform -chdir="$tmp" plan -refresh=false -lock=false -out=doks.tfplan \
+            -var=production_app_serving=doks \
+            -var=doks_ingress_target=203.0.113.10 \
+            -var=production_doks_certificate_ready=true
+          assert_serving_plan doks.tfplan A true
           (
             cd "$tmp"
-            node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
+            node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes app-platform.tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
+            node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes doks.tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
           )
 
       - name: Terraform init catalog assets without remote backend

@@ -84,6 +84,24 @@ check "production_doks_certificate_preflight" {
   }
 }
 
+check "production_serving_dns_ttl" {
+  assert {
+    condition     = !local.is_production || var.doks_ingress_ttl <= 300
+    error_message = "Production serving-record replacements require doks_ingress_ttl to be 300 seconds or less."
+  }
+}
+
+check "production_serving_dns_preparation_inputs" {
+  assert {
+    condition = !local.is_production || (
+      var.production_serving_dns_phase == "steady"
+      ? trimspace(var.production_serving_dns_prepared_at) == "" && var.production_serving_dns_previous_ttl_seconds == 0
+      : var.production_serving_dns_previous_ttl_seconds > 0
+    )
+    error_message = "A production DNS preparation phase requires the observed previous TTL; steady mode must clear preparation inputs."
+  }
+}
+
 check "production_database_standby_approval" {
   assert {
     condition = var.environment != "production" || var.database_node_count == 1 || (
@@ -2084,9 +2102,29 @@ resource "digitalocean_record" "app_serving" {
   type   = local.serving_from_doks ? "A" : "CNAME"
   name   = each.value
   value  = local.serving_from_doks ? var.doks_ingress_target : "${trimsuffix(trimprefix(digitalocean_app.platform.default_ingress, "https://"), "/")}."
-  ttl    = local.serving_from_doks ? var.doks_ingress_ttl : 1800
+  ttl    = local.app_serving_record_ttl
 
   depends_on = [digitalocean_app.platform]
+}
+
+# The deploy workflow supplies an empty prepared_at only for the separate TTL
+# lowering invocation. timestamp() is therefore resolved during apply, after
+# the record updates above, and the later swap invocation must round-trip the
+# retained state values before Terraform may replace any record type.
+resource "terraform_data" "production_serving_dns_ttl_preparation" {
+  count = local.is_production ? 1 : 0
+
+  input = {
+    phase = var.production_serving_dns_phase
+    prepared_at = var.production_serving_dns_phase == "steady" ? "" : (
+      trimspace(var.production_serving_dns_prepared_at) != ""
+      ? trimspace(var.production_serving_dns_prepared_at)
+      : timestamp()
+    )
+    previous_ttl_seconds = var.production_serving_dns_phase == "steady" ? 0 : var.production_serving_dns_previous_ttl_seconds
+  }
+
+  depends_on = [digitalocean_record.app_serving]
 }
 
 # App Platform owns the environment apex A/AAAA records while it is attached. The
