@@ -2429,6 +2429,7 @@ function createPricingJobRunners(
     | "pricingRecommendationJobLaneCount"
     | "pricingRecommendationJobWorkflowMaxActiveClaims"
     | "pricingRecommendationJobMaxActiveClaimsPerJob"
+    | "pricingRepricingEvaluationJobLaneCount"
   >,
 ): readonly WorkerRunner[] {
   const pricing = services.pricing as
@@ -2458,6 +2459,25 @@ function createPricingJobRunners(
             throwIfLeaseLost?: () => void;
           }) => Promise<number>;
         };
+        repricingEngine?: {
+          processNextEvaluationJob?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+            marketplaceGatewayForAccount: (accountId: string) => {
+              applyBulkListingPriceUpdates: (body: {
+                updates: readonly { listingId: string; priceAmount: string; expectedVersion: number }[];
+              }) => Promise<{
+                items: readonly {
+                  listingId: string;
+                  outcome: "applied" | "no_op" | "conflict" | "error";
+                  message?: string;
+                }[];
+              }>;
+            };
+            signal?: AbortSignal;
+            throwIfLeaseLost?: () => void;
+          }) => Promise<number>;
+        };
       }
     | undefined;
   const marketplace = services.marketplace as
@@ -2481,43 +2501,88 @@ function createPricingJobRunners(
             },
             context: typeof SYSTEM_CONTEXT,
           ) => Promise<{ listingId?: string; id?: string; listing_id?: string }>;
+          applyBulkListingPriceUpdates?: (
+            params: {
+              accountId: string;
+              updates: readonly {
+                listingId: string;
+                priceAmount: string;
+                expectedVersion?: number;
+              }[];
+            },
+            context: typeof SYSTEM_CONTEXT,
+          ) => Promise<
+            readonly {
+              listingId: string;
+              outcome: "applied" | "no_op" | "conflict" | "error";
+              message?: string;
+            }[]
+          >;
         };
       }
     | undefined;
   const processNextRecommendationJob = pricing?.recommendations?.processNextRecommendationJob;
+  const processNextEvaluationJob = pricing?.repricingEngine?.processNextEvaluationJob;
 
-  if (!processNextRecommendationJob || !marketplace?.listings) {
+  if ((!processNextRecommendationJob && !processNextEvaluationJob) || !marketplace?.listings) {
     return [];
   }
 
-  return createDurableJobLaneRunners({
-    workflowName: "pricing.recommendation-jobs",
-    laneCount: input.pricingRecommendationJobLaneCount,
-    runLane: async (lane) => ({
-      processed: await processNextRecommendationJob({
-        claimOwnerId: `${input.workerId}:${lane.laneName}`,
-        claimTtlMs: input.leaseTtlMs * 4,
-        workflowMaxActiveClaims: input.pricingRecommendationJobWorkflowMaxActiveClaims,
-        jobMaxActiveClaims: input.pricingRecommendationJobMaxActiveClaimsPerJob,
-        laneName: lane.laneName,
-        marketplaceListingGatewayForAccount: (accountId) => ({
-          previewListingTerms: (body) => marketplace.listings!.previewListingTerms!({ accountId, ...body }),
-          updateListingPrice: (listingId, body) =>
-            marketplace.listings!.updateListingPrice!({ accountId, listingId, ...body }, SYSTEM_CONTEXT),
-          createListing: async (body) => {
-            const result = await marketplace.listings!.createListing!({ accountId, ...body }, SYSTEM_CONTEXT);
-            return {
-              id: result.id ?? result.listingId,
-              listing_id: result.listing_id ?? result.listingId,
-            };
-          },
-        }),
-        signal: lane.runnerContext?.signal,
-        throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-      }),
-      lastGlobalPosition: "0" as never,
-    }),
-  });
+  return [
+    ...(processNextRecommendationJob
+      ? createDurableJobLaneRunners({
+          workflowName: "pricing.recommendation-jobs",
+          laneCount: input.pricingRecommendationJobLaneCount,
+          runLane: async (lane) => ({
+            processed: await processNextRecommendationJob({
+              claimOwnerId: `${input.workerId}:${lane.laneName}`,
+              claimTtlMs: input.leaseTtlMs * 4,
+              workflowMaxActiveClaims: input.pricingRecommendationJobWorkflowMaxActiveClaims,
+              jobMaxActiveClaims: input.pricingRecommendationJobMaxActiveClaimsPerJob,
+              laneName: lane.laneName,
+              marketplaceListingGatewayForAccount: (accountId) => ({
+                previewListingTerms: (body) => marketplace.listings!.previewListingTerms!({ accountId, ...body }),
+                updateListingPrice: (listingId, body) =>
+                  marketplace.listings!.updateListingPrice!({ accountId, listingId, ...body }, SYSTEM_CONTEXT),
+                createListing: async (body) => {
+                  const result = await marketplace.listings!.createListing!({ accountId, ...body }, SYSTEM_CONTEXT);
+                  return {
+                    id: result.id ?? result.listingId,
+                    listing_id: result.listing_id ?? result.listingId,
+                  };
+                },
+              }),
+              signal: lane.runnerContext?.signal,
+              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+            }),
+            lastGlobalPosition: "0" as never,
+          }),
+        })
+      : []),
+    ...(processNextEvaluationJob && marketplace.listings.applyBulkListingPriceUpdates
+      ? createDurableJobLaneRunners({
+          workflowName: "pricing.repricing-evaluation-jobs",
+          laneCount: input.pricingRepricingEvaluationJobLaneCount,
+          runLane: async (lane) => ({
+            processed: await processNextEvaluationJob({
+              claimOwnerId: `${input.workerId}:${lane.laneName}`,
+              claimTtlMs: input.leaseTtlMs * 4,
+              marketplaceGatewayForAccount: (accountId) => ({
+                applyBulkListingPriceUpdates: async (body) => ({
+                  items: await marketplace.listings!.applyBulkListingPriceUpdates!(
+                    { accountId, updates: body.updates },
+                    SYSTEM_CONTEXT,
+                  ),
+                }),
+              }),
+              signal: lane.runnerContext?.signal,
+              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+            }),
+            lastGlobalPosition: "0" as never,
+          }),
+        })
+      : []),
+  ];
 }
 
 function createBulkRepriceIngestionJobRunners(

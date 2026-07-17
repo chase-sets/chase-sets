@@ -14,6 +14,7 @@ import {
 } from "../../features/market-rollups/read-model/schema";
 import { pricingMarketEstimatesSchemaSql } from "../../features/market-estimates/read-model/schema";
 import { pricingRepricingPolicySchemaSql } from "../../features/repricing-policies/read-model/schema";
+import { pricingRepricingEngineSchemaSql } from "../../features/repricing-engine/read-model/schema";
 import {
   pricingBulkRepriceIngestionSchemaMigrations,
   pricingBulkRepriceIngestionSchemaSql,
@@ -40,6 +41,7 @@ export const pricingSchemaSql = [
   // Must run after pricingRecommendationSourceSchemaSql: the assignment view joins
   // pricing_market_listing_inputs and pricing_catalog_item_inputs.
   pricingRepricingPolicySchemaSql,
+  pricingRepricingEngineSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
   // for the market-stat-hygiene and market-analytics-display policies -- see
   // ../../features/market-trades/domain/stat-hygiene-policy and

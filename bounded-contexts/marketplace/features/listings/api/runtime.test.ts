@@ -1573,6 +1573,48 @@ describe("marketplace listing runtime", () => {
       ]);
     });
 
+    it("lets a manual edit win when an automated bulk update carries a stale observed version", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: bulkTermsResolver() as never,
+      });
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_1",
+          priceAmount: "20.00",
+          quantityCap: 1,
+          listingIdOverride: "lst_manual_wins" as never,
+        },
+        context,
+      );
+      await services.updateListingPrice(
+        { accountId: "acc_seller", listingId: "lst_manual_wins", priceAmount: "22.00" },
+        context,
+      );
+
+      const outcomes = await services.applyBulkListingPriceUpdates(
+        {
+          accountId: "acc_seller",
+          updates: [{ listingId: "lst_manual_wins", priceAmount: "18.00", expectedVersion: 1 }],
+        },
+        context,
+      );
+
+      expect(outcomes).toEqual([
+        {
+          listingId: "lst_manual_wins",
+          outcome: "conflict",
+          version: 2,
+          message: "Expected stream version does not match current version.",
+        },
+      ]);
+      await expect(services.loadListingState("lst_manual_wins")).resolves.toMatchObject({ priceAmount: "22.00" });
+    });
+
     it("isolates an unowned/unknown listing to an error outcome without blocking the rest of the batch", async () => {
       const { eventStore } = createInMemoryEventStore();
       const services = createMarketplaceListingRuntime({

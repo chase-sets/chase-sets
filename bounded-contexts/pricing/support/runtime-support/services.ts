@@ -14,6 +14,7 @@ import { createMarketEstimatesRuntime } from "../../features/market-estimates/ap
 import { createRepricingPolicyRuntime } from "../../features/repricing-policies/api/runtime";
 import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
 import { createBulkRepriceIngestionRuntime } from "../../features/bulk-reprice-ingestion/api/runtime";
+import { createRepricingEngineRuntime } from "../../features/repricing-engine/api/runtime";
 
 export type PricingServices = Readonly<{
   priceSignals: ReturnType<typeof createPriceSignalRuntime>;
@@ -21,6 +22,7 @@ export type PricingServices = Readonly<{
   marketRollups: ReturnType<typeof createMarketRollupsRuntime>;
   marketEstimates: ReturnType<typeof createMarketEstimatesRuntime>;
   repricingPolicies: ReturnType<typeof createRepricingPolicyRuntime>;
+  repricingEngine: ReturnType<typeof createRepricingEngineRuntime>;
   publicMarketPages: ReturnType<typeof createPublicMarketPagesRuntime>;
   /**
    * The shared platform-policy runtime, mounted for this context's
@@ -53,6 +55,7 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
   });
   const marketRollupsBase = createMarketRollupsRuntime({ db, policies });
   const marketEstimates = createMarketEstimatesRuntime({ eventStore, db, policies });
+  const repricingEngine = createRepricingEngineRuntime({ eventStore, db: pool });
   /**
    * The Market-Value Estimate recompute RIDES the market-rollups closer job
    * (the m112 blended-estimate slice): platform-worker already schedules
@@ -69,6 +72,7 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
     runDailyRollupCloser: async (params) => {
       const result = await marketRollupsBase.runDailyRollupCloser(params);
       await marketEstimates.runMarketPriceEstimateCloser({ now: params?.now, limit: params?.limit });
+      await repricingEngine.enqueueDailyDriftSweep({ now: params?.now, limit: params?.limit });
       return result;
     },
   };
@@ -82,6 +86,7 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
     marketRollups,
     marketEstimates,
     repricingPolicies,
+    repricingEngine,
     publicMarketPages,
     policies,
     bulkRepriceIngestion,
@@ -90,6 +95,7 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
       ...recommendations.projectors,
       ...marketEstimates.projectors,
       ...repricingPolicies.projectors,
+      ...repricingEngine.projectors,
       ...policies.projectors,
     ],
     pool,

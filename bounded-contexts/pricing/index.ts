@@ -1,6 +1,11 @@
 export { default as contextManifest } from "./context.json";
 
-import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
+import {
+  buildEventReactionsFromManifest,
+  buildEventSubscriptionsFromManifest,
+  defineBoundedContextModule,
+  type BcContextManifest,
+} from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import { buildPricingApi } from "./api";
@@ -25,9 +30,15 @@ import { seedPricingDatabase } from "./support/runtime-support/seed";
 import type { PricingServices } from "./support/runtime-support/services";
 import { createPricingServices } from "./support/runtime-support/services";
 import { createPricingRecommendationMcpHandlers } from "./features/recommendations/api/mcp";
+import {
+  buildCompetingAskRepricingReactionHandlers,
+  buildMarketPriceRepricingReactionHandlers,
+} from "./features/repricing-engine/integrations/signal-reactions";
+
+const pricingContextManifest = contextManifest as BcContextManifest;
 
 export const module = defineBoundedContextModule<PricingServices, PgTransactionalPool, void>({
-  manifest: contextManifest,
+  manifest: pricingContextManifest,
   schemaSql: pricingSchemaSql,
   schemaMigrations: [...pricingUnloggedProjectionSchemaMigrations, ...pricingFeatureSchemaMigrations],
   createServices: (pool) => createPricingServices(pool),
@@ -37,46 +48,64 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
   buildSubscriptions: (services) => {
     const marketTradesHandlers = buildPricingMarketTradesProjectionHandlers(services.db);
 
-    return buildEventSubscriptionsFromManifest({
-      contextName: "pricing",
-      manifest: contextManifest,
-      handlers: {
-        "catalog.pricing-catalog-input-projection": () => ({
-          ...buildPricingCatalogInputProjectionHandlers(services.db),
-          ...buildPricingPriceSignalCatalogProjectionHandlers(services.db),
-        }),
-        "inventory.pricing-inventory-input-projection": () => buildPricingInventoryInputProjectionHandlers(services.db),
-        "marketplace.pricing-market-input-projection": () =>
-          buildPricingMarketplaceInputProjectionHandlers(services.db),
-        "ordering.pricing-order-input-projection": () => buildPricingOrderingInputProjectionHandlers(services.db),
-        "fulfillment.pricing-fulfillment-input-projection": () =>
-          buildPricingFulfillmentInputProjectionHandlers(services.db),
-        "ordering.pricing-market-trades-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => marketTradesHandlers,
+    return [
+      ...buildEventSubscriptionsFromManifest({
+        contextName: "pricing",
+        manifest: pricingContextManifest,
+        handlers: {
+          "catalog.pricing-catalog-input-projection": () => ({
+            ...buildPricingCatalogInputProjectionHandlers(services.db),
+            ...buildPricingPriceSignalCatalogProjectionHandlers(services.db),
+          }),
+          "inventory.pricing-inventory-input-projection": () =>
+            buildPricingInventoryInputProjectionHandlers(services.db),
+          "marketplace.pricing-market-input-projection": () =>
+            buildPricingMarketplaceInputProjectionHandlers(services.db),
+          "ordering.pricing-order-input-projection": () => buildPricingOrderingInputProjectionHandlers(services.db),
+          "fulfillment.pricing-fulfillment-input-projection": () =>
+            buildPricingFulfillmentInputProjectionHandlers(services.db),
+          "ordering.pricing-market-trades-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => marketTradesHandlers,
+          },
+          "fulfillment.pricing-market-trades-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => marketTradesHandlers,
+          },
+          "identity.pricing-market-trades-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => buildPricingMarketTradesIdentityIntegrityProjectionHandlers(services.db),
+          },
+          "payments.pricing-market-trades-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => buildPricingMarketTradesPaymentsIntegrityProjectionHandlers(services.db),
+          },
+          "settlement.pricing-market-trades-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => buildPricingMarketTradesSettlementIntegrityProjectionHandlers(services.db),
+          },
+          "authenticity.pricing-market-trades-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => buildPricingMarketTradesAuthenticityIntegrityProjectionHandlers(services.db),
+          },
         },
-        "fulfillment.pricing-market-trades-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => marketTradesHandlers,
+
+      }),
+      ...buildEventReactionsFromManifest({
+        contextName: "pricing",
+        manifest: pricingContextManifest,
+        handlers: {
+          "marketplace.pricing-repricing-evaluation-reaction": {
+            filterToEventTypes: true,
+            buildHandlers: () => buildCompetingAskRepricingReactionHandlers(services.repricingEngine),
+          },
+          "pricing.pricing-repricing-evaluation-reaction": {
+            filterToEventTypes: true,
+            buildHandlers: () => buildMarketPriceRepricingReactionHandlers(services.repricingEngine),
+          },
         },
-        "identity.pricing-market-trades-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildPricingMarketTradesIdentityIntegrityProjectionHandlers(services.db),
-        },
-        "payments.pricing-market-trades-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildPricingMarketTradesPaymentsIntegrityProjectionHandlers(services.db),
-        },
-        "settlement.pricing-market-trades-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildPricingMarketTradesSettlementIntegrityProjectionHandlers(services.db),
-        },
-        "authenticity.pricing-market-trades-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildPricingMarketTradesAuthenticityIntegrityProjectionHandlers(services.db),
-        },
-      },
-    });
+      }),
+    ];
   },
   seed: seedPricingDatabase,
 });

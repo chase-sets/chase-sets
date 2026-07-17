@@ -1768,6 +1768,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
 
             laneItems.push({
               streamId: `marketplace.listing-${update.listingId}`,
+              expectedVersion: update.expectedVersion,
               command: {
                 type: "UpdateListingPrice",
                 priceAmount: update.priceAmount,
