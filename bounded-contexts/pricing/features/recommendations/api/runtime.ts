@@ -92,6 +92,7 @@ type RefreshCandidate = Readonly<{
   inventoryItemId: string | null;
   currentPriceAmount: string | null;
   quantityCap: number | null;
+  marketEstimateAmount: string | null;
   competitorPriceAmount: string | null;
   offerPriceAmount: string | null;
 }>;
@@ -183,8 +184,17 @@ function recommendationIdFor(candidate: RefreshCandidate) {
 }
 
 function recommendedAmount(candidate: RefreshCandidate) {
+  const estimate = moneyNumber(candidate.marketEstimateAmount);
   const competitor = moneyNumber(candidate.competitorPriceAmount);
   const offer = moneyNumber(candidate.offerPriceAmount);
+  if (estimate !== null) {
+    return {
+      marketPriceAmount: estimate,
+      marketSignalType: "market-estimate" as PricingMarketSignalType,
+      recommendedListAmount: Math.max(0.01, Number((estimate - 0.01).toFixed(2))),
+      reason: "Priced one cent below the fresh Market Price estimate.",
+    };
+  }
   if (competitor !== null) {
     return {
       marketPriceAmount: competitor,
@@ -214,6 +224,7 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
     inventory_item_id: string | null;
     current_price_amount: string;
     quantity_cap: number;
+    market_estimate_amount: string | null;
     competitor_price_amount: string | null;
     offer_price_amount: string | null;
   }>(
@@ -229,6 +240,7 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
        listing.inventory_item_id,
        listing.price_amount::text AS current_price_amount,
        listing.quantity_cap,
+       estimate.amount::text AS market_estimate_amount,
        (
          SELECT MIN(other.price_amount)::text
          FROM pricing_market_listing_inputs AS other
@@ -245,6 +257,10 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
            AND offer.status = 'submitted'
        ) AS offer_price_amount
      FROM pricing_market_listing_inputs AS listing
+     LEFT JOIN pricing_market_price_estimates AS estimate
+       ON estimate.catalog_catalog_item_id = listing.catalog_catalog_item_id
+      AND estimate.product_id = listing.product_id
+      AND estimate.fresh_until > CURRENT_TIMESTAMP
      WHERE listing.seller_account_id = $1
        AND listing.status IN ('active', 'draft')`,
     [accountId],
@@ -256,6 +272,7 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
     product_id: string;
     inventory_item_id: string;
     available_quantity: number;
+    market_estimate_amount: string | null;
     competitor_price_amount: string | null;
     offer_price_amount: string | null;
   }>(
@@ -270,6 +287,7 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
            - COALESCE(active_listings.listed_quantity, 0),
          0
        )::integer AS available_quantity,
+       estimate.amount::text AS market_estimate_amount,
        (
          SELECT MIN(other.price_amount)::text
          FROM pricing_market_listing_inputs AS other
@@ -286,6 +304,10 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
            AND offer.status = 'submitted'
        ) AS offer_price_amount
      FROM pricing_inventory_item_inputs AS item
+     LEFT JOIN pricing_market_price_estimates AS estimate
+       ON estimate.catalog_catalog_item_id = item.catalog_catalog_item_id
+      AND estimate.product_id = item.product_id
+      AND estimate.fresh_until > CURRENT_TIMESTAMP
      LEFT JOIN (
        SELECT item_id, SUM(quantity)::integer AS held_quantity
        FROM pricing_inventory_hold_inputs
@@ -313,6 +335,7 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
       inventoryItemId: row.inventory_item_id,
       currentPriceAmount: row.current_price_amount,
       quantityCap: row.quantity_cap,
+      marketEstimateAmount: row.market_estimate_amount,
       competitorPriceAmount: row.competitor_price_amount,
       offerPriceAmount: row.offer_price_amount,
     })),
@@ -327,6 +350,7 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
         inventoryItemId: row.inventory_item_id,
         currentPriceAmount: null,
         quantityCap: row.available_quantity,
+        marketEstimateAmount: row.market_estimate_amount,
         competitorPriceAmount: row.competitor_price_amount,
         offerPriceAmount: row.offer_price_amount,
       })),

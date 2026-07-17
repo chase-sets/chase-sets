@@ -28,7 +28,7 @@ export type PricingRecommendationActionType =
 
 export type PricingRecommendationStatus = "proposed" | "applied" | "dismissed" | "failed";
 
-export type PricingMarketSignalType = "competition" | "offer";
+export type PricingMarketSignalType = "market-estimate" | "competition" | "offer";
 
 export const initialPricingRecommendationState: PricingRecommendationState = {
   recommendationId: null,
@@ -199,7 +199,7 @@ function normalizeActionType(value: PricingRecommendationActionType) {
 }
 
 function normalizeSignalType(value: PricingMarketSignalType) {
-  return value === "offer" ? "offer" : "competition";
+  return value === "market-estimate" || value === "offer" ? value : "competition";
 }
 
 function optionalText(value: string | null | undefined) {

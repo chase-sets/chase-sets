@@ -159,6 +159,7 @@ describe("pricing recommendation runtime", () => {
             inventory_item_id: "inv_1",
             current_price_amount: "20.00",
             quantity_cap: 1,
+            market_estimate_amount: "19.50",
             competitor_price_amount: "18.00",
             offer_price_amount: null,
           },
@@ -171,6 +172,7 @@ describe("pricing recommendation runtime", () => {
             inventory_item_id: "inv_skip",
             current_price_amount: "11.99",
             quantity_cap: 1,
+            market_estimate_amount: null,
             competitor_price_amount: "12.00",
             offer_price_amount: null,
           },
@@ -182,6 +184,7 @@ describe("pricing recommendation runtime", () => {
             product_id: "prod_2",
             inventory_item_id: "inv_2",
             available_quantity: 3,
+            market_estimate_amount: null,
             competitor_price_amount: null,
             offer_price_amount: "5.00",
           },
@@ -191,6 +194,7 @@ describe("pricing recommendation runtime", () => {
             product_id: "prod_no_signal",
             inventory_item_id: "inv_no_signal",
             available_quantity: 2,
+            market_estimate_amount: null,
             competitor_price_amount: null,
             offer_price_amount: null,
           },
@@ -207,14 +211,47 @@ describe("pricing recommendation runtime", () => {
     ]);
     expect(events[0]?.payload).toMatchObject({
       actionType: "active-listing-price-update",
-      recommendedListAmount: 17.99,
-      marketSignalType: "competition",
+      marketPriceAmount: 19.5,
+      recommendedListAmount: 19.49,
+      marketSignalType: "market-estimate",
     });
     expect(events[1]?.payload).toMatchObject({
       actionType: "draft-listing-create",
       recommendedListAmount: 5,
       quantityCap: 3,
       marketSignalType: "offer",
+    });
+  });
+
+  it("degrades to the lowest competing ask when the Market Price estimate is absent or stale", async () => {
+    const { services, events } = createRuntime(
+      queryStub({
+        listings: [
+          {
+            action_type: "active-listing-price-update",
+            seller_account_id: "acc_1",
+            catalog_catalog_item_id: "cat_1",
+            product_id: "prod_1",
+            listing_id: "lst_1",
+            inventory_item_id: "inv_1",
+            current_price_amount: "20.00",
+            quantity_cap: 1,
+            // The query returns null for both no row and a row past fresh_until.
+            market_estimate_amount: null,
+            competitor_price_amount: "18.00",
+            offer_price_amount: "25.00",
+          },
+        ],
+      }),
+    );
+
+    await services.refreshRecommendations({ accountId: "acc_1" }, context);
+
+    expect(events[0]?.payload).toMatchObject({
+      marketPriceAmount: 18,
+      recommendedListAmount: 17.99,
+      marketSignalType: "competition",
+      reason: "Priced one cent below the lowest competing active listing.",
     });
   });
 
