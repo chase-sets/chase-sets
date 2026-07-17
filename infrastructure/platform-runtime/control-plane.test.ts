@@ -37,6 +37,8 @@ describe("platform control plane", () => {
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_status_snapshots");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_operations");
     expect(statements[0]).toContain("ADD COLUMN IF NOT EXISTS fencing_token bigint");
+    expect(statements[0]).toContain("CREATE INDEX IF NOT EXISTS platform_worker_heartbeats_heartbeat_at_worker_id_idx");
+    expect(statements[0]).toContain("ON platform_worker_heartbeats (heartbeat_at, worker_id)");
 
     // Bootstrap must also reap stale in-flight operations (running or
     // cancel_requested with an expired or cleared claim) so #4496-style ghost

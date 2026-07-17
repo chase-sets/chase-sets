@@ -9,7 +9,13 @@ import {
 import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
 import type { ApiHostRuntime } from "./api";
 import type { ResolvedActor } from "./auth";
-import type { PlatformControlPlane, ProjectionOperationKind } from "./control-plane";
+import {
+  ACTIVE_WORKER_HEARTBEAT_MAX_AGE_MS,
+  EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS,
+  type PlatformControlPlane,
+  type ProjectionOperationKind,
+  type WorkerHeartbeatHistorySummary,
+} from "./control-plane";
 import { createDurableJobEventStream } from "./durable-job-events";
 import { listProjectionPushMigrationEntries, summarizeProjectionPushMigration } from "./projection-push-migration";
 import { PROJECTION_WAKE_RELAY_ACTIVE_LEASE_NAME } from "./projection-wake-relay";
@@ -24,8 +30,6 @@ import type { PostgresWorkSignalStore } from "./work-signal-store";
 const PROJECTION_OPERATIONS_VIEW_PERMISSION = "projection-operations.view";
 const PROJECTION_OPERATIONS_OPERATE_PERMISSION = "projection-operations.operate";
 const PROJECTION_OPERATIONS_REBUILD_PERMISSION = "projection-operations.rebuild";
-const ACTIVE_WORKER_HEARTBEAT_MAX_AGE_MS = 60_000;
-const EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS = 10 * 60_000;
 const PROJECTION_STATUS_SNAPSHOT_FRESH_MAX_AGE_MS = 2 * 60_000;
 // Authenticated setup polls once per second. Share the database fan-out within
 // that interval so concurrent callers observe the same live status snapshot.
@@ -64,14 +68,26 @@ export function createProjectionOperationsRoutes(
     const snapshotOverlay = overlayProjectionGroupSnapshots(listProjectionGroupStatuses(runtime), snapshots);
     const projectionGroups = snapshotOverlay.projectionGroups;
 
-    const workers = options.controlPlane ? await options.controlPlane.listWorkerHeartbeats() : [];
+    const [workers, workerHeartbeatHistory] = options.controlPlane
+      ? await Promise.all([
+          options.controlPlane.listWorkerHeartbeats(),
+          options.controlPlane.summarizeWorkerHeartbeatHistory(),
+        ])
+      : [[], emptyWorkerHeartbeatHistorySummary()];
+    const classifiedWorkers = classifyWorkerHeartbeats(workers);
+    const returnedExpiredCount = classifiedWorkers.filter((worker) => worker.worker_state === "expired").length;
 
     return c.json({
       summary: summarizeProjectionReplayStatuses(projectionGroups),
       projectionGroups,
       blockedProjections: summarizeBlockedProjectionKeys(projectionGroups),
       projectionStatusSource: snapshotOverlay.source,
-      workers: classifyWorkerHeartbeats(workers),
+      workers: classifiedWorkers,
+      workerHeartbeatHistory: {
+        ...workerHeartbeatHistory,
+        expiredReturnedCount: returnedExpiredCount,
+        expiredTruncated: returnedExpiredCount < workerHeartbeatHistory.expiredTotalCount,
+      },
       runners: options.controlPlane ? await options.controlPlane.listRunnerStatuses() : [],
       operations: options.controlPlane ? await options.controlPlane.listProjectionOperations({ limit: 25 }) : [],
       operationSummary: options.controlPlane ? await options.controlPlane.summarizeProjectionOperations() : null,
@@ -599,6 +615,18 @@ function classifyWorkerHeartbeats(workers: readonly Record<string, unknown>[]): 
       heartbeat_age_ms: heartbeatAgeMs,
     };
   });
+}
+
+function emptyWorkerHeartbeatHistorySummary(): WorkerHeartbeatHistorySummary {
+  return {
+    activeOrStaleCount: 0,
+    expiredTotalCount: 0,
+    expiredWithinDiagnosticWindowCount: 0,
+    expiredReturnedCount: 0,
+    expiredTruncated: false,
+    expiredDiagnosticLimit: 0,
+    diagnosticWindowMs: 0,
+  };
 }
 
 function overlayProjectionGroupSnapshots(

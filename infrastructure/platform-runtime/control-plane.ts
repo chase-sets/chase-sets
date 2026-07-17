@@ -13,6 +13,12 @@ import type { RuntimeLifecycleRegistry } from "./runtime-lifecycle";
 const DEFAULT_PROJECTION_OPERATION_LIMIT = 50;
 const PROJECTION_OPERATION_NOTIFY_CHANNEL = "platform_projection_operation_events";
 const PROJECTION_OPERATION_WORK_SIGNAL_KIND = "projection-operation.event";
+const MINUTE_MS = 60 * 1_000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
+export const ACTIVE_WORKER_HEARTBEAT_MAX_AGE_MS = MINUTE_MS;
+export const EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS = 10 * MINUTE_MS;
+export const WORKER_HEARTBEAT_DIAGNOSTIC_WINDOW_MS = 7 * DAY_MS;
+export const DEFAULT_EXPIRED_WORKER_HEARTBEAT_DIAGNOSTIC_LIMIT = 100;
 export const DEFAULT_PROJECTION_OPERATION_MAX_ATTEMPTS = 5;
 export const DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_BASE_MS = 30_000;
 export const DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_MAX_MS = 600_000;
@@ -77,6 +83,9 @@ CREATE TABLE IF NOT EXISTS platform_worker_heartbeats (
   started_at timestamptz NOT NULL,
   heartbeat_at timestamptz NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS platform_worker_heartbeats_heartbeat_at_worker_id_idx
+  ON platform_worker_heartbeats (heartbeat_at, worker_id);
 
 CREATE TABLE IF NOT EXISTS platform_runner_statuses (
   runner_name text PRIMARY KEY,
@@ -380,6 +389,7 @@ export type PlatformControlPlane = Readonly<{
   ) => Promise<void>;
   listProjectionStatusSnapshots: () => Promise<readonly Record<string, unknown>[]>;
   listWorkerHeartbeats: () => Promise<readonly Record<string, unknown>[]>;
+  summarizeWorkerHeartbeatHistory: () => Promise<WorkerHeartbeatHistorySummary>;
   listRunnerStatuses: () => Promise<readonly Record<string, unknown>[]>;
   listLeases: () => Promise<readonly Record<string, unknown>[]>;
   enqueueProjectionOperation: (
@@ -468,6 +478,16 @@ export type PlatformControlPlane = Readonly<{
       metadata?: Record<string, unknown>;
     }>,
   ) => Promise<ProjectionWakeRelayCursorRecord | null>;
+}>;
+
+export type WorkerHeartbeatHistorySummary = Readonly<{
+  activeOrStaleCount: number;
+  expiredTotalCount: number;
+  expiredWithinDiagnosticWindowCount: number;
+  expiredReturnedCount: number;
+  expiredTruncated: boolean;
+  expiredDiagnosticLimit: number;
+  diagnosticWindowMs: number;
 }>;
 
 type LeaseRow = Readonly<{
@@ -828,11 +848,67 @@ export function createPostgresPlatformControlPlane(
     listWorkerHeartbeats: async () =>
       (
         await db.query(
-          `SELECT worker_id, worker_kind, metadata, started_at, heartbeat_at
-         FROM platform_worker_heartbeats
-         ORDER BY worker_id`,
+          `WITH recent_expired AS (
+             SELECT worker_id, worker_kind, metadata, started_at, heartbeat_at
+             FROM platform_worker_heartbeats
+             WHERE heartbeat_at < now() - ($1::bigint * interval '1 millisecond')
+               AND heartbeat_at >= now() - ($2::bigint * interval '1 millisecond')
+             ORDER BY heartbeat_at DESC, worker_id DESC
+             LIMIT $3
+           )
+           SELECT worker_id, worker_kind, metadata, started_at, heartbeat_at
+           FROM platform_worker_heartbeats
+           WHERE heartbeat_at >= now() - ($1::bigint * interval '1 millisecond')
+           UNION ALL
+           SELECT worker_id, worker_kind, metadata, started_at, heartbeat_at
+           FROM recent_expired
+           ORDER BY heartbeat_at DESC, worker_id DESC`,
+          [
+            EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS,
+            WORKER_HEARTBEAT_DIAGNOSTIC_WINDOW_MS,
+            DEFAULT_EXPIRED_WORKER_HEARTBEAT_DIAGNOSTIC_LIMIT,
+          ],
         )
       ).rows,
+    summarizeWorkerHeartbeatHistory: async () => {
+      const result = await db.query<{
+        active_or_stale_count: string | number;
+        expired_total_count: string | number;
+        expired_within_diagnostic_window_count: string | number;
+      }>(
+        `SELECT
+           count(*) FILTER (
+             WHERE heartbeat_at >= now() - ($1::bigint * interval '1 millisecond')
+           ) AS active_or_stale_count,
+           count(*) FILTER (
+             WHERE heartbeat_at < now() - ($1::bigint * interval '1 millisecond')
+           ) AS expired_total_count,
+           count(*) FILTER (
+             WHERE heartbeat_at < now() - ($1::bigint * interval '1 millisecond')
+               AND heartbeat_at >= now() - ($2::bigint * interval '1 millisecond')
+           ) AS expired_within_diagnostic_window_count
+         FROM platform_worker_heartbeats`,
+        [EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS, WORKER_HEARTBEAT_DIAGNOSTIC_WINDOW_MS],
+      );
+      const row = result.rows[0];
+      const activeOrStaleCount = Number(row?.active_or_stale_count ?? 0);
+      const expiredTotalCount = Number(row?.expired_total_count ?? 0);
+      const expiredWithinDiagnosticWindowCount = Number(row?.expired_within_diagnostic_window_count ?? 0);
+      const expiredReturnedCount = Math.min(
+        expiredWithinDiagnosticWindowCount,
+        DEFAULT_EXPIRED_WORKER_HEARTBEAT_DIAGNOSTIC_LIMIT,
+      );
+
+      return {
+        activeOrStaleCount,
+        expiredTotalCount,
+        expiredWithinDiagnosticWindowCount,
+        expiredReturnedCount,
+        expiredTruncated: expiredReturnedCount < expiredTotalCount,
+        expiredDiagnosticLimit: DEFAULT_EXPIRED_WORKER_HEARTBEAT_DIAGNOSTIC_LIMIT,
+        diagnosticWindowMs: WORKER_HEARTBEAT_DIAGNOSTIC_WINDOW_MS,
+      };
+    },
     listRunnerStatuses: async () =>
       (
         await db.query(

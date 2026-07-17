@@ -16,7 +16,7 @@ Every delete selects a bounded candidate batch with `FOR UPDATE SKIP LOCKED`, de
 | Checkout JSONB session snapshots | 30 days after terminal update | Cancelled sessions or sessions with committed order IDs |
 | Cache | At `stale_until` | Catalog provider option-query cache |
 | Terminal background work | 30 days | Catalog alias recompute work, resolved/ignored projection poison rows, resolved blocked streams |
-| Platform control history | Events 30 days; terminal operations 90 days; stale status snapshots 7 days | Projection operation events/operations and runner status snapshots |
+| Platform control history | Worker heartbeats and stale status snapshots 7 days; events 30 days; terminal operations 90 days | Worker heartbeat diagnostics, projection operation events/operations, and runner status snapshots |
 
 Auth row deletion is the retention action required by the PII policy: expired magic-link and phone-code rows are removed, so a separate pass to null `delivery_token` or `delivery_code` is intentionally not added.
 
