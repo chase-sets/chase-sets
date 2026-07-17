@@ -363,9 +363,9 @@ describe("platform Kubernetes deployment", () => {
     );
   });
 
-  it("loads the staging Helm overlay only for staging deployments", () => {
+  it("loads the environment-specific Helm overlays for staging and production", () => {
     expect(platformValuesPathForEnvironment("staging")).toBe("infrastructure/helm/platform/values.staging.yaml");
-    expect(platformValuesPathForEnvironment("production")).toBeNull();
+    expect(platformValuesPathForEnvironment("production")).toBe("infrastructure/helm/platform/values.production.yaml");
     expect(
       buildHelmUpgradeArgs({
         release: "staging-platform",
@@ -387,7 +387,7 @@ describe("platform Kubernetes deployment", () => {
           DEPLOYMENT_ENVIRONMENT: "production",
         },
       }),
-    ).not.toContain("--values");
+    ).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.production.yaml"]));
   });
 
   it("enables in-cluster collection with environment-safe export only for long-lived environments", () => {
@@ -414,6 +414,49 @@ describe("platform Kubernetes deployment", () => {
     );
     expect(stagingArgs.join(" ")).toContain("global.envOverrides.OBSERVABILITY_ENABLED=true");
     expect(stagingArgs.join(" ")).toContain("chase_sets.environment_slug=staging");
+
+    const productionArgs = buildHelmUpgradeArgs({
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      observabilityExporterEndpoint: "https://otel.chasesets.com",
+      envOverrides: {
+        DEPLOYMENT_ENVIRONMENT: "production",
+        OBSERVABILITY_ENABLED: "true",
+        // These hostile values prove an observability-enabled production path
+        // cannot inherit the base chart's empty/preview telemetry posture.
+        OTEL_EXPORTER_OTLP_ENDPOINT: "https://otel.preview.chasesets.com",
+        OTEL_RESOURCE_ATTRIBUTES:
+          "cloud.provider=digitalocean,cloud.platform=kubernetes,chase_sets.environment_slug=preview",
+      },
+    });
+    expect(productionArgs).toEqual(
+      expect.arrayContaining([
+        "--values",
+        "infrastructure/helm/platform/values.production.yaml",
+        "--set-string",
+        "observability.environment=production",
+        "--set-string",
+        "observability.clusterName=chase-sets-production-doks",
+        "--set-string",
+        "observability.exporter.endpoint=https://otel.chasesets.com",
+      ]),
+    );
+    expect(productionArgs.join(" ")).toContain(
+      "global.envOverrides.OTEL_EXPORTER_OTLP_ENDPOINT=http://chase-sets-platform-chase-sets-platform-observability-collector:4318",
+    );
+    expect(productionArgs.join(" ")).toContain("chase_sets.environment_slug=production");
+    expect(productionArgs.join(" ")).not.toContain("chase_sets.environment_slug=preview");
+    expect(productionArgs.join(" ")).not.toContain(
+      "global.envOverrides.OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.preview.chasesets.com",
+    );
+    expect(
+      productionArgs.some((arg) =>
+        arg.startsWith(
+          "global.envOverrides.OTEL_EXPORTER_OTLP_ENDPOINT=http://chase-sets-platform-chase-sets-platform-observability-collector:4318",
+        ),
+      ),
+    ).toBe(true);
 
     const previewArgs = buildHelmUpgradeArgs({
       release: "chase-sets-pr-4051",

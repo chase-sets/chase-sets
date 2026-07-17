@@ -420,12 +420,12 @@ function platformApiRuntimeContextNames(runtimeProfile) {
 }
 
 describe("DigitalOcean platform configuration", () => {
-  it("keeps project assignment optional and all automated plans offline", () => {
+  it("keeps project assignment optional and PR validation plans offline", () => {
     const validationProjectId = "TF_VAR_environment_project_id: 00000000-0000-0000-0000-000000000000";
     const environmentProjectId = "TF_VAR_environment_project_id: ${{ vars.DIGITALOCEAN_PROJECT_ID || '' }}";
 
     expect(occurrenceCount(platformPrWorkflow, validationProjectId)).toBe(3);
-    expect(occurrenceCount(platformProductionWorkflow, environmentProjectId)).toBe(2);
+    expect(occurrenceCount(platformProductionWorkflow, environmentProjectId)).toBe(3);
     expect(occurrenceCount(platformStagingResetWorkflow, environmentProjectId)).toBe(1);
     for (const [variables, projects] of [[platformVariables, platformProjects]]) {
       expect(variables).toContain('variable "environment_project_id"');
@@ -597,8 +597,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).not.toContain("SCRYDEX_ONE_PIECE_API_KEY");
     expect(platformLocals).not.toContain("SCRYDEX_ONE_PIECE_TEAM_ID");
     expect(platformLocals).toContain("CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES");
-    expect(platformLocals).toContain('value  = local.is_production ? "dry-run-only" : "open"');
-    expect(platformLocals).toContain('value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""');
+    expect(platformLocals).toContain('CATALOG_INTEGRATION_CONTROL_PLANE_MODE          = "dry-run-only"');
+    expect(platformLocals).toContain('CATALOG_INTEGRATION_ACTIVATION_MODE             = "test-profiles-only"');
+    expect(platformLocals).toContain('CATALOG_INTEGRATION_IMPORTS_DISABLED            = "mtgjson,scryfall,tcgplayer"');
+    expect(platformLocals).toContain(
+      'value  = local.is_production ? local.production_runtime_parity_env.CATALOG_INTEGRATION_CONTROL_PLANE_MODE : "open"',
+    );
+    expect(platformLocals).toContain(
+      'value  = local.is_production ? local.production_runtime_parity_env.CATALOG_INTEGRATION_IMPORTS_DISABLED : ""',
+    );
     expect(occurrenceCount(platformMain, "for_each = local.catalog_provider_runtime_env")).toBe(3);
     expect(terraformJobBlock(platformMain, "platform-bootstrap")).toContain(
       "for_each = local.catalog_provider_runtime_env",
@@ -869,17 +876,17 @@ describe("DigitalOcean platform configuration", () => {
     expectTerraformAssignment(
       platformLocals,
       "worker_projection_wake_relay_enabled",
-      '(local.is_staging || local.is_production) ? "true" : "false"',
+      "local.is_production ? local.production_runtime_parity_env.WORKER_PROJECTION_WAKE_RELAY_ENABLED",
     );
     expectTerraformAssignment(
       platformLocals,
       "event_store_wake_notifications_enabled",
-      '(local.is_staging || local.is_production) ? "true" : "false"',
+      "local.is_production ? local.production_runtime_parity_env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED",
     );
     expectTerraformAssignment(
       platformLocals,
       "projection_wake_source_contexts",
-      'local.is_production ? "public-presence" : "*"',
+      'local.is_production ? local.production_runtime_parity_env.PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS : "*"',
     );
     expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_WAKE_RELAY_ENABLED"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"')).toBe(3);
@@ -1501,6 +1508,11 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(deployStep).toContain("Production catalog asset runtime env outputs are required");
     expect(deployStep).toContain('--image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME"');
+    expect(deployStep).toContain(
+      'observability_exporter_endpoint="${TF_VAR_observability_otlp_endpoint:-https://otel.chasesets.com}"',
+    );
+    expect(deployStep).toContain("Production observability requires a non-empty OTLP exporter endpoint.");
+    expect(deployStep).toContain('--observability-exporter-endpoint "$observability_exporter_endpoint"');
     expect(deployStep).toContain('--runtime-env "DEPLOYMENT_ENVIRONMENT=production"');
     expect(deployStep).toContain(
       '--runtime-env "CHASE_SETS_RUNTIME_PROFILE=${TF_VAR_production_runtime_profile:-landing}"',
@@ -1997,7 +2009,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("actions: read");
     expect(workflowJob(platformProductionWorkflow, "dispatch-release-candidate")).toContain("actions: write");
     expect(platformProductionWorkflow).toContain(
-      "group: ${{ github.event_name == 'push' && 'platform-release-candidate' || 'platform-registry-mutation' }}",
+      "group: ${{ github.event_name == 'push' && 'platform-release-candidate' || (inputs.cutover_plan_only && format('platform-production-cutover-plan-{0}', github.ref) || 'platform-registry-mutation') }}",
     );
     expect(platformProductionWorkflow).toContain("cancel-in-progress: ${{ github.event_name == 'push' }}");
     expect(platformProductionWorkflow).toContain("emergency_release:");
@@ -2411,7 +2423,7 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(platformRegistryCleanupWorkflow).toContain("actions: read");
     expect(platformRegistryCleanupWorkflow).toContain("group: platform-registry-mutation");
-    expect(platformProductionWorkflow).toContain("|| 'platform-registry-mutation' }}");
+    expect(platformProductionWorkflow).toContain("|| 'platform-registry-mutation') }}");
     expect(platformStagingResetWorkflow).toContain("group: platform-registry-mutation");
     expect(platformStagingResetWorkflow).toContain("group: platform-deploy-staging");
     expect(platformRegistryCleanupWorkflow).toContain("DOCR garbage collection makes the registry read-only");
@@ -3241,6 +3253,31 @@ describe("DigitalOcean platform configuration", () => {
     expect(shadowStep).toContain("--for=condition=Ready");
     expect(shadowStep).toContain("orders.acme.cert-manager.io,challenges.acme.cert-manager.io");
     expect(shadowStep).toContain("TF_VAR_production_marketplace_public_enabled:-false");
+    expect(doksPlatformOperationsRunbook).toContain("#### Phase B: go-live toggle sequence");
+    expect(doksPlatformOperationsRunbook).toContain("`local.production_runtime_parity_env`");
+    expect(doksPlatformOperationsRunbook).toContain("Public indexing");
+    expect(doksPlatformOperationsRunbook).toContain("Realtime background maintenance / wake signal");
+    expect(doksPlatformOperationsRunbook).toContain("Projection wake source contexts");
+    expect(doksPlatformOperationsRunbook).toContain("Defer every launch-only transition to the launch runbook");
+  });
+
+  it("offers a destroy-free live production cutover plan path with no apply edge", () => {
+    const planJob = workflowJob(platformProductionWorkflow, "production-cutover-live-plan");
+    const resolveReleaseJob = workflowJob(platformProductionWorkflow, "resolve-release");
+
+    expect(planJob).toContain("inputs.cutover_plan_only == true");
+    expect(planJob).toContain("environment: production");
+    expect(planJob).toContain("environment-dns/production.tfstate");
+    expect(planJob).toContain("landing/production.tfstate");
+    expect(occurrenceCount(planJob, "terraform plan -lock=false")).toBe(2);
+    expect(occurrenceCount(planJob, "-var=production_app_serving=app-platform")).toBe(2);
+    expect(occurrenceCount(planJob, "-var=doks_ingress_target=")).toBe(2);
+    expect(occurrenceCount(planJob, "-var=production_doks_certificate_ready=false")).toBe(2);
+    expect(occurrenceCount(planJob, "-var=production_marketplace_public_enabled=false")).toBe(2);
+    expect(occurrenceCount(planJob, "test \"$(jq -r '.destroy'")).toBe(2);
+    expect(planJob).toContain("production-cutover-live-plan-summaries");
+    expect(planJob).not.toContain("terraform apply");
+    expect(resolveReleaseJob).toContain("inputs.cutover_plan_only != true");
   });
 
   it("makes DOKS the primary rollout lane with a single-flag App Platform kill switch (#4049)", () => {

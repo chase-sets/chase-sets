@@ -51,6 +51,11 @@ on:
         required: false
         default: ""
         type: string
+      cutover_plan_only:
+        description: Run live read-only production plans for the platform and environment-dns roots at shipped cutover defaults. Never applies.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -62,8 +67,10 @@ concurrency:
   # Pushes are cheap dispatch candidates and coalesce before they enter the
   # deployment critical section. Dispatched automatic, manual, and emergency
   # releases share the registry-mutation lane: GitHub keeps one running and one
-  # latest pending member, and never cancels the immutable active release.
-  group: ${{ github.event_name == 'push' && 'platform-release-candidate' || 'platform-registry-mutation' }}
+  # latest pending member, and never cancels the immutable active release. The
+  # read-only cutover plan has its own ref-scoped lane and cannot delay or join
+  # a registry/deployment mutation.
+  group: ${{ github.event_name == 'push' && 'platform-release-candidate' || (inputs.cutover_plan_only && format('platform-production-cutover-plan-{0}', github.ref) || 'platform-registry-mutation') }}
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
@@ -110,11 +117,118 @@ jobs:
             --field automatic_release=true
           echo "Dispatched automatic release candidate ${RELEASE_COMMIT}."
 
+  production-cutover-live-plan:
+    name: Production Cutover Live Plans
+    if: github.event_name == 'workflow_dispatch' && inputs.cutover_plan_only == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      contents: read
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+      TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+      TF_VAR_environment: production
+      TF_VAR_environment_project_id: ${{ vars.DIGITALOCEAN_PROJECT_ID || '' }}
+      TF_VAR_platform_image_repository: chase-sets-platform
+      TF_VAR_platform_image_tag: ${{ github.sha }}
+      TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+      TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+      TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+      TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
+      TF_VAR_platform_bootstrap_owner: ${{ vars.PLATFORM_BOOTSTRAP_OWNER || 'doks' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.release_ref || github.sha }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - name: Plan production environment DNS at shipped defaults
+        working-directory: infrastructure/digitalocean/environment-dns
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=environment-dns/production.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+          terraform fmt -check -recursive
+          terraform validate
+          terraform plan -lock=false -out=production-environment-dns.tfplan \
+            -var=production_app_serving=app-platform \
+            -var=doks_ingress_target= \
+            -var=production_doks_certificate_ready=false \
+            -var=production_marketplace_public_enabled=false
+          terraform show -json production-environment-dns.tfplan > production-environment-dns.tfplan.json
+          mkdir -p ../../../artifacts/production-cutover-live-plans
+          jq '{root:"environment-dns",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length)}' \
+            production-environment-dns.tfplan.json \
+            > ../../../artifacts/production-cutover-live-plans/environment-dns-summary.json
+          test "$(jq -r '.destroy' ../../../artifacts/production-cutover-live-plans/environment-dns-summary.json)" = "0"
+          node ../../../scripts/terraform-plan-inspection.mjs summarize-plan \
+            production-environment-dns.tfplan.json \
+            --title="Production environment DNS live plan" >> "$GITHUB_STEP_SUMMARY"
+          rm -f production-environment-dns.tfplan production-environment-dns.tfplan.json
+
+      - name: Plan production platform at shipped defaults
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=landing/production.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+          terraform fmt -check -recursive
+          terraform validate
+          terraform plan -lock=false -out=production-platform.tfplan \
+            -var=production_app_serving=app-platform \
+            -var=doks_ingress_target= \
+            -var=production_doks_certificate_ready=false \
+            -var=production_marketplace_public_enabled=false
+          terraform show -json production-platform.tfplan > production-platform.tfplan.json
+          jq '{root:"platform",add:([.resource_changes[]? | select(.change.actions | index("create"))] | length),change:([.resource_changes[]? | select(.change.actions | index("update"))] | length),destroy:([.resource_changes[]? | select(.change.actions | index("delete"))] | length)}' \
+            production-platform.tfplan.json \
+            > ../../../artifacts/production-cutover-live-plans/platform-summary.json
+          test "$(jq -r '.destroy' ../../../artifacts/production-cutover-live-plans/platform-summary.json)" = "0"
+          node ../../../scripts/terraform-plan-inspection.mjs summarize-plan \
+            production-platform.tfplan.json \
+            --title="Production platform live plan" >> "$GITHUB_STEP_SUMMARY"
+          rm -f production-platform.tfplan production-platform.tfplan.json
+
+      - name: Upload production cutover live-plan summaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-cutover-live-plan-summaries
+          path: artifacts/production-cutover-live-plans/*.json
+          if-no-files-found: error
+          retention-days: 30
+
   resolve-release:
     name: Resolve Release
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.cutover_plan_only != true
     permissions:
       checks: read
       contents: read
@@ -3228,9 +3342,20 @@ jobs:
           add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"
           add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"
 
+          # Match App Platform's production default/override contract for the
+          # collector's upstream export. Application pods still send to the
+          # in-cluster Collector Service; the deployment helper owns that
+          # endpoint and the production Kubernetes resource identity.
+          observability_exporter_endpoint="${TF_VAR_observability_otlp_endpoint:-https://otel.chasesets.com}"
+          if [ "${TF_VAR_observability_enabled:-true}" != "false" ] && [ -z "$observability_exporter_endpoint" ]; then
+            echo "Production observability requires a non-empty OTLP exporter endpoint." >&2
+            exit 1
+          fi
+
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
             --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
+            --observability-exporter-endpoint "$observability_exporter_endpoint" \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=production" \
             --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=${TF_VAR_production_runtime_profile:-landing}" \

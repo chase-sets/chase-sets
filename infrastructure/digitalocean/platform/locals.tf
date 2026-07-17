@@ -285,6 +285,25 @@ locals {
     )
   } : {}
 
+  # Production App Platform and DOKS must consume the same runtime posture
+  # during the serving cutover. This literal map is the source of truth for
+  # values.production.yaml; changing a launch-only toggle here therefore
+  # requires an explicit launch-runbook step instead of becoming a serving
+  # flip side effect.
+  production_runtime_parity_env = {
+    CATALOG_INTEGRATION_CONTROL_PLANE_MODE          = "dry-run-only"
+    CATALOG_INTEGRATION_ACTIVATION_MODE             = "test-profiles-only"
+    CATALOG_INTEGRATION_IMPORTS_DISABLED            = "mtgjson,scryfall,tcgplayer"
+    CATALOG_INTEGRATION_PROMOTION_DISABLED          = "mtgjson,scryfall,tcgplayer"
+    CATALOG_INTEGRATION_REAPPLY_DISABLED            = "mtgjson,scryfall,tcgplayer"
+    CHASE_SETS_PUBLIC_INDEXING                      = "true"
+    REALTIME_BACKGROUND_MAINTENANCE_ENABLED         = "true"
+    REALTIME_WAKE_SIGNAL_ENABLED                    = "true"
+    PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED = "true"
+    PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS        = "public-presence"
+    WORKER_PROJECTION_WAKE_RELAY_ENABLED            = "true"
+  }
+
   # Read-after-write wake-before-wait rides a staging-first ramp: staging
   # proves the api-wait wake path before production enablement, which stays
   # gated behind the milestone rollout-control and canary evidence issues.
@@ -297,9 +316,13 @@ locals {
   # source, and previews keep both the relay and write-side event-store wake
   # emission killed until the production enablement gates (#1243/#1244/#1237)
   # pass.
-  worker_projection_wake_relay_enabled   = (local.is_staging || local.is_production) ? "true" : "false"
-  event_store_wake_notifications_enabled = (local.is_staging || local.is_production) ? "true" : "false"
-  projection_wake_source_contexts        = local.is_production ? "public-presence" : "*"
+  worker_projection_wake_relay_enabled = local.is_production ? local.production_runtime_parity_env.WORKER_PROJECTION_WAKE_RELAY_ENABLED : (
+    local.is_staging ? "true" : "false"
+  )
+  event_store_wake_notifications_enabled = local.is_production ? local.production_runtime_parity_env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED : (
+    local.is_staging ? "true" : "false"
+  )
+  projection_wake_source_contexts = local.is_production ? local.production_runtime_parity_env.PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS : "*"
 
   # --- Push-wake connection budget (#1244, #1243, #1236) ---------------------
   # Plan-time model of worst-case DigitalOcean managed Postgres backend demand
@@ -536,23 +559,23 @@ locals {
       secret = false
     }
     CATALOG_INTEGRATION_CONTROL_PLANE_MODE = {
-      value  = local.is_production ? "dry-run-only" : "open"
+      value  = local.is_production ? local.production_runtime_parity_env.CATALOG_INTEGRATION_CONTROL_PLANE_MODE : "open"
       secret = false
     }
     CATALOG_INTEGRATION_ACTIVATION_MODE = {
-      value  = local.is_production ? "test-profiles-only" : "open"
+      value  = local.is_production ? local.production_runtime_parity_env.CATALOG_INTEGRATION_ACTIVATION_MODE : "open"
       secret = false
     }
     CATALOG_INTEGRATION_IMPORTS_DISABLED = {
-      value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""
+      value  = local.is_production ? local.production_runtime_parity_env.CATALOG_INTEGRATION_IMPORTS_DISABLED : ""
       secret = false
     }
     CATALOG_INTEGRATION_PROMOTION_DISABLED = {
-      value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""
+      value  = local.is_production ? local.production_runtime_parity_env.CATALOG_INTEGRATION_PROMOTION_DISABLED : ""
       secret = false
     }
     CATALOG_INTEGRATION_REAPPLY_DISABLED = {
-      value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""
+      value  = local.is_production ? local.production_runtime_parity_env.CATALOG_INTEGRATION_REAPPLY_DISABLED : ""
       secret = false
     }
     CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP = {

@@ -566,7 +566,7 @@ resource "digitalocean_app" "platform" {
 
       env {
         key   = "CHASE_SETS_PUBLIC_INDEXING"
-        value = local.is_production ? "true" : "false"
+        value = local.is_production ? local.production_runtime_parity_env.CHASE_SETS_PUBLIC_INDEXING : "false"
         scope = "RUN_TIME"
       }
 
@@ -1093,13 +1093,13 @@ resource "digitalocean_app" "platform" {
 
       env {
         key   = "REALTIME_BACKGROUND_MAINTENANCE_ENABLED"
-        value = local.is_non_production ? "false" : "true"
+        value = local.is_production ? local.production_runtime_parity_env.REALTIME_BACKGROUND_MAINTENANCE_ENABLED : "false"
         scope = "RUN_TIME"
       }
 
       env {
         key   = "REALTIME_WAKE_SIGNAL_ENABLED"
-        value = local.is_non_production ? "false" : "true"
+        value = local.is_production ? local.production_runtime_parity_env.REALTIME_WAKE_SIGNAL_ENABLED : "false"
         scope = "RUN_TIME"
       }
 

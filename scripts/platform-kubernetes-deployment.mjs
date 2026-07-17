@@ -39,6 +39,7 @@ const copiedSecretMetadataFieldsToStrip = [
 const chartName = "chase-sets-platform";
 const chartPath = "infrastructure/helm/platform";
 const stagingValuesPath = `${chartPath}/values.staging.yaml`;
+const productionValuesPath = `${chartPath}/values.production.yaml`;
 const defaultRelease = "chase-sets-platform";
 const defaultNamespace = "chase-sets-platform";
 const defaultTimeout = "10m";
@@ -105,12 +106,19 @@ export function buildHelmUpgradeArgs(options = {}) {
     (deploymentEnvironment === "staging" || deploymentEnvironment === "production") &&
     requestedEnvOverrides.OBSERVABILITY_ENABLED !== "false";
   const observabilityServiceName = `${release}-${chartName}-observability-collector`.slice(0, 63).replace(/-$/, "");
+  const observabilityExporterEndpoint = observabilityEnabled
+    ? requiredOption(
+        options.observabilityExporterEndpoint ??
+          `https://otel.${deploymentEnvironment === "production" ? "chasesets.com" : "staging.chasesets.com"}`,
+        "observability-exporter-endpoint",
+      )
+    : null;
   const envOverrides = observabilityEnabled
     ? {
+        ...requestedEnvOverrides,
         OBSERVABILITY_ENABLED: "true",
         OTEL_EXPORTER_OTLP_ENDPOINT: `http://${observabilityServiceName}:4318`,
         OTEL_RESOURCE_ATTRIBUTES: `cloud.provider=digitalocean,cloud.platform=kubernetes,chase_sets.environment_slug=${deploymentEnvironment}`,
-        ...requestedEnvOverrides,
       }
     : requestedEnvOverrides;
   const environmentValuesPath = platformValuesPathForEnvironment(envOverrides.DEPLOYMENT_ENVIRONMENT);
@@ -162,7 +170,7 @@ export function buildHelmUpgradeArgs(options = {}) {
         "--set-string",
         `observability.clusterName=chase-sets-${deploymentEnvironment}-doks`,
         "--set-string",
-        `observability.exporter.endpoint=https://otel.${deploymentEnvironment === "production" ? "chasesets.com" : "staging.chasesets.com"}`,
+        `observability.exporter.endpoint=${observabilityExporterEndpoint}`,
       ]
     : [];
   const rolloutSetArgs =
@@ -248,7 +256,9 @@ export function buildWaveExposureHelmSetArgs(options = {}) {
 }
 
 export function platformValuesPathForEnvironment(environmentName) {
-  return environmentName === "staging" ? stagingValuesPath : null;
+  if (environmentName === "staging") return stagingValuesPath;
+  if (environmentName === "production") return productionValuesPath;
+  return null;
 }
 
 function escapeHelmSetStringValue(value) {
@@ -1332,7 +1342,7 @@ export function parseArgs(argv, env = process.env) {
     ].includes(command)
   ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -1341,6 +1351,11 @@ export function parseArgs(argv, env = process.env) {
     command,
     image: readOption(rest, "--image", env.PLATFORM_IMAGE_REF),
     imagePullSecret: readOption(rest, "--image-pull-secret", env.CHASE_SETS_IMAGE_PULL_SECRET_NAME ?? ""),
+    observabilityExporterEndpoint: readOption(
+      rest,
+      "--observability-exporter-endpoint",
+      env.CHASE_SETS_OBSERVABILITY_EXPORTER_ENDPOINT,
+    ),
     envOverrides: readEnvOverrides(rest),
     namespace: readOption(rest, "--namespace", env.CHASE_SETS_KUBERNETES_NAMESPACE ?? defaultNamespace),
     release: readOption(rest, "--release", env.CHASE_SETS_HELM_RELEASE ?? defaultRelease),

@@ -11,7 +11,7 @@ It mirrors the current DigitalOcean App Platform component topology:
 - `platform-worker`
 - `platform-bootstrap`
 
-`values.yaml` is generated from the existing App Platform Terraform shape and stays the preview-safe baseline. `values.staging.yaml` is generated alongside it for DOKS staging-only component overrides, including representative platform-worker wake capacity and the horizontally scaled, explicitly resourced platform API.
+`values.yaml` is generated from the existing App Platform Terraform shape and stays the preview-safe baseline. `values.staging.yaml` adds DOKS staging-only component overrides, including representative platform-worker wake capacity and the horizontally scaled, explicitly resourced platform API. `values.production.yaml` derives its runtime overrides from Terraform's authoritative `local.production_runtime_parity_env`, keeping catalog controls and go-live toggles identical to App Platform during the serving cutover.
 
 ```bash
 node ./scripts/render-platform-helm-values.mjs
@@ -51,6 +51,8 @@ Staging and production Helm upgrades enable the in-cluster observability topolog
 - one cluster Collector Deployment runs a kube-state-metrics sidecar and exports a bounded cluster-health metric set;
 - both paths upsert `deployment.environment`, `k8s.cluster.name`, and `chase_sets.observability_stack=single-shared-stack` before forwarding to the secured shared Droplet;
 - application pods export to the internal Collector Service rather than directly across the public endpoint.
+
+The production workflow passes the same configured/default upstream OTLP endpoint used by App Platform (`OBSERVABILITY_OTLP_ENDPOINT`, defaulting to `https://otel.chasesets.com`). The deploy helper enforces the internal Collector Service endpoint and `chase_sets.environment_slug=production` resource identity for production application pods, so preview defaults cannot leak into an observability-enabled production render.
 
 Preview namespaces do not install collectors or kube-state-metrics. The cluster metric relabel contract drops UID, container-image, and container-id labels before export.
 

@@ -6,6 +6,7 @@ import { normalizeRelative, repoRoot } from "./lib/repo.mjs";
 
 export const chartValuesRelativePath = "infrastructure/helm/platform/values.yaml";
 export const chartStagingValuesRelativePath = "infrastructure/helm/platform/values.staging.yaml";
+export const chartProductionValuesRelativePath = "infrastructure/helm/platform/values.production.yaml";
 const platformMainRelativePath = "infrastructure/digitalocean/platform/main.tf";
 const platformLocalsRelativePath = "infrastructure/digitalocean/platform/locals.tf";
 const generatedBy = "node ./scripts/render-platform-helm-values.mjs";
@@ -587,6 +588,31 @@ export function buildPlatformHelmStagingValues(options = {}) {
   };
 }
 
+export function buildPlatformHelmProductionValues(options = {}) {
+  const sources = options.sources ?? readPlatformSources(options.repoRoot ?? repoRoot);
+
+  return {
+    generatedBy,
+    global: {
+      // Terraform's production_runtime_parity_env is deliberately shared by
+      // App Platform and this DOKS overlay so the serving flip cannot activate
+      // catalog operations or silently change launch-only runtime behavior.
+      envOverrides: extractStringMapLocal(sources.locals, "production_runtime_parity_env"),
+    },
+    observability: {
+      environment: "production",
+      clusterName: "chase-sets-production-doks",
+      exporter: {
+        endpoint: `https://otel.${productionEnvironmentZone}`,
+      },
+    },
+  };
+}
+
+export function renderPlatformHelmProductionValues(options = {}) {
+  return `${renderYaml(buildPlatformHelmProductionValues(options))}\n`;
+}
+
 export function renderPlatformHelmStagingValues() {
   return `${renderYaml(buildPlatformHelmStagingValues())}\n`.replace(
     "  platform-worker:\n",
@@ -770,6 +796,10 @@ export function syncPlatformHelmValues(options = {}) {
     {
       relativePath: chartStagingValuesRelativePath,
       content: renderPlatformHelmStagingValues(),
+    },
+    {
+      relativePath: chartProductionValuesRelativePath,
+      content: renderPlatformHelmProductionValues({ repoRoot: rootDir }),
     },
   ];
 
@@ -1100,6 +1130,25 @@ function extractQuotedListLocal(source, localName) {
   const start = source.indexOf("[", assignmentIndex);
   const end = source.indexOf("]", start);
   return [...source.slice(start, end).matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+}
+
+function extractStringMapLocal(source, localName) {
+  const assignmentMatch = new RegExp(`${localName}\\s*=\\s*\\{`).exec(source);
+  const assignmentIndex = assignmentMatch?.index ?? -1;
+  if (assignmentIndex === -1) {
+    throw new Error(`local.${localName} is missing from ${platformLocalsRelativePath}.`);
+  }
+
+  const block = extractBlockAt(source, source.indexOf("{", assignmentIndex));
+  const entries = [...block.content.matchAll(/^\s*([A-Z][A-Z0-9_]*)\s*=\s*"([^"]*)"\s*$/gmu)].map(([, name, value]) => [
+    name,
+    value,
+  ]);
+  if (entries.length === 0) {
+    throw new Error(`local.${localName} must contain literal string entries.`);
+  }
+
+  return Object.fromEntries(entries.sort(([left], [right]) => left.localeCompare(right, "en")));
 }
 
 function collectTopLevelComponents(spec) {

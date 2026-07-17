@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { runtimeTopologyBaselines } from "./digitalocean-runtime-topology.mjs";
 import {
   buildDoksIngressValues,
+  buildPlatformHelmProductionValues,
   buildPlatformHelmValues,
   buildPlatformHelmStagingValues,
   buildPreviewDoksIngressValues,
@@ -54,6 +55,29 @@ function readChartFiles(relativePaths) {
 describe("render platform Helm values", () => {
   it("keeps generated values current", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
+  });
+
+  it("derives the production cutover posture from the authoritative Terraform parity map", () => {
+    const production = buildPlatformHelmProductionValues({ repoRoot });
+
+    expect(production.global.envOverrides).toEqual({
+      CATALOG_INTEGRATION_ACTIVATION_MODE: "test-profiles-only",
+      CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "dry-run-only",
+      CATALOG_INTEGRATION_IMPORTS_DISABLED: "mtgjson,scryfall,tcgplayer",
+      CATALOG_INTEGRATION_PROMOTION_DISABLED: "mtgjson,scryfall,tcgplayer",
+      CATALOG_INTEGRATION_REAPPLY_DISABLED: "mtgjson,scryfall,tcgplayer",
+      CHASE_SETS_PUBLIC_INDEXING: "true",
+      PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED: "true",
+      PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS: "public-presence",
+      REALTIME_BACKGROUND_MAINTENANCE_ENABLED: "true",
+      REALTIME_WAKE_SIGNAL_ENABLED: "true",
+      WORKER_PROJECTION_WAKE_RELAY_ENABLED: "true",
+    });
+    expect(production.observability).toEqual({
+      environment: "production",
+      clusterName: "chase-sets-production-doks",
+      exporter: { endpoint: "https://otel.chasesets.com" },
+    });
   });
 
   it("keeps schema bootstrap on dedicated direct database secret keys", () => {
@@ -337,14 +361,13 @@ describe("render platform Helm values", () => {
     });
   });
 
-  it("gives preview and production the tolerant liveness fix from the base chart alone (no --values overlay)", () => {
+  it("keeps preview and production tolerant liveness in the shared base chart", () => {
     // scripts/platform-kubernetes-deployment.mjs's platformValuesPathForEnvironment
-    // only supplies `--values values.staging.yaml` for DEPLOYMENT_ENVIRONMENT
-    // "staging"; preview and production `helm upgrade` calls pass no
-    // environment values file at all, so they render values.yaml alone. The
-    // live preview evidence for #4765 (namespace chase-sets-pr-4766) was hit
-    // on exactly this base-only path, which is why the fix must live in the
-    // base chart rather than only in the staging overlay.
+    // supplies environment overlays for staging and production, but neither
+    // overlay owns component probe behavior. Preview renders values.yaml
+    // alone. The live preview evidence for #4765 (namespace
+    // chase-sets-pr-4766) was hit on exactly this base-only path, which is why
+    // the fix must stay in the base chart rather than an environment overlay.
     const previewAndProductionApi = buildPlatformHelmValues({ repoRoot }).components["platform-api"];
 
     expect(previewAndProductionApi.healthPath).toBe("/health/ready");
@@ -354,7 +377,7 @@ describe("render platform Helm values", () => {
       timeoutSeconds: 5,
       failureThreshold: 6,
     });
-    // Preview/production get no replica/resource overlay -- only staging does.
+    // Preview/production get no replica/resource override -- only staging does.
     expect(previewAndProductionApi.replicas).toBe(1);
     expect(previewAndProductionApi.resources).toEqual({});
   });

@@ -1,0 +1,19 @@
+generatedBy: "node ./scripts/render-platform-helm-values.mjs"
+global:
+  envOverrides:
+    CATALOG_INTEGRATION_ACTIVATION_MODE: "test-profiles-only"
+    CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "dry-run-only"
+    CATALOG_INTEGRATION_IMPORTS_DISABLED: "mtgjson,scryfall,tcgplayer"
+    CATALOG_INTEGRATION_PROMOTION_DISABLED: "mtgjson,scryfall,tcgplayer"
+    CATALOG_INTEGRATION_REAPPLY_DISABLED: "mtgjson,scryfall,tcgplayer"
+    CHASE_SETS_PUBLIC_INDEXING: "true"
+    PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED: "true"
+    PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS: "public-presence"
+    REALTIME_BACKGROUND_MAINTENANCE_ENABLED: "true"
+    REALTIME_WAKE_SIGNAL_ENABLED: "true"
+    WORKER_PROJECTION_WAKE_RELAY_ENABLED: "true"
+observability:
+  environment: "production"
+  clusterName: "chase-sets-production-doks"
+  exporter:
+    endpoint: "https://otel.chasesets.com"

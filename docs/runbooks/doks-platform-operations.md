@@ -381,6 +381,27 @@ Production differs from the staging rehearsal in one deliberate way: its Ingress
    # Expected: false. Do not alter the runtime profile, exposure flags, or secrets.
    ```
 
+#### Phase B: go-live toggle sequence
+
+The serving flip must reproduce the runtime behavior already active on App Platform. `values.production.yaml` is generated from Terraform's `local.production_runtime_parity_env`, so the rehearsal and flip use this exact parity posture:
+
+| Runtime contract | Phase B DOKS value | Cutover treatment |
+| --- | --- | --- |
+| Catalog control / activation | `dry-run-only` / `test-profiles-only` | Preserve the restricted App Platform posture. |
+| Catalog import / promotion / reapply disabled providers | `mtgjson,scryfall,tcgplayer` for all three | Keep provider operations closed; the serving switch is not catalog activation. |
+| Public indexing | `true` | Match current production behavior; do not change crawler exposure during cutover. |
+| Realtime background maintenance / wake signal | `true` / `true` | Match current production behavior; do not combine a realtime rollout with the serving switch. |
+| Event-store wake notifications / worker wake relay | `true` / `true` | Transfer the already-active wake loop to the DOKS worker without creating a second behavior change. |
+| Projection wake source contexts | `public-presence` | Preserve the current bounded production source set; do not expand it during cutover. |
+
+Sequence these deliberately:
+
+1. Before rehearsal, verify the generated production overlay still has every value above. Treat any difference from `local.production_runtime_parity_env` as a blocker.
+2. During rehearsal and the serving flip, change only the target, certificate gate, and `PRODUCTION_APP_SERVING`. Do not change public indexing, the realtime set, wake signaling, or projection sources.
+3. Defer every launch-only transition to the launch runbook: public-indexing exposure changes require the launch SEO/crawler gate; realtime maintenance/wake changes require their own capacity and rollback evidence; projection wake-source expansion requires connection-budget and convergence evidence. If the launch posture retains a current value, record that as an explicit no-op there rather than silently inheriting it.
+
+This separation is intentional: matching an already-active App Platform value on DOKS is cutover parity, while changing that value is a launch decision with a different rollback surface.
+
 #### Phase B: rehearse and issue the certificate before the flip
 
 1. Dispatch `Platform Deploy` from `main`. With serving still `app-platform`, the production job applies `environment-dns/production.tfstate` to create only the applicable shadow A records, deploys both shadow and live Ingress rules, and waits for the DNS-01 certificate plus shadow HTTPS probes:
