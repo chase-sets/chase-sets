@@ -270,6 +270,38 @@ describe("release health report", () => {
     expect(result.markdown).toContain("PR #4980");
   });
 
+  it("surfaces active delivery circuit state through the existing release-health section", () => {
+    const result = buildReleaseHealthReport({
+      checkedAt: "2026-07-17T15:00:00.000Z",
+      records: [record()],
+      mergeGroupFailureArtifacts: [
+        {
+          record: {
+            schemaVersion: "delivery-failure-signature/v1",
+            checkedAt: "2026-07-17T14:00:00.000Z",
+            mode: "event",
+            counts: { activeSignatures: 1, holding: 1, flakeEvidence: 0 },
+            circuits: [
+              {
+                state: "holding",
+                job: "Deploy Staging",
+                step: "Terraform apply staging environment DNS",
+                occurrenceCount: 2,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(result.summary.mergeGroupFailures).toMatchObject({
+      posture: "holding",
+      trackedSignatures: 1,
+      deterministicRepeats: 1,
+    });
+    expect(result.markdown).toContain("Deploy Staging > Terraform apply staging environment DNS");
+  });
+
   it("marks capacity review eligible only with enough healthy releases and passing evidence", () => {
     const result = buildReleaseHealthReport({
       checkedAt: "2026-05-31T13:00:00.000Z",

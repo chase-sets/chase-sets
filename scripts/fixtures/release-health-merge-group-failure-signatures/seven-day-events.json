@@ -1,0 +1,46 @@
+{
+  "signature": {
+    "schemaVersion": "delivery-failure-signature/v1",
+    "signature": "fixture-staging-dns-v1",
+    "lane": "staging",
+    "workflow": "Platform Deploy",
+    "job": "Deploy Staging",
+    "step": "Terraform apply staging environment DNS",
+    "testFile": null,
+    "testTitle": null,
+    "rootCauseCode": "staging-dns",
+    "rootCauseSignature": "dns-root-cause",
+    "errorFingerprint": "dns-error-fingerprint",
+    "errorShape": "domainzoneinvalid: domain already exists",
+    "blocking": true
+  },
+  "observations": [
+    {
+      "runId": 1001,
+      "runAttempt": 1,
+      "observedAt": "2026-07-10T12:00:00.000Z",
+      "url": "https://github.com/chase-sets/chase-sets/actions/runs/1001",
+      "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "candidateSha": "1111111111111111111111111111111111111111",
+      "jobId": 2001
+    },
+    {
+      "runId": 1002,
+      "runAttempt": 1,
+      "observedAt": "2026-07-10T12:18:00.000Z",
+      "url": "https://github.com/chase-sets/chase-sets/actions/runs/1002",
+      "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "candidateSha": "2222222222222222222222222222222222222222",
+      "jobId": 2002
+    },
+    {
+      "runId": 1003,
+      "runAttempt": 1,
+      "observedAt": "2026-07-17T11:45:00.000Z",
+      "url": "https://github.com/chase-sets/chase-sets/actions/runs/1003",
+      "baseSha": "cccccccccccccccccccccccccccccccccccccccc",
+      "candidateSha": "3333333333333333333333333333333333333333",
+      "jobId": 2003
+    }
+  ]
+}

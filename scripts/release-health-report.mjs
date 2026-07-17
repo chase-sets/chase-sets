@@ -15,6 +15,11 @@ const ROUTE_MATRIX_EVIDENCE_VERSION = "read-consistency-route-matrix-evidence/v1
 const PUSH_WAKE_CAPACITY_EVIDENCE_VERSION = "push-wake-capacity-evidence/v1";
 const EPHEMERAL_VERIFICATION_VERSION = "ephemeral-verification/v1";
 const MERGE_GROUP_FAILURE_SIGNATURES_VERSION = "merge-group-failure-signatures/v1";
+const DELIVERY_FAILURE_SIGNATURE_VERSION = "delivery-failure-signature/v1";
+const FAILURE_SIGNATURE_VERSIONS = new Set([
+  MERGE_GROUP_FAILURE_SIGNATURES_VERSION,
+  DELIVERY_FAILURE_SIGNATURE_VERSION,
+]);
 const FRESHNESS_SUSTAINED_WINDOW_TARGET_DAYS = 30;
 const CAPACITY_REVIEW_MIN_DEPLOYABLE_ATTEMPTS = 10;
 const CAPACITY_REVIEW_STAGING_DURATION_WARN_SECONDS = 20 * 60;
@@ -381,7 +386,7 @@ export function classifyReleaseHealthArtifacts(artifacts) {
       capacityArtifacts.push({ ...artifact, record });
     } else if (schemaVersion === EPHEMERAL_VERIFICATION_VERSION) {
       verificationArtifacts.push({ ...artifact, record });
-    } else if (schemaVersion === MERGE_GROUP_FAILURE_SIGNATURES_VERSION) {
+    } else if (FAILURE_SIGNATURE_VERSIONS.has(schemaVersion)) {
       mergeGroupFailureArtifacts.push({ ...artifact, record });
     } else {
       ignoredArtifacts.push(artifact);
@@ -421,7 +426,7 @@ function summarizeStagingElimination(records, artifacts) {
 function summarizeMergeGroupFailureArtifacts(artifacts) {
   const latest = artifacts
     .map((artifact) => artifact.record ?? artifact)
-    .filter((record) => record?.schemaVersion === MERGE_GROUP_FAILURE_SIGNATURES_VERSION)
+    .filter((record) => FAILURE_SIGNATURE_VERSIONS.has(record?.schemaVersion))
     .sort((left, right) => Date.parse(right.checkedAt ?? "") - Date.parse(left.checkedAt ?? ""))[0];
   if (!latest) {
     return {
@@ -432,6 +437,25 @@ function summarizeMergeGroupFailureArtifacts(artifacts) {
       attributed: 0,
       deterministicRepeats: 0,
       failures: [],
+    };
+  }
+  if (latest.schemaVersion === DELIVERY_FAILURE_SIGNATURE_VERSION) {
+    const circuits = Array.isArray(latest.circuits) ? latest.circuits : [];
+    const active = circuits.filter((circuit) => ["observed", "holding", "repairing"].includes(circuit.state));
+    return {
+      posture: latest.counts?.holding > 0 ? "holding" : active.length > 0 ? "warning" : "success",
+      window: `${latest.mode ?? "unknown"} at ${latest.checkedAt ?? "unknown"}`,
+      trackedSignatures: latest.counts?.activeSignatures ?? active.length,
+      suspectFlaky: latest.counts?.flakeEvidence ?? latest.flakeEvidence?.length ?? 0,
+      attributed: 0,
+      deterministicRepeats: latest.counts?.holding ?? active.filter((circuit) => circuit.state === "holding").length,
+      failures: active.map((circuit) => ({
+        classification: circuit.state,
+        testFile: circuit.testIdentity?.file ?? circuit.job,
+        testName: circuit.testIdentity?.title ?? circuit.step,
+        occurrenceCount: circuit.occurrenceCount,
+        attributedPr: null,
+      })),
     };
   }
   return {
