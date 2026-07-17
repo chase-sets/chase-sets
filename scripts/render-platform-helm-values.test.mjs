@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { runtimeTopologyBaselines } from "./digitalocean-runtime-topology.mjs";
 import {
   buildDoksIngressValues,
+  buildPlatformHelmProductionValues,
   buildPlatformHelmValues,
   buildPlatformHelmStagingValues,
   buildPreviewDoksIngressValues,
@@ -54,6 +55,29 @@ function readChartFiles(relativePaths) {
 describe("render platform Helm values", () => {
   it("keeps generated values current", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
+  });
+
+  it("derives the production cutover posture from the authoritative Terraform parity map", () => {
+    const production = buildPlatformHelmProductionValues({ repoRoot });
+
+    expect(production.global.envOverrides).toEqual({
+      CATALOG_INTEGRATION_ACTIVATION_MODE: "test-profiles-only",
+      CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "dry-run-only",
+      CATALOG_INTEGRATION_IMPORTS_DISABLED: "mtgjson,scryfall,tcgplayer",
+      CATALOG_INTEGRATION_PROMOTION_DISABLED: "mtgjson,scryfall,tcgplayer",
+      CATALOG_INTEGRATION_REAPPLY_DISABLED: "mtgjson,scryfall,tcgplayer",
+      CHASE_SETS_PUBLIC_INDEXING: "true",
+      PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED: "true",
+      PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS: "public-presence",
+      REALTIME_BACKGROUND_MAINTENANCE_ENABLED: "true",
+      REALTIME_WAKE_SIGNAL_ENABLED: "true",
+      WORKER_PROJECTION_WAKE_RELAY_ENABLED: "true",
+    });
+    expect(production.observability).toEqual({
+      environment: "production",
+      clusterName: "chase-sets-production-doks",
+      exporter: { endpoint: "https://otel.chasesets.com" },
+    });
   });
 
   it("keeps schema bootstrap on dedicated direct database secret keys", () => {
@@ -337,14 +361,13 @@ describe("render platform Helm values", () => {
     });
   });
 
-  it("gives preview and production the tolerant liveness fix from the base chart alone (no --values overlay)", () => {
+  it("keeps preview and production tolerant liveness in the shared base chart", () => {
     // scripts/platform-kubernetes-deployment.mjs's platformValuesPathForEnvironment
-    // only supplies `--values values.staging.yaml` for DEPLOYMENT_ENVIRONMENT
-    // "staging"; preview and production `helm upgrade` calls pass no
-    // environment values file at all, so they render values.yaml alone. The
-    // live preview evidence for #4765 (namespace chase-sets-pr-4766) was hit
-    // on exactly this base-only path, which is why the fix must live in the
-    // base chart rather than only in the staging overlay.
+    // supplies environment overlays for staging and production, but neither
+    // overlay owns component probe behavior. Preview renders values.yaml
+    // alone. The live preview evidence for #4765 (namespace
+    // chase-sets-pr-4766) was hit on exactly this base-only path, which is why
+    // the fix must stay in the base chart rather than an environment overlay.
     const previewAndProductionApi = buildPlatformHelmValues({ repoRoot }).components["platform-api"];
 
     expect(previewAndProductionApi.healthPath).toBe("/health/ready");
@@ -354,7 +377,7 @@ describe("render platform Helm values", () => {
       timeoutSeconds: 5,
       failureThreshold: 6,
     });
-    // Preview/production get no replica/resource overlay -- only staging does.
+    // Preview/production get no replica/resource override -- only staging does.
     expect(previewAndProductionApi.replicas).toBe(1);
     expect(previewAndProductionApi.resources).toEqual({});
   });
@@ -442,6 +465,11 @@ describe("render platform Helm values", () => {
       tls: {
         enabled: true,
         secretName: "chase-sets-platform-doks-tls",
+        certificate: {
+          enabled: false,
+          clusterIssuer: "",
+          dnsNames: [],
+        },
       },
       hosts: [],
     });
@@ -520,6 +548,65 @@ describe("render platform Helm values", () => {
     for (const host of stagingValues.doksIngress.hosts.map((entry) => entry.host)) {
       expect(host).not.toMatch(/^(landing|marketplace|admin)-staging\./);
     }
+  });
+
+  it("renders production shadow and live hosts under one pre-flip DNS-01 certificate", () => {
+    const doksIngress = buildDoksIngressValues({
+      environment: "production",
+      env: {
+        PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20",
+        PRODUCTION_APP_SERVING: "app-platform",
+      },
+    });
+
+    expect(doksIngress.enabled).toBe(true);
+    expect(doksIngress.clusterIssuer).toBe("");
+    expect(doksIngress.hosts.map((host) => host.host)).toEqual([
+      "doks.chasesets.com",
+      "www.doks.chasesets.com",
+      "admin.doks.chasesets.com",
+      "chasesets.com",
+      "www.chasesets.com",
+      "admin.chasesets.com",
+    ]);
+    expect(doksIngress.tls.certificate).toEqual({
+      enabled: true,
+      clusterIssuer: "letsencrypt-production",
+      dnsNames: doksIngress.hosts.map((host) => host.host),
+    });
+    expect(doksIngress.hosts.find((host) => host.host === "chasesets.com").paths.at(-1)).toEqual({
+      path: "/",
+      service: "public-web",
+    });
+    expect(doksIngress.hosts.some((host) => host.host.startsWith("marketplace."))).toBe(false);
+  });
+
+  it("adds production marketplace ingress only when the existing public-exposure gate is true", () => {
+    const doksIngress = buildDoksIngressValues({
+      environment: "production",
+      env: {
+        PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20",
+        PRODUCTION_APP_SERVING: "doks",
+        PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: "true",
+      },
+    });
+
+    expect(doksIngress.hosts.map((host) => host.host)).toEqual(
+      expect.arrayContaining(["marketplace.doks.chasesets.com", "marketplace.chasesets.com"]),
+    );
+  });
+
+  it("does not let production inherit the repo-level staging ingress target", () => {
+    const doksIngress = buildDoksIngressValues({
+      environment: "production",
+      env: {
+        DOKS_INGRESS_TARGET: "159.203.145.65",
+        PRODUCTION_APP_SERVING: "app-platform",
+      },
+    });
+
+    expect(doksIngress.enabled).toBe(false);
+    expect(doksIngress.hosts).toEqual([]);
   });
 
   it("renders DOKS preview ingress hosts for a preview identifier", () => {
@@ -709,6 +796,7 @@ describe("render platform Helm values", () => {
     const chartFiles = [
       "templates/_helpers.tpl",
       "templates/analysis-template.yaml",
+      "templates/certificate.yaml",
       "templates/deployment.yaml",
       "templates/ingress.yaml",
       "templates/job.yaml",
@@ -730,6 +818,7 @@ describe("render platform Helm values", () => {
     expect(chartText).not.toMatch(/^kind: Secret$/m);
     expect(readFileSync(path.join(repoRoot, chartValuesRelativePath), "utf8")).toContain("doksIngress:");
     expect(chartText).toContain(".Values.doksIngress");
+    expect(chartText).toContain("kind: Certificate");
     expect(chartText).not.toContain("ExternalSecret");
     expect(chartText).not.toContain("SecretProviderClass");
     expect(rolloutStates).toEqual([false, false, false]);

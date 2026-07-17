@@ -62,6 +62,10 @@ doksIngress:
   tls:
     enabled: true
     secretName: "chase-sets-platform-tls"
+    certificate:
+      enabled: false
+      clusterIssuer: ""
+      dnsNames: []
   hosts: []
 previewPostgres:
   enabled: false

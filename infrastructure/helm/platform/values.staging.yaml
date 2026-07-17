@@ -7,6 +7,10 @@ doksIngress:
   tls:
     enabled: true
     secretName: "chase-sets-platform-doks-tls"
+    certificate:
+      enabled: false
+      clusterIssuer: ""
+      dnsNames: []
   hosts: []
 components:
   public-web:

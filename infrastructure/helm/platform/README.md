@@ -11,7 +11,7 @@ It mirrors the current DigitalOcean App Platform component topology:
 - `platform-worker`
 - `platform-bootstrap`
 
-`values.yaml` is generated from the existing App Platform Terraform shape and stays the preview-safe baseline. `values.staging.yaml` is generated alongside it for DOKS staging-only component overrides, including representative platform-worker wake capacity and the horizontally scaled, explicitly resourced platform API.
+`values.yaml` is generated from the existing App Platform Terraform shape and stays the preview-safe baseline. `values.staging.yaml` adds DOKS staging-only component overrides, including representative platform-worker wake capacity and the horizontally scaled, explicitly resourced platform API. `values.production.yaml` derives its runtime overrides from Terraform's authoritative `local.production_runtime_parity_env`, keeping catalog controls and go-live toggles identical to App Platform during the serving cutover.
 
 ```bash
 node ./scripts/render-platform-helm-values.mjs
@@ -51,6 +51,8 @@ Staging and production Helm upgrades enable the in-cluster observability topolog
 - one cluster Collector Deployment runs a kube-state-metrics sidecar and exports a bounded cluster-health metric set;
 - both paths upsert `deployment.environment`, `k8s.cluster.name`, and `chase_sets.observability_stack=single-shared-stack` before forwarding to the secured shared Droplet;
 - application pods export to the internal Collector Service rather than directly across the public endpoint.
+
+The production workflow passes the same configured/default upstream OTLP endpoint used by App Platform (`OBSERVABILITY_OTLP_ENDPOINT`, defaulting to `https://otel.chasesets.com`). The deploy helper enforces the internal Collector Service endpoint and `chase_sets.environment_slug=production` resource identity for production application pods, so preview defaults cannot leak into an observability-enabled production render.
 
 Preview namespaces do not install collectors or kube-state-metrics. The cluster metric relabel contract drops UID, container-image, and container-id labels before export.
 
@@ -99,7 +101,9 @@ doksIngress:
           service: admin-web
 ```
 
-When `STAGING_APP_SERVING=app-platform`, hosts are the `doks.<zone>` shadow validation names. When it flips to `doks`, hosts become the live staging apex plus `www`, `marketplace`, and `admin`. The chart renders one `Ingress` and one SAN `Certificate` for the active host set. Provider webhook, MCP, UCP, well-known, and `/api` paths stay routed to `platform-api` before the web catch-all. Shadow DNS lives in `infrastructure/digitalocean/environment-dns`; mutually exclusive live App Platform/DOKS records live with the App Platform domain attachments in `infrastructure/digitalocean/platform`.
+When `STAGING_APP_SERVING=app-platform`, hosts are the `doks.<zone>` shadow validation names. When it flips to `doks`, hosts become the live staging apex plus `www`, `marketplace`, and `admin`; ingress-shim owns staging's HTTP-01 certificate.
+
+Production reads only `PRODUCTION_DOKS_INGRESS_TARGET` and `PRODUCTION_APP_SERVING`, so the repo-level staging target cannot leak into the production cluster. Once the production target is set, the Ingress keeps both shadow and live host rules warm. An explicit DNS-01 `Certificate` covers both sets before live DNS moves; the Ingress omits its issuer annotation so ingress-shim cannot race that certificate owner. The apex and `www` route to `public-web`, `admin` routes to `admin-web`, and marketplace hosts are absent unless `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true` is already approved. Provider webhook, MCP, UCP, well-known, and `/api` paths stay routed to `platform-api` before each web catch-all.
 
 ## Health Probes
 

@@ -28,9 +28,11 @@ locals {
   )
   environment_slug    = var.environment == "preview" ? var.preview_identifier : var.environment
   environment_zone    = "${var.environment}.${var.root_domain}"
+  live_dns_zone       = local.is_production ? var.root_domain : local.environment_zone
   database_name_token = replace(local.environment_slug, "-", "_")
   name_prefix         = local.is_production ? "chase-sets" : "chase-sets-${local.environment_slug}"
-  serving_from_doks   = local.is_staging && var.staging_app_serving == "doks"
+  app_serving         = local.is_production ? var.production_app_serving : local.is_staging ? var.staging_app_serving : "app-platform"
+  serving_from_doks   = (local.is_staging || local.is_production) && local.app_serving == "doks"
 
   public_domains = local.is_production ? [
     var.root_domain,
@@ -49,34 +51,39 @@ locals {
   all_marketplace_domains = concat(local.marketplace_domains, local.staging_root_marketplace_domains)
   app_primary_domain      = local.is_staging ? local.staging_root_marketplace_domains[0] : local.public_domains[0]
 
-  # App Platform stays warm during the DOKS soak, but it must release every
-  # live staging domain before the records below change from CNAME to A. These
-  # attachment sets preserve production/preview behavior and remove only the
-  # staging live-host attachments during the cutover.
+  # App Platform stays warm during each DOKS soak, but it must release every
+  # live domain before the records below change to A. These attachment sets
+  # preserve preview behavior and remove only the active environment's live
+  # attachments during its explicit cutover.
   app_platform_public_domains                   = local.serving_from_doks ? [] : local.public_domains
   app_platform_marketplace_domains              = local.serving_from_doks ? [] : local.marketplace_domains
   app_platform_staging_root_marketplace_domains = local.serving_from_doks ? [] : local.staging_root_marketplace_domains
   app_platform_admin_domains                    = local.serving_from_doks ? [] : [local.admin_domain]
   app_platform_all_marketplace_domains          = concat(local.app_platform_marketplace_domains, local.app_platform_staging_root_marketplace_domains)
   # App Platform auto-assigns an un-routed web component to "/". Once DOKS
-  # serving removes every authority-qualified route, all three web components
-  # would otherwise collide there. Keep public-web as the harmless default and
-  # park the other warm fallback components on explicit, unique paths. This
-  # exact no-domain route set was accepted by `doctl apps propose` for staging.
-  app_platform_doks_ingress_routes = local.serving_from_doks ? [
-    {
-      component   = "public-web"
-      path_prefix = "/"
-    },
-    {
-      component   = "admin-web"
-      path_prefix = "/_app-platform/doks/admin"
-    },
-    {
-      component   = "marketplace"
-      path_prefix = "/_app-platform/doks/marketplace"
-    },
-  ] : []
+  # serving removes every authority-qualified route, the retained web
+  # components would otherwise collide there. Keep public-web as the harmless
+  # default and park each other warm fallback component on an explicit path.
+  # Marketplace is present only in an already-public runtime profile. This
+  # shape was accepted by `doctl apps propose` for staging and production.
+  app_platform_doks_ingress_routes = local.serving_from_doks ? concat(
+    [
+      {
+        component   = "public-web"
+        path_prefix = "/"
+      },
+      {
+        component   = "admin-web"
+        path_prefix = "/_app-platform/doks/admin"
+      },
+    ],
+    local.marketplace_public_enabled ? [
+      {
+        component   = "marketplace"
+        path_prefix = "/_app-platform/doks/marketplace"
+      },
+    ] : [],
+  ) : []
 
   admin_domain                  = local.is_production ? "admin.${var.root_domain}" : local.is_staging ? "admin.${var.environment}.${var.root_domain}" : "admin.${local.environment_slug}.preview.${var.root_domain}"
   landing_domain                = local.public_domains[0]
@@ -278,6 +285,25 @@ locals {
     )
   } : {}
 
+  # Production App Platform and DOKS must consume the same runtime posture
+  # during the serving cutover. This literal map is the source of truth for
+  # values.production.yaml; changing a launch-only toggle here therefore
+  # requires an explicit launch-runbook step instead of becoming a serving
+  # flip side effect.
+  production_runtime_parity_env = {
+    CATALOG_INTEGRATION_CONTROL_PLANE_MODE          = "dry-run-only"
+    CATALOG_INTEGRATION_ACTIVATION_MODE             = "test-profiles-only"
+    CATALOG_INTEGRATION_IMPORTS_DISABLED            = "mtgjson,scryfall,tcgplayer"
+    CATALOG_INTEGRATION_PROMOTION_DISABLED          = "mtgjson,scryfall,tcgplayer"
+    CATALOG_INTEGRATION_REAPPLY_DISABLED            = "mtgjson,scryfall,tcgplayer"
+    CHASE_SETS_PUBLIC_INDEXING                      = "true"
+    REALTIME_BACKGROUND_MAINTENANCE_ENABLED         = "true"
+    REALTIME_WAKE_SIGNAL_ENABLED                    = "true"
+    PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED = "true"
+    PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS        = "public-presence"
+    WORKER_PROJECTION_WAKE_RELAY_ENABLED            = "true"
+  }
+
   # Read-after-write wake-before-wait rides a staging-first ramp: staging
   # proves the api-wait wake path before production enablement, which stays
   # gated behind the milestone rollout-control and canary evidence issues.
@@ -290,9 +316,13 @@ locals {
   # source, and previews keep both the relay and write-side event-store wake
   # emission killed until the production enablement gates (#1243/#1244/#1237)
   # pass.
-  worker_projection_wake_relay_enabled   = (local.is_staging || local.is_production) ? "true" : "false"
-  event_store_wake_notifications_enabled = (local.is_staging || local.is_production) ? "true" : "false"
-  projection_wake_source_contexts        = local.is_production ? "public-presence" : "*"
+  worker_projection_wake_relay_enabled = local.is_production ? local.production_runtime_parity_env.WORKER_PROJECTION_WAKE_RELAY_ENABLED : (
+    local.is_staging ? "true" : "false"
+  )
+  event_store_wake_notifications_enabled = local.is_production ? local.production_runtime_parity_env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED : (
+    local.is_staging ? "true" : "false"
+  )
+  projection_wake_source_contexts = local.is_production ? local.production_runtime_parity_env.PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS : "*"
 
   # --- Push-wake connection budget (#1244, #1243, #1236) ---------------------
   # Plan-time model of worst-case DigitalOcean managed Postgres backend demand
@@ -529,23 +559,23 @@ locals {
       secret = false
     }
     CATALOG_INTEGRATION_CONTROL_PLANE_MODE = {
-      value  = local.is_production ? "dry-run-only" : "open"
+      value  = local.is_production ? local.production_runtime_parity_env.CATALOG_INTEGRATION_CONTROL_PLANE_MODE : "open"
       secret = false
     }
     CATALOG_INTEGRATION_ACTIVATION_MODE = {
-      value  = local.is_production ? "test-profiles-only" : "open"
+      value  = local.is_production ? local.production_runtime_parity_env.CATALOG_INTEGRATION_ACTIVATION_MODE : "open"
       secret = false
     }
     CATALOG_INTEGRATION_IMPORTS_DISABLED = {
-      value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""
+      value  = local.is_production ? local.production_runtime_parity_env.CATALOG_INTEGRATION_IMPORTS_DISABLED : ""
       secret = false
     }
     CATALOG_INTEGRATION_PROMOTION_DISABLED = {
-      value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""
+      value  = local.is_production ? local.production_runtime_parity_env.CATALOG_INTEGRATION_PROMOTION_DISABLED : ""
       secret = false
     }
     CATALOG_INTEGRATION_REAPPLY_DISABLED = {
-      value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""
+      value  = local.is_production ? local.production_runtime_parity_env.CATALOG_INTEGRATION_REAPPLY_DISABLED : ""
       secret = false
     }
     CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP = {
@@ -799,11 +829,14 @@ locals {
   # provider marks record type ForceNew, so a flip destroys the old CNAME/A
   # before creating its replacement and DigitalOcean never sees both types at
   # the same owner name.
-  staging_app_serving_record_names = local.is_staging ? toset([
+  app_serving_record_names = local.is_staging ? toset([
     "admin",
     "marketplace",
     "www",
-  ]) : toset([])
+    ]) : local.is_production && local.serving_from_doks ? toset(concat(
+    ["admin", "www"],
+    local.marketplace_public_enabled ? ["marketplace"] : [],
+  )) : toset([])
   ucp_ingress_routes = {
     for route in setproduct(local.ucp_route_domains, local.ucp_route_prefixes) :
     "${route[0]}:${route[1]}" => {

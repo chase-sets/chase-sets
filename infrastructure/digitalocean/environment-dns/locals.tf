@@ -1,5 +1,8 @@
 locals {
-  environment_zone = "${var.environment}.${var.root_domain}"
+  is_staging       = var.environment == "staging"
+  is_production    = var.environment == "production"
+  environment_zone = local.is_production ? var.root_domain : "${var.environment}.${var.root_domain}"
+  app_serving      = local.is_production ? var.production_app_serving : var.staging_app_serving
   nameservers = [
     "ns1.digitalocean.com.",
     "ns2.digitalocean.com.",
@@ -29,11 +32,15 @@ locals {
   # manages, so they never collide with or destroy App Platform records. They
   # appear only once a load balancer target is known, which keeps the default
   # plan a no-op until an operator wires the DOKS load balancer.
-  doks_shadow_records = local.doks_ingress_target_configured ? {
-    apex        = { name = "doks", fqdn = "doks.${local.environment_zone}" }
-    www         = { name = "www.doks", fqdn = "www.doks.${local.environment_zone}" }
-    marketplace = { name = "marketplace.doks", fqdn = "marketplace.doks.${local.environment_zone}" }
-    admin       = { name = "admin.doks", fqdn = "admin.doks.${local.environment_zone}" }
-  } : {}
+  doks_shadow_records = local.doks_ingress_target_configured ? merge(
+    {
+      apex  = { name = "doks", fqdn = "doks.${local.environment_zone}" }
+      www   = { name = "www.doks", fqdn = "www.doks.${local.environment_zone}" }
+      admin = { name = "admin.doks", fqdn = "admin.doks.${local.environment_zone}" }
+    },
+    local.is_staging || var.production_marketplace_public_enabled ? {
+      marketplace = { name = "marketplace.doks", fqdn = "marketplace.doks.${local.environment_zone}" }
+    } : {},
+  ) : {}
 
 }

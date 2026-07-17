@@ -18,15 +18,15 @@ variable "environment" {
   description = "Environment DNS namespace to manage."
 
   validation {
-    condition     = var.environment == "staging"
-    error_message = "environment-dns currently manages the delegated staging.chasesets.com zone only."
+    condition     = contains(["staging", "production"], var.environment)
+    error_message = "environment-dns manages staging or production DNS only."
   }
 }
 
 variable "environment_project_id" {
   type        = string
   default     = ""
-  description = "Optional DigitalOcean project ID. When set, assign the staging DNS zone to that project; leave empty to skip project assignment without querying the Projects API."
+  description = "Optional DigitalOcean project ID. When set for staging, assign the delegated DNS zone to that project; production's existing root zone stays owned by the platform root."
 }
 
 variable "root_domain" {
@@ -55,12 +55,55 @@ variable "staging_app_serving" {
     condition     = contains(["app-platform", "doks"], var.staging_app_serving)
     error_message = "staging_app_serving must be either \"app-platform\" or \"doks\"."
   }
+
+  validation {
+    condition     = var.environment == "staging" || var.staging_app_serving == "app-platform"
+    error_message = "staging_app_serving may only change for staging."
+  }
+}
+
+variable "production_app_serving" {
+  type        = string
+  default     = "app-platform"
+  description = "Coordinated production serving mode. This root retains shadow records; the platform root owns the live DNS flip."
+
+  validation {
+    condition     = contains(["app-platform", "doks"], var.production_app_serving)
+    error_message = "production_app_serving must be either \"app-platform\" or \"doks\"."
+  }
+
+  validation {
+    condition     = var.environment == "production" || var.production_app_serving == "app-platform"
+    error_message = "production_app_serving may only change for production."
+  }
+}
+
+variable "production_doks_certificate_ready" {
+  type        = bool
+  default     = false
+  description = "Operator evidence gate set only after the production live-and-shadow DOKS Certificate is Ready."
+
+  validation {
+    condition     = var.environment == "production" || var.production_doks_certificate_ready == false
+    error_message = "production_doks_certificate_ready may only be true for production."
+  }
+}
+
+variable "production_marketplace_public_enabled" {
+  type        = bool
+  default     = false
+  description = "Read-only production exposure posture used only to decide whether the marketplace shadow hostname is applicable. This root never promotes marketplace exposure."
+
+  validation {
+    condition     = var.environment == "production" || var.production_marketplace_public_enabled == false
+    error_message = "production_marketplace_public_enabled may only be true for production."
+  }
 }
 
 variable "doks_ingress_target" {
   type        = string
   default     = ""
-  description = "DOKS ingress load balancer IPv4 address. When set, shadow validation hosts (doks.<zone>, www.doks.<zone>, ...) resolve to the load balancer so DOKS ingress and cert-manager can be proven before cutover. Required before staging_app_serving flips to \"doks\"."
+  description = "Environment-specific DOKS ingress load balancer IPv4 address. When set, applicable shadow validation hosts resolve to the load balancer so ingress and certificate readiness can be proven before cutover."
 
   validation {
     condition     = trimspace(var.doks_ingress_target) == "" || can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$", trimspace(var.doks_ingress_target)))

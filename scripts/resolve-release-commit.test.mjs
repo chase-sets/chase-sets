@@ -179,7 +179,7 @@ describe("resolve release commit", () => {
     const production = workflowJob(workflow, "deploy-production");
 
     expect(workflow).toContain(
-      "group: ${{ github.event_name == 'push' && 'platform-release-candidate' || 'platform-registry-mutation' }}",
+      "group: ${{ github.event_name == 'push' && 'platform-release-candidate' || (inputs.cutover_plan_only && format('platform-production-cutover-plan-{0}', github.ref) || 'platform-registry-mutation') }}",
     );
     expect(workflow).toContain("cancel-in-progress: ${{ github.event_name == 'push' }}");
     expect(dispatcher).toContain("if: github.event_name == 'push'");

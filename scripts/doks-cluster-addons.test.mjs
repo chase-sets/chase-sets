@@ -3,13 +3,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  applyPreviewDnsTokenSecret,
-  buildPreviewDnsTokenSecretManifest,
+  applyDoksDnsTokenSecret,
+  buildDoksDnsTokenSecretManifest,
+  doksDnsTokenSecretName,
+  doksDnsTokenSecretNamespace,
   loadBalancerName,
   pinned,
   planClusterAddons,
-  previewDnsTokenSecretName,
-  previewDnsTokenSecretNamespace,
 } from "./doks-cluster-addons.mjs";
 
 const ingressNginxValues = readFileSync(
@@ -108,14 +108,44 @@ describe("doks cluster addons planner", () => {
     expect(productionIssuers.command).not.toContain("previewWildcardCertificate.enabled=true");
   });
 
-  describe("preview DNS-01 token secret", () => {
+  it("scopes the DNS-01 solver to previews on staging and the live zone on production", () => {
+    const stagingIssuers = planClusterAddons({ environment: "staging" }).find(
+      (step) => step.name === "install ACME cluster issuers",
+    );
+    const productionIssuers = planClusterAddons({ environment: "production" }).find(
+      (step) => step.name === "install ACME cluster issuers",
+    );
+
+    expect(stagingIssuers.command).toEqual(
+      expect.arrayContaining([
+        "--set",
+        "clusterIssuers.production.dns01.enabled=true",
+        "--set-string",
+        "clusterIssuers.production.dns01.dnsZones[0]=preview.chasesets.com",
+      ]),
+    );
+    expect(productionIssuers.command).toEqual(
+      expect.arrayContaining([
+        "--set",
+        "clusterIssuers.production.dns01.enabled=true",
+        "--set-string",
+        "clusterIssuers.production.dns01.dnsZones[0]=chasesets.com",
+      ]),
+    );
+  });
+
+  describe("DOKS DNS-01 token secret", () => {
     it("base64-encodes the token into an Opaque Secret in the cert-manager namespace", () => {
-      const manifest = buildPreviewDnsTokenSecretManifest("do_fake_token_value");
+      const manifest = buildDoksDnsTokenSecretManifest("do_fake_token_value", "production");
 
       expect(manifest).toMatchObject({
         apiVersion: "v1",
         kind: "Secret",
-        metadata: { name: previewDnsTokenSecretName, namespace: previewDnsTokenSecretNamespace },
+        metadata: {
+          name: doksDnsTokenSecretName,
+          namespace: doksDnsTokenSecretNamespace,
+          labels: { "app.kubernetes.io/component": "production-dns01" },
+        },
         type: "Opaque",
       });
       expect(manifest.data["access-token"]).toBe(Buffer.from("do_fake_token_value", "utf8").toString("base64"));
@@ -124,9 +154,9 @@ describe("doks cluster addons planner", () => {
     });
 
     it("refuses to build a secret manifest without a token instead of applying an empty credential", () => {
-      expect(() => buildPreviewDnsTokenSecretManifest("")).toThrow("DIGITALOCEAN_ACCESS_TOKEN is required");
-      expect(() => buildPreviewDnsTokenSecretManifest(undefined)).toThrow("DIGITALOCEAN_ACCESS_TOKEN is required");
-      expect(() => buildPreviewDnsTokenSecretManifest("   ")).toThrow("DIGITALOCEAN_ACCESS_TOKEN is required");
+      expect(() => buildDoksDnsTokenSecretManifest("")).toThrow("DIGITALOCEAN_ACCESS_TOKEN is required");
+      expect(() => buildDoksDnsTokenSecretManifest(undefined)).toThrow("DIGITALOCEAN_ACCESS_TOKEN is required");
+      expect(() => buildDoksDnsTokenSecretManifest("   ")).toThrow("DIGITALOCEAN_ACCESS_TOKEN is required");
     });
 
     it("applies the secret by piping it to kubectl stdin, never as a command-line argument", async () => {
@@ -138,9 +168,9 @@ describe("doks cluster addons planner", () => {
         return child;
       };
 
-      const applied = await applyPreviewDnsTokenSecret({ token: "do_fake_token_value", spawn });
+      const applied = await applyDoksDnsTokenSecret({ token: "do_fake_token_value", environment: "production", spawn });
 
-      expect(applied).toEqual({ name: previewDnsTokenSecretName, namespace: previewDnsTokenSecretNamespace });
+      expect(applied).toEqual({ name: doksDnsTokenSecretName, namespace: doksDnsTokenSecretNamespace });
       expect(calls).toHaveLength(1);
       expect(calls[0].command).toBe("kubectl");
       expect(calls[0].args).toEqual(["apply", "-f", "-"]);

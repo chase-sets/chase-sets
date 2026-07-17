@@ -15,7 +15,7 @@ It owns five cluster-scoped concerns:
 - **ACME `ClusterIssuer`s** — rendered by this chart (`letsencrypt-staging` and
   `letsencrypt-production`, HTTP-01 solver via the nginx ingress class; the
   production issuer also carries a DNS-01 solver scoped by `selector.dnsZones`
-  to `preview.chasesets.com` only — see below).
+  to `preview.chasesets.com` on staging or `chasesets.com` on production).
 - **The shared preview wildcard `Certificate`** (`previewWildcardCertificate`,
   `--environment staging` only) — ONE `*.preview.chasesets.com` certificate every
   preview namespace's Ingress references, instead of each preview issuing its own
@@ -33,14 +33,15 @@ load balancer, and issuers/certificate those Ingress objects depend on.
 | cert-manager + CRDs | upstream chart + `cert-manager-values.yaml` | `cert-manager` |
 | Argo Rollouts controller + CRDs | upstream chart + `argo-rollouts-values.yaml` | `argo-rollouts` |
 | ACME `ClusterIssuer`s | this chart (`templates/cluster-issuer.yaml`) | `cert-manager` |
-| `digitalocean-dns-token` Secret (DNS-01 credential, staging only) | `scripts/doks-cluster-addons.mjs` (applied via `kubectl apply` stdin, never in git) | `cert-manager` |
+| `digitalocean-dns-token` Secret (environment-scoped DNS-01 credential) | `scripts/doks-cluster-addons.mjs` (applied via `kubectl apply` stdin, never in git) | `cert-manager` |
 | Shared preview wildcard `Certificate` (staging only) | this chart (`templates/preview-wildcard-certificate.yaml`) | `cert-manager` |
 
 The upstream charts are pinned and installed by the source-owned helper so versions
 and values stay in git, never in ad-hoc `helm install` invocations:
 
 ```bash
-node ./scripts/doks-cluster-addons.mjs --environment staging
+DIGITALOCEAN_ACCESS_TOKEN=<token with DNS write access> \
+  node ./scripts/doks-cluster-addons.mjs --environment staging
 ```
 
 Preview the exact pinned commands without touching a cluster:
@@ -50,25 +51,13 @@ node ./scripts/doks-cluster-addons.mjs --environment staging --dry-run
 ```
 
 `--environment` selects the per-environment DigitalOcean Load Balancer name
-(`chase-sets-<environment>-doks-ingress`). Staging is the first cutover target.
+(`chase-sets-<environment>-doks-ingress`) and DNS-01 zone. Staging additionally renders the preview wildcard Certificate; production uses DNS-01 to issue the live-and-shadow cutover certificate before its DNS flip.
 
 ## Load Balancer And TLS Posture
 
-The controller Service pins `service.beta.kubernetes.io/do-loadbalancer-type: REGIONAL`
-(a connection-terminating / HTTP DigitalOcean Load Balancer). NGINX terminates TLS with
-cert-manager-issued certificates; port 80 is not force-redirected at the load balancer,
-so cert-manager HTTP-01 challenges reach the controller. PROXY protocol is enabled on
-both the load balancer and the controller so real client IPs survive for rate limiting
-and `CHASE_SETS_TRUST_FORWARDED_HEADERS`.
+The controller Service pins the DOKS-coerced `REGIONAL_NETWORK` load-balancer type and binds ingress-nginx to host ports 80/443 so same-port L4 pass-through reaches the controller. NGINX terminates TLS with cert-manager-issued certificates; port 80 remains reachable for HTTP-01. PROXY protocol is disabled on both sides because the network load balancer does not support it. These paired values are the live-proven #4680/#4693 topology and must move together.
 
-`REGIONAL` must be set explicitly. On DOKS 1.33.1-do.0 and later the CCM default is
-`REGIONAL_NETWORK` (a network / same-port pass-through load balancer). That default is
-wrong here: a network LB requires the LB port and node target port to match, so it
-forwards `:80`/`:443` to host `:80`/`:443` where this NodePort controller listens on
-nothing (connections refused), and it does not support PROXY protocol. `REGIONAL`
-rewrites the forwarding rules to the allocated NodePorts and supports PROXY protocol.
-The annotation lives in git-managed values because the CCM reconciles the Service back
-to these values — a hand-applied `kubectl annotate` does not survive a helm upgrade.
+The annotations live in git-managed values because the CCM reconciles the Service back to them — a hand-applied `kubectl annotate` does not survive a Helm upgrade.
 See [DigitalOcean load balancer configuration](https://docs.digitalocean.com/products/kubernetes/how-to/configure-load-balancers/).
 
 ## Rendering
@@ -83,7 +72,7 @@ schemas (the CRDs install with cert-manager, not with this chart).
 
 ## Cutover
 
-The DNS records that point the staging hosts at this load balancer live in
+The DNS records that point the staging or production shadow hosts at this load balancer live in
 [environment-dns](../../digitalocean/environment-dns/README.md). The end-to-end
 cutover and rollback sequence lives in
 [DOKS Platform Operations](../../../docs/runbooks/doks-platform-operations.md).
