@@ -30,6 +30,8 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 ### Campaigns
 
 - [Offer Economics Claims Substantiation](./campaigns/offer-economics-claims-substantiation.md): the truth gate for beta campaign copy — every public claim about fees, protections, or graded-card support marked substantiated, softened, or dropped against shipped code, backed by the offer-economics monitor (#4075).
+- [GTM Wave Targeting And Seller Positioning](./campaigns/wave-targeting.md): the ratified #4337 seller-outreach lead narrative (repricing + market-analytics proof), Wave 1-3 segment criteria (high-volume, mid-volume, brick-and-mortar hard gate), the permanent-free repricing pricing posture, and the m111/m112/m113 beta capability calendar.
+- [High-Volume Seller Outreach Collateral](./campaigns/high-volume-seller-outreach.md): the Segment A ("250k archetype") one-pager and Wave-1 truth-gated variant; the policy-repricing demo script is explicitly out of scope pending #4332.
 - [30-Day Campaign Content Calendar](./campaigns/30-day-content-calendar.md): the 2026-07-20 through 2026-08-18 channel/owner/claim-reference plan, with invite-wave moments and week-one copy.
 - [Campaign Market-Data Series](./campaigns/market-data-series.md): deterministic Pricing rollup snippet generation, fixture/staging rehearsal, and production-only publication gate.
 - [Open-Offer Demo Walkthrough](./campaigns/offer-flow-demo.md): the truth-gated 30-second staging capture script and honest TODD creative handoff.
