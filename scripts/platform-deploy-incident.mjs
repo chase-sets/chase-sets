@@ -93,19 +93,24 @@ const ROOT_CAUSES = Object.freeze({
 
 export function redactDeployDiagnosticText(value) {
   return String(value ?? "")
+    .replace(/(^|\r?\n)(\s*(?:cookie|set-cookie)\s*:\s*)([^\r\n]*)/gim, (_match, lineStart, prefix, headerValue) => {
+      const redactedValue = headerValue.replace(/(^|;\s*)([^=;\s]+)(\s*=\s*)[^;]*/g, "$1$2$3[REDACTED]");
+      return `${lineStart}${prefix}${redactedValue}`;
+    })
     .replace(/(authorization\s*:\s*(?:bearer|basic)\s+)\S+/gi, "$1[REDACTED]")
     .replace(/(bearer\s+)\S+/gi, "$1[REDACTED]")
+    .replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^:\s/"']+:[^@\s/"']+@/gi, "$1[REDACTED]@")
     .replace(
       /((?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss|amqp|amqps):\/\/)[^\s"']+/gi,
       "$1[REDACTED]",
     )
     .replace(/\b(?:gho_|ghp_|ghs_|github_pat_|dop_v1_|sk_(?:live|test)_)[A-Za-z0-9_-]+/gi, "[REDACTED_TOKEN]")
     .replace(
-      /(\b(?:[A-Z][A-Z0-9_]*_)?(?:PASSWORD|SECRET|TOKEN|API_KEY|COOKIE|DATABASE_URL|CONNECTION_STRING)(?:_[A-Z0-9_]+)*\s*=\s*)([^\s,;]+)/g,
+      /(\b(?:[A-Z][A-Z0-9_]*_)?(?:PASSWORD|PWD|SECRET|TOKEN|API_KEY|COOKIE|DATABASE_URL|CONNECTION_STRING)(?:_[A-Z0-9_]+)*\s*=\s*)([^\s,;]+)/g,
       "$1[REDACTED]",
     )
     .replace(
-      /(["']?(?:password|secret|token|api[_-]?key|cookie|set-cookie|database[_-]?url|connection[_-]?string)["']?\s*[=:]\s*["']?)([^\s,"';}]+)/gi,
+      /((?:\\?["'])?(?:password|pwd|secret|token|api[_-]?key|cookie|set-cookie|database[_-]?url|connection[_-]?string)(?:\\?["'])?\s*[=:]\s*(?:\\?["'])?)([^\s,;}'"\\]+)/gi,
       "$1[REDACTED]",
     )
     .replace(/((?:x-api-key|x-auth-token|proxy-authorization)\s*:\s*)\S+/gi, "$1[REDACTED]")
@@ -155,11 +160,15 @@ function normalizedSteps(input) {
   return visit(input.steps ?? []);
 }
 
-function relevantProviderReason(steps, text) {
-  const failed = steps.find(
-    (step) => /error|fail|cancel|timeout/i.test(step.phase) && (step.reasonCode || step.message),
-  );
-  const reason = failed ? [failed.reasonCode, failed.message].filter(Boolean).join(": ") : "";
+function providerReasonFromStep(step) {
+  return boundedProviderReason([step?.reasonCode, step?.message].filter(Boolean).join(": "));
+}
+
+function relevantProviderReason(steps, text, providerStep) {
+  const failed =
+    providerStep ??
+    steps.find((step) => /error|fail|cancel|timeout/i.test(step.phase) && (step.reasonCode || step.message));
+  const reason = providerReasonFromStep(failed);
   if (reason) {
     return boundedProviderReason(reason);
   }
@@ -179,8 +188,31 @@ function relevantTextLine(text, pattern) {
   );
 }
 
-function rootCauseSignature(rootCauseCode, affectedComponent, phase) {
-  return createHash("sha256").update([rootCauseCode, affectedComponent, phase].join("|")).digest("hex").slice(0, 12);
+function providerOverridesForMatch(steps, text, pattern) {
+  const providerStep = steps.find((step) =>
+    pattern.test([step.name, step.componentName, step.phase, step.reasonCode, step.message].join(" ")),
+  );
+  if (providerStep) {
+    return { providerStep };
+  }
+
+  const providerReason = relevantTextLine(text, pattern);
+  return providerReason ? { providerReason } : {};
+}
+
+function normalizedSignatureReason(providerReason) {
+  return String(providerReason ?? "")
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function rootCauseSignature(rootCauseCode, affectedComponent, phase, providerReason) {
+  return createHash("sha256")
+    .update([rootCauseCode, affectedComponent, phase, normalizedSignatureReason(providerReason)].join("|"))
+    .digest("hex")
+    .slice(0, 12);
 }
 
 function rootCauseRecord(code, input, steps, text, overrides = {}) {
@@ -191,7 +223,7 @@ function rootCauseRecord(code, input, steps, text, overrides = {}) {
     input.affectedComponent ||
     (code === "unknown" && failedComponent ? failedComponent : definition.affectedComponent);
   const phase = overrides.phase || definition.phase;
-  const providerReason = overrides.providerReason || relevantProviderReason(steps, text);
+  const providerReason = overrides.providerReason || relevantProviderReason(steps, text, overrides.providerStep);
   return {
     schemaVersion: ROOT_CAUSE_SCHEMA_VERSION,
     rootCauseCode: code,
@@ -200,7 +232,7 @@ function rootCauseRecord(code, input, steps, text, overrides = {}) {
     phase,
     remediation: definition.remediation,
     providerReason,
-    rootCauseSignature: rootCauseSignature(code, affectedComponent, phase),
+    rootCauseSignature: rootCauseSignature(code, affectedComponent, phase, providerReason),
     blocking: code !== "staging-advisory-seed-or-e2e" && code !== "superseded-pre-mutation",
   };
 }
@@ -220,6 +252,16 @@ export function classifyDeploymentRootCause(input = {}) {
       /error|fail|cancel/i.test(step.phase),
   );
   const bootstrapComponent = bootstrapStep?.componentName || bootstrapStep?.name || "platform-bootstrap";
+  const stagingDnsPattern =
+    /DomainZoneInvalid|DomainCNAMEMismatch|domain (?:name )?.{0,40}(?:already exists|conflict|collision)|CNAME.{0,40}(?:mismatch|conflict)|staging-dns/i;
+  const terraformPattern =
+    /Error acquiring the state lock|Failed to (?:load|save|persist) state|errored\.tfstate|terraform provider|Provider produced inconsistent|Backend initialization required/i;
+  const doksBootstrapPattern =
+    /Schema bootstrap|bootstrap (?:command )?(?:timed out|failed)|lock_timeout|lock was not acquired|migration.{0,60}(?:failed|timeout)|seed-api-host.{0,60}exceeded/i;
+  const stagingAdvisoryPattern =
+    /advisory.{0,40}(?:seed|e2e)|(?:seed|e2e).{0,40}advisory|end-to-end.{0,80}auth(?:entication|orization)|e2e.{0,80}(?:login|auth(?:entication|orization))/i;
+  const stagingVerificationPattern =
+    /projection.{0,80}(?:convergence|checkpoint|freshness).{0,80}(?:timed out|timeout|failed)|blocking verification/i;
 
   if (input.superseded === true || /superseded-pre-mutation/.test(phaseHint)) {
     return rootCauseRecord("superseded-pre-mutation", input, steps, text);
@@ -240,49 +282,56 @@ export function classifyDeploymentRootCause(input = {}) {
   if (bootstrapStep) {
     return rootCauseRecord("app-platform-bootstrap-runtime", input, steps, text, {
       affectedComponent: bootstrapComponent,
+      providerStep: bootstrapStep,
     });
   }
-  if (
-    /DomainZoneInvalid|DomainCNAMEMismatch|domain (?:name )?.{0,40}(?:already exists|conflict|collision)|CNAME.{0,40}(?:mismatch|conflict)|staging-dns/.test(
-      allText,
-    )
-  ) {
-    return rootCauseRecord("staging-dns", input, steps, text);
+  if (stagingDnsPattern.test(allText)) {
+    return rootCauseRecord(
+      "staging-dns",
+      input,
+      steps,
+      text,
+      providerOverridesForMatch(steps, text, stagingDnsPattern),
+    );
   }
-  if (
-    /terraform-provider-or-state/.test(phaseHint) ||
-    /Error acquiring the state lock|Failed to (?:load|save|persist) state|errored\.tfstate|terraform provider|Provider produced inconsistent|Backend initialization required/i.test(
-      allText,
-    )
-  ) {
-    return rootCauseRecord("terraform-provider-or-state", input, steps, text);
+  if (/terraform-provider-or-state/.test(phaseHint) || terraformPattern.test(allText)) {
+    return rootCauseRecord(
+      "terraform-provider-or-state",
+      input,
+      steps,
+      text,
+      providerOverridesForMatch(steps, text, terraformPattern),
+    );
   }
-  if (
-    /doks-bootstrap|migration/.test(phaseHint) ||
-    /Schema bootstrap|bootstrap (?:command )?(?:timed out|failed)|lock_timeout|lock was not acquired|migration.{0,60}(?:failed|timeout)|seed-api-host.{0,60}exceeded/i.test(
-      allText,
-    )
-  ) {
-    return rootCauseRecord("doks-bootstrap-or-migration", input, steps, text);
+  if (/doks-bootstrap|migration/.test(phaseHint) || doksBootstrapPattern.test(allText)) {
+    return rootCauseRecord(
+      "doks-bootstrap-or-migration",
+      input,
+      steps,
+      text,
+      providerOverridesForMatch(steps, text, doksBootstrapPattern),
+    );
   }
-  if (
-    /staging-advisory/.test(phaseHint) ||
-    /advisory.{0,40}(?:seed|e2e)|(?:seed|e2e).{0,40}advisory|end-to-end.{0,80}auth(?:entication|orization)|e2e.{0,80}(?:login|auth(?:entication|orization))/i.test(
-      allText,
-    )
-  ) {
-    return rootCauseRecord("staging-advisory-seed-or-e2e", input, steps, text);
+  if (/staging-advisory/.test(phaseHint) || stagingAdvisoryPattern.test(allText)) {
+    return rootCauseRecord(
+      "staging-advisory-seed-or-e2e",
+      input,
+      steps,
+      text,
+      providerOverridesForMatch(steps, text, stagingAdvisoryPattern),
+    );
+  }
+  if (/staging-verification|blocking-staging/.test(phaseHint) || stagingVerificationPattern.test(allText)) {
+    return rootCauseRecord(
+      "blocking-staging-verification",
+      input,
+      steps,
+      text,
+      providerOverridesForMatch(steps, text, stagingVerificationPattern),
+    );
   }
   if (/production-verification/.test(phaseHint)) {
     return rootCauseRecord("production-verification", input, steps, text);
-  }
-  if (
-    /staging-verification|blocking-staging/.test(phaseHint) ||
-    /projection.{0,80}(?:convergence|checkpoint|freshness).{0,80}(?:timed out|timeout|failed)|blocking verification/i.test(
-      allText,
-    )
-  ) {
-    return rootCauseRecord("blocking-staging-verification", input, steps, text);
   }
   return rootCauseRecord("unknown", input, steps, text);
 }
@@ -469,10 +518,15 @@ function writeResult(result, format) {
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
-function readDiagnostics(paths) {
+export function readDeployDiagnostics(paths) {
   return paths.flatMap((path) => {
     try {
-      return [JSON.parse(readFileSync(path, "utf8"))];
+      const content = readFileSync(path, "utf8");
+      try {
+        return [JSON.parse(content)];
+      } catch {
+        return [content];
+      }
     } catch (error) {
       if (error?.code === "ENOENT") return [];
       return [{ diagnosticReadError: boundedProviderReason(error instanceof Error ? error.message : error) }];
@@ -483,7 +537,7 @@ function readDiagnostics(paths) {
 async function runCli() {
   const options = parsePlatformDeployIncidentOptions(process.argv.slice(2));
   if (options.command === "classify-root-cause") {
-    const diagnostics = readDiagnostics(options.diagnosticsPaths);
+    const diagnostics = readDeployDiagnostics(options.diagnosticsPaths);
     const steps = diagnostics.flatMap((diagnostic) => diagnostic.steps ?? []);
     const logs = diagnostics.flatMap((diagnostic) => diagnostic.logs ?? []);
     const result = classifyDeploymentRootCause({ phase: options.classificationPhase, diagnostics, steps, logs });

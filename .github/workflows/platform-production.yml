@@ -740,7 +740,11 @@ jobs:
           # and publishes the DOKS shadow hosts when DOKS_INGRESS_TARGET is set.
           TF_VAR_staging_app_serving: ${{ env.STAGING_APP_SERVING }}
           TF_VAR_doks_ingress_target: ${{ env.DOKS_INGRESS_TARGET }}
-        run: terraform apply -auto-approve
+        run: |
+          set -euo pipefail
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts/release-health"
+          terraform apply -auto-approve \
+            2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/staging-terraform-diagnostics.txt" >&2)
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         id: buildx
@@ -894,7 +898,9 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
-          terraform plan -out=tfplan
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts/release-health"
+          terraform plan -out=tfplan \
+            2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/staging-terraform-diagnostics.txt" >&2)
           mkdir -p artifacts/terraform-plans
           terraform show -no-color tfplan > artifacts/terraform-plans/staging-tfplan.txt
           terraform show -json tfplan > artifacts/terraform-plans/staging-tfplan.json
@@ -918,7 +924,11 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: terraform apply -auto-approve tfplan
+        run: |
+          set -euo pipefail
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts/release-health"
+          terraform apply -auto-approve tfplan \
+            2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/staging-terraform-diagnostics.txt" >&2)
 
       - name: Capture staging Terraform errored state
         if: failure() && env.SHOULD_DEPLOY != 'false'
@@ -1838,6 +1848,7 @@ jobs:
             --command classify-root-cause \
             --phase staging-deploy \
             --diagnostics infrastructure/digitalocean/platform/artifacts/release-health/staging-app-platform-bootstrap-diagnostics.json \
+            --diagnostics artifacts/release-health/staging-terraform-diagnostics.txt \
             --diagnostics artifacts/release-health/staging-kubernetes-deploy-diagnostics.json \
             --diagnostics artifacts/release-health/staging-projection-convergence-gate.json \
             --diagnostics artifacts/release-health/guest-buy-now-freshness-probe.json \
@@ -2545,7 +2556,9 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
-          terraform plan -out=tfplan
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts/release-health"
+          terraform plan -out=tfplan \
+            2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/production-terraform-diagnostics.txt" >&2)
           mkdir -p artifacts/terraform-plans
           terraform show -no-color tfplan > artifacts/terraform-plans/production-tfplan.txt
           terraform show -json tfplan > artifacts/terraform-plans/production-tfplan.json
@@ -2860,7 +2873,11 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: terraform apply -auto-approve tfplan
+        run: |
+          set -euo pipefail
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts/release-health"
+          terraform apply -auto-approve tfplan \
+            2> >(tee "${GITHUB_WORKSPACE}/artifacts/release-health/production-terraform-diagnostics.txt" >&2)
 
       - name: Capture production Terraform errored state
         if: failure() && env.SHOULD_DEPLOY != 'false'
@@ -3614,8 +3631,9 @@ jobs:
           set -euo pipefail
           node ./scripts/platform-deploy-incident.mjs \
             --command classify-root-cause \
-            --phase production-verification \
+            --phase production-deploy \
             --diagnostics infrastructure/digitalocean/platform/artifacts/release-health/production-app-platform-bootstrap-diagnostics.json \
+            --diagnostics artifacts/release-health/production-terraform-diagnostics.txt \
             --diagnostics artifacts/release-health/production-kubernetes-deploy-diagnostics.json \
             --diagnostics artifacts/release-health/production-readiness-gate.json \
             --diagnostics artifacts/release-health/production-rollback.json \

@@ -14,6 +14,7 @@ const DEFAULT_DEPLOYMENT_LOG_TYPES = ["deploy", "run", "run_restarted"];
 const DIGITALOCEAN_API_BASE_URL = "https://api.digitalocean.com/v2";
 const DEPLOYMENT_SUMMARY_API_PAGE_SIZE = 20;
 const DEPLOYMENT_SUMMARY_FIELDS = "ID,Phase,Updated";
+const FAILED_DEPLOYMENT_RELEVANCE_WINDOW_MS = 60 * 60 * 1000;
 const MAX_DIAGNOSTIC_ERROR_MESSAGE_LENGTH = 2_000;
 const APP_SPEC_IMAGE_COLLECTIONS = ["jobs", "services", "workers", "static_sites", "functions"];
 const ROLLBACK_TARGET_SCHEMA_VERSION = "digitalocean-app-rollback-target/v1";
@@ -285,7 +286,13 @@ export function normalizeDeploymentProgressSteps(steps, inheritedComponent = "")
 }
 
 export function buildDeploymentDiagnosticsRecord(options = {}) {
-  const steps = (options.steps ?? []).map(normalizeDiagnosticStep);
+  const steps = (options.steps ?? []).map(normalizeDiagnosticStep).map((step) => ({
+    name: redactDeployDiagnosticText(step.name),
+    componentName: redactDeployDiagnosticText(step.componentName),
+    phase: redactDeployDiagnosticText(step.phase),
+    reasonCode: redactDeployDiagnosticText(step.reasonCode),
+    message: redactDeployDiagnosticText(step.message),
+  }));
   const logs = (options.logs ?? []).map((entry) => ({
     componentName: entry.componentName,
     logType: entry.logType,
@@ -715,10 +722,22 @@ export function latestDeployment(deployments) {
     })[0];
 }
 
-export function deploymentForDiagnostics(deployments) {
+export function deploymentForDiagnostics(deployments, options = {}) {
   const summaries = deployments.map(normalizeDeploymentSummary).filter((deployment) => deployment.id);
-  const failed = summaries.filter((deployment) => deployment.phase === "ERROR");
-  return latestDeployment(failed.length > 0 ? failed : summaries);
+  const latest = latestDeployment(summaries);
+  const latestFailed = latestDeployment(summaries.filter((deployment) => deployment.phase === "ERROR"));
+  if (!latestFailed || !latest || latestFailed.id === latest.id) {
+    return latest;
+  }
+
+  const latestTimestamp = timestampValue(latest.updatedAt || latest.createdAt);
+  const failedTimestamp = timestampValue(latestFailed.updatedAt || latestFailed.createdAt);
+  const relevanceWindowMs = options.failureRelevanceWindowMs ?? FAILED_DEPLOYMENT_RELEVANCE_WINDOW_MS;
+  if (latestTimestamp <= 0 || failedTimestamp <= 0 || latestTimestamp - failedTimestamp <= relevanceWindowMs) {
+    return latestFailed;
+  }
+
+  return latest;
 }
 
 export function deploymentComponentNames(app) {

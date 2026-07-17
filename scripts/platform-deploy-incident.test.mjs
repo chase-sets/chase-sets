@@ -1,5 +1,6 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DEPLOY_ROOT_CAUSE_CODES,
@@ -9,6 +10,7 @@ import {
   classifyPlatformDeployRun,
   classifySupersededNoOpIncident,
   parsePlatformDeployIncidentOptions,
+  readDeployDiagnostics,
   redactDeployDiagnosticText,
   renderDeployRootCauseSummary,
 } from "./platform-deploy-incident.mjs";
@@ -223,8 +225,12 @@ describe("deployment root-cause taxonomy", () => {
         "redis://default:password@cache.example/0",
         "cookie=session-cookie",
         "Set-Cookie: auth=cookie-value",
+        "Cookie: session=first-cookie-secret; refresh=second-cookie-secret",
+        "https://deploy-user:generic-url-password@provider.example/path",
+        "Pwd=connection-password",
         "DATABASE_URL_MARKETPLACE=opaque-environment-secret",
         '{"token":"json-secret","database_url":"postgres://hidden"}',
+        'escaped={\\"token\\":\\"escaped-json-secret\\"}',
         "dop_v1_provider_token",
         "-----BEGIN PRIVATE KEY-----\nprivate-material\n-----END PRIVATE KEY-----",
         "Missing DATABASE_URL_MARKETPLACE",
@@ -238,13 +244,95 @@ describe("deployment root-cause taxonomy", () => {
       "default:password",
       "session-cookie",
       "cookie-value",
+      "first-cookie-secret",
+      "second-cookie-secret",
+      "deploy-user",
+      "generic-url-password",
+      "connection-password",
       "opaque-environment-secret",
       "json-secret",
+      "escaped-json-secret",
       "provider_token",
       "private-material",
     ]) {
       expect(redacted).not.toContain(secret);
     }
     expect(redacted).toContain("Missing DATABASE_URL_MARKETPLACE");
+  });
+
+  it("reads raw Terraform stderr diagnostics and lets text evidence outrank a production phase", () => {
+    const directory = mkdtempSync(join(tmpdir(), "platform-deploy-diagnostics-"));
+    const diagnosticsPath = join(directory, "terraform-stderr.txt");
+    try {
+      writeFileSync(diagnosticsPath, "Error acquiring the state lock: conditional request failed\n");
+      const diagnostics = readDeployDiagnostics([diagnosticsPath]);
+
+      expect(classifyDeploymentRootCause({ phase: "production-verification", diagnostics })).toMatchObject({
+        rootCauseCode: "terraform-provider-or-state",
+        providerReason: "Error acquiring the state lock: conditional request failed",
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("matches staging DNS failure text without case sensitivity", () => {
+    expect(
+      classifyDeploymentRootCause({
+        phase: "staging-deploy",
+        steps: [
+          {
+            name: "domain-attachment",
+            phase: "ERROR",
+            reasonCode: "ProviderFailure",
+            message: "Domain name already exists on another app",
+          },
+        ],
+      }),
+    ).toMatchObject({ rootCauseCode: "staging-dns" });
+  });
+
+  it("uses normalized provider reasons to distinguish unknown-failure signatures", () => {
+    const classifyUnknown = (message) =>
+      classifyDeploymentRootCause({
+        phase: "staging-deploy",
+        steps: [{ name: "provider", phase: "ERROR", reasonCode: "ProviderFailure", message }],
+      });
+
+    const first = classifyUnknown("Unexpected upstream response");
+    const equivalent = classifyUnknown("  unexpected   UPSTREAM response  ");
+    const unrelated = classifyUnknown("Provider quota was exhausted");
+
+    expect(first.rootCauseSignature).toBe(equivalent.rootCauseSignature);
+    expect(unrelated.rootCauseSignature).not.toBe(first.rootCauseSignature);
+  });
+
+  it("takes providerReason from the step that drove a multi-failure classification", () => {
+    const result = classifyDeploymentRootCause({
+      phase: "staging-deploy",
+      steps: [
+        {
+          name: "terraform",
+          componentName: "terraform",
+          phase: "ERROR",
+          reasonCode: "StateLockFailure",
+          message: "Error acquiring the state lock",
+        },
+        {
+          name: "platform-bootstrap",
+          componentName: "platform-bootstrap",
+          phase: "ERROR",
+          reasonCode: "DeployContainerExitNonZero",
+          message: "Bootstrap process exited unsuccessfully",
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      rootCauseCode: "app-platform-bootstrap-runtime",
+      affectedComponent: "platform-bootstrap",
+      providerReason: "DeployContainerExitNonZero: Bootstrap process exited unsuccessfully",
+    });
+    expect(result.providerReason).not.toContain("state lock");
   });
 });
