@@ -67,6 +67,28 @@ function collectSourceFiles(root: string): string[] {
   return files;
 }
 
+function importedFeatureBindings(source: string): readonly string[] {
+  const bindings: string[] = [];
+  const importPattern = new RegExp(`import\\s*\\{([^}]*)\\}\\s*from\\s*["'][^"']*${featureDirName}[^"']*["']`, "g");
+  for (const match of source.matchAll(importPattern)) {
+    for (const specifier of (match[1] ?? "").split(",")) {
+      const parts = specifier.trim().split(/\s+as\s+/);
+      const localName = parts.at(-1)?.trim();
+      if (localName) {
+        bindings.push(localName);
+      }
+    }
+  }
+  return bindings;
+}
+
+function countFeatureRouteRegistrations(source: string): number {
+  return importedFeatureBindings(source).reduce((count, binding) => {
+    const routePattern = new RegExp(`\\.route\\s*\\(\\s*[^,]+,\\s*${binding}\\s*\\(`, "g");
+    return count + [...source.matchAll(routePattern)].length;
+  }, 0);
+}
+
 describe("bulk reprice ingestion removability", () => {
   it("is referenced only from the documented mount points", () => {
     const violations: string[] = [];
@@ -117,17 +139,25 @@ describe("bulk reprice ingestion removability", () => {
     expect(externalFeatureConsumers).toEqual([]);
   });
 
-  it("has one flag-gated product mount and an in-directory removal note", () => {
+  it("has exactly one feature-factory route registration, regardless of mount path", () => {
     const apiSource = readFileSync(path.join(repoRoot, "bounded-contexts/pricing/api.ts"), "utf8");
-    const mountLines = apiSource
-      .split(/\r?\n/)
-      .filter((line) => line.includes("app.route") && line.includes("bulk-reprice"));
+    const registrations = scanRoots.flatMap((scanRoot) =>
+      collectSourceFiles(path.join(repoRoot, scanRoot)).map((file) => ({
+        file,
+        count: countFeatureRouteRegistrations(readFileSync(file, "utf8")),
+      })),
+    );
     const featureReadme = readFileSync(
       path.join(repoRoot, "bounded-contexts/pricing/features/bulk-reprice-ingestion/api/README.md"),
       "utf8",
     );
 
-    expect(mountLines).toHaveLength(1);
+    expect(registrations.reduce((total, registration) => total + registration.count, 0)).toBe(1);
+    expect(
+      countFeatureRouteRegistrations(
+        `${apiSource}\napp.route("/account/mass-price", createBulkRepriceIngestionRoutes(services.bulkRepriceIngestion));`,
+      ),
+    ).toBe(2);
     expect(featureReadme).toContain("pricing.bulk-reprice-ingestion.enabled");
     expect(featureReadme).toContain("No other feature slice may import this feature directory");
   });

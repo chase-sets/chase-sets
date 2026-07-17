@@ -34,7 +34,9 @@ export type BulkRepriceIngestionPolicyValue = Readonly<{
 }>;
 
 export const BULK_REPRICE_INGESTION_LAUNCH_POLICY_VALUE: BulkRepriceIngestionPolicyValue = {
-  enabled: true,
+  // Pre-launch gated surfaces default closed; an active policy document is
+  // the deliberate operator action that exposes this removable on-ramp.
+  enabled: false,
   chunkSize: 200,
   yieldIntervalMs: 25,
   maxActiveJobsPerAccount: 1,
@@ -71,7 +73,7 @@ export function decodeBulkRepriceIngestionPolicyValue(raw: JsonValue): BulkRepri
     enabled: record.enabled,
     chunkSize: decodeBoundedInteger(record.chunkSize, "chunkSize", 1, 500),
     yieldIntervalMs: decodeBoundedInteger(record.yieldIntervalMs, "yieldIntervalMs", 0, 60_000),
-    maxActiveJobsPerAccount: decodeBoundedInteger(record.maxActiveJobsPerAccount, "maxActiveJobsPerAccount", 1, 5),
+    maxActiveJobsPerAccount: decodeBoundedInteger(record.maxActiveJobsPerAccount, "maxActiveJobsPerAccount", 1, 1),
     maxRowsPerUpload: decodeBoundedInteger(record.maxRowsPerUpload, "maxRowsPerUpload", 1, 1_000_000),
     // Additive defaults keep already-authored policy documents valid while
     // the new m110 rate-limit dials roll out.
@@ -94,7 +96,7 @@ export const bulkRepriceIngestionPolicy: PolicyDefinition<BulkRepriceIngestionPo
   policyKey: "pricing.bulk-reprice-ingestion",
   contextName: "pricing",
   schemaSummary:
-    "{ enabled: boolean, chunkSize: integer 1-500, yieldIntervalMs: integer 0-60000, maxActiveJobsPerAccount: integer 1-5, maxRowsPerUpload: integer 1-1000000, createJobRateLimitMax: integer 1-1000, createJobRateLimitWindowMs: integer 1000-86400000 }",
+    "{ enabled: boolean, chunkSize: integer 1-500, yieldIntervalMs: integer 0-60000, maxActiveJobsPerAccount: integer 1, maxRowsPerUpload: integer 1-1000000, createJobRateLimitMax: integer 1-1000, createJobRateLimitWindowMs: integer 1000-86400000 }",
   defaultValue: BULK_REPRICE_INGESTION_LAUNCH_POLICY_VALUE,
   decodeValue: decodeBulkRepriceIngestionPolicyValue,
 });

@@ -41,6 +41,16 @@ describe("decodeBulkRepriceIngestionPolicyValue", () => {
         maxActiveJobsPerAccount: 0,
       }),
     ).toThrow(/maxActiveJobsPerAccount/);
+    expect(() =>
+      decodeBulkRepriceIngestionPolicyValue({
+        ...BULK_REPRICE_INGESTION_LAUNCH_POLICY_VALUE,
+        maxActiveJobsPerAccount: 2,
+      }),
+    ).toThrow(/maxActiveJobsPerAccount/);
+  });
+
+  it("defaults the pre-launch feature gate closed", () => {
+    expect(BULK_REPRICE_INGESTION_LAUNCH_POLICY_VALUE.enabled).toBe(false);
   });
 
   it("rejects a non-integer value", () => {
@@ -66,7 +76,7 @@ describe("decodeBulkRepriceIngestionPolicyValue", () => {
 
   it("adds rate-limit defaults to policy documents authored before those dials existed", () => {
     const previousDocument = {
-      enabled: true,
+      enabled: false,
       chunkSize: 200,
       yieldIntervalMs: 25,
       maxActiveJobsPerAccount: 1,

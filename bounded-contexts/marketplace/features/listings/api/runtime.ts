@@ -22,6 +22,7 @@ import type { CommercialTermsResolver } from "../../../api";
 import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
 import {
   feeLockFromMarketplaceTermsQuote,
+  openMarketplaceListingTermsSession,
   quoteMarketplaceTerms,
   quotePublicStandardMarketplaceTerms,
   requoteMarketplaceListingFeeLock,
@@ -356,13 +357,9 @@ export type MarketplaceListingServices = Readonly<{
    *
    * Terms resolution (m113 repricing-at-scale throughput lane): every
    * listing in `params.updates` belongs to the SAME `params.accountId`, so
-   * the account's commercial terms are resolved into one session per chunk
-   * -- not once per listing -- and applied locally to each listing's
-   * price. A fresh session is
-   * opened for every chunk (the same boundary the advisory-lock window
-   * already uses), so a schedule/agreement revision that lands mid-run is
-   * picked up by the NEXT chunk without ever baking stale fee fields into
-   * a chunk that hasn't appended yet. `feeQuoteFingerprint` stays optional
+   * the account's commercial terms are resolved into one session for the
+   * whole call -- not once per listing or chunk -- and applied locally to
+   * each listing's price. `feeQuoteFingerprint` stays optional
    * per update: when a caller supplies one (e.g. a human confirming a
    * previewed price), it must still match the freshly-resolved quote or
    * the update is isolated as an error, exactly like `updateListingPrice`;
@@ -1748,26 +1745,26 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         return [];
       }
 
-      const policy = await resolveBulkPriceUpdatePolicy();
+      const [policy, termsSession] = await Promise.all([
+        resolveBulkPriceUpdatePolicy(),
+        openMarketplaceListingTermsSession(deps.commercialTermsResolver, { accountId: params.accountId }),
+      ]);
       const waves = chunkItems(params.updates, policy.chunkSize);
       const outcomesByListingId = new Map<string, MarketplaceBulkListingPriceUpdateOutcome>();
 
       for (let waveIndex = 0; waveIndex < waves.length; waveIndex += 1) {
         const wave = waves[waveIndex]!;
 
-        // One terms session per wave, not per listing: every update in
-        // `params.updates` shares `params.accountId`, so the account's
-        // schedule/agreement resolves once per chunk instead of once per
-        // listing. Re-opening the session at each chunk boundary (rather
-        // than once for the whole call) is the mid-run staleness safety
-        // net -- a schedule/agreement revision between chunks is picked up
-        // by the next wave instead of silently reusing stale fee fields.
         const laneItems: BulkAppendLaneItem<MarketplaceListingCommand>[] = [];
         for (const update of wave) {
           try {
             const listing = await loadOwnedListingState(update.listingId, params.accountId);
             assert(listing.priceAmount !== null, "Listing price is missing.");
-            const feeLocks = listing.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, update.priceAmount));
+            const quote = termsSession.quote(update.priceAmount);
+            if (update.feeQuoteFingerprint) {
+              assertConfirmedFeeQuote(update.feeQuoteFingerprint, quote);
+            }
+            const feeLocks = listing.feeLocks.map((lock) => feeLockFromMarketplaceTermsQuote(lock.unitCount, quote));
 
             laneItems.push({
               streamId: `marketplace.listing-${update.listingId}`,

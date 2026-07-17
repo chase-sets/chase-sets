@@ -1,3 +1,5 @@
+import { MONEY_AMOUNT_MAX, tryMoneyToCents } from "@chase-sets/primitives/money";
+
 /**
  * CSV/JSON row parsing for bulk reprice ingestion (m113). Intentionally
  * self-contained: this feature directory owns its own tiny RFC4180-ish CSV
@@ -56,7 +58,7 @@ export function buildBulkRepriceResultsCsv(
     row.outcome,
     row.error_message ?? "",
   ]);
-  return [headers, ...csvRows].map((row) => row.map(csvCell).join(",")).join("\n");
+  return [headers, ...csvRows].map((row) => row.map(spreadsheetSafeCsvCell).join(",")).join("\n");
 }
 
 function validateRow(
@@ -75,8 +77,13 @@ function validateRow(
   }
   if (!newPriceAmount) {
     validationErrors.push("Row is missing a new price.");
-  } else if (!MONEY_PATTERN.test(newPriceAmount) || Number(newPriceAmount) <= 0) {
-    validationErrors.push(`New price '${newPriceAmount}' is not a valid positive money amount.`);
+  } else {
+    const cents = MONEY_PATTERN.test(newPriceAmount) ? tryMoneyToCents(newPriceAmount) : null;
+    if (cents === null || cents <= 0n) {
+      validationErrors.push(
+        `New price '${newPriceAmount}' is not a valid positive money amount at or below ${MONEY_AMOUNT_MAX}.`,
+      );
+    }
   }
 
   return { rowNumber, sellerSku, listingId, newPriceAmount, validationErrors };
@@ -129,6 +136,12 @@ function csvCell(value: string) {
     return value;
   }
   return `"${value.replace(/"/g, '""')}"`;
+}
+
+/** OWASP spreadsheet-formula neutralization for downloaded result cells. */
+function spreadsheetSafeCsvCell(value: string) {
+  const safeValue = /^[=+\-@\t\r\n]/.test(value) ? `'${value}` : value;
+  return csvCell(safeValue);
 }
 
 function parseRecords(text: string): string[][] {

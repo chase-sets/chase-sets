@@ -53,8 +53,19 @@ function queuedJob(): BulkRepriceJob {
 function services(
   policy: Partial<typeof BULK_REPRICE_INGESTION_LAUNCH_POLICY_VALUE> = {},
 ): BulkRepriceIngestionServices {
+  let rateLimitCount = 0;
   return {
     resolvePolicy: vi.fn(async () => ({ ...BULK_REPRICE_INGESTION_LAUNCH_POLICY_VALUE, ...policy })),
+    checkCreateJobRateLimit: vi.fn(async () => {
+      rateLimitCount += 1;
+      const limit = policy.createJobRateLimitMax ?? BULK_REPRICE_INGESTION_LAUNCH_POLICY_VALUE.createJobRateLimitMax;
+      return {
+        limited: rateLimitCount > limit,
+        count: rateLimitCount,
+        limit,
+        retryAfterSeconds: 60,
+      };
+    }),
     enqueueJob: vi.fn(async () => queuedJob()),
     getJob: vi.fn(async () => null),
     listJobEvents: vi.fn(async () => []),
@@ -96,7 +107,7 @@ describe("bulk reprice ingestion API route", () => {
   });
 
   it("enforces the effective m110 create-job rate-limit policy", async () => {
-    const featureServices = services({ createJobRateLimitMax: 1, createJobRateLimitWindowMs: 60_000 });
+    const featureServices = services({ enabled: true, createJobRateLimitMax: 1, createJobRateLimitWindowMs: 60_000 });
     const app = buildApp(featureServices);
 
     const first = await app.fetch(createJobRequest());
@@ -106,5 +117,6 @@ describe("bulk reprice ingestion API route", () => {
     expect(second.status).toBe(429);
     expect(second.headers.get("Retry-After")).toBe("60");
     expect(featureServices.enqueueJob).toHaveBeenCalledTimes(1);
+    expect(featureServices.checkCreateJobRateLimit).toHaveBeenCalledTimes(2);
   });
 });
