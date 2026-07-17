@@ -7,7 +7,8 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AuthServices } from "../runtime-support/services";
+import type { AuthServices, RegistrationAdmissionHostConfig } from "../runtime-support/services";
+import type { AuthIdentityInvitationRow } from "../auth-support/identity-projection";
 import { registerMagicLinkRoutes } from "./magic-link-routes";
 import type { AuthApiEnv } from "./support";
 
@@ -56,6 +57,12 @@ function buildApp(services: unknown) {
 }
 
 function createServices() {
+  const registrationAdmission: RegistrationAdmissionHostConfig = {
+    mode: "open",
+    disposableEmailMode: "enforce",
+    disposableEmailDomains: ["mailinator.com"],
+  };
+
   return {
     db: {
       query: vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] })),
@@ -69,15 +76,11 @@ function createServices() {
     },
     identity: {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
-      getUser: vi.fn(async () => ({ user_id: "usr_existing" })),
-      getUserByEmail: vi.fn(async () => ({ user_id: "usr_existing" })),
-      findPendingInvitationByEmail: vi.fn(async () => null),
+      getUser: vi.fn(async (): Promise<{ user_id: string } | null> => ({ user_id: "usr_existing" })),
+      getUserByEmail: vi.fn(async (): Promise<{ user_id: string } | null> => ({ user_id: "usr_existing" })),
+      findPendingInvitationByEmail: vi.fn(async (_email: string): Promise<AuthIdentityInvitationRow | null> => null),
     },
-    registrationAdmission: {
-      mode: "open",
-      disposableEmailMode: "enforce",
-      disposableEmailDomains: ["mailinator.com"],
-    },
+    registrationAdmission,
   };
 }
 
