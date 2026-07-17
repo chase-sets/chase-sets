@@ -49,6 +49,12 @@ describe("dev system target env overrides", () => {
     expect(processes[0].env).toEqual({ PORT: "6182" });
   });
 
+  it("starts the CI worker through its declared non-watch script", () => {
+    expect(browserE2ePlatformWorkerCiCommand).toMatchObject({
+      args: ["--filter", "@chase-sets/app-platform-worker", "run", "dev:ci"],
+    });
+  });
+
   it("keeps the watch-based worker loop for local browser development", () => {
     const worker = { name: "platform-worker", env: { PORT: "6183" } };
 

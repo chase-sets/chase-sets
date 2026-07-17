@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   evaluateProjectionReadiness,
   primeBrowserE2eProjectionWakeRelayCursors,
+  resolveBrowserE2ePhaseOneTimeoutMs,
   waitForBrowserE2eReadiness,
   waitForProjectionReadiness,
 } from "./browser-e2e-readiness.mjs";
@@ -70,6 +71,33 @@ describe("browser e2e readiness", () => {
     });
 
     expect(observations.map(({ name }) => name)).toEqual(["marketplace", "platform-api", "platform-worker"]);
+  });
+
+  it("allows a slow but progressing boot to use the explicit phase-one budget", async () => {
+    let now = 0;
+    let attempts = 0;
+    const timeoutMs = resolveBrowserE2ePhaseOneTimeoutMs({});
+
+    const observations = await waitForBrowserE2eReadiness({
+      components: [{ name: "platform-worker", url: "http://platform-worker/health/ready" }],
+      fetchImpl: async () => ({ status: ++attempts < 3 ? 503 : 200 }),
+      timeoutMs,
+      pollMs: 90_000,
+      now: () => now,
+      sleepImpl: async (ms) => {
+        now += ms;
+      },
+    });
+
+    expect(now).toBe(180_000);
+    expect(observations).toEqual([expect.objectContaining({ name: "platform-worker", ready: true })]);
+  });
+
+  it("allows the phase-one budget to be configured", () => {
+    expect(resolveBrowserE2ePhaseOneTimeoutMs({ CHASE_SETS_BROWSER_E2E_PHASE_ONE_TIMEOUT_MS: "420000" })).toBe(420_000);
+    expect(() =>
+      resolveBrowserE2ePhaseOneTimeoutMs({ CHASE_SETS_BROWSER_E2E_PHASE_ONE_TIMEOUT_MS: "invalid" }),
+    ).toThrow(/CHASE_SETS_BROWSER_E2E_PHASE_ONE_TIMEOUT_MS must be a positive integer/);
   });
 
   it("fails fast with the worker named when the ready worker fixture is killed before boot completes", async () => {

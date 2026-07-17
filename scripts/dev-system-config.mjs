@@ -18,14 +18,8 @@ export const browserE2ePlatformWorkerEnv = Object.freeze({
 });
 
 export const browserE2ePlatformWorkerCiCommand = Object.freeze({
-  command: process.execPath,
-  args: Object.freeze([
-    "node_modules/tsx/dist/cli.mjs",
-    "--env-file=.env.example",
-    "--env-file-if-exists=.env.local",
-    "src/main.ts",
-  ]),
-  cwd: "deployables/platform-worker",
+  command: process.platform === "win32" ? "pnpm.cmd" : "pnpm",
+  args: Object.freeze(["--filter", "@chase-sets/app-platform-worker", "run", "dev:ci"]),
 });
 
 export const browserE2eDirectCiCommands = Object.freeze({

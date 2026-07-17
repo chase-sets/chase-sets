@@ -5,11 +5,12 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { resolveWorktreeSandbox } from "./lib/sandbox.mjs";
 
-// Playwright starts this coordinator only after Marketplace has answered its
-// own readiness probe, so the platform processes have already been spawned.
-// A full minute is generous for their final startup work while still turning
-// a wedged worker into a prompt, named boot failure.
-const defaultTimeoutMs = 60_000;
+// Playwright permits each web server six hundred seconds to boot. Phase one
+// includes a documented ninety-second Postgres allowance and sequential
+// bootstraps, so it needs its own explicit, configurable share of that budget.
+// A component that was ready and then regresses still fails quickly below.
+export const defaultBrowserE2ePhaseOneTimeoutMs = 300_000;
+export const browserE2ePhaseOneTimeoutEnv = "CHASE_SETS_BROWSER_E2E_PHASE_ONE_TIMEOUT_MS";
 const defaultPollMs = 250;
 const defaultRequestTimeoutMs = 2_000;
 const defaultRegressionToleranceMs = 5_000;
@@ -37,6 +38,20 @@ function sleep(ms) {
 
 function formatDuration(timeoutMs) {
   return timeoutMs % 1_000 === 0 ? `${timeoutMs / 1_000}s` : `${timeoutMs}ms`;
+}
+
+export function resolveBrowserE2ePhaseOneTimeoutMs(env = process.env) {
+  const configured = env[browserE2ePhaseOneTimeoutEnv];
+  if (configured === undefined || configured === "") {
+    return defaultBrowserE2ePhaseOneTimeoutMs;
+  }
+
+  const timeoutMs = Number(configured);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(`${browserE2ePhaseOneTimeoutEnv} must be a positive integer number of milliseconds.`);
+  }
+
+  return timeoutMs;
 }
 
 async function probeComponent(component, fetchImpl, requestTimeoutMs) {
@@ -70,7 +85,7 @@ async function probeComponent(component, fetchImpl, requestTimeoutMs) {
 export async function waitForBrowserE2eReadiness({
   components,
   fetchImpl = fetch,
-  timeoutMs = defaultTimeoutMs,
+  timeoutMs = defaultBrowserE2ePhaseOneTimeoutMs,
   pollMs = defaultPollMs,
   requestTimeoutMs = defaultRequestTimeoutMs,
   regressionToleranceMs = defaultRegressionToleranceMs,
@@ -429,6 +444,7 @@ function close(server) {
 export async function runBrowserE2eReadinessCoordinator({
   sandbox = resolveWorktreeSandbox(),
   waitForReadiness = waitForBrowserE2eReadiness,
+  phaseOneTimeoutMs = resolveBrowserE2ePhaseOneTimeoutMs(),
 } = {}) {
   let ready = false;
   const server = http.createServer((request, response) => {
@@ -453,7 +469,7 @@ export async function runBrowserE2eReadinessCoordinator({
   process.once("SIGTERM", stop);
 
   try {
-    await waitForReadiness({ components: browserE2eComponents(sandbox) });
+    await waitForReadiness({ components: browserE2eComponents(sandbox), timeoutMs: phaseOneTimeoutMs });
     const projectionSnapshots = createProjectionSnapshotReader(sandbox);
     let workerUnavailableSince = null;
     try {
